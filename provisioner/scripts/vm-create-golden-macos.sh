@@ -256,7 +256,7 @@ install_agent() {
     _PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
     echo "Building testanyware (host CLI)..."
-    local _CLI_PKG="$_PROJECT_ROOT/cli/macos"
+    local _CLI_PKG="$_PROJECT_ROOT/cli"
     local _HOST_BIN_PATH
     _HOST_BIN_PATH=$(swift build --package-path "$_CLI_PKG" -c release --show-bin-path 2>/dev/null)
     swift build --package-path "$_CLI_PKG" -c release

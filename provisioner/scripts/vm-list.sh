@@ -5,7 +5,7 @@
 set -euo pipefail
 
 command -v testanyware >/dev/null 2>&1 || {
-    echo "testanyware not found on PATH — build cli/macos first" >&2
+    echo "testanyware not found on PATH — build cli/ first (swift build --package-path cli/)" >&2
     exit 1
 }
 
