@@ -79,3 +79,39 @@ current Swift CLI, prefer approaches that translate cleanly to Rust
 direct ports). Avoid Swift-only runtime features (e.g., heavy
 dependence on ObjC bridging, KVO, or macro-heavy DSLs) in new code.
 The agent stays Swift (macOS guest, needs AppKit / Accessibility APIs).
+
+---
+
+## 2026-04-19 — Vision pytest requires `--import-mode=importlib`
+
+**Fact:** `cd vision && uv run pytest` fails collection under default
+import mode because two stage test files share the module path
+`tests.test_stage` (one in `stages/drawing-primitives/tests/`, one in
+`stages/icon-classification/tests/`). Both stages follow the repo's
+convention of naming the stage entry test `test_stage.py`, and pytest's
+default `prepend`/`append` import mode uses legacy namespace rules that
+collide on duplicate short-paths.
+
+**Workaround:** Run pytest with `--import-mode=importlib`. Expected to
+be added as a default via `[tool.pytest.ini_options] addopts =
+"--import-mode=importlib ..."` in `vision/pyproject.toml` during
+Milestone 3 (docs + config polish).
+
+**How to apply:** When running the vision test suite from any script,
+CI, or command-line invocation, pass `--import-mode=importlib` (or rely
+on the addopts once set).
+
+---
+
+## 2026-04-19 — Historical `guivision` mentions preserved in plan docs
+
+**Fact:** `vision/docs/superpowers/plans/2026-04-03-*-window-detection.md`
+contain historical `GUIVision*` and `guivision_*` references. These are
+dated plan documents (2026-04-03) describing past implementation work
+when the project was still named GUIVisionPipeline. Left as-is per the
+"don't rewrite history" rule.
+
+**How to apply:** Grep sweeps for stale references should exclude
+these files (they're historical by design). Same applies to dated
+session logs elsewhere in LLM_STATE.
+
