@@ -1,0 +1,228 @@
+# Memory
+
+### Center-distance matching replaces IoU for spatial evaluation
+AX element bounding boxes include padding/hit areas (menu bar items: GT 30px tall, OCR 12px tall), making them 1.5–2.5× larger than OCR text bounds. Median IoU for text-matched pairs is 0.305 — no threshold fixes this. `center_distance_match()` in `match_detections(spatial_mode="center")`: matches when prediction center is inside GT box (10px margin) or GT fully contains prediction. Greedy matching ranked by center proximity.
+
+### Word-level OCR with multi-word matching
+Swift CLI has `--granularity word|line` (default: word). Word-level produces correct, precise per-word bounding boxes. `match_by_text_content()` uses a two-phase strategy: single-prediction first, fall back to multi-word adjacent via recursive backtracking with fuzzy matching over ordered, spatially-adjacent single-word predictions. Recovers 32 previously-impossible matches across platforms.
+
+### Apple Vision cannot read dense monospace terminal scrollback
+Recognition-bound, not segmentation-bound: upscaling via `CILanczosScaleTransform` improves row segmentation but yields <1pp F1 against ≥10pp target on all platforms.
+
+| Bucket | Apple Vision (best) | Tesseract (best) | EasyOCR (best) |
+|---|---|---|---|
+| macOS terminal | 7.40% (none) | 9.98% (none) | **22.78%** (upscale-2x) |
+| Linux terminal | 8.82% (upscale-2x) | 27.03% (upscale-2x) | **33.33%** (upscale-2x) |
+| Windows windowsterminal | 0.75% | 1.05% | 1.44% (focus bug) |
+
+EasyOCR ~3–4× Apple Vision on dense-terminal buckets. Tesseract second (3× Linux, 1.3× macOS) at ~1s/sample vs EasyOCR ~6–10s cold. Only Linux terminal EasyOCR upscale-2x (+7.25pp) cleared the ≥5pp ship bar; macOS terminal +3.10pp below threshold. upscale-4x dead on every cell. EasyOCR ~33% Linux terminal under upscale-2x is the ceiling unless a new recognition-layer lever appears. Dense-monospace gap applies only to interactive `find-text` CLI (still Apple Vision); offline default is EasyOCR (see 'Default OCR engine is EasyOCR'). Line-extraction falsified (see 'Dense-monospace gap is recognition-bound'). Remaining interactive-path lever is EasyOCR cold-start via daemon (see 'OCR daemon is Python child in TestAnywareServer').
+
+### Single-char punctuation tokens block text matching
+`fuzzy_word_match` requires exact equality for `len(gt_word) < 2`. A GT label like `"ls -la /"` produces token `"/"` that makes the entire label unmatchable. Fix: `gt_words = [w for w in gt_words if len(w) > 1 or w.isalnum()]` in `match_by_text_content()` after tokenization, before matching. Single-char alphanumeric tokens preserved. Impact: Linux terminal text-content F1 +2.84pp / char +2.47pp / recall +3.51pp / precision +2.38pp; macOS terminal F1 +0.62pp / char +2.02pp / recall +2.67pp / precision +0.35pp. Windows and IoU bit-zero (windowsterminal focus bug; IoU never consults text content). Non-terminal apps bit-zero — fix is targeted to typed-command terminal class.
+
+### Pre-command terminal baselines inflate terminal bucket size
+The generator captures a baseline screenshot before any command runs on Linux/Windows terminal scenarios. These samples have no programmatic GT — only AX entries with button labels not rendered on screen and unsplit window-title strings the fuzzy matcher cannot decompose. This zero-TP sample averages into the 3-sample terminal bucket, dropping the achievable ceiling by ~33%. Candidate fixes: exclude pre-command snapshot in generator, or weight metrics by GT count. Not yet actioned; wait until command-output exclusion lands.
+
+### Windows windowsterminal generator captures wrong window
+Every cached `ocr_vm_windowsterminal_*.png` prediction contains only Notepad status bar, Edge welcome-dialog, and pangram fragments — zero Windows Terminal strings. GT comes from the Windows Terminal AX tree, so OCR and AX read different windows. Likely cause: generator captures screenshot before Windows Terminal is raised to focus. All Windows Terminal A/B work is contaminated. Do not regenerate until diagnosed and fixed.
+
+### Windows UIA reports oversized bboxes
+Cached `windowsterminal_*` GT has a "Windows PowerShell" element with bbox `[26, 117, 1139, 653]` on an 800×600 image — `x_max=1139` is 339px beyond the framebuffer. Not a text-F1 contributor but will matter for spatial matching. Fix likely in `agents/windows/Services/UiaTreeWalker.cs`. Consider generator-side validation warning for bboxes outside `[0, 0, image_width, image_height]`.
+
+### GTK4 AT-SPI has two coordinate layers
+GTK4's AT-SPI returns `(0, 0)` for `getExtents()` on all coordinate types. Affects GTK4 apps (Nautilus, GNOME Text Editor) on X11 and Wayland. GTK3 (gnome-terminal) unaffected.
+
+**Layer 1 — window-level offset (FIXED).** `_compute_screen_offset()` in `agents/linux/testanyware_agent/accessibility.py` recovers per-window screen offset outside AT-SPI via `xdotool`. PID lookup (`xdotool search --pid`) is primary; title fallback only when PID fails. Multi-window disambiguation uses geometry match against AT-SPI `sizeWidth/Height` ±64px. `xprop _GTK_FRAME_EXTENTS` adjusts for CSD shadow so offset is content-area. The real failure mode is AT-SPI title ≠ X11 WM_NAME — PID lookup sidesteps this. Applied via `offset_x/offset_y` in `walk()` and `enumerate_windows()`. Requires `WaylandEnable=false` in GDM.
+
+**Layer 2 — per-element positions (NOT fixable agent-side).** Every GTK4 descendant returns `(0, 0, w, h)` through 4+ levels. Adding Layer-1 offset makes every descendant stack at offset-origin — geometrically wrong, defensively correct at window level. Three approaches: (a) per-element `grab_focus` + xdotool re-query (slow, fragile); (b) OCR-driven spatial registration — match AT-SPI labels to OCR detections, adopt OCR bbox as GT; (c) drop GTK4 elements from spatial GT entirely. Linux IoU is 9.8% — pinned at GTK4 per-element coordinate ceiling. Next move is Layer 2, not the agent.
+
+### Current EasyOCR cached baseline metrics
+Measured against frozen `data/ocr-vm-{macos,linux-fix,windows}/` using EasyOCR default (`OCRConfig()`, `preprocess=none`, `min_confidence=0.5`, center-distance). Full reports at `data/ocr-vm-{platform}/results-{text,iou}-easyocr.json`; Apple Vision counterparts at `results-{text,iou}-apple-vision.json` (backup `predictions-apple-vision/`).
+
+**Aggregate text_content F1**: macOS **38.68%** (char 56.07%, recall 49.58%, precision 31.71%); Linux-fix **61.57%** (char 41.19%, recall 59.70%, precision 63.56%); Windows **24.73%** (char 22.73%, recall 19.51%, precision 33.76%).
+
+**Aggregate IoU F1 (center-distance)**: macOS **47.32%** (char 51.05%, recall 59.75%, precision 39.17%); Linux-fix **9.80%** (char 13.07%, recall 7.60%, precision 13.79%) — GTK4 per-element coordinate ceiling; Windows **38.73%** (char 24.81%, recall 28.64%, precision 59.79%).
+
+**Per-app text_content F1 (11 buckets)**: macOS finder 53.54% · safari 40.63% · terminal 19.69% · textedit 58.43% · Linux firefox 15.09% · nautilus 73.63% · terminal 26.09% · texteditor 35.29% · Windows explorer 27.91% · notepad 42.48% · windowsterminal 1.44% (focus-bug-contaminated).
+
+**Structural floors engine choice cannot lift**:
+- Linux IoU 9.80% = GTK4 per-element position ceiling; moves ≤1pp on engine swap.
+- Windows windowsterminal near zero on every engine; generator captures wrong window.
+- macOS terminal 19.69% sits +3.10pp below EasyOCR upscale-2x peak — below ≥5pp ship threshold. Only SHIP-grade preprocess cell is Linux terminal EasyOCR upscale-2x (+7.25pp F1); requires the router (backlog #16).
+
+### AX-description filter: role-specific strictness
+Rules in GT pipeline, label-sourced text only (see 'Label-sourced vs value-sourced text in GT filters'). `ICON_BUTTON_LABELS` exact-match set (case-insensitive: back, forward, close, minimize, maximize, share, sidebar, split pane, go back, go forward) applies to all scopes.
+
+- **Button / toggle-button (broad rule)**: multi-word labels qualify if ANY content word is all-lowercase and not in `_FUNCTIONAL_WORDS`. Catches Safari Title-Case-with-lowercase-content pattern ("Stop loading this page", "Add page to Reading List") while preserving "Save As", "Sign In", "Add New Tab", "Got it".
+- **Menu-item / menu-item-checkbox / menu-item-radio**: same broad rule. Deliberately excludes `tab` (browser tab titles) and `link` (sentence-case link text).
+- **Textfield (narrow rule)**: multi-word **all-lowercase** only. Windows Explorer exposes `textfield`="Date modified" for column headers — broad rule would destroy 32 GT entries per Windows run. Narrow rule catches Safari "smart search field" while preserving "Date modified", "Address Bar".
+
+**`_FUNCTIONAL_WORDS` set**: articles/prepositions/conjunctions (`a/an/the/of/in/on/at/to/for/by/with/from/into/as/and/or`), auxiliaries (`do/not/is/has/be/are/was`), pronouns (`it/he/she/we/you/they/me/us/him/her/them`). Pronouns added after "Got it" false-positived on Windows dismissal buttons.
+
+**Measured impact**: detections removed — macOS −6 (4 button + 2 textfield), Linux −6 (6 button), Windows −34 (34 button). Text-content: macOS char/word +0.99pp F1 +0.09pp R +1.24pp; Linux char/word +6.30pp F1 +0.42pp R +1.07pp; Windows char +1.33pp F1 +0.55pp R +1.67pp. IoU deltas macOS/Windows slightly negative (−0.20pp / −0.92pp) — honest corrections, not regressions.
+
+### Label-sourced vs value-sourced text in GT filters
+`element_to_detection()` tracks `ax_label` separately; the AX-description filter runs only when `text == ax_label`. A textfield's value is rendered content and must pass unfiltered. `test_ocr_uses_value_when_no_label` validates this invariant.
+
+### Survey cached GT before writing filter rules
+Before writing tests for a new GT-filter rule, enumerate actual labels in cached `ground_truth/` files across all three platforms for every role in scope. Checking all three platforms exposed `textfield`=`"Date modified"` (Explorer column headers), forcing the role-specific narrow rule into the initial design. Also exposed the "Got it" pronoun gap during A/B. A filter rule not checked against every platform's real labels is not ready for tests.
+
+### VM content is non-deterministic; use cached-data A/B
+Each fresh VM run generates different content. Cached-data A/B against `data/ocr-vm-{platform}/` is **deterministic** — reproducibility matches to four significant figures. Fresh-VM validation is unnecessary for generator GT-filter changes producing canonical zero-matching-GT-removal signature on cached data. Reserve fresh runs for changes invalidating captured inputs (analyzer, AX walker, agent-side fixes).
+
+### Fresh runs with dataset shape changes are uninterpretable
+Scenario-set drift (added/shifted samples) makes aggregate deltas reflect content drift, not the fix. Fix-attributable signal is the per-app bucket on affected app class and targeted metric. When a fresh run is necessary, freeze the scenario set and pin sample IDs first; if not possible, only quote per-app deltas on apps the fix touches.
+
+### Linux agent has no pytest infrastructure
+No `pyproject.toml`, `tests/`, `conftest.py`, or test files under `agents/linux/testanyware_agent/`. All `accessibility.py` changes verified only by deploying to running VM, restarting user-systemd agent service, hitting `/snapshot`, and inspecting results. Land Linux agent test infrastructure before further `accessibility.py` edits, especially Layer-2 GTK4 work.
+
+### Per-app anomalies worth tracking
+- **Terminal text-F1 is engine-bound**: EasyOCR breaks through (see 'Apple Vision cannot read dense monospace terminal scrollback'). Windows windowsterminal focus bug still applies. EasyOCR ceiling is recognition-bound; only open lever is upscale-2x per content class via router.
+- **Nautilus IoU is GTK4-position-ceiling-bound**: text F1 61.68% but IoU F1 4.78% caused by GTK4 per-element AT-SPI position absence (see 'GTK4 AT-SPI has two coordinate layers'). Engine swap cannot fix what GT pipeline doesn't expose. Same applies to Linux TextEditor.
+- **textedit char ceiling is engine-shaped**: EasyOCR breaks through: textedit text-F1 58.43% vs Apple Vision 28.27% (+30.16pp). The ceiling is engine-specific, not content-class-specific.
+
+### Cached-data A/B playbook
+For changes where predictions are invariant: back up `ground_truth/` → `ground_truth_pre/`, apply filter in-place on existing GT files (do NOT rebuild from raw snapshots — drops the programmatic terminal GT layer), evaluate "post", evaluate backup "pre", compare via `snapshot_cli compare`. For generator-level changes, a fresh run validates end-to-end.
+
+**Critical**: do NOT rebuild GT via `snapshot_to_ground_truth(...)` during A/B — this drops the programmatic terminal GT layer (see 'Programmatic GT infrastructure for terminal content'). Treat `data/ocr-vm-{platform}/` as immutable test fixture; restore `ground_truth_pre/` → `ground_truth/` after A/B.
+
+**Content-drift-free fresh A/B**: generate fresh samples with the shipped filter, then reconstruct the pre-filter variant by replaying inputs the filter would have retained. Pre and post share byte-identical predictions.
+
+**Analyzer-engine A/B via tempdir symlink.** For engine changes where predictions move: create `tempfile.TemporaryDirectory()`, symlink `samples/` and `ground_truth/` from cached dir, write fresh `predictions/` from new engine, call `evaluate_dataset()` against temp dir. `pipeline/scripts/survey_engines.py` uses this pattern.
+
+### A/B signatures: noise-removal vs real-TP-add
+**Signature A — noise removal (precision flat, recall up)**: GT-filter removes entries never matching any prediction. TP unchanged → precision flat; denominator shrinks → char/recall up; F1 up slightly. Validated: macOS char +9.73pp / recall +11.18pp / F1 +0.73pp; Linux char +2.04pp / recall +9.58pp / F1 +3.36pp; Windows char +1.29pp / recall +1.73pp / F1 +0.57pp — precision bit-exactly flat on every platform (macOS 11.62%, Linux 35.13%, Windows 13.07%). IoU may drop slightly from removed noise GT (macOS −4.17pp, Linux −3.14pp, Windows −1.78pp).
+
+**Signature B — real-TP-add (precision up alongside recall)**: matcher-layer change unblocks available but unmatched predictions. Validated: Linux terminal precision +2.38pp / recall +3.51pp / char +2.47pp / F1 +2.84pp; macOS terminal precision +0.35pp / recall +2.67pp / F1 +0.62pp.
+
+**By_app shape diagnostic**: huge per-app recall jump with flat precision and tiny F1 = structurally inflated denominator (e.g., macOS terminal recall +44pp because dense-scrollback GT halved that bucket's denominator). Check precision direction at bucket granularity.
+
+**Diagnostic rules**: (1) P↑ + R↑ = real TPs, ship; (2) P flat + R↑ = honest denominator shrink, ship; (3) P↓ + R↑ = honest GT removed, investigate; (4) P↑ + R↓ = matcher too tight, investigate.
+
+### `by_app` bucket is required for anomaly diagnosis
+Aggregate metrics hide app-level behaviour: per-app spread is ~60pp on same run (Linux terminal 1.42% vs Nautilus 61.68%). Infrastructure in `evaluator.py` (`extract_app_from_sample_name()` + `_VM_SAMPLE_STEM_RE` matching `^ocr_vm_(.+)_\d+$`, `EvaluationReport.by_app`, bucketing in `evaluate_dataset()`), `data_snapshot.py` (`ComparisonReport.by_app`, delta computation, significance check), and `snapshot_cli.py`. Every app-specific hypothesis must be verdicted per-app. Treat per-app inspection as default first move for anomaly hunts.
+
+**Rule**: filename-as-metadata is the canonical cheap-bucket pattern. `extract_app_from_sample_name()` returns `None` for non-matching stems. When producers encode structure in filenames (`ocr_vm_<app_slug>_<NNNNN>`), parse before proposing schema changes.
+
+### GT pipeline filter chain order
+In `element_to_detection()`, filters apply in order: (1) showing check, (2) structural role exclusion, (3) text-content role inclusion, (4) label/value extraction, (5) icon-only button filter. Later filters only handle elements passing earlier ones.
+
+### Platform-specific AX label landmines
+- **macOS Safari**: Title-Case-with-lowercase-content AX descriptions on button/textfield — "Stop loading this page", "Add page to Reading List", "smart search field". Caught by broad button rule and narrow textfield rule.
+- **macOS toolbars**: mixed-case single-word labels ("back", "forward", "Share") — covered by `ICON_BUTTON_LABELS`.
+- **All-platform terminal scrollback**: generator drops command-output GT on every platform; typed-command GT flows via `construct_terminal_ground_truth`; single-char matcher fix unblocked trailing-`/` class. When a regression is reverted on one platform, audit immediately whether it should be reverted on others.
+- **Linux GNOME**: title bar buttons covered by `ICON_BUTTON_LABELS`. Nautilus/Terminal "Main menu"/"New tab" caught by broad rule.
+- **Windows UIA title bar + scroll buttons**: "Line up", "Page down" covered by broad button rule.
+- **Windows Explorer column headers (LANDMINE)**: `textfield`="Date modified"/"Size"/"Type"/"Name" are rendered text. Single strongest reason textfield has its own narrow rule.
+- **Windows dismissal buttons (LANDMINE)**: "Got it" requires `it` in `_FUNCTIONAL_WORDS`.
+
+### Empty connect.json tests implicit platform default
+Test fixtures supplying `connect.json` as `"{}"` (no `platform` field) test whatever the code treats as default — not "any platform". When a generator seam reads a config field for the first time, grep existing tests for empty config stubs and make the field explicit.
+
+### Fuzzy word matching tolerates single-char OCR errors
+Levenshtein distance ≤ 1 for words of 2+ characters; 1-character words require exact match. Handles typical OCR misreads: "ls"↔"1s", "Helvetica"↔"Helverica".
+
+### A/B evaluation snapshot infrastructure
+`pipeline_common/data_snapshot.py` provides `freeze_snapshot`, `restore_snapshot`, `list_snapshots`, `compare_reports`. CLI: `python -m pipeline_common.snapshot_cli {freeze,restore,list,compare}`. Frozen: `samples/`, `ground_truth/`, `snapshots/` (raw AX), `predictions/` (when present), plus `metadata.json`. Derived `results-*.json` excluded so each evaluator version writes its own. `compare_reports` refuses to diff reports with different `matching_strategy`. `list_snapshots` skips dirs lacking valid `metadata.json`. Not yet wired into `run-backlog-plan.sh`. A batch `rebuild-predictions` subcommand does not yet exist.
+
+### Always use vm-start.sh for VM connections
+`source scripts/macos/vm-start.sh` handles VNC URL parsing, password extraction, env setup, and connect.json creation. Manual connect.json fails: VNC password varies per run, port is dynamic, VM IP changes per clone. Bash tool runs in subshells — use `zsh -c 'source ...; env > file'` to capture env vars. Stale connect.json can silently contain wrong port/IP; sanity-check before calling the generator.
+
+### Programmatic GT infrastructure for terminal content
+`terminal_ground_truth.py` provides `construct_terminal_ground_truth()`, `extract_typed_text()`, `find_content_area()`, `parse_command_output_lines()`. Generator uses `AppScenario.is_terminal=True` to merge programmatic typed-command GT with AX-tree GT on every platform. `_capture_command_output()` in `vm_generator.py` is unreachable (sets `command_output = None` unconditionally) — function and tests retained as documented dead code.
+
+**Layering consequence**: final GT files under `data/ocr-vm-{platform}/ground_truth/` compose snapshot-derived GT + programmatic terminal injection. Reproducing via `snapshot_to_ground_truth(...)` alone drops the terminal layer (−48 macOS terminal entries observed). Any GT-filter A/B must operate on existing files, not rebuild from raw snapshots.
+
+### Preprocess outputs always use original-pixel coordinates
+`pipeline/ocr/swift/Sources/OCRAnalyzer/OCRAnalyzerCLI.swift` exposes `--preprocess none|upscale-2x|upscale-4x`. Pixel reprojection uses original image dimensions when multiplying Vision's normalized coordinates — output bboxes always in original-pixel space regardless of upscale. Python parity via `OCRConfig.preprocess` (default `"none"`) and `pipeline_common.image_io.upscale_image(image, mode)` using `cv2.INTER_LANCZOS4`. Apple Vision passes `--preprocess` to Swift binary; Tesseract and EasyOCR apply upscale Python-side and divide output bboxes by scale factor in `_parse_tesseract_tsv` and `_parse_easyocr_results`. `analyze_image()` always returns original-pixel coordinates.
+
+### Preprocessing is per-content-class AND per-engine
+Upscale has direction-conflicting effects across content classes within one engine AND across engines on one content class. EasyOCR regressed −3.74pp on dense macOS terminal under extract-lines because its internal segmentation is load-bearing. Router must allow per-content-class preprocess overrides per engine; a single global preprocess setting regresses something on every flip.
+
+**Apple Vision**: bit-flat on dense monospace; slightly negative on aggregate. Upscale is a dead lever on every content class.
+
+**Tesseract upscale-2x**: dramatically helps Windows explorer (5.43% → 20.56%, 3.8×); helps notepad (21.30% → 26.09%), nautilus (56.64% → 63.03%), finder (33.47% → 37.50%). **Destroys macOS terminal** (9.98% → 2.33%). Hypothesis: upscaling pushes cell pitch into range where `--psm 6` over-segments dense ANSI scrollback. Alternative `--psm` modes (`4`, `11`) unmeasured.
+
+**EasyOCR upscale-2x**: Linux terminal is the only cell clearing ≥5pp ship bar (+7.25pp, 26.09% → 33.33%). macOS terminal marginal +3.10pp (below threshold). **Non-monotonic**: macOS terminal 19.69% → 22.78% → 18.38% across none → 2x → 4x. Proportional text collapses: macOS textedit −12.41pp (2x) / −14.36pp (4x), Linux texteditor −9.21pp / −10.29pp. **upscale-4x dead on every engine**.
+
+**Router implication (backlog #16)**: per-content-class dispatch + preprocess override + engine choice — three orthogonal knobs. Only SHIP-grade override: `engine=easyocr ∧ platform=linux ∧ content_class=terminal → preprocess=upscale-2x` (+7.25pp at 16× runtime). `--psm 4`/`11` Tesseract arms unmeasured.
+
+### Engine runtime: warm vs cold
+Per-sample runtime:
+- **Cold**: Apple Vision ~0.6s, Tesseract ~1.0s, EasyOCR ~6–10s (CPU).
+- **Warm Reader (amortized via `_easyocr_reader_cache`)**: Apple Vision ~0.6s, Tesseract ~1.0s, EasyOCR 0.79s (Windows 800×600), 1.44s (Linux), 3.92s (macOS Retina-2x). macOS slowest due to 2× resolution.
+
+EasyOCR warm on Linux/Windows is inside ~1s interactive budget inside a long-lived process. Interactive `find-text` gap is cold-start-bound AND resolution-bound: task #18 reduces to "downscale Retina inputs and/or wire MPS/quantization for macOS path" on top of a daemon solving cold-start. Tesseract remains runtime-cheap middle path on dense monospace: Linux terminal 27.03% vs EasyOCR 33.33% at ~10× speed.
+
+### EasyOCR subprocess dispatch blows interactive budget
+`testanyware find-text` subprocess-dispatch cold-start on macOS host against cached 800×600 samples:
+- `.venv/bin/python -m ocr_analyzer <windows-notepad.png>` → **4.77s** wall.
+- `.venv/bin/python -m ocr_analyzer <linux-terminal.png>` → **5.47s** wall.
+- In-process probe: 0.62s `from ocr_analyzer.analyzer import …` + **6.05s first `analyze_image()`** = **6.67s cold**; second call in same process **1.32s warm**.
+
+Floor is PyTorch import (~0.6s) + `easyocr.Reader(...)` construction (~5s — detector + recognizer model files + device init). Both disappear only if the model-bearing process is long-lived. Do not route interactive `testanyware find-text` through per-call Python subprocess. The +9–20pp F1 lift is only shippable via a long-lived analyzer daemon — see 'OCR daemon is Python child in TestAnywareServer'. `FindTextCommand.swift` calls `VNRecognizeTextRequest` directly (not via Python analyzer) — leave it alone until the daemon lands.
+
+**Upscale penalty**: EasyOCR upscale-2x ~24.5s/sample warm on Linux (~16× baseline); upscale-4x ~36s (Linux) to ~46s (Windows). Apple Vision upscale cheap (~0.6–0.8s). The Linux-terminal SHIP cell's +7.25pp comes at 16× runtime — router must make this tradeoff explicit.
+
+### Default OCR engine is EasyOCR
+`OCRConfig().engine == "easyocr"`. `easyocr>=1.7` is runtime dependency of `pipeline-ocr`. Apple Vision and Tesseract available via explicit `OCRConfig(engine=...)`. Schema VERSION held at `"0.2.0"`. When the default changes, audit every test calling `analyze_image()` or `OCRConfig(...)` without explicit engine — they implicitly become tests of the new default.
+
+### Cached-rebuild script for canonical predictions
+`pipeline/scripts/rebuild_easyocr_predictions.py` (research-only, not installed) walks canonical `data/ocr-vm-{macos,linux-fix,windows}/samples/`, runs `analyze_image()` with current default, backs up `predictions/` to `predictions-apple-vision/` (idempotent), writes fresh predictions. Natural seed for `snapshot_cli rebuild-predictions` subcommand.
+
+### Multi-engine OCR analyzer dispatch
+`pipeline/ocr/src/ocr_analyzer/analyzer.py` (schema `0.2.0`) dispatches via `_ENGINES` registry on `OCRConfig.engine ∈ {apple_vision, tesseract, easyocr}`. Key design choices:
+- **Validation at `analyze_image()` entry** — catches config typos before engine dispatch.
+- **Preprocess invariant**: engines must divide output bboxes by `scale_factor`. Breaking this silently corrupts spatial metrics.
+- **Lazy EasyOCR import**: `_easyocr_reader_cache` keyed by language tuple; loads on first use. Tests patch `_get_easyocr_reader` to MagicMock — test suite never imports easyocr.
+- **Tesseract takes path, EasyOCR takes array**: Tesseract preprocessing writes temp PNG; EasyOCR passes upscaled numpy array directly.
+
+### Engine-survey driver: symlinked-tempdir pattern
+`pipeline/scripts/survey_engines.py` (research-only) runs full `engine × preprocess × cutoff × strategy` matrix per platform. `tempfile.TemporaryDirectory()` with `samples/` and `ground_truth/` symlinked from canonical dirs, fresh `predictions/` written in. Ground truth shared by reference; canonical dirs stay immutable. Productionizing into `snapshot_cli` subcommand is mechanical.
+
+### Confidence cutoff is engine-shaped
+Same `OCRConfig.min_confidence` parameterizes different curve shapes:
+- **Apple Vision**: monotonic ramp; aggregate text-F1 +1pp from c=0.0 to c=0.7 (macOS none: 18.71% → 20.05%). Default 0.5 reasonable; 0.7 marginally better.
+- **Tesseract**: peaks at c=0.5 then collapses at c=0.7 (macOS none: 16.13% → 18.09% → 19.04% → 16.61%). Default 0.5 optimal; 0.7 wrong.
+- **EasyOCR**: nearly flat across c=0.0 to c=0.7 (<0.5pp variation). Well-calibrated — cutoff tuning is a no-op. Backlog #21 effectively retired for EasyOCR.
+
+Router mixing engines must apply different thresholds per backend.
+
+### Engine choice dominates text F1, GT dominates IoU
+- **Engine choice moves text_content F1 by 9–20pp per platform**: AV→EasyOCR deltas: macOS +19.68pp, Linux +16.05pp, Windows +9.48pp. Per-app peaks: textedit +30.88pp, notepad +27.93pp, safari +21.21pp, terminal +17.87pp.
+- **Engine choice moves IoU F1 <5pp on GT-coordinate-bound platforms**: Linux IoU AV→EasyOCR +1.02pp (8.78% → 9.80%) — pinned at GTK4 noise floor.
+- **Counter-example: Windows IoU +10.43pp** (28.30% → 38.73%). macOS IoU also moved +21.42pp. On platforms with bounded GT spatial error, engine choice moves IoU substantially.
+
+**Decision rule**: measure engine work by text_content; measure spatial work by IoU. A change lifting text_content but flattening Linux IoU is working correctly — Linux IoU isn't a verdict surface for engine work until GTK4 stop-gap (#12) or per-element recovery (#13) ships.
+
+### Char accuracy and F1 diverge under engine swap
+Per-pair char accuracy can drop while F1 rises substantially. Examples: macOS textedit char −2.78pp / F1 +30.88pp; Linux firefox char −5.56pp / F1 +6.24pp; Linux texteditor char −9.52pp / F1 +14.73pp. Cause: different word segmentation partitions text differently — reduces per-pair similarity while increasing matched pairs. F1 is the only valid cross-engine verdict metric. Char movement is diagnostic colour, not a regression signal.
+
+### Dense-monospace gap is recognition-bound
+Projection-profile line extractor (`pipeline_common.monospace_extract.extract_text_lines` — Laplacian row-sum, 3-tap smoothing, threshold at `0.5 * mean`) wired as `OCRConfig.preprocess="extract-lines"`. Surveyed across `engine ∈ {apple_vision, tesseract, easyocr} × platform ∈ {macos, linux-fix, windows}` terminal buckets. No cell passed ≥10pp ship threshold. Best: Linux EasyOCR +5.91pp; macOS EasyOCR regressed −3.74pp. Apple Vision runtime 0.73s → 7.57s/sample confirmed correct partitioning — null result is about the hypothesis, not the implementation. **Verdict**: gap is recognition-bound. Upscale-2x per content class is the only remaining preprocess lever with confirmed signal. Router can stay extract-lines-free. Task #17 (gridded-monospace content detector) loses rationale.
+
+### Measure F1 and runtime jointly in preprocessing A/B
+Preprocess tests must emit per-engine (ΔF1, Δruntime) side-by-side. Runtime serves two roles: (1) **diagnostic** — Apple Vision 10× blow-up (0.73s → 7.57s/sample) confirmed line extractor partitioned correctly; (2) **cost separation** — subprocess-based engines (AV 10×, Tesseract 3.5×) vs warm-Reader EasyOCR (runtime-positive: 11.6s → 8.7s because smaller crops infer faster). Survey drivers must emit ΔF1, Δchar, ΔP, ΔR, and Δruntime; verdict tables include cost.
+
+**Non-monotonic dose-response requires three-point minimum.** Preprocess curves can be non-monotonic (macOS terminal EasyOCR: 19.69% → 22.78% → 18.38% across none → 2x → 4x). Include at least three dose levels before extrapolating.
+
+### Retain falsified spikes as dead code when cheap
+When a spike's infrastructure is small (~300 lines), retain in-tree with tests as re-test path for future changes. Retained: `pipeline_common.monospace_extract.extract_text_lines` (13 tests), `OCRConfig.preprocess="extract-lines"` dispatch (6 tests), `pipeline/scripts/survey_morpho.py`, `pipeline/data/morpho-survey/{macos,linux-fix,windows}/survey.json`. Rule: only when hypothesis might recur under different conditions and seam is cheap. Large spikes should be deleted after falsification.
+
+### Preprocess re-entry must be prevented; min_line_height is 4px
+Any `OCRConfig.preprocess` mode calling `analyze_image()` recursively must force `preprocess="none"` on inner call via `dataclasses.replace` to prevent re-entry. Tested by `test_ocr_analyzer.py::TestExtractLinesDispatch::test_engine_called_with_preprocess_none`. `min_line_height=4` is the floor for Apple Vision Swift CLI compatibility (rejects images ≤2px). 3-tap box-filter smoothing of the row-signal is load-bearing — unsmoothed 1-row spikes represent real stroke transitions; smoothing spreads them into 3-row spans that survive the height filter.
+
+### OCR daemon is Python child in TestAnywareServer
+The long-lived EasyOCR analyzer is a co-resident Python subprocess inside `TestAnywareServer`, inheriting the server's lifecycle. `handleOCR` performs platform dispatch: macOS/nil → `VisionOCREngine` (Vision.framework, in-process); Linux/Windows → `OCRChildBridge` actor (lazy-spawn, temp-file-PNG, JSON-line protocol). Python daemon eagerly warms the EasyOCR reader on startup and signals `{"ready": true}` before accepting requests. Interpreter resolution: `$TESTANYWARE_OCR_PYTHON` → Cellar-relative Homebrew → dev `.venv` → `/usr/bin/python3`. Deployment: single Homebrew formula with a bundled venv (repo-relative venv incompatible with Homebrew). Full design in `docs/superpowers/specs/2026-04-15-ocr-analyzer-daemon-design.md`.
+
+### Fake-shell-script harness tests Swift subprocess actors
+A configurable bash script controlled by `$FAKE_OCR_BEHAVIOR` decouples Swift bridge actor tests from any Python runtime. Drives state-machine transitions via controlled exit codes and stdout without spawning a real Python process. Use this pattern for any Swift actor managing an opaque child subprocess.
+
+### OCR dispatch belongs in server not CLI
+`TestAnywareServer` is the single abstraction layer for VNC, input, recording, and OCR. `FindTextCommand` dispatches through `client.ocr()`, surfacing `response.warning` to stderr — the CLI has no direct Vision or Python dependency. `VisionOCREngine` lifts Vision.framework OCR into a library type used in-process on macOS. Server dispatch provides the natural home for the content-class router (backlog #16) and centralizes fallback logic.
+
+### Hard-fail is correct default for quality-lift features
+When a feature's entire value is a quality lift, silent degradation to the baseline makes regressions undetectable. Policy: hard-fail on permanent install-time failure; opt-in `TESTANYWARE_OCR_FALLBACK=1` for sites needing a safety valve; banner on every call when fallback is active; persistent status file; `testanyware doctor` command; postinstall verification.
+
+### Homebrew formula declares tart qemu swtpm as runtime deps
+`tart`, `qemu`, and `swtpm` are declared runtime dependencies in the TestAnywareDriver Homebrew formula.
