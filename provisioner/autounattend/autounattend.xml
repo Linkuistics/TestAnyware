@@ -1,0 +1,270 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Unattended answer file for Windows 11 ARM64 evaluation ISO.
+     Windows Setup reads this from removable media (USB drive) automatically.
+     Partitions the disk, installs Windows, creates admin/admin account,
+     skips OOBE, installs the testanyware-agent TCP service on first logon,
+     and installs Chocolatey as a package manager. No SSH. -->
+<unattend xmlns="urn:schemas-microsoft-com:unattend"
+          xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State">
+
+    <!-- WindowsPE: partition disk, select image, accept EULA -->
+    <settings pass="windowsPE">
+        <component name="Microsoft-Windows-International-Core-WinPE"
+                   processorArchitecture="arm64"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS">
+            <SetupUILanguage>
+                <UILanguage>en-US</UILanguage>
+            </SetupUILanguage>
+            <InputLocale>en-US</InputLocale>
+            <SystemLocale>en-US</SystemLocale>
+            <UILanguage>en-US</UILanguage>
+            <UserLocale>en-US</UserLocale>
+        </component>
+
+        <component name="Microsoft-Windows-PnpCustomizationsWinPE"
+                   processorArchitecture="arm64"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS">
+            <DriverPaths>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="1">
+                    <Path>D:\drivers</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="2">
+                    <Path>E:\drivers</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="3">
+                    <Path>F:\drivers</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="4">
+                    <Path>G:\drivers</Path>
+                </PathAndCredentials>
+                <PathAndCredentials wcm:action="add" wcm:keyValue="5">
+                    <Path>H:\drivers</Path>
+                </PathAndCredentials>
+            </DriverPaths>
+        </component>
+
+        <component name="Microsoft-Windows-Setup"
+                   processorArchitecture="arm64"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS">
+            <RunSynchronous>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>1</Order>
+                    <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1 /f</Path>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>2</Order>
+                    <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1 /f</Path>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>3</Order>
+                    <Path>reg add HKLM\SYSTEM\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1 /f</Path>
+                </RunSynchronousCommand>
+            </RunSynchronous>
+            <DiskConfiguration>
+                <Disk wcm:action="add">
+                    <DiskID>0</DiskID>
+                    <WillWipeDisk>true</WillWipeDisk>
+                    <CreatePartitions>
+                        <!-- EFI System Partition -->
+                        <CreatePartition wcm:action="add">
+                            <Order>1</Order>
+                            <Size>260</Size>
+                            <Type>EFI</Type>
+                        </CreatePartition>
+                        <!-- Microsoft Reserved -->
+                        <CreatePartition wcm:action="add">
+                            <Order>2</Order>
+                            <Size>16</Size>
+                            <Type>MSR</Type>
+                        </CreatePartition>
+                        <!-- Windows -->
+                        <CreatePartition wcm:action="add">
+                            <Order>3</Order>
+                            <Extend>true</Extend>
+                            <Type>Primary</Type>
+                        </CreatePartition>
+                    </CreatePartitions>
+                    <ModifyPartitions>
+                        <ModifyPartition wcm:action="add">
+                            <Order>1</Order>
+                            <PartitionID>1</PartitionID>
+                            <Format>FAT32</Format>
+                            <Label>System</Label>
+                        </ModifyPartition>
+                        <ModifyPartition wcm:action="add">
+                            <Order>2</Order>
+                            <PartitionID>2</PartitionID>
+                        </ModifyPartition>
+                        <ModifyPartition wcm:action="add">
+                            <Order>3</Order>
+                            <PartitionID>3</PartitionID>
+                            <Format>NTFS</Format>
+                            <Label>Windows</Label>
+                            <Letter>C</Letter>
+                        </ModifyPartition>
+                    </ModifyPartitions>
+                </Disk>
+            </DiskConfiguration>
+            <ImageInstall>
+                <OSImage>
+                    <InstallFrom>
+                        <MetaData wcm:action="add">
+                            <Key>/IMAGE/NAME</Key>
+                            <Value>Windows 11 Pro</Value>
+                        </MetaData>
+                    </InstallFrom>
+                    <InstallTo>
+                        <DiskID>0</DiskID>
+                        <PartitionID>3</PartitionID>
+                    </InstallTo>
+                </OSImage>
+            </ImageInstall>
+            <UserData>
+                <AcceptEula>true</AcceptEula>
+                <ProductKey>
+                    <!-- Generic KMS client key selects Pro edition on multi-edition ISOs.
+                         Does not activate Windows; just tells Setup which edition to install. -->
+                    <Key>W269N-WFGWX-YVC9B-4J6C9-T83GX</Key>
+                    <WillShowUI>Never</WillShowUI>
+                </ProductKey>
+            </UserData>
+        </component>
+    </settings>
+
+    <!-- Specialize: bypass OOBE network requirement, write SetupComplete.cmd
+         inline. SetupComplete.cmd runs after OOBE as SYSTEM — it installs the
+         VirtIO network driver, copies agent + scripts from the USB media,
+         applies registry tweaks, and registers the agent as a logon task.
+         The script is built via echo commands (not copied from USB) because
+         USB drive letters are not reliably assigned during the specialize pass.
+         In echo context: %%VAR%% becomes %VAR% in the file (correct for batch).
+         Individual if-exist lines avoid the for-loop %/%%d escaping problem. -->
+    <settings pass="specialize">
+        <component name="Microsoft-Windows-Deployment"
+                   processorArchitecture="arm64"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS">
+            <RunSynchronous>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>1</Order>
+                    <Path>reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\OOBE /v BypassNRO /t REG_DWORD /d 1 /f</Path>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>2</Order>
+                    <Description>Create SetupComplete scripts directory</Description>
+                    <Path>cmd /c mkdir C:\Windows\Setup\Scripts</Path>
+                </RunSynchronousCommand>
+                <!-- Copy SetupComplete.cmd and desktop-setup.ps1 from USB media.
+                     The static files are the single source of truth for
+                     post-setup actions. Try each drive; failures are suppressed
+                     with WillReboot=never so non-existent drives don't abort. -->
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>3</Order>
+                    <WillReboot>Never</WillReboot>
+                    <Path>cmd /c copy /y D:\SetupComplete.cmd C:\Windows\Setup\Scripts\SetupComplete.cmd 2>nul &amp; copy /y D:\desktop-setup.ps1 C:\Windows\Setup\Scripts\desktop-setup.ps1 2>nul &amp; exit /b 0</Path>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>4</Order>
+                    <WillReboot>Never</WillReboot>
+                    <Path>cmd /c copy /y E:\SetupComplete.cmd C:\Windows\Setup\Scripts\SetupComplete.cmd 2>nul &amp; copy /y E:\desktop-setup.ps1 C:\Windows\Setup\Scripts\desktop-setup.ps1 2>nul &amp; exit /b 0</Path>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>5</Order>
+                    <WillReboot>Never</WillReboot>
+                    <Path>cmd /c copy /y F:\SetupComplete.cmd C:\Windows\Setup\Scripts\SetupComplete.cmd 2>nul &amp; copy /y F:\desktop-setup.ps1 C:\Windows\Setup\Scripts\desktop-setup.ps1 2>nul &amp; exit /b 0</Path>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>6</Order>
+                    <WillReboot>Never</WillReboot>
+                    <Path>cmd /c copy /y G:\SetupComplete.cmd C:\Windows\Setup\Scripts\SetupComplete.cmd 2>nul &amp; copy /y G:\desktop-setup.ps1 C:\Windows\Setup\Scripts\desktop-setup.ps1 2>nul &amp; exit /b 0</Path>
+                </RunSynchronousCommand>
+                <RunSynchronousCommand wcm:action="add">
+                    <Order>7</Order>
+                    <WillReboot>Never</WillReboot>
+                    <Path>cmd /c copy /y H:\SetupComplete.cmd C:\Windows\Setup\Scripts\SetupComplete.cmd 2>nul &amp; copy /y H:\desktop-setup.ps1 C:\Windows\Setup\Scripts\desktop-setup.ps1 2>nul &amp; exit /b 0</Path>
+                </RunSynchronousCommand>
+            </RunSynchronous>
+        </component>
+        <component name="Microsoft-Windows-Shell-Setup"
+                   processorArchitecture="arm64"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS">
+            <ComputerName>TESTANYWARE</ComputerName>
+        </component>
+    </settings>
+
+    <!-- OOBE: skip all prompts, create admin user, install Chocolatey -->
+    <settings pass="oobeSystem">
+        <component name="Microsoft-Windows-International-Core"
+                   processorArchitecture="arm64"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS">
+            <InputLocale>en-US</InputLocale>
+            <SystemLocale>en-US</SystemLocale>
+            <UILanguage>en-US</UILanguage>
+            <UserLocale>en-US</UserLocale>
+        </component>
+        <component name="Microsoft-Windows-Shell-Setup"
+                   processorArchitecture="arm64"
+                   publicKeyToken="31bf3856ad364e35"
+                   language="neutral"
+                   versionScope="nonSxS">
+            <OOBE>
+                <HideEULAPage>true</HideEULAPage>
+                <HideLocalAccountScreen>true</HideLocalAccountScreen>
+                <HideOnlineAccountScreens>true</HideOnlineAccountScreens>
+                <HideWirelessSetupInOOBE>true</HideWirelessSetupInOOBE>
+                <ProtectYourPC>3</ProtectYourPC>
+            </OOBE>
+            <UserAccounts>
+                <LocalAccounts>
+                    <LocalAccount wcm:action="add">
+                        <Password>
+                            <Value>admin</Value>
+                            <PlainText>true</PlainText>
+                        </Password>
+                        <Name>admin</Name>
+                        <Group>Administrators</Group>
+                    </LocalAccount>
+                </LocalAccounts>
+            </UserAccounts>
+            <AutoLogon>
+                <Password>
+                    <Value>admin</Value>
+                    <PlainText>true</PlainText>
+                </Password>
+                <Enabled>true</Enabled>
+                <Username>admin</Username>
+            </AutoLogon>
+            <FirstLogonCommands>
+                <!-- Start the agent immediately (background) so the host can
+                     communicate before Chocolatey finishes. Task Scheduler
+                     handles subsequent boots. -->
+                <SynchronousCommand wcm:action="add">
+                    <Order>1</Order>
+                    <CommandLine>cmd /c start "" /b C:\testanyware\testanyware-agent.exe</CommandLine>
+                    <Description>Start testanyware-agent in background</Description>
+                    <RequiresUserInput>false</RequiresUserInput>
+                </SynchronousCommand>
+                <!-- Install Chocolatey — needs network (VirtIO driver installed
+                     by SetupComplete.cmd before first logon). Tests need choco
+                     for installing runtimes (Racket, Haskell, OCaml, jq, etc.) -->
+                <SynchronousCommand wcm:action="add">
+                    <Order>2</Order>
+                    <CommandLine>cmd /c powershell -NoProfile -ExecutionPolicy Bypass -Command "[System.Net.ServicePointManager]::SecurityProtocol = 3072; iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))"</CommandLine>
+                    <Description>Install Chocolatey package manager</Description>
+                    <RequiresUserInput>false</RequiresUserInput>
+                </SynchronousCommand>
+            </FirstLogonCommands>
+        </component>
+    </settings>
+</unattend>
