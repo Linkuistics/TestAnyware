@@ -45,6 +45,9 @@ public struct RoleMapper {
         "AXLayoutArea":         .region,
         "AXMatte":              .region,
 
+        // Web content
+        "AXWebArea":            .webArea,
+
         // Content
         "AXStaticText":         .text,
         "AXImage":              .image,

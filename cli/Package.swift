@@ -12,7 +12,7 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.21.0"),
-        .package(name: "royalvnc", path: "../../vendored/royalvnc"),
+        .package(name: "royalvnc", path: "../vendored/royalvnc"),
     ],
     targets: [
         // MARK: - Libraries
