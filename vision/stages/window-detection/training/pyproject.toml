@@ -1,0 +1,17 @@
+[project]
+name = "window-train"
+version = "0.1.0"
+description = "Training infrastructure for window detection models"
+requires-python = ">=3.11"
+dependencies = [
+    "testanyware-common",
+    "ultralytics>=8.0",
+    "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/window_train"]

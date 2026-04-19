@@ -1,0 +1,39 @@
+[project]
+name = "testanyware-pipeline"
+version = "0.1.0"
+description = "Hierarchical vision pipeline for GUI screenshot analysis"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv.workspace]
+members = [
+    "common",
+    "stages/window-detection/generator",
+    "stages/window-detection/training",
+    "stages/window-detection/analysis",
+]
+
+[tool.uv.sources]
+testanyware-common = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["common/tests", "stages"]
+markers = [
+    "unit: pure logic tests, no models or VMs",
+    "vision: detector accuracy tests against golden datasets",
+    "integration: full end-to-end tests against live VMs",
+    "slow: tests that take more than 10 seconds",
+]
+addopts = "-m 'not integration and not slow' --tb=short -q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]
