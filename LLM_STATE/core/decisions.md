@@ -115,3 +115,28 @@ when the project was still named GUIVisionPipeline. Left as-is per the
 these files (they're historical by design). Same applies to dated
 session logs elsewhere in LLM_STATE.
 
+---
+
+## 2026-04-19 — `provisioner/helpers/` (not `autounattend/`)
+
+**Decision:** The provisioner auxiliary directory is `provisioner/helpers/`
+(matching the source archive's `scripts/helpers/`). NOT
+`provisioner/autounattend/` as the plan Task 2d.1 named it.
+
+**Why:** `autounattend/` implies Windows-only install-time assets, but
+the directory actually contains a mix:
+- Windows install assets: `autounattend.xml`, `SetupComplete.cmd`,
+  `desktop-setup.ps1`, `set-wallpaper.ps1`
+- macOS runtime assets: `com.linkuistics.testanyware.agent.plist`
+  (LaunchAgent), `set-wallpaper.swift`
+
+The scripts (both macOS and Windows builders) reference `helpers/`, not
+`autounattend/`. Changing the scripts would be mislabeling the wrong way.
+Keeping the original name matches what the scripts expect and matches
+the archive.
+
+**How to apply:** Refer to `provisioner/helpers/` wherever plan/design
+said `provisioner/autounattend/`. Update design §4 accordingly during
+docs refresh.
+
+
