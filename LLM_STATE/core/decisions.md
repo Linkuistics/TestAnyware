@@ -139,4 +139,46 @@ the archive.
 said `provisioner/autounattend/`. Update design §4 accordingly during
 docs refresh.
 
+---
+
+## 2026-04-20 — Server self-respawn ignores PATH lookup
+
+**Issue surfaced by:** Task 6.1 (macOS smoke). `testanyware screenshot`
+failed with `Server failed to start: The file "testanyware" doesn't
+exist.` immediately after `vm-start.sh` succeeded.
+
+**Root cause:** `cli/Sources/TestAnywareDriver/Server/ServerClient.swift`
+lines 151-156 use `CommandLine.arguments[0]` to spawn the helper
+`_server` subprocess. When the binary is invoked by bare name from
+`$PATH` (e.g. `/usr/local/bin/testanyware` resolved via shell PATH
+search), `argv[0]` is just `"testanyware"` — not absolute. The fallback
+joins it with `FileManager.default.currentDirectoryPath`, producing
+`<cwd>/testanyware`, which doesn't exist. `Process.run()` then throws
+the localized "file doesn't exist" error and the CLI surfaces it via
+`ServerClientError.serverStartFailed`.
+
+**Repro:** From any CWD that doesn't contain a `testanyware` file,
+run `testanyware screenshot --vm <id> -o /tmp/x.png` against a started
+VM. Fails before contacting the VM.
+
+**Workaround pending fix:** Invoke via the absolute symlink target,
+e.g. `/usr/local/bin/testanyware screenshot ...` — that makes
+`argv[0]` absolute and the spawn path resolves correctly.
+
+**How to apply:** Fix-forward should resolve `argv[0]` against `$PATH`
+when it lacks a slash (or use `/proc/self/exe` equivalent — on macOS,
+`_NSGetExecutablePath`). Until then, the smoke recipes in plan §6
+need `/usr/local/bin/testanyware` rather than bare `testanyware`,
+or the user's shell must invoke from a directory containing the
+binary.
+
+**Resolved by:** commit `fix(cli): resolve executable path via Bundle.main.executablePath` (2026-04-20) — added
+`cli/Sources/TestAnywareDriver/ExecutablePath.swift` exposing
+`currentExecutablePath()` (backed by `Bundle.main.executablePath`,
+which calls `_NSGetExecutablePath`); both call sites in
+`ServerClient.swift` and `TestAnywareServer.swift` now use it.
+Site 2's single-level symlink resolution (Cellar layout discovery)
+is preserved. Smoke verified: `testanyware screenshot` from `/tmp`
+against a fresh VM produced a 30,416-byte PNG.
+
 

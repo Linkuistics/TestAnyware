@@ -562,13 +562,8 @@ public actor TestAnywareServer {
         }
 
         // 2. Cellar-relative (Homebrew)
-        var execPath = CommandLine.arguments[0]
-        if !execPath.hasPrefix("/") {
-            execPath = (FileManager.default.currentDirectoryPath as NSString)
-                .appendingPathComponent(execPath)
-        }
-        execPath = (execPath as NSString).standardizingPath
-        // Resolve symlinks to find real path
+        var execPath = currentExecutablePath()
+        // Resolve symlinks to find real path (Cellar layout discovery)
         if let realPath = try? FileManager.default.destinationOfSymbolicLink(atPath: execPath) {
             execPath = realPath
         }

@@ -148,12 +148,7 @@ public struct ServerClient: Sendable {
         try? FileManager.default.removeItem(atPath: path)
         try? FileManager.default.removeItem(atPath: pidFilePath)
 
-        var execPath = CommandLine.arguments[0]
-        if !execPath.hasPrefix("/") {
-            let cwd = FileManager.default.currentDirectoryPath
-            execPath = (cwd as NSString).appendingPathComponent(execPath)
-        }
-        execPath = (execPath as NSString).standardizingPath
+        let execPath = currentExecutablePath()
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
