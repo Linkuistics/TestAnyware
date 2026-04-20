@@ -181,4 +181,76 @@ Site 2's single-level symlink resolution (Cellar layout discovery)
 is preserved. Smoke verified: `testanyware screenshot` from `/tmp`
 against a fresh VM produced a 30,416-byte PNG.
 
+---
+
+## 2026-04-20 — QEMU sockets staged under `$TMPDIR`, not the clone tree
+
+**Issue surfaced by:** Backlog item 12 / Task 6.3 (Windows integration
+smoke). `swtpm` failed to create its control socket at
+`<HOME>/.local/share/testanyware/clones/<id>/<id>-tpm/swtpm-sock` with
+`Path for UnioIO socket is too long` — for a typical `$HOME` and an
+integration-test id `testanyware-test-<hex8>`, the absolute path is
+~108–110 bytes, exceeding macOS's 104-byte `struct sockaddr_un.sun_path`
+limit. With swtpm refusing to start, `QEMURunner.start` threw
+`commandFailed` and Windows VMs could not be brought up at all.
+
+**Decision:** Split the per-VM artefacts across two locations:
+
+| Artefact | Location | Why |
+|---|---|---|
+| qcow2 overlay | `$XDG_DATA_HOME/testanyware/clones/<id>/` | Persistent state; long path is fine for regular files. |
+| EFI vars copy | `$XDG_DATA_HOME/testanyware/clones/<id>/` | Same. |
+| TPM state dir | `$XDG_DATA_HOME/testanyware/clones/<id>/<id>-tpm/` | Same. |
+| **swtpm control socket** | **`$TMPDIR/testanyware-<id>/swtpm-sock`** | AF_UNIX path, must fit `sun_path`. |
+| **QEMU monitor socket** | **`$TMPDIR/testanyware-<id>/monitor.sock`** | Same. |
+
+`$TMPDIR` on Apple platforms is per-user (e.g.
+`/var/folders/.../T/`) which gives us isolation without depending on
+`/tmp` semantics; we fall back to `/tmp` when the env var is unset.
+The session-dir name convention `testanyware-<id>/` makes cleanup
+deterministic from just the VM id — no sentinel file needed.
+
+For the longest VM id we generate (`testanyware-test-deadbeef`) and a
+typical `$TMPDIR`, the socket path is ~92–94 bytes — well under the
+104-byte limit, with margin for `$TMPDIR` variance.
+
+**Why both sockets, not just swtpm:** monitor.sock under `cloneDir/`
+was within budget for typical IDs but not by much, and a runner that
+keeps one socket near the limit is fragile against any reasonable
+`$HOME` lengthening. Moving both preserves the property that
+QEMURunner is robust against any reasonable user setup.
+
+**Implications captured in the same fix:**
+
+- `scanClonesDir` (the "is running" detector) now keys off
+  `$TMPDIR/testanyware-<id>/monitor.sock` rather than
+  `cloneDir/monitor.sock`, with the clone subdirectory name as the id.
+- `QEMURunner.stop(pid:cloneDir:)` now derives the session dir from
+  the clone dir basename and removes both directories.
+- A shared `internal teardown(pid:cloneDir:sessionDir:)` helper backs
+  both `stop()` and the start-failure recovery paths. Pre-fix, the
+  start-failure recovery path was bare (`kill SIGTERM` + `removeItem`
+  on cloneDir) and left orphan qemu processes that the implementer of
+  Task 6.3 had to `kill -9` by hand. The shared helper does the full
+  wait + SIGKILL escalate + swtpm pgrep + rmdir flow.
+
+**Latent parser bug surfaced by the same smoke:** With the swtpm
+wall removed, `QEMUMonitorClient.parseAgentPort` started returning
+nil from real `info usernet` responses. Root cause: QEMU's monitor
+sends CRLF line endings; Swift's `Character` is a grapheme cluster,
+so `\r\n` is a single `Character` and `String.split(separator: "\n")`
+matches nothing — the whole response collapses into one logical line
+and the field-index parse fails. Fixed by switching to
+`split(whereSeparator: { $0.isNewline })`. Could not have surfaced
+earlier because the swtpm path-length error blocked us from ever
+reaching this code path with a real response. Regression-guarded by
+`parseAgentPortHandlesCRLFLineEndings`.
+
+**Resolved by:** commit `fix(qemu): stage swtpm+monitor sockets under $TMPDIR (sun_path limit)`
+(2026-04-20). Smoke verified: `vm-start.sh --platform windows`
+produced a running VM, `${TMPDIR}/testanyware-<id>/` contained both
+sockets, `vm list` showed it as running, `screenshot` produced a
+non-zero PNG, `vm-stop.sh` cleared the session dir, and no qemu/swtpm
+orphans were left behind.
+
 

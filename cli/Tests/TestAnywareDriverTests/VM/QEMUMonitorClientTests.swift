@@ -53,4 +53,20 @@ struct QEMUMonitorClientTests {
         """
         #expect(QEMUMonitorClient.parseAgentPort(infoUsernet: text) == 12345)
     }
+
+    @Test func parseAgentPortHandlesCRLFLineEndings() {
+        // QEMU's monitor sends CRLF, not LF. Swift's `Character` is a
+        // grapheme cluster, so `\r\n` is one Character — `split(separator:
+        // "\n")` matches nothing and the whole response collapses into a
+        // single "line", breaking the field index. The parser must split
+        // on `Character.isNewline` instead. Regression guard for the
+        // Windows VM smoke that surfaced this after backlog item 12.
+        let text = "QEMU 10.2.2 monitor - type 'help'\r\n" +
+                   "(qemu) info usernet\r\n" +
+                   "Hub -1 (net0):\r\n" +
+                   "  Protocol[State]    FD  Source Address  Port   Dest. Address  Port RecvQ SendQ\r\n" +
+                   "  TCP[HOST_FORWARD]  17               * 52689       10.0.2.15  8648     0     0\r\n" +
+                   "(qemu)\u{0020}\r\n"
+        #expect(QEMUMonitorClient.parseAgentPort(infoUsernet: text) == 52689)
+    }
 }

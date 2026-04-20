@@ -28,14 +28,19 @@ public enum QEMURunner {
             }
     }
 
-    /// Scan `$XDG_DATA_HOME/testanyware/clones/*/monitor.sock` for running
-    /// QEMU VMs.
+    /// Scan `$XDG_DATA_HOME/testanyware/clones/` for running QEMU VMs
+    /// by checking each clone directory's TMPDIR-staged `monitor.sock`.
+    ///
+    /// The clone tree (qcow2 overlay, EFI vars, TPM state) lives under
+    /// `clonesDir/<id>/`, but the QEMU monitor and swtpm control sockets
+    /// live under `$TMPDIR/testanyware-<id>/` to keep the AF_UNIX path
+    /// under the macOS 104-byte `sun_path` limit. The scanner uses the
+    /// clone subdirectory name as the VM id and looks for the monitor
+    /// socket in its TMPDIR session dir.
     ///
     /// Only the presence of `monitor.sock` is checked — a more thorough
     /// liveness probe (monitor handshake, `lsof` on the qcow2) is left to
-    /// the caller. Matches the bash script's "socket exists → list it"
-    /// behaviour, though the bash also uses `lsof` to confirm a qemu
-    /// process holds the image.
+    /// the caller.
     public static func scanClonesDir(path: String) throws -> [VMListEntry] {
         guard isExistingDirectory(path) else { return [] }
         let items = try FileManager.default.contentsOfDirectory(atPath: path)
@@ -43,7 +48,7 @@ public enum QEMURunner {
         for item in items {
             let cloneDir = "\(path)/\(item)"
             guard isExistingDirectory(cloneDir) else { continue }
-            let sock = "\(cloneDir)/monitor.sock"
+            let sock = "\(sessionDir(forID: item))/monitor.sock"
             guard FileManager.default.fileExists(atPath: sock) else { continue }
             entries.append(VMListEntry(
                 kind: .running,
@@ -77,18 +82,23 @@ public enum QEMURunner {
     /// QEMU detached, and discover the dynamic VNC/agent ports via the
     /// monitor socket.
     ///
-    /// Layout under `<clones>/<id>/`:
+    /// Layout under `<clones>/<id>/` (the long-path tree):
     ///   * `<id>.qcow2`              — copy-on-write overlay over the golden
     ///   * `<id>-efivars.fd`         — UEFI variable store copy
-    ///   * `<id>-tpm/`               — swtpm state dir + `swtpm-sock` control socket
-    ///   * `monitor.sock`            — QEMU HMP socket
+    ///   * `<id>-tpm/`               — swtpm state dir
     ///   * `qemu.log`                — QEMU stdout + stderr (append-mode)
+    ///
+    /// Layout under `$TMPDIR/testanyware-<id>/` (the short-path session dir,
+    /// for AF_UNIX sockets that must fit in the 104-byte `sun_path`):
+    ///   * `swtpm-sock`              — swtpm control socket
+    ///   * `monitor.sock`            — QEMU HMP socket
     public static func start(
         options: VMStartOptions,
         paths: VMPaths
     ) async throws -> StartArtifacts {
         let cloneDir = paths.cloneDir(forID: options.id)
         let goldenDir = paths.goldenDir
+        let session = sessionDir(forID: options.id)
 
         if FileManager.default.fileExists(atPath: cloneDir) {
             if let pid = processHoldingQcow2(in: cloneDir) {
@@ -97,7 +107,11 @@ public enum QEMURunner {
             }
             try FileManager.default.removeItem(atPath: cloneDir)
         }
+        if FileManager.default.fileExists(atPath: session) {
+            try FileManager.default.removeItem(atPath: session)
+        }
         try FileManager.default.createDirectory(atPath: cloneDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(atPath: session, withIntermediateDirectories: true)
 
         let goldenQcow2 = "\(goldenDir)/\(options.base).qcow2"
         let cloneQcow2 = "\(cloneDir)/\(options.id).qcow2"
@@ -116,7 +130,8 @@ public enum QEMURunner {
             executable: "/bin/cp",
             arguments: ["-r", goldenTPM, cloneTPMDir]
         )
-        let tpmSocket = "\(cloneTPMDir)/swtpm-sock"
+        // Sockets stage under $TMPDIR — see sessionDir(forID:) docs for why.
+        let tpmSocket = "\(session)/swtpm-sock"
 
         let qemuPath = TartRunner.which("qemu-system-aarch64")
             ?? "/opt/homebrew/bin/qemu-system-aarch64"
@@ -124,7 +139,7 @@ public enum QEMURunner {
         let qemuPrefix = (qemuBinDir as NSString).deletingLastPathComponent
         let uefiCode = "\(qemuPrefix)/share/qemu/edk2-aarch64-code.fd"
         guard FileManager.default.fileExists(atPath: uefiCode) else {
-            try? FileManager.default.removeItem(atPath: cloneDir)
+            teardown(pid: 0, cloneDir: cloneDir, sessionDir: session)
             throw QEMURunnerError.uefiNotFound(uefiCode)
         }
 
@@ -141,7 +156,7 @@ public enum QEMURunner {
         )
         try? await Task.sleep(nanoseconds: 1_000_000_000)
 
-        let monitorSock = "\(cloneDir)/monitor.sock"
+        let monitorSock = "\(session)/monitor.sock"
         var gpuDevice = "virtio-gpu-pci"
         if let display = options.display {
             let parts = display.split(separator: "x").map(String.init)
@@ -182,12 +197,12 @@ public enum QEMURunner {
                 logPath: logPath
             )
         } catch {
-            try? FileManager.default.removeItem(atPath: cloneDir)
+            teardown(pid: 0, cloneDir: cloneDir, sessionDir: session)
             throw error
         }
         try? await Task.sleep(nanoseconds: 1_000_000_000)
         if kill(pid, 0) != 0 {
-            try? FileManager.default.removeItem(atPath: cloneDir)
+            teardown(pid: 0, cloneDir: cloneDir, sessionDir: session)
             throw QEMURunnerError.qemuFailedToStart
         }
 
@@ -196,8 +211,7 @@ public enum QEMURunner {
 
         let agentPort = try await client.agentPort(attempts: 5, intervalSeconds: 1.0)
         guard let agentPort else {
-            kill(pid, SIGTERM)
-            try? FileManager.default.removeItem(atPath: cloneDir)
+            teardown(pid: Int(pid), cloneDir: cloneDir, sessionDir: session)
             throw QEMURunnerError.monitorDiscoveryFailed
         }
         let vncPort = (try? await client.vncPort(attempts: 3, intervalSeconds: 0.5)) ?? 5900
@@ -212,13 +226,28 @@ public enum QEMURunner {
 
     /// Tear down a running QEMU VM: SIGTERM the qemu pid (escalating to
     /// SIGKILL if it does not exit), best-effort kill the associated swtpm
-    /// daemon, then remove the clone directory.
+    /// daemon, then remove the clone directory and the TMPDIR session dir.
+    ///
+    /// Public wrapper that derives the session dir from the clone dir
+    /// basename (which is the VM id). Both `stop` and the start-failure
+    /// paths route through `teardown(pid:cloneDir:sessionDir:)` so they
+    /// share the same wait + escalate + swtpm-pgrep + rmdir flow — there
+    /// are no orphan qemu/swtpm processes left behind on a botched start.
+    public static func stop(pid: Int, cloneDir: String) {
+        let id = (cloneDir as NSString).lastPathComponent
+        teardown(pid: pid, cloneDir: cloneDir, sessionDir: sessionDir(forID: id))
+    }
+
+    /// Shared teardown used by both the public `stop` entry point and the
+    /// start-failure recovery paths. Idempotent and best-effort: passing
+    /// `pid: 0` (or a stale pid) skips the qemu kill but still cleans up
+    /// the swtpm daemon and the on-disk clone + session directories.
     ///
     /// The swtpm kill uses `pgrep -f swtpm.*<tpmDir>` rather than the legacy
     /// bash pattern (`swtpm.*<cloneDir>/tpm/sock`) because that pattern
     /// never matched the path vm-start.sh actually used. The Swift port
     /// fixes that latent bug.
-    public static func stop(pid: Int, cloneDir: String) {
+    internal static func teardown(pid: Int, cloneDir: String, sessionDir: String) {
         if pid > 0 && kill(pid_t(pid), 0) == 0 {
             kill(pid_t(pid), SIGTERM)
             for _ in 0..<20 {
@@ -247,6 +276,34 @@ public enum QEMURunner {
         if FileManager.default.fileExists(atPath: cloneDir) {
             try? FileManager.default.removeItem(atPath: cloneDir)
         }
+        if FileManager.default.fileExists(atPath: sessionDir) {
+            try? FileManager.default.removeItem(atPath: sessionDir)
+        }
+    }
+
+    // MARK: - Path staging
+
+    /// Per-VM short-path session directory under `$TMPDIR` for AF_UNIX
+    /// sockets that must fit in macOS's 104-byte `sun_path` limit.
+    ///
+    /// Apple-platform `$TMPDIR` is per-user (e.g. `/var/folders/.../T/`)
+    /// which gives us isolation without depending on `/tmp` semantics.
+    /// Falls back to `/tmp` when the env var is unset (CI containers,
+    /// scrubbed shells). The naming convention `testanyware-<id>` makes
+    /// the path derivable from just the VM id, so cleanup needs no
+    /// sentinel file.
+    public static func sessionDir(forID id: String) -> String {
+        return "\(tmpDir())/testanyware-\(id)"
+    }
+
+    /// Resolve `$TMPDIR` with a `/tmp` fallback. Trims any trailing slash
+    /// so callers can append `/<segment>` without producing `//`.
+    private static func tmpDir() -> String {
+        let raw = ProcessInfo.processInfo.environment["TMPDIR"] ?? "/tmp"
+        if raw.hasSuffix("/") && raw.count > 1 {
+            return String(raw.dropLast())
+        }
+        return raw
     }
 
     // MARK: - Delete

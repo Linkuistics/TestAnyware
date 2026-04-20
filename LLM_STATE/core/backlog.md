@@ -11,7 +11,7 @@ as they land.
 
 ### 12. QEMURunner swtpm socket path exceeds macOS sun_path limit [bug]
 
-**Status:** not_started
+**Status:** done
 **Dependencies:** none
 **Description:** `QEMURunner.start` composes the swtpm control socket as
 `<HOME>/.local/share/testanyware/clones/<id>/<id>-tpm/swtpm-sock`. For the
@@ -40,7 +40,14 @@ Option 1 gives the most headroom; option 3 is the smallest diff. Blocks
 `startStopRoundTripWindows` and `qemuMonitorDiscoversAgentPort` integration
 tests (270/272 pass baseline — these are the 2 failing). Surfaced
 2026-04-19 during Task 3 P5 verification.
-**Results:** _pending_
+**Results:** Resolved 2026-04-20 by `fix(qemu): stage swtpm+monitor sockets under $TMPDIR (sun_path limit)`
+— option 1 (TMPDIR staging) implemented, plus shared teardown helper for
+start-failure parity with `stop()`, plus a CRLF parser fix surfaced once
+the swtpm wall came down. Both previously-failing integration tests pass;
+manual `vm-start.sh --platform windows` smoke produced a running VM with
+both sockets in `${TMPDIR}/testanyware-<id>/`, a non-zero screenshot, and
+clean `vm-stop` teardown (no qemu/swtpm orphans). See decisions.md for
+the full rationale.
 
 ### 4. Disable SSH in macOS and Linux golden images [feature]
 

@@ -101,8 +101,15 @@ public struct QEMUMonitorClient: Sendable {
     /// `HOST_FORWARD` row wins; our QEMU invocations only ever declare one.
     ///
     /// Expected row: `TCP[HOST_FORWARD]  <fd>  *  <host_port>  <guest>  ...`
+    ///
+    /// Splits on `Character.isNewline` (not the literal `"\n"`) because
+    /// QEMU monitor responses use CRLF line endings, and Swift's
+    /// `Character` is a grapheme cluster — `\r\n` is a single `Character`,
+    /// so `split(separator: "\n")` collapses the whole response into one
+    /// logical line and the field-index parse fails. Surfaced via the
+    /// Windows VM start smoke after the swtpm `sun_path` fix.
     public static func parseAgentPort(infoUsernet: String) -> Int? {
-        for line in infoUsernet.split(separator: "\n") {
+        for line in infoUsernet.split(whereSeparator: { $0.isNewline }) {
             guard line.contains("HOST_FORWARD") else { continue }
             let fields = line.split(separator: " ", omittingEmptySubsequences: true)
             if fields.count >= 4, let port = Int(fields[3]) {

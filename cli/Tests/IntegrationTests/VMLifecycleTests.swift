@@ -290,7 +290,10 @@ struct VMLifecycleQEMUTests {
         #expect((artifacts.agentPort ?? 0) > 0)
         #expect(artifacts.vncPort > 0)
 
-        let client = QEMUMonitorClient(socketPath: "\(artifacts.cloneDir)/monitor.sock")
+        // monitor.sock lives in the TMPDIR session dir, not the clone dir,
+        // so derive it via QEMURunner.sessionDir(forID:) — backlog item 12.
+        let monitorSock = "\(QEMURunner.sessionDir(forID: id))/monitor.sock"
+        let client = QEMUMonitorClient(socketPath: monitorSock)
         let rediscovered = try await client.agentPort(attempts: 2, intervalSeconds: 0.5)
         #expect(rediscovered == artifacts.agentPort)
     }
