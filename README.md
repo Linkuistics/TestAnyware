@@ -553,7 +553,7 @@ cases have moved to [`docs/user/troubleshooting.md`](docs/user/troubleshooting.m
   /plans/TestAnyware-Unification.plan.md
   /prompts/TestAnyware-Unification.prompt.md
 
-/LLM_STATE                   # Raveloop plan state (session memory & learnings)
+/LLM_STATE                   # Ravel-Lite plan state (session memory & learnings)
   /core/                     #   general backlog
   /vision-pipeline/          #   OCR/matching insights
   /ocr-accuracy/             #   coordinate fixes, filter ordering

@@ -89,6 +89,6 @@ correctly into both the VNC framebuffer and local `scrot`. The
 `--no-sandbox` flag is only needed if `chrome-sandbox` is not
 suid-root (AppImage extraction drops the suid bit; restore it with
 `sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox`
-and drop `--no-sandbox`). First observed during the Mnemosyne
+and drop `--no-sandbox`). First observed during the Ravel
 Obsidian symlink validation spike (2026-04-13); same symptom
 expected for any Chromium-derived app.
