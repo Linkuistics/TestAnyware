@@ -1,1 +1,97 @@
 # Session Log
+
+## Session 2 (2026-04-20) — Milestones 6, 7, 8, 9 complete; unification shipped
+
+Resumed from "M1-5 complete; next is M6" (per plan Execution Log Session 1
+entry, 2026-04-19).
+
+### What landed
+
+- **M6 (integration tests)** — Gate 6 PASS:
+  - 6.1 macOS smoke: PASS after fixing argv[0] PATH bug surfaced by the
+    smoke (commit `ea048c6` — `Bundle.main.executablePath` replaces
+    `argv[0]+CWD` join in `ServerClient` and OCR resolver).
+  - 6.2 Linux smoke: PASS first try.
+  - 6.3 Windows smoke: PASS after fixing backlog item 12 (commit
+    `5a1017f` — swtpm + monitor sockets staged under `$TMPDIR` to clear
+    the macOS `sun_path` 104-byte limit; `QEMURunner.start` failure
+    path hardened to use the same teardown helper as `stop`).
+  - 6.4 Swift IntegrationTests: 21/21 PASS in 84s, including the two
+    previously-failing tests (`startStopRoundTripWindows`,
+    `qemuMonitorDiscoversAgentPort`) that backlog item 12 had blocked.
+    Unit suite now 261 (was 251 + 10 new across the two fixes).
+  - 6.5 Vision integration: vacuous PASS — the only
+    `@pytest.mark.integration` test is a `pytest.skip(...)` stub from
+    the window-detection plan. `--import-mode=importlib` still required
+    at the CLI; addopts not yet wired (deferred from M3, deferred again).
+
+- **M7 (downstream rewrites)** — Gate 7 PASS:
+  - Inventory at `0-docs/designs/TestAnyware-Unification.rename-inventory.md`
+    (was mirrored at `TestAnyware/0-docs/designs/` in commit `ce26e08`,
+    then the duplicate was removed in `830f17c` along with the rest of
+    the duplicated 0-docs copy — single canonical home is the root
+    `~/Development/0-docs/`).
+  - Per-project rewrites: 4 commits across 4 git repos
+    (APIAnyware-MacOS `7181ff6`, Ravel `41642f5`, www.linkuistics.com
+    `45ba04d`, Modaliser-Racket `4da021f` — included `git mv` of
+    `spec/guivision-sdk/` → `spec/testanyware-sdk/` and the two
+    `test-guivision-{agent,exec}.rkt` test files). 53 files modified
+    total. The 0-docs unification trio (design, plan, prompt) frozen
+    intentionally — they are the historical record of the rename.
+  - T7.4 spot-check: Modaliser-Racket end-to-end live VM run passed
+    20/20 rackunit + 4/4 default-runner SDK calls.
+
+- **M8 (GitHub ops)** — Gate 8 PASS:
+  - Local clean, gh authenticated as `Linkuistics` org admin.
+  - Discovery: `Linkuistics/GUIVisionPipeline` was never on GitHub (or
+    already deleted) — so M8 destruction list reduced from 5 to 4 repos.
+  - Deleted `Linkuistics/TestAnyware` v1, created the new
+    `Linkuistics/TestAnyware` from this monorepo (`gh repo create
+    --source=. --push`), then deleted the other three:
+    `GUIVisionVMDriver`, `Redraw`, `TestAnywareRedux`. Each deletion
+    user-confirmed. Org clean of legacy repos.
+  - `git remote -v` → `origin = https://github.com/Linkuistics/TestAnyware.git`,
+    `main` tracking `origin/main`.
+
+- **M9 (final cleanup)** — Gate 9 PASS (this entry):
+  - Pre-deletion sanity: CLI works, debug build green, no live code
+    references to `_archive/` outside one TODO docstring at
+    `vision/stages/drawing-primitives/src/drawing_primitives/font.py`
+    (rewritten in commit `f3869cf` to drop the absolute path before
+    archive deletion).
+  - User-confirmed `rm -rf /Users/antony/Development/_archive/`
+    (~19 GB reclaimed: GUIVisionVMDriver 9.0G, TestAnyware-v1 4.0G,
+    TestAnywareRedux 3.8G, Redraw 1.4G, GUIVisionPipeline 853M).
+  - Mid-session, user manually committed `830f17c` cleaning up the
+    duplicated `TestAnyware/0-docs/` copies and applying two stale
+    Mnemosyne→Ravel rewrites in `README.md` + `docs/user/troubleshooting.md`.
+  - This commit closes out the plan.
+
+### Backlog deltas this session
+
+- **Item 12 (swtpm sun_path):** **resolved** by `5a1017f`. Status flipped
+  to `done` in `LLM_STATE/core/backlog.md`.
+- **No new backlog items added** despite three deferrals worth tracking:
+  vision pyproject `--import-mode=importlib` addopt; vision integration
+  test stub fleshing out; Modaliser-Racket SDK staleness against current
+  CLI subcommand paths (`gv-health`, `gv-ax-snapshot` use bare commands
+  where the CLI now expects `agent <subcommand>`). All three pre-date
+  the unification.
+
+### Final state
+
+- `~/Development/TestAnyware/` is the unified monorepo, builds, tests,
+  smoke-tests across all three guest platforms, and now lives at
+  `https://github.com/Linkuistics/TestAnyware`.
+- `~/Development/_archive/` removed.
+- `https://github.com/Linkuistics/` clean of the five old repos
+  (4 deleted this session, GUIVisionPipeline never existed).
+- No residual `guivision` / `GUIVisionVMDriver` / `GUIVISION_*`
+  references in any active downstream project — only the four frozen
+  0-docs unification files (design, plan, prompt, rename-inventory),
+  the four historical website project pages with banner redirects,
+  the intentional "(formerly …)" annotations in three READMEs and one
+  migration spec, and the dated session-log entries that
+  `LLM_STATE/core/decisions.md` notes are preserved by design.
+- Ravel `LLM_STATE/` is consistent with the new names and resumable
+  for the next session.
