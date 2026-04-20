@@ -5,8 +5,9 @@ the font-reference data from Redraw's ``training/fonts/`` along with the
 SSIM pipeline in ``redraw/tier3/font_matcher.py``. Porting that is
 deferred to a later milestone.
 
-TODO(task-2f.2): port ``/Users/antony/Development/_archive/Redraw/python/redraw/tier3/font_matcher.py``
-and vendor the Redraw font reference db.
+TODO(task-2f.2): port the SSIM font matcher from the original Redraw repo
+(``redraw/python/redraw/tier3/font_matcher.py`` in pre-unification git
+history) and vendor the Redraw font reference db under ``training/fonts/``.
 """
 
 from __future__ import annotations
