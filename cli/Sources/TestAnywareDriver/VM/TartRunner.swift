@@ -196,10 +196,13 @@ public enum TartRunner {
             guard FileManager.default.fileExists(atPath: specPath) else { return entry }
             let spec = try? VMSpec.load(from: specPath)
             let meta = try? VMMeta.load(from: paths.metaPath(forID: entry.name))
+            let platform = entry.platform == "unknown"
+                ? (spec?.platform.rawValue ?? entry.platform)
+                : entry.platform
             return VMListEntry(
                 kind: entry.kind,
                 name: entry.name,
-                platform: entry.platform,
+                platform: platform,
                 backend: entry.backend,
                 sizeGB: entry.sizeGB,
                 agent: entry.agent ?? spec?.agent.map { "agent=\($0.host):\($0.port)" },

@@ -303,9 +303,60 @@ struct TartRunnerTests {
         let enriched = try #require(
             TartRunner.enrichRunningFromSidecar(entries: [bare], paths: paths).first
         )
+        #expect(enriched.platform == "macos")
         #expect(enriched.agent == "agent=192.168.64.10:8648")
         #expect(enriched.vnc == "vnc=127.0.0.1:59100")
         #expect(enriched.pid == 7777)
+    }
+
+    @Test func enrichRunningFromSidecarOverwritesUnknownPlatformFromSpec() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+
+        let id = "testanyware-platform-fill"
+        try writeSpec(
+            VMSpec(
+                vnc: VNCSpec(host: "127.0.0.1", port: 5901, password: nil),
+                agent: AgentSpec(host: "10.0.0.5", port: 8648),
+                platform: .linux,
+                ssh: nil
+            ),
+            forID: id,
+            paths: paths
+        )
+
+        let bare = VMListEntry(
+            kind: .running, name: id, platform: "unknown", backend: "tart"
+        )
+        let enriched = try #require(
+            TartRunner.enrichRunningFromSidecar(entries: [bare], paths: paths).first
+        )
+        #expect(enriched.platform == "linux")
+    }
+
+    @Test func enrichRunningFromSidecarPreservesExplicitPlatform() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+
+        let id = "testanyware-explicit-platform"
+        try writeSpec(
+            VMSpec(
+                vnc: VNCSpec(host: "127.0.0.1", port: 5901, password: nil),
+                agent: AgentSpec(host: "10.0.0.5", port: 8648),
+                platform: .linux,
+                ssh: nil
+            ),
+            forID: id,
+            paths: paths
+        )
+
+        let preset = VMListEntry(
+            kind: .running, name: id, platform: "macos", backend: "tart"
+        )
+        let enriched = try #require(
+            TartRunner.enrichRunningFromSidecar(entries: [preset], paths: paths).first
+        )
+        #expect(enriched.platform == "macos")
     }
 
     @Test func enrichRunningFromSidecarLeavesGoldensUntouched() throws {
