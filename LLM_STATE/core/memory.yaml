@@ -67,10 +67,6 @@ entries:
   title: FindTextCommand delegates OCR to server
   body: |
     `FindTextCommand` calls the server's `/ocr` endpoint rather than Vision.framework in-process. The command has no platform-specific code; OCR platform selection happens entirely in `TestAnywareServer`.
-- id: connectionspec-namedspecpath-duplicates-vmpaths-logic
-  title: ConnectionSpec.namedSpecPath duplicates VMPaths logic
-  body: |
-    `ConnectionSpec.namedSpecPath(for:)` and `VMPaths` both compute named-spec paths under the XDG state directory. Consolidation is deferred; changing one without the other will create drift.
 - id: vm-spec-meta-writers-use-temp-file-chmod-0600-replaceitemat
   title: VM spec/meta writers use temp-file, chmod 0600, replaceItemAt
   body: |
@@ -218,7 +214,7 @@ entries:
 - id: unifiedrole-swift-is-duplicated-both-copies-must-stay-in-sync
   title: UnifiedRole.swift is duplicated; both copies must stay in sync
   body: |
-    `UnifiedRole.swift` exists in both the CLI target and the agent-side target. Adding or removing a `UnifiedRole` case requires updating both files; `UnifiedRoleTests` checks `allCases.count` and will fail with a stale expected value if only one copy is updated.
+    `UnifiedRole.swift` exists in both the CLI target and the agent-side target. Adding or removing a `UnifiedRole` case requires updating both files. `TestAnywareAgentProtocolTests` checks all six files in the `TestAnywareAgentProtocol` module for byte-level identity and will fail if either copy diverges. The shared-module approach was rejected because `agents/macos/Package.swift` forbids path-dependencies on `cli/`.
 - id: qemumonitorclient-speaks-hmp-via-nc-u-not-nwconnection
   title: QEMUMonitorClient speaks HMP via nc -U, not NWConnection
   body: |
@@ -251,3 +247,7 @@ entries:
   title: /usr/local/bin/testanyware symlink requires manual rebuild
   body: |
     `/usr/local/bin/testanyware` is a symlink to a specific `swift build -c release` output artifact. Commits to the repo are not reflected until the binary is rebuilt (`swift build -c release`) and the symlink updated. A discrepancy between `swift test` results and live `testanyware` behavior indicates a stale symlink.
+- id: enrichrunningfromsidecar-covers-tart-and-qemu-platform-column-not-yet-enriched
+  title: enrichRunningFromSidecar covers tart and QEMU; platform column not yet enriched
+  body: |
+    `enrichRunningFromSidecar` is platform-agnostic: it enriches tart running entries (via vm list) and QEMU running entries (via `QEMURunner.scanClonesDir`). It populates `agent`, `vnc`, and `pid` columns from spec sidecars. The `platform` column still reports `"unknown"` for prefixed running VMs; open follow-up is to overwrite `platform` from `spec.platform` when the current value is `"unknown"`.
