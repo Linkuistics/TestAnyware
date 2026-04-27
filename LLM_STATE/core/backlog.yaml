@@ -231,38 +231,3 @@ tasks:
     7. README install instructions update.
 
     Needs brainstorm + plan before execution.
-- id: vm-start-with-platform-linux-id-non-prefix-previously-started-macos
-  title: vm start with --platform linux + --id <non-prefix> previously started macOS
-  category: bug
-  status: done
-  dependencies: []
-  description: |
-    User reported (2026-04-27): `testanyware vm start --platform linux --id XX` started a macOS VM instead of a Linux one whenever `XX` collided with an existing tart catalog entry that was a macOS clone. Without `--id` (auto-generated `testanyware-<hex>`) it correctly started Linux because the freshly-generated id never collided.
-
-    Root cause: pre-fix `VMLifecycle.tartVMExists` went through `TartRunner.runList` → `parseList`, which filters tart's catalog to `testanyware-golden-*` names plus `testanyware-*` names that are *running*. Non-prefix ids and stopped testanyware-prefix clones were both invisible to lifecycle collision detection, so `removeExisting` was skipped and `tart clone` raced against an existing entry.
-
-    The fix landed in commit ad35897 ("Fix VM lifecycle blind spot for non-prefixed tart IDs"): added `TartRunner.parseAllVMNames` / `vmExists` (unfiltered name-only catalog query), and pointed `VMLifecycle.tartVMExists` plus the stop tart branch at it. Three unit tests cover `parseAllVMNames` directly.
-
-    The bug surfaced again because `/usr/local/bin/testanyware` was symlinked to a pre-fix release binary (built 16:42, fix landed 19:08); any `vm start` invocation against the stale symlink was still running the old code. Rebuilding `cli/.build/release/testanyware` puts the fix into the path the user invokes.
-  results: |
-    **Outcome:** verified resolved by commit ad35897 (already on `main`); no source code change needed. The user-reported symptom on 2026-04-27 came from a stale release symlink, not a remaining defect.
-
-    **Investigation:** traced the `vm start` path top-down — `VMCommand.Start.run` → `VMStartOptions.init` → `VMLifecycle.startTart` → `tartVMExists` → `TartRunner.removeExisting` → `TartRunner.clone`. Confirmed `--platform linux --id XX` carries `Platform.linux` through unchanged; `options.base` resolves to `testanyware-golden-linux-24.04` via `Platform.defaultBase`; the only platform-sensitive routing is `Platform.backend` (linux → tart). The pre-fix bug was confined to `tartVMExists`: it ran through `TartRunner.runList` → `parseList`, which filters tart's catalog to `testanyware-golden-*` plus *running* `testanyware-*` clones. Non-prefix ids were invisible, so `removeExisting` was skipped on the collision branch.
-
-    Probed `tart` directly to learn that `tart clone src dst` over an existing **stopped** dst silently overwrites (exit 0, disk replaced) — verified by re-cloning `mini-browser-test` (50G macOS) from the linux golden and observing `disk.img` shrink to 20G with `config.json` flipping `"os": "linux"`. So the pre-fix bug only manifested when the existing non-prefix entry was *running* at the moment of `vm start`, in which case `tart clone` raced with the live VM and the user observed the original macOS VM continuing.
-
-    **End-to-end verification with the post-fix binary:**
-    1. `tart clone testanyware-golden-macos-tahoe tbug` → `~/.tart/vms/tbug/config.json` had `"os": "darwin"`, 50 GB disk.
-    2. `testanyware vm start --platform linux --id tbug` → stderr emitted `Stopping existing VM 'tbug'...` (proves the post-fix `vmExists` saw `tbug` despite the non-prefix name), then `Cloning testanyware-golden-linux-24.04 → tbug...`, then booted to ready state.
-    3. Wrote `/Users/antony/.local/state/testanyware/vms/tbug.json` with `"platform": "linux"` and a working agent endpoint `192.168.64.4:8648`. Linux VMs run a Python `http.server` agent; the macOS VM runs Swift Hummingbird on a different code path. Successful agent ready handshake on port 8648 is independent confirmation that the disk is the linux clone, not residual macOS content.
-    4. `testanyware vm stop tbug` cleaned up cleanly.
-
-    **Why the user saw "still":** at session start `/usr/local/bin/testanyware` symlinked to `cli/.build/release/testanyware` built `27 Apr 16:42`; the fix commit ad35897 landed at `27 Apr 19:08`. So any `vm start` invocation between 19:08 and a `swift build -c release` rerun was still executing the pre-fix `tartVMExists`. I rebuilt during this work-phase (release binary now `27 Apr 19:21`), so the symlinked path now has the fix.
-
-    **Test coverage:** the fix already ships three unit tests on `TartRunner.parseAllVMNames`. Ran `swift test --package-path cli --filter TartRunnerTests` → 16/16 passed, including the three regression tests for the unfiltered name query. Did not add a new integration test — the existing pattern covers `--platform linux` round-trip with prefixed ids, the unit tests cover the catalog-query primitive, and a non-prefix-id integration test would require pre-creating a macOS clone (~30 s of setup per run) without buying coverage that isn't already pinned by the unit layer.
-
-    **Side effects of the investigation to flag:**
-    - Existing tart catalog entry `mini-browser-test` was 50 GB / macOS at session start; my direct `tart clone` probe overwrote it to a 20 GB Linux clone. Last access before the probe was `1 week ago`, so it appeared stale, but the user should know the disk content changed.
-    - `~/.local/state/testanyware/vms/` accumulated several `*.tart.log` files from prior runs (testanyware-prefixed and `tbug`). Spec/meta were correctly cleaned up by `vm stop`; only the log files remain. Consider whether `VMLifecycle.stop` should also remove the per-id log file — minor housekeeping, not part of this bug.
-
-    **Suggested follow-up (not in scope of this task):** the pre-fix bug had a second lurking symptom even with `--id testanyware-prefix`: `parseList`'s `state == "running"` filter meant a stopped testanyware-prefix clone left over from a previous session was equally invisible to `tartVMExists`. The same fix (`vmExists` → `parseAllVMNames`) cures both, so no extra work is needed; just noting that the blast radius of the original bug was wider than the user's report suggested.
