@@ -1,46 +1,4 @@
 tasks:
-- id: qemurunner-swtpm-socket-path-exceeds-macos-sun-path-limit
-  title: QEMURunner swtpm socket path exceeds macOS sun_path limit
-  category: bug
-  status: done
-  dependencies: []
-  description: |
-    `QEMURunner.start` composes the swtpm control socket as
-    `<HOME>/.local/share/testanyware/clones/<id>/<id>-tpm/swtpm-sock`. For the
-    integration-test clones named `testanyware-test-<hex8>` under a typical
-    `$HOME`, the absolute path is ~108–110 bytes, which exceeds macOS's
-    104-byte `struct sockaddr_un.sun_path` limit. swtpm refuses to create
-    the socket with "Path for UnioIO socket is too long" and `QEMURunner.start`
-    throws `commandFailed`. Verified to reproduce against pristine main on
-    2026-04-19 during P5 verification.
-
-    Fix options (in order of preference):
-    1. Stage the swtpm + monitor sockets under `$TMPDIR` (typically
-       `/var/folders/.../T/testanyware-<id>/`, which is longer than `/tmp` but
-       still well under 104 chars in practice) and pass QEMU the short path;
-       clone the overlay qcow2 / EFI / TPM state in the original clones dir
-       as today.
-    2. Use `/tmp/testanyware-<id>/` unconditionally — shortest possible host
-       path, simplest fix, but does not respect the per-user isolation that
-       `$TMPDIR` provides.
-    3. Shorten the inner filename and omit the `<id>-tpm` directory layer —
-       e.g. collapse to `<cloneDir>/tpm.sock`. Saves ~35 chars without
-       moving the socket; may be enough on short `$HOME` paths but still
-       fragile.
-
-    Option 1 gives the most headroom; option 3 is the smallest diff. Blocks
-    `startStopRoundTripWindows` and `qemuMonitorDiscoversAgentPort` integration
-    tests (270/272 pass baseline — these are the 2 failing). Surfaced
-    2026-04-19 during Task 3 P5 verification.
-  results: |
-    Resolved 2026-04-20 by `fix(qemu): stage swtpm+monitor sockets under $TMPDIR (sun_path limit)`
-    — option 1 (TMPDIR staging) implemented, plus shared teardown helper for
-    start-failure parity with `stop()`, plus a CRLF parser fix surfaced once
-    the swtpm wall came down. Both previously-failing integration tests pass;
-    manual `vm-start.sh --platform windows` smoke produced a running VM with
-    both sockets in `${TMPDIR}/testanyware-<id>/`, a non-zero screenshot, and
-    clean `vm-stop` teardown (no qemu/swtpm orphans). See decisions.md for
-    the full rationale.
 - id: disable-ssh-in-macos-and-linux-golden-images
   title: Disable SSH in macOS and Linux golden images
   category: feature
@@ -64,70 +22,23 @@ tasks:
     Requires a golden rebuild for macOS and Linux. Surfaced 2026-04-18 during the
     `guivision vm` refactor brainstorm. SSH wait (~11 s of ~26 s macOS start) is the
     primary motivation for doing this promptly after Task 3 P5 lands.
-- id: recordingtask-cancel-sleep-pattern-is-a-latent-sigabrt
-  title: recordingTask cancel-sleep pattern is a latent SIGABRT
-  category: bug
-  status: done
+- id: deduplicate-unifiedrole-swift-across-cli-and-agent-targets
+  title: Deduplicate UnifiedRole.swift across CLI and agent targets
+  category: chore
+  status: not_started
   dependencies: []
   description: |
-    `recordingTask` in `TestAnywareServer` cancels a sleeping `Task` from
-    a different executor — the exact pattern that caused the idle-timer `swift_task_dealloc`
-    LIFO-violation SIGABRT fixed in Task 7. Cancelling `Task.sleep(for: Duration)` from a
-    different executor in optimised builds triggers the crash. The fix pattern is already
-    established: replace cancel-then-recreate with a monotonic epoch counter — bump it to
-    invalidate in-flight sleeps; each fire-and-forget task checks epoch on wake and no-ops
-    if stale. Apply this pattern to `recordingTask` before enabling recording under load.
-    Surfaced as a latent risk during the idle-timer fix investigation on 2026-04-18.
-  results: |
-    Resolved 2026-04-27 by applying the established epoch-counter pattern to
-    `recordingTask` in `cli/Sources/TestAnywareDriver/Server/TestAnywareServer.swift`,
-    mirroring the `idleTimerEpoch` fix landed in Task 7.
-
-    **Changes**
-    - Added `recordingEpoch: UInt64 = 0` actor-isolated field, with a comment
-      cross-referencing `idleTimerEpoch` and the `swift_task_dealloc` SIGABRT
-      rationale.
-    - `handleRecordStart` now bumps `recordingEpoch` and captures `myEpoch`
-      before launching the detached recording loop. The loop's exit condition
-      is `while ContinuousClock.now < deadline { guard await
-      captureSelf.isRecordingEpochCurrent(myEpoch) else { break } ... }` —
-      replacing the prior `Task.isCancelled` check.
-    - `finishRecording()` and `shutdown()` both bump `recordingEpoch` instead
-      of calling `recordingTask?.cancel()`. `recordingTask` is still nil-ed
-      out for the "is recording active?" guard in `handleRecordStart`, but
-      the strong reference is no longer used to terminate the loop.
-    - Added `fileprivate func isRecordingEpochCurrent(_ epoch: UInt64) -> Bool`
-      for the detached task to read the current epoch via the actor.
-
-    **Verification**
-    - `swift build` (debug): clean.
-    - `swift build -c release`: clean — release/-O is the configuration where
-      the underlying SIGABRT only manifests, so a clean optimised compile
-      matters here.
-    - `swift test --skip Integration`: 261/261 tests pass across 24 suites,
-      including `Server.recordStopReturnsOK` (the one existing recording-path
-      test, which still hits the no-recording-active branch as before) and
-      the two `idleTimer*` tests that exercise the same epoch-counter
-      primitive on the sibling field.
-    - No new tests added: the SIGABRT only fires under cross-executor
-      cancellation in optimised builds with specific timing — not a
-      deterministic unit-test target. The fix is structural (delete the
-      `.cancel()` call sites) and follows a pattern already validated once
-      in this same file.
-
-    **Suggests next**
-    - The same crash class is now fully purged from `TestAnywareServer`. Any
-      future `Task.detached` loop in this actor should use the same epoch
-      pattern by default — worth recording in memory so it is the established
-      idiom rather than a special case.
-    - The detached recording loop now takes up to one frame interval (~33 ms
-      at 30 fps) to observe a stop request, where the previous cancel was
-      immediate. Acceptable for a recorder, but worth noting if a
-      latency-sensitive caller appears.
-    - `Deduplicate UnifiedRole.swift across CLI and agent targets` and
-      `Disable SSH in macOS and Linux golden images` are the next two pure-
-      Swift / golden-build items in the core backlog and have no remaining
-      blockers.
+    `UnifiedRole.swift` exists in both the CLI target and the agent-side
+    target and must be kept byte-for-byte identical. Adding or removing a `UnifiedRole`
+    case requires updating both copies; `UnifiedRoleTests` checks `allCases.count` and
+    will fail with a stale expected value if only one copy is updated. The test acts as a
+    guard but the duplication remains a maintenance burden — divergence can go undetected
+    between case additions. Fix options:
+    - Move `UnifiedRole.swift` into a shared framework/module target both targets link.
+    - Generate the file once and copy as a pre-build step.
+    - At minimum, add a lint rule / CI check that asserts the two files are identical.
+    The shared-module option aligns best with the existing library structure but requires
+    a target restructure. Surfaced 2026-04-19 during P4 code review.
 - id: input-click-window-reports-vnc-click-40px-below-target-on-tahoe
   title: '`input click --window` reports VNC click ~40px below target on Tahoe'
   category: bug
@@ -185,23 +96,6 @@ tasks:
 
     Requires a golden rebuild for Tahoe once the correct grant is identified. Surfaced
     2026-04-18 during Note Editor verification.
-- id: deduplicate-unifiedrole-swift-across-cli-and-agent-targets
-  title: Deduplicate UnifiedRole.swift across CLI and agent targets
-  category: chore
-  status: not_started
-  dependencies: []
-  description: |
-    `UnifiedRole.swift` exists in both the CLI target and the agent-side
-    target and must be kept byte-for-byte identical. Adding or removing a `UnifiedRole`
-    case requires updating both copies; `UnifiedRoleTests` checks `allCases.count` and
-    will fail with a stale expected value if only one copy is updated. The test acts as a
-    guard but the duplication remains a maintenance burden — divergence can go undetected
-    between case additions. Fix options:
-    - Move `UnifiedRole.swift` into a shared framework/module target both targets link.
-    - Generate the file once and copy as a pre-build step.
-    - At minimum, add a lint rule / CI check that asserts the two files are identical.
-    The shared-module option aligns best with the existing library structure but requires
-    a target restructure. Surfaced 2026-04-19 during P4 code review.
 - id: menu-bar-drill-down-snapshot-only-surfaces-top-level-items
   title: 'Menu bar drill-down: snapshot only surfaces top-level items'
   category: feature
