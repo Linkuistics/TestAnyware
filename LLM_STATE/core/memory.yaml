@@ -36,9 +36,9 @@ entries:
   body: |
     `TestAnywareServer` sends `/ocr` to `Vision.framework` in-process on macOS. On Linux and Windows it uses `OCRChildBridge`, a stdin/stdout JSON protocol to a Python EasyOCR daemon started with `--daemon`. Set `TESTANYWARE_OCR_FALLBACK=1` to force the bridge path on macOS.
 - id: exec-fix-works-for-long-running-commands-in-vm
-  title: exec fix works for long-running commands in-VM
+  title: exec handles long-running VM commands correctly
   body: |
-    Long-running commands (e.g. package installs) exit cleanly with correct exit codes. Verified via `scp` + `launchctl unload/load` against a running tart VM — no golden rebuild needed for exec-only verification.
+    Long-running commands (e.g. package installs) exit cleanly with correct exit codes. No golden rebuild is needed for exec-only verification; scp + launchctl unload/load against a running tart VM suffices.
 - id: agent-hot-swap-does-not-re-grant-tcc-accessibility
   title: Agent hot-swap does not re-grant TCC accessibility
   body: |
@@ -46,7 +46,7 @@ entries:
 - id: vm-start-sh-writes-xdg-compliant-connect-spec-per-vm
   title: vm-start.sh writes XDG-compliant connect spec per VM
   body: |
-    `vm-start.sh` writes spec + meta sidecar under `$XDG_STATE_HOME/testanyware/vms/<id>/`; `vm-stop.sh` removes it. Per-VM storage replaces the former single `~/.testanyware/connect.json` that was clobbered by a second `vm-start.sh`.
+    vm-start.sh writes spec + meta sidecar under $XDG_STATE_HOME/testanyware/vms/<id>/; vm-stop.sh removes it. Each VM gets its own directory; concurrent vm-start.sh runs are safe.
 - id: vm-ids-use-testanyware-hex8-format
   title: VM ids use testanyware-<hex8> format
   body: |
@@ -98,7 +98,7 @@ entries:
 - id: vmtypes-swift-extends-platform-instead-of-defining-vmplatform
   title: VMTypes.swift extends Platform instead of defining VMPlatform
   body: |
-    VM lifecycle code uses the existing `Platform` enum, extended in `VM/VMTypes.swift` with `defaultBase: String` and `backend: VMBackend` properties. No separate `VMPlatform` type exists — the plan's sketch of `VMPlatform` was superseded to match the same "no parallel wrapper types" precedent that governs VMSpec. Downstream plan text referring to `VMPlatform(rawValue:)` should be read as `Platform(rawValue:)`.
+    Platform enum (in VM/VMTypes.swift) has defaultBase: String and backend: VMBackend properties. No VMPlatform type exists; plan text using VMPlatform(rawValue:) should be read as Platform(rawValue:).
 - id: ocrchildbridge-tempfilecleanedupaftercall-is-flaky-under-parallel-tests
   title: OCRChildBridge tempFileCleanedUpAfterCall is flaky under parallel tests
   body: |
@@ -118,11 +118,11 @@ entries:
 - id: vm-list-calls-tartrunner-runlist-once-and-partitions
   title: vm list calls TartRunner.runList once and partitions
   body: |
-    `VMCommand.List.run()` invokes `TartRunner.runList()` once and partitions the returned `[VMListEntry]` into goldens/running by `kind`. The plan sketch showed two separate calls; the single call avoids a redundant `tart list --format json` subprocess. Do not revert.
+    VMCommand.List.run() calls TartRunner.runList() once, partitioning [VMListEntry] into goldens/running by kind. One call is deliberate — two calls would run a redundant tart list --format json subprocess.
 - id: vm-list-start-stop-delete-sh-are-thin-exec-wrappers
   title: vm-list/start/stop/delete.sh are thin exec wrappers
   body: |
-    `vm-list.sh`, `vm-start.sh`, `vm-stop.sh`, and `vm-delete.sh` all `exec testanyware vm <subcommand> "$@"`. The bash implementations are gone; logic lives in `VM/QEMURunner.swift`, `VM/TartRunner.swift`, and `VM/VMListFormatter.swift`. Column-width parity preserved so existing grep/awk consumers still work.
+    vm-list.sh, vm-start.sh, vm-stop.sh, and vm-delete.sh each exec testanyware vm <subcommand> "$@". Logic lives in VM/QEMURunner.swift, TartRunner.swift, and VMListFormatter.swift. Column-width parity is preserved for grep/awk consumers.
 - id: task-sleep-cross-executor-cancel-crashes-in-o-builds
   title: Task.sleep cross-executor cancel crashes in -O builds
   body: |
@@ -166,7 +166,7 @@ entries:
 - id: testhealthserver-uses-raw-bsd-sockets
   title: TestHealthServer uses raw BSD sockets
   body: |
-    `TestHealthServer` in `AgentHealthWaiterTests.swift` binds and accepts connections using BSD socket calls directly (no `URLSession` or `NWListener`). Pattern for serving minimal HTTP responses in tests without introducing framework-level dependencies.
+    TestHealthServer (AgentHealthWaiterTests.swift) binds and accepts connections via BSD socket calls directly, without URLSession or NWListener.
 - id: kill-pid-0-probes-pid-ownership-before-sigterm
   title: kill(pid, 0) probes pid ownership before SIGTERM
   body: |
@@ -198,7 +198,7 @@ entries:
 - id: ax-walker-descends-through-nsstackview-correctly
   title: AX walker descends through NSStackView correctly
   body: |
-    `AXElementWrapper` traverses NSStackView children without barriers. Anonymous `NSTextField` instances inside NSStackView lack AX labels; `label()` falls through to `kAXPlaceholderValueAttribute` when both title and description are empty. The unlabelled-field symptom ("Multiple elements matched") is fixed; the traversal was never the problem.
+    AXElementWrapper traverses NSStackView children without barriers. Anonymous NSTextField instances inside NSStackView lack AX labels; label() falls through to kAXPlaceholderValueAttribute when both title and description are empty.
 - id: set-value-index-is-1-based-0-returns-notfound
   title: set-value --index is 1-based; 0 returns .notFound
   body: |
@@ -230,7 +230,7 @@ entries:
 - id: swtpm-teardown-path-is-under-clone-id-tpm-not-clone-tpm
   title: swtpm teardown path is under clone/<id>-tpm, not clone/tpm
   body: |
-    `QEMURunner.stop` locates swtpm via `pgrep -f "swtpm.*<cloneDir>/<cloneName>-tpm"`. Older `vm-stop.sh` used `<cloneDir>/tpm/sock` which never matched the path `vm-start.sh` actually writes — so the bash stop path had been silently leaking an orphan swtpm process per run. The Swift port fixed this as part of the P4 migration.
+    QEMURunner.stop locates swtpm via pgrep -f "swtpm.*<cloneDir>/<cloneName>-tpm". Using <cloneDir>/tpm/sock does not match this path and leaks an orphan swtpm process per run.
 - id: swift-6-disallows-thread-sleep-in-async-contexts
   title: Swift 6 disallows Thread.sleep in async contexts
   body: |
