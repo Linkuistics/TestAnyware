@@ -205,7 +205,7 @@
 - OCR Swift CLI (`guivision-ocr`) confirmed working on real screenshots: correctly detects menu bar text (TextEdit, File, Edit, Format, View, Window, Help), toolbar labels (Helvetica, Regular, 12), window title (Untitled) with confidence=1.0
 - Fix plan written to `LLM_STATE/plan-fix-vm-ocr-generation.md` — covers readiness polling, interactions, depth/mode, and real end-to-end validation
 
-### Session 17 Bug Fixes (2026-04-09)
+### Session 17 (2026-04-09) — Bug Fixes
 - **All 4 root causes fixed** and validated with real VM generation:
   1. Replaced `time.sleep()` + `wait_for_agent()` with active readiness polling (`_wait_for_app_ready()`): polls `snapshot(window=app_name)` every 1s until elements appear, with configurable timeout (default 30s)
   2. Added `interactions` field to `AppScenario`: `type:` prefix for VNC text input, plain strings for SSH `exec_command`. Runs between captures for content diversity
@@ -223,7 +223,7 @@
 - **Removed programmatic OCR generator** (`generator.py`, `test_ocr_generator.py`): rendered Pillow text on solid backgrounds — tested a fundamentally different problem than real-world OCR. VM mode is the only generation mode. Pillow moved from OCR runtime dependency to workspace dev dependency (still needed by integration tests)
 - 470 total tests, all passing (was 474; -20 programmatic generator tests, +16 readiness/interaction tests)
 
-### Session 17 End-to-End Validation (2026-04-10)
+### Session 17 (2026-04-10) — End-to-End Validation
 - AX visibility blocker resolved — all 4 default macOS app scenarios (TextEdit, Terminal, Safari, Finder) now produce ground truth
 - **Text-content matching** implemented as a hybrid evaluation strategy:
   - `match_by_text_content()` does whole-word containment: GT "File" matches prediction "TextEdit File Edit" but "Edit" does NOT match "TextEdit" (split on whitespace, match whole words)

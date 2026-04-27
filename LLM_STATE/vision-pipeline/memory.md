@@ -1,13 +1,13 @@
 # Memory
 
-### upscale-4x is a dead preprocessing lever on every OCR engine
+## upscale-4x is a dead preprocessing lever on every OCR engine
 ocr-accuracy Session 43 re-spiked upscale-2x/4x across EasyOCR per content class. upscale-4x produced no cell with >=5pp F1 lift on any engine (Apple Vision, Tesseract, EasyOCR), with large regressions and 14-21x runtime blow-up. The only SHIP-grade preprocessing cell in the entire matrix is Linux terminal EasyOCR upscale-2x (+7.25pp F1, but at 16x runtime cost ~24.5s/sample). The orchestrator's OCR step should never default to upscale-4x and should treat upscale-2x as a targeted per-content-class override, not a global setting.
 
-### Per-content-class routing resolves via `by_app` filename conventions, not pixel detection
+## Per-content-class routing resolves via `by_app` filename conventions, not pixel detection
 ocr-accuracy Session 43 retired the gridded-monospace content detector task because the only per-content-class routing signal that cleared the ship bar (Linux terminal EasyOCR upscale-2x) can be dispatched using existing `by_app` filename conventions (`ocr_vm_<app_slug>_<NNNNN>`) parsed by `extract_app_from_sample_name()`. No pixel-level content-class detector is needed for the router. The recognition-bound hypothesis is reinforced — the remaining dense-monospace gap is not closable by any single-axis lever tested so far (engine, preprocess, line extraction).
 
-### EasyOCR subprocess cold-start is non-viable for interactive use; daemon required
+## EasyOCR subprocess cold-start is non-viable for interactive use; daemon required
 ocr-accuracy Session 44 measured EasyOCR subprocess cold-start at 4.8–5.5s per call (PyTorch import ~0.6s + EasyOCR Reader construction ~5s). Per-call subprocess dispatch is non-viable for interactive/CLI use. Warm inference (with `_easyocr_reader_cache` kept alive in a long-lived process) is 0.79s (Windows 800×600), 1.44s (Linux 800×600), 3.92s (macOS Retina-2x). The interactive CLI path requires a long-lived OCR analyzer daemon to deliver the +9–20pp F1 lift from EasyOCR without cold-start penalty. The offline/batch pipeline is unaffected (it already amortizes Reader construction across samples). `uv run` vs bare `.venv/bin/python` adds no measurable overhead — the cost is entirely Reader init.
 
-### VM operations must use vm-start.sh/vm-stop.sh scripts, not manual connect.json
+## VM operations must use vm-start.sh/vm-stop.sh scripts, not manual connect.json
 The `source scripts/macos/vm-start.sh` script handles VNC URL parsing, password extraction, environment variable setup, and connect.json creation. Manually constructing connect.json fails because: (1) VNC password is extracted from tart's VNC URL at startup and varies per run, (2) the port is dynamically assigned, (3) the VM IP changes on each clone. The generator's `--connect-json` must use the file produced by the start script workflow, not a hand-crafted one. The Bash tool runs commands in subshells so `source` doesn't persist env vars — instead, parse the start script's stdout to extract TESTANYWARE_VNC, TESTANYWARE_VNC_PASSWORD, TESTANYWARE_AGENT values and write connect.json from those.

@@ -1,6 +1,6 @@
 # Session Log
 
-## Session 2 (2026-04-20) — Milestones 6, 7, 8, 9 complete; unification shipped
+### Session 2 (2026-04-20) — Milestones 6, 7, 8, 9 complete; unification shipped
 
 Resumed from "M1-5 complete; next is M6" (per plan Execution Log Session 1
 entry, 2026-04-19).

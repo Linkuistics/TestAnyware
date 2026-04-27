@@ -1,0 +1,25 @@
+id: session-2
+timestamp: 2026-04-27T08:34:32Z
+phase: work
+body: |
+  ### Session 2 (2026-04-27T08:34:32Z) — Apply epoch-counter pattern to recordingTask
+
+  - Addressed the latent SIGABRT risk in `TestAnywareServer.recordingTask`: the
+    `Task.cancel()` + `Task.sleep()` combination on a detached task hits the same
+    Swift Concurrency runtime bug (`swift_task_dealloc` LIFO-violation) that was
+    fixed in Task 7 for the idle timer.
+  - Applied the established `idleTimerEpoch` pattern: added `recordingEpoch: UInt64`
+    actor-isolated field; `handleRecordStart` bumps and captures the epoch before
+    launching the detached loop; the loop checks `isRecordingEpochCurrent(_:)` on
+    each iteration and breaks on stale epoch; `finishRecording()` and `shutdown()`
+    bump the epoch instead of calling `recordingTask?.cancel()`.
+  - Added `fileprivate func isRecordingEpochCurrent(_ epoch: UInt64) -> Bool` for
+    the detached task to read the actor-isolated epoch safely.
+  - `recordingTask` is still nil-tested in `handleRecordStart` as the "is recording
+    active?" guard, but is no longer used to terminate the running loop.
+  - All changes confined to `cli/Sources/TestAnywareDriver/Server/TestAnywareServer.swift`.
+  - LLM_STATE files updated: backlog status flipped to done, results recorded, new
+    YAML variants of state files written by ravel-lite.
+  - What this suggests next: the `disable-ssh-in-macos-and-linux-golden-images` task
+    is a good candidate given it unblocks after Task 3 P5 and removes ~11 s from
+    macOS start time.

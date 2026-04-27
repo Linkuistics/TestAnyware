@@ -3,963 +3,1145 @@
 Iterative research to improve OCR evaluation accuracy. Each session picks a hypothesis,
 implements it, evaluates against the baseline, and updates this document with findings.
 
-## Current Baseline
+Supporting context (current baseline, per-app F1 tables, gap analysis) lives in
+`research-notes.md`.
 
-Established 2026-04-13 (Session 41) on the cached canonical datasets
-`data/ocr-vm-{macos,linux-fix,windows}/`. **Default engine: EasyOCR**
-(`OCRConfig().engine == "easyocr"`, `preprocess="none"`, `min_confidence=0.5`).
-Same-evaluator-code A/B against the backed-up Apple Vision predictions
-(`predictions-apple-vision/`) included for delta context. Replaces the stale
-Session 23 Apple-Vision-only table.
+## Tasks
 
-### Aggregate (cached A/B, EasyOCR vs pre-flip Apple Vision)
+### Re-measure matcher-layer hypotheses (Sessions 28–29) via cached A/B
 
-| Platform | Strategy | AV F1 | EasyOCR F1 | Δ F1 | EO Precision | EO Recall | EO Char |
-|---|---|---|---|---|---|---|---|
-| macOS (10 samples) | text_content | 19.00% | 38.68% | **+19.68pp** | 31.71% | 49.58% | 56.07% |
-| macOS | iou | 25.89% | 47.32% | **+21.42pp** | 39.17% | 59.75% | 51.05% |
-| Linux (10 samples) | text_content | 45.52% | 61.57% | **+16.05pp** | 63.56% | 59.70% | 41.19% |
-| Linux | iou | 8.78% | 9.80% | +1.02pp | 13.79% | 7.60% | 13.07% |
-| Windows (8 samples) | text_content | 15.24% | 24.73% | **+9.48pp** | 33.76% | 19.51% | 22.73% |
-| Windows | iou | 28.30% | 38.73% | **+10.43pp** | 59.79% | 28.64% | 24.81% |
+**Category:** `evaluation`
+**Status:** `not_started`
+**Dependencies:** none
 
-text-F1 deltas land squarely in the predicted +9 to +20pp band on every platform.
+**Description:**
 
-### Per-app text-F1 (cached A/B)
+**Priority:** medium — **demoted from high during post-Session-40 triage,
+unblocked by Session 41**. The matcher-layer verdict still feeds baseline
+refresh, but the upcoming refresh is now dominated by the EasyOCR engine
+swap (+9–20pp aggregate), which dwarfs the per-change matcher deltas.
+Verdict table is still worth producing — especially because a matcher
+change that helped Apple Vision may help, hurt, or no-op EasyOCR
+differently — but it is no longer on the critical path. Read all deltas
+through the `by_app` bucket and A/B **against the Session 41 EasyOCR
+predictions** (the Apple Vision backup at `predictions-apple-vision/` is
+available for a secondary per-engine split if any verdict is surprising,
+but EasyOCR is now the default and the forward-looking verdict is what
+matters).
 
-| Platform | App | AV F1 | EasyOCR F1 | Δ F1 | Note |
-|---|---|---|---|---|---|
-| macOS | finder | 42.23% | 53.54% | +11.30pp | |
-| macOS | safari | 19.42% | 40.63% | **+21.21pp** | proportional content lift |
-| macOS | terminal | 7.38% | 19.69% | **+12.30pp** | dense monospace; +7pp more available with upscale-2x (#19) |
-| macOS | textedit | 27.55% | 58.43% | **+30.88pp** | biggest macOS lift; AV ceiling broken |
-| Linux | firefox | 8.85% | 15.09% | +6.24pp | low-absolute; sample inspection follow-up |
-| Linux | nautilus | 68.78% | 73.63% | +4.85pp | text-only; IoU still GTK4-bound |
-| Linux | terminal | 8.22% | 26.09% | **+17.87pp** | upscale-2x reaches 33.33% (#19 follow-on) |
-| Linux | texteditor | 20.56% | 35.29% | +14.73pp | |
-| Windows | explorer | 23.14% | 27.91% | +4.77pp | |
-| Windows | notepad | 14.55% | 42.48% | **+27.93pp** | proportional editor; matches macOS textedit pattern |
-| Windows | windowsterminal | 1.50% | 1.44% | **−0.06pp** | bit-flat — generator focus bug (task #6) caps this bucket; cached predictions show Notepad content for both engines |
+**Dependency context:** cached-data A/B playbook in `memory` works for
+matcher-layer changes because predictions are invariant; no canonical snapshot
+required.
 
-### Key Remaining Gaps
+Memory flags that Sessions 24–30 deltas were dominated by VM
+content variation rather than real regression/improvement. Use the cached-data
+A/B playbook to verdict the matcher-layer subset:
+- Session 28 multi-word adjacent matching (matcher change) — check out the
+  parent commit of the change, run the evaluator against the existing
+  `data/ocr-vm-{platform}/` dirs, repeat at the child commit, compare via
+  `python -m pipeline_common.snapshot_cli compare`.
+- Session 29 center-distance spatial matching (matcher change) — same treatment.
 
-- **Linux IoU stays pinned at ~9.8%** for every engine — confirms Session 40's
-  forecast that engine choice cannot move spatial F1 off the GTK4 per-element
-  zero-coordinate noise floor. Closing this needs the GTK4 stop-gap (task #12)
-  or per-element position recovery (#13). Independent of the engine swap.
-- **Windows windowsterminal bit-flat** — generator focus bug (task #6).
-  Engine-orthogonal: cached `windowsterminal_*` predictions contain Notepad
-  text for both engines because the screenshot capture happens before Windows
-  Terminal is raised. Until #6 closes, the windowsterminal bucket is
-  uninterpretable.
-- **char-accuracy regressions on three buckets** with simultaneous F1 gains
-  (macOS textedit −2.78pp, Linux firefox −5.56pp, Linux texteditor −9.52pp):
-  EasyOCR's word segmentation splits differently than Apple Vision so per-pair
-  string-similarity drops on shared matches even though more pairs match
-  overall. F1 is the right headline; reporting char in isolation would have
-  called this a regression. **Verdict-signature rule**: F1 + precision + recall
-  is the canonical text-content verdict shape; char/word are content-class
-  diagnostics, not verdict drivers.
-- **Surprise: Windows IoU +10.43pp** broke memory's "engine choice moves IoU
-  by <5pp" rule. Apple Vision was scoring near-zero char on its Windows IoU
-  matches (5.78% char) because predictions were near-empty/garbled strings
-  whose centres happened to land near GT bbox centres; EasyOCR's Windows IoU
-  char jumped to 24.81%. The "GT coordinate problems dominate IoU" rule still
-  holds for Linux (GTK4-bound, +1.02pp); Windows is a counter-example because
-  the UIA oversized-bbox bug is *less* of a center-distance contaminator than
-  expected.
-- **macOS TextEdit Apple Vision ceiling broken**: char_accuracy 82.41% was the
-  Session 35 "Apple Vision sparse-proportional ceiling" — not actually a
-  content-class ceiling, just an Apple Vision recognition ceiling. EasyOCR
-  matches it on char (79.63%) but **more than doubles F1** (27.55% → 58.43%).
-  The framing in memory's "textedit char 0.8241" entry is now retired.
-- **GTK4 per-element coordinate gap** (Session 39 diagnosis) and the
-  **Windows windowsterminal focus bug** (Session 36) remain the only two
-  structural blockers that no engine swap can fix. Both have dedicated tasks
-  (#12, #6). Everything else is now downstream of the engine flip.
+Expected outputs: a keep/revert/no-signal verdict per change, **per-app** not
+just aggregate (Session 33 taught us aggregate verdicts can hide single-app
+wins). Scope-limited to matcher changes; GT-additions from Sessions 24–26 and
+the Session 30 AT-SPI agent fix are split out below.
 
-## Task Backlog
+**Results:** _pending_
 
-### Re-measure matcher-layer hypotheses (Sessions 28–29) via cached A/B `[evaluation]`
-- **Status:** not_started
-- **Dependencies:** none — cached-data A/B playbook in memory.md works for
-  matcher-layer changes because predictions are invariant. No canonical snapshot
-  required.
-- **Priority:** medium — **demoted from high during post-Session-40 triage,
-  unblocked by Session 41**. The matcher-layer verdict still feeds baseline
-  refresh, but the upcoming refresh is now dominated by the EasyOCR engine
-  swap (+9–20pp aggregate), which dwarfs the per-change matcher deltas.
-  Verdict table is still worth producing — especially because a matcher
-  change that helped Apple Vision may help, hurt, or no-op EasyOCR
-  differently — but it is no longer on the critical path. Read all deltas
-  through the `by_app` bucket and A/B **against the Session 41 EasyOCR
-  predictions** (the Apple Vision backup at `predictions-apple-vision/`
-  is available for a secondary per-engine split if any verdict is
-  surprising, but EasyOCR is now the default and the forward-looking
-  verdict is what matters).
-- **Description:** Memory flags that Sessions 24–30 deltas were dominated by VM
-  content variation rather than real regression/improvement. Use the cached-data
-  A/B playbook to verdict the matcher-layer subset:
-  - Session 28 multi-word adjacent matching (matcher change) — check out the
-    parent commit of the change, run the evaluator against the existing
-    `data/ocr-vm-{platform}/` dirs, repeat at the child commit, compare via
-    `python -m pipeline_common.snapshot_cli compare`.
-  - Session 29 center-distance spatial matching (matcher change) — same treatment.
-  Expected outputs: a keep/revert/no-signal verdict per change, **per-app** not
-  just aggregate (Session 33 taught us aggregate verdicts can hide single-app
-  wins). Scope-limited to matcher changes; GT-additions from Sessions 24–26 and
-  the Session 30 AT-SPI agent fix are split out below.
-- **Results:** _pending_
+---
 
-### Re-measure GT-addition hypotheses (Sessions 24–26) via cached + reconstruction A/B `[evaluation]`
-- **Status:** not_started
-- **Dependencies:** none — Session 34 extended the cached-A/B playbook to
-  generator-level GT filter/addition changes via the fresh-A/B reconstruction
-  trick (re-run retained inputs against both the pre- and post-change generator
-  seam; cached and fresh deltas agreed within 0.5pp on 10 samples).
-- **Priority:** medium — **demoted from high during post-Session-40 triage,
-  unblocked by Session 41**. Same reasoning as the matcher-layer task above:
-  the upcoming baseline refresh is dominated by the EasyOCR engine swap, so
-  the per-change verdicts move from "load-bearing for refresh" to
-  "load-bearing for confidence in retained changes". Combined with the
-  matcher-layer re-measurement, this still clears the evaluator-plus-generator
-  half of the verdict table — on the Session 41 EasyOCR predictions, with
-  the `predictions-apple-vision/` backup available for any surprise-resolution
-  follow-up.
-- **Description:** The GT-additions subset of the original "Sessions 24–30
-  re-measurement" task. For each of the Session 24, 25, and 26 GT additions:
-  check out parent and child commits of the change, apply the cached-A/B playbook
-  (filter-on-top on existing `ground_truth/` where possible, or the Session 34
-  reconstruction trick for generator-seam changes), compare via
-  `python -m pipeline_common.snapshot_cli compare`. Produce a keep/revert/no-signal
-  verdict per change, per platform, and per-app. Session 26 command-output GT
-  is now fully reversed on all three platforms by Session 34 (macOS) + Session
-  37 (Linux/Windows), and the canonical zero-matching-GT-removal signature was
-  reproduced on every platform, so the Session 26 verdict is effectively
-  "reverted with evidence". Scope this task to Sessions 24 and 25 GT additions
-  only; Session 26 no longer needs its own pre/post A/B pass.
-- **Results:** _pending_
+### Re-measure GT-addition hypotheses (Sessions 24–26) via cached + reconstruction A/B
 
-### Address pre-command terminal baseline sample aggregate drag `[evaluation]`
-- **Status:** not_started
-- **Dependencies:** none — unblocked by Session 37 (command-output GT
-  broadening landed, so the shape of the terminal bucket is now stable).
-  Cached-A/B playbook handles the measurement.
-- **Priority:** medium — promoted from memory entry during triage; Session 36
-  observed that the pre-command baseline samples (`terminal_00003` on Linux,
-  `windowsterminal_00003` on Windows) contribute ~0 TP and silently drop the
-  terminal bucket's achievable ceiling by ~33% via averaging. Session 37
-  confirmed the broadening fix did not retire this task — baseline samples
-  had no command-output GT to remove, so the drag is unchanged and now
-  dominates the remaining gap on these buckets.
-- **Description:** The generator captures a pre-command baseline screenshot on
-  Linux/Windows terminal scenarios. These samples have no programmatic GT —
-  only a few AX entries (`Find`, window-title text, `New Tab` on Linux; Windows
-  Terminal header/scrollbar buttons on Windows) — and none of the AX entries
-  match OCR: button labels aren't rendered on screen as text, and window-title
-  strings like `"admin@ubuntu: /opt/guivision"` are single un-split GT entries
-  the fuzzy matcher can't decompose into the predicted component words. Result:
-  a zero-TP sample is averaged into the 3-sample terminal bucket. Two candidate
-  fixes to evaluate:
-  (1) **Generator-side exclusion** — skip capturing the pre-command baseline on
-      Linux/Windows terminal scenarios, OR tag it with `exclude_from_aggregates`
-      metadata the evaluator honours. Cheapest; loses one data point but
-      eliminates the drag unconditionally.
-  (2) **Evaluator-side GT-count weighting** — weight per-sample metrics by GT
-      entry count when aggregating, so zero-GT or near-zero-GT samples don't
-      dilute the bucket. More invasive but benefits every future sample class
-      where GT sparsity skews aggregates.
-  Prefer (1) unless (2) also solves some other pending anomaly. Measure via the
-  cached-A/B playbook on Linux + Windows, reading per-app terminal buckets.
-  Expected signal: terminal text F1 jumps proportionally to the removed/
-  reweighted sample, with precision flat (no TP change on the retained samples).
-  If this task runs *after* command-output GT broadening, also sanity-check
-  that the broadening did not already resolve the drag (it won't — baseline
-  samples have no command-output GT to remove — but confirm).
-- **Results:** _pending_
+**Category:** `evaluation`
+**Status:** `not_started`
+**Dependencies:** none
 
-### Investigate Windows windowsterminal sample window-focus bug `[generator]`
-- **Status:** not_started
-- **Dependencies:** none — works from cached samples plus a diff against the
-  Windows generator scenario.
-- **Priority:** medium — caps achievable Windows text F1 regardless of
-  evaluator fixes; contaminates any Windows Terminal A/B work.
-- **Description:** Session 36 found that `windowsterminal_00003/00004/00005`
-  cached predictions contain only Notepad + Edge welcome-dialog + pangram
-  content — no Windows Terminal strings. GT for the same samples comes from
-  the Windows Terminal AX tree (tab, title, Close Tab, scroll buttons,
-  typed-command programmatic entries), so either the generator captures the
-  screenshot before Windows Terminal has been raised, or the scenario is
-  activating the wrong window, or the window-enumeration/selection step is
-  mismatching. Investigation: open one cached `ocr_vm_windowsterminal_*.png`
-  to visually confirm what the screen actually shows, then trace the
-  Windows-scenario code path in `pipeline/ocr/src/ocr_generator/` to find the
-  focus/raise sequence and add the missing step. Do not regenerate Windows
-  terminal data until this is fixed — the cached predictions do not test
-  what they advertise.
-- **Results:** _pending_
+**Description:**
 
-### Re-A/B Session 33 button/textfield filter via `by_app` bucket `[evaluation]`
-- **Status:** not_started
-- **Dependencies:** none — `by_app` live since Session 35; cached A/B playbook
-  handles GT-filter changes. EasyOCR adopted as default (done, Session 41) —
-  this task should now A/B against the Session 41 EasyOCR predictions, not
-  the pre-flip Apple Vision baseline, because the filter's effect composes
-  with the engine-swap delta (macOS safari +21.21pp, textedit +30.88pp).
-- **Priority:** medium — directly verifies a prior verdict that memory flags as
-  needing re-examination. "Session 33's button/textfield filter (predicted
-  +5–10pp Safari F1, measured aggregate +0.09pp) should be re-A/B'd against the
-  per-app bucket before any further claims about it are made."
-- **Description:** Run the cached-data A/B playbook across the Session 33
-  button/textfield filter commit using `data/ocr-vm-macos/` against the
-  **Session 41 EasyOCR predictions** (not the `predictions-apple-vision/`
-  backup — the filter's effect on the new default-engine output is what
-  matters going forward). Read the Safari `by_app` row specifically.
-  Expected signal: Safari-scoped text F1 delta visible at per-app
-  granularity even if macOS aggregate was +0.09pp on Apple Vision. Produce
-  a keep/revert/no-signal verdict for the Safari bucket **on EasyOCR**
-  and update memory's "AX-description filter" entry with the measured
-  Safari delta. If the verdict contradicts the deployed rule, split a
-  follow-on task to revert or narrow the filter. **Secondary output**:
-  re-running against the `predictions-apple-vision/` backup as well
-  produces the per-engine split of the filter's effect — only worth
-  doing if the EasyOCR verdict contradicts the deployed rule.
-- **Results:** _pending_
+**Priority:** medium — **demoted from high during post-Session-40 triage,
+unblocked by Session 41**. Same reasoning as the matcher-layer task above:
+the upcoming baseline refresh is dominated by the EasyOCR engine swap, so
+the per-change verdicts move from "load-bearing for refresh" to
+"load-bearing for confidence in retained changes". Combined with the
+matcher-layer re-measurement, this still clears the evaluator-plus-generator
+half of the verdict table — on the Session 41 EasyOCR predictions, with the
+`predictions-apple-vision/` backup available for any surprise-resolution
+follow-up.
 
-### Generator-side bbox bounds validation warning `[generator]`
-- **Status:** not_started
-- **Dependencies:** none — runs on cached `data/ocr-vm-{platform}/` and the
-  generator output path. Pure additive safety net.
-- **Priority:** medium — promoted from a nested note in the Windows UIA
-  oversized-bbox task during triage. Memory records two historical coordinate
-  bugs that would have been caught by this invariant years earlier: the Linux
-  GTK4 `(0,0)` bug (bounds collapse to zero) and the Windows UIA oversized
-  bbox (`x_max=1139` on an 800×600 image, 339px beyond the framebuffer). Both
-  are violations of the same property — every GT bbox must lie inside
-  `[0, 0, image_width, image_height]` — but they were diagnosed session by
-  session via eyeballing GT files. A cheap validator would catch future
-  instances at generation time instead of several sessions later.
-- **Description:** Add a validation pass to the OCR generator that, after GT
-  assembly for each sample, checks every bbox against the image dimensions
-  and emits a warning (not an error — AX trees can legitimately have
-  off-screen elements in some edge cases) for any bbox where any of:
-  `x_min < 0`, `y_min < 0`, `x_max > image_width`, `y_max > image_height`,
-  `x_min >= x_max`, `y_min >= y_max`. The warning should identify the sample,
-  the offending element's role/label, and the bbox values. Also expose a
-  `--strict-bbox` flag that elevates warnings to errors for CI use. Place in
-  `pipeline/ocr/src/ocr_generator/` alongside the assembly code — does not
-  live in the agent side because the agent output is what we're validating.
-  Test: unit tests for each violation class; integration test that runs the
-  generator over a cached sample and confirms (a) no warnings on current
-  cached data post-Linux-fix, (b) warnings fire on a synthetic bbox injected
-  with each violation class. Out of scope: fixing the underlying coordinate
-  bugs (those are separate agent-side tasks).
-- **Results:** _pending_
+**Dependency context:** Session 34 extended the cached-A/B playbook to
+generator-level GT filter/addition changes via the fresh-A/B reconstruction
+trick (re-run retained inputs against both the pre- and post-change generator
+seam; cached and fresh deltas agreed within 0.5pp on 10 samples).
 
-### Investigate Windows UIA oversized-bbox coordinate bug `[agent]`
-- **Status:** not_started
-- **Dependencies:** none — surfaceable from cached `ground_truth/`; fix lives
-  in the Windows agent.
-- **Priority:** medium — analogous to the Linux GTK4 `(0,0)` bug fixed in
-  Session 30 but in the opposite direction. Not a text-F1 contributor but
-  will matter for Windows spatial matching and for any future per-element
-  coordinate analysis.
-- **Description:** Session 36 observed that every cached `windowsterminal_*`
-  GT has a "Windows PowerShell" (`focused`, `role=text`) element with bbox
-  `[26, 117, 1139, 653]`. Image dimensions are 800×600, so `x_max=1139` is
-  339px beyond the framebuffer. Likely a UIA reporting a logical or virtual-
-  desktop coordinate that exceeds the framebuffer bounds. Fix lives in
-  `agents/windows/Services/UiaTreeWalker.cs` (or wherever element bounding
-  boxes are computed). Regression check: after the fix, a cached Windows
-  sample should produce a GT file whose bboxes all lie inside the declared
-  image dimensions. Consider adding a generator-side validation warning that
-  flags any bbox outside `[0, 0, image_width, image_height]` for any platform
-  — same invariant would have caught both this bug and the GTK4 `(0,0)` bug.
-- **Results:** _pending_
+The GT-additions subset of the original "Sessions 24–30 re-measurement" task.
+For each of the Session 24, 25, and 26 GT additions: check out parent and
+child commits of the change, apply the cached-A/B playbook (filter-on-top on
+existing `ground_truth/` where possible, or the Session 34 reconstruction
+trick for generator-seam changes), compare via
+`python -m pipeline_common.snapshot_cli compare`. Produce a keep/revert/no-signal
+verdict per change, per platform, and per-app. Session 26 command-output GT is
+now fully reversed on all three platforms by Session 34 (macOS) + Session 37
+(Linux/Windows), and the canonical zero-matching-GT-removal signature was
+reproduced on every platform, so the Session 26 verdict is effectively
+"reverted with evidence". Scope this task to Sessions 24 and 25 GT additions
+only; Session 26 no longer needs its own pre/post A/B pass.
 
-### Capture canonical baseline snapshots per platform `[infrastructure]`
-- **Status:** not_started
-- **Dependencies:** A/B evaluation snapshots (done, Session 31)
-- **Priority:** medium — prerequisite for the AT-SPI re-measurement and for
-  baseline refresh; also unblocks making snapshot A/B the default flow.
-- **Description:** Freeze one snapshot per platform (macOS/Windows/Linux) using
-  `python -m pipeline_common.snapshot_cli freeze`, versioned by the state of the
-  pipeline at capture time (e.g., `session-35-post-by-app/{macos,windows,linux}`).
-  Decide where the snapshots live: commit if small enough, otherwise a shared
-  location referenced by path. Document the capture procedure so future baseline
-  refreshes produce comparable snapshots. Intentionally small scope — a one-shot
-  `freeze` run per platform, not new generator work.
-- **Results:** _pending_
+**Results:** _pending_
 
-### Explain the Session-23-to-now macOS text F1 regression `[evaluation]`
-- **Status:** not_started
-- **Dependencies:** none
-- **Priority:** low — **demoted from medium during post-Session-40 triage**.
-  The +27pp gap between Session 23 (47.6%) and current Apple Vision cached
-  (~20.58%) is now largely irrelevant to the forward path: switching to
-  EasyOCR recovers ~+20pp aggregate text-F1 in one move, so the remaining
-  delta against the historical baseline shrinks to a code-archaeology
-  question rather than a regression to fix. Memory's Session 34 framing
-  collapsed the cached/fresh gap to ~1.9pp; the residual is now a question
-  for historians, not for the next baseline refresh.
-- **Description:** Bisect across the commits landed between Session 23 and
-  Session 34 to find where macOS text F1 dropped ~27pp. Candidate suspects from
-  memory: the matcher rewrite from substring/IoU to center-distance (Session 29),
-  multi-word adjacent matching (Session 28), the AX label/value split introduced
-  by the Session 33 button/textfield filter rework, or a denominator change in
-  char/word/recall accounting. Use the cached-A/B playbook against
-  `data/ocr-vm-macos/` to isolate each commit's contribution without fresh VM
-  runs. Read deltas per-app as well as aggregate. Deliverable: a short table of
-  per-commit macOS text F1 deltas plus the identified dominant contributor(s).
-  Updates memory with the resolution and retires the "cached-vs-fresh" framing
-  entirely. Expected to overlap with the matcher-layer and GT-addition
-  re-measurement tasks; if they close first, this task shrinks to reconciling
-  their verdicts against the 27pp total.
-- **Results:** _pending_
+---
 
-### Re-measure Session 30 AT-SPI coordinate fix via canonical snapshot `[evaluation]`
-- **Status:** not_started
-- **Dependencies:** Capture canonical baseline snapshots per platform (Linux)
-- **Priority:** medium — only one change in this bucket, still strictly needs a
-  frozen snapshot because it modifies the Linux agent's coordinate output which
-  cached predictions already bake in. Not unblocked by Session 34.
-- **Description:** Using a frozen canonical Linux snapshot, re-run the full
-  evaluation pipeline pre- and post-Session-30 (xdotool offset + X11 content-area
-  correction) to produce a keep/revert/no-signal verdict. The expected verdict is
-  "keep" (Session 30 measured Linux IoU F1 1.9% → 9.8%) but the original delta was
-  fresh-run-to-fresh-run and thus contaminated by VM content variation; the
-  frozen-snapshot A/B reverifies it. Combined with the two cached-A/B tasks, this
-  feeds the baseline refresh with a trustworthy list of surviving changes. Also
-  inspect per-app (`by_app`) deltas — Nautilus in particular, since its Session 35
-  IoU divergence may be partially explained by what this re-measurement shows.
-- **Results:** _pending_
+### Address pre-command terminal baseline sample aggregate drag
 
-### Drop GTK4 spatial GT as denominator-correctness stop-gap `[ground-truth]`
-- **Status:** not_started
-- **Dependencies:** none — pure GT-pipeline change, does NOT touch
-  `agents/linux/testanyware_agent/accessibility.py`, so it ships independently
-  of the Linux agent test infrastructure dependency that gates the rest of
-  the GTK4 per-element position recovery work.
-- **Priority:** medium — **promoted from approach (3) of the GTK4
-  per-element position recovery task during post-Session-40 triage**, per
-  the spec's nested-blocker promotion rule. Memory's Sessions 39 + 40
-  diagnoses establish that no engine choice and no evaluator change will
-  move GTK4 spatial F1 off the noise floor without per-element coordinate
-  recovery (Session 40's engine survey moved Linux IoU by <5pp under every
-  engine, holding at the GTK4 noise floor of ~10%). Leaving GTK4 elements
-  in the IoU denominator strictly understates Linux spatial metrics for
-  every future measurement until the underlying recovery work ships.
-  This is a cheap, honest fix that removes a known confound from every
-  Linux IoU comparison and unblocks meaningful per-platform spatial
-  analysis without waiting on Linux agent test infrastructure or any
-  fragile X11 plumbing.
-- **Description:** Mark GTK4 elements as "spatial-N/A" in the GT pipeline
-  so the IoU evaluator skips them while the text_content matcher continues
-  to score them normally (text matching is unaffected — Nautilus text-F1
-  is 61.68% / 73.63% under EasyOCR, which is real signal). Detection
-  approach: per-app filter — GTK4 CSD apps (Nautilus, GNOME Text Editor,
-  any future GTK4 app) go in a spatial-N/A app list. A more general
-  detector would inspect the AT-SPI tree for the all-zero per-element
-  position signature, but per-app filtering ships today and covers every
-  known case in the cached data. Implementation: add a sample-level flag
-  (e.g., `exclude_from_spatial: true`) in the GT-pipeline ground-truth
-  assembly path; have `evaluate_dataset()` honour it for IoU buckets only,
-  not text_content. Verification: cached A/B against
-  `data/ocr-vm-linux-fix/` — expected signal is Linux IoU aggregate
-  climbs as the GTK4 noise-floor samples leave the denominator while
-  text_content metrics stay byte-identical. Update memory's "Per-app
-  anomalies worth tracking" entry with the post-fix Linux IoU numbers.
-  Out of scope: per-element position recovery via approaches (1) or (2)
-  of the parent task — those remain on the backlog under the GTK4
-  per-element position recovery task and depend on Linux agent test
-  infrastructure.
-- **Results:** _pending_
+**Category:** `evaluation`
+**Status:** `not_started`
+**Dependencies:** none
 
-### GTK4 per-element position recovery `[agent]`
-- **Status:** not_started
-- **Dependencies:** **Linux agent test infrastructure** (hard — memory's
-  Session 39 rule: "land linux agent test infrastructure before any further
-  accessibility.py edits, especially anything touching the Layer 2 GTK4
-  problem — that work will involve fragile X11 plumbing that is exactly the
-  wrong thing to debug only via integration"). The cheap stop-gap (drop
-  GTK4 spatial GT) was promoted to its own top-level task during
-  post-Session-40 triage and ships independently of this work; this task
-  now covers only the recovery-of-real-coordinates approaches, both of
-  which are blocked on the test scaffolding. Input data:
-  `data/ocr-vm-linux-fix/` cached after Session 39, plus the Linux VM.
-- **Priority:** medium — surfaced by Session 39's diagnosis of the Nautilus
-  text/IoU divergence. Closing this is the only path to moving GTK4 spatial
-  F1 off the noise floor (Nautilus 5.10%, TextEditor 3.54%); without it the
-  60pp text-vs-IoU gap on Nautilus is permanent. Independent of the
-  alternative-engine survey because OCR-engine choice cannot fix missing
-  per-element coordinates from AT-SPI. Sized "medium" rather than "high"
-  because the fix is non-trivial (multiple viable approaches, each with
-  trade-offs) and the affected metric is spatial-only.
-- **Description:** Session 39 confirmed via direct `pyatspi` probe that GTK4
-  CSD apps (Nautilus, GNOME TextEditor) return `(0, 0, w, h)` from
-  `getExtents(DESKTOP_COORDS)` AND `getExtents(WINDOW_COORDS)` for every
-  element in the AT-SPI tree — frame, panels, leaf elements, all the way
-  down. Per-element widths/heights ARE varied per element (so AT-SPI knows
-  the sizes), but positions are uniformly zero. The Session 30 + Session 39
-  window-offset fix gives the top-level frame a correct screen position,
-  but every descendant inherits the same offset and stacks at the window
-  origin — so spatial matching cannot distinguish elements. Three candidate
-  approaches in order of expected effort:
-  (1) **OCR-driven spatial registration** — for each AT-SPI label, find the
-      best-matching OCR detection by content and assume the OCR bbox is the
-      element's screen position. Conceptually clean and orthogonal to GTK
-      versions, but produces "reverse GT" (GT depends on predictions),
-      which complicates evaluation semantics — TP/FP accounting must be
-      reworked because the GT bbox is no longer prediction-independent.
-      Best initial approach for a spike because it's testable end-to-end
-      against `data/ocr-vm-linux-fix/` without VM time.
-  (2) **Per-element grab-focus + xdotool re-query** — walk the AT-SPI tree,
-      call `accessible.queryComponent().grabFocus()` on each element, then
-      query `xdotool getactivewindow getwindowgeometry` to read the focused
-      element's screen rectangle. Slow (one xdotool round-trip per element),
-      fragile (focus grabs trigger UI side effects), and changes the AT-SPI
-      tree as a side effect. Last resort.
-  Approach (3) "Drop GTK4 spatial GT entirely" was promoted to its own
-  top-level task during post-Session-40 triage and ships independently of
-  this work — see "Drop GTK4 spatial GT as denominator-correctness
-  stop-gap" above. Recommended sequencing here: ship the stop-gap first
-  (separate task), then spike (1) on the cached samples once Linux agent
-  test infrastructure lands, then decide whether (1) is worth the
-  GT-pipeline rework. Skip (2) unless (1) proves intractable.
-- **Results:** _pending_
+**Description:**
 
-### Linux agent test infrastructure `[infrastructure]`
-- **Status:** not_started
-- **Dependencies:** none
-- **Priority:** medium — three rounds of Session-30-class fixes
-  (Sessions 30, 39, plus the inevitable per-element follow-up) have all
-  relied on integration verification because `agents/linux/` has zero unit
-  test scaffolding. Each round has discovered the previous round's framing
-  was incomplete — the cost of "no unit tests" is now visible across multiple
-  cycles. Should land before any further `accessibility.py` edits.
-- **Description:** `agents/linux/` has no `pyproject.toml`, no `tests/`
-  directory, no `conftest.py`, and no test files. The Linux agent runs as
-  raw Python in the VM with imports resolved at runtime against the
-  pre-installed `python3-pyatspi` system package. Add minimal pytest
-  scaffolding that does not perturb the VM-side runtime layout:
-  - `agents/linux/pyproject.toml` with `[project]` metadata and a
-    `[tool.pytest.ini_options]` section for test discovery. Optional
-    dependencies under `[project.optional-dependencies].dev` for `pytest`.
-  - `agents/linux/tests/conftest.py` that uses `unittest.mock.MagicMock` to
-    stub `sys.modules['pyatspi']`, `sys.modules['gi']`, and
-    `sys.modules['gi.repository']` BEFORE any agent module is imported.
-    This lets tests import `testanyware_agent.accessibility` on macOS hosts
-    where pyatspi is not available.
-  - First test file `agents/linux/tests/test_screen_offset.py` exercising
-    the Session 39 helpers extracted in this round
-    (`_xdotool_search`, `_xdotool_window_geometry`, `_pick_matching_window`)
-    via subprocess mocking. Covers: PID lookup success path, PID lookup
-    returning multiple windows with one geometry-matching, all-popover
-    rejection (1x1 sentinel), title fallback when PID returns nothing,
-    `_GTK_FRAME_EXTENTS` parse and missing-property fallback. ~10 tests
-    initial scope.
-  - Wire into project test discovery: either add a `pytest agents/linux/`
-    invocation to the project-level `run-tests` convention, or document
-    that agent tests run via `cd agents/linux && uv run pytest` with the
-    optional-deps install. Confirm tests run cleanly on a fresh macOS
-    host (no Linux runtime needed because all gi/pyatspi imports are
-    mocked).
-  Out of scope: tests for `tree_walker.py` (different module, would also
-  need pyatspi mocking but is a separate test surface), tests for the
-  HTTP server, and any test that touches a real X11 display.
-- **Results:** _pending_
+**Priority:** medium — promoted from memory entry during triage; Session 36
+observed that the pre-command baseline samples (`terminal_00003` on Linux,
+`windowsterminal_00003` on Windows) contribute ~0 TP and silently drop the
+terminal bucket's achievable ceiling by ~33% via averaging. Session 37
+confirmed the broadening fix did not retire this task — baseline samples had
+no command-output GT to remove, so the drag is unchanged and now dominates
+the remaining gap on these buckets.
 
-### Batch analyzer rerun against a snapshot `[infrastructure]`
-- **Status:** not_started
-- **Dependencies:** A/B evaluation snapshots (done); the Session 41
-  `pipeline/scripts/rebuild_easyocr_predictions.py` one-shot as a seed.
-- **Priority:** medium — hard prerequisite for any analyzer-layer A/B
-  (confidence tuning, granularity flag, recognition level). Session 41
-  proved the pattern end-to-end: the one-shot rebuild script used
-  `analyze_image()` directly (not a subprocess) with `_easyocr_reader_cache`
-  keeping model loads warm across the run, and processed all three
-  platforms in <60s wall time. Productionizing it is mostly mechanical.
-- **Description:** The A/B snapshot workflow handles the evaluator-change
-  case cleanly. The analyzer-change case is still awkward because
-  rebuilding `predictions/` for a snapshot currently means either the
-  ad-hoc `rebuild_easyocr_predictions.py` (engine-specific, research-only)
-  or looping `python -m ocr_analyzer <image>` per sample by hand.
-  Promote the Session 41 rebuild script into a canonical
-  `snapshot_cli rebuild-predictions --data-dir X --engine {apple_vision|
-  tesseract|easyocr} [--preprocess MODE]` subcommand. Reuse the idempotent
-  predictions-backup pattern the Session 41 script established
-  (`predictions/` → `predictions-{engine}/` if present, clobber-safe) so
-  every engine swap preserves the prior baseline for future cached A/B
-  without regenerating from live VMs. Also expose the symlinked-tempdir
-  pattern from `pipeline/scripts/survey_engines.py` so A/B evaluation of
-  the backup baseline against the new predictions works without copying
-  ground truth. Should be idempotent: overwrites existing predictions for
-  the live engine, preserves any existing `predictions-*/` backups, skips
-  samples with no image. Small (< 150 lines once the engine+preprocess
-  plumbing is in; the Session 41 script is already ~80 lines and hardcoded
-  to EasyOCR).
-- **Results:** _pending_
+**Dependency context:** unblocked by Session 37 (command-output GT
+broadening landed, so the shape of the terminal bucket is now stable).
+Cached-A/B playbook handles the measurement.
 
-### Update work-phase prompt to default to A/B snapshots `[infrastructure]`
-- **Status:** not_started
-- **Dependencies:** Capture canonical baseline snapshots per platform
-- **Priority:** medium — ergonomic win, cuts per-cycle wall time and eliminates
-  VM content drift as a noise source for most work sessions.
-- **Description:** `ocr-accuracy/prompt-work.md` currently tells the work phase to
-  spin up a fresh VM, generate, then evaluate. With A/B snapshots and a canonical
-  baseline frozen, the default workflow should be: evaluate against the canonical
-  snapshot; only regenerate from a fresh VM when the task explicitly invalidates
-  the snapshot (generator, agent, or ground-truth extractor changes). Update the
-  prompt to reference `pipeline_common.snapshot_cli` and the canonical snapshot
-  path(s). Include a short "when to regenerate" checklist so work sessions know
-  when the snapshot is invalidated. Also document the cached-data A/B playbook
-  (filter on top of existing `ground_truth/` files; never rebuild GT from raw
-  snapshots during a filter A/B — the Session 32 near-miss dropped 48 programmatic
-  terminal GT entries when `snapshot_to_ground_truth` was used). Add the Session 33
-  "survey real cached GT before designing filter rules" rule as an explicit
-  pre-implementation step for any GT-filter task — enumerate actual labels across
-  all three platforms for every role in scope before writing tests. Also add
-  Session 34's two rules: (1) cached-A/B now extends to generator-level filter
-  changes, with a fresh-A/B reconstruction recipe (re-run retained inputs through
-  both code paths) for end-to-end validation; (2) when adding platform-conditional
-  logic to the generator, grep existing tests for `connect.json == "{}"` and
-  retrofit explicit platform fields before shipping, because empty-config fixtures
-  implicitly test whatever the new default resolves to. Also add Session 35's
-  rule: every app-specific hypothesis must be verdicted against the `by_app`
-  bucket, not aggregate, before any claim is recorded. Finally, add Session 36's
-  rule: per-app inspection via `by_app` is the default first move for any
-  anomaly hunt — aggregate-level numbers masked the Linux 1.42% terminal
-  collapse behind a 33% Linux aggregate, and the diagnosis could not have been
-  scoped without `by_app`. Also add Session 41's two rules: (1) when the
-  OCR engine is swapped, back up the prior `predictions/` to
-  `predictions-{engine-name}/` idempotently (the Session 41 rebuild
-  script did this as `predictions-apple-vision/`) and evaluate the
-  backup alongside the new default via a symlinked-tempdir so both
-  engines have comparable `results-{text,iou}-{engine}.json` reports
-  against the same ground truth; (2) **verdict signature rule**:
-  F1 + precision + recall is the canonical text-content verdict shape.
-  char/word accuracy are content-class diagnostics, NOT verdict drivers
-  — three cached buckets in Session 41 (macOS textedit, Linux firefox,
-  Linux texteditor) showed char-accuracy regressions of 3–10pp with
-  simultaneous F1 gains of 6–30pp under the engine swap, because
-  EasyOCR's word segmentation splits differently from Apple Vision on
-  shared matches. Reporting char in isolation would have called this a
-  regression.
-- **Results:** _pending_
+The generator captures a pre-command baseline screenshot on Linux/Windows
+terminal scenarios. These samples have no programmatic GT — only a few AX
+entries (`Find`, window-title text, `New Tab` on Linux; Windows Terminal
+header/scrollbar buttons on Windows) — and none of the AX entries match OCR:
+button labels aren't rendered on screen as text, and window-title strings
+like `"admin@ubuntu: /opt/guivision"` are single un-split GT entries the
+fuzzy matcher can't decompose into the predicted component words. Result: a
+zero-TP sample is averaged into the 3-sample terminal bucket.
 
-### OCR engine router with per-region engine selection `[analyzer]`
-- **Status:** not_started
-- **Dependencies:** Adopt EasyOCR as default OCR engine (done,
-  Session 41). The gridded-monospace content detector is no longer a
-  hard prerequisite (Session 40 partially deprecated it — see notes
-  in that task) because EasyOCR handles both proportional and
-  monospace passably without per-cell routing. **Post-Session-41 soft
-  dep**: the EasyOCR runtime optimization task, because Session 41's
-  warm-inference measurements showed Linux 800×600 at 1.44s/sample
-  and Windows 800×600 at 0.79s/sample — already inside the
-  interactive budget. If the macOS Retina-2x runtime question also
-  closes positively, the router question **collapses to "just always
-  use EasyOCR"** on every platform and this task retires. Only fire
-  this task after the runtime optimization task lands a verdict.
-- **Priority:** **low — demoted from medium during post-Session-41
-  triage**. The original routing motivation was "balance EasyOCR
-  quality against EasyOCR's 6–10s/sample runtime by routing low-value
-  regions to Apple Vision". Session 41 falsified the runtime
-  premise for Linux/Windows: warm EasyOCR inference is already
-  near interactive speed. That leaves macOS Retina as the only
-  platform where a runtime-motivated router pays for itself, and
-  even there the EasyOCR runtime-optimization task is a simpler
-  path (downscale inputs before dispatch). The router only survives
-  as a **quality-motivated** architecture — per-content-class
-  preprocessing (task #19) and possibly per-content-class engine
-  selection if the follow-on engine survey (#9) turns up a specialist
-  engine — not as a runtime-motivated one. **Post-Session-42 escape
-  path**: the morphological line-extraction spike is falsified, so it
-  is no longer an alternative route to closing the macOS interactive
-  gap. Re-escalate this router task only if task #18 (macOS Retina
-  runtime) closes "negative result for macOS", at which point a
-  router-with-Apple-Vision-on-macOS becomes the only remaining way to
-  ship a non-Apple-Vision experience interactively on macOS.
-- **Description:** Build a router that decomposes a frame into regions
-  and dispatches each to the OCR engine best suited to that region's
-  content **class and runtime budget**. **Session 42 confirmed the
-  router can stay extract-lines-free** — the morphological line-extraction
-  spike was falsified on every engine/platform cell, so no router rule
-  should dispatch through `preprocess="extract-lines"`. The retained
-  extract-lines seam (`OCRConfig.preprocess="extract-lines"`) is
-  documented dead code and must not be wired into this router's
-  dispatch table. Returns a unified detection list
-  to the rest of the pipeline. Region decomposition can lean on the
-  existing `pipeline/region-decomposition/` work — the goal is to keep
-  per-frame OCR cost bounded while capturing the EasyOCR text-F1 lift on
-  high-value regions. **Post-Session-40 routing rule**, replacing the
-  earlier "Tesseract for monospace, Apple Vision otherwise" framing:
-  - **High-value content (terminals, code editors, document body
-    regions)** → EasyOCR. The Session 40 survey shows EasyOCR is +9 to
-    +30pp text-F1 over Apple Vision on every high-value bucket and
-    handles dense monospace passably (Linux terminal 33.33% F1 vs
-    Apple Vision 8.82%). Session 41 re-measured EasyOCR warm runtime
-    as ~0.8s (Win) / ~1.4s (Linux) / ~3.9s (macOS Retina-2x) per
-    sample — not the 6–10s/sample the earlier framing assumed.
-  - **Low-value cheap content (toolbars, menu bars, single-line
-    labels)** → Apple Vision, **only if the runtime budget argument
-    still applies**. Post-Session-41, the budget argument only
-    applies on macOS Retina; on Linux/Windows, EasyOCR is already
-    interactive-speed so routing to Apple Vision only saves ~0.4s
-    per frame and costs F1. Re-evaluate the per-region routing rule
-    once the macOS Retina runtime question closes.
-  - **Tesseract** is the runtime-cheap middle path on dense monospace
-    where EasyOCR is too slow and Apple Vision can't recognize the
-    content (Session 40: Linux terminal Tesseract upscale-2x 27.03% vs
-    EasyOCR 33.33%, within ~6pp at 10× the speed). Reserve as an
-    interactive-path fallback if the EasyOCR runtime optimization task
-    closes "negative result".
-  Per-app overrides allowed where the survey showed clear winners (e.g.
-  per-content-class preprocess flags — memory's "Preprocessing is
-  per-content-class AND per-engine" entry). Architectural note: this
-  changes the OCR analyzer from a single-engine wrapper into a dispatcher.
-  Decide whether the Swift CLI remains the entry point or whether Python
-  becomes the new entry and Swift drops to one of several backends — that's
-  a real architectural fork that should get its own design pass before
-  implementation. Measurement: cached A/B against the Session-37 baseline on
-  all three platforms, per-app and aggregate. **Important caveat**: the moment
-  we route, we are benchmarking a *router* not an engine. Make sure the cached
-  datasets are evaluated under both single-engine and router configurations so
-  future work can still A/B individual engines without regenerating data.
+Two candidate fixes to evaluate:
 
-  **Session 38 Safari upscale rescore path — FALSIFIED (Session 43).**
-  Session 38 claimed macOS Safari char +5.56pp / recall +3.57pp under
-  upscale-2x/4x. Session 43 re-ran the full `engine × preprocess × cutoff`
-  matrix on the current cached `data/ocr-vm-macos/` and found Apple Vision
-  Safari recall and char **bit-flat across every cutoff and every preprocess
-  mode** (recall=0.3929, char=0.3187 in every cell from cutoff 0.0 to 0.7 ×
-  preprocess {none, upscale-2x, upscale-4x}). EasyOCR upscale-2x Safari
-  also regressed (F1 −3.48pp). The "high-resolution rescore" path for
-  browser/proportional content is not viable on the current dataset. The
-  router should NOT include a per-content-class upscale rule for Safari or
-  proportional content. The Swift `--preprocess` infrastructure remains as
-  retained spike code; Python `OCRConfig` was deliberately not extended to
-  expose it.
-- **Results:** _pending_
-### Long-lived OCR analyzer daemon for interactive `find-text` `[analyzer]`
-- **Status:** in_progress (design + plan complete, implementation next)
-- **Dependencies:** Session 44's cold-start measurement above
-  (complete). No other blockers. `_easyocr_reader_cache` already exists
-  in `pipeline/ocr/src/ocr_analyzer/analyzer.py` and is the warm-reader
-  scaffold — the daemon's job is to keep a process alive holding that
-  cache.
-- **Priority:** **high — inherits the motivation of the now-closed
-  "Ship EasyOCR on Linux/Windows interactive" task**. Session 44
-  measured subprocess cold-start at 4.8–5.5s per call, blowing the
-  interactive budget by 3–4×. A daemon is the only remaining path to
-  shipping the +9–20pp text-F1 lift on the interactive `find-text`
-  CLI for Linux/Windows targets.
-- **Description:** Stand up a small long-lived Python process that
-  holds the EasyOCR reader in `_easyocr_reader_cache` between calls,
-  accepts OCR requests over a lightweight local IPC, and returns
-  `PipelineStepResult`-shaped JSON. Wire `testanyware find-text` to
-  dispatch through the daemon when `spec.platform ∈ {linux, windows}`,
-  keeping Vision.framework in-process for `spec.platform == macos`
-  until the macOS Retina runtime task (#18) closes. Key design
-  questions that this task must answer **before** committing to an
-  implementation path (brainstorm first, then write a plan, then
-  implement):
-  - **Transport**: Unix domain socket + line-delimited JSON is the
-    lowest-ceremony option that keeps the daemon host-local. HTTP on
-    localhost reuses the pattern the in-VM agents already use and
-    has a known Swift client (URLSession). Pick one; do not design
-    both.
-  - **Lifecycle**: auto-spawn-on-first-use vs always-on vs opt-in
-    via `testanyware server ...` subcommand. The `ServerCommand.swift`
-    entry already exists — check whether it is the right hook for
-    an always-on backend.
-  - **Single-tenant vs multi-tenant**: one daemon per `testanyware`
-    user, one per machine, one per call-site? Cache eviction /
-    shutdown semantics. Measure idle RSS so the "leave it running"
-    default is cheap enough to justify.
-  - **Cold-start amortization measurement**: target is Linux/Windows
-    800×600 end-to-end latency ≤1.5s on the second+ call and ≤8s on
-    the first call (unavoidable Reader init). Confirm those numbers
-    reproduce end-to-end under the chosen transport before shipping.
-  - **macOS Retina caveat**: macOS target images are Retina-2x so the
-    per-call inference cost is ~3.9s warm (Session 41 number). Even
-    with a daemon, macOS targets are not inside the interactive
-    budget without the input-resolution downscale work in task #18
-    — do NOT route macOS through the daemon in this task. Keep
-    Vision.framework for macOS until #18 ships.
-  - **Fallback**: if the daemon is unreachable (not running, crashed,
-    wrong version), the CLI must fall back to Vision.framework with
-    a warning, not fail. Interactive `find-text` is a utility; losing
-    the quality lift is acceptable, losing the command is not.
-  Scope this task as a design + implementation pair. Start with a
-  short brainstorm of the transport + lifecycle choice (one paragraph
-  each, no implementation), then spike the chosen path against the
-  cached Linux/Windows samples to confirm the end-to-end latency
-  target before wiring the Swift CLI. Tests: Python-side daemon
-  unit tests under `pipeline/ocr/tests/`; Swift-side dispatch tests
-  under `cli/Tests/testanywareTests/` using the same mocking
-  patterns the existing find-text integration tests use. Out of
-  scope: any macOS interactive work; any new preprocessing modes;
-  Windows-host or Linux-host builds of the daemon (host is macOS
-  only).
-- **Results:** Session 45 (2026-04-16) completed the design phase.
-  Full spec at `docs/superpowers/specs/2026-04-15-ocr-analyzer-daemon-design.md`.
-  Key design decisions:
-  - **Daemon boundary**: co-resident in `GUIVisionServer` as a
-    child Python process, not a standalone daemon. Inherits the
-    server's per-`ConnectionSpec` lifecycle and idle-timeout.
-  - **Transport**: temp-file PNG payload + JSON line on stdin/stdout
-    for control. `analyze_image()` already takes a `Path`; zero
-    impedance with existing Python API.
-  - **OCR dispatch placement**: server-side, not CLI-side. The
-    `/ocr` handler is the engine abstraction layer; CLI is
-    engine-agnostic. `VisionOCREngine.recognize()` lifted from
-    `FindTextCommand` into the `GUIVisionVMDriver` library.
-  - **Failure surfacing**: aggressive (A3+B2+C2+D2+E2). Hard-fail
-    on permanent failure with opt-in `GUIVISION_OCR_FALLBACK=1`,
-    banner per call in degraded mode, persistent status file,
-    `guivision doctor` subcommand, Homebrew postinstall verification.
-  - **Deployment**: single Homebrew formula bundling `python@3.12`,
-    EasyOCR, torch, tart, qemu, swtpm. Interpreter resolution:
-    `$GUIVISION_OCR_PYTHON` → Cellar-relative → dev fallback.
-  - **Testing**: 5 tiers. Fake-shell-script harness for the bridge
-    tests (no Python needed in CI). ~20 bridge tests covering every
-    failure class.
-  Session 46 (2026-04-16) completed the implementation plan.
-  Full plan at `docs/superpowers/plans/2026-04-16-ocr-analyzer-daemon.md`.
-  15 tasks covering all 8 spec components, 5 test tiers, all 10
-  acceptance criteria, and all 5 aggressive surfacing policy tiers.
-  Resolves all 5 open questions deferred from spec to plan. Task
-  decomposition follows TDD with frequent commits. Independent roots
-  (Tasks 1, 2, 3, 4, 8) can be parallelized. Next session: execute
-  the plan via subagent-driven-development or executing-plans.
-  Session 47 (2026-04-16) executed plan tasks 1–5, 8–11. Core
-  implementation landed — 8 of 15 plan tasks complete:
-  - **Task 1**: `OCRDetection` + `OCRResponse` wire types (4 tests)
-  - **Task 2**: `VisionOCREngine` — Vision.framework OCR lifted into
-    library as `recognize(pngData:) -> [OCRDetection]` (5 tests)
-  - **Task 3**: Python `--daemon` mode on `ocr_analyzer` — stdin/stdout
-    JSON loop with eager EasyOCR reader warmup (6 tests, all pass with
-    real EasyOCR)
-  - **Task 4**: `fake-ocr-daemon.sh` harness with 8 behavior modes
-  - **Task 5**: `OCRChildBridge` actor — lazy spawn, temp-file PNG
-    dispatch, JSON protocol, actor-serialized concurrency (5 tests)
-  - **Task 8**: `OCRStatusFile` — persistent degraded-mode tracking
-    (6 tests)
-  - **Task 9**: Server `/ocr` route — platform dispatch (macOS →
-    Vision, Linux/Windows → bridge), `GUIVISION_OCR_FALLBACK=1`
-    support, interpreter resolution chain (3 new server tests)
-  - **Task 10**: `ServerClient.ocr(pngData:)` client method (1 test)
-  - **Task 11**: `FindTextCommand` rewrite — removed inline Vision
-    OCR, now uses `client.ocr()`, -49 lines net. CLI is engine-agnostic.
-  Test results: Swift 117 tests pass (pre-existing UnifiedRole failure
-  in separate target unrelated). Pipeline 836 tests pass, 19 deselected.
-  Remaining plan tasks: 6 (failure classification), 7 (interpreter
-  resolution + deadlines), 12 (DoctorCommand), 13 (startup warning),
-  14 (Package.swift cleanup), 15 (Tier 5 integration + acceptance).
+1. **Generator-side exclusion** — skip capturing the pre-command baseline on
+   Linux/Windows terminal scenarios, OR tag it with `exclude_from_aggregates`
+   metadata the evaluator honours. Cheapest; loses one data point but
+   eliminates the drag unconditionally.
+2. **Evaluator-side GT-count weighting** — weight per-sample metrics by GT
+   entry count when aggregating, so zero-GT or near-zero-GT samples don't
+   dilute the bucket. More invasive but benefits every future sample class
+   where GT sparsity skews aggregates.
 
-### EasyOCR runtime optimization for the interactive `find-text` path (macOS Retina scope) `[analyzer]`
-- **Status:** not_started
-- **Dependencies:** Adopt EasyOCR as default OCR engine (done, Session 41)
-  — the offline path is on EasyOCR so this task is now the explicit
-  follow-on question for the interactive CLI path only. **Post-Session-42:
-  this is now the sole remaining path to closing the macOS interactive
-  dense-monospace gap** — the morphological line-extraction spike that
-  was the parallel Apple-Vision rescue path was falsified on every
-  engine/platform cell, so there is no longer a second track that
-  could land a non-EasyOCR fix for macOS interactive. A "negative
-  result" verdict on this task now means macOS interactive stays on
-  Apple Vision permanently (modulo a future follow-on engine survey
-  turning up a new candidate).
-- **Priority:** medium — **scope narrowed during post-Session-41
-  triage**. Session 41's rebuild-script measurements showed warm
-  EasyOCR inference is **already inside the interactive budget** on
-  Linux 800×600 (1.44s/sample) and Windows 800×600 (0.79s/sample);
-  the budget gap only applies to macOS Retina-2x samples at
-  3.92s/sample. That retires the "EasyOCR-on-GPU" question for
-  Linux/Windows entirely — Linux/Windows interactive `find-text` on
-  EasyOCR can ship today at default settings. The remaining task is:
-  (a) wire the interactive CLI to dispatch to EasyOCR on Linux/Windows
-  **now**, and (b) decide whether macOS Retina warm inference can be
-  pulled under the ~1.5s interactive threshold via MPS acceleration,
-  quantization, or input-resolution downscale (the macOS-Retina cost
-  is size-driven, not engine-bound). If the macOS answer is "no",
-  macOS interactive stays on Apple Vision indefinitely — the
-  morphological line-extraction rescue path that was the alternative
-  here was falsified in Session 42, so "no" on this task is now
-  terminal rather than a hand-off to another track.
-- **Description:** Investigate whether EasyOCR warm inference on
-  macOS Retina-2x captures can be pulled under the ~1.5s interactive
-  budget. Linux/Windows already ship via the split-out "Ship EasyOCR
-  on Linux/Windows interactive" task — only the macOS Retina 3.92s/sample
-  warm timing remains a blocker for a fully EasyOCR-backed interactive
-  path. Measure EasyOCR on the cached `data/ocr-vm-macos/samples/` set
-  under the following configurations (in order of expected payoff):
-  (1) **Input resolution downscale** — Retina-2x samples are twice
-      the linear dimension of Linux/Windows captures, so per-sample
-      cost scales ~4× on macOS for the same information content.
-      Downscale to ~1× before dispatch, measure both the runtime
-      collapse and the F1 impact on the cached macOS survey buckets.
-      If F1 stays within 1pp of the un-downscaled Session 41
-      baseline, ship this as the macOS preprocessing default for the
-      interactive path. Cheapest fix; try first.
-  (2) **MPS acceleration** via PyTorch Metal Performance Shaders on
-      Apple Silicon. Measure warm inference on Retina-2x samples with
-      `torch.device("mps")` forced where possible. MPS support in
-      EasyOCR is not guaranteed — if it falls through to CPU, this
-      configuration is a no-op. Combines multiplicatively with (1)
-      if it works.
-  (3) **Quantization** — `easyocr.Reader(quantize=True)` (FP16 or INT8)
-      runtime delta vs the default; measure F1 impact on the cached
-      macOS buckets and reject if F1 drops more than 1pp on any
-      high-value content class.
-  (4) **Analyzer-layer caching** — for the interactive `find-text` path
-      specifically, cache predictions keyed by image hash so repeated
-      searches over the same screen don't re-run inference. Measure
-      cache hit rate against a typical interactive session. Orthogonal
-      to (1)–(3); ship regardless once the interactive path is on
-      EasyOCR.
-  Decision criterion: if any configuration brings macOS-Retina warm
-  inference under ~1.5s/sample with <1pp F1 regression on the cached
-  macOS buckets, ship it as the macOS interactive default. If none
-  does, macOS interactive stays on Apple Vision indefinitely and this
-  task closes "negative result for macOS — Linux/Windows already
-  shipped". The morphological line-extraction escape hatch was
-  falsified in Session 42; there is no second track. Out of scope:
-  rewriting EasyOCR's PyTorch model graph; replacing EasyOCR with a
-  custom-trained model.
-- **Results:** _pending_
+Prefer (1) unless (2) also solves some other pending anomaly. Measure via the
+cached-A/B playbook on Linux + Windows, reading per-app terminal buckets.
+Expected signal: terminal text F1 jumps proportionally to the removed/
+reweighted sample, with precision flat (no TP change on the retained samples).
+If this task runs *after* command-output GT broadening, also sanity-check
+that the broadening did not already resolve the drag (it won't — baseline
+samples have no command-output GT to remove — but confirm).
 
-### PaddleOCR / TrOCR / Kraken / Calamari follow-on engine survey `[analyzer]`
-- **Status:** not_started
-- **Dependencies:** Adopt EasyOCR as default OCR engine and refresh
-  baselines (above) — the follow-on only fires when there's a clear
-  motivation: either the baseline-refresh exposes an EasyOCR ceiling
-  blocking meaningful progress, or the router design needs a runtime-
-  cheap alternative engine that EasyOCR can't supply.
-- **Priority:** low — explicit placeholder so the deferred engines from
-  the Session 40 survey are not lost. Memory's Session 40 verdict:
-  "PaddleOCR, TrOCR, Kraken, Calamari, and the per-cell classifier
-  remain unsurveyed — they may exceed EasyOCR but probably not by
-  enough to justify the bigger install/runtime cost without a clear
-  motivation." Without a triggering signal, EasyOCR is good enough.
-- **Description:** Re-run the Session 40 engine survey
-  (`pipeline/scripts/survey_engines.py`) with PaddleOCR, TrOCR, Kraken,
-  and Calamari added to the engine matrix. PaddleOCR is the natural
-  next candidate (mainline production engine, claims comparable
-  accuracy to EasyOCR with faster runtime); TrOCR is the high-accuracy
-  outlier (transformer-based, slow); Kraken and Calamari are line-based
-  engines that may be best-of-class on dense monospace specifically.
-  Add each to the analyzer dispatch behind its own `OCRConfig.engine`
-  value and the survey driver's engine list. Read deltas through the
-  same per-app `by_app` bucket as Session 40. Decision criterion: a
-  follow-on engine is worth adopting only if it lifts a high-value
-  bucket (textedit/safari/terminal) by ≥5pp text-F1 OR brings the
-  runtime cost on EasyOCR-quality buckets within the interactive
-  budget (~1s/sample). Trigger this task only when one of those
-  signals is present; until then it stays parked.
-- **Results:** _pending_
-### Constructed ground truth for TextEdit `[ground-truth]`
-- **Status:** not_started
-- **Dependencies:** multi-word GT matching (done); `by_app` evaluator bucket (done)
-- **Priority:** low — **re-examined after Session 41 EasyOCR adoption**. EasyOCR
-  achieves 58.43% text-F1 and 79.63% char on TextEdit (Session 41 baseline),
-  breaking through the old Apple Vision OCR ceiling. The Session 35 framing
-  ("0.8241 char = Apple Vision OCR ceiling on sparse proportional text") is
-  retired; memory's "textedit char ceiling is engine-shaped" entry confirms the
-  ceiling was engine-specific, not content-class-specific. Under EasyOCR, F1 is
-  already strong — the marginal gain from adding line-broken typed-text GT is
-  lower than under Apple Vision. The AX concatenation hypothesis may still be
-  worth testing (if OCR reads body lines the AX tree concatenates into one entry,
-  line-broken GT could add TPs at the text-content layer), but this is speculative
-  and lower priority than before. Treat as speculative until the matcher-layer +
-  GT-addition re-measurements settle, because those may explain the remaining
-  41.57% text-F1 gap differently and retire this task.
-- **Description:** AX tree concatenates all typed text into one label without line
-  breaks. Toolbar labels are descriptions ("bold", "italic", "underline") not
-  visual text. OCR correctly reads individual lines. Use the text we type via
-  interactions as GT, split into lines. Each line becomes a separate GT detection
-  with bounds estimated from font size and line height. TextEdit uses
-  proportional fonts so OCR accuracy should be better than Terminal (no monospace
-  misreads). Before any implementation: enumerate the actual cached TextEdit GT
-  and predictions to confirm the concatenation-vs-line-break diagnosis still
-  holds (memory's "survey real cached GT before designing" rule). If the
-  concatenation is already resolved by some post-Session-23 generator change,
-  drop the task.
-- **Results:** _pending_
+**Results:** _pending_
 
-### Baseline refresh `[evaluation]`
-- **Status:** not_started
-- **Dependencies:** all three re-measurement tasks (matcher-layer, GT-additions,
-  AT-SPI fix); canonical baseline snapshots; Session-23-to-now macOS regression
-  explained; Nautilus-divergence diagnosis closed; remaining Session 36
-  terminal-collapse fix tasks landed (Windows focus bug, Windows UIA bbox,
-  pre-command baseline drag) — command-output broadening (S37) and single-char
-  matcher fix (S38) are already done. Optional-but-strong: alternative-engine
-  survey verdict, because shipping a baseline just before an engine swap wastes
-  the refresh.
-- **Priority:** low — blocked by several higher-priority tasks; defines the new
-  ground truth for future work once those land.
-- **Description:** The Session 23 baseline is stale — it predates multi-word
-  matching (Session 28), center-distance spatial matching (Session 29), the Linux
-  AT-SPI coordinate fix (Session 30), the Session 32 menu-item AX filter, the
-  Session 33 button/textfield AX filter, the Session 34 macOS command-output GT
-  exclusion, the Session 35 `by_app` breakdown, the Session 36–37 terminal-
-  collapse remediation chain, and the Session 38 single-char matcher fix + upscale
-  spike verdict. Once all three re-measurement passes settle which changes
-  survive, the Session-23-to-now macOS regression is explained, and the per-app
-  anomaly diagnoses + terminal fixes are closed, re-run full evaluation
-  on all three platforms and establish a new baseline that includes the `by_app`
-  bucket alongside the existing aggregate table. Use A/B snapshots for controlled
-  comparison against the Session 23 numbers rather than fresh VM runs. Also
-  investigate why Windows text accuracy (20.6%) is much lower than macOS (66.3%)
-  and Linux (35.1%) — could be Explorer content variation, fewer typed-text
-  scenarios, the Windows windowsterminal focus bug contaminating the bucket, or
-  a real platform gap that needs its own follow-up task once A/B snapshots and
-  `by_app` metrics rule out noise. Update the "Current Baseline" section at the
-  top of this file.
-- **Results:** _pending_
+---
 
-### connect.json bootstrap helper for work sessions `[infrastructure]`
-- **Status:** not_started
-- **Dependencies:** none
-- **Priority:** low — ergonomic, not correctness-critical. Defers until a work
-  session actually trips over it again.
-- **Description:** Session 34 documented two recurring pain points in memory:
-  (1) `source scripts/macos/vm-start.sh` sets env vars that don't persist across
-  Bash-tool subshells, forcing a `zsh -c 'source ...; env > file'` workaround;
-  (2) stale connect.json from a previous session can silently contain wrong VNC
-  port / IP / password and poison a generator run without any error signal. Add
-  a tiny helper (shell wrapper or Python one-shot) that: starts/reuses the VM,
-  emits a fresh connect.json, prints the key env vars to stdout in a form the
-  Bash tool can consume (e.g., `eval $(vm-env)`), and sanity-checks the VNC URL
-  against the tart VM's current state before writing. Keep scope tight — no new
-  VM orchestration, just a wrapper around the existing scripts plus a pre-run
-  freshness check.
-- **Results:** _pending_
+### Investigate Windows windowsterminal sample window-focus bug
 
-### Verify per-engine confidence cutoffs match Session 40 survey-optimal `[analyzer]`
-- **Status:** not_started
-- **Dependencies:** Adopt EasyOCR as default OCR engine (above)
-- **Priority:** lowest — **scope-collapsed from the original "Confidence
-  threshold tuning" task during post-Session-40 triage**. The Session 40
-  engine survey resolved the *shape* of the per-engine confidence curve
-  on every platform (memory's "Confidence cutoff is engine-shaped, not
-  OCR-task-shaped" entry). The remaining work is purely to ensure the
-  production analyzer config matches the survey-optimal value per engine,
-  not to discover anything new. There is no further sweep to run; any
-  hour spent here that isn't a config alignment is wasted.
-- **Description:** Confirm `OCRConfig.min_confidence` defaults align with
-  the Session 40 survey verdicts: Apple Vision favours c=0.7 (~+1pp over
-  c=0.5), Tesseract favours c=0.5 (collapses at c=0.7), EasyOCR is flat
-  across c=0.0–0.7 (any value within that range is fine; keep c=0.5 for
-  consistency). If `OCRConfig` currently uses a single cross-engine
-  default, decide whether to make the default engine-conditional (Apple
-  Vision overrides to 0.7 in its dispatch path) or leave a single value
-  of 0.5 across all engines and document the ~1pp Apple Vision miss as a
-  known minor cost. Cached A/B against `data/ocr-vm-{platform}/` to
-  confirm the Session 40 survey numbers reproduce on the canonical
-  dataset before shipping any change. Out of scope: any further
-  confidence sweep — the survey resolved the shape of the curve and
-  additional sweeps will not move the picture.
-- **Results:** _pending_
+**Category:** `generator`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** medium — caps achievable Windows text F1 regardless of evaluator
+fixes; contaminates any Windows Terminal A/B work.
+
+**Dependency context:** works from cached samples plus a diff against the
+Windows generator scenario.
+
+Session 36 found that `windowsterminal_00003/00004/00005` cached predictions
+contain only Notepad + Edge welcome-dialog + pangram content — no Windows
+Terminal strings. GT for the same samples comes from the Windows Terminal AX
+tree (tab, title, Close Tab, scroll buttons, typed-command programmatic
+entries), so either the generator captures the screenshot before Windows
+Terminal has been raised, or the scenario is activating the wrong window, or
+the window-enumeration/selection step is mismatching. Investigation: open one
+cached `ocr_vm_windowsterminal_*.png` to visually confirm what the screen
+actually shows, then trace the Windows-scenario code path in
+`pipeline/ocr/src/ocr_generator/` to find the focus/raise sequence and add
+the missing step. Do not regenerate Windows terminal data until this is
+fixed — the cached predictions do not test what they advertise.
+
+**Results:** _pending_
+
+---
+
+### Re-A/B Session 33 button/textfield filter via `by_app` bucket
+
+**Category:** `evaluation`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** medium — directly verifies a prior verdict that memory flags as
+needing re-examination. "Session 33's button/textfield filter (predicted
++5–10pp Safari F1, measured aggregate +0.09pp) should be re-A/B'd against the
+per-app bucket before any further claims about it are made."
+
+**Dependency context:** `by_app` live since Session 35; cached A/B playbook
+handles GT-filter changes. EasyOCR adopted as default (done, Session 41) —
+this task should now A/B against the Session 41 EasyOCR predictions, not the
+pre-flip Apple Vision baseline, because the filter's effect composes with the
+engine-swap delta (macOS safari +21.21pp, textedit +30.88pp).
+
+Run the cached-data A/B playbook across the Session 33 button/textfield filter
+commit using `data/ocr-vm-macos/` against the **Session 41 EasyOCR
+predictions** (not the `predictions-apple-vision/` backup — the filter's
+effect on the new default-engine output is what matters going forward). Read
+the Safari `by_app` row specifically. Expected signal: Safari-scoped text F1
+delta visible at per-app granularity even if macOS aggregate was +0.09pp on
+Apple Vision. Produce a keep/revert/no-signal verdict for the Safari bucket
+**on EasyOCR** and update memory's "AX-description filter" entry with the
+measured Safari delta. If the verdict contradicts the deployed rule, split a
+follow-on task to revert or narrow the filter. **Secondary output**:
+re-running against the `predictions-apple-vision/` backup as well produces
+the per-engine split of the filter's effect — only worth doing if the EasyOCR
+verdict contradicts the deployed rule.
+
+**Results:** _pending_
+
+---
+
+### Generator-side bbox bounds validation warning
+
+**Category:** `generator`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** medium — promoted from a nested note in the Windows UIA
+oversized-bbox task during triage. Memory records two historical coordinate
+bugs that would have been caught by this invariant years earlier: the Linux
+GTK4 `(0,0)` bug (bounds collapse to zero) and the Windows UIA oversized bbox
+(`x_max=1139` on an 800×600 image, 339px beyond the framebuffer). Both are
+violations of the same property — every GT bbox must lie inside
+`[0, 0, image_width, image_height]` — but they were diagnosed session by
+session via eyeballing GT files. A cheap validator would catch future
+instances at generation time instead of several sessions later.
+
+**Dependency context:** runs on cached `data/ocr-vm-{platform}/` and the
+generator output path. Pure additive safety net.
+
+Add a validation pass to the OCR generator that, after GT assembly for each
+sample, checks every bbox against the image dimensions and emits a warning
+(not an error — AX trees can legitimately have off-screen elements in some
+edge cases) for any bbox where any of: `x_min < 0`, `y_min < 0`,
+`x_max > image_width`, `y_max > image_height`, `x_min >= x_max`,
+`y_min >= y_max`. The warning should identify the sample, the offending
+element's role/label, and the bbox values. Also expose a `--strict-bbox` flag
+that elevates warnings to errors for CI use. Place in
+`pipeline/ocr/src/ocr_generator/` alongside the assembly code — does not live
+in the agent side because the agent output is what we're validating.
+
+Test: unit tests for each violation class; integration test that runs the
+generator over a cached sample and confirms (a) no warnings on current cached
+data post-Linux-fix, (b) warnings fire on a synthetic bbox injected with each
+violation class. Out of scope: fixing the underlying coordinate bugs (those
+are separate agent-side tasks).
+
+**Results:** _pending_
+
+---
+
+### Investigate Windows UIA oversized-bbox coordinate bug
+
+**Category:** `agent`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** medium — analogous to the Linux GTK4 `(0,0)` bug fixed in
+Session 30 but in the opposite direction. Not a text-F1 contributor but will
+matter for Windows spatial matching and for any future per-element coordinate
+analysis.
+
+**Dependency context:** surfaceable from cached `ground_truth/`; fix lives
+in the Windows agent.
+
+Session 36 observed that every cached `windowsterminal_*` GT has a "Windows
+PowerShell" (`focused`, `role=text`) element with bbox `[26, 117, 1139, 653]`.
+Image dimensions are 800×600, so `x_max=1139` is 339px beyond the framebuffer.
+Likely a UIA reporting a logical or virtual-desktop coordinate that exceeds
+the framebuffer bounds. Fix lives in `agents/windows/Services/UiaTreeWalker.cs`
+(or wherever element bounding boxes are computed). Regression check: after
+the fix, a cached Windows sample should produce a GT file whose bboxes all
+lie inside the declared image dimensions. Consider adding a generator-side
+validation warning that flags any bbox outside `[0, 0, image_width, image_height]`
+for any platform — same invariant would have caught both this bug and the
+GTK4 `(0,0)` bug.
+
+**Results:** _pending_
+
+---
+
+### Capture canonical baseline snapshots per platform
+
+**Category:** `infrastructure`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** medium — prerequisite for the AT-SPI re-measurement and for
+baseline refresh; also unblocks making snapshot A/B the default flow.
+
+**Dependency context:** A/B evaluation snapshots infrastructure landed
+Session 31.
+
+Freeze one snapshot per platform (macOS/Windows/Linux) using
+`python -m pipeline_common.snapshot_cli freeze`, versioned by the state of
+the pipeline at capture time (e.g., `session-35-post-by-app/{macos,windows,linux}`).
+Decide where the snapshots live: commit if small enough, otherwise a shared
+location referenced by path. Document the capture procedure so future baseline
+refreshes produce comparable snapshots. Intentionally small scope — a one-shot
+`freeze` run per platform, not new generator work.
+
+**Results:** _pending_
+
+---
+
+### Explain the Session-23-to-now macOS text F1 regression
+
+**Category:** `evaluation`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** low — **demoted from medium during post-Session-40 triage**.
+The +27pp gap between Session 23 (47.6%) and current Apple Vision cached
+(~20.58%) is now largely irrelevant to the forward path: switching to EasyOCR
+recovers ~+20pp aggregate text-F1 in one move, so the remaining delta against
+the historical baseline shrinks to a code-archaeology question rather than a
+regression to fix. Memory's Session 34 framing collapsed the cached/fresh gap
+to ~1.9pp; the residual is now a question for historians, not for the next
+baseline refresh.
+
+Bisect across the commits landed between Session 23 and Session 34 to find
+where macOS text F1 dropped ~27pp. Candidate suspects from memory: the
+matcher rewrite from substring/IoU to center-distance (Session 29), multi-word
+adjacent matching (Session 28), the AX label/value split introduced by the
+Session 33 button/textfield filter rework, or a denominator change in
+char/word/recall accounting. Use the cached-A/B playbook against
+`data/ocr-vm-macos/` to isolate each commit's contribution without fresh VM
+runs. Read deltas per-app as well as aggregate. Deliverable: a short table of
+per-commit macOS text F1 deltas plus the identified dominant contributor(s).
+Updates memory with the resolution and retires the "cached-vs-fresh" framing
+entirely. Expected to overlap with the matcher-layer and GT-addition
+re-measurement tasks; if they close first, this task shrinks to reconciling
+their verdicts against the 27pp total.
+
+**Results:** _pending_
+
+---
+
+### Re-measure Session 30 AT-SPI coordinate fix via canonical snapshot
+
+**Category:** `evaluation`
+**Status:** `not_started`
+**Dependencies:** Capture canonical baseline snapshots per platform
+
+**Description:**
+
+**Priority:** medium — only one change in this bucket, still strictly needs a
+frozen snapshot because it modifies the Linux agent's coordinate output which
+cached predictions already bake in. Not unblocked by Session 34.
+
+Using a frozen canonical Linux snapshot, re-run the full evaluation pipeline
+pre- and post-Session-30 (xdotool offset + X11 content-area correction) to
+produce a keep/revert/no-signal verdict. The expected verdict is "keep"
+(Session 30 measured Linux IoU F1 1.9% → 9.8%) but the original delta was
+fresh-run-to-fresh-run and thus contaminated by VM content variation; the
+frozen-snapshot A/B reverifies it. Combined with the two cached-A/B tasks,
+this feeds the baseline refresh with a trustworthy list of surviving changes.
+Also inspect per-app (`by_app`) deltas — Nautilus in particular, since its
+Session 35 IoU divergence may be partially explained by what this
+re-measurement shows.
+
+**Results:** _pending_
+
+---
+
+### Drop GTK4 spatial GT as denominator-correctness stop-gap
+
+**Category:** `ground-truth`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** medium — **promoted from approach (3) of the GTK4 per-element
+position recovery task during post-Session-40 triage**, per the spec's
+nested-blocker promotion rule. Memory's Sessions 39 + 40 diagnoses establish
+that no engine choice and no evaluator change will move GTK4 spatial F1 off
+the noise floor without per-element coordinate recovery (Session 40's engine
+survey moved Linux IoU by <5pp under every engine, holding at the GTK4 noise
+floor of ~10%). Leaving GTK4 elements in the IoU denominator strictly
+understates Linux spatial metrics for every future measurement until the
+underlying recovery work ships. This is a cheap, honest fix that removes a
+known confound from every Linux IoU comparison and unblocks meaningful
+per-platform spatial analysis without waiting on Linux agent test
+infrastructure or any fragile X11 plumbing.
+
+**Dependency context:** pure GT-pipeline change, does NOT touch
+`agents/linux/testanyware_agent/accessibility.py`, so it ships independently
+of the Linux agent test infrastructure dependency that gates the rest of the
+GTK4 per-element position recovery work.
+
+Mark GTK4 elements as "spatial-N/A" in the GT pipeline so the IoU evaluator
+skips them while the text_content matcher continues to score them normally
+(text matching is unaffected — Nautilus text-F1 is 61.68% / 73.63% under
+EasyOCR, which is real signal). Detection approach: per-app filter — GTK4 CSD
+apps (Nautilus, GNOME Text Editor, any future GTK4 app) go in a spatial-N/A
+app list. A more general detector would inspect the AT-SPI tree for the
+all-zero per-element position signature, but per-app filtering ships today
+and covers every known case in the cached data. Implementation: add a
+sample-level flag (e.g., `exclude_from_spatial: true`) in the GT-pipeline
+ground-truth assembly path; have `evaluate_dataset()` honour it for IoU
+buckets only, not text_content.
+
+Verification: cached A/B against `data/ocr-vm-linux-fix/` — expected signal
+is Linux IoU aggregate climbs as the GTK4 noise-floor samples leave the
+denominator while text_content metrics stay byte-identical. Update memory's
+"Per-app anomalies worth tracking" entry with the post-fix Linux IoU numbers.
+Out of scope: per-element position recovery via approaches (1) or (2) of the
+parent task — those remain on the backlog under the GTK4 per-element
+position recovery task and depend on Linux agent test infrastructure.
+
+**Results:** _pending_
+
+---
+
+### GTK4 per-element position recovery
+
+**Category:** `agent`
+**Status:** `not_started`
+**Dependencies:** Linux agent test infrastructure
+
+**Description:**
+
+**Priority:** medium — surfaced by Session 39's diagnosis of the Nautilus
+text/IoU divergence. Closing this is the only path to moving GTK4 spatial F1
+off the noise floor (Nautilus 5.10%, TextEditor 3.54%); without it the 60pp
+text-vs-IoU gap on Nautilus is permanent. Independent of the
+alternative-engine survey because OCR-engine choice cannot fix missing
+per-element coordinates from AT-SPI. Sized "medium" rather than "high" because
+the fix is non-trivial (multiple viable approaches, each with trade-offs) and
+the affected metric is spatial-only.
+
+**Dependency context:** **Linux agent test infrastructure** (hard — memory's
+Session 39 rule: "land linux agent test infrastructure before any further
+accessibility.py edits, especially anything touching the Layer 2 GTK4
+problem — that work will involve fragile X11 plumbing that is exactly the
+wrong thing to debug only via integration"). The cheap stop-gap (drop GTK4
+spatial GT) was promoted to its own top-level task during post-Session-40
+triage and ships independently of this work; this task now covers only the
+recovery-of-real-coordinates approaches, both of which are blocked on the
+test scaffolding. Input data: `data/ocr-vm-linux-fix/` cached after
+Session 39, plus the Linux VM.
+
+Session 39 confirmed via direct `pyatspi` probe that GTK4 CSD apps (Nautilus,
+GNOME TextEditor) return `(0, 0, w, h)` from `getExtents(DESKTOP_COORDS)`
+AND `getExtents(WINDOW_COORDS)` for every element in the AT-SPI tree —
+frame, panels, leaf elements, all the way down. Per-element widths/heights
+ARE varied per element (so AT-SPI knows the sizes), but positions are
+uniformly zero. The Session 30 + Session 39 window-offset fix gives the
+top-level frame a correct screen position, but every descendant inherits the
+same offset and stacks at the window origin — so spatial matching cannot
+distinguish elements.
+
+Three candidate approaches in order of expected effort:
+
+1. **OCR-driven spatial registration** — for each AT-SPI label, find the
+   best-matching OCR detection by content and assume the OCR bbox is the
+   element's screen position. Conceptually clean and orthogonal to GTK
+   versions, but produces "reverse GT" (GT depends on predictions), which
+   complicates evaluation semantics — TP/FP accounting must be reworked
+   because the GT bbox is no longer prediction-independent. Best initial
+   approach for a spike because it's testable end-to-end against
+   `data/ocr-vm-linux-fix/` without VM time.
+2. **Per-element grab-focus + xdotool re-query** — walk the AT-SPI tree,
+   call `accessible.queryComponent().grabFocus()` on each element, then
+   query `xdotool getactivewindow getwindowgeometry` to read the focused
+   element's screen rectangle. Slow (one xdotool round-trip per element),
+   fragile (focus grabs trigger UI side effects), and changes the AT-SPI
+   tree as a side effect. Last resort.
+
+Approach (3) "Drop GTK4 spatial GT entirely" was promoted to its own
+top-level task during post-Session-40 triage and ships independently of this
+work — see "Drop GTK4 spatial GT as denominator-correctness stop-gap" above.
+Recommended sequencing here: ship the stop-gap first (separate task), then
+spike (1) on the cached samples once Linux agent test infrastructure lands,
+then decide whether (1) is worth the GT-pipeline rework. Skip (2) unless (1)
+proves intractable.
+
+**Results:** _pending_
+
+---
+
+### Linux agent test infrastructure
+
+**Category:** `infrastructure`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** medium — three rounds of Session-30-class fixes (Sessions 30,
+39, plus the inevitable per-element follow-up) have all relied on integration
+verification because `agents/linux/` has zero unit test scaffolding. Each
+round has discovered the previous round's framing was incomplete — the cost
+of "no unit tests" is now visible across multiple cycles. Should land before
+any further `accessibility.py` edits.
+
+`agents/linux/` has no `pyproject.toml`, no `tests/` directory, no
+`conftest.py`, and no test files. The Linux agent runs as raw Python in the
+VM with imports resolved at runtime against the pre-installed
+`python3-pyatspi` system package. Add minimal pytest scaffolding that does
+not perturb the VM-side runtime layout:
+
+- `agents/linux/pyproject.toml` with `[project]` metadata and a
+  `[tool.pytest.ini_options]` section for test discovery. Optional
+  dependencies under `[project.optional-dependencies].dev` for `pytest`.
+- `agents/linux/tests/conftest.py` that uses `unittest.mock.MagicMock` to
+  stub `sys.modules['pyatspi']`, `sys.modules['gi']`, and
+  `sys.modules['gi.repository']` BEFORE any agent module is imported. This
+  lets tests import `testanyware_agent.accessibility` on macOS hosts where
+  pyatspi is not available.
+- First test file `agents/linux/tests/test_screen_offset.py` exercising the
+  Session 39 helpers extracted in this round (`_xdotool_search`,
+  `_xdotool_window_geometry`, `_pick_matching_window`) via subprocess
+  mocking. Covers: PID lookup success path, PID lookup returning multiple
+  windows with one geometry-matching, all-popover rejection (1x1 sentinel),
+  title fallback when PID returns nothing, `_GTK_FRAME_EXTENTS` parse and
+  missing-property fallback. ~10 tests initial scope.
+- Wire into project test discovery: either add a `pytest agents/linux/`
+  invocation to the project-level `run-tests` convention, or document that
+  agent tests run via `cd agents/linux && uv run pytest` with the
+  optional-deps install. Confirm tests run cleanly on a fresh macOS host
+  (no Linux runtime needed because all gi/pyatspi imports are mocked).
+
+Out of scope: tests for `tree_walker.py` (different module, would also need
+pyatspi mocking but is a separate test surface), tests for the HTTP server,
+and any test that touches a real X11 display.
+
+**Results:** _pending_
+
+---
+
+### Batch analyzer rerun against a snapshot
+
+**Category:** `infrastructure`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** medium — hard prerequisite for any analyzer-layer A/B
+(confidence tuning, granularity flag, recognition level). Session 41 proved
+the pattern end-to-end: the one-shot rebuild script used `analyze_image()`
+directly (not a subprocess) with `_easyocr_reader_cache` keeping model loads
+warm across the run, and processed all three platforms in <60s wall time.
+Productionizing it is mostly mechanical.
+
+**Dependency context:** A/B evaluation snapshots (done); the Session 41
+`pipeline/scripts/rebuild_easyocr_predictions.py` one-shot as a seed.
+
+The A/B snapshot workflow handles the evaluator-change case cleanly. The
+analyzer-change case is still awkward because rebuilding `predictions/` for
+a snapshot currently means either the ad-hoc `rebuild_easyocr_predictions.py`
+(engine-specific, research-only) or looping `python -m ocr_analyzer <image>`
+per sample by hand.
+
+Promote the Session 41 rebuild script into a canonical
+`snapshot_cli rebuild-predictions --data-dir X --engine {apple_vision|
+tesseract|easyocr} [--preprocess MODE]` subcommand. Reuse the idempotent
+predictions-backup pattern the Session 41 script established (`predictions/`
+→ `predictions-{engine}/` if present, clobber-safe) so every engine swap
+preserves the prior baseline for future cached A/B without regenerating from
+live VMs. Also expose the symlinked-tempdir pattern from
+`pipeline/scripts/survey_engines.py` so A/B evaluation of the backup
+baseline against the new predictions works without copying ground truth.
+Should be idempotent: overwrites existing predictions for the live engine,
+preserves any existing `predictions-*/` backups, skips samples with no
+image. Small (< 150 lines once the engine+preprocess plumbing is in; the
+Session 41 script is already ~80 lines and hardcoded to EasyOCR).
+
+**Results:** _pending_
+
+---
+
+### Update work-phase prompt to default to A/B snapshots
+
+**Category:** `infrastructure`
+**Status:** `not_started`
+**Dependencies:** Capture canonical baseline snapshots per platform
+
+**Description:**
+
+**Priority:** medium — ergonomic win, cuts per-cycle wall time and eliminates
+VM content drift as a noise source for most work sessions.
+
+`ocr-accuracy/prompt-work.md` currently tells the work phase to spin up a
+fresh VM, generate, then evaluate. With A/B snapshots and a canonical
+baseline frozen, the default workflow should be: evaluate against the
+canonical snapshot; only regenerate from a fresh VM when the task explicitly
+invalidates the snapshot (generator, agent, or ground-truth extractor
+changes). Update the prompt to reference `pipeline_common.snapshot_cli` and
+the canonical snapshot path(s). Include a short "when to regenerate"
+checklist so work sessions know when the snapshot is invalidated.
+
+Also document the cached-data A/B playbook (filter on top of existing
+`ground_truth/` files; never rebuild GT from raw snapshots during a filter
+A/B — the Session 32 near-miss dropped 48 programmatic terminal GT entries
+when `snapshot_to_ground_truth` was used). Add the Session 33 "survey real
+cached GT before designing filter rules" rule as an explicit
+pre-implementation step for any GT-filter task — enumerate actual labels
+across all three platforms for every role in scope before writing tests.
+
+Also add Session 34's two rules: (1) cached-A/B now extends to generator-level
+filter changes, with a fresh-A/B reconstruction recipe (re-run retained
+inputs through both code paths) for end-to-end validation; (2) when adding
+platform-conditional logic to the generator, grep existing tests for
+`connect.json == "{}"` and retrofit explicit platform fields before shipping,
+because empty-config fixtures implicitly test whatever the new default
+resolves to.
+
+Also add Session 35's rule: every app-specific hypothesis must be verdicted
+against the `by_app` bucket, not aggregate, before any claim is recorded.
+Finally, add Session 36's rule: per-app inspection via `by_app` is the
+default first move for any anomaly hunt — aggregate-level numbers masked the
+Linux 1.42% terminal collapse behind a 33% Linux aggregate, and the
+diagnosis could not have been scoped without `by_app`.
+
+Also add Session 41's two rules: (1) when the OCR engine is swapped, back
+up the prior `predictions/` to `predictions-{engine-name}/` idempotently
+(the Session 41 rebuild script did this as `predictions-apple-vision/`) and
+evaluate the backup alongside the new default via a symlinked-tempdir so
+both engines have comparable `results-{text,iou}-{engine}.json` reports
+against the same ground truth; (2) **verdict signature rule**: F1 +
+precision + recall is the canonical text-content verdict shape. char/word
+accuracy are content-class diagnostics, NOT verdict drivers — three cached
+buckets in Session 41 (macOS textedit, Linux firefox, Linux texteditor)
+showed char-accuracy regressions of 3–10pp with simultaneous F1 gains of
+6–30pp under the engine swap, because EasyOCR's word segmentation splits
+differently from Apple Vision on shared matches. Reporting char in isolation
+would have called this a regression.
+
+**Results:** _pending_
+
+---
+
+### OCR engine router with per-region engine selection
+
+**Category:** `analyzer`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** **low — demoted from medium during post-Session-41 triage**.
+The original routing motivation was "balance EasyOCR quality against
+EasyOCR's 6–10s/sample runtime by routing low-value regions to Apple Vision".
+Session 41 falsified the runtime premise for Linux/Windows: warm EasyOCR
+inference is already near interactive speed. That leaves macOS Retina as the
+only platform where a runtime-motivated router pays for itself, and even
+there the EasyOCR runtime-optimization task is a simpler path (downscale
+inputs before dispatch). The router only survives as a **quality-motivated**
+architecture — per-content-class preprocessing and possibly per-content-class
+engine selection if the follow-on engine survey turns up a specialist engine
+— not as a runtime-motivated one. **Post-Session-42 escape path**: the
+morphological line-extraction spike is falsified, so it is no longer an
+alternative route to closing the macOS interactive gap. Re-escalate this
+router task only if the macOS Retina runtime task closes "negative result
+for macOS", at which point a router-with-Apple-Vision-on-macOS becomes the
+only remaining way to ship a non-Apple-Vision experience interactively on
+macOS.
+
+**Dependency context:** Adopt EasyOCR as default OCR engine (done,
+Session 41). The gridded-monospace content detector is no longer a hard
+prerequisite (Session 40 partially deprecated it) because EasyOCR handles
+both proportional and monospace passably without per-cell routing.
+**Post-Session-41 soft dep**: the EasyOCR runtime optimization task, because
+Session 41's warm-inference measurements showed Linux 800×600 at
+1.44s/sample and Windows 800×600 at 0.79s/sample — already inside the
+interactive budget. If the macOS Retina-2x runtime question also closes
+positively, the router question **collapses to "just always use EasyOCR"**
+on every platform and this task retires. Only fire this task after the
+runtime optimization task lands a verdict.
+
+Build a router that decomposes a frame into regions and dispatches each to
+the OCR engine best suited to that region's content **class and runtime
+budget**. **Session 42 confirmed the router can stay extract-lines-free** —
+the morphological line-extraction spike was falsified on every
+engine/platform cell, so no router rule should dispatch through
+`preprocess="extract-lines"`. The retained extract-lines seam
+(`OCRConfig.preprocess="extract-lines"`) is documented dead code and must
+not be wired into this router's dispatch table. Returns a unified detection
+list to the rest of the pipeline. Region decomposition can lean on the
+existing `pipeline/region-decomposition/` work — the goal is to keep
+per-frame OCR cost bounded while capturing the EasyOCR text-F1 lift on
+high-value regions.
+
+**Post-Session-40 routing rule**, replacing the earlier "Tesseract for
+monospace, Apple Vision otherwise" framing:
+
+- **High-value content (terminals, code editors, document body regions)** →
+  EasyOCR. The Session 40 survey shows EasyOCR is +9 to +30pp text-F1 over
+  Apple Vision on every high-value bucket and handles dense monospace
+  passably (Linux terminal 33.33% F1 vs Apple Vision 8.82%). Session 41
+  re-measured EasyOCR warm runtime as ~0.8s (Win) / ~1.4s (Linux) /
+  ~3.9s (macOS Retina-2x) per sample — not the 6–10s/sample the earlier
+  framing assumed.
+- **Low-value cheap content (toolbars, menu bars, single-line labels)** →
+  Apple Vision, **only if the runtime budget argument still applies**.
+  Post-Session-41, the budget argument only applies on macOS Retina; on
+  Linux/Windows, EasyOCR is already interactive-speed so routing to Apple
+  Vision only saves ~0.4s per frame and costs F1. Re-evaluate the per-region
+  routing rule once the macOS Retina runtime question closes.
+- **Tesseract** is the runtime-cheap middle path on dense monospace where
+  EasyOCR is too slow and Apple Vision can't recognize the content
+  (Session 40: Linux terminal Tesseract upscale-2x 27.03% vs EasyOCR 33.33%,
+  within ~6pp at 10× the speed). Reserve as an interactive-path fallback if
+  the EasyOCR runtime optimization task closes "negative result".
+
+Per-app overrides allowed where the survey showed clear winners (e.g.
+per-content-class preprocess flags — memory's "Preprocessing is
+per-content-class AND per-engine" entry). Architectural note: this changes
+the OCR analyzer from a single-engine wrapper into a dispatcher. Decide
+whether the Swift CLI remains the entry point or whether Python becomes the
+new entry and Swift drops to one of several backends — that's a real
+architectural fork that should get its own design pass before implementation.
+
+Measurement: cached A/B against the Session-37 baseline on all three
+platforms, per-app and aggregate. **Important caveat**: the moment we route,
+we are benchmarking a *router* not an engine. Make sure the cached datasets
+are evaluated under both single-engine and router configurations so future
+work can still A/B individual engines without regenerating data.
+
+**Session 38 Safari upscale rescore path — FALSIFIED (Session 43).**
+Session 38 claimed macOS Safari char +5.56pp / recall +3.57pp under
+upscale-2x/4x. Session 43 re-ran the full `engine × preprocess × cutoff`
+matrix on the current cached `data/ocr-vm-macos/` and found Apple Vision
+Safari recall and char **bit-flat across every cutoff and every preprocess
+mode** (recall=0.3929, char=0.3187 in every cell from cutoff 0.0 to 0.7 ×
+preprocess {none, upscale-2x, upscale-4x}). EasyOCR upscale-2x Safari also
+regressed (F1 −3.48pp). The "high-resolution rescore" path for
+browser/proportional content is not viable on the current dataset. The
+router should NOT include a per-content-class upscale rule for Safari or
+proportional content. The Swift `--preprocess` infrastructure remains as
+retained spike code; Python `OCRConfig` was deliberately not extended to
+expose it.
+
+**Results:** _pending_
+
+---
+
+### Long-lived OCR analyzer daemon for interactive `find-text`
+
+**Category:** `analyzer`
+**Status:** `in_progress`
+**Dependencies:** none
+
+**Description:**
+
+Design + plan complete; implementation in progress (Sessions 45–47).
+
+**Priority:** **high — inherits the motivation of the now-closed "Ship
+EasyOCR on Linux/Windows interactive" task**. Session 44 measured subprocess
+cold-start at 4.8–5.5s per call, blowing the interactive budget by 3–4×. A
+daemon is the only remaining path to shipping the +9–20pp text-F1 lift on
+the interactive `find-text` CLI for Linux/Windows targets.
+
+**Dependency context:** Session 44's cold-start measurement (complete). No
+other blockers. `_easyocr_reader_cache` already exists in
+`pipeline/ocr/src/ocr_analyzer/analyzer.py` and is the warm-reader scaffold
+— the daemon's job is to keep a process alive holding that cache.
+
+Stand up a small long-lived Python process that holds the EasyOCR reader in
+`_easyocr_reader_cache` between calls, accepts OCR requests over a
+lightweight local IPC, and returns `PipelineStepResult`-shaped JSON. Wire
+`testanyware find-text` to dispatch through the daemon when
+`spec.platform ∈ {linux, windows}`, keeping Vision.framework in-process for
+`spec.platform == macos` until the macOS Retina runtime task closes.
+
+Key design questions that this task must answer **before** committing to an
+implementation path (brainstorm first, then write a plan, then implement):
+
+- **Transport**: Unix domain socket + line-delimited JSON is the
+  lowest-ceremony option that keeps the daemon host-local. HTTP on localhost
+  reuses the pattern the in-VM agents already use and has a known Swift
+  client (URLSession). Pick one; do not design both.
+- **Lifecycle**: auto-spawn-on-first-use vs always-on vs opt-in via
+  `testanyware server ...` subcommand. The `ServerCommand.swift` entry
+  already exists — check whether it is the right hook for an always-on
+  backend.
+- **Single-tenant vs multi-tenant**: one daemon per `testanyware` user, one
+  per machine, one per call-site? Cache eviction / shutdown semantics.
+  Measure idle RSS so the "leave it running" default is cheap enough to
+  justify.
+- **Cold-start amortization measurement**: target is Linux/Windows 800×600
+  end-to-end latency ≤1.5s on the second+ call and ≤8s on the first call
+  (unavoidable Reader init). Confirm those numbers reproduce end-to-end
+  under the chosen transport before shipping.
+- **macOS Retina caveat**: macOS target images are Retina-2x so the per-call
+  inference cost is ~3.9s warm (Session 41 number). Even with a daemon,
+  macOS targets are not inside the interactive budget without the
+  input-resolution downscale work in the runtime-optimization task — do NOT
+  route macOS through the daemon in this task. Keep Vision.framework for
+  macOS until that task ships.
+- **Fallback**: if the daemon is unreachable (not running, crashed, wrong
+  version), the CLI must fall back to Vision.framework with a warning, not
+  fail. Interactive `find-text` is a utility; losing the quality lift is
+  acceptable, losing the command is not.
+
+Scope this task as a design + implementation pair. Start with a short
+brainstorm of the transport + lifecycle choice (one paragraph each, no
+implementation), then spike the chosen path against the cached Linux/Windows
+samples to confirm the end-to-end latency target before wiring the Swift
+CLI. Tests: Python-side daemon unit tests under `pipeline/ocr/tests/`;
+Swift-side dispatch tests under `cli/Tests/testanywareTests/` using the same
+mocking patterns the existing find-text integration tests use. Out of scope:
+any macOS interactive work; any new preprocessing modes; Windows-host or
+Linux-host builds of the daemon (host is macOS only).
+
+**Results:**
+
+Session 45 (2026-04-16) completed the design phase. Full spec at
+`docs/superpowers/specs/2026-04-15-ocr-analyzer-daemon-design.md`. Key design
+decisions:
+
+- **Daemon boundary**: co-resident in `GUIVisionServer` as a child Python
+  process, not a standalone daemon. Inherits the server's per-`ConnectionSpec`
+  lifecycle and idle-timeout.
+- **Transport**: temp-file PNG payload + JSON line on stdin/stdout for
+  control. `analyze_image()` already takes a `Path`; zero impedance with
+  existing Python API.
+- **OCR dispatch placement**: server-side, not CLI-side. The `/ocr` handler
+  is the engine abstraction layer; CLI is engine-agnostic.
+  `VisionOCREngine.recognize()` lifted from `FindTextCommand` into the
+  `GUIVisionVMDriver` library.
+- **Failure surfacing**: aggressive (A3+B2+C2+D2+E2). Hard-fail on permanent
+  failure with opt-in `GUIVISION_OCR_FALLBACK=1`, banner per call in
+  degraded mode, persistent status file, `guivision doctor` subcommand,
+  Homebrew postinstall verification.
+- **Deployment**: single Homebrew formula bundling `python@3.12`, EasyOCR,
+  torch, tart, qemu, swtpm. Interpreter resolution:
+  `$GUIVISION_OCR_PYTHON` → Cellar-relative → dev fallback.
+- **Testing**: 5 tiers. Fake-shell-script harness for the bridge tests (no
+  Python needed in CI). ~20 bridge tests covering every failure class.
+
+Session 46 (2026-04-16) completed the implementation plan. Full plan at
+`docs/superpowers/plans/2026-04-16-ocr-analyzer-daemon.md`. 15 tasks
+covering all 8 spec components, 5 test tiers, all 10 acceptance criteria,
+and all 5 aggressive surfacing policy tiers. Resolves all 5 open questions
+deferred from spec to plan. Task decomposition follows TDD with frequent
+commits. Independent roots (Tasks 1, 2, 3, 4, 8) can be parallelized. Next
+session: execute the plan via subagent-driven-development or executing-plans.
+
+Session 47 (2026-04-16) executed plan tasks 1–5, 8–11. Core implementation
+landed — 8 of 15 plan tasks complete:
+
+- **Task 1**: `OCRDetection` + `OCRResponse` wire types (4 tests)
+- **Task 2**: `VisionOCREngine` — Vision.framework OCR lifted into library
+  as `recognize(pngData:) -> [OCRDetection]` (5 tests)
+- **Task 3**: Python `--daemon` mode on `ocr_analyzer` — stdin/stdout JSON
+  loop with eager EasyOCR reader warmup (6 tests, all pass with real EasyOCR)
+- **Task 4**: `fake-ocr-daemon.sh` harness with 8 behavior modes
+- **Task 5**: `OCRChildBridge` actor — lazy spawn, temp-file PNG dispatch,
+  JSON protocol, actor-serialized concurrency (5 tests)
+- **Task 8**: `OCRStatusFile` — persistent degraded-mode tracking (6 tests)
+- **Task 9**: Server `/ocr` route — platform dispatch (macOS → Vision,
+  Linux/Windows → bridge), `GUIVISION_OCR_FALLBACK=1` support, interpreter
+  resolution chain (3 new server tests)
+- **Task 10**: `ServerClient.ocr(pngData:)` client method (1 test)
+- **Task 11**: `FindTextCommand` rewrite — removed inline Vision OCR, now
+  uses `client.ocr()`, -49 lines net. CLI is engine-agnostic.
+
+Test results: Swift 117 tests pass (pre-existing UnifiedRole failure in
+separate target unrelated). Pipeline 836 tests pass, 19 deselected.
+Remaining plan tasks: 6 (failure classification), 7 (interpreter
+resolution + deadlines), 12 (DoctorCommand), 13 (startup warning),
+14 (Package.swift cleanup), 15 (Tier 5 integration + acceptance).
+
+---
+
+### EasyOCR runtime optimization for the interactive `find-text` path (macOS Retina scope)
+
+**Category:** `analyzer`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** medium — **scope narrowed during post-Session-41 triage**.
+Session 41's rebuild-script measurements showed warm EasyOCR inference is
+**already inside the interactive budget** on Linux 800×600 (1.44s/sample)
+and Windows 800×600 (0.79s/sample); the budget gap only applies to macOS
+Retina-2x samples at 3.92s/sample. That retires the "EasyOCR-on-GPU"
+question for Linux/Windows entirely — Linux/Windows interactive `find-text`
+on EasyOCR can ship today at default settings. The remaining task is:
+(a) wire the interactive CLI to dispatch to EasyOCR on Linux/Windows **now**,
+and (b) decide whether macOS Retina warm inference can be pulled under the
+~1.5s interactive threshold via MPS acceleration, quantization, or
+input-resolution downscale (the macOS-Retina cost is size-driven, not
+engine-bound). If the macOS answer is "no", macOS interactive stays on Apple
+Vision indefinitely — the morphological line-extraction rescue path that was
+the alternative here was falsified in Session 42, so "no" on this task is
+now terminal rather than a hand-off to another track.
+
+**Dependency context:** Adopt EasyOCR as default OCR engine (done,
+Session 41) — the offline path is on EasyOCR so this task is now the
+explicit follow-on question for the interactive CLI path only.
+**Post-Session-42: this is now the sole remaining path to closing the macOS
+interactive dense-monospace gap** — the morphological line-extraction spike
+that was the parallel Apple-Vision rescue path was falsified on every
+engine/platform cell, so there is no longer a second track that could land a
+non-EasyOCR fix for macOS interactive. A "negative result" verdict on this
+task now means macOS interactive stays on Apple Vision permanently (modulo a
+future follow-on engine survey turning up a new candidate).
+
+Investigate whether EasyOCR warm inference on macOS Retina-2x captures can
+be pulled under the ~1.5s interactive budget. Linux/Windows already ship via
+the split-out "Ship EasyOCR on Linux/Windows interactive" task — only the
+macOS Retina 3.92s/sample warm timing remains a blocker for a fully
+EasyOCR-backed interactive path.
+
+Measure EasyOCR on the cached `data/ocr-vm-macos/samples/` set under the
+following configurations (in order of expected payoff):
+
+1. **Input resolution downscale** — Retina-2x samples are twice the linear
+   dimension of Linux/Windows captures, so per-sample cost scales ~4× on
+   macOS for the same information content. Downscale to ~1× before
+   dispatch, measure both the runtime collapse and the F1 impact on the
+   cached macOS survey buckets. If F1 stays within 1pp of the un-downscaled
+   Session 41 baseline, ship this as the macOS preprocessing default for
+   the interactive path. Cheapest fix; try first.
+2. **MPS acceleration** via PyTorch Metal Performance Shaders on Apple
+   Silicon. Measure warm inference on Retina-2x samples with
+   `torch.device("mps")` forced where possible. MPS support in EasyOCR is
+   not guaranteed — if it falls through to CPU, this configuration is a
+   no-op. Combines multiplicatively with (1) if it works.
+3. **Quantization** — `easyocr.Reader(quantize=True)` (FP16 or INT8)
+   runtime delta vs the default; measure F1 impact on the cached macOS
+   buckets and reject if F1 drops more than 1pp on any high-value content
+   class.
+4. **Analyzer-layer caching** — for the interactive `find-text` path
+   specifically, cache predictions keyed by image hash so repeated searches
+   over the same screen don't re-run inference. Measure cache hit rate
+   against a typical interactive session. Orthogonal to (1)–(3); ship
+   regardless once the interactive path is on EasyOCR.
+
+Decision criterion: if any configuration brings macOS-Retina warm inference
+under ~1.5s/sample with <1pp F1 regression on the cached macOS buckets,
+ship it as the macOS interactive default. If none does, macOS interactive
+stays on Apple Vision indefinitely and this task closes "negative result
+for macOS — Linux/Windows already shipped". The morphological line-extraction
+escape hatch was falsified in Session 42; there is no second track.
+Out of scope: rewriting EasyOCR's PyTorch model graph; replacing EasyOCR
+with a custom-trained model.
+
+**Results:** _pending_
+
+---
+
+### PaddleOCR / TrOCR / Kraken / Calamari follow-on engine survey
+
+**Category:** `analyzer`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** low — explicit placeholder so the deferred engines from the
+Session 40 survey are not lost. Memory's Session 40 verdict: "PaddleOCR,
+TrOCR, Kraken, Calamari, and the per-cell classifier remain unsurveyed —
+they may exceed EasyOCR but probably not by enough to justify the bigger
+install/runtime cost without a clear motivation." Without a triggering
+signal, EasyOCR is good enough.
+
+**Dependency context:** Adopt EasyOCR as default OCR engine and refresh
+baselines — the follow-on only fires when there's a clear motivation:
+either the baseline-refresh exposes an EasyOCR ceiling blocking meaningful
+progress, or the router design needs a runtime-cheap alternative engine
+that EasyOCR can't supply.
+
+Re-run the Session 40 engine survey (`pipeline/scripts/survey_engines.py`)
+with PaddleOCR, TrOCR, Kraken, and Calamari added to the engine matrix.
+PaddleOCR is the natural next candidate (mainline production engine, claims
+comparable accuracy to EasyOCR with faster runtime); TrOCR is the
+high-accuracy outlier (transformer-based, slow); Kraken and Calamari are
+line-based engines that may be best-of-class on dense monospace specifically.
+Add each to the analyzer dispatch behind its own `OCRConfig.engine` value
+and the survey driver's engine list. Read deltas through the same per-app
+`by_app` bucket as Session 40. Decision criterion: a follow-on engine is
+worth adopting only if it lifts a high-value bucket (textedit/safari/terminal)
+by ≥5pp text-F1 OR brings the runtime cost on EasyOCR-quality buckets within
+the interactive budget (~1s/sample). Trigger this task only when one of
+those signals is present; until then it stays parked.
+
+**Results:** _pending_
+
+---
+
+### Constructed ground truth for TextEdit
+
+**Category:** `ground-truth`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** low — **re-examined after Session 41 EasyOCR adoption**.
+EasyOCR achieves 58.43% text-F1 and 79.63% char on TextEdit (Session 41
+baseline), breaking through the old Apple Vision OCR ceiling. The Session 35
+framing ("0.8241 char = Apple Vision OCR ceiling on sparse proportional
+text") is retired; memory's "textedit char ceiling is engine-shaped" entry
+confirms the ceiling was engine-specific, not content-class-specific. Under
+EasyOCR, F1 is already strong — the marginal gain from adding line-broken
+typed-text GT is lower than under Apple Vision. The AX concatenation
+hypothesis may still be worth testing (if OCR reads body lines the AX tree
+concatenates into one entry, line-broken GT could add TPs at the
+text-content layer), but this is speculative and lower priority than before.
+Treat as speculative until the matcher-layer + GT-addition re-measurements
+settle, because those may explain the remaining 41.57% text-F1 gap
+differently and retire this task.
+
+**Dependency context:** multi-word GT matching (done); `by_app` evaluator
+bucket (done).
+
+AX tree concatenates all typed text into one label without line breaks.
+Toolbar labels are descriptions ("bold", "italic", "underline") not visual
+text. OCR correctly reads individual lines. Use the text we type via
+interactions as GT, split into lines. Each line becomes a separate GT
+detection with bounds estimated from font size and line height. TextEdit
+uses proportional fonts so OCR accuracy should be better than Terminal (no
+monospace misreads). Before any implementation: enumerate the actual cached
+TextEdit GT and predictions to confirm the concatenation-vs-line-break
+diagnosis still holds (memory's "survey real cached GT before designing"
+rule). If the concatenation is already resolved by some post-Session-23
+generator change, drop the task.
+
+**Results:** _pending_
+
+---
+
+### Baseline refresh
+
+**Category:** `evaluation`
+**Status:** `not_started`
+**Dependencies:** Re-measure matcher-layer hypotheses (Sessions 28–29) via cached A/B, Re-measure GT-addition hypotheses (Sessions 24–26) via cached + reconstruction A/B, Re-measure Session 30 AT-SPI coordinate fix via canonical snapshot, Capture canonical baseline snapshots per platform, Explain the Session-23-to-now macOS text F1 regression
+
+**Description:**
+
+**Priority:** low — blocked by several higher-priority tasks; defines the
+new ground truth for future work once those land.
+
+**Dependency context:** also needs the remaining Session 36 terminal-collapse
+fix tasks (Windows focus bug, Windows UIA bbox, pre-command baseline drag)
+to land — command-output broadening (Session 37) and single-char matcher fix
+(Session 38) are already done. Optional-but-strong: alternative-engine
+survey verdict, because shipping a baseline just before an engine swap
+wastes the refresh.
+
+The Session 23 baseline is stale — it predates multi-word matching
+(Session 28), center-distance spatial matching (Session 29), the Linux
+AT-SPI coordinate fix (Session 30), the Session 32 menu-item AX filter, the
+Session 33 button/textfield AX filter, the Session 34 macOS command-output
+GT exclusion, the Session 35 `by_app` breakdown, the Session 36–37
+terminal-collapse remediation chain, and the Session 38 single-char matcher
+fix + upscale spike verdict.
+
+Once all three re-measurement passes settle which changes survive, the
+Session-23-to-now macOS regression is explained, and the per-app anomaly
+diagnoses + terminal fixes are closed, re-run full evaluation on all three
+platforms and establish a new baseline that includes the `by_app` bucket
+alongside the existing aggregate table. Use A/B snapshots for controlled
+comparison against the Session 23 numbers rather than fresh VM runs.
+
+Also investigate why Windows text accuracy (20.6%) is much lower than macOS
+(66.3%) and Linux (35.1%) — could be Explorer content variation, fewer
+typed-text scenarios, the Windows windowsterminal focus bug contaminating
+the bucket, or a real platform gap that needs its own follow-up task once
+A/B snapshots and `by_app` metrics rule out noise. Update the "Current
+Baseline" section in `research-notes.md`.
+
+**Results:** _pending_
+
+---
+
+### connect.json bootstrap helper for work sessions
+
+**Category:** `infrastructure`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** low — ergonomic, not correctness-critical. Defers until a
+work session actually trips over it again.
+
+Session 34 documented two recurring pain points in memory:
+(1) `source scripts/macos/vm-start.sh` sets env vars that don't persist
+across Bash-tool subshells, forcing a `zsh -c 'source ...; env > file'`
+workaround; (2) stale connect.json from a previous session can silently
+contain wrong VNC port / IP / password and poison a generator run without
+any error signal.
+
+Add a tiny helper (shell wrapper or Python one-shot) that: starts/reuses the
+VM, emits a fresh connect.json, prints the key env vars to stdout in a form
+the Bash tool can consume (e.g., `eval $(vm-env)`), and sanity-checks the
+VNC URL against the tart VM's current state before writing. Keep scope tight
+— no new VM orchestration, just a wrapper around the existing scripts plus
+a pre-run freshness check.
+
+**Results:** _pending_
+
+---
+
+### Verify per-engine confidence cutoffs match Session 40 survey-optimal
+
+**Category:** `analyzer`
+**Status:** `not_started`
+**Dependencies:** none
+
+**Description:**
+
+**Priority:** lowest — **scope-collapsed from the original "Confidence
+threshold tuning" task during post-Session-40 triage**. The Session 40
+engine survey resolved the *shape* of the per-engine confidence curve on
+every platform (memory's "Confidence cutoff is engine-shaped, not
+OCR-task-shaped" entry). The remaining work is purely to ensure the
+production analyzer config matches the survey-optimal value per engine, not
+to discover anything new. There is no further sweep to run; any hour spent
+here that isn't a config alignment is wasted.
+
+**Dependency context:** Adopt EasyOCR as default OCR engine (done).
+
+Confirm `OCRConfig.min_confidence` defaults align with the Session 40
+survey verdicts: Apple Vision favours c=0.7 (~+1pp over c=0.5), Tesseract
+favours c=0.5 (collapses at c=0.7), EasyOCR is flat across c=0.0–0.7 (any
+value within that range is fine; keep c=0.5 for consistency). If `OCRConfig`
+currently uses a single cross-engine default, decide whether to make the
+default engine-conditional (Apple Vision overrides to 0.7 in its dispatch
+path) or leave a single value of 0.5 across all engines and document the
+~1pp Apple Vision miss as a known minor cost. Cached A/B against
+`data/ocr-vm-{platform}/` to confirm the Session 40 survey numbers
+reproduce on the canonical dataset before shipping any change. Out of
+scope: any further confidence sweep — the survey resolved the shape of the
+curve and additional sweeps will not move the picture.
+
+**Results:** _pending_
+
+---

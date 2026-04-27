@@ -32,6 +32,13 @@ public actor TestAnywareServer {
     // bug in -O builds (swift_task_dealloc → SIGABRT, "freed pointer was not
     // the last allocation"). See backlog Task 7 / memory note.
     private var idleTimerEpoch: UInt64 = 0
+    // Recording loop uses the same epoch pattern as idleTimerEpoch: the
+    // detached task captures the epoch value at start; finishRecording bumps
+    // the counter so the in-flight task observes a stale epoch on its next
+    // iteration and exits. The cancel-Task.sleep crash applies here too —
+    // recordingTask is Task.detached, which is by definition a different
+    // executor.
+    private var recordingEpoch: UInt64 = 0
     private var hasShutDown: Bool = false
 
     // MARK: - Init
@@ -86,7 +93,7 @@ public actor TestAnywareServer {
         if hasShutDown { return }
         hasShutDown = true
 
-        recordingTask?.cancel()
+        recordingEpoch &+= 1
         recordingTask = nil
 
         if let sc = recordingCapture {
@@ -451,12 +458,15 @@ public actor TestAnywareServer {
             try await sc.start(outputPath: req.output, config: config)
             self.recordingCapture = sc
 
+            self.recordingEpoch &+= 1
+            let myEpoch = self.recordingEpoch
             let captureSelf = self
             let captureSC = sc
             let task = Task.detached {
                 let interval = Duration.nanoseconds(1_000_000_000 / max(fps, 1))
                 let deadline = ContinuousClock.now + .seconds(cappedDuration)
-                while !Task.isCancelled && ContinuousClock.now < deadline {
+                while ContinuousClock.now < deadline {
+                    guard await captureSelf.isRecordingEpochCurrent(myEpoch) else { break }
                     do {
                         let image = try await captureSelf.captureImage(region: region)
                         try await captureSC.appendFrame(image)
@@ -484,13 +494,17 @@ public actor TestAnywareServer {
     }
 
     private func finishRecording() async {
-        recordingTask?.cancel()
+        recordingEpoch &+= 1
         recordingTask = nil
         if let sc = recordingCapture {
             recordingCapture = nil
             try? await sc.stop()
         }
         bumpIdleTimer()
+    }
+
+    fileprivate func isRecordingEpochCurrent(_ epoch: UInt64) -> Bool {
+        recordingEpoch == epoch
     }
 
     // MARK: - OCR handler
