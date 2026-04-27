@@ -176,6 +176,39 @@ public enum TartRunner {
         return (entries, all)
     }
 
+    /// Fill the `agent` / `vnc` / `pid` columns on running entries from
+    /// the matching `<vmsDir>/<name>.json` (and `<name>.meta.json`) sidecar.
+    /// Goldens, entries without a sidecar, and entries already carrying
+    /// values pass through untouched.
+    ///
+    /// `parseList` is a pure parser and does no I/O, so prefixed clones
+    /// arrive with `agent` / `vnc` / `pid` set to `nil`. This helper closes
+    /// the cosmetic gap with `adoptedRunning`, which has always loaded the
+    /// sidecar. The helper is platform-agnostic — QEMU running rows from
+    /// `QEMURunner.scanClonesDir` benefit equally.
+    public static func enrichRunningFromSidecar(
+        entries: [VMListEntry],
+        paths: VMPaths
+    ) -> [VMListEntry] {
+        return entries.map { entry in
+            guard entry.kind == .running else { return entry }
+            let specPath = paths.specPath(forID: entry.name)
+            guard FileManager.default.fileExists(atPath: specPath) else { return entry }
+            let spec = try? VMSpec.load(from: specPath)
+            let meta = try? VMMeta.load(from: paths.metaPath(forID: entry.name))
+            return VMListEntry(
+                kind: entry.kind,
+                name: entry.name,
+                platform: entry.platform,
+                backend: entry.backend,
+                sizeGB: entry.sizeGB,
+                agent: entry.agent ?? spec?.agent.map { "agent=\($0.host):\($0.port)" },
+                vnc: entry.vnc ?? spec.map { "vnc=\($0.vnc.host):\($0.vnc.port)" },
+                pid: entry.pid ?? meta?.pid
+            )
+        }
+    }
+
     /// "Adopted" running rows for `vm list`: tart VMs in `state == "running"`
     /// whose names are not already in `knownNames` (i.e. not surfaced by
     /// `parseList`'s `testanyware-*` path) but which have a spec sidecar

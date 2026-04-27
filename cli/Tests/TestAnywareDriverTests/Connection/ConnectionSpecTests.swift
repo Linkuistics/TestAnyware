@@ -174,24 +174,6 @@ struct ConnectionSpecTests {
         }
     }
 
-    // MARK: - Per-VM spec path
-
-    @Test func namedSpecPathResolvesUnderGuivisionVms() {
-        // The file must live under an XDG-compliant state directory. We only
-        // pin the suffix here — the prefix depends on $XDG_STATE_HOME, which
-        // varies by environment.
-        let path = ConnectionSpec.namedSpecPath(for: "testanyware-a3f7b2c1")
-        #expect(path.hasSuffix("/testanyware/vms/testanyware-a3f7b2c1.json"))
-    }
-
-    @Test func namedSpecPathDistinctIdsProduceDistinctPaths() {
-        let a = ConnectionSpec.namedSpecPath(for: "vm-1")
-        let b = ConnectionSpec.namedSpecPath(for: "vm-2")
-        #expect(a != b)
-        #expect(a.hasSuffix("/vm-1.json"))
-        #expect(b.hasSuffix("/vm-2.json"))
-    }
-
     @Test func loadFromWrittenSpecFile() throws {
         let tempDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("testanyware-test-\(UUID().uuidString)")

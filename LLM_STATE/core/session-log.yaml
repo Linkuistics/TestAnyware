@@ -209,3 +209,15 @@ sessions:
       candidate, not urgent.
     - `ConnectionSpec.namedSpecPath` consolidation (open backlog item) touches
       adjacent path-computation code.
+- id: session-6
+  timestamp: 2026-04-27T13:20:39Z
+  phase: work
+  body: |
+    ### Session 6 (2026-04-27T13:20:39Z) — Remove namedSpecPath, add sidecar enrichment, add protocol sync tests
+
+    - Completed three chore tasks: deduplicated agent protocol synchrony detection, consolidated `ConnectionSpec.namedSpecPath` into `VMPaths`, and populated agent/vnc/pid columns for prefixed running VMs from their sidecars.
+    - All three tasks passed their unit-test suites without incident. One pre-existing integration test (`startStopRoundTripWindows`) exceeded its 600s QEMU time limit; unrelated to this session's changes.
+    - The `consolidate-connectionspec-namedspecpath-with-vmpaths` task closed a silent bug: `ConnectionSpec.namedSpecPath` passed an empty `XDG_STATE_HOME` string verbatim (producing a path rooted at `/`), while `VMPaths` correctly falls back to `~/.local/state`. No new test was needed — `stateDirFallsBackToHomeLocalStateWhenXDGEmpty` already covered the correct behaviour.
+    - `enrichRunningFromSidecar` was scoped wider than the task description: the helper is platform-agnostic and also enriches QEMU (Windows) running entries from `QEMURunner.scanClonesDir`.
+    - The shared-module approach for deduplicating `UnifiedRole.swift` was rejected because `agents/macos/Package.swift` explicitly forbids a path-dependency on `cli/`; a byte-identity test suite was added instead, covering all six files in the `TestAnywareAgentProtocol` module.
+    - What to try next: the platform-column asymmetry (prefixed running VMs still report `"unknown"` platform) is an open follow-up; extend `enrichRunningFromSidecar` to overwrite `platform` from `spec.platform` when the current value is `"unknown"`.

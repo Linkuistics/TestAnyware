@@ -29,7 +29,7 @@ enum TestEnv {
         let env = ProcessInfo.processInfo.environment
 
         if let id = env["TESTANYWARE_VM_ID"], !id.isEmpty {
-            let path = ConnectionSpec.namedSpecPath(for: id)
+            let path = VMPaths().specPath(forID: id)
             return try? ConnectionSpec.load(from: path)
         }
 

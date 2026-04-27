@@ -95,6 +95,7 @@ struct VMCommand: AsyncParsableCommand {
             var running = tartEntries.filter { $0.kind == .running }
             goldens.append(contentsOf: (try? QEMURunner.scanGoldenDir(path: paths.goldenDir)) ?? [])
             running.append(contentsOf: (try? QEMURunner.scanClonesDir(path: paths.clonesDir)) ?? [])
+            running = TartRunner.enrichRunningFromSidecar(entries: running, paths: paths)
             let adopted = TartRunner.adoptedRunning(
                 allVMs: allTartVMs,
                 paths: paths,

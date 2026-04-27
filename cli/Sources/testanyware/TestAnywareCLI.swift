@@ -91,7 +91,7 @@ struct ConnectionOptions: ParsableArguments {
     }
 
     private func loadSpec(forVMID id: String) throws -> ConnectionSpec {
-        let path = ConnectionSpec.namedSpecPath(for: id)
+        let path = VMPaths().specPath(forID: id)
         guard FileManager.default.fileExists(atPath: path) else {
             throw ValidationError(
                 "No spec found for VM id '\(id)' at \(path). "

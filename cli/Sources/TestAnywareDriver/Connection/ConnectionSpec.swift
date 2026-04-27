@@ -63,19 +63,6 @@ extension ConnectionSpec {
         return ConnectionSpec(vnc: vncSpec, agent: agentSpec, platform: platformValue)
     }
 
-    /// Path to the spec file for a VM with the given instance id. `vm-start.sh`
-    /// writes the file atomically on boot; `vm-stop.sh` removes it. The CLI
-    /// resolves `--vm <id>` and `TESTANYWARE_VM_ID` through this path.
-    ///
-    /// Resolves under `$XDG_STATE_HOME/testanyware/vms/` (defaulting to
-    /// `~/.local/state/testanyware/vms/`) per the XDG Base Directory spec.
-    public static func namedSpecPath(for id: String) -> String {
-        let env = ProcessInfo.processInfo.environment
-        let home = env["HOME"] ?? NSHomeDirectory()
-        let stateHome = env["XDG_STATE_HOME"] ?? "\(home)/.local/state"
-        return "\(stateHome)/testanyware/vms/\(id).json"
-    }
-
     /// Build a connection spec from TESTANYWARE_* environment variables.
     /// Returns nil if TESTANYWARE_VNC is not set; otherwise parses VNC,
     /// optional password, optional agent, and optional platform.

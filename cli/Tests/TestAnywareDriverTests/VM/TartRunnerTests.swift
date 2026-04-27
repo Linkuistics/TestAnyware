@@ -269,6 +269,120 @@ struct TartRunnerTests {
         #expect(entry.pid == nil)
     }
 
+    // MARK: - enrichRunningFromSidecar
+    //
+    // Brings prefixed (testanyware-<hex8>) running entries from `parseList`
+    // into parity with `adoptedRunning`: agent/vnc/pid are filled in from
+    // the sidecar at <vmsDir>/<name>.json. Goldens and sidecar-less entries
+    // pass through unchanged.
+
+    @Test func enrichRunningFromSidecarFillsAgentVNCPID() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+
+        let id = "testanyware-a1b2c3d4"
+        try writeSpec(
+            VMSpec(
+                vnc: VNCSpec(host: "127.0.0.1", port: 59100, password: "pw"),
+                agent: AgentSpec(host: "192.168.64.10", port: 8648),
+                platform: .macos,
+                ssh: nil
+            ),
+            forID: id,
+            paths: paths
+        )
+        try writeMeta(
+            VMMeta(id: id, tool: .tart, pid: 7777, cloneDir: nil, viewerWindowID: nil),
+            forID: id,
+            paths: paths
+        )
+
+        let bare = VMListEntry(
+            kind: .running, name: id, platform: "unknown", backend: "tart"
+        )
+        let enriched = try #require(
+            TartRunner.enrichRunningFromSidecar(entries: [bare], paths: paths).first
+        )
+        #expect(enriched.agent == "agent=192.168.64.10:8648")
+        #expect(enriched.vnc == "vnc=127.0.0.1:59100")
+        #expect(enriched.pid == 7777)
+    }
+
+    @Test func enrichRunningFromSidecarLeavesGoldensUntouched() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let golden = VMListEntry(
+            kind: .golden, name: "testanyware-golden-macos-tahoe",
+            platform: "macos", backend: "tart", sizeGB: "50 GB"
+        )
+        let enriched = try #require(
+            TartRunner.enrichRunningFromSidecar(entries: [golden], paths: paths).first
+        )
+        #expect(enriched == golden)
+    }
+
+    @Test func enrichRunningFromSidecarLeavesEntriesWithoutSidecarAlone() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let bare = VMListEntry(
+            kind: .running, name: "testanyware-no-sidecar",
+            platform: "unknown", backend: "tart"
+        )
+        let enriched = try #require(
+            TartRunner.enrichRunningFromSidecar(entries: [bare], paths: paths).first
+        )
+        #expect(enriched == bare)
+    }
+
+    @Test func enrichRunningFromSidecarHandlesMissingMeta() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let id = "testanyware-spec-only"
+        try writeSpec(
+            VMSpec(
+                vnc: VNCSpec(host: "127.0.0.1", port: 5901, password: nil),
+                agent: AgentSpec(host: "10.0.0.1", port: 8648),
+                platform: .linux,
+                ssh: nil
+            ),
+            forID: id,
+            paths: paths
+        )
+
+        let bare = VMListEntry(kind: .running, name: id, platform: "unknown", backend: "tart")
+        let enriched = try #require(
+            TartRunner.enrichRunningFromSidecar(entries: [bare], paths: paths).first
+        )
+        #expect(enriched.agent == "agent=10.0.0.1:8648")
+        #expect(enriched.vnc == "vnc=127.0.0.1:5901")
+        #expect(enriched.pid == nil)
+    }
+
+    @Test func enrichRunningFromSidecarPreservesPreexistingValues() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        let id = "testanyware-preset"
+        try writeSpec(
+            VMSpec(
+                vnc: VNCSpec(host: "10.0.0.99", port: 5999, password: nil),
+                agent: AgentSpec(host: "10.0.0.99", port: 8648),
+                platform: .macos,
+                ssh: nil
+            ),
+            forID: id,
+            paths: paths
+        )
+
+        let preset = VMListEntry(
+            kind: .running, name: id, platform: "macos", backend: "tart",
+            agent: "agent=preset:1", vnc: "vnc=preset:2", pid: 1
+        )
+        let enriched = try #require(
+            TartRunner.enrichRunningFromSidecar(entries: [preset], paths: paths).first
+        )
+        #expect(enriched == preset)
+    }
+
     // MARK: - parseVNCURL
 
     @Test func parseVNCURLExtractsComponents() throws {
