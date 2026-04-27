@@ -105,6 +105,28 @@ public enum TartRunner {
         return "unknown"
     }
 
+    /// Names of every tart VM in the catalog regardless of state or prefix.
+    ///
+    /// `parseList` filters to `testanyware-*` and to `state == "running"`
+    /// for clones because that is what `vm list` should display. Lifecycle
+    /// paths (`vm-start` collision detection, `vm-stop` existence checks)
+    /// must address ids that don't follow either convention — users can
+    /// pass any `--id` they like — so they consume this broader view.
+    public static func parseAllVMNames(tartJSON: String) -> [String] {
+        guard let data = tartJSON.data(using: .utf8), !tartJSON.isEmpty else { return [] }
+        let vms = (try? JSONDecoder().decode([TartVM].self, from: data)) ?? []
+        return vms.map(\.name)
+    }
+
+    /// Whether a tart VM with the given name exists in any state.
+    /// Returns `false` when `tart` is absent or its invocation fails.
+    public static func vmExists(name: String) -> Bool {
+        guard which("tart") != nil else { return false }
+        let result = runTart(arguments: ["list", "--format", "json"])
+        guard result.exitCode == 0 else { return false }
+        return parseAllVMNames(tartJSON: result.stdout).contains(name)
+    }
+
     /// Invoke `tart list --format json` and parse the result.
     ///
     /// Returns `[]` if `tart` is not on `PATH` (hosts that only run qemu

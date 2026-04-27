@@ -123,3 +123,31 @@ sessions:
     - What this suggests next: the `disable-ssh-in-macos-and-linux-golden-images` task
       is a good candidate given it unblocks after Task 3 P5 and removes ~11 s from
       macOS start time.
+- id: session-3
+  timestamp: 2026-04-27T09:08:05Z
+  phase: work
+  body: |
+    ### Session 3 (2026-04-27T09:08:05Z) — Fix VM lifecycle blind spot for non-prefixed tart IDs
+
+    - Worked the bug where `vm-start` and `vm-stop` silently failed for user-supplied
+      VM ids that do not begin with `testanyware-`.
+    - Root cause: `TartRunner.parseList` intentionally filters to `testanyware-*` clones
+      in `running` state for `vm list` display. Both lifecycle call sites (`tartVMExists`
+      and `stop`) routed through `runList`/`parseList`, making non-prefixed ids invisible.
+    - Fix: added `TartRunner.parseAllVMNames(tartJSON:)` — a pure parser that returns
+      every name in the tart catalog regardless of state or prefix — and
+      `TartRunner.vmExists(name:)` that invokes it for exact-name lookup. Two call sites
+      in `VMLifecycle.swift` (`tartVMExists` and the tart branch of `stop`) now use
+      `vmExists` instead of filtering through `runList`.
+    - `parseList` semantics for `vm list` are untouched; display and existence addressing
+      are now two distinct queries.
+    - Knock-on fix: `startTart`'s collision branch now always removes stale clones before
+      `tart clone`, eliminating the "macOS VM persists, linux clone fails silently" mode.
+    - 3 new pure-parser unit tests for `parseAllVMNames`; full suite 264/264 pass.
+    - Added `local-homebrew-binary-distribution-tap-no-client-builds` to the backlog as a
+      well-specified feature task (multi-phase: notarisation, cross-arch, formula template,
+      golden-image script updates) prompted by the results note that the installed binary
+      is stale until manually rebuilt and reinstalled.
+    - What this suggests next: Homebrew tap feature would automate the rebuild+install
+      cycle; broadening `vm list` to show non-prefix VMs that have a spec/meta sidecar is
+      a separate, user-unreported concern and can stay deferred.

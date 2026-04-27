@@ -64,6 +64,40 @@ struct TartRunnerTests {
         #expect(first.platform == "windows")
     }
 
+    // MARK: - parseAllVMNames
+    //
+    // `parseAllVMNames` underlies `vmExists`, which the lifecycle uses to
+    // address user-supplied ids that may not follow the `testanyware-`
+    // convention. parseList's prefix + state classification is intentionally
+    // narrow for `vm list`; the broader query lives here.
+
+    @Test func parseAllVMNamesReturnsEveryNameRegardlessOfStateOrPrefix() {
+        let json = """
+        [
+          {"Name": "testanyware-golden-macos-tahoe", "State": "stopped"},
+          {"Name": "testanyware-a1b2c3d4", "State": "running"},
+          {"Name": "my-custom-vm", "State": "running"},
+          {"Name": "another-vm", "State": "stopped"}
+        ]
+        """
+        let names = TartRunner.parseAllVMNames(tartJSON: json)
+        #expect(Set(names) == [
+            "testanyware-golden-macos-tahoe",
+            "testanyware-a1b2c3d4",
+            "my-custom-vm",
+            "another-vm",
+        ])
+    }
+
+    @Test func parseAllVMNamesReturnsEmptyOnEmptyJSON() {
+        #expect(TartRunner.parseAllVMNames(tartJSON: "[]").isEmpty)
+        #expect(TartRunner.parseAllVMNames(tartJSON: "").isEmpty)
+    }
+
+    @Test func parseAllVMNamesReturnsEmptyOnMalformedJSON() {
+        #expect(TartRunner.parseAllVMNames(tartJSON: "not json").isEmpty)
+    }
+
     // MARK: - parseVNCURL
 
     @Test func parseVNCURLExtractsComponents() throws {

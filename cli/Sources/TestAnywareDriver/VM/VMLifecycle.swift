@@ -48,11 +48,9 @@ public enum VMLifecycle {
         var ok = true
         switch meta.tool {
         case .tart:
-            let entries = (try? TartRunner.runList()) ?? []
-            if entries.contains(where: { $0.name == id }) {
+            if TartRunner.vmExists(name: id) {
                 TartRunner.removeExisting(id: id)
-                let after = (try? TartRunner.runList()) ?? []
-                if after.contains(where: { $0.name == id }) {
+                if TartRunner.vmExists(name: id) {
                     logStderr("ERROR: failed to delete tart VM '\(id)'.")
                     ok = false
                 }
@@ -345,8 +343,7 @@ public enum VMLifecycle {
     }
 
     private static func tartVMExists(id: String) -> Bool {
-        let entries = (try? TartRunner.runList()) ?? []
-        return entries.contains { $0.name == id }
+        TartRunner.vmExists(name: id)
     }
 
     private static func sshReady(ip: String, attempts: Int, intervalSeconds: Double) -> Bool {
