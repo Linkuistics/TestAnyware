@@ -299,12 +299,17 @@ testanyware agent health
 **Synopsis:** Capture an accessibility element tree snapshot.
 
 ```
-testanyware agent snapshot [--mode <mode>] [--window <window>] [--role <role>] [--label <label>] [--depth <depth>] [--json]
+testanyware agent snapshot [--mode <mode>] [--window <window>] [--role <role>] [--label <label>] [--depth <depth>] [--open-menu <label>] [--json]
 ```
 
 - `--mode <mode>` — `full` (all roles) or `interactive` (buttons, inputs,
   text only).
 - `--depth <depth>` — Maximum tree depth.
+- `--open-menu <label>` — Click a menu-bar item by label via VNC before
+  snapshotting. macOS menu submenus are lazy in the AX tree — they only
+  populate once the parent menu is open. The opened menu is left visible
+  after the snapshot; press `Escape` (`testanyware input key escape`) to
+  close it.
 - `--json` — Output raw JSON instead of formatted text.
 
 ### `testanyware agent inspect`

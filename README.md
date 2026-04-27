@@ -86,6 +86,7 @@ testanyware download --agent localhost:8648 /tmp/remote.txt local.txt
 testanyware agent health --agent localhost:8648
 testanyware agent windows --agent localhost:8648
 testanyware agent snapshot --agent localhost:8648 --mode interact --window "Settings"
+testanyware agent snapshot --vm "$vmid" --open-menu File          # open the File menu, then snapshot it (macOS menu items are lazy)
 testanyware agent inspect --agent localhost:8648 --role button --label "Save"
 testanyware agent press --agent localhost:8648 --role button --label "Save"
 

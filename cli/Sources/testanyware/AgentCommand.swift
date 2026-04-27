@@ -89,11 +89,25 @@ struct AgentSnapshotCmd: AsyncParsableCommand {
     @Option(name: .long, help: "Maximum tree depth")
     var depth: Int?
 
+    @Option(
+        name: .long,
+        help: """
+        Menu-bar item label to open via VNC click before snapshotting. \
+        macOS menu submenus are lazy in the AX tree — they only appear once \
+        the parent menu is open. The opened menu is left visible; press Escape \
+        with `input key escape` to close it afterwards.
+        """
+    )
+    var openMenu: String?
+
     @Flag(name: .long, help: "Output raw JSON instead of formatted text")
     var json: Bool = false
 
     mutating func run() async throws {
         let agent = try connection.resolveAgent()
+        if let openMenu {
+            try await openMenuBarItem(named: openMenu, agent: agent)
+        }
         let response = try await agent.snapshot(mode: mode, window: window, role: role, label: label, depth: depth)
         if json {
             let encoder = JSONEncoder()
@@ -103,6 +117,22 @@ struct AgentSnapshotCmd: AsyncParsableCommand {
         } else {
             print(AgentFormatter.formatSnapshot(response))
         }
+    }
+
+    private func openMenuBarItem(named label: String, agent: AgentTCPClient) async throws {
+        let menuBar = try await agent.snapshot(mode: nil, window: "Menu Bar", role: nil, label: nil, depth: nil)
+        guard let element = MenuBarLocator.findElement(byLabel: label, in: menuBar.windows) else {
+            throw ValidationError("No menu-bar item matching '\(label)'")
+        }
+        guard let target = MenuBarLocator.centerPoint(of: element) else {
+            throw ValidationError("Menu-bar item '\(label)' has no position/size; cannot derive click target")
+        }
+        let spec = try connection.resolve()
+        let client = try await ServerClient.ensure(spec: spec)
+        try await client.click(x: target.x, y: target.y, button: "left", count: 1)
+        // Brief settle for the menu animation; tested empirically as enough
+        // for AppKit menus on Tahoe to populate the AX tree.
+        try await Task.sleep(nanoseconds: 400_000_000)
     }
 }
 
