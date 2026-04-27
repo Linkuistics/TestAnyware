@@ -1,28 +1,14 @@
-id: session-3
-timestamp: 2026-04-27T09:08:05Z
+id: session-4
+timestamp: 2026-04-27T09:46:36Z
 phase: work
 body: |
-  ### Session 3 (2026-04-27T09:08:05Z) — Fix VM lifecycle blind spot for non-prefixed tart IDs
+  ### Session 4 (2026-04-27T09:46:36Z) — Verify non-prefix VM-start bug resolved; stale binary root cause
 
-  - Worked the bug where `vm-start` and `vm-stop` silently failed for user-supplied
-    VM ids that do not begin with `testanyware-`.
-  - Root cause: `TartRunner.parseList` intentionally filters to `testanyware-*` clones
-    in `running` state for `vm list` display. Both lifecycle call sites (`tartVMExists`
-    and `stop`) routed through `runList`/`parseList`, making non-prefixed ids invisible.
-  - Fix: added `TartRunner.parseAllVMNames(tartJSON:)` — a pure parser that returns
-    every name in the tart catalog regardless of state or prefix — and
-    `TartRunner.vmExists(name:)` that invokes it for exact-name lookup. Two call sites
-    in `VMLifecycle.swift` (`tartVMExists` and the tart branch of `stop`) now use
-    `vmExists` instead of filtering through `runList`.
-  - `parseList` semantics for `vm list` are untouched; display and existence addressing
-    are now two distinct queries.
-  - Knock-on fix: `startTart`'s collision branch now always removes stale clones before
-    `tart clone`, eliminating the "macOS VM persists, linux clone fails silently" mode.
-  - 3 new pure-parser unit tests for `parseAllVMNames`; full suite 264/264 pass.
-  - Added `local-homebrew-binary-distribution-tap-no-client-builds` to the backlog as a
-    well-specified feature task (multi-phase: notarisation, cross-arch, formula template,
-    golden-image script updates) prompted by the results note that the installed binary
-    is stale until manually rebuilt and reinstalled.
-  - What this suggests next: Homebrew tap feature would automate the rebuild+install
-    cycle; broadening `vm list` to show non-prefix VMs that have a spec/meta sidecar is
-    a separate, user-unreported concern and can stay deferred.
+  - Investigated re-reported symptom: `vm start --platform linux --id XX` starting macOS VM when `XX` collided with an existing tart catalog entry. Bug appeared to recur after fix commit ad35897.
+  - Root cause of re-appearance: `/usr/local/bin/testanyware` was symlinked to a release binary built at 16:42; the fix landed in ad35897 at 19:08. Any `vm start` invocation between those times executed the pre-fix `tartVMExists` code path.
+  - End-to-end verification with rebuilt binary: cloned a macOS golden to `tbug`, ran `vm start --platform linux --id tbug`, confirmed stderr emitted `Stopping existing VM 'tbug'...` (proving post-fix `vmExists` saw the non-prefix name), then `Cloning testanyware-golden-linux-24.04 → tbug...`, agent ready on port 8648 (linux path). `vm stop tbug` cleaned up correctly.
+  - No source changes needed. Release binary rebuilt to `27 Apr 19:21`; symlinked path now has the fix.
+  - Unit tests confirmed: 16/16 TartRunnerTests pass including the three `parseAllVMNames` regression tests.
+  - Side effect to flag: tart catalog entry `mini-browser-test` (50 GB macOS, last access 1 week prior) was overwritten to a 20 GB Linux clone during the direct `tart clone` probe.
+  - Added task to backlog: `broaden-vm-list-to-show-user-supplied-non-prefix-vms-with-a-sidecar` — `vm list` still uses the filtered `parseList`, so non-prefix VMs started with `--id` are invisible to the display layer.
+  - What this suggests next: Homebrew tap feature would eliminate the manual `swift build -c release` + symlink step that caused this stale-binary incident.
