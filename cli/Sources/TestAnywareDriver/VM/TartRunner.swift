@@ -118,6 +118,30 @@ public enum TartRunner {
         return vms.map(\.name)
     }
 
+    /// Name + state pair extracted from `tart list --format json`.
+    ///
+    /// Used by `vm list` to discover "adopted" running VMs that don't
+    /// match `parseList`'s `testanyware-*` filter — the discovery path
+    /// needs the state column too, not just the name.
+    public struct TartVMSummary: Equatable, Sendable {
+        public var name: String
+        public var state: String?
+
+        public init(name: String, state: String?) {
+            self.name = name
+            self.state = state
+        }
+    }
+
+    /// Parse `tart list --format json` into `[TartVMSummary]`.
+    /// Returns `[]` on malformed input; same boundary leniency as
+    /// `parseList` and `parseAllVMNames`.
+    public static func parseAllVMs(tartJSON: String) -> [TartVMSummary] {
+        guard let data = tartJSON.data(using: .utf8), !tartJSON.isEmpty else { return [] }
+        let vms = (try? JSONDecoder().decode([TartVM].self, from: data)) ?? []
+        return vms.map { TartVMSummary(name: $0.name, state: $0.state) }
+    }
+
     /// Whether a tart VM with the given name exists in any state.
     /// Returns `false` when `tart` is absent or its invocation fails.
     public static func vmExists(name: String) -> Bool {
@@ -134,19 +158,78 @@ public enum TartRunner {
     /// `parseList`. A non-zero exit or unreadable output is treated as
     /// "no entries," not as an error to propagate.
     public static func runList() throws -> [VMListEntry] {
-        guard let tartPath = which("tart") else { return [] }
+        guard let json = tartListJSON() else { return [] }
+        return try parseList(tartJSON: json)
+    }
+
+    /// Single tart invocation that yields both the partitioned `VMListEntry`
+    /// view (used for the goldens / prefixed-running rows) and the broader
+    /// catalog view (used to discover "adopted" running VMs whose names
+    /// don't match the `testanyware-*` filter).
+    ///
+    /// `vm list` consumes both, so issuing one subprocess instead of two
+    /// preserves the long-standing "one `tart list` per render" invariant.
+    public static func runListAll() -> (entries: [VMListEntry], all: [TartVMSummary]) {
+        guard let json = tartListJSON() else { return ([], []) }
+        let entries = (try? parseList(tartJSON: json)) ?? []
+        let all = parseAllVMs(tartJSON: json)
+        return (entries, all)
+    }
+
+    /// "Adopted" running rows for `vm list`: tart VMs in `state == "running"`
+    /// whose names are not already in `knownNames` (i.e. not surfaced by
+    /// `parseList`'s `testanyware-*` path) but which have a spec sidecar
+    /// at `<vmsDir>/<name>.json`. Sidecar presence is the signal that the
+    /// lifecycle owns the VM.
+    ///
+    /// `agent` / `vnc` / `pid` are populated best-effort from the spec and
+    /// meta files; a malformed or missing meta yields `pid: nil` and a
+    /// missing spec yields `platform: "unknown"`. The intent is visibility:
+    /// surface the VM even when the sidecar can't be fully read.
+    public static func adoptedRunning(
+        allVMs: [TartVMSummary],
+        paths: VMPaths,
+        knownNames: Set<String>
+    ) -> [VMListEntry] {
+        return allVMs.compactMap { vm -> VMListEntry? in
+            guard vm.state == "running" else { return nil }
+            guard !knownNames.contains(vm.name) else { return nil }
+            let specPath = paths.specPath(forID: vm.name)
+            guard FileManager.default.fileExists(atPath: specPath) else { return nil }
+            let spec = try? VMSpec.load(from: specPath)
+            let meta = try? VMMeta.load(from: paths.metaPath(forID: vm.name))
+            let platform = spec?.platform.rawValue ?? "unknown"
+            let agentStr = spec?.agent.map { "agent=\($0.host):\($0.port)" }
+            let vncStr = spec.map { "vnc=\($0.vnc.host):\($0.vnc.port)" }
+            return VMListEntry(
+                kind: .running,
+                name: vm.name,
+                platform: platform,
+                backend: "tart",
+                agent: agentStr,
+                vnc: vncStr,
+                pid: meta?.pid
+            )
+        }
+    }
+
+    /// Run `tart list --format json` once and return the raw stdout.
+    /// Returns `nil` when tart is absent or its invocation fails. Shared
+    /// by `runList` and `runListAll` so the CLI can issue a single
+    /// subprocess regardless of how many parser views it needs.
+    private static func tartListJSON() -> String? {
+        guard let tartPath = which("tart") else { return nil }
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: tartPath)
         proc.arguments = ["list", "--format", "json"]
         let stdout = Pipe()
         proc.standardOutput = stdout
         proc.standardError = Pipe()
-        try proc.run()
+        do { try proc.run() } catch { return nil }
         proc.waitUntilExit()
-        guard proc.terminationStatus == 0 else { return [] }
+        guard proc.terminationStatus == 0 else { return nil }
         let data = stdout.fileHandleForReading.readDataToEndOfFile()
-        let json = String(data: data, encoding: .utf8) ?? ""
-        return try parseList(tartJSON: json)
+        return String(data: data, encoding: .utf8)
     }
 
     /// Locate an executable on `PATH` via `/usr/bin/which`.

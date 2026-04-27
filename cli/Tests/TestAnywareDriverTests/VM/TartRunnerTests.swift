@@ -98,6 +98,177 @@ struct TartRunnerTests {
         #expect(TartRunner.parseAllVMNames(tartJSON: "not json").isEmpty)
     }
 
+    // MARK: - parseAllVMs
+    //
+    // `parseAllVMs` returns name + state for every catalog entry, used by
+    // `adoptedRunning` to filter to running non-prefixed VMs.
+
+    @Test func parseAllVMsExtractsNameAndState() {
+        let json = """
+        [
+          {"Name": "testanyware-golden-macos-tahoe", "State": "stopped"},
+          {"Name": "my-custom-vm", "State": "running"},
+          {"Name": "testanyware-a1b2c3d4", "State": "running"}
+        ]
+        """
+        let summaries = TartRunner.parseAllVMs(tartJSON: json)
+        #expect(summaries.count == 3)
+        let byName = Dictionary(uniqueKeysWithValues: summaries.map { ($0.name, $0.state) })
+        #expect(byName["testanyware-golden-macos-tahoe"] == "stopped")
+        #expect(byName["my-custom-vm"] == "running")
+        #expect(byName["testanyware-a1b2c3d4"] == "running")
+    }
+
+    @Test func parseAllVMsHandlesMissingState() {
+        let json = #"[{"Name": "no-state-vm"}]"#
+        let summaries = TartRunner.parseAllVMs(tartJSON: json)
+        #expect(summaries == [TartRunner.TartVMSummary(name: "no-state-vm", state: nil)])
+    }
+
+    @Test func parseAllVMsReturnsEmptyOnEmptyOrMalformedJSON() {
+        #expect(TartRunner.parseAllVMs(tartJSON: "[]").isEmpty)
+        #expect(TartRunner.parseAllVMs(tartJSON: "").isEmpty)
+        #expect(TartRunner.parseAllVMs(tartJSON: "not json").isEmpty)
+    }
+
+    // MARK: - adoptedRunning
+    //
+    // Surfaces non-prefix tart VMs that the lifecycle owns by virtue of a
+    // spec sidecar at `<vmsDir>/<name>.json`. Tested with a temp VMPaths so
+    // the filesystem checks are real but isolated.
+
+    private func makeTempPaths() -> (VMPaths, String) {
+        let root = NSTemporaryDirectory() + "adopted-\(UUID().uuidString)"
+        let env = ["XDG_STATE_HOME": "\(root)/state", "XDG_DATA_HOME": "\(root)/data", "HOME": "/ignored"]
+        let paths = VMPaths(env: env)
+        try? FileManager.default.createDirectory(atPath: paths.vmsDir, withIntermediateDirectories: true)
+        return (paths, root)
+    }
+
+    private func writeSpec(_ spec: VMSpec, forID id: String, paths: VMPaths) throws {
+        try spec.writeAtomic(to: paths.specPath(forID: id))
+    }
+
+    private func writeMeta(_ meta: VMMeta, forID id: String, paths: VMPaths) throws {
+        try meta.writeAtomic(to: paths.metaPath(forID: id))
+    }
+
+    @Test func adoptedRunningSurfacesNonPrefixVMWithSpecSidecar() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+
+        let spec = VMSpec(
+            vnc: VNCSpec(host: "127.0.0.1", port: 59000, password: "pw"),
+            agent: AgentSpec(host: "192.168.64.50", port: 8648),
+            platform: .macos,
+            ssh: nil
+        )
+        try writeSpec(spec, forID: "my-custom-vm", paths: paths)
+        try writeMeta(
+            VMMeta(id: "my-custom-vm", tool: .tart, pid: 4242, cloneDir: nil, viewerWindowID: nil),
+            forID: "my-custom-vm",
+            paths: paths
+        )
+
+        let entries = TartRunner.adoptedRunning(
+            allVMs: [TartRunner.TartVMSummary(name: "my-custom-vm", state: "running")],
+            paths: paths,
+            knownNames: []
+        )
+        #expect(entries.count == 1)
+        let entry = try #require(entries.first)
+        #expect(entry.kind == .running)
+        #expect(entry.name == "my-custom-vm")
+        #expect(entry.platform == "macos")
+        #expect(entry.backend == "tart")
+        #expect(entry.agent == "agent=192.168.64.50:8648")
+        #expect(entry.vnc == "vnc=127.0.0.1:59000")
+        #expect(entry.pid == 4242)
+    }
+
+    @Test func adoptedRunningExcludesNamesAlreadyInKnownSet() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try writeSpec(
+            VMSpec(
+                vnc: VNCSpec(host: "127.0.0.1", port: 59000, password: nil),
+                agent: nil,
+                platform: .linux,
+                ssh: nil
+            ),
+            forID: "testanyware-a1b2c3d4",
+            paths: paths
+        )
+
+        let entries = TartRunner.adoptedRunning(
+            allVMs: [TartRunner.TartVMSummary(name: "testanyware-a1b2c3d4", state: "running")],
+            paths: paths,
+            knownNames: ["testanyware-a1b2c3d4"]
+        )
+        #expect(entries.isEmpty)
+    }
+
+    @Test func adoptedRunningExcludesStoppedVMs() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try writeSpec(
+            VMSpec(
+                vnc: VNCSpec(host: "127.0.0.1", port: 59000, password: nil),
+                agent: nil,
+                platform: .linux,
+                ssh: nil
+            ),
+            forID: "stopped-vm",
+            paths: paths
+        )
+
+        let entries = TartRunner.adoptedRunning(
+            allVMs: [TartRunner.TartVMSummary(name: "stopped-vm", state: "stopped")],
+            paths: paths,
+            knownNames: []
+        )
+        #expect(entries.isEmpty)
+    }
+
+    @Test func adoptedRunningExcludesVMsWithoutSpec() {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+
+        let entries = TartRunner.adoptedRunning(
+            allVMs: [TartRunner.TartVMSummary(name: "no-sidecar-vm", state: "running")],
+            paths: paths,
+            knownNames: []
+        )
+        #expect(entries.isEmpty)
+    }
+
+    @Test func adoptedRunningHandlesMissingMeta() throws {
+        let (paths, root) = makeTempPaths()
+        defer { try? FileManager.default.removeItem(atPath: root) }
+        try writeSpec(
+            VMSpec(
+                vnc: VNCSpec(host: "127.0.0.1", port: 5901, password: nil),
+                agent: AgentSpec(host: "10.0.0.1", port: 8648),
+                platform: .windows,
+                ssh: nil
+            ),
+            forID: "spec-only",
+            paths: paths
+        )
+        // Note: no meta file written.
+
+        let entries = TartRunner.adoptedRunning(
+            allVMs: [TartRunner.TartVMSummary(name: "spec-only", state: "running")],
+            paths: paths,
+            knownNames: []
+        )
+        let entry = try #require(entries.first)
+        #expect(entry.platform == "windows")
+        #expect(entry.agent == "agent=10.0.0.1:8648")
+        #expect(entry.vnc == "vnc=127.0.0.1:5901")
+        #expect(entry.pid == nil)
+    }
+
     // MARK: - parseVNCURL
 
     @Test func parseVNCURLExtractsComponents() throws {

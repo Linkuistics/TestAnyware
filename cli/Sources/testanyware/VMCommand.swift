@@ -90,11 +90,17 @@ struct VMCommand: AsyncParsableCommand {
 
         func run() async throws {
             let paths = VMPaths()
-            let tartEntries = (try? TartRunner.runList()) ?? []
+            let (tartEntries, allTartVMs) = TartRunner.runListAll()
             var goldens = tartEntries.filter { $0.kind == .golden }
             var running = tartEntries.filter { $0.kind == .running }
             goldens.append(contentsOf: (try? QEMURunner.scanGoldenDir(path: paths.goldenDir)) ?? [])
             running.append(contentsOf: (try? QEMURunner.scanClonesDir(path: paths.clonesDir)) ?? [])
+            let adopted = TartRunner.adoptedRunning(
+                allVMs: allTartVMs,
+                paths: paths,
+                knownNames: Set(running.map(\.name))
+            )
+            running.append(contentsOf: adopted)
             print(VMListFormatter.render(goldens: goldens, running: running))
         }
     }

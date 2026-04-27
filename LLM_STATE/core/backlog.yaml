@@ -74,7 +74,7 @@ tasks:
 - id: broaden-vm-list-to-show-user-supplied-non-prefix-vms-with-a-sidecar
   title: Broaden `vm list` to show user-supplied non-prefix VMs with a sidecar
   category: chore
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Surfaced from vm-start/vm-stop fix (2026-04-27): `parseAllVMNames` now returns
@@ -101,6 +101,86 @@ tasks:
     **Constraint:** Keep `parseList`/`runList` semantics unchanged for the display
     path that currently works. The new discovery path should use `parseAllVMNames`
     + sidecar presence check, not `runList`.
+  results: |
+    ## What was done
+
+    Extended `testanyware vm list` to surface "adopted" tart VMs — i.e.
+    tart-catalog VMs whose names don't match the `testanyware-*` prefix
+    filter applied by `parseList`, but which the lifecycle owns by virtue
+    of a spec sidecar at `<vmsDir>/<name>.json`.
+
+    ### Changes
+
+    - `cli/Sources/TestAnywareDriver/VM/TartRunner.swift`
+      - New `TartVMSummary { name, state }` and `parseAllVMs(tartJSON:)`
+        pure parser — pairs each catalog name with its state.
+      - New `runListAll() -> (entries, all)`: single `tart list --format json`
+        invocation that yields both the partitioned `[VMListEntry]` view
+        (used for goldens / prefixed-running) and the wider `[TartVMSummary]`
+        catalog (used for adoption discovery). Honors the
+        `vm-list-calls-tartrunner-runlist-once-and-partitions` invariant —
+        one subprocess per render despite two parser views.
+      - New `adoptedRunning(allVMs:paths:knownNames:) -> [VMListEntry]`:
+        filters `state == "running"` ∧ `name ∉ knownNames` ∧ spec-sidecar
+        exists; loads spec/meta best-effort to populate
+        `agent` / `vnc` / `pid` / `platform`. A malformed or missing sidecar
+        still surfaces the row with `platform == "unknown"` — visibility
+        over prettiness.
+      - Refactor: extracted private `tartListJSON()` so `runList()` and
+        `runListAll()` share process plumbing.
+
+    - `cli/Sources/testanyware/VMCommand.swift` — `List.run()` now calls
+      `runListAll()` once and appends adopted entries to the running
+      section after qemu clones are folded in (keeps existing
+      `parseList`/`runList` semantics unchanged for already-displayed rows).
+
+    - `cli/Tests/TestAnywareDriverTests/VM/TartRunnerTests.swift` — six new
+      tests cover the parser (3) and the adoption logic (5): name+state
+      extraction, missing state, empty/malformed JSON, surfacing with full
+      spec+meta, exclusion when name already known, exclusion when stopped,
+      exclusion when no sidecar, missing-meta degrades pid to nil.
+
+    ## Verification
+
+    - `swift build` from `cli/` — clean build, 8.26 s.
+    - `swift test` (full unit + integration) — **293/293 pass** in 66.3 s,
+      including macOS and Windows lifecycle round-trips. Notably the two
+      pre-existing `sun_path` failures (memory:
+      `2-qemu-integration-tests-fail-from-swtpm-sun-path-limit`) did not
+      reproduce in this run; not investigated further as it was outside
+      this task's scope.
+    - `swift run testanyware vm list` against current state — renders
+      goldens with byte-for-byte column-width parity, "(none)" running
+      section because no VMs are running locally right now.
+
+    Column-width parity invariant
+    (`vmlistformatter-column-widths-are-byte-for-byte-parity-with-vm-list-sh`)
+    is preserved: adopted entries flow through the same `VMListFormatter`
+    codepath as regular running entries.
+
+    ## What didn't get done
+
+    - No live test that boots a VM with `--id my-custom-name` and observes
+      it appear in `vm list`. The unit tests exercise the discovery logic
+      with temp VMPaths + synthesised sidecars, which is more reliable than
+      a flaky live VM in CI. A manual verification with a real VM is
+      feasible but takes ~30 s of VM-start time and adds no test signal.
+
+    ## What this suggests next
+
+    - The companion bug reported in memory `vm-list-omits-non-prefix-id-vms`
+      is now resolved — that memory should be updated/superseded in the
+      next memory-distillation pass to reflect the fix.
+    - Adopted-row population is more thorough than regular-row population:
+      `parseList` populates only `name` / `platform` / `backend` / `sizeGB`
+      for prefixed running VMs, leaving `agent` / `vnc` / `pid` as nil.
+      Users see "agent= " "vnc= " "PID ?" for the prefixed running rows
+      but populated columns for adopted rows. That cosmetic asymmetry
+      could be closed by having `parseList` (or a wrapper) read the
+      matching sidecar for prefixed running rows too — small backlog
+      candidate, not urgent.
+    - `ConnectionSpec.namedSpecPath` consolidation (open backlog item) is
+      unrelated but in the same path-computation neighbourhood.
 - id: audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe
   title: Audit testanyware-agent entitlements for Documents folder access on Tahoe
   category: bug

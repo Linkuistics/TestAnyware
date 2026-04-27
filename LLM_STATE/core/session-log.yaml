@@ -165,3 +165,47 @@ sessions:
     - Side effect to flag: tart catalog entry `mini-browser-test` (50 GB macOS, last access 1 week prior) was overwritten to a 20 GB Linux clone during the direct `tart clone` probe.
     - Added task to backlog: `broaden-vm-list-to-show-user-supplied-non-prefix-vms-with-a-sidecar` — `vm list` still uses the filtered `parseList`, so non-prefix VMs started with `--id` are invisible to the display layer.
     - What this suggests next: Homebrew tap feature would eliminate the manual `swift build -c release` + symlink step that caused this stale-binary incident.
+- id: session-5
+  timestamp: 2026-04-27T12:37:29Z
+  phase: work
+  body: |
+    ### Session 5 (2026-04-27T12:37:29Z) — Broaden vm list to surface adopted non-prefix VMs
+
+    - Implemented `testanyware vm list` discovery of "adopted" tart VMs: VMs whose
+      names don't match the `testanyware-*` prefix filter but have a spec sidecar
+      at `<vmsDir>/<name>.json`, indicating lifecycle ownership.
+    - Added `TartVMSummary { name, state }` and `parseAllVMs(tartJSON:)` to
+      `TartRunner.swift` — a pure parser pairing each catalog entry with its state.
+    - Added `runListAll() -> (entries, all)` that issues a single `tart list
+      --format json` subprocess and returns both the partitioned `VMListEntry` view
+      (for existing display) and the broader `TartVMSummary` catalog (for adoption
+      discovery). Extracted private `tartListJSON()` so `runList()` and `runListAll()`
+      share process plumbing without a second subprocess.
+    - Added `adoptedRunning(allVMs:paths:knownNames:) -> [VMListEntry]`: filters
+      `state == "running"` ∧ `name ∉ knownNames` ∧ spec-sidecar exists. Populates
+      `agent`/`vnc`/`pid`/`platform` best-effort from spec and meta files; a
+      missing sidecar or malformed meta degrades gracefully rather than dropping
+      the row.
+    - Updated `VMCommand.List.run()` to call `runListAll()` and append adopted
+      entries after QEMU clones are folded into the running section.
+    - Added 8 new unit tests: 3 for `parseAllVMs` (extraction, missing state,
+      empty/malformed JSON) and 5 for `adoptedRunning` (full spec+meta, known-name
+      exclusion, stopped exclusion, no-sidecar exclusion, missing-meta degrades pid
+      to nil). All 293 tests pass.
+    - Column-width parity invariant preserved: adopted entries flow through the
+      same `VMListFormatter` codepath.
+
+    ## What didn't get done
+
+    - No live test with a real VM booted as `--id my-custom-name`. Unit tests
+      exercise the logic with temp VMPaths and synthesised sidecars, which gives
+      better isolation than a 30-second VM round-trip.
+
+    ## What this suggests next
+
+    - The cosmetic asymmetry between regular running rows (nil agent/vnc/pid from
+      `parseList`) and adopted rows (populated from sidecar) could be closed by
+      reading matching sidecars for prefixed running rows too — small backlog
+      candidate, not urgent.
+    - `ConnectionSpec.namedSpecPath` consolidation (open backlog item) touches
+      adjacent path-computation code.
