@@ -116,9 +116,9 @@ entries:
   body: |
     `VMListFormatter.render` reproduces `scripts/macos/vm-list.sh`'s printf format strings exactly: goldens `"  %-8s %-40s %-8s %s"`, running `"  %-20s %-8s %-30s %-24s PID %s"`. Nil `sizeGB` renders as `"? GB"`; nil `pid` renders as `"?"`. Changing widths breaks downstream grep/awk consumers.
 - id: vm-list-calls-tartrunner-runlist-once-and-partitions
-  title: vm list calls TartRunner.runList once and partitions
+  title: vm list calls TartRunner.runListAll once
   body: |
-    VMCommand.List.run() calls TartRunner.runList() once, partitioning [VMListEntry] into goldens/running by kind. One call is deliberate — two calls would run a redundant tart list --format json subprocess.
+    VMCommand.List.run() calls TartRunner.runListAll() once — one tart list --format json subprocess returning both a partitioned VMListEntry view and a [TartVMSummary] full catalog. adoptedRunning(allVMs:paths:knownNames:) uses the full catalog to discover non-prefix running VMs with spec sidecars. One subprocess call is deliberate; two would be redundant.
 - id: vm-list-start-stop-delete-sh-are-thin-exec-wrappers
   title: vm-list/start/stop/delete.sh are thin exec wrappers
   body: |
@@ -244,9 +244,9 @@ entries:
   body: |
     `startTart`'s collision branch always removes the stale clone before calling `tart clone`. Before this fix, a persisted macOS VM left a stale clone that caused `tart clone` to fail silently for Linux targets.
 - id: vm-list-omits-non-prefix-id-vms
-  title: vm list omits non-prefix --id VMs
+  title: vm list shows non-prefix running VMs with spec sidecar
   body: |
-    `vm list` calls `TartRunner.runList()`, which uses `parseList` filtered to `testanyware-*` prefixed names. VMs started with `--id <arbitrary-name>` appear in `tart list` but are invisible to `testanyware vm list`. Lifecycle operations (`start`, `stop`, `delete`) can still address them because those routes go through `vmExists` → `parseAllVMNames`. See `vmexists-uses-parseallvmnames-not-runlist`. Tracked in backlog as `broaden-vm-list-to-show-user-supplied-non-prefix-vms-with-a-sidecar`.
+    vm list surfaces "adopted" tart VMs: non-prefix names that are running AND have a spec sidecar under <vmsDir>/<name>.json. Populated from sidecar (agent, vnc, pid, platform); missing meta degrades pid to nil. Non-running or sidecar-absent non-prefix VMs remain invisible. Adopted entries flow through the same VMListFormatter codepath, preserving column-width parity.
 - id: usr-local-bin-testanyware-symlink-requires-manual-rebuild
   title: /usr/local/bin/testanyware symlink requires manual rebuild
   body: |
