@@ -235,3 +235,11 @@ entries:
   title: Swift 6 disallows Thread.sleep in async contexts
   body: |
     All three in-`async`-function delays in `QEMURunner.start` use `try? await Task.sleep(nanoseconds:)`. `Thread.sleep(forTimeInterval:)` emits `Class method 'sleep' is unavailable from asynchronous contexts` under Swift 6. Remains valid in synchronous functions like `QEMURunner.stop`.
+- id: vmexists-uses-parseallvmnames-not-runlist
+  title: vmExists uses parseAllVMNames, not runList
+  body: |
+    `TartRunner.vmExists(name:)` calls `parseAllVMNames(tartJSON:)`, which returns every name in the tart catalog regardless of prefix or state. `tartVMExists` and the tart stop branch in `VMLifecycle.swift` route through `vmExists`; `runList`/`parseList` (filtered to `testanyware-*` running clones) is reserved for `vm list` display only. Non-prefixed tart ids are now addressable by all lifecycle operations.
+- id: starttart-removes-stale-clones-before-tart-clone
+  title: startTart removes stale clones before tart clone
+  body: |
+    `startTart`'s collision branch always removes the stale clone before calling `tart clone`. Before this fix, a persisted macOS VM left a stale clone that caused `tart clone` to fail silently for Linux targets.
