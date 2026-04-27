@@ -1,88 +1,4 @@
 tasks:
-- id: enrich-platform-column-for-prefixed-running-vms-from-sidecar
-  title: Enrich platform column for prefixed running VMs from sidecar
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    `enrichRunningFromSidecar` populates `agent`, `vnc`, and `pid` columns from
-    spec sidecars for prefixed running VMs (both tart and QEMU). However, the
-    `platform` column still reports `"unknown"` for these entries because prefixed
-    names (`testanyware-<hex8>`) lack a platform substring, and the helper does
-    not yet overwrite `platform` from the sidecar.
-
-    Adopted VMs (non-prefix names with spec sidecars, discovered by
-    `adoptedRunning`) already derive `platform` from the sidecar — so there is
-    a visible asymmetry: two running VMs of the same platform can show different
-    values in the platform column depending on whether they are prefixed clones or
-    adopted entries.
-
-    Fix: extend `enrichRunningFromSidecar` to overwrite `platform` from
-    `spec.platform` when the current entry's `platform` value is `"unknown"`.
-    Only `"unknown"` entries should be overwritten — entries already carrying an
-    explicit platform value pass through unchanged.
-
-    Constraint: preserve `VMListFormatter` byte-for-byte column-width parity
-    (memory entry
-    `vmlistformatter-column-widths-are-byte-for-byte-parity-with-vm-list-sh`).
-
-    Surfaced as a follow-up to the sidecar enrichment task completed 2026-04-27.
-    Memory entry `enrichrunningfromsidecar-covers-tart-and-qemu-platform-column-not-yet-enriched`
-    documents the rationale.
-  results: |
-    ## What was done
-
-    Extended `TartRunner.enrichRunningFromSidecar` to overwrite the `platform`
-    column from `spec.platform.rawValue` when the existing entry value is
-    `"unknown"`. Entries already carrying a non-`"unknown"` platform pass
-    through unchanged. Implementation matches the prescription in memory
-    entry `enrichrunningfromsidecar-covers-tart-and-qemu-platform-column-not-yet-enriched`.
-
-    The fallback chain is now:
-
-    ```swift
-    let platform = entry.platform == "unknown"
-        ? (spec?.platform.rawValue ?? entry.platform)
-        : entry.platform
-    ```
-
-    The inner `?? entry.platform` handles a malformed-spec corner case
-    (spec file exists but fails to decode) by retaining `"unknown"` rather
-    than nil — there is no `nil` representation for `platform` in
-    `VMListEntry`, so this also keeps the column-width parity guaranteed by
-    `VMListFormatter`.
-
-    ## Tests
-
-    Added two new unit tests in
-    `cli/Tests/TestAnywareDriverTests/VM/TartRunnerTests.swift`:
-
-    - `enrichRunningFromSidecarOverwritesUnknownPlatformFromSpec` — `platform: "unknown"`
-      + spec with `platform: .linux` → enriched entry has `platform == "linux"`.
-    - `enrichRunningFromSidecarPreservesExplicitPlatform` — `platform: "macos"`
-      with a spec saying `.linux` → enriched entry preserves `"macos"`. This
-      exercises the "only `unknown` gets overwritten" rule.
-
-    Augmented the existing `enrichRunningFromSidecarFillsAgentVNCPID` test
-    with `#expect(enriched.platform == "macos")` so the agent/vnc/pid happy
-    path also asserts platform enrichment.
-
-    ## Verification
-
-    `swift test --filter TartRunnerTests` from `cli/`: 31/31 pass, including
-    the 5 enrichment tests (3 pre-existing + 2 new). No other tests were
-    touched. Column-width parity is preserved — only the `platform` field is
-    overwritten, never made wider, never replaced with a value of differing
-    length than the existing format expects.
-
-    ## What this suggests next
-
-    The asymmetry between prefixed-clone enrichment and `adoptedRunning` is
-    now closed for the platform column. The same chore could be replicated
-    for QEMU running rows from `QEMURunner.scanClonesDir` if those rows arrive
-    with `platform: "unknown"` — but `enrichRunningFromSidecar` is already
-    platform-agnostic and runs on QEMU rows too, so this fix already covers
-    QEMU. No follow-up needed.
 - id: input-click-window-reports-vnc-click-40px-below-target-on-tahoe
   title: '`input click --window` reports VNC click ~40px below target on Tahoe'
   category: bug
@@ -145,100 +61,6 @@ tasks:
 
     Requires a golden rebuild for Tahoe once the correct grant is identified. Surfaced
     2026-04-18 during Note Editor verification.
-- id: menu-bar-drill-down-snapshot-only-surfaces-top-level-items
-  title: 'Menu bar drill-down: snapshot only surfaces top-level items'
-  category: feature
-  status: done
-  dependencies: []
-  description: |
-    `testanyware agent snapshot --window "Menu Bar"` only returns
-    top-level menu bar items (Apple, app-name). Submenus are not in the accessibility
-    tree until the menu is open, so `press --role menu-item --label "..."` fails with
-    "No element found" for any submenu item. Verifying full menu structure currently
-    requires: (1) VNC click on the menu title to open it, (2) screenshot of the region.
-    A `testanyware menu-drill` command, a `snapshot --open-menu <title>` flag, or at
-    minimum a documented multi-step workflow would reduce friction in app-validation
-    sessions that need to inspect or exercise menu contents. Surfaced from Racket sample
-    app validation sessions on 2026-04-17.
-  results: |
-    ## What was done
-
-    Added `--open-menu <label>` to `testanyware agent snapshot`. When the
-    flag is present, the command first calls `agent.snapshot(window: "Menu Bar")`
-    to locate the named top-level menu item, derives the screen-absolute
-    center of its frame, sends a single VNC click via `ServerClient.click`,
-    sleeps 400 ms for the AppKit menu animation to settle and the AX tree
-    to populate, then runs the user's intended snapshot (with whatever
-    `--mode`, `--window`, `--role`, `--label`, `--depth`, `--json` they
-    passed) and prints it.
-
-    The opened menu is **left visible** after the command returns. This was
-    deliberate: a typical workflow is `snapshot --open-menu File` → inspect
-    results → `agent press --label "Save"` while the menu is still open.
-    Closing the menu would force the user to re-open it for any follow-up
-    action. The help text and docs note that `testanyware input key escape`
-    closes the menu when desired.
-
-    ## Files
-
-    - New: `cli/Sources/TestAnywareDriver/Agent/MenuBarLocator.swift` —
-      pure helpers `findElement(byLabel:in:)` (case-insensitive depth-first
-      search across `[WindowInfo]`) and `centerPoint(of:)` (rounded
-      integer screen coordinates from `position + size/2`, returns `nil` if
-      either is missing).
-    - New: `cli/Tests/TestAnywareDriverTests/Agent/MenuBarLocatorTests.swift`
-      — 10 unit tests covering top-level / nested / case-insensitive /
-      no-match / nil-elements / multi-window cases for find, plus
-      rounding / nil-position / nil-size cases for centerPoint.
-    - Modified: `cli/Sources/testanyware/AgentCommand.swift` —
-      `AgentSnapshotCmd` gains the `--open-menu` option and a private
-      `openMenuBarItem(named:agent:)` orchestrator. Both `agent` and `vnc`
-      branches of `ConnectionOptions` are required when this flag is used,
-      same as any existing VNC-using command.
-    - Modified: `README.md` and `docs/reference/cli-commands.md` —
-      documented the flag with the lazy-AX-tree explanation and the
-      Escape-to-close hint.
-
-    ## Why this design (vs alternatives)
-
-    - Could have been an agent-side endpoint (`/menu-drill`), but that
-      would have required mirroring the change across three platform agents
-      and introducing a new wire-protocol message. A host-side orchestration
-      composing existing endpoints (`/snapshot` + VNC click) needs no agent
-      changes.
-    - Could have closed the menu after the snapshot, but the most common
-      follow-up (press a submenu item) requires the menu to stay open.
-      Memory entry on lazy AX trees confirms submenus only exist while the
-      menu is visible, so closing it would also invalidate any subsequent
-      inspect on the just-found submenu element.
-
-    ## Tests / verification
-
-    - `swift test --filter MenuBarLocator` — 10/10 pass.
-    - `swift test` — 310/310 pass across all 29 suites including VM
-      lifecycle integration. Memory entry
-      `2-qemu-integration-tests-fail-from-swtpm-sun-path-limit` predicted 2
-      swtpm failures; both passed in this run, so that flake's not blocking.
-    - `swift run testanyware agent snapshot --help` shows the new flag
-      with the documented help text. End-to-end behavior on a live Tahoe VM
-      was not exercised in this session (no VM was started), so the 400 ms
-      settle delay is a starting estimate from AppKit menu animation
-      norms — may need tuning if real-device runs find it racy.
-
-    ## Suggested follow-ups
-
-    1. The 400 ms delay is hardcoded. If real-VM testing finds it flaky,
-       make it tunable (`--menu-settle-ms <int>`) or replace with a
-       poll-and-retry on the post-click snapshot until submenus appear.
-    2. `--open-menu` only handles top-level items. Submenu drill-down
-       (e.g. open File → Recent → click target) would require a comma-
-       separated path or repeated invocations. Out of scope here.
-    3. The MenuBarLocator helper module sits in `TestAnywareDriver` rather
-       than `TestAnywareAgentProtocol` to avoid the duplicated-protocol-
-       files synchronization burden noted in memory
-       (`unifiedrole-swift-is-duplicated-both-copies-must-stay-in-sync`).
-       If the agent-macos side ever needs the same locator, consider
-       unifying the protocol module first.
 - id: virtiofs-serves-stale-cached-files-after-host-update
   title: VirtioFS serves stale cached files after host update
   category: bug
@@ -329,3 +151,24 @@ tasks:
     7. README install instructions update.
 
     Needs brainstorm + plan before execution.
+- id: support-submenu-drill-down-path-in-open-menu
+  title: Support submenu drill-down path in --open-menu
+  category: feature
+  status: not_started
+  dependencies: []
+  description: |
+    `testanyware agent snapshot --open-menu <label>` only handles top-level menu bar items (e.g. `File`, `Edit`). There is no mechanism to open nested submenus (e.g. `File → Recent Files → <name>`) in a single invocation.
+
+    Workaround: chain invocations — `--open-menu File` to open the top-level menu, observe submenu items in the snapshot, then use `testanyware agent press --label "Recent Files"` to hover into the submenu and `testanyware agent snapshot` again to read its contents. This is verbose and requires intermediate screenshots to navigate.
+
+    **Proposed design:** accept a comma-separated path in `--open-menu`:
+
+    ```
+    testanyware agent snapshot --open-menu "File,Recent Files"
+    ```
+
+    Each path segment triggers a VNC click on the corresponding item with the settle delay, walking down the menu hierarchy. The implementation would loop over segments in `openMenuBarItem(named:agent:)` and snapshot after each click to locate the next level.
+
+    **Constraint:** `MenuBarLocator.findElement(byLabel:in:)` already does case-insensitive depth-first search, so subsequent segments would search within the previously-opened subtree. The settle delay (currently 400 ms, possibly tunable per `open-menu-settle-delay-is-hardcoded-at-400ms`) may need to be per-segment.
+
+    This was surfaced as a follow-up to the `--open-menu` implementation landed 2026-04-27.

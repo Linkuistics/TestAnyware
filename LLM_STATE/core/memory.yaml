@@ -251,3 +251,15 @@ entries:
   title: enrichRunningFromSidecar populates platform from spec sidecar
   body: |
     `enrichRunningFromSidecar` is platform-agnostic: it enriches tart running entries (via vm list) and QEMU running entries (via `QEMURunner.scanClonesDir`). It populates `agent`, `vnc`, `pid`, and `platform` columns from spec sidecars. When `platform` is `"unknown"`, it is overwritten from `spec.platform`; existing non-unknown values are preserved.
+- id: open-menu-settle-delay-is-hardcoded-at-400ms
+  title: open-menu settle delay is hardcoded at 400ms
+  body: |
+    The `--open-menu` flag in `testanyware agent snapshot` uses a hardcoded 400 ms settle delay after the VNC click before capturing the AX tree. This value was chosen from AppKit menu animation norms and has not been validated against real VMs.
+
+    If live-VM testing finds submenus not yet populated at snapshot time, the fix is either:
+    - Add a `--menu-settle-ms <int>` option to `AgentSnapshotCmd` (trivial — one `@Option` in `AgentCommand.swift`)
+    - Replace the fixed sleep with a poll-and-retry loop: snapshot after click, check for children on the opened menu item, retry up to N times with short sleeps
+
+    The poll-and-retry approach is more robust but requires defining a "menu is open" predicate on the AX tree. The tunable flag is simpler and sufficient if the delay just needs to be longer.
+
+    Code location: `cli/Sources/testanyware/AgentCommand.swift` — `openMenuBarItem(named:agent:)`.
