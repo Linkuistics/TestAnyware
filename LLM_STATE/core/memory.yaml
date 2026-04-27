@@ -90,7 +90,7 @@ entries:
 - id: menu-bar-accessibility-tree-is-lazy
   title: Menu bar accessibility tree is lazy
   body: |
-    `testanyware agent snapshot --window "Menu Bar"` only exposes top-level menu bar items. Submenus do not appear in the tree until the menu is open. Verifying or interacting with submenu items requires opening the menu first (e.g. via VNC click), then re-snapshotting.
+    `testanyware agent snapshot --window "Menu Bar"` only exposes top-level menu bar items. Submenus do not appear until the menu is open. Use `testanyware agent snapshot --open-menu <label>` to click the named menu item via VNC (400 ms settle), then capture; the menu is left open for follow-up `agent press` commands. The 400 ms settle delay is best-effort — may need tuning if submenus are not yet populated at snapshot time.
 - id: vmtypes-swift-extends-platform-instead-of-defining-vmplatform
   title: VMTypes.swift extends Platform instead of defining VMPlatform
   body: |
@@ -248,6 +248,6 @@ entries:
   body: |
     `/usr/local/bin/testanyware` is a symlink to a specific `swift build -c release` output artifact. Commits to the repo are not reflected until the binary is rebuilt (`swift build -c release`) and the symlink updated. A discrepancy between `swift test` results and live `testanyware` behavior indicates a stale symlink.
 - id: enrichrunningfromsidecar-covers-tart-and-qemu-platform-column-not-yet-enriched
-  title: enrichRunningFromSidecar covers tart and QEMU; platform column not yet enriched
+  title: enrichRunningFromSidecar populates platform from spec sidecar
   body: |
-    `enrichRunningFromSidecar` is platform-agnostic: it enriches tart running entries (via vm list) and QEMU running entries (via `QEMURunner.scanClonesDir`). It populates `agent`, `vnc`, and `pid` columns from spec sidecars. The `platform` column still reports `"unknown"` for prefixed running VMs; open follow-up is to overwrite `platform` from `spec.platform` when the current value is `"unknown"`.
+    `enrichRunningFromSidecar` is platform-agnostic: it enriches tart running entries (via vm list) and QEMU running entries (via `QEMURunner.scanClonesDir`). It populates `agent`, `vnc`, `pid`, and `platform` columns from spec sidecars. When `platform` is `"unknown"`, it is overwritten from `spec.platform`; existing non-unknown values are preserved.
