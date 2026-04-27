@@ -71,6 +71,36 @@ tasks:
     `namedSpecPath` before deleting — the `--vm` resolution path in
     `ConnectionOptions.resolve()` is the primary consumer. Best done in a focused PR
     after Task 3 (vm subcommands) P5 lands, since P5 touches the spec-file surface.
+- id: broaden-vm-list-to-show-user-supplied-non-prefix-vms-with-a-sidecar
+  title: Broaden `vm list` to show user-supplied non-prefix VMs with a sidecar
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Surfaced from vm-start/vm-stop fix (2026-04-27): `parseAllVMNames` now returns
+    every name in the tart catalog regardless of prefix or state, so lifecycle
+    operations can address user-supplied non-prefix ids. However, `vm list` still
+    uses `parseList` (filtered to `testanyware-*` running clones) so those VMs
+    remain invisible to the display layer.
+
+    The gap: a VM started with `--id my-custom-vm` runs correctly but does not
+    appear in `testanyware vm list`. A user who forgets the id cannot discover it
+    without falling back to raw `tart list`.
+
+    **Fix:** Extend `VMListFormatter`/`VMCommand.List` to include tart VMs that
+    have a spec/meta sidecar under `$XDG_STATE_HOME/testanyware/vms/<id>/` but
+    whose name does not match `testanyware-<hex8>`. These are "adopted" VMs the
+    lifecycle owns by virtue of sidecar presence, and should be shown in the
+    running-VMs section with the same column format.
+
+    **Scope constraint:** preserve byte-for-byte column-width parity with
+    `vm-list.sh` for all currently-displayed rows (memoed invariant:
+    `vmlistformatter-column-widths-are-byte-for-byte-parity-with-vm-list-sh`).
+    Only add rows; do not change existing column layout.
+
+    **Constraint:** Keep `parseList`/`runList` semantics unchanged for the display
+    path that currently works. The new discovery path should use `parseAllVMNames`
+    + sidecar presence check, not `runList`.
 - id: audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe
   title: Audit testanyware-agent entitlements for Documents folder access on Tahoe
   category: bug
@@ -124,11 +154,41 @@ tasks:
     --no-virtio-cache`) would eliminate this class of silent transfer error. Affects
     any workflow that edits a source file on the host and then recompiles or re-runs it
     inside the VM. Surfaced on 2026-04-17 during Racket sample app validation.
+- id: brainstorm-and-plan-local-homebrew-binary-distribution
+  title: Brainstorm and plan local Homebrew binary distribution
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    The `local-homebrew-binary-distribution-tap-no-client-builds` backlog task
+    explicitly states "Needs brainstorm + plan before execution" and enumerates
+    seven open sub-phases. No work phase should pick it up directly — it requires
+    design alignment on Developer ID / notarisation, cross-arch build strategy,
+    formula template authoring, and golden-script changes before any code is written.
+
+    This task makes the brainstorm prerequisite visible as standalone executable
+    work so it can be scheduled ahead of the implementation task.
+
+    **Scope of the brainstorm session:**
+    1. Apple Developer ID and notarisation requirements (ad-hoc signing sufficiency?).
+    2. Cross-arch macOS builds: arm64-only vs universal2, feasibility without x86_64 host.
+    3. Artifact inventory: CLI + 3 agent binaries — build pipeline for each.
+    4. Tap repo authoring: reuse `Linkuistics/homebrew-taps` (already used by Ravel-Lite).
+    5. Formula template: sed-driven SHA injection pattern (mirror Ravel-Lite's `.rb.tmpl`).
+    6. Golden-script update strategy: switch from `swift build` inside VM to brew-artifact
+       copy during golden build, accounting for TCC re-grant constraint
+       (`agent-hot-swap-does-not-re-grant-tcc-accessibility` memory entry).
+    7. README install instructions update scope.
+
+    **Output of the brainstorm:** a written implementation plan with phases,
+    files to create/modify, and ordering constraints — suitable for input to the
+    `writing-plans` skill.
 - id: local-homebrew-binary-distribution-tap-no-client-builds
   title: Local Homebrew binary distribution (tap, no client builds)
   category: feature
   status: not_started
-  dependencies: []
+  dependencies:
+  - brainstorm-and-plan-local-homebrew-binary-distribution
   description: |
     Mirror Ravel-Lite's local-build pattern so users can install testanyware
     (and the in-VM agents the goldens consume) without running `swift build`,
@@ -171,92 +231,3 @@ tasks:
     7. README install instructions update.
 
     Needs brainstorm + plan before execution.
-- id: vm-start-vm-stop-fail-when-id-lacks-testanyware-prefix
-  title: vm-start / vm-stop fail when --id lacks testanyware- prefix
-  category: bug
-  status: done
-  dependencies: []
-  description: |
-    **Symptoms (user-reported):**
-    - `vm-start --platform linux --id <custom>` starts a macOS VM instead of
-      Linux when a stale tart VM with that id existed from a previous macOS
-      run.
-    - `vm-stop <custom-id>` reports "tart VM '<id>' does not exist" while
-      `tart list` shows the VM is running.
-
-    **Root cause:** `TartRunner.parseList`
-    (cli/Sources/TestAnywareDriver/VM/TartRunner.swift:62) classifies a tart
-    VM as `.running` only when `state == "running"` AND
-    `name.hasPrefix("testanyware-")`. The prefix gate drops user-supplied
-    ids that don't start with `testanyware-`. Both `VMLifecycle.tartVMExists`
-    (VMLifecycle.swift:347) and `VMLifecycle.stop` (VMLifecycle.swift:51) use
-    `runList()` which goes through `parseList`, so user-supplied ids are
-    invisible to lifecycle code.
-
-    For vm-start, the invisible stale VM is not removed, then `tart clone
-    <base> <existing-id>` errors, and the user observes the still-running
-    prior VM (which `removeExisting` would have killed). For vm-stop, the
-    running VM is not found and the user has to fall back to raw `tart`
-    commands.
-
-    **Constraint:** The user has explicitly stated they should not have to
-    prefix their ids with `testanyware-`. Any tart VM the lifecycle owns
-    (by virtue of having a spec/meta sidecar, or simply by exact-name
-    match) must be addressable.
-
-    **Tightly-scoped fix:** Introduce a name-only existence query in
-    `TartRunner` that bypasses `parseList`'s prefix-and-state classification
-    (used solely for `vm list` UI). Both lifecycle call sites switch to it.
-    `parseList` semantics for `vm list` stay unchanged for now; broadening
-    `vm list` to include user-supplied non-prefix VMs is a separate concern.
-  results: |
-    **Fix:** Added a name-only existence query that bypasses `parseList`'s
-    prefix-and-state classification.
-
-    - `TartRunner.parseAllVMNames(tartJSON:)` — pure parser, returns every
-      `Name` in the tart catalog regardless of `State` or prefix.
-    - `TartRunner.vmExists(name:)` — runs `tart list --format json` and
-      checks for an exact name match. Returns `false` when `tart` is absent
-      or its invocation fails (qemu-only host parity with `runList`).
-    - `VMLifecycle.tartVMExists(id:)` and `VMLifecycle.stop` (tart branch,
-      both pre- and post-removal checks) now route through
-      `TartRunner.vmExists`.
-
-    **Why this scope:** `parseList` keeps its filtered semantics
-    (`testanyware-` prefix + `state == "running"` for clones) so `vm list`'s
-    byte-for-byte column parity with `vm-list.sh` (memoised invariant) is
-    preserved for grep/awk consumers. Display and addressing are now two
-    distinct queries.
-
-    **Knock-on benefit for the vm-start "starts a macOS VM" symptom:** with
-    `tartVMExists` now seeing stale clones regardless of name or state, the
-    collision branch in `startTart` always runs `removeExisting` before the
-    next `tart clone`. The "macOS VM persists, linux clone fails silently"
-    mode is now structurally impossible.
-
-    **Tests:** 3 new pure-parser cases for `parseAllVMNames`
-    (prefix-and-state-agnostic, empty JSON, malformed JSON). Live
-    `testanyware vm stop bogus-no-such-vm` against an empty catalog
-    returns the same error contract as before. Full unit suite: 264/264
-    pass. Integration tests not run (would require live VM start).
-
-    **Files:**
-    - cli/Sources/TestAnywareDriver/VM/TartRunner.swift — new
-      `parseAllVMNames` + `vmExists`.
-    - cli/Sources/TestAnywareDriver/VM/VMLifecycle.swift — two call sites
-      switched.
-    - cli/Tests/TestAnywareDriverTests/VM/TartRunnerTests.swift — 3 new
-      unit tests.
-
-    **Note for the user:** the installed binary at `/usr/local/bin/testanyware`
-    is stale until you rebuild and reinstall — `swift build -c release
-    --package-path cli` then copy `cli/.build/release/testanyware` over the
-    installed copy.
-
-    **What this suggests next:**
-    - The Homebrew-tap feature (now on the backlog) would automate the
-      rebuild+install dance via `brew upgrade testanyware`.
-    - A separate small follow-up could broaden `vm list` to include
-      user-supplied non-prefix VMs that have a spec/meta sidecar in
-      `$XDG_STATE_HOME/testanyware/vms/`. Out of scope here; the user
-      did not report `vm list` as broken.
