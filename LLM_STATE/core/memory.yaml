@@ -128,9 +128,9 @@ entries:
   body: |
     Cancelling `Task.sleep(for: Duration)` from a different executor in optimised builds triggers a `swift_task_dealloc` LIFO violation → SIGABRT. Fix: use a monotonic epoch counter; bump it to invalidate in-flight sleeps; each fire-and-forget task checks epoch on wake and no-ops if stale.
 - id: recordingtask-uses-cancel-sleep-pattern-latent-crash-risk
-  title: recordingTask uses cancel-sleep pattern; latent crash risk
+  title: recordingTask uses epoch-counter pattern, not Task.cancel
   body: |
-    `recordingTask` cancels a sleeping `Task` — the same pattern that caused the idle-timer SIGABRT. Apply the epoch-counter pattern (see above) before enabling recording under load.
+    `recordingEpoch: UInt64` actor-isolated field; `handleRecordStart` bumps and captures the epoch before launching the detached loop; the loop checks `isRecordingEpochCurrent(_:)` on each iteration and breaks on stale epoch; `finishRecording()` and `shutdown()` bump the epoch instead of calling `recordingTask?.cancel()`. `recordingTask` is still nil-tested in `handleRecordStart` as the "is recording active?" guard — it is not used to terminate the running loop. See `task-sleep-cross-executor-cancel-crashes-in-o-builds`.
 - id: macos-ps-does-not-support-the-sid-keyword
   title: macOS ps does not support the sid keyword
   body: |
