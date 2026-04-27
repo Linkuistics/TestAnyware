@@ -1,4 +1,48 @@
 tasks:
+- id: enrich-platform-column-for-prefixed-running-vms-from-sidecar
+  title: Enrich platform column for prefixed running VMs from sidecar
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    `enrichRunningFromSidecar` populates `agent`, `vnc`, and `pid` columns from
+    spec sidecars for prefixed running VMs (both tart and QEMU). However, the
+    `platform` column still reports `"unknown"` for these entries because prefixed
+    names (`testanyware-<hex8>`) lack a platform substring, and the helper does
+    not yet overwrite `platform` from the sidecar.
+
+    Adopted VMs (non-prefix names with spec sidecars, discovered by
+    `adoptedRunning`) already derive `platform` from the sidecar — so there is
+    a visible asymmetry: two running VMs of the same platform can show different
+    values in the platform column depending on whether they are prefixed clones or
+    adopted entries.
+
+    Fix: extend `enrichRunningFromSidecar` to overwrite `platform` from
+    `spec.platform` when the current entry's `platform` value is `"unknown"`.
+    Only `"unknown"` entries should be overwritten — entries already carrying an
+    explicit platform value pass through unchanged.
+
+    Constraint: preserve `VMListFormatter` byte-for-byte column-width parity
+    (memory entry
+    `vmlistformatter-column-widths-are-byte-for-byte-parity-with-vm-list-sh`).
+
+    Surfaced as a follow-up to the sidecar enrichment task completed 2026-04-27.
+    Memory entry `enrichrunningfromsidecar-covers-tart-and-qemu-platform-column-not-yet-enriched`
+    documents the rationale.
+- id: input-click-window-reports-vnc-click-40px-below-target-on-tahoe
+  title: '`input click --window` reports VNC click ~40px below target on Tahoe'
+  category: bug
+  status: not_started
+  dependencies: []
+  description: |
+    The `--window` option translates window-relative coordinates to
+    screen-absolute using the AX-reported window origin. On Tahoe, the AX window
+    frame includes the window's drop-shadow inset in its origin, so all clicks land
+    ~40px below the intended target. Workaround documented in `--window` help text
+    and README Gotchas: obtain screen-absolute coordinates from a full-screen
+    screenshot and pass them directly to `input click` without `--window`. Fix:
+    subtract the drop-shadow inset from the AX window origin before converting
+    coordinates. Surfaced 2026-04-19 during Racket sample app VM testing.
 - id: disable-ssh-in-macos-and-linux-golden-images
   title: Disable SSH in macOS and Linux golden images
   category: feature
@@ -22,161 +66,6 @@ tasks:
     Requires a golden rebuild for macOS and Linux. Surfaced 2026-04-18 during the
     `guivision vm` refactor brainstorm. SSH wait (~11 s of ~26 s macOS start) is the
     primary motivation for doing this promptly after Task 3 P5 lands.
-- id: deduplicate-unifiedrole-swift-across-cli-and-agent-targets
-  title: Deduplicate UnifiedRole.swift across CLI and agent targets
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    `UnifiedRole.swift` exists in both the CLI target and the agent-side
-    target and must be kept byte-for-byte identical. Adding or removing a `UnifiedRole`
-    case requires updating both copies; `UnifiedRoleTests` checks `allCases.count` and
-    will fail with a stale expected value if only one copy is updated. The test acts as a
-    guard but the duplication remains a maintenance burden — divergence can go undetected
-    between case additions. Fix options:
-    - Move `UnifiedRole.swift` into a shared framework/module target both targets link.
-    - Generate the file once and copy as a pre-build step.
-    - At minimum, add a lint rule / CI check that asserts the two files are identical.
-    The shared-module option aligns best with the existing library structure but requires
-    a target restructure. Surfaced 2026-04-19 during P4 code review.
-  results: |
-    ## What was done
-
-    Added a swift-testing suite at
-    `cli/Tests/TestAnywareAgentProtocolTests/AgentProtocolSyncTests.swift`
-    with two `@Test` cases:
-
-    - `agentProtocolDirectoriesContainSameFiles()` — asserts that the
-      sorted `.swift` filenames in `cli/Sources/TestAnywareAgentProtocol/`
-      match those in `agents/macos/Sources/TestAnywareAgentProtocol/`.
-    - `agentProtocolFilesAreByteIdentical()` — asserts byte-for-byte
-      equality of every `.swift` file pair across the two directories.
-
-    Both tests resolve the repo root via `#filePath` so they work from any
-    checkout location and never rely on a `cwd` invariant.
-
-    ## Why this approach (rather than the shared-module option in the task description)
-
-    The `agents/macos/Package.swift` carries an explicit comment forbidding
-    any path-dependency on `cli/`:
-
-    > Self-contained Swift package. Intentionally does NOT path-depend on
-    > cli/ for the protocol types — host and agent share a wire-level
-    > contract (JSON-RPC 2.0, port 8648, schema in
-    > docs/architecture/agent-protocol.md), not Swift types. The host CLI
-    > will migrate to Rust; at that point each language side independently
-    > models the wire protocol.
-
-    So the "move into a shared framework/module both targets link" option
-    from the task description is off the table by design. The remaining
-    options were "generate + copy as a pre-build step" or "lint/CI check
-    that asserts the two files are identical." The lint/CI check is the
-    cheapest, most maintainable choice — it adds zero build complexity
-    and runs whenever anyone runs `swift test`.
-
-    The new tests are scoped wider than the task: all six `.swift` files
-    in `TestAnywareAgentProtocol/` are byte-identical (verified), so the
-    guard covers the whole module rather than just `UnifiedRole.swift`.
-
-    ## Verification
-
-    - `swift test --filter AgentProtocolSync` — both tests pass.
-    - Negative-case sanity: appended a trailing comment to the
-      agents/macos copy of `UnifiedRole.swift` and ran the suite —
-      `agentProtocolFilesAreByteIdentical` failed with a clear diff
-      message naming the offending file. Restored via `git checkout`.
-
-    ## What this suggests next
-
-    - The pre-existing `unifiedRoleCaseIterableCount` test is now
-      redundant as a divergence guard (the new suite catches any
-      difference, not just `allCases.count` drift). It still has value as
-      a sanity check on the count itself, so I left it in place.
-    - If future work removes the duplication entirely (post-Rust port of
-      the CLI, when the agent stays Swift but the cli moves away), this
-      whole test file becomes inert and should be deleted alongside one
-      of the directories.
-- id: input-click-window-reports-vnc-click-40px-below-target-on-tahoe
-  title: '`input click --window` reports VNC click ~40px below target on Tahoe'
-  category: bug
-  status: not_started
-  dependencies: []
-  description: |
-    The `--window` option translates window-relative coordinates to
-    screen-absolute using the AX-reported window origin. On Tahoe, the AX window
-    frame includes the window's drop-shadow inset in its origin, so all clicks land
-    ~40px below the intended target. Workaround documented in `--window` help text
-    and README Gotchas: obtain screen-absolute coordinates from a full-screen
-    screenshot and pass them directly to `input click` without `--window`. Fix:
-    subtract the drop-shadow inset from the AX window origin before converting
-    coordinates. Surfaced 2026-04-19 during Racket sample app VM testing.
-- id: consolidate-connectionspec-namedspecpath-with-vmpaths
-  title: Consolidate ConnectionSpec.namedSpecPath with VMPaths
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    Unblocked after Task 3 P5 landed 2026-04-19.
-
-    `ConnectionSpec.namedSpecPath(for:)` and `VMPaths` both compute
-    named-spec paths under the XDG state directory (`$XDG_STATE_HOME/testanyware/vms/<id>/`).
-    The duplication was flagged during P1 Task 3 (VMSpec) and deferred. Changing one
-    without the other will create path drift — if XDG logic evolves in `VMPaths`,
-    `namedSpecPath` will silently return a different location and `--vm <id>` resolution
-    will break. Fix: remove `ConnectionSpec.namedSpecPath(for:)` (or make it delegate to
-    `VMPaths`) so there is one authoritative path computation. Audit callers of
-    `namedSpecPath` before deleting — the `--vm` resolution path in
-    `ConnectionOptions.resolve()` is the primary consumer. Best done in a focused PR
-    after Task 3 (vm subcommands) P5 lands, since P5 touches the spec-file surface.
-  results: |
-    ## What was done
-
-    Removed `ConnectionSpec.namedSpecPath(for:)` so `VMPaths.specPath(forID:)`
-    is now the single authoritative computation of
-    `$XDG_STATE_HOME/testanyware/vms/<id>.json`.
-
-    Files modified:
-
-    - `cli/Sources/TestAnywareDriver/Connection/ConnectionSpec.swift` —
-      deleted the `namedSpecPath(for:)` static method (and its docstring).
-    - `cli/Sources/testanyware/TestAnywareCLI.swift` — `loadSpec(forVMID:)`
-      now calls `VMPaths().specPath(forID: id)`.
-    - `cli/Tests/IntegrationTests/VNCIntegrationTests.swift` — `TestEnv`
-      now resolves the per-VM spec path via `VMPaths().specPath(forID:)`.
-    - `cli/Tests/TestAnywareDriverTests/Connection/ConnectionSpecTests.swift`
-      — removed the two `namedSpecPath*` tests (they duplicated
-      `VMPathsTests.specPathForIdJoinsVMsDir` etc.).
-
-    ## Bug closed by this change
-
-    The two implementations had silently drifted on edge-case behaviour:
-
-    - `VMPaths` falls back to `~/.local/state` when `XDG_STATE_HOME` is
-      set but **empty**.
-    - `ConnectionSpec.namedSpecPath` did `env["XDG_STATE_HOME"] ??
-      "<home>/.local/state"`, which used the empty string verbatim — so
-      `XDG_STATE_HOME=""` produced `/testanyware/vms/<id>.json` (rooted at
-      `/`). `--vm <id>` resolution would have looked in the wrong place.
-
-    `VMPaths` already had `stateDirFallsBackToHomeLocalStateWhenXDGEmpty`
-    covering the empty-string case, so the consolidation closes the bug
-    without needing a new test.
-
-    ## Verification
-
-    - `swift test --filter "ConnectionSpec|VMPaths|AgentProtocolSync"` — 39
-      tests, all pass.
-    - `swift build` succeeds.
-    - `grep -rn namedSpecPath` across `*.swift` returns no matches.
-
-    ## What this suggests next
-
-    - Memory entry `connectionspec-namedspecpath-duplicates-vmpaths-logic`
-      is now stale and should be retired (or rewritten to record the
-      consolidation). Triage phase will handle.
-    - The same drift pattern (env-var-with-empty-fallback) could lurk
-      elsewhere — worth a casual audit when the bash-to-Swift port surfaces
-      more sites that read `XDG_*_HOME` directly. Not pressing.
 - id: audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe
   title: Audit testanyware-agent entitlements for Documents folder access on Tahoe
   category: bug
@@ -307,105 +196,3 @@ tasks:
     7. README install instructions update.
 
     Needs brainstorm + plan before execution.
-- id: populate-agent-vnc-pid-columns-for-prefixed-running-vms-from-sidecar
-  title: Populate agent/vnc/pid columns for prefixed-running VMs from sidecar
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    `parseList` populates only `name` / `platform` / `backend` / `sizeGB` for
-    prefixed running VMs (testanyware-<hex8> clones), leaving `agent` / `vnc` /
-    `pid` columns nil. Adopted (non-prefix) running VMs load these columns from
-    the spec/meta sidecar in `adoptedRunning(allVMs:paths:knownNames:)`.
-
-    Users see blank `agent=` / `vnc=` / `PID ?` for prefixed clones while the
-    same columns are populated for adopted VMs — a cosmetic asymmetry that is
-    confusing at a glance.
-
-    **Fix:** Extend `runListAll()` (or a wrapper called from `VMCommand.List.run()`)
-    to load the matching sidecar at `<vmsDir>/<name>.json` for each prefixed
-    running entry returned by `parseList`. Best-effort: if the sidecar is absent
-    or malformed, leave the fields nil (current behaviour).
-
-    **Constraint:** Preserve byte-for-byte column-width parity
-    (`vmlistformatter-column-widths-are-byte-for-byte-parity-with-vm-list-sh`).
-    Only change the *values* in existing columns, not the column layout.
-
-    Surfaced as a follow-up from the vm-list adoption work (2026-04-27).
-  results: |
-    ## What was done
-
-    Added `TartRunner.enrichRunningFromSidecar(entries:paths:)`, a pure
-    mapping helper that fills `agent` / `vnc` / `pid` on running entries
-    from the matching `<vmsDir>/<name>.json` (and `.meta.json`) sidecar.
-    Goldens, sidecar-less entries, and entries already carrying values
-    pass through untouched.
-
-    Wired it into `VMCommand.List.run()` between the partition step and
-    the `adoptedRunning` step:
-
-    ```swift
-    running.append(contentsOf: (try? QEMURunner.scanClonesDir(...)) ?? [])
-    running = TartRunner.enrichRunningFromSidecar(entries: running, paths: paths)
-    let adopted = TartRunner.adoptedRunning(...)
-    running.append(contentsOf: adopted)
-    ```
-
-    The helper is platform-agnostic on purpose — QEMU running entries from
-    `QEMURunner.scanClonesDir` benefit from the same sidecar lookup, so
-    Windows clones now also show their agent/vnc/pid columns. This is a
-    strict superset of the task's stated scope.
-
-    Files modified:
-
-    - `cli/Sources/TestAnywareDriver/VM/TartRunner.swift` — added
-      `enrichRunningFromSidecar`.
-    - `cli/Sources/testanyware/VMCommand.swift` — call the helper.
-    - `cli/Tests/TestAnywareDriverTests/VM/TartRunnerTests.swift` — five
-      new `@Test` cases:
-        - `enrichRunningFromSidecarFillsAgentVNCPID`
-        - `enrichRunningFromSidecarLeavesGoldensUntouched`
-        - `enrichRunningFromSidecarLeavesEntriesWithoutSidecarAlone`
-        - `enrichRunningFromSidecarHandlesMissingMeta`
-        - `enrichRunningFromSidecarPreservesPreexistingValues`
-
-    ## Design notes
-
-    - `parseList` stays a pure parser (no I/O). The sidecar lookup is
-      isolated in the new helper, mirroring the existing pattern where
-      `adoptedRunning` is the only other I/O-touching `TartRunner` entry
-      point.
-    - Did NOT overwrite `platform` from the sidecar even though
-      `adoptedRunning` populates it. The task scope is agent/vnc/pid,
-      and prefixed names (`testanyware-<hex8>`) deliberately don't carry
-      a platform substring — fixing that would change the visible
-      platform column for every existing prefixed running VM, which
-      warrants its own task.
-    - Existing `VMListFormatter` byte-for-byte column-width parity
-      (memory entry
-      `vmlistformatter-column-widths-are-byte-for-byte-parity-with-vm-list-sh`)
-      is preserved — only the *values* change, not the column widths.
-
-    ## Verification
-
-    - `swift test --filter "TartRunner|VMList|AgentProtocolSync|ConnectionSpec|VMPaths"`
-      — 73 tests, all pass.
-    - `swift test --skip "IntegrationTests|VMLifecycleTests|QEMURunnerIntegration"`
-      — full unit-test suite, 277 tests, all pass.
-    - One pre-existing integration failure (`startStopRoundTripWindows`
-      exceeded its 600s time limit on QEMU) was observed in the unfiltered
-      run; it is unrelated and would have failed the same way before this
-      change.
-
-    ## What this suggests next
-
-    - The platform-column asymmetry (prefixed running VMs report
-      `"unknown"` because their hex8-only names lack a platform substring,
-      while adopted VMs derive platform from the sidecar) is still open.
-      A follow-up task could extend `enrichRunningFromSidecar` to
-      overwrite `platform` from `spec.platform` when the entry's current
-      value is `"unknown"`.
-    - `adoptedRunning` and `enrichRunningFromSidecar` now share the same
-      sidecar-formatting logic but each implements it inline. If a third
-      caller appears, factor out a private helper that returns the
-      formatted column triple.
