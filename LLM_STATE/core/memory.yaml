@@ -243,3 +243,11 @@ entries:
   title: startTart removes stale clones before tart clone
   body: |
     `startTart`'s collision branch always removes the stale clone before calling `tart clone`. Before this fix, a persisted macOS VM left a stale clone that caused `tart clone` to fail silently for Linux targets.
+- id: vm-list-omits-non-prefix-id-vms
+  title: vm list omits non-prefix --id VMs
+  body: |
+    `vm list` calls `TartRunner.runList()`, which uses `parseList` filtered to `testanyware-*` prefixed names. VMs started with `--id <arbitrary-name>` appear in `tart list` but are invisible to `testanyware vm list`. Lifecycle operations (`start`, `stop`, `delete`) can still address them because those routes go through `vmExists` → `parseAllVMNames`. See `vmexists-uses-parseallvmnames-not-runlist`. Tracked in backlog as `broaden-vm-list-to-show-user-supplied-non-prefix-vms-with-a-sidecar`.
+- id: usr-local-bin-testanyware-symlink-requires-manual-rebuild
+  title: /usr/local/bin/testanyware symlink requires manual rebuild
+  body: |
+    `/usr/local/bin/testanyware` is a symlink to a specific `swift build -c release` output artifact. Commits to the repo are not reflected until the binary is rebuilt (`swift build -c release`) and the symlink updated. A discrepancy between `swift test` results and live `testanyware` behavior indicates a stale symlink.
