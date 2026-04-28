@@ -98,6 +98,9 @@ testanyware vm start --platform macos --display 1920x1080 --viewer      # prints
 testanyware vm stop <vm-id>
 testanyware vm list
 testanyware vm delete <golden-image-name> [--force]
+
+# Diagnostics — verify the install layout (catches dev symlinks shadowing brew)
+testanyware doctor
 ```
 
 All commands accept `--connect spec.json` for connection details from a JSON

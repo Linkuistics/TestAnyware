@@ -20,6 +20,7 @@ struct TestAnywareCLI: AsyncParsableCommand {
             ServerCommand.self,
             AgentCommand.self,
             VMCommand.self,
+            DoctorCommand.self,
         ]
     )
 }

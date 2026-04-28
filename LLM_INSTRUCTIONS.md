@@ -97,6 +97,10 @@ The bash scripts are thin wrappers around `testanyware vm` subcommands. Use eith
 
 `testanyware vm start --viewer` and `testanyware vm stop` open and close a VNC viewer via AppleScript; the first invocation will prompt for Automation permission (System Settings → Privacy & Security → Automation → testanyware → System Events).
 
+### Install diagnostics via `testanyware doctor`
+
+- `testanyware doctor` — report the running binary, the `which testanyware` resolution, and the Homebrew prefix; warn (exit 1) when the on-PATH binary is not under the Homebrew prefix. Use this when CLI behaviour seems mismatched with the installed version — usually a stale dev symlink in `/usr/local/bin/` shadowing the brew install.
+
 ## Agent Commands
 
 ### Exec & File Transfer

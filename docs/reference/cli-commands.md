@@ -33,6 +33,7 @@ always available.
 | `find-text` | Find text on screen using OCR (Vision on macOS, EasyOCR daemon on Linux/Windows) |
 | `agent` | Interact with the in-VM accessibility agent (sub-sub-commands) |
 | `vm` | VM lifecycle: start, stop, list, delete (sub-sub-commands) |
+| `doctor` | Diagnose the testanyware install (PATH shadowing, Homebrew layout) |
 
 ---
 
@@ -466,6 +467,27 @@ backend.
 ```
 testanyware vm delete <name> [--force]
 ```
+
+---
+
+## `testanyware doctor`
+
+**Synopsis:** Diagnose the testanyware install. Reports the running binary,
+the on-PATH binary (`which testanyware`), and the Homebrew prefix; warns when
+the on-PATH path is not under the Homebrew prefix.
+
+The motivating hazard is a stale `/usr/local/bin/testanyware` dev symlink
+shadowing `/opt/homebrew/bin/testanyware` (PATH order picks the symlink, so
+the brew-installed CLI is silently ignored). The remediation hint targets
+the symlink itself, so following it removes the shadow without touching the
+brew install.
+
+```
+testanyware doctor
+```
+
+**Exit code:** `0` when the install is healthy or Homebrew is not installed;
+`1` when a shadow is detected or `testanyware` is not on PATH.
 
 - `<name>` — Golden image name (run `testanyware vm list` to see available).
 - `--force` — Delete even if running clones appear to depend on the image.
