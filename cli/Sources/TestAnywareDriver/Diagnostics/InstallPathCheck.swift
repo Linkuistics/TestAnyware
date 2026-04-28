@@ -73,7 +73,7 @@ public enum InstallPathCheck {
     /// via subprocess invocations, then classifies them.
     public static func run() -> CheckResult {
         let pathBinary = resolvedPathBinary()
-        let brewPrefix = resolveBrewPrefix()
+        let brewPrefix = BrewPrefixResolver.resolve()
         let verdict = classify(pathBinary: pathBinary, brewPrefix: brewPrefix)
         return CheckResult(verdict: verdict, runningBinary: currentExecutablePath())
     }
@@ -82,17 +82,6 @@ public enum InstallPathCheck {
 
     private static func resolvedPathBinary() -> String? {
         guard let raw = runCapturing(executable: "/usr/bin/which", arguments: ["testanyware"]) else {
-            return nil
-        }
-        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    private static func resolveBrewPrefix() -> String? {
-        let candidates = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
-        let brewPath = candidates.first { FileManager.default.isExecutableFile(atPath: $0) }
-        guard let brewPath else { return nil }
-        guard let raw = runCapturing(executable: brewPath, arguments: ["--prefix"]) else {
             return nil
         }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)

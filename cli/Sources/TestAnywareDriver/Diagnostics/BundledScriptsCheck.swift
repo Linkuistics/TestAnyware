@@ -112,7 +112,7 @@ public enum BundledScriptsCheck {
     /// Runtime entry point. Resolves the Homebrew prefix, probes every
     /// expected script and helper path, and classifies the result.
     public static func run() -> CheckResult {
-        let brewPrefix = resolveBrewPrefix()
+        let brewPrefix = BrewPrefixResolver.resolve()
         let probes = brewPrefix.map(probeAll) ?? []
         return CheckResult(verdict: classify(brewPrefix: brewPrefix, probes: probes))
     }
@@ -176,23 +176,4 @@ public enum BundledScriptsCheck {
         )
     }
 
-    private static func resolveBrewPrefix() -> String? {
-        let candidates = ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
-        guard let brewPath = candidates.first(where: {
-            FileManager.default.isExecutableFile(atPath: $0)
-        }) else { return nil }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: brewPath)
-        proc.arguments = ["--prefix"]
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = Pipe()
-        do { try proc.run() } catch { return nil }
-        proc.waitUntilExit()
-        guard proc.terminationStatus == 0 else { return nil }
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        let trimmed = String(data: data, encoding: .utf8)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return (trimmed?.isEmpty ?? true) ? nil : trimmed
-    }
 }

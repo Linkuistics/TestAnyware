@@ -425,3 +425,23 @@ sessions:
       - Investigate `findLiveElement` matching to fix the NSStackView `--index N` follow-on bug.
       - Consider a `VersionProbe` helper if more tools need version-aware checks (pattern is now established).
       - Add a `ProvisionerScriptsVersionCheck` comparing `release-build.sh` pinned versions against bundled scripts.
+- id: session-19
+  timestamp: 2026-04-28T11:39:50Z
+  phase: work
+  body: |
+    ### Session 19 (2026-04-28T11:39:50Z) — Fix live element re-matching; add ProvisionerScriptsVersionCheck
+
+    - **What was attempted:** Two backlog tasks: (1) fix `findLiveElement` re-matching after `dedupedByIdentity` collapses NSStackView siblings to the wrong live element; (2) add `ProvisionerScriptsVersionCheck` to the doctor command and extract the duplicated `resolveBrewPrefix` helper.
+
+    - **What worked:**
+      - `LiveElementMatcher` extracted as a testable, library-resident module (`agents/macos/Sources/TestAnywareAgent/LiveElementMatcher.swift`). Matcher now uses the same identity key as `dedupedByIdentity` — role + label + id + platformRole + position + size. `AgentServer.findLiveElement` delegates to it; the dead `windows: [WindowInfo]` parameter was removed. 14 new tests; 43/43 agent tests pass.
+      - `ProvisionerScriptsVersionCheck` added to `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern. Sentinel format: `# testanyware-min-tool: tart 2.5.0` comment lines in bundled `.sh` files. Today's scripts produce zero sentinels; doctor prints `✓ no version sentinels declared`. 17 new tests; 375/375 CLI tests pass.
+      - `BrewPrefixResolver` extracted into a shared helper; three duplicate `resolveBrewPrefix` private methods collapsed across `BundledAgentsCheck`, `BundledScriptsCheck`, and `InstallPathCheck`.
+
+    - **What didn't work / open questions:**
+      - The live fix was not smoke-tested against a live Tahoe VM; the structural fix is validated by unit tests and the NSStackView-siblings regression test.
+      - Bundled scripts contain no version sentinels yet — the framework exists but is dormant until a script author adds a `# testanyware-min-tool:` line.
+
+    - **What this suggests next:**
+      - Smoke-test `set-value --role AXTextField --index N` with two anonymous NSStackView text fields on a live Tahoe VM.
+      - If `release-build.sh` ever needs a specific tart/qemu version in CI, a `# testanyware-min-tool:` sentinel is all that's needed; no further plumbing required.

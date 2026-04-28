@@ -13,6 +13,7 @@ struct DoctorCommand: AsyncParsableCommand {
         let bundled = BundledAgentsCheck.run()
         let scripts = BundledScriptsCheck.run()
         let tools = ToolAvailabilityCheck.run()
+        let scriptsVersions = ProvisionerScriptsVersionCheck.run()
 
         print("testanyware doctor")
         print("")
@@ -32,8 +33,12 @@ struct DoctorCommand: AsyncParsableCommand {
 
         print("Host tools")
         printToolStatuses(tools.statuses)
+        print("")
 
-        if !install.isOK || !bundled.isOK || !scripts.isOK || !tools.isOK {
+        print("Bundled-script tool floors")
+        printScriptsVersions(scriptsVersions)
+
+        if !install.isOK || !bundled.isOK || !scripts.isOK || !tools.isOK || !scriptsVersions.isOK {
             throw ExitCode.failure
         }
     }
@@ -110,6 +115,40 @@ struct DoctorCommand: AsyncParsableCommand {
             }
             print("    remediation: brew reinstall Linkuistics/taps/testanyware")
         }
+    }
+
+    private func printScriptsVersions(_ result: ProvisionerScriptsVersionCheck.CheckResult) {
+        if result.skipped {
+            print("  scan:            (skipped — Homebrew or scripts directory not present)")
+            return
+        }
+        if result.perTool.isEmpty {
+            print("  ✓ no version sentinels declared in bundled scripts")
+            return
+        }
+        for verdict in result.perTool {
+            switch verdict {
+            case let .ok(tool, hostVersion, declaredMinimum, source):
+                print("  ✓ \(tool) \(hostVersion) ≥ \(declaredMinimum) (\(prettySource(source)))")
+            case let .belowFloor(tool, hostVersion, declaredMinimum, source):
+                print("  ! \(tool) \(hostVersion) < \(declaredMinimum) declared by \(prettySource(source))")
+                print("    bundled scripts may rely on features absent in \(hostVersion)")
+            case let .hostVersionUnknown(tool, declaredMinimum, source):
+                print("  ! \(tool) version unknown; \(prettySource(source)) declares ≥ \(declaredMinimum)")
+            case let .unparseable(tool, rawValue, source):
+                print("  ! \(tool) sentinel in \(prettySource(source)) has unparseable version: \(rawValue)")
+            }
+        }
+    }
+
+    /// Trim the brew-prefix portion of a script path so doctor output
+    /// stays readable. `<prefix>/share/testanyware/scripts/foo.sh`
+    /// becomes `scripts/foo.sh`.
+    private func prettySource(_ source: String) -> String {
+        if let range = source.range(of: "/share/testanyware/") {
+            return String(source[range.upperBound...])
+        }
+        return (source as NSString).lastPathComponent
     }
 
     private func printToolStatuses(_ statuses: [ToolAvailabilityCheck.Status]) {

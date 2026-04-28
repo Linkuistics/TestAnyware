@@ -226,7 +226,7 @@ private func handleInspect(_ request: Request) async throws -> Response {
         return jsonError("Multiple elements matched — refine your query or use --index N",
                         details: matches.map { describeElement($0) }.joined(separator: "\n"))
     case .found(let info):
-        guard let liveElement = findLiveElement(matching: info, in: windows) else {
+        guard let liveElement = findLiveElement(matching: info) else {
             return jsonError("Element found in snapshot but could not locate live AX element")
         }
         var fontFamily: String? = nil
@@ -310,7 +310,7 @@ private func resolveAndAct(
         return jsonError("Multiple elements matched — refine your query or use index",
                         details: matches.map { describeElement($0) }.joined(separator: "\n"))
     case .found(let info):
-        guard let liveElement = findLiveElement(matching: info, in: windows) else {
+        guard let liveElement = findLiveElement(matching: info) else {
             return jsonError("Element found in snapshot but could not locate live AX element")
         }
         do {
@@ -801,39 +801,15 @@ func resolveWindowElement(filter: String) -> (window: any AccessibleElement, inf
 
 // MARK: - Live Element Lookup
 
-func findLiveElement(matching info: ElementInfo, in windows: [WindowInfo]) -> (any AccessibleElement)? {
+func findLiveElement(matching info: ElementInfo) -> (any AccessibleElement)? {
+    var windowRoots: [any AccessibleElement] = []
     for (pid, _) in onScreenApplications() {
         let appWrapper = AXElementWrapper.application(pid: pid)
-        for winElement in appWrapper.children() {
-            guard winElement.role() == "AXWindow" else { continue }
-            if let found = searchLiveTree(root: winElement, matching: info) {
-                return found
-            }
+        for winElement in appWrapper.children() where winElement.role() == "AXWindow" {
+            windowRoots.append(winElement)
         }
     }
-    return nil
-}
-
-private func searchLiveTree(root: any AccessibleElement, matching info: ElementInfo) -> (any AccessibleElement)? {
-    for child in root.children() {
-        if liveElementMatches(child, info: info) { return child }
-        if let found = searchLiveTree(root: child, matching: info) { return found }
-    }
-    return nil
-}
-
-private func liveElementMatches(_ element: any AccessibleElement, info: ElementInfo) -> Bool {
-    let mappedRole = RoleMapper.map(role: element.role() ?? "", subrole: element.subrole())
-    guard mappedRole == info.role else { return false }
-    if let infoLabel = info.label {
-        guard let elementLabel = element.label(), elementLabel == infoLabel else { return false }
-    } else {
-        guard element.label() == nil else { return false }
-    }
-    if let infoPos = info.position, let elementPos = element.position() {
-        guard elementPos.x == infoPos.x && elementPos.y == infoPos.y else { return false }
-    }
-    return true
+    return LiveElementMatcher.find(in: windowRoots, matching: info)
 }
 
 // MARK: - Mode Filters
