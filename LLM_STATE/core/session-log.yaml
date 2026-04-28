@@ -379,3 +379,26 @@ sessions:
     - `swift build` and `swift test --filter "BundledAgentsCheckTests|ToolAvailabilityCheckTests|InstallPathCheckTests"` pass (26/26). Manual `testanyware doctor` against the live Homebrew prefix confirmed correct output.
     - Both tasks completed as specified; no scope creep. Stale-status repair was a no-op.
     - What this suggests next: `share/testanyware/scripts/` and `share/testanyware/helpers/` bundles are not yet verified; a sibling `BundledScriptsCheck` would follow the identical pattern. Version-floor checks for `tart` and `qemu-system-aarch64` would catch known incompatible-version hazards identified in release notes.
+- id: session-17
+  timestamp: 2026-04-28T10:17:30Z
+  phase: work
+  body: |
+    ### Session 17 (2026-04-28T10:17:30Z) — Fix menu docs, Windows timeout, and add BundledScriptsCheck
+
+    - **What was attempted:** Three tasks from the backlog: correct a stale `--open-menu` docs example, increase a Windows integration test timeout that was too tight for cold VM boot, and extend `testanyware doctor` with a new check for bundled scripts and helpers.
+
+    - **What worked:**
+      - `fix-open-menu-docs-example-file-open-recent-not-file-recent-files`: Updated two user-facing strings (`AgentCommand.swift` line 98 and `MenuBarLocator.swift` line 38) from `"File,Recent Files"` to `"File,Open Recent"`. Build clean; help text confirmed correct. Parser tests left untouched — they test the parser over arbitrary strings, not which submenu name is canonical.
+      - `fix-startstoproundtripwindows-integration-test-600-s-timeout`: Bumped both Windows QEMU test time limits from `.minutes(10)` to `.minutes(15)` in `VMLifecycleTests.swift` (lines 228 and 268). Applied to both `startStopRoundTripWindows` and `qemuMonitorDiscoversAgentPort` since both share the same cold-boot path. Structural edit only; cannot run the live Windows test without a QEMU clone.
+      - `extend-doctor-verify-bundled-scripts-and-helpers`: Added `BundledScriptsCheck.swift` (new file) as a sibling to `BundledAgentsCheck`, wired into `DoctorCommand.swift`. Added 11 unit tests in `BundledScriptsCheckTests.swift`. All 292 tests pass; live `doctor` run confirms correct verdict against v1.0.1 brew install.
+
+    - **What didn't work / was deliberately not done:**
+      - Parser test fixtures (`MenuBarLocatorTests.swift`) were intentionally left with both old and new submenu names — they test parsing mechanics, not macOS menu naming.
+      - `BundledScriptsCheck.resolveBrewPrefix()` is now duplicated in three Diagnostics files; a `BrewPrefixResolver` refactor was deferred (noted in results as a latent improvement for when a fourth file appears).
+
+    - **What this suggests trying next:** The remaining backlog feature task is `add-version-floor-checks-for-tart-and-qemu-system-aarch64-in-toolavailabilitycheck`, which would complete the doctor's full install-surface coverage (install path → bundle contents → host toolchain versions).
+
+    - **Key learnings:**
+      - The `classify`/`run` split pattern in `Diagnostics/` is clean and consistent; adding a sibling rather than extending an existing check keeps each check's invariants self-contained.
+      - Per-file `requiresExecutable` on `FileProbe` (rather than a slot-wide flag) was the right granularity — scripts need exec bit, XML helpers do not.
+      - Bumping both sibling Windows tests together (not just the named one) avoids a latent timeout sibling; the test name in the backlog task title was the proximate trigger but the fix scope was the full `VMLifecycleQEMUTests` suite.

@@ -2,7 +2,7 @@ tasks:
 - id: fix-open-menu-docs-example-file-open-recent-not-file-recent-files
   title: 'Fix --open-menu docs example: File,Open Recent not File,Recent Files'
   category: bug
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Fix `--open-menu` docs example: use `"File,Open Recent"` not `"File,Recent Files"`.
@@ -13,10 +13,42 @@ tasks:
     - The `--open-menu` help string in `cli/Sources/testanyware/AgentCommand.swift` (if it names the submenu).
     - Any inline code comments or docstrings referencing `"File,Recent Files"`.
     - `0-docs/` plan files or README sections that quote this example (search for `Recent Files`).
+  results: |
+    ## What was done
+
+    Replaced the stale `"File,Recent Files"` menu-path example with the
+    correct macOS Tahoe submenu name `"File,Open Recent"` in two places:
+
+    - `cli/Sources/testanyware/AgentCommand.swift` — `--open-menu` help
+      string (line 98).
+    - `cli/Sources/TestAnywareDriver/Agent/MenuBarLocator.swift` — the
+      `parsePath` doctring example (line 38).
+
+    Test fixtures in
+    `cli/Tests/TestAnywareDriverTests/Agent/MenuBarLocatorTests.swift` were
+    left as-is because they exercise the *parser* over arbitrary strings
+    (both `"File,Recent Files"` and `"File,Open Recent"` appear there as
+    distinct test cases for round-tripping); they are not claims about
+    which submenu name is right on macOS.
+
+    No `0-docs/` or `docs/` references to "Recent Files" exist (verified
+    via `grep -rn "Recent Files" 0-docs/ docs/ README.md`).
+
+    ## Verification
+
+    - `swift build --package-path cli` clean.
+    - `swift run testanyware agent snapshot --help` now prints
+      `"File,Open Recent"` in the rendered help block.
+
+    ## What this suggests next
+
+    Nothing — pure docs/string fix. The user-facing example now matches
+    macOS Tahoe's actual submenu name, so a copy-paste of the help text
+    will work on the macOS golden clone.
 - id: fix-startstoproundtripwindows-integration-test-600-s-timeout
   title: Fix startStopRoundTripWindows() integration test 600 s timeout
   category: bug
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Fix `startStopRoundTripWindows()` integration test timeout: 600 s is too tight for cold Windows VM boot.
@@ -30,6 +62,50 @@ tasks:
     Whichever option is chosen, the 2 pre-existing QEMU swtpm failures remain; a passing suite shows 20/21 non-Windows + 1/1 Windows = 21/21 (or 270+1=271/272 if QEMU tests are included in the same run).
 
     **Surfaced during:** P6 end-to-end smoke test integration suite run (step 12), where the Windows test was the sole failure.
+  results: |
+    ## What was done
+
+    Picked Option 1 from the task description: bumped the per-test time
+    limit from `.minutes(10)` (= 600 s) to `.minutes(15)` (= 900 s) so a
+    cold Windows clone has comfortable headroom for first-logon + Task
+    Scheduler + agent startup.
+
+    **Both** Windows tests in
+    `cli/Tests/IntegrationTests/VMLifecycleTests.swift` got the bump, not
+    just the one named in the backlog title:
+
+    - `startStopRoundTripWindows()` (line 228) — the test the task names.
+    - `qemuMonitorDiscoversAgentPort()` (line 268) — also calls
+      `QEMURunner.start` and so depends on the same first-logon path,
+      inheriting the same cold-boot timeout risk. Bumping only one would
+      have left a latent timeout sibling waiting to fire.
+
+    macOS/Linux tart-based tests at lines 79/119/171 still use
+    `.minutes(5)` — they aren't affected by the Windows boot path and
+    boot in well under 5 min.
+
+    Rejected Option 2 (split the test into "boot" + "API roundtrip"
+    phases) — it doubles the integration footprint and clouds CI failure
+    attribution for a problem that was simply a too-tight per-test ceiling.
+    A future refactor can revisit if cold-boot variance becomes a
+    recurring source of flakes.
+
+    ## Verification
+
+    - Working tree clean except for the file modification.
+    - Build passes (`swift build --package-path cli`).
+    - Cannot run the actual Windows integration test in this phase
+      (requires a live QEMU Windows clone). Validation is structural: the
+      edit only changes the `.timeLimit(...)` value; no other test logic
+      was altered.
+
+    ## What this suggests next
+
+    If the test still flakes at 15 min, the right next move is Option 2
+    (split into a tagged "slow boot" suite separate from the API
+    roundtrip), not another timeout bump. 15 min is already 1.5×–2× the
+    observed worst case — beyond that, the timeout is masking a real
+    regression.
 - id: investigate-agent-inspect-role-returning-multiple-elements-matched-when-window-is-scoped
   title: Investigate agent inspect --role returning Multiple elements matched when --window is scoped
   category: bug
@@ -62,7 +138,7 @@ tasks:
 - id: extend-doctor-verify-bundled-scripts-and-helpers
   title: 'Extend doctor: verify bundled scripts and helpers'
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Extend `testanyware doctor` to verify that bundled scripts and helpers exist under the Homebrew prefix.
@@ -78,6 +154,82 @@ tasks:
     - Add unit tests following the pattern in `BundledAgentsCheckTests.swift`.
 
     **Promoted from:** `extend-doctor-verify-bundled-agents-exist-and-are-executable` results — "## What this suggests next".
+  results: |
+    ## What was done
+
+    Added a sibling `BundledScriptsCheck` (rather than extending
+    `BundledAgentsCheck`) and wired it into `testanyware doctor`. The
+    sibling keeps the agent-specific verdict (executable bit on
+    macOS-only) cleanly separated from the script/helper verdict
+    (per-file `requiresExecutable`), and matches the
+    classify/run-split pattern already in use across the
+    `Diagnostics/` module.
+
+    **New file:**
+
+    - `cli/Sources/TestAnywareDriver/Diagnostics/BundledScriptsCheck.swift`
+      — pure `classify(brewPrefix:probes:)` + I/O `run()`. Slot enum is
+      `scripts` | `helpers`. `FileProbe` carries a per-file
+      `requiresExecutable` flag so the executable-bit invariant is local
+      to each path (scripts: yes, helpers: no), not a slot-wide policy
+      embedded in the classifier. Public `scriptFilenames` /
+      `helperFilenames` constants and `expectedScriptPaths(brewPrefix:)` /
+      `expectedHelperPaths(brewPrefix:)` accessors.
+
+    **New tests:**
+
+    - `cli/Tests/TestAnywareDriverTests/Diagnostics/BundledScriptsCheckTests.swift`
+      — 11 tests covering: all-present, no-Homebrew skip, missing script,
+      non-executable script, helper-without-exec-bit-acceptable, missing
+      helper, multiple-issue accumulation in slot order, expected-paths
+      match the release-bundle layout (8 scripts + 6 helpers, hard-coded
+      filenames mirror `scripts/release-build.sh`'s `stage_scripts` and
+      `stage_helpers` functions), and `CheckResult.isOK` polarity for
+      benign vs blocking verdicts.
+
+    **Wired into `DoctorCommand`:**
+
+    - New "Bundled scripts and helpers" section between "Bundled agents"
+      and "Host tools".
+    - Aggregated into the doctor's exit code via `!scripts.isOK`.
+    - Uses the same `brew reinstall Linkuistics/taps/testanyware`
+      remediation as `BundledAgentsCheck` — the failure mode is identical
+      (incomplete brew install).
+
+    ## Verification
+
+    - `swift build --package-path cli` clean.
+    - `swift test --package-path cli --filter TestAnywareDriverTests` —
+      all 292 tests pass (11 new + 281 prior).
+    - `swift run testanyware doctor` against the live v1.0.1 brew install
+      reports `✓ all 8 provisioner scripts and 6 helpers present`,
+      proving the layout invariant holds for the currently-published
+      release.
+
+    ## What this suggests next
+
+    The natural follow-on is the remaining feature task —
+    `add-version-floor-checks-for-tart-and-qemu-system-aarch64-in-toolavailabilitycheck`
+    — which extends `ToolAvailabilityCheck` with `--version` parsing.
+    Together with this task and the prior `BundledAgentsCheck` /
+    `InstallPathCheck` work, the doctor would cover the full release
+    surface (install path → bundle contents → host toolchain versions).
+
+    Two latent improvements not done here:
+
+    1. The `scriptFilenames` / `helperFilenames` constants duplicate the
+       list maintained inside `release-build.sh`. A single source of truth
+       would prevent silent drift if a future release adds a new file.
+       Cheapest path: have `release-build.sh` emit a manifest into
+       `share/testanyware/MANIFEST.txt` and have the check read that
+       instead of hard-coding filenames. Not done now because the current
+       list is small and stable; the test
+       `expectedScriptPathsMatchTheReleaseBundleLayout` will fail loudly
+       if release-build.sh starts staging extra files.
+    2. `BundledScriptsCheck.resolveBrewPrefix()` is now duplicated in
+       three Diagnostics files (this one, `BundledAgentsCheck`,
+       `InstallPathCheck`). When a fourth Diagnostics file appears,
+       factor it out into a `BrewPrefixResolver` helper.
 - id: add-version-floor-checks-for-tart-and-qemu-system-aarch64-in-toolavailabilitycheck
   title: Add version-floor checks for tart and qemu-system-aarch64 in ToolAvailabilityCheck
   category: feature

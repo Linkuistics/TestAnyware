@@ -225,7 +225,7 @@ struct VMLifecycleTests {
        .serialized)
 struct VMLifecycleQEMUTests {
 
-    @Test(.timeLimit(.minutes(10)))
+    @Test(.timeLimit(.minutes(15)))
     func startStopRoundTripWindows() async throws {
         let id = "testanyware-test-\(UUID().uuidString.prefix(8))".lowercased()
         let options = VMStartOptions(
@@ -265,7 +265,7 @@ struct VMLifecycleQEMUTests {
         #expect(!FileManager.default.fileExists(atPath: paths.cloneDir(forID: id)))
     }
 
-    @Test(.timeLimit(.minutes(10)))
+    @Test(.timeLimit(.minutes(15)))
     func qemuMonitorDiscoversAgentPort() async throws {
         let id = "testanyware-test-\(UUID().uuidString.prefix(8))".lowercased()
         let options = VMStartOptions(

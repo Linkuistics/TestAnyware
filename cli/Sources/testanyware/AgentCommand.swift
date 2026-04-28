@@ -95,7 +95,7 @@ struct AgentSnapshotCmd: AsyncParsableCommand {
         Menu-bar item label (or comma-separated path) to open via VNC click \
         before snapshotting. macOS menu submenus are lazy in the AX tree — \
         they only appear once the parent menu is open. Pass a path like \
-        "File,Recent Files" to drill into a submenu; each segment is clicked \
+        "File,Open Recent" to drill into a submenu; each segment is clicked \
         in order with a 400 ms settle. The deepest opened menu is left \
         visible; press Escape with `input key escape` to close it afterwards.
         """

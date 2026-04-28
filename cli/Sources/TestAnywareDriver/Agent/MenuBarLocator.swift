@@ -35,7 +35,7 @@ public enum MenuBarLocator {
     /// is empty or any segment is blank — the caller should treat these as
     /// validation errors and surface a usage message.
     ///
-    /// Example: `"File, Recent Files"` → `["File", "Recent Files"]`.
+    /// Example: `"File, Open Recent"` → `["File", "Open Recent"]`.
     public static func parsePath(_ raw: String) -> [String]? {
         let segments = raw.split(separator: ",", omittingEmptySubsequences: false)
             .map { $0.trimmingCharacters(in: .whitespaces) }

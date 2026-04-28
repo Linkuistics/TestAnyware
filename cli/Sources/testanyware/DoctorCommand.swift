@@ -11,6 +11,7 @@ struct DoctorCommand: AsyncParsableCommand {
     func run() async throws {
         let install = InstallPathCheck.run()
         let bundled = BundledAgentsCheck.run()
+        let scripts = BundledScriptsCheck.run()
         let tools = ToolAvailabilityCheck.run()
 
         print("testanyware doctor")
@@ -25,10 +26,14 @@ struct DoctorCommand: AsyncParsableCommand {
         printBundledVerdict(bundled.verdict)
         print("")
 
+        print("Bundled scripts and helpers")
+        printScriptsVerdict(scripts.verdict)
+        print("")
+
         print("Host tools")
         printToolStatuses(tools.statuses)
 
-        if !install.isOK || !bundled.isOK || !tools.isOK {
+        if !install.isOK || !bundled.isOK || !scripts.isOK || !tools.isOK {
             throw ExitCode.failure
         }
     }
@@ -78,6 +83,29 @@ struct DoctorCommand: AsyncParsableCommand {
                     print("  ✗ \(slot.rawValue) agent missing: \(path)")
                 case let .notExecutable(path):
                     print("  ✗ \(slot.rawValue) agent not executable: \(path)")
+                }
+            }
+            print("    remediation: brew reinstall Linkuistics/taps/testanyware")
+        }
+    }
+
+    private func printScriptsVerdict(_ verdict: BundledScriptsCheck.Verdict) {
+        switch verdict {
+        case let .allPresent(brewPrefix):
+            print("  scripts root:    \(brewPrefix)/share/testanyware/scripts")
+            print("  helpers root:    \(brewPrefix)/share/testanyware/helpers")
+            print("  ✓ all 8 provisioner scripts and 6 helpers present")
+        case .noHomebrew:
+            print("  scripts root:    (skipped — Homebrew not installed)")
+        case let .missing(brewPrefix, issues):
+            print("  scripts root:    \(brewPrefix)/share/testanyware/scripts")
+            print("  helpers root:    \(brewPrefix)/share/testanyware/helpers")
+            for (slot, issue) in issues {
+                switch issue {
+                case let .missing(path):
+                    print("  ✗ \(slot.rawValue) file missing: \(path)")
+                case let .notExecutable(path):
+                    print("  ✗ \(slot.rawValue) file not executable: \(path)")
                 }
             }
             print("    remediation: brew reinstall Linkuistics/taps/testanyware")
