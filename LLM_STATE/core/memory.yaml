@@ -345,3 +345,15 @@ entries:
     Design note: new doctor checks go in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern (see `diagnostics-module-uses-classify-run-split-for-testability`). The check would read the OCR status file, detect a degraded flag, clear it, and print a remediation message.
 
     Source: `add-doctor-check-for-usr-local-bin-testanyware-dev-symlink-shadowing-brew-install` results section — "## What this suggests next" item (a), described as "separate concern" and deferred.
+- id: bundledagentscheck-verifies-three-agent-slots-under-brew-prefix
+  title: BundledAgentsCheck verifies three agent slots under brew prefix
+  body: |
+    `BundledAgentsCheck` verifies three agent slots under `$(brew --prefix testanyware)/share/testanyware/agents/`: `macos/testanyware-agent` (executable bit required), `windows/testanyware-agent.exe` (presence only), `linux/testanyware_agent/__main__.py` (presence only). Returns `noHomebrew` verdict when Homebrew is absent, skipping the check entirely. Hard failure: any slot missing or non-executable.
+- id: toolavailabilitycheck-is-advisory-missing-tools-don-t-fail-doctor
+  title: ToolAvailabilityCheck is advisory; missing tools don't fail doctor
+  body: |
+    `ToolAvailabilityCheck` probes `tart`, `qemu-system-aarch64`, and `swtpm` via `which`. Advisory only: `isOK` stays `true` regardless of what is missing. Missing tools surface under the "Host tools" section with `!` prefix and an install hint, but do not cause `testanyware doctor` to exit non-zero.
+- id: doctor-exits-non-zero-only-for-install-path-or-bundled-agent-failures
+  title: doctor exits non-zero only for install-path or bundled-agent failures
+  body: |
+    `testanyware doctor` prints three sections: "Install path", "Bundled agents", "Host tools". Exits non-zero only when `InstallPathCheck` or `BundledAgentsCheck` flag a hard issue. `ToolAvailabilityCheck` ("Host tools") failures are warnings only — they never contribute to a non-zero exit.
