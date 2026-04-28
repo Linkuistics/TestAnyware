@@ -1,99 +1,22 @@
 tasks:
-- id: fix-findliveelement-re-matching-after-dedupedbyidentity-collapses-matches
-  title: Fix findLiveElement re-matching after dedupedByIdentity collapses matches
-  category: bug
-  status: done
-  dependencies: []
-  description: |
-    Fix `findLiveElement` re-matching after dedupedByIdentity collapses matches
-
-    **Bug:** `findLiveElement` cannot relocate a deduped element by `--index N` after the initial snapshot/resolve. NSStackView anonymous text fields are the known trigger. `set-value --index N` returns `.notFound` on subsequent calls to the same element even though the element was successfully found in the first resolve pass.
-
-    **Root cause:** The live element relocation pass uses a narrower matching key than `dedupedByIdentity`. After `--index N` resolves a snapshot element from the deduped list, the live walker cannot recover the element because its matching attributes (role + label + id) are insufficient to distinguish it — position + size are not part of the live re-match key.
-
-    **Fix direction:** Extend `findLiveElement` in `agents/macos/Sources/TestAnywareAgent/QueryResolver.swift` to accept a richer matching signature consistent with the dedup key (role + position + size). This closes the loop where `--index N` addresses a deduped element in snapshot space but the live walker cannot find it.
-
-    **Acceptance:** `testanyware agent set-value --role AXTextField --index 1 --window "..."` succeeds on an NSStackView with multiple anonymous text fields. `--index 2` also succeeds.
-
-    **Promoted from:** `investigate-agent-inspect-role-returning-multiple-elements-matched-when-window-is-scoped` results — "What this suggests next" item 2. See memory entry `findLiveElement cannot re-match deduped element via --index N`.
-  results: |
-    **Done.** Extended the live-element matcher to use the same identity key as `dedupedByIdentity` (role + label + id + platformRole + position + size).
-
-    **What was done:**
-    - Created `agents/macos/Sources/TestAnywareAgent/LiveElementMatcher.swift` — testable, library-resident module with `find(in:matching:)` (DFS) and `matches(_:info:)` (the predicate). Lifted out of the executable target so it can be tested with `MockAccessibleElement`.
-    - Replaced the private `searchLiveTree` and `liveElementMatches` in `agents/macos/Sources/testanyware-agent/AgentServer.swift` with a delegation to `LiveElementMatcher.find`. Dropped the unused `windows: [WindowInfo]` parameter from `findLiveElement` while there.
-    - Added 14 tests in `agents/macos/Tests/TestAnywareAgentTests/LiveElementMatcherTests.swift` covering: identity match (positive), the NSStackView-siblings regression (the motivating bug), label/id/platformRole/position/size mismatches, nil-on-info constraints, recursion through children, and empty-roots.
-
-    **Behavior change:**
-    - Old matcher: role + label + (optionally) position-x/y. nil-on-either-side skipped position.
-    - New matcher: role + label + id + platformRole + position + size. nil-on-info skips that attribute; nil-on-element fails when info has a value.
-
-    **Verification:** `swift test` in `agents/macos/`: 43 tests pass (29 pre-existing + 14 new).
-
-    **Acceptance criterion:** With this change, `set-value --role AXTextField --index 1 --window "..."` and `--index 2` now resolve to distinct live elements when the snapshot dedup key distinguishes them by position+size. The original NSStackView anonymous-text-field regression is exercised by `distinguishesStackViewSiblingsByPositionAndSize`.
-
-    **What this suggests next:**
-    1. The dedup key and live matcher are now coordinated; if a future contributor adds an attribute to one, the doc-comment on `LiveElementMatcher` flags the requirement to update the other. Consider promoting `identityKey` to a single source of truth (e.g. `ElementIdentity.fingerprint`) shared by both, but that's a refactor — not needed unless the keys diverge again.
-    2. The `windows: [WindowInfo]` parameter to `findLiveElement` was always dead code; removing it was a minor clean-up that fits the bug-fix scope.
-    3. There's a pre-existing `textColor` "never mutated" warning in `AgentServer.swift:235` unrelated to this fix.
-- id: add-provisionerscriptsversioncheck-to-doctor-command
-  title: Add ProvisionerScriptsVersionCheck to doctor command
+- id: add-testanyware-min-tool-sentinels-to-release-build-sh-for-release-pipeline-tools
+  title: Add testanyware-min-tool sentinels to release-build.sh for release pipeline tools
   category: feature
-  status: done
+  status: not_started
   dependencies: []
   description: |
-    Add ProvisionerScriptsVersionCheck to doctor command
+    Add testanyware-min-tool sentinels to release-build.sh for release pipeline tools
 
-    **Background:** `add-version-floor-checks-for-tart-and-qemu-system-aarch64-in-toolavailabilitycheck` added advisory version-floor checks for `tart` (≥ 2.0.0) and `qemu-system-aarch64` (≥ 8.0.0) to `ToolAvailabilityCheck`. The results section noted that an analogous `ProvisionerScriptsVersionCheck` would compare `release-build.sh`'s pinned tool versions against the bundled golden scripts, giving the doctor a version-coherence view that spans both the running host tools and the scripts packaged in the release.
+    **Background:** `ProvisionerScriptsVersionCheck` was added to `testanyware doctor` to read `# testanyware-min-tool: <tool> <version>` sentinel comments from bundled `.sh` files and compare them against installed host tool versions. As of this task, no bundled script declares any sentinels — the doctor prints `✓ no version sentinels declared in bundled scripts`.
+
+    `release-build.sh` performs the actual release build (swift build, dotnet publish, etc.) and silently depends on minimum versions of tools. Today its tool checks are human-facing only (e.g., `release-doctor.sh` prints `swift --version` for visual inspection). Adding sentinels to `release-build.sh` (and/or `release-doctor.sh`) would give the doctor automated version-coherence coverage for the release pipeline tools.
 
     **Work to do:**
-    - Inspect `scripts/release-build.sh` for explicit tool-version references or minimum-version guards.
-    - Inspect `provisioner/scripts/` for any embedded version requirements.
-    - Add a `ProvisionerScriptsVersionCheck` in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern (see memory: `diagnostics-module-uses-classify-run-split-for-testability`).
-    - Surface a warning (advisory, matching `ToolAvailabilityCheck` precedent) when the detected host tool version is below what the bundled scripts require.
-    - Add unit tests covering: version at floor (pass), below floor (warn), no floor defined in scripts (pass through), parse failure (warn gracefully).
+    - Identify which tools and minimum versions `release-build.sh` implicitly depends on (swift, dotnet, gh, etc.).
+    - Add `# testanyware-min-tool: <tool> <version>` sentinel comment lines to `scripts/release-build.sh` for each identified dependency.
+    - Run `testanyware doctor` and verify the new sentinels are picked up and reported correctly.
+    - If minimum versions are not clearly established, document the investigation findings and add sentinels for what can be confidently determined.
 
-    **Note:** `resolveBrewPrefix()` is currently duplicated across `BundledScriptsCheck`, `BundledAgentsCheck`, and `InstallPathCheck`. If this check becomes a fourth consumer, factor `resolveBrewPrefix()` into a shared `BrewPrefixResolver` helper at the same time (see memory: `resolvebrewprefix-duplicated-across-three-diagnostics-files`).
-  results: |
-    **Done.** Added `ProvisionerScriptsVersionCheck` to the doctor command, wired it into `DoctorCommand`, and extracted the duplicated `resolveBrewPrefix` helper.
+    **Acceptance:** `testanyware doctor` reports the release pipeline tool floors from `release-build.sh` sentinels. Below-floor installs produce advisory warnings matching `ToolAvailabilityCheck` precedent.
 
-    **What was done:**
-
-    *New diagnostic:*
-    - Created `cli/Sources/TestAnywareDriver/Diagnostics/ProvisionerScriptsVersionCheck.swift` using the classify/run split pattern (matches `ToolAvailabilityCheck` precedent).
-    - Sentinel format: bundled `.sh` files declare floors via comment lines like `# testanyware-min-tool: tart 2.5.0`. Floors aggregate by tool name (highest wins, numeric component comparison so `2.32.1` > `2.5.0`); per-tool verdicts are `.ok` / `.belowFloor` / `.hostVersionUnknown` / `.unparseable`.
-    - `run()` resolves the brew prefix, scans `<brewPrefix>/share/testanyware/scripts/*.sh`, and compares aggregated floors against host versions sourced from `ToolAvailabilityCheck`. Below-floor is advisory (matches the `ToolAvailabilityCheck` precedent — `isOK` always true).
-    - Wired into `DoctorCommand.swift` as a new "Bundled-script tool floors" section. `prettySource()` trims paths to `scripts/foo.sh` for readability.
-
-    *Shared helper extraction:*
-    - Created `cli/Sources/TestAnywareDriver/Diagnostics/BrewPrefixResolver.swift` (resolves the brew prefix via `brew --prefix`, candidate-list-injectable for tests).
-    - Refactored `BundledAgentsCheck`, `BundledScriptsCheck`, `InstallPathCheck` to delegate to it — three duplicate copies of `resolveBrewPrefix` collapsed.
-
-    *Inspection findings (from the task's "Work to do" first two bullets):*
-    - `scripts/release-build.sh` has NO explicit tool-version pins or guards (only `release-doctor.sh` reports `swift --version` etc. for human review).
-    - `provisioner/scripts/*.sh` use `command -v` presence checks for tart/qemu/swtpm but pin no versions.
-    - Result: today's bundled scripts produce zero sentinels, so `run()` returns an empty `perTool` and the doctor prints `✓ no version sentinels declared in bundled scripts`. The framework is ready for the moment a script needs a specific tart/qemu version — author adds one comment line.
-
-    **Tests added** (`cli/Tests/TestAnywareDriverTests/Diagnostics/ProvisionerScriptsVersionCheckTests.swift`, 17 tests):
-    - `parseSentinels`: single, multiple, ignoring non-prefix lines, leading whitespace, malformed (missing version).
-    - `aggregateFloors`: highest-wins per tool, deterministic ordering by tool name.
-    - `classify`: at floor (pass), above floor (pass), below floor (warn — covers numeric vs lexicographic), host version unknown (warn), unparseable floor (warn — `latest`), empty floors list, multi-tool independence.
-    - `skippedResult`: distinct from "scanned, no sentinels" so the doctor can word the message differently.
-    - `isDottedVersion`: accepts dotted, rejects bare ints / `latest` / `.5.0`.
-
-    Acceptance test cases requested by the task description:
-    - "version at floor (pass)": `classifyAtFloorIsOK`.
-    - "below floor (warn)": `classifyBelowFloorIsBelow`.
-    - "no floor defined in scripts (pass through)": `classifyEmptyFloorsListProducesEmptyResult`.
-    - "parse failure (warn gracefully)": `classifyUnparseableFloorSurfacesRawValue`.
-
-    **Verification:**
-    - `swift test --filter ProvisionerScriptsVersionCheck`: 17/17 pass.
-    - `swift test --filter "BundledAgentsCheck|BundledScriptsCheck|InstallPathCheck|ToolAvailabilityCheck|ProvisionerScriptsVersionCheck"`: 70/70 pass — confirms the `BrewPrefixResolver` extraction didn't regress the three existing diagnostics.
-    - `swift test --skip IntegrationTests`: 375/375 pass.
-    - Smoke-tested `swift run testanyware doctor`; output renders all five sections including the new "Bundled-script tool floors" line.
-
-    **What this suggests next:**
-    1. The framework is in place but unused. If a script needs (say) `tart >= 2.10` for a future feature, the author adds `# testanyware-min-tool: tart 2.10.0` and `testanyware doctor` will surface mismatches automatically. No further plumbing required.
-    2. `release-build.sh` could itself host a sentinel pinning the tools its own pipeline needs; today its `swift --version` etc. checks are human-facing only. A separate ticket is appropriate.
-    3. `BrewPrefixResolver` is now the canonical way to find the brew prefix; future doctors should not roll their own. Memory entry `resolvebrewprefix-duplicated-across-three-diagnostics-files` is now resolved.
+    **Promoted from:** `add-provisionerscriptsversioncheck-to-doctor-command` results — "What this suggests next" item 2.

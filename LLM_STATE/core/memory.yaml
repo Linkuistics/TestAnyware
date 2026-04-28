@@ -383,3 +383,9 @@ entries:
   title: ProvisionerScriptsVersionCheck reads min-tool sentinels
   body: |
     `ProvisionerScriptsVersionCheck` (`cli/Sources/TestAnywareDriver/Diagnostics/`) reads `# testanyware-min-tool: <tool> <version>` comment lines from bundled `.sh` files and verifies installed tool versions meet declared floors. No bundled scripts currently declare sentinels; doctor prints `✓ no version sentinels declared`. Follows classify/run split pattern. A hard check: triggers non-zero exit when a declared version floor is not met.
+- id: brewprefixresolver-is-canonical-brew-prefix-resolver-for-diagnostics
+  title: BrewPrefixResolver is canonical brew-prefix resolver for diagnostics
+  body: |
+    `BrewPrefixResolver` is the canonical brew-prefix resolver for all diagnostics checks in `cli/Sources/TestAnywareDriver/Diagnostics/`. It was extracted when `ProvisionerScriptsVersionCheck` was added as a fourth consumer of the brew-prefix logic.
+
+    `BrewPrefixResolver.swift` resolves the brew prefix via `brew --prefix`, with an injectable candidates list for deterministic tests. Future diagnostic checks must not roll their own `resolveBrewPrefix` — delegate to `BrewPrefixResolver` instead. The three original duplicates (`BundledAgentsCheck`, `BundledScriptsCheck`, `InstallPathCheck`) were refactored to use it.
