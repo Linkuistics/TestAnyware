@@ -59,105 +59,38 @@ tasks:
     --no-virtio-cache`) would eliminate this class of silent transfer error. Affects
     any workflow that edits a source file on the host and then recompiles or re-runs it
     inside the VM. Surfaced on 2026-04-17 during Racket sample app validation.
-- id: add-doctor-check-for-usr-local-bin-testanyware-dev-symlink-shadowing-brew-install
-  title: Add doctor check for /usr/local/bin/testanyware dev-symlink shadowing brew install
+- id: extend-doctor-verify-bundled-agents-exist-and-are-executable
+  title: 'Extend doctor: verify bundled agents exist and are executable'
   category: feature
-  status: done
+  status: not_started
   dependencies: []
   description: |
-    Add a `testanyware doctor` check (or equivalent safeguard) for a `/usr/local/bin/testanyware` dev symlink that shadows the Homebrew-installed binary.
+    Extend `testanyware doctor` to verify that the per-platform bundled agent binaries exist and are executable under the Homebrew prefix.
 
-    **Problem:** During the P6 smoke test a stale dev symlink at `/usr/local/bin/testanyware` (created 2026-04-19, pointing to a `swift build -c release` artifact) shadowed `/opt/homebrew/bin/testanyware`. This caused the brew-installed CLI to be ignored silently. The symlink had to be removed manually before the smoke test could proceed.
+    **Background:** The `diagnostics-module-uses-classify-run-split-for-testability` memory entry documents the existing doctor check architecture (classify/run split in `cli/Sources/TestAnywareDriver/Diagnostics/`). The `golden-scripts-resolve-agent-cli-from-brew-prefix-by-default` memory entry documents the expected agent paths.
 
-    **Proposed fix — choose one or both:**
-    1. **Doctor check:** Add a `testanyware doctor` subcommand (or extend an existing one) that warns when `which testanyware` returns something other than a path under `$(brew --prefix)`. Print a remediation hint (`sudo rm /usr/local/bin/testanyware`).
-    2. **Build-time gate:** Document in `CONTRIBUTING.md` that `swift build` output should never be symlinked into `/usr/local/bin`; contributors should use `$(brew --prefix)/bin` exclusively after release testing.
+    **Check to add:**
+    - Verify `$(brew --prefix testanyware)/share/testanyware/agents/macos/testanyware-agent` exists and is executable.
+    - Verify `$(brew --prefix testanyware)/share/testanyware/agents/linux/testanyware-agent` exists and is executable.
+    - Verify `$(brew --prefix testanyware)/share/testanyware/agents/windows/testanyware-agent.exe` exists.
 
-    Option 1 is the higher-value safety net because it catches the hazard at runtime for any contributor, not just after reading the docs.
-  results: |
-    Implemented `testanyware doctor` as a top-level subcommand. Catches the
-    P6 hazard: a `/usr/local/bin/testanyware` dev symlink shadowing the
-    Homebrew install, silently overriding the user's intended brew CLI.
+    **Implementation:** Add `BundledAgentCheck.swift` in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern. Wire into `DoctorCommand.swift`. Add unit tests alongside `InstallPathCheckTests.swift`.
 
-    ## What was built
+    **Promoted from:** `add-doctor-check-for-usr-local-bin-testanyware-dev-symlink-shadowing-brew-install` — "## What this suggests next" item (b).
+- id: extend-doctor-verify-tart-and-qemu-tool-availability
+  title: 'Extend doctor: verify tart and qemu tool availability'
+  category: feature
+  status: not_started
+  dependencies: []
+  description: |
+    Extend `testanyware doctor` to verify that `tart` and `qemu-system-aarch64` are discoverable at the paths expected by `TartRunner` and `QEMURunner`.
 
-    - `cli/Sources/TestAnywareDriver/Diagnostics/InstallPathCheck.swift` —
-      Pure classifier (`InstallPathCheck.classify`) plus subprocess-driven
-      runtime entry point (`InstallPathCheck.run`). Splitting the decision
-      from the I/O lets us test classification deterministically against
-      synthetic paths without needing a real Homebrew install.
-    - `cli/Sources/testanyware/DoctorCommand.swift` — Thin CLI wrapper that
-      invokes `InstallPathCheck.run`, prints a fixed-format report, and
-      exits non-zero when a problem is detected.
-    - `cli/Tests/TestAnywareDriverTests/Diagnostics/InstallPathCheckTests.swift`
-      — 11 swift-testing cases covering: Apple Silicon healthy path, Intel
-      healthy path, dev symlink under `/usr/local/bin`, swift-build
-      artifact, adversarial near-prefix `/opt/homebrew2`, prefix with
-      trailing slash, no Homebrew, not on PATH (with and without
-      Homebrew), `CheckResult.isOK` mapping for benign/actionable verdicts.
-    - Wired into `TestAnywareCLI.subcommands`.
-    - Documented in `README.md` (CLI section), `docs/reference/cli-commands.md`
-      (top-level table + dedicated section), and `LLM_INSTRUCTIONS.md` (VM
-      lifecycle section, since doctor is an install-time concern).
+    **Background:** `TartRunner` and `QEMURunner` rely on specific tool paths. A missing or mislocated binary causes cryptic runtime failures at VM start time. Doctor can surface this hazard at setup time.
 
-    ## Design choices worth flagging
+    **Check to add:**
+    - Verify `tart` is available (mirror the path logic in `TartRunner`).
+    - Verify `qemu-system-aarch64` is available (mirror the homebrew fallback path used by `QEMURunner.start`).
 
-    1. **Path comparison uses the `which` result verbatim, not its
-       `realpath`.** Originally I `resolvingSymlinksInPath`'d the on-PATH
-       path to be "more accurate," then realised the user's remediation
-       needs to point at the *symlink* itself (e.g. `sudo rm
-       /usr/local/bin/testanyware`), not its target. Resolving symlinks
-       would have made the remediation say `sudo rm
-       /Users/dev/.../cli/.build/release/testanyware`, which is wrong —
-       that target is rebuilt every `swift build`; deleting it doesn't fix
-       the shadow. Test cases assume raw `which` output.
+    **Implementation:** Add `ToolAvailabilityCheck.swift` in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern. Wire into `DoctorCommand.swift`. Add unit tests alongside `InstallPathCheckTests.swift`.
 
-    2. **Trailing-slash guard on the prefix check.** `path.hasPrefix(prefix
-       + "/")` instead of `path.hasPrefix(prefix)` so that
-       `/opt/homebrew2/bin/testanyware` is correctly classified as
-       *shadowed* (not a healthy `/opt/homebrew` install). Covered by
-       `adversarialPrefixDoesNotMatchByStringPrefix`.
-
-    3. **No Homebrew → `noHomebrew` is `isOK = true`.** Doctor cannot
-       verify what it cannot compare against. A user running from source
-       on a no-brew machine should not get a noisy failure from a hazard
-       detector that has no reference point.
-
-    4. **Out of scope: OCR status clear.** `OCRStatusFile.swift:4` carries
-       a comment saying the file is "cleared by `testanyware doctor` on
-       recovery" — that was aspirational and predates this task. I left
-       the comment alone; wiring the OCR handling is a separate concern
-       that the next person adding a doctor check can pick up by extending
-       the same file (the structure already supports multiple checks).
-
-    ## Verification
-
-    - `swift build` — clean compile.
-    - `swift test --skip IntegrationTests` — 316 tests, 28 suites, all
-      pass. The new "InstallPathCheck.classify" suite contributes 11.
-    - Healthy install, manual run:
-      `testanyware doctor` → exits 0, prints `✓ install path is under
-      Homebrew prefix`.
-    - Shadow simulation via `PATH="$tmpdir:..." testanyware doctor` with
-      a symlink in `$tmpdir`: exits 1, prints the `✗ … shadows …`
-      diagnostic with the correct `sudo rm <symlink>` remediation.
-    - `testanyware --help` lists `doctor` in the subcommands table.
-    - `testanyware doctor --help` shows the abstract.
-
-    ## What this suggests next
-
-    - The doctor command pattern is now in place; cheap to extend. Likely
-      next checks: (a) clear a degraded `OCRStatusFile` on recovery (per
-      the existing `OCRStatusFile.swift:4` comment), (b) verify the
-      bundled per-platform agents under `$(brew --prefix
-      testanyware)/share/testanyware/agents/<platform>/...` exist and are
-      executable, (c) verify `tart` / `qemu` availability at the paths
-      used by `QEMURunner` and `TartRunner`. None of these are urgent;
-      they are all consolidations of existing brittle resolution paths.
-    - The contributor-facing companion (option 2 in the task description —
-      "document in CONTRIBUTING.md that swift-build output should never
-      be symlinked into /usr/local/bin") was not done. Doctor is now the
-      runtime safety net; the docs nudge can be added if someone gets
-      bitten again, but the runtime check is the higher-value half of the
-      proposed pair, and that is what the task explicitly identified as
-      the priority.
+    **Promoted from:** `add-doctor-check-for-usr-local-bin-testanyware-dev-symlink-shadowing-brew-install` — "## What this suggests next" item (c).

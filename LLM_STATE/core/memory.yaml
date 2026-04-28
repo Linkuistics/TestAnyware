@@ -335,3 +335,13 @@ entries:
   title: Diagnostics module uses classify/run split for testability
   body: |
     `cli/Sources/TestAnywareDriver/Diagnostics/` holds install-path and future doctor checks. Each check uses a classify/run split: `classify` is a pure function (no I/O, unit-testable without a real Homebrew install), `run` is the subprocess-driven entry point. `DoctorCommand.swift` is a thin ArgumentParser wrapper. Add new checks to this directory without redesigning `DoctorCommand`.
+- id: doctor-ocrstatusfile-clear-on-recovery-is-aspirational-not-yet-wired
+  title: 'Doctor: OCRStatusFile clear-on-recovery is aspirational (not yet wired)'
+  body: |
+    `OCRStatusFile.swift` line 4 carries an aspirational comment stating the file is "cleared by `testanyware doctor` on recovery" — this wiring was never implemented.
+
+    Strategic intent: a future doctor check should clear a degraded OCR status file on recovery, giving users a self-service path out of a stuck OCR state. The OCR status infrastructure is in place; the doctor wiring is not.
+
+    Design note: new doctor checks go in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern (see `diagnostics-module-uses-classify-run-split-for-testability`). The check would read the OCR status file, detect a degraded flag, clear it, and print a remediation message.
+
+    Source: `add-doctor-check-for-usr-local-bin-testanyware-dev-symlink-shadowing-brew-install` results section — "## What this suggests next" item (a), described as "separate concern" and deferred.
