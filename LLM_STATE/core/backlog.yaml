@@ -1,10 +1,77 @@
 tasks:
+- id: fix-dylib-bundling-in-release-build-sh-and-formula-template-p6-prereq
+  title: Fix dylib bundling in release-build.sh and formula template (P6 prereq)
+  category: feature
+  status: not_started
+  dependencies: []
+  description: |
+    Apply the two code changes that unblock P6 (end-to-end homebrew pipeline retry).
+
+    Both changes are fully specified in the P6 results block and in memory. No design
+    decisions required — this is pure implementation.
+
+    **Change 1 — `scripts/release-build.sh` `build_cli` function**
+
+    After copying the CLI binary, also copy `libRoyalVNCKit.dylib`:
+
+    ```bash
+    build_cli() {
+      local stage_bin="$1"
+      echo "release-build: building CLI (testanyware)" >&2
+      swift build --package-path "$REPO_ROOT/cli" -c release >&2
+      local bin_path
+      bin_path="$(swift build --package-path "$REPO_ROOT/cli" -c release --show-bin-path)"
+      [[ -f "$bin_path/testanyware" ]] || die "CLI build did not produce $bin_path/testanyware"
+      cp "$bin_path/testanyware" "$stage_bin/testanyware"
+      chmod +x "$stage_bin/testanyware"
+      local dylib="$bin_path/libRoyalVNCKit.dylib"
+      [[ -f "$dylib" ]] || die "expected RoyalVNCKit dylib at $dylib"
+      cp "$dylib" "$stage_bin/libRoyalVNCKit.dylib"
+    }
+    ```
+
+    The binary's `LC_RPATH` already includes `@loader_path`, so dyld finds the dylib
+    next to the binary with no `install_name_tool` surgery needed.
+
+    **Change 2 — `scripts/templates/testanyware.rb.tmpl` install block**
+
+    Change from:
+    ```ruby
+      def install
+        bin.install "bin/testanyware"
+        pkgshare.install Dir["share/testanyware/*"]
+      end
+    ```
+
+    To:
+    ```ruby
+      def install
+        bin.install Dir["bin/*"]
+        pkgshare.install Dir["share/testanyware/*"]
+      end
+    ```
+
+    This ensures the dylib is installed alongside the binary. A `brew audit` warning
+    about a non-executable in `bin/` is cosmetic, not a runtime error.
+
+    **Verification after applying:**
+
+    Run `scripts/release-build.sh` against a tagged commit and confirm:
+    ```
+    tar -tJf target/dist/testanyware-*-aarch64-apple-darwin.tar.xz | grep dylib
+    ```
+    returns `bin/libRoyalVNCKit.dylib`.
+
+    **Memory refs:** `build-cli-must-bundle-libroyalvnckit-dylib-with-the-binary`,
+    `release-build-sh-captured-functions-must-write-progress-to-stderr` (the
+    stdout-capture bug is already committed as of `b99f971`).
 - id: p6-end-to-end-homebrew-pipeline-smoke-test-tag-brew-install-golden-rebuild
   title: 'P6: end-to-end homebrew pipeline smoke test (tag → brew install → golden rebuild)'
   category: feature
   status: blocked
   blocked_reason: 'Brew-installed CLI fails at runtime: libRoyalVNCKit.dylib not bundled in tarball. Requires release-build.sh + formula template fix before retry. Full v1.0.0 release rolled back. See Results body for the precise fix and retry sequence.'
-  dependencies: []
+  dependencies:
+  - fix-dylib-bundling-in-release-build-sh-and-formula-template-p6-prereq
   description: |
     Run the end-to-end homebrew pipeline smoke test (P6 of `0-docs/plans/HomebrewDistribution.plan.md`).
 
