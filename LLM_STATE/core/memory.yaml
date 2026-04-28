@@ -365,3 +365,13 @@ entries:
   title: Windows QEMU cold-boot tests need 15-minute timeout
   body: |
     Both `startStopRoundTripWindows` and `qemuMonitorDiscoversAgentPort` in `VMLifecycleQEMUTests.swift` use `.minutes(15)`. These tests share the same cold-boot path; the limit must be applied to both — applying it to only one leaves the sibling flaky. Prior `.minutes(10)` limit was too tight for cold Windows QEMU boot.
+- id: resolvebrewprefix-duplicated-across-three-diagnostics-files
+  title: resolveBrewPrefix() duplicated across three Diagnostics files
+  body: |
+    `BundledScriptsCheck.resolveBrewPrefix()` is now duplicated in three `cli/Sources/TestAnywareDriver/Diagnostics/` files: `BundledScriptsCheck.swift`, `BundledAgentsCheck.swift`, and `InstallPathCheck.swift`. The Diagnostics module uses the classify/run split pattern (see `diagnostics-module-uses-classify-run-split-for-testability`).
+
+    **Strategic intent:** When a fourth Diagnostics file appears, factor `resolveBrewPrefix()` into a shared `BrewPrefixResolver` helper in the same directory. Three copies is survivable; four is the natural refactor trigger.
+
+    **Why deferred:** The list is small and stable. Adding the shared helper before a fourth consumer exists adds complexity without reducing duplication meaningfully.
+
+    Source: `extend-doctor-verify-bundled-scripts-and-helpers` results — "## What this suggests next" item 2.
