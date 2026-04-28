@@ -1,28 +1,4 @@
 tasks:
-- id: input-click-window-reports-vnc-click-40px-below-target-on-tahoe
-  title: '`input click --window` reports VNC click ~40px below target on Tahoe'
-  category: bug
-  status: done
-  dependencies: []
-  description: |
-    The `--window` option translates window-relative coordinates to
-    screen-absolute using the AX-reported window origin. On Tahoe, the AX window
-    frame includes the window's drop-shadow inset in its origin, so all clicks land
-    ~40px below the intended target. Workaround documented in `--window` help text
-    and README Gotchas: obtain screen-absolute coordinates from a full-screen
-    screenshot and pass them directly to `input click` without `--window`. Fix:
-    subtract the drop-shadow inset from the AX window origin before converting
-    coordinates. Surfaced 2026-04-19 during Racket sample app VM testing.
-  results: |
-    **Fix landed in CLI; no agent rebuild required.**
-
-    Compensation moved into a single helper, `WindowOriginCompensation.offset(for:platform:environment:)` at `cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift`. When the resolved platform is `.macos`, the helper subtracts `defaultMacosTopInset` (40 px) from the AX-reported `WindowInfo.position.y` before returning the `(x, y)` offset; non-macOS platforms (and `nil`) pass through unchanged. The inset is overridable via `TESTANYWARE_WINDOW_TOP_INSET=<int>` for tuning across other macOS versions or window subroles.
-
-    The six call sites in `cli/Sources/testanyware/InputCommand.swift` (click / mouse-down / mouse-up / move / scroll / drag) previously open-coded the same `Int(win.position.x)` / `Int(win.position.y)` block. They now share a small async helper, `windowOffset(connection:spec:windowFilter:)`, which resolves the named window via the agent and applies `WindowOriginCompensation`. Help text on each `--window` option was rewritten to describe the auto-compensation and the env-var override; the previous "clicks land below intent" caveat has been removed. `docs/user/troubleshooting.md` was updated correspondingly.
-
-    **Verification.** 9 new unit tests in `cli/Tests/TestAnywareDriverTests/Agent/WindowOriginCompensationTests.swift` cover: macOS subtracts the default inset; linux/windows/nil pass through; env-var override (custom value, zero, non-integer fallback); env override is macOS-only; fractional AX origin truncates to Int; negative-y after compensation is allowed (caller may clamp). `swift test` reports 326 / 326 passing in 65 s, with all 9 new tests included.
-
-    **Suggests next.** Once a Tahoe golden is next rebuilt for unrelated reasons, smoke-test `testanyware input click --window <name> 100 100` against a known-position UI control to confirm the 40 px default actually matches Tahoe's drop-shadow inset on real AppKit windows. If different window subroles (`AXDialog`, `AXSheet`, `AXFloatingWindow`) report different insets in practice, consider extending `WindowOriginCompensation` to dispatch on `WindowInfo.windowType` instead of a single global default.
 - id: disable-ssh-in-macos-and-linux-golden-images
   title: Disable SSH in macOS and Linux golden images
   category: feature
@@ -71,6 +47,39 @@ tasks:
 
     Requires a golden rebuild for Tahoe once the correct grant is identified. Surfaced
     2026-04-18 during Note Editor verification.
+- id: smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden
+  title: Smoke-test --window compensation and --open-menu path on Tahoe golden
+  category: bug
+  status: not_started
+  dependencies:
+  - disable-ssh-in-macos-and-linux-golden-images
+  - audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe
+  description: |
+    Verify the `--window` 40 px drop-shadow compensation and the `--open-menu` comma-path
+    drill-down against a real Tahoe VM after the next golden rebuild.
+
+    Both features landed in code but could not be exercised end-to-end in the sessions that
+    implemented them because the in-VM agent cannot be hot-swapped without losing TCC
+    accessibility (see `agent-hot-swap-does-not-re-grant-tcc-accessibility` memory entry).
+
+    **Checks to perform (fold into whichever session next rebuilds the Tahoe golden):**
+
+    1. `testanyware input click --window <name> 100 100` against a known-position UI control
+       (e.g. a button in TextEdit whose screen-absolute position is known).  Confirm the click
+       lands on the intended target rather than ~40 px below it.  If the default 40 px inset
+       does not match reality, update `WindowOriginCompensation.defaultMacosTopInset` and
+       note the correct value in the `window-flag-includes-drop-shadow-in-ax-origin` memory
+       entry.
+
+    2. `testanyware agent snapshot --open-menu "File,Recent Files"` against the macOS golden's
+       TextEdit or Finder.  Confirm the snapshot includes the recent-files submenu items.
+       If the 400 ms per-segment settle is insufficient (submenu not populated at snapshot
+       time), apply either the `--menu-settle-ms` flag approach or the poll-and-retry loop
+       described in the `open-menu-settle-delay-is-hardcoded-at-400ms` memory entry.
+
+    **Related backlog tasks:** `disable-ssh-in-macos-and-linux-golden-images` and
+    `audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe` both require
+    Tahoe golden rebuilds and are natural opportunities to bundle this smoke-test.
 - id: virtiofs-serves-stale-cached-files-after-host-update
   title: VirtioFS serves stale cached files after host update
   category: bug
@@ -161,45 +170,3 @@ tasks:
     7. README install instructions update.
 
     Needs brainstorm + plan before execution.
-- id: support-submenu-drill-down-path-in-open-menu
-  title: Support submenu drill-down path in --open-menu
-  category: feature
-  status: done
-  dependencies: []
-  description: |
-    `testanyware agent snapshot --open-menu <label>` only handles top-level menu bar items (e.g. `File`, `Edit`). There is no mechanism to open nested submenus (e.g. `File → Recent Files → <name>`) in a single invocation.
-
-    Workaround: chain invocations — `--open-menu File` to open the top-level menu, observe submenu items in the snapshot, then use `testanyware agent press --label "Recent Files"` to hover into the submenu and `testanyware agent snapshot` again to read its contents. This is verbose and requires intermediate screenshots to navigate.
-
-    **Proposed design:** accept a comma-separated path in `--open-menu`:
-
-    ```
-    testanyware agent snapshot --open-menu "File,Recent Files"
-    ```
-
-    Each path segment triggers a VNC click on the corresponding item with the settle delay, walking down the menu hierarchy. The implementation would loop over segments in `openMenuBarItem(named:agent:)` and snapshot after each click to locate the next level.
-
-    **Constraint:** `MenuBarLocator.findElement(byLabel:in:)` already does case-insensitive depth-first search, so subsequent segments would search within the previously-opened subtree. The settle delay (currently 400 ms, possibly tunable per `open-menu-settle-delay-is-hardcoded-at-400ms`) may need to be per-segment.
-
-    This was surfaced as a follow-up to the `--open-menu` implementation landed 2026-04-27.
-  results: |
-    **Code landed in CLI + agent; end-to-end verification gated on a Tahoe golden rebuild.**
-
-    `testanyware agent snapshot --open-menu <path>` now accepts a comma-separated path. Each segment is clicked in turn via VNC with a 400 ms settle between clicks; the deepest opened menu is left visible for follow-up `agent press` commands.
-
-    **CLI changes** (`cli/Sources/testanyware/AgentCommand.swift`):
-    - Replaced `openMenuBarItem(named:agent:)` with `openMenuBarPath(rawPath:agent:)`.
-    - For each segment, re-snapshot `window: "Menu Bar"` with `depth = max(3, 2*(index+1)+1)` so the AX subtree of the just-opened submenu is exposed (AXMenuBar → AXMenuBarItem → AXMenu → AXMenuItem requires depth ≥ 3 from the bar root).
-    - `--open-menu` help text updated to document the path syntax and example `"File,Recent Files"`.
-
-    **Path-parsing helper** (`cli/Sources/TestAnywareDriver/Agent/MenuBarLocator.swift`):
-    - New `MenuBarLocator.parsePath(_:)` splits on `","`, trims whitespace per segment, returns `nil` on empty input or any blank segment so the caller can surface a usage error. 6 new tests cover single segment, multi-segment, whitespace trimming, internal-space preservation, empty input, and blank-segment rejection.
-
-    **Agent change** (`agents/macos/Sources/testanyware-agent/AgentServer.swift`):
-    - `focusedAppMenuBar` previously hardcoded `TreeWalker.walk(..., depth: 1, ...)` regardless of request depth, so submenu items were invisible to any caller. Added `depth: Int` parameter; `handleSnapshot` now passes the request's `depth` (default 3 from `req.depth ?? 3`) through to the menu-bar pseudo-window walk. Closed-menu cost is unchanged because `AXMenuBarItem` has no AX children when its menu is not open.
-
-    **Verification.** `swift build` is clean for both the CLI package and the macOS agent (the pre-existing `textColor` `var` → `let` warning at `AgentServer.swift:234` is unrelated and was not introduced by this change). All 326 tests pass; 6 new `parsePath` tests added.
-
-    **Verification gap.** End-to-end behavior — clicking `File,Recent Files` and observing the recent-files snapshot — cannot be exercised in this session. The agent change requires a golden rebuild before the in-VM `testanyware-agent` actually walks the deeper menu tree, because hot-swapping the binary doesn't re-grant TCC accessibility (per `agent-hot-swap-does-not-re-grant-tcc-accessibility` memory). Until a Tahoe golden is next rebuilt, the CLI loop will run against an unmodified agent; segment 1 will still work (top-level menu items are at depth 1), but segments 2+ will fail with `"No menu item matching '<seg>' in --open-menu path '<path>'"` because the agent returns `childCount > 0, children: nil` for the opened AXMenuBarItem.
-
-    **Suggests next.** When a Tahoe golden is rebuilt (e.g. for the SSH-disable or Documents-TCC tasks), bundle a smoke test of `testanyware agent snapshot --open-menu "File,Recent Files"` against the macOS golden's TextEdit or Finder. If the 400 ms per-segment settle is insufficient for cascaded submenus, the `open-menu-settle-delay-is-hardcoded-at-400ms` memory's two follow-ups (a `--menu-settle-ms` flag, or a poll-and-retry predicate) become tractable in the same loop.

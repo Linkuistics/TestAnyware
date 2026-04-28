@@ -263,3 +263,19 @@ entries:
     The poll-and-retry approach is more robust but requires defining a "menu is open" predicate on the AX tree. The tunable flag is simpler and sufficient if the delay just needs to be longer.
 
     Code location: `cli/Sources/testanyware/AgentCommand.swift` — `openMenuBarPath(rawPath:)`.
+- id: windoworigincompensation-subrole-extension-speculative-follow-up
+  title: WindowOriginCompensation subrole extension — speculative follow-up
+  body: |
+    If live-VM testing reveals that different AppKit window subroles (`AXDialog`, `AXSheet`,
+    `AXFloatingWindow`) report different drop-shadow insets on Tahoe, extend
+    `WindowOriginCompensation.offset(for:platform:environment:)` to dispatch on
+    `WindowInfo.windowType` (or a derived subrole string) rather than applying a single global
+    `defaultMacosTopInset` for all macOS windows.
+
+    Current implementation location:
+    `cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift` —
+    `offset(for:platform:environment:)`.
+
+    This is speculative until the smoke-test task
+    (`smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden`) confirms whether the
+    40 px default is universally correct or subrole-dependent.
