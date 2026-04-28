@@ -210,7 +210,7 @@ entries:
 - id: testanyware-agent-lacks-tcc-documents-access-on-tahoe-golden
   title: testanyware-agent lacks TCC Documents access on Tahoe golden
   body: |
-    `testanyware exec ls /Users/admin/Documents/` triggers a TCC privacy dialog on the Tahoe VM. The agent binary does not have a Documents folder or full-disk access TCC grant on Tahoe. Automated scripts that inspect file-save results in Documents will stall waiting for the dialog. Backlog Task 10 tracks the fix (TCC grant or entitlement during golden build).
+    `testanyware exec ls /Users/admin/Documents/` triggers a TCC privacy dialog on the Tahoe VM. The current golden does not grant Full Disk Access to the agent. `vm-create-golden-macos.sh` now grants both `kTCCServiceAccessibility` and `kTCCServiceSystemPolicyAllFiles` (FDA); `grant_accessibility_permission()` was renamed `grant_tcc_permissions()` to reflect the broader scope. Fix takes effect after the next golden rebuild (smoke-test task pending).
 - id: unifiedrole-swift-is-duplicated-both-copies-must-stay-in-sync
   title: UnifiedRole.swift is duplicated; both copies must stay in sync
   body: |
@@ -295,3 +295,7 @@ entries:
   title: decodesLegacySpecWithSshField guards ssh-removal compat
   body: |
     `VMSpecTests.decodesLegacySpecWithSshField` verifies old spec files with an `ssh` field still decode without error. `JSONDecoder` ignores unknown keys by default; this test will catch any future migration to a strict decoder.
+- id: homebrew-formula-bundles-cli-agents-and-scripts-in-one-tarball
+  title: Homebrew formula bundles CLI, agents, and scripts in one tarball
+  body: |
+    Single-tarball bundle covers the CLI binary, all three agents (macOS, Linux, Windows), and golden scripts. Eliminates per-artifact `gh release download` dependency. Ad-hoc signing only; arm64-only macOS distribution. Tap: `Linkuistics/homebrew-taps`. Plan: `0-docs/plans/HomebrewDistribution.plan.md` (P0–P6). Invocation UX for `vm-create-golden-*.sh` for brew-installed users has three candidate approaches; deferred to P5.
