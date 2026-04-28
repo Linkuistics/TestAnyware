@@ -259,28 +259,48 @@ vm_ssh "rm -rf ~/Library/Saved\ Application\ State/*" 2>/dev/null || true
 # --- Agent install and TCC/SIP functions ---
 
 install_agent() {
-    local _PROJECT_ROOT
-    _PROJECT_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-
-    echo "Building testanyware (host CLI)..."
-    local _CLI_PKG="$_PROJECT_ROOT/cli"
-    local _HOST_BIN_PATH
-    _HOST_BIN_PATH=$(swift build --package-path "$_CLI_PKG" -c release --show-bin-path 2>/dev/null)
-    swift build --package-path "$_CLI_PKG" -c release
-    _TESTANYWARE_BIN="$_HOST_BIN_PATH/testanyware"
-    if [[ ! -f "$_TESTANYWARE_BIN" ]]; then
-        echo "ERROR: testanyware binary not found at $_TESTANYWARE_BIN"
+    # Resolve host CLI binary.
+    # Override via TESTANYWARE_CLI_BIN_OVERRIDE for contributor builds; otherwise
+    # use the brew-installed binary on PATH.
+    if [[ -n "${TESTANYWARE_CLI_BIN_OVERRIDE:-}" ]]; then
+        _TESTANYWARE_BIN="$TESTANYWARE_CLI_BIN_OVERRIDE"
+        echo "Using host CLI from override: $_TESTANYWARE_BIN"
+    else
+        _TESTANYWARE_BIN="$(command -v testanyware 2>/dev/null || true)"
+        if [[ -z "$_TESTANYWARE_BIN" ]]; then
+            echo "ERROR: testanyware not found on PATH. Install with:"
+            echo "  brew install Linkuistics/taps/testanyware"
+            echo "Or set TESTANYWARE_CLI_BIN_OVERRIDE=/path/to/testanyware for a contributor build."
+            exit 1
+        fi
+        echo "Using host CLI: $_TESTANYWARE_BIN"
+    fi
+    if [[ ! -x "$_TESTANYWARE_BIN" ]]; then
+        echo "ERROR: testanyware binary not executable at $_TESTANYWARE_BIN"
         exit 1
     fi
 
-    echo "Building testanyware-agent (macOS agent)..."
-    local _AGENT_PKG="$_PROJECT_ROOT/agents/macos"
-    local _AGENT_BIN_PATH
-    _AGENT_BIN_PATH=$(swift build --package-path "$_AGENT_PKG" -c release --show-bin-path 2>/dev/null)
-    swift build --package-path "$_AGENT_PKG" -c release
-    local _AGENT_BIN="$_AGENT_BIN_PATH/testanyware-agent"
+    # Resolve macOS agent binary.
+    # Override via TESTANYWARE_AGENT_BIN_OVERRIDE for contributor builds; otherwise
+    # use the brew-bundled artifact under $(brew --prefix testanyware)/share/...
+    local _AGENT_BIN
+    if [[ -n "${TESTANYWARE_AGENT_BIN_OVERRIDE:-}" ]]; then
+        _AGENT_BIN="$TESTANYWARE_AGENT_BIN_OVERRIDE"
+        echo "Using macOS agent from override: $_AGENT_BIN"
+    else
+        local _BREW_PREFIX
+        _BREW_PREFIX="$(brew --prefix testanyware 2>/dev/null || true)"
+        if [[ -z "$_BREW_PREFIX" ]]; then
+            echo "ERROR: brew --prefix testanyware failed. Install with:"
+            echo "  brew install Linkuistics/taps/testanyware"
+            echo "Or set TESTANYWARE_AGENT_BIN_OVERRIDE=/path/to/testanyware-agent for a contributor build."
+            exit 1
+        fi
+        _AGENT_BIN="$_BREW_PREFIX/share/testanyware/agents/macos/testanyware-agent"
+        echo "Using macOS agent: $_AGENT_BIN"
+    fi
     if [[ ! -f "$_AGENT_BIN" ]]; then
-        echo "ERROR: testanyware-agent binary not found at $_AGENT_BIN"
+        echo "ERROR: macOS agent binary not found at $_AGENT_BIN"
         exit 1
     fi
 

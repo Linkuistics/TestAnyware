@@ -59,7 +59,6 @@ _ISO_PATH=""
 
 _SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 _HELPERS_DIR="$(cd "$_SCRIPT_DIR/.." && pwd)/helpers"
-_PROJECT_DIR="$(cd "$_SCRIPT_DIR/../.." && pwd)"
 
 # shellcheck source=./_testanyware-paths.sh
 source "$_SCRIPT_DIR/_testanyware-paths.sh"
@@ -90,11 +89,10 @@ _SETUP_TPM_DIR="$_CACHE_DIR/${_SETUP_PREFIX}-tpm"
 echo "Creating golden Windows $_VERSION image: $_NAME"
 echo ""
 
-for cmd in qemu-system-aarch64 qemu-img swtpm dotnet; do
+for cmd in qemu-system-aarch64 qemu-img swtpm; do
     if ! command -v "$cmd" &>/dev/null; then
         echo "ERROR: $cmd not found."
         case $cmd in
-            dotnet) echo "Install with: brew install dotnet" ;;
             swtpm) echo "Install with: brew install swtpm" ;;
             *) echo "Install with: brew install qemu" ;;
         esac
@@ -184,16 +182,26 @@ if [[ -f "$_GOLDEN_DIR/$_NAME.qcow2" ]]; then
     rm -rf "$_GOLDEN_DIR/$_NAME-tpm"
 fi
 
-# --- Build Windows agent ---
+# --- Resolve Windows agent ---
+# Override via TESTANYWARE_AGENT_BIN_OVERRIDE for contributor builds; otherwise
+# use the brew-bundled artifact under $(brew --prefix testanyware)/share/...
 
-echo "Building Windows agent (cross-compile for ARM64)..."
-_AGENT_PROJECT="$_PROJECT_DIR/agents/windows"
-_AGENT_EXE="$_AGENT_PROJECT/bin/Release/net9.0-windows/win-arm64/publish/testanyware-agent.exe"
-
-dotnet publish "$_AGENT_PROJECT" -r win-arm64 --self-contained \
-    -p:PublishSingleFile=true -c Release --nologo -v quiet
+if [[ -n "${TESTANYWARE_AGENT_BIN_OVERRIDE:-}" ]]; then
+    _AGENT_EXE="$TESTANYWARE_AGENT_BIN_OVERRIDE"
+    echo "Using Windows agent from override: $_AGENT_EXE"
+else
+    _BREW_PREFIX="$(brew --prefix testanyware 2>/dev/null || true)"
+    if [[ -z "$_BREW_PREFIX" ]]; then
+        echo "ERROR: brew --prefix testanyware failed. Install with:"
+        echo "  brew install Linkuistics/taps/testanyware"
+        echo "Or set TESTANYWARE_AGENT_BIN_OVERRIDE=/path/to/testanyware-agent.exe for a contributor build."
+        exit 1
+    fi
+    _AGENT_EXE="$_BREW_PREFIX/share/testanyware/agents/windows/testanyware-agent.exe"
+    echo "Using Windows agent: $_AGENT_EXE"
+fi
 if [[ ! -f "$_AGENT_EXE" ]]; then
-    echo "ERROR: Agent build failed — testanyware-agent.exe not found"
+    echo "ERROR: Windows agent binary not found at $_AGENT_EXE"
     exit 1
 fi
 echo "  Agent binary: $(du -h "$_AGENT_EXE" | cut -f1) self-contained"

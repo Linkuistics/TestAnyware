@@ -217,7 +217,46 @@ duplicate-module collisions across the workspace members.
 - FlaUI (C#): UI Automation wrapper for Windows
 - `uv`: Python workspace / dependency manager for the vision pipeline
 
+## Install (Homebrew)
+
+```bash
+brew install Linkuistics/taps/testanyware
+```
+
+That installs the `testanyware` host CLI on PATH and bundles the in-VM
+agents (macOS Swift binary, Windows .NET 9 self-contained `.exe`, Linux
+Python source) and the golden-image scripts under
+`$(brew --prefix testanyware)/share/testanyware/`. The
+`vm-create-golden-{macos,linux,windows}.sh` scripts read agent
+artifacts from that location automatically — there is nothing to build
+on the host.
+
+To create a golden image, invoke the bundled scripts directly:
+
+```bash
+bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-macos.sh"
+bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-linux.sh"
+bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-windows.sh" --iso ~/Downloads/Win11_ARM64.iso
+```
+
+`brew upgrade testanyware` updates the CLI and the bundled agents
+together (they share the wire protocol; never split). Rebuild your
+goldens after upgrading the formula so the in-VM agent matches the
+host CLI.
+
 ## Building from Source
+
+For contributors only. End users should install via Homebrew (above).
+Building from source overrides the brew-bundled agents via two env
+vars consumed by the golden scripts:
+
+| Override | Used for |
+|----------|----------|
+| `TESTANYWARE_CLI_BIN_OVERRIDE=/abs/path/to/testanyware` | macOS golden's recovery-mode VNC driver (host CLI) |
+| `TESTANYWARE_AGENT_BIN_OVERRIDE=/abs/path/to/{testanyware-agent,testanyware-agent.exe,agents/linux}` | per-platform agent payload |
+
+If neither is set, the scripts resolve `command -v testanyware` and
+`brew --prefix testanyware`/`share/testanyware/agents/<platform>/...`.
 
 **CLI (Swift, macOS host):**
 

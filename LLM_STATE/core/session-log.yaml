@@ -280,3 +280,18 @@ sessions:
     - **Homebrew distribution brainstorm:** Resolved all key architecture decisions (ad-hoc signing only, arm64-only macOS, single-tarball bundle covering CLI + all three agents + golden scripts, reuse `Linkuistics/homebrew-taps`). Wrote `0-docs/plans/HomebrewDistribution.plan.md` as a P0–P6 phase plan. One open follow-up: invocation UX for `vm-create-golden-*.sh` for brew-installed users (three candidates; deferred to P5).
     - What worked: the Ravel-Lite pipeline is a near-exact template for the release-build shape; single-tarball factoring eliminated `gh release download` dependency and per-artifact complexity.
     - Suggests next: schedule `local-homebrew-binary-distribution-tap-no-client-builds` (start P1: `scripts/release-build.sh`); schedule `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden` to exercise the new TCC FDA grant.
+- id: session-11
+  timestamp: 2026-04-28T02:44:40Z
+  phase: work
+  body: |
+    ### Session 11 (2026-04-28T02:44:40Z) — Homebrew distribution release scripts and golden-script refactor
+
+    - Implemented P1–P5 of the Homebrew distribution plan (HomebrewDistribution.plan.md).
+    - Added `scripts/release-doctor.sh` (preflight checks), `scripts/release-build.sh` (builds CLI + macOS agent via swift, Windows agent via dotnet, stages Linux agent source, packages into `.tar.xz`, renders the formula), `scripts/release-publish.sh` (creates GitHub release, copies formula into tap), and `scripts/templates/testanyware.rb.tmpl` (single-tarball Homebrew formula, arm64 macOS only).
+    - Refactored all three golden scripts (`vm-create-golden-macos.sh`, `vm-create-golden-linux.sh`, `vm-create-golden-windows.sh`) to resolve agent/CLI binaries from `$(brew --prefix testanyware)/share/testanyware/agents/<platform>/...` by default, with `TESTANYWARE_AGENT_BIN_OVERRIDE` / `TESTANYWARE_CLI_BIN_OVERRIDE` env-var escape hatches for contributor builds. Removed all in-script `swift build`, `dotnet publish`, and `_PROJECT_ROOT`/`_PROJECT_DIR` references.
+    - Updated README with a new `## Install (Homebrew)` section (chosen invocation: `bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-*.sh"`), reframed `## Building from Source` as a contributor section, and documented the override env vars.
+    - Added `/target/dist/` to `.gitignore`.
+    - Verification: `bash -n` clean on all scripts, `ruby -c` clean on formula template, `release-doctor.sh` reports all prerequisites met, `release-build.sh` fires the dirty-tree gate correctly before proceeding.
+    - P6 (end-to-end smoke test via actual release tag + brew install + golden rebuild) deferred — requires a clean tagged HEAD.
+    - Key open questions: (a) invocation UX for brew users invoking golden scripts (documented bash invocation vs a future `testanyware vm create-golden` subcommand); (b) TCC-csreq correctness when the in-VM agent arrives via brew rather than `swift build` — should be fine but unverified until P6.
+    - Suggests next: create release tag, run P6 smoke test; after P6 passes, replace existing from-source formula in tap with the new bundled formula.

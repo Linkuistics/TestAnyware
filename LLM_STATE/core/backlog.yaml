@@ -46,7 +46,7 @@ tasks:
 - id: local-homebrew-binary-distribution-tap-no-client-builds
   title: Local Homebrew binary distribution (tap, no client builds)
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Mirror Ravel-Lite's local-build pattern so users can install testanyware
@@ -90,3 +90,54 @@ tasks:
     7. README install instructions update.
 
     Needs brainstorm + plan before execution.
+  results: |
+    Implemented P1–P5 of `0-docs/plans/HomebrewDistribution.plan.md`.
+
+    ## What was built
+
+    **New files:**
+
+    - `scripts/release-doctor.sh` — preflight: arch=arm64, swift, dotnet, python3, tar+xz, gh-auth.
+    - `scripts/release-build.sh` — runs doctor, requires clean tagged HEAD, builds CLI + macOS agent (`swift build -c release`) and Windows agent (`dotnet publish -r win-arm64 --self-contained`), stages Linux agent source (excluding `__pycache__`/`*.pyc`), copies provisioner scripts + helpers + LICENSE/README into `target/dist/staging/testanyware-v<ver>-aarch64-apple-darwin/`, packages as `.tar.xz`, computes SHA256, renders `target/dist/testanyware.rb` from the template.
+    - `scripts/release-publish.sh` — gh-auth + tap-clone preflight, `gh release create` against `Linkuistics/TestAnyware`, copies the rendered formula into `$TESTANYWARE_TAP_DIR/Formula/testanyware.rb`, commits, pushes.
+    - `scripts/templates/testanyware.rb.tmpl` — single-tarball formula (macOS arm64 only, `depends_on arch: :arm64`); `bin.install "bin/testanyware"` + `pkgshare.install Dir["share/testanyware/*"]`; smoke test asserts `--help` output.
+
+    **Modified golden scripts** (P4) — switched from in-script `swift build` / `dotnet publish` / repo-relative agent path to `brew --prefix testanyware`/`share/testanyware/agents/<platform>/...` with env-var escape hatches:
+
+    - `provisioner/scripts/vm-create-golden-macos.sh` — `install_agent()` now resolves `_TESTANYWARE_BIN` via `command -v testanyware` (or `TESTANYWARE_CLI_BIN_OVERRIDE`) and the agent via `$(brew --prefix testanyware)/share/testanyware/agents/macos/testanyware-agent` (or `TESTANYWARE_AGENT_BIN_OVERRIDE`). All `_PROJECT_ROOT`/`_CLI_PKG`/`_AGENT_PKG`/`_HOST_BIN_PATH`/`_AGENT_BIN_PATH` references removed. Helper paths (`$(dirname "$0")/../helpers/`) are layout-portable: same relative shape in both repo and brew prefix.
+    - `provisioner/scripts/vm-create-golden-linux.sh` — `_AGENT_DIR` now resolves via brew prefix, with the `TESTANYWARE_AGENT_BIN_OVERRIDE` escape hatch.
+    - `provisioner/scripts/vm-create-golden-windows.sh` — dropped the `dotnet` preflight check, removed the in-script `dotnet publish`, removed the now-unused `_PROJECT_DIR`. `_AGENT_EXE` resolves via brew prefix with `TESTANYWARE_AGENT_BIN_OVERRIDE`.
+
+    **README + .gitignore** (P5):
+
+    - New `## Install (Homebrew)` section above Building from Source: `brew install Linkuistics/taps/testanyware`, instructions for invoking the bundled `vm-create-golden-*.sh` from `$(brew --prefix testanyware)/share/testanyware/scripts/`. (Picked option C from the P5 follow-up: documented `bash $(brew --prefix testanyware)/share/...` invocation. Option A — a `testanyware vm create-golden` subcommand — is the more discoverable long-term path but adds CLI surface; current docs leave the door open without locking it in.)
+    - Reframed `## Building from Source` as a contributor section that documents the `TESTANYWARE_AGENT_BIN_OVERRIDE` and `TESTANYWARE_CLI_BIN_OVERRIDE` env vars.
+    - `.gitignore` now ignores `/target/dist/`.
+
+    ## Verification
+
+    - `bash -n` clean on all six modified/new bash scripts.
+    - `ruby -c` clean on the formula template and the rendered formula (with sample SHA + version 0.1.0).
+    - `scripts/release-doctor.sh` runs and reports all prerequisites met on this host.
+    - `scripts/release-build.sh` refuses correctly with "working tree is dirty; commit or stash before releasing" — confirms the dirty-tree gate fires before the tag-exists gate, matching Ravel-Lite's ordering.
+    - Manually exercised the staging-tree assembly path (linux agent + scripts + helpers) and confirmed the bundle layout matches the plan: `bin/`, `share/testanyware/agents/linux/testanyware_agent/`, `share/testanyware/scripts/vm-*.sh`, `share/testanyware/helpers/*`. No `__pycache__` leak.
+
+    ## What's next (P6 — gated on actual release)
+
+    P6 is the end-to-end smoke test. It requires:
+
+    1. `git tag -a v0.0.1-rc1` against TestAnyware.
+    2. `scripts/release-build.sh` (heavy: full swift + dotnet builds).
+    3. `scripts/release-publish.sh` (creates the GitHub release + pushes to tap).
+    4. Fresh shell: `brew update && brew install Linkuistics/taps/testanyware`.
+    5. `bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-macos.sh"` — confirms agent flows through brew prefix.
+    6. Run integration suite against the resulting golden.
+    7. Promote to v0.1.0 on success.
+
+    Step 5 is the highest-risk step because it hits the TCC-csreq pinning behaviour that motivated the brew-bundling design — the `grant_tcc_permissions` flow computes csreq from whatever binary is at `/usr/local/bin/testanyware-agent` inside the VM, which after this change is the brew-shipped artifact rather than a `swift build` artifact. Per the plan's risk table this should "just work" but it's the first time it's been exercised end-to-end.
+
+    ## Suggests next
+
+    - Once P6 verifies a working pipeline, replace the existing `Formula/testanyware.rb` in the tap (currently a `swift build`-from-source formula) with the new bundled formula.
+    - Resolve P5 follow-up: pick A (`testanyware vm create-golden --platform <p>` subcommand) vs the documented B/C if the bare `bash $(brew --prefix ...)/share/...` invocation proves clumsy in user testing.
+    - Memory entry candidate: "release-build.sh requires clean tagged HEAD + arm64 host + swift + dotnet — runs full builds before packaging into a single bundled tarball" if the workflow ends up tripping people up.

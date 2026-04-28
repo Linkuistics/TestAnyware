@@ -1,0 +1,25 @@
+class Testanyware < Formula
+  desc "GUI testing tool for VMs, using tart, designed for LLM-driven testing"
+  homepage "https://github.com/Linkuistics/TestAnyware"
+  version "@VERSION@"
+  license "MIT"
+
+  depends_on :macos
+  depends_on arch: :arm64
+
+  on_macos do
+    on_arm do
+      url "https://github.com/Linkuistics/TestAnyware/releases/download/v@VERSION@/testanyware-v@VERSION@-aarch64-apple-darwin.tar.xz"
+      sha256 "@SHA_AARCH64_APPLE_DARWIN@"
+    end
+  end
+
+  def install
+    bin.install "bin/testanyware"
+    pkgshare.install Dir["share/testanyware/*"]
+  end
+
+  test do
+    assert_match "testanyware", shell_output("#{bin}/testanyware --help")
+  end
+end

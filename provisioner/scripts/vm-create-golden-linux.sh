@@ -324,8 +324,23 @@ echo "Installing testanyware-agent..."
 # for AT-SPI2 accessibility bindings (not included in ubuntu-desktop-minimal)
 vm_ssh "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xdotool python3-pyatspi"
 
-# Copy agent Python package to the VM
-_AGENT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)/agents/linux"
+# Resolve Linux agent source directory.
+# Override via TESTANYWARE_AGENT_BIN_OVERRIDE for contributor builds; otherwise
+# use the brew-bundled artifact under $(brew --prefix testanyware)/share/...
+if [[ -n "${TESTANYWARE_AGENT_BIN_OVERRIDE:-}" ]]; then
+    _AGENT_DIR="$TESTANYWARE_AGENT_BIN_OVERRIDE"
+    echo "Using Linux agent from override: $_AGENT_DIR"
+else
+    _BREW_PREFIX="$(brew --prefix testanyware 2>/dev/null || true)"
+    if [[ -z "$_BREW_PREFIX" ]]; then
+        echo "ERROR: brew --prefix testanyware failed. Install with:"
+        echo "  brew install Linkuistics/taps/testanyware"
+        echo "Or set TESTANYWARE_AGENT_BIN_OVERRIDE=/path/to/agents/linux for a contributor build."
+        exit 1
+    fi
+    _AGENT_DIR="$_BREW_PREFIX/share/testanyware/agents/linux"
+    echo "Using Linux agent: $_AGENT_DIR"
+fi
 if [[ ! -d "$_AGENT_DIR/testanyware_agent" ]]; then
     echo "ERROR: Agent package not found at $_AGENT_DIR/testanyware_agent"
     exit 1
