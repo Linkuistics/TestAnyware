@@ -92,10 +92,12 @@ struct AgentSnapshotCmd: AsyncParsableCommand {
     @Option(
         name: .long,
         help: """
-        Menu-bar item label to open via VNC click before snapshotting. \
-        macOS menu submenus are lazy in the AX tree — they only appear once \
-        the parent menu is open. The opened menu is left visible; press Escape \
-        with `input key escape` to close it afterwards.
+        Menu-bar item label (or comma-separated path) to open via VNC click \
+        before snapshotting. macOS menu submenus are lazy in the AX tree — \
+        they only appear once the parent menu is open. Pass a path like \
+        "File,Recent Files" to drill into a submenu; each segment is clicked \
+        in order with a 400 ms settle. The deepest opened menu is left \
+        visible; press Escape with `input key escape` to close it afterwards.
         """
     )
     var openMenu: String?
@@ -106,7 +108,7 @@ struct AgentSnapshotCmd: AsyncParsableCommand {
     mutating func run() async throws {
         let agent = try connection.resolveAgent()
         if let openMenu {
-            try await openMenuBarItem(named: openMenu, agent: agent)
+            try await openMenuBarPath(rawPath: openMenu, agent: agent)
         }
         let response = try await agent.snapshot(mode: mode, window: window, role: role, label: label, depth: depth)
         if json {
@@ -119,20 +121,42 @@ struct AgentSnapshotCmd: AsyncParsableCommand {
         }
     }
 
-    private func openMenuBarItem(named label: String, agent: AgentTCPClient) async throws {
-        let menuBar = try await agent.snapshot(mode: nil, window: "Menu Bar", role: nil, label: nil, depth: nil)
-        guard let element = MenuBarLocator.findElement(byLabel: label, in: menuBar.windows) else {
-            throw ValidationError("No menu-bar item matching '\(label)'")
-        }
-        guard let target = MenuBarLocator.centerPoint(of: element) else {
-            throw ValidationError("Menu-bar item '\(label)' has no position/size; cannot derive click target")
+    /// Walk a comma-separated `--open-menu` path, clicking each segment in
+    /// turn. Re-snapshots between segments with a depth that exposes the
+    /// just-opened submenu's items so `MenuBarLocator.findElement` can locate
+    /// the next segment within the same Menu Bar pseudo-window subtree.
+    private func openMenuBarPath(rawPath: String, agent: AgentTCPClient) async throws {
+        guard let segments = MenuBarLocator.parsePath(rawPath) else {
+            throw ValidationError(
+                "--open-menu path must be non-empty and contain no blank segments: '\(rawPath)'"
+            )
         }
         let spec = try connection.resolve()
         let client = try await ServerClient.ensure(spec: spec)
-        try await client.click(x: target.x, y: target.y, button: "left", count: 1)
-        // Brief settle for the menu animation; tested empirically as enough
-        // for AppKit menus on Tahoe to populate the AX tree.
-        try await Task.sleep(nanoseconds: 400_000_000)
+
+        for (index, segment) in segments.enumerated() {
+            // depth grows with each segment: AXMenuBar → AXMenuBarItem (1) →
+            // AXMenu (2) → AXMenuItem (3) → AXMenu (4) → ... — covers up to a
+            // 4-level deep nested submenu path.
+            let snapshotDepth = max(3, 2 * (index + 1) + 1)
+            let menuBar = try await agent.snapshot(
+                mode: nil, window: "Menu Bar", role: nil, label: nil, depth: snapshotDepth
+            )
+            guard let element = MenuBarLocator.findElement(byLabel: segment, in: menuBar.windows) else {
+                throw ValidationError(
+                    "No menu item matching '\(segment)' in --open-menu path '\(rawPath)'"
+                )
+            }
+            guard let target = MenuBarLocator.centerPoint(of: element) else {
+                throw ValidationError(
+                    "Menu item '\(segment)' has no position/size; cannot derive click target"
+                )
+            }
+            try await client.click(x: target.x, y: target.y, button: "left", count: 1)
+            // Brief settle for the menu animation; tested empirically as enough
+            // for AppKit menus on Tahoe to populate the AX tree.
+            try await Task.sleep(nanoseconds: 400_000_000)
+        }
     }
 }
 

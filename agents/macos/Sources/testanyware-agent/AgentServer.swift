@@ -186,7 +186,7 @@ private func handleSnapshot(_ request: Request) async throws -> Response {
     // top of the screen but live outside the window hierarchy, so they need
     // separate enumeration.
     if let menuBarWin = focusedAppMenuBar(
-        roleFilter: roleFilter, labelFilter: req.label, mode: mode
+        roleFilter: roleFilter, labelFilter: req.label, mode: mode, depth: depth
     ) {
         if let filterStr = req.window {
             if windowMatches(menuBarWin, filter: filterStr) {
@@ -658,12 +658,15 @@ private func focusedApplicationPid() -> pid_t? {
 /// Returns the focused app's menu bar as a pseudo-window with its
 /// AXMenuBarItem children as elements.
 ///
-/// Uses depth=1 so only the top-level items (File, Edit, View, ...) are
-/// included — dropdown contents are invisible unless the menu is open.
+/// `depth` mirrors the request's snapshot depth. With a closed menu the
+/// AXMenuBarItem has no children, so deeper walks are cheap. When a menu is
+/// open via `--open-menu`, depth ≥ 3 exposes the AXMenu and its AXMenuItem
+/// children — required for submenu drill-down to locate the next segment.
 private func focusedAppMenuBar(
     roleFilter: UnifiedRole?,
     labelFilter: String?,
-    mode: String
+    mode: String,
+    depth: Int
 ) -> WindowInfo? {
     guard let frontPid = focusedApplicationPid() else { return nil }
     let appWrapper = AXElementWrapper.application(pid: frontPid)
@@ -674,7 +677,7 @@ private func focusedAppMenuBar(
         guard child.role() == "AXMenuBar" else { continue }
 
         let rawElements = TreeWalker.walk(
-            root: child, depth: 1,
+            root: child, depth: depth,
             roleFilter: roleFilter, labelFilter: labelFilter
         )
 

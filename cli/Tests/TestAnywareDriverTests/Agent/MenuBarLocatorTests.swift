@@ -120,4 +120,33 @@ struct MenuBarLocatorTests {
         let elem = makeElement(label: "File", position: CGPoint(x: 100, y: 4), size: nil)
         #expect(MenuBarLocator.centerPoint(of: elem) == nil)
     }
+
+    // MARK: - parsePath
+
+    @Test func parsePathSingleSegment() {
+        #expect(MenuBarLocator.parsePath("File") == ["File"])
+    }
+
+    @Test func parsePathMultipleSegments() {
+        #expect(MenuBarLocator.parsePath("File,Recent Files") == ["File", "Recent Files"])
+    }
+
+    @Test func parsePathTrimsWhitespaceAroundSegments() {
+        #expect(MenuBarLocator.parsePath(" File , Recent Files ") == ["File", "Recent Files"])
+    }
+
+    @Test func parsePathPreservesInternalSpaces() {
+        #expect(MenuBarLocator.parsePath("File,Open Recent") == ["File", "Open Recent"])
+    }
+
+    @Test func parsePathRejectsEmptyInput() {
+        #expect(MenuBarLocator.parsePath("") == nil)
+    }
+
+    @Test func parsePathRejectsBlankSegments() {
+        #expect(MenuBarLocator.parsePath("File,,Recent") == nil)
+        #expect(MenuBarLocator.parsePath(",File") == nil)
+        #expect(MenuBarLocator.parsePath("File,") == nil)
+        #expect(MenuBarLocator.parsePath("   ") == nil)
+    }
 }

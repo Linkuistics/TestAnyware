@@ -1,24 +1,11 @@
-id: session-7
-timestamp: 2026-04-27T13:39:56Z
+id: session-8
+timestamp: 2026-04-28T00:01:31Z
 phase: work
 body: |
-  ### Session 7 (2026-04-27T13:39:56Z) — Platform enrichment fix and --open-menu snapshot flag
+  ### Session 8 (2026-04-28T00:01:31Z) — Fix window-relative input offset and add submenu drill-down path
 
-  - Worked two independent tasks in one session.
-  - First: extended `TartRunner.enrichRunningFromSidecar` to overwrite `platform: "unknown"` entries
-    from the sidecar spec's `platform` field. Previously prefixed-clone rows showed `"unknown"`
-    while adopted VMs showed the correct platform — an asymmetry now closed. Two new unit tests
-    in `TartRunnerTests.swift` cover the overwrite and the preserve-existing-value paths; existing
-    enrichment test augmented with a platform assertion.
-  - Second: added `--open-menu <label>` to `testanyware agent snapshot`. The flag clicks a named
-    top-level menu-bar item via VNC (using a new `MenuBarLocator` helper for case-insensitive
-    depth-first search across `[WindowInfo]`), sleeps 400 ms for the AppKit animation to settle,
-    then runs the normal snapshot. The menu is left open so follow-up `agent press` commands can
-    act on the now-visible submenu items. New file `MenuBarLocator.swift` (host-side orchestration,
-    no agent protocol changes); 10 unit tests in `MenuBarLocatorTests.swift`. README and
-    `docs/reference/cli-commands.md` updated with the flag and the lazy-AX-tree explanation.
-  - All 310 tests pass including VM lifecycle integration.
-  - The 400 ms settle delay is a best-effort estimate — may need tuning or a poll-until-stable
-    approach if real-VM runs show menu submenus not yet populated at snapshot time.
-  - What to try next: tune or make the settle delay configurable if real-VM flakiness is observed;
-    consider a comma-separated `--open-menu` path for nested submenu drill-down in a future session.
+  - Worked two independent tasks that both improve reliability of macOS Tahoe UI automation.
+  - **Task 1 (VNC click offset fix):** All six `--window`-relative input commands (click, mouse-down, mouse-up, move, scroll, drag) were independently computing `(Int(win.position.x), Int(win.position.y))` as the offset. On Tahoe, the AX frame includes a ~40 px structural drop-shadow inset in its y origin, causing every `--window` click to land ~40 px below intent. Fix: introduced `WindowOriginCompensation.offset(for:platform:environment:)` at `cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift`. When platform is `.macos`, it subtracts `defaultMacosTopInset` (40 px) from the y position before returning. Non-macOS and nil platforms pass through unchanged. The inset is overridable via `TESTANYWARE_WINDOW_TOP_INSET=<int>`. The six call sites in `InputCommand.swift` now share a single async `windowOffset(connection:spec:windowFilter:)` helper that resolves the window and applies the compensation. Help text on each `--window` flag was rewritten to describe auto-compensation; the prior "prefer screen-absolute coords" caveat was removed. `docs/user/troubleshooting.md` updated from a caveat note to a fix description. 9 new unit tests in `WindowOriginCompensationTests.swift`.
+  - **Task 2 (submenu path for --open-menu):** `--open-menu` previously only handled a single top-level label. Added comma-separated path support (`"File,Recent Files"`). New `MenuBarLocator.parsePath(_:)` splits on comma, trims whitespace, returns nil on empty or blank segments. In `AgentCommand.swift`, `openMenuBarItem(named:)` was replaced by `openMenuBarPath(rawPath:)` which loops over segments, re-snapshots at depth `max(3, 2*(index+1)+1)` between each click to expose the just-opened submenu's AX children, and throws a descriptive `ValidationError` when a segment doesn't match. Agent fix: `focusedAppMenuBar` previously hardcoded `depth: 1` regardless of the request, making submenu items invisible. Added `depth: Int` parameter; `handleSnapshot` passes through `req.depth ?? 3`. 6 new `parsePath` tests in `MenuBarLocatorTests.swift`. All 326 tests pass.
+  - Both tasks complete in CLI; end-to-end smoke tests for both require a Tahoe golden rebuild (TCC accessibility cannot be re-granted without a full golden bake).
+  - What this suggests next: when a Tahoe golden is rebuilt (for SSH-disable or Documents-TCC tasks), smoke-test both features against real AppKit windows. If the 40 px default doesn't match a different window subrole, extend `WindowOriginCompensation` to dispatch on `WindowInfo.windowType`. If 400 ms per-segment settle is insufficient for deep submenus, add a `--menu-settle-ms` flag or poll-and-retry predicate.

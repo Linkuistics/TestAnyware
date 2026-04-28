@@ -30,6 +30,21 @@ public enum MenuBarLocator {
         return (Int((p.x + s.width / 2).rounded()), Int((p.y + s.height / 2).rounded()))
     }
 
+    /// Splits a comma-separated `--open-menu` path into ordered segments,
+    /// trimming whitespace around each segment. Returns `nil` if the input
+    /// is empty or any segment is blank — the caller should treat these as
+    /// validation errors and surface a usage message.
+    ///
+    /// Example: `"File, Recent Files"` → `["File", "Recent Files"]`.
+    public static func parsePath(_ raw: String) -> [String]? {
+        let segments = raw.split(separator: ",", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        guard !segments.isEmpty, segments.allSatisfy({ !$0.isEmpty }) else {
+            return nil
+        }
+        return segments
+    }
+
     private static func search(target: String, in elements: [ElementInfo]?) -> ElementInfo? {
         guard let elements else { return nil }
         for elem in elements {

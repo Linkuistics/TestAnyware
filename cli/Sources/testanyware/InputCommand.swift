@@ -19,6 +19,21 @@ func resolveWindow(connection: ConnectionOptions, windowFilter: String) async th
     return window
 }
 
+/// Computes `(offsetX, offsetY)` for `--window`-relative input commands by
+/// resolving the named window via the agent and applying
+/// `WindowOriginCompensation` for the spec's platform. Returns `(0, 0)` when
+/// `windowFilter` is `nil`. Throws `ValidationError` when the named window is
+/// not found.
+func windowOffset(
+    connection: ConnectionOptions,
+    spec: ConnectionSpec,
+    windowFilter: String?
+) async throws -> (x: Int, y: Int) {
+    guard let windowFilter else { return (0, 0) }
+    let win = try await resolveWindow(connection: connection, windowFilter: windowFilter)
+    return WindowOriginCompensation.offset(for: win, platform: spec.platform)
+}
+
 // MARK: - Input Command
 
 struct InputCommand: AsyncParsableCommand {
@@ -131,7 +146,7 @@ struct ClickCommand: AsyncParsableCommand {
 
     @Option(
         name: .long,
-        help: "Window name for relative coordinates. Caveat on macOS Tahoe: AX-reported window origin includes the drop-shadow inset (~40px), so clicks land below intent. Prefer screen-absolute coords from `testanyware screenshot` when precision matters."
+        help: "Window name for relative coordinates. The macOS Tahoe drop-shadow inset (~40 px in y) is compensated automatically; override the inset via `TESTANYWARE_WINDOW_TOP_INSET=<int>` if your macOS version differs."
     )
     var window: String?
 
@@ -139,12 +154,9 @@ struct ClickCommand: AsyncParsableCommand {
         let spec = try connection.resolve()
         let client = try await ServerClient.ensure(spec: spec)
 
-        var offsetX = 0, offsetY = 0
-        if let windowFilter = window {
-            let win = try await resolveWindow(connection: connection, windowFilter: windowFilter)
-            offsetX = Int(win.position.x)
-            offsetY = Int(win.position.y)
-        }
+        let (offsetX, offsetY) = try await windowOffset(
+            connection: connection, spec: spec, windowFilter: window
+        )
 
         try await client.click(x: x + offsetX, y: y + offsetY, button: button, count: count)
         print("Clicked at (\(x + offsetX), \(y + offsetY)) button=\(button) count=\(count)")
@@ -167,7 +179,7 @@ struct MouseDownCommand: AsyncParsableCommand {
 
     @Option(
         name: .long,
-        help: "Window name for relative coordinates. Caveat on macOS Tahoe: AX-reported window origin includes the drop-shadow inset (~40px), so clicks land below intent. Prefer screen-absolute coords from `testanyware screenshot` when precision matters."
+        help: "Window name for relative coordinates. The macOS Tahoe drop-shadow inset (~40 px in y) is compensated automatically; override the inset via `TESTANYWARE_WINDOW_TOP_INSET=<int>` if your macOS version differs."
     )
     var window: String?
 
@@ -175,12 +187,9 @@ struct MouseDownCommand: AsyncParsableCommand {
         let spec = try connection.resolve()
         let client = try await ServerClient.ensure(spec: spec)
 
-        var offsetX = 0, offsetY = 0
-        if let windowFilter = window {
-            let win = try await resolveWindow(connection: connection, windowFilter: windowFilter)
-            offsetX = Int(win.position.x)
-            offsetY = Int(win.position.y)
-        }
+        let (offsetX, offsetY) = try await windowOffset(
+            connection: connection, spec: spec, windowFilter: window
+        )
 
         try await client.mouseDown(x: x + offsetX, y: y + offsetY, button: button)
         print("Mouse down at (\(x + offsetX), \(y + offsetY)) button=\(button)")
@@ -203,7 +212,7 @@ struct MouseUpCommand: AsyncParsableCommand {
 
     @Option(
         name: .long,
-        help: "Window name for relative coordinates. Caveat on macOS Tahoe: AX-reported window origin includes the drop-shadow inset (~40px), so clicks land below intent. Prefer screen-absolute coords from `testanyware screenshot` when precision matters."
+        help: "Window name for relative coordinates. The macOS Tahoe drop-shadow inset (~40 px in y) is compensated automatically; override the inset via `TESTANYWARE_WINDOW_TOP_INSET=<int>` if your macOS version differs."
     )
     var window: String?
 
@@ -211,12 +220,9 @@ struct MouseUpCommand: AsyncParsableCommand {
         let spec = try connection.resolve()
         let client = try await ServerClient.ensure(spec: spec)
 
-        var offsetX = 0, offsetY = 0
-        if let windowFilter = window {
-            let win = try await resolveWindow(connection: connection, windowFilter: windowFilter)
-            offsetX = Int(win.position.x)
-            offsetY = Int(win.position.y)
-        }
+        let (offsetX, offsetY) = try await windowOffset(
+            connection: connection, spec: spec, windowFilter: window
+        )
 
         try await client.mouseUp(x: x + offsetX, y: y + offsetY, button: button)
         print("Mouse up at (\(x + offsetX), \(y + offsetY)) button=\(button)")
@@ -236,7 +242,7 @@ struct MoveCommand: AsyncParsableCommand {
 
     @Option(
         name: .long,
-        help: "Window name for relative coordinates. Caveat on macOS Tahoe: AX-reported window origin includes the drop-shadow inset (~40px), so coords land below intent. Prefer screen-absolute coords from `testanyware screenshot` when precision matters."
+        help: "Window name for relative coordinates. The macOS Tahoe drop-shadow inset (~40 px in y) is compensated automatically; override the inset via `TESTANYWARE_WINDOW_TOP_INSET=<int>` if your macOS version differs."
     )
     var window: String?
 
@@ -244,12 +250,9 @@ struct MoveCommand: AsyncParsableCommand {
         let spec = try connection.resolve()
         let client = try await ServerClient.ensure(spec: spec)
 
-        var offsetX = 0, offsetY = 0
-        if let windowFilter = window {
-            let win = try await resolveWindow(connection: connection, windowFilter: windowFilter)
-            offsetX = Int(win.position.x)
-            offsetY = Int(win.position.y)
-        }
+        let (offsetX, offsetY) = try await windowOffset(
+            connection: connection, spec: spec, windowFilter: window
+        )
 
         try await client.mouseMove(x: x + offsetX, y: y + offsetY)
         print("Mouse moved to (\(x + offsetX), \(y + offsetY))")
@@ -275,7 +278,7 @@ struct ScrollCommand: AsyncParsableCommand {
 
     @Option(
         name: .long,
-        help: "Window name for relative coordinates. Caveat on macOS Tahoe: AX-reported window origin includes the drop-shadow inset (~40px), so coords land below intent. Prefer screen-absolute coords from `testanyware screenshot` when precision matters."
+        help: "Window name for relative coordinates. The macOS Tahoe drop-shadow inset (~40 px in y) is compensated automatically; override the inset via `TESTANYWARE_WINDOW_TOP_INSET=<int>` if your macOS version differs."
     )
     var window: String?
 
@@ -283,12 +286,9 @@ struct ScrollCommand: AsyncParsableCommand {
         let spec = try connection.resolve()
         let client = try await ServerClient.ensure(spec: spec)
 
-        var offsetX = 0, offsetY = 0
-        if let windowFilter = window {
-            let win = try await resolveWindow(connection: connection, windowFilter: windowFilter)
-            offsetX = Int(win.position.x)
-            offsetY = Int(win.position.y)
-        }
+        let (offsetX, offsetY) = try await windowOffset(
+            connection: connection, spec: spec, windowFilter: window
+        )
 
         try await client.scroll(x: x + offsetX, y: y + offsetY, dx: dx, dy: dy)
         print("Scrolled at (\(x + offsetX), \(y + offsetY)) dx=\(dx) dy=\(dy)")
@@ -320,7 +320,7 @@ struct DragCommand: AsyncParsableCommand {
 
     @Option(
         name: .long,
-        help: "Window name for relative coordinates. Caveat on macOS Tahoe: AX-reported window origin includes the drop-shadow inset (~40px), so coords land below intent. Prefer screen-absolute coords from `testanyware screenshot` when precision matters."
+        help: "Window name for relative coordinates. The macOS Tahoe drop-shadow inset (~40 px in y) is compensated automatically; override the inset via `TESTANYWARE_WINDOW_TOP_INSET=<int>` if your macOS version differs."
     )
     var window: String?
 
@@ -328,12 +328,9 @@ struct DragCommand: AsyncParsableCommand {
         let spec = try connection.resolve()
         let client = try await ServerClient.ensure(spec: spec)
 
-        var offsetX = 0, offsetY = 0
-        if let windowFilter = window {
-            let win = try await resolveWindow(connection: connection, windowFilter: windowFilter)
-            offsetX = Int(win.position.x)
-            offsetY = Int(win.position.y)
-        }
+        let (offsetX, offsetY) = try await windowOffset(
+            connection: connection, spec: spec, windowFilter: window
+        )
 
         try await client.drag(
             fromX: fromX + offsetX, fromY: fromY + offsetY,

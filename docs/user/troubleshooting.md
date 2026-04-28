@@ -46,19 +46,22 @@ IoU 0.305 even for matched text. Replaced with center-distance:
 predicts within GT box (±10 px margin) or GT fully contains predict.
 Not a threshold fix — the metric itself was wrong.
 
-## `--window` on input commands includes Tahoe drop-shadow inset
+## `--window` on input commands compensates for the Tahoe drop-shadow inset
 
 The `--window <name>` flag on `testanyware input click` / `mouse-down`
 / `mouse-up` / `move` / `scroll` / `drag` translates caller-supplied
 coordinates via the AX-reported window origin. On macOS Tahoe, that
-origin includes the window's drop-shadow inset, so every click lands
-~40 px below the intended position. The failure is silent: the CLI
-reports a successful click; the target UI control is untouched. For
-precise targeting, capture a full-screen `testanyware screenshot`,
-read screen-absolute coords off it, and pass those directly without
-`--window`. `--window` is still useful for approximate targeting
-where 40 px drift is tolerable. Surfaced 2026-04-18 during Mini
-Browser verification.
+origin sits ~40 px below the visible top of the window (the AX frame
+includes the structural drop-shadow inset). The CLI now subtracts a
+40 px top inset from the y origin when the resolved platform is
+`macos`, so window-relative coordinates land where intended.
+
+If your macOS version reports a different inset, override it via
+`TESTANYWARE_WINDOW_TOP_INSET=<int>` (in pixels). For pixel-perfect
+targeting against unfamiliar windows, capture a full-screen
+`testanyware screenshot`, read screen-absolute coords off it, and
+pass those directly without `--window`. Surfaced 2026-04-18 during
+Mini Browser verification; compensation landed 2026-04-28.
 
 ## `testanyware agent set-value` fails for NSTextField inside NSStackView
 
