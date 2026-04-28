@@ -298,4 +298,26 @@ entries:
 - id: homebrew-formula-bundles-cli-agents-and-scripts-in-one-tarball
   title: Homebrew formula bundles CLI, agents, and scripts in one tarball
   body: |
-    Single-tarball bundle covers the CLI binary, all three agents (macOS, Linux, Windows), and golden scripts. Eliminates per-artifact `gh release download` dependency. Ad-hoc signing only; arm64-only macOS distribution. Tap: `Linkuistics/homebrew-taps`. Plan: `0-docs/plans/HomebrewDistribution.plan.md` (P0–P6). Invocation UX for `vm-create-golden-*.sh` for brew-installed users has three candidate approaches; deferred to P5.
+    Single-tarball bundle covers CLI binary, all three agents (macOS arm64, Linux, Windows), and golden scripts. Eliminates per-artifact `gh release download` dependency. Ad-hoc signing only; arm64-only macOS distribution. Tap: `Linkuistics/homebrew-taps`.
+
+    Release pipeline scripts (P1–P5 complete):
+    - `scripts/release-doctor.sh` — preflight checks (git clean, tools present)
+    - `scripts/release-build.sh` — builds CLI (`swift build`) + macOS agent, Windows agent (`dotnet publish`), stages Linux agent source; packages into `.tar.xz`; renders formula from template
+    - `scripts/release-publish.sh` — creates GitHub release via `gh`, copies rendered formula into tap
+    - `scripts/templates/testanyware.rb.tmpl` — single-tarball Homebrew formula template
+
+    P6 (end-to-end smoke test: tag → brew install → golden rebuild) deferred; requires a clean tagged HEAD. Invocation UX for brew users (documented bash vs `testanyware vm create-golden` subcommand) also unresolved.
+
+    Plan: `0-docs/plans/HomebrewDistribution.plan.md` (P0–P6).
+- id: golden-scripts-resolve-agent-cli-from-brew-prefix-by-default
+  title: golden scripts resolve agent/CLI from brew prefix by default
+  body: |
+    `vm-create-golden-macos.sh`, `vm-create-golden-linux.sh`, and `vm-create-golden-windows.sh` resolve agent and CLI binaries from `$(brew --prefix testanyware)/share/testanyware/agents/<platform>/...` by default. All in-script `swift build`, `dotnet publish`, `_PROJECT_ROOT`, and `_PROJECT_DIR` references are removed.
+
+    Contributor override: set `TESTANYWARE_AGENT_BIN_OVERRIDE` (path to the agent binary) and/or `TESTANYWARE_CLI_BIN_OVERRIDE` (path to the CLI binary) before running a golden script to bypass the brew-prefix resolution. Both vars are independent.
+- id: tcc-csreq-correctness-for-brew-installed-agent-is-unverified
+  title: TCC-csreq correctness for brew-installed agent is unverified
+  body: |
+    When the in-VM agent binary arrives via `brew install testanyware` rather than `swift build`, its CDHash changes. TCC pins accessibility grants to the original binary's csreq (CDHash for adhoc-signed binaries). Whether the brew-installed agent retains TCC accessibility without re-granting is unverified; to be confirmed during P6 smoke test.
+
+    See also: `agent-hot-swap-does-not-re-grant-tcc-accessibility` (direct binary replacement case) and `testanyware-agent-lacks-tcc-documents-access-on-tahoe-golden` (FDA grant in golden).
