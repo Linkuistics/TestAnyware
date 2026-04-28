@@ -2,7 +2,7 @@ tasks:
 - id: audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe
   title: Audit testanyware-agent entitlements for Documents folder access on Tahoe
   category: bug
-  status: not_started
+  status: done
   dependencies: []
   description: |
     During Note Editor VM verification on 2026-04-18, running
@@ -24,10 +24,42 @@ tasks:
 
     Requires a golden rebuild for Tahoe once the correct grant is identified. Surfaced
     2026-04-18 during Note Editor verification.
+  results: |
+    **Audit conclusion: Option 1 (TCC sqlite3 grant) — implemented.**
+
+    The three remediation options from the task description were evaluated:
+
+    1. **TCC grant** ✅ — chosen. Mirrors the existing `kTCCServiceAccessibility` pattern in `grant_accessibility_permission()` exactly (same SIP-disabled requirement, same csreq computation, same INSERT-OR-REPLACE shape). One additional INSERT for `kTCCServiceSystemPolicyAllFiles` (Full Disk Access) chained after the Accessibility insert via `&&` so both grants share a single `codesign -dr- | csreq -r-` invocation.
+    2. **Entitlement** ❌ — rejected. `com.apple.security.files.user-selected.read-write` only applies to NSOpenPanel-mediated access, which doesn't help the agent's exec context. Other Documents-related entitlements require Developer ID signing, which the parallel Homebrew distribution task explicitly chose not to do.
+    3. **Alternate path** ❌ — rejected. The task description's premise is that automated tests legitimately need to inspect file-save results in `/Users/admin/Documents/`, so a path-redirect would only paper over the problem.
+
+    **Service choice: `kTCCServiceSystemPolicyAllFiles` (Full Disk Access) over per-folder grants.** FDA covers Documents, Downloads, Desktop, and protected system locations in a single grant — operationally simpler than three per-folder grants, and the Tahoe golden is a disposable test VM so the broader scope is acceptable.
+
+    **Code change: `provisioner/scripts/vm-create-golden-macos.sh`**
+
+    - Renamed `grant_accessibility_permission()` → `grant_tcc_permissions()` (semantics now broader than accessibility alone).
+    - Added second sqlite3 INSERT for `kTCCServiceSystemPolicyAllFiles`, chained with `&&` after the existing Accessibility INSERT in the same VM-shell session so `CSREQ_HEX` is computed once.
+    - Verification block within the function now checks both rows (`_AX_LEN`, `_FDA_LEN`).
+    - Post-grant verification (originally checked only Accessibility) now checks both services.
+    - Post-SIP-re-enable verification (originally checked only Accessibility) now checks both services with separate error messages so a regression in either service is diagnosable.
+    - Header doc updated to enumerate both TCC services granted.
+
+    **What worked:** Reusing the existing csreq computation for two grants — the `&&`-chained sqlite3 calls in one `vm_ssh` invocation share the VM-side `CSREQ_HEX` env var without any new escaping subtleties. `bash -n` syntax-check passes; all four `kTCCServiceAccessibility` references in the script now have a sibling `kTCCServiceSystemPolicyAllFiles` reference.
+
+    **What didn't / open:**
+
+    - **End-to-end verification deferred.** The script change cannot be exercised without a Tahoe golden rebuild (`vm-create-golden-macos.sh --version tahoe`), which needs VM access this work-phase doesn't have. The dependent task `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden` is the natural place to verify both this TCC change and the existing `--window` / `--open-menu` work in a single rebuild.
+    - **Memory entry not updated.** The `testanyware-agent-lacks-tcc-documents-access-on-tahoe-golden` memory describes the *current running golden's* behavior, which is unchanged until rebuild. Updating it now would be misleading; the smoke-test phase should update it after a rebuild confirms `testanyware exec ls /Users/admin/Documents/` no longer trips a TCC dialog.
+
+    **Suggests next:**
+
+    1. Run `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden`. The smoke-test should additionally confirm `testanyware exec ls /Users/admin/Documents/` now returns directory listing without a TCC dialog.
+    2. After successful rebuild + verify, update the memory entry `testanyware-agent-lacks-tcc-documents-access-on-tahoe-golden` to reflect the new TCC scope, or replace it with an entry titled "Tahoe golden grants FDA via `kTCCServiceSystemPolicyAllFiles`" describing the now-canonical pattern.
+    3. Consider whether the Linux golden has an analogous problem (AT-SPI2 doesn't have macOS-style TCC, but if there are sandboxed Snap apps in the Linux golden's Documents access path, a similar audit could surface). Out of scope for this task.
 - id: delete-backup-golden-images-after-ssh-disable-rebuild
   title: Delete backup golden images after SSH-disable rebuild
   category: chore
-  status: not_started
+  status: done
   dependencies: []
   description: |
     During the SSH-disable golden rebuild session (2026-04-28), both existing
@@ -42,6 +74,26 @@ tasks:
     Sizes: macOS backup ~28 GB, Linux backup ~9 GB. These are safe to delete;
     the live goldens (`testanyware-golden-macos-tahoe` and
     `testanyware-golden-linux-24.04`) passed all integration tests post-rebuild.
+  results: |
+    Both backup goldens were already absent from `tart list` at the start of this
+    work phase — explicit `tart delete testanyware-golden-macos-tahoe-backup` and
+    `tart delete testanyware-golden-linux-24.04-backup` both returned "the
+    specified VM does not exist". They were presumably cleaned up between the
+    SSH-disable rebuild session (2026-04-28) and now.
+
+    The two live goldens remain present and healthy in the catalog:
+
+      local  testanyware-golden-linux-24.04   20  9    34 minutes ago stopped
+      local  testanyware-golden-macos-tahoe   50  28   35 minutes ago stopped
+
+    No action was needed. ~37 GB of disk has already been recovered by whoever
+    ran the deletes earlier.
+
+    **Suggests next:** nothing. The follow-up rebuild tasks
+    (`audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe`
+    and `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden`) will
+    naturally produce fresh backups when they next rebuild the Tahoe golden, and
+    this same chore can be re-filed at that point.
 - id: smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden
   title: Smoke-test --window compensation and --open-menu path on Tahoe golden
   category: bug
@@ -90,7 +142,7 @@ tasks:
 - id: brainstorm-and-plan-local-homebrew-binary-distribution
   title: Brainstorm and plan local Homebrew binary distribution
   category: chore
-  status: not_started
+  status: done
   dependencies: []
   description: |
     The `local-homebrew-binary-distribution-tap-no-client-builds` backlog task
@@ -116,6 +168,59 @@ tasks:
     **Output of the brainstorm:** a written implementation plan with phases,
     files to create/modify, and ordering constraints — suitable for input to the
     `writing-plans` skill.
+  results: |
+    Wrote `0-docs/plans/HomebrewDistribution.plan.md` — the implementation
+    plan that the sibling feature task
+    (`local-homebrew-binary-distribution-tap-no-client-builds`) should pick
+    up next.
+
+    **Decisions resolved (full rationale in the plan doc):**
+
+    | Question | Decision |
+    |---|---|
+    | Apple Developer ID + notarisation? | No — ad-hoc signing only, like Ravel-Lite |
+    | Cross-arch macOS builds? | arm64-only (host requires Apple Silicon for tart) |
+    | Linux host CLI? | Skip (CLI links macOS-only frameworks) |
+    | One bundle tarball or per-artifact? | **One bundle** — CLI + all three agents + golden scripts + helpers ship together under `bin/` and `share/testanyware/...` |
+    | Linux agent in the bundle? | Yes — symmetric with macOS/Windows, all three sourced from `share/testanyware/agents/` |
+    | Vision pipeline? | Stay as `uv sync` — out of scope |
+    | Version coupling CLI ↔ agents? | Same tag, same tarball |
+    | Golden script's agent-source path? | `$(brew --prefix testanyware)/share/testanyware/agents/<platform>/` (with `TESTANYWARE_*_BIN_OVERRIDE` env-var escape hatches for contributors building from source) |
+    | Tap repo? | Reuse `Linkuistics/homebrew-taps` (env override `TESTANYWARE_TAP_DIR`) |
+    | How does brew-installed user invoke `vm-create-golden-*.sh`? | **Open follow-up** — three candidates (CLI subcommand / wrapper binary in `bin/` / documented `bash $(brew --prefix testanyware)/share/.../vm-create-golden-<p>.sh`); pick during P5. |
+
+    **Note on the bundle decision:** the initial draft of this plan split
+    distribution into two channels (brew formula for the host CLI; GitHub
+    release assets for the agent binaries, fetched via `gh release
+    download`). User feedback during the same session correctly identified
+    that split as unjustified — TestAnyware has no users who don't use
+    VMs, agents and CLI already ship under the same tag, and Homebrew's
+    `share/<formula>/` is the idiomatic location for non-host-executable
+    auxiliary artifacts (qemu firmware, git templates). The plan now
+    bundles everything into a single tarball / single formula. This also
+    eliminates the `gh` dependency in the golden-script preflight.
+
+    **Phase plan (P0 → P6):**
+
+    ```
+    P0 (decisions doc — DONE)  ──► P1 (release-build.sh, single-tarball staging)  ──┬──► P2 (release-publish.sh)  ──► P6 (smoke test)
+                                                                                     ├──► P3 (formula template — bin/ + share/testanyware/...)
+    P4 (golden scripts: cp from $(brew --prefix testanyware))  ◄── needs first published release ─┘
+    P5 (README + .gitignore + resolve P5 follow-up)  ── independent ─────────────────────────────┘
+    ```
+
+    **Files to create/modify (full list in plan):** new `scripts/release-{build,publish,doctor}.sh` and `scripts/templates/testanyware.rb.tmpl`; modify all three `provisioner/scripts/vm-create-golden-{macos,linux,windows}.sh` (replace in-script build/repo-tar with `cp` from brew prefix), `README.md`, `.gitignore`. `cli/Package.swift`, `agents/macos/Package.swift`, `agents/windows/TestAnywareAgent.csproj`, `agents/linux/testanyware_agent/`, `vision/` are explicitly untouched.
+
+    **Key constraint surfaced:** the macOS agent's TCC csreq is computed on the VM at golden-build time from whatever binary is `scp`'d in, so any source works without special handling — the existing `grant_tcc_permissions` flow is unchanged, only the source of `_AGENT_BIN` switches from `swift build` to `cp $(brew --prefix testanyware)/share/testanyware/agents/macos/testanyware-agent`.
+
+    **What worked:** the Ravel-Lite reference is a near-perfect template for the release-pipeline scaffolding — only the build-loop assembly (per-target binary → per-target tarball) needed to become a single staging-tree assembly. The bundle factoring removed several invented complications (per-artifact tarballs, `gh release download`, dependency-order between agent and CLI publishing).
+
+    **What didn't / open:**
+
+    - **Open follow-up: golden-script invocation path for brew-installed users.** Three candidate UX options, all viable; pick during P5 README rewrite. Not a blocker for P1–P4.
+    - **Apple notarisation deferred** but worth revisiting if Gatekeeper friction surfaces in the field. Universal2 builds deferred but trivially addable.
+
+    **Suggests next:** schedule `local-homebrew-binary-distribution-tap-no-client-builds`, hand it this plan + the `writing-plans` skill, start with P1 (`scripts/release-build.sh`).
 - id: local-homebrew-binary-distribution-tap-no-client-builds
   title: Local Homebrew binary distribution (tap, no client builds)
   category: feature

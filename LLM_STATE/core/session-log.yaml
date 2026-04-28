@@ -268,3 +268,15 @@ sessions:
     - **Swift CLI:** Removed `VMSpec.ssh`, the `sshReady` poll loop, the SSH-wait block from `VMLifecycle.startTart`, the `--no-ssh` flag shim in `VMCommand`, and all `sshEndpoint` plumbing. Tests updated accordingly; a new `decodesLegacySpecWithSshField` test locks in forward-compat for old spec files that still carry the `ssh` field (ignored by `JSONDecoder` by default).
     - **Verification:** `swift build` clean; `swift test` 326/326 against old goldens; both new goldens rebuilt from scratch; live clone validation on Linux (port 22 refused, `masked` unit, `/dev/null` symlink) and macOS (port 22 refused, sshd unloaded, `disabled` launchd state); integration suite `startStopRoundTrip` 3/3 passed.
     - **What this suggests next:** `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden` is now half-unblocked (still waiting on `audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe`). Backup goldens (`*-backup`) were left on disk (~37 GB total) for the user to delete at their convenience.
+- id: session-10
+  timestamp: 2026-04-28T02:24:01Z
+  phase: work
+  body: |
+    ### Session 10 (2026-04-28T02:24:01Z) — Add FDA TCC grant to macOS golden; brainstorm Homebrew distribution
+
+    - Attempted three backlog tasks: TCC entitlement audit, backup-image cleanup, and Homebrew distribution brainstorm.
+    - **TCC audit (vm-create-golden-macos.sh):** Added `kTCCServiceSystemPolicyAllFiles` (Full Disk Access) grant alongside the existing `kTCCServiceAccessibility` grant. Renamed `grant_accessibility_permission()` → `grant_tcc_permissions()` to reflect the broader scope. Both grants share a single `codesign -dr- | csreq` invocation via `&&`-chained sqlite3 calls in one VM-shell session. Verification blocks updated to check both TCC rows at install-time, post-grant, and post-SIP-re-enable. Script change passes `bash -n`; end-to-end verification deferred to the smoke-test rebuild task.
+    - **Backup cleanup:** Both backup VMs (`testanyware-golden-macos-tahoe-backup`, `testanyware-golden-linux-24.04-backup`) were already absent — `tart delete` returned "VM does not exist" for both. No action needed; ~37 GB already recovered.
+    - **Homebrew distribution brainstorm:** Resolved all key architecture decisions (ad-hoc signing only, arm64-only macOS, single-tarball bundle covering CLI + all three agents + golden scripts, reuse `Linkuistics/homebrew-taps`). Wrote `0-docs/plans/HomebrewDistribution.plan.md` as a P0–P6 phase plan. One open follow-up: invocation UX for `vm-create-golden-*.sh` for brew-installed users (three candidates; deferred to P5).
+    - What worked: the Ravel-Lite pipeline is a near-exact template for the release-build shape; single-tarball factoring eliminated `gh release download` dependency and per-artifact complexity.
+    - Suggests next: schedule `local-homebrew-binary-distribution-tap-no-client-builds` (start P1: `scripts/release-build.sh`); schedule `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden` to exercise the new TCC FDA grant.
