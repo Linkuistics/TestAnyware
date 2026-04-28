@@ -2,7 +2,7 @@ tasks:
 - id: disable-ssh-in-macos-and-linux-golden-images
   title: Disable SSH in macOS and Linux golden images
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Unblocked after Task 3 P5 landed 2026-04-19.
@@ -22,6 +22,119 @@ tasks:
     Requires a golden rebuild for macOS and Linux. Surfaced 2026-04-18 during the
     `guivision vm` refactor brainstorm. SSH wait (~11 s of ~26 s macOS start) is the
     primary motivation for doing this promptly after Task 3 P5 lands.
+  results: |
+    Implemented + validated end-to-end in the same session.
+
+    ## What was done
+
+    **Provisioner scripts** — bake SSH-off into the goldens:
+
+    - `vm-create-golden-macos.sh`: replaced the final shutdown command with a
+      combined SSH-disable + shutdown call —
+      `vm_ssh "sudo systemsetup -f -setremotelogin off; osascript -e 'tell application \"System Events\" to shut down'"`.
+      Folding both into one `vm_ssh` invocation sidesteps a subtle ordering bug:
+      `systemsetup -setremotelogin off` unloads the sshd launchd job and may kill
+      the live SSH session, but by the time that happens the System-Events
+      shutdown is already queued in the same shell.
+    - `vm-create-golden-linux.sh`: similar approach for Linux —
+      `vm_ssh "sudo systemctl disable ssh.service; sudo systemctl mask ssh.service; sudo shutdown -h now"`.
+      Deliberately omitted `--now` from disable so the running sshd survives long
+      enough to queue the shutdown; `mask` writes a `/etc/systemd/system/ssh.service → /dev/null`
+      symlink that prevents accidental re-enable across reboots.
+    - Both script header comments updated to describe the new mechanism.
+
+    **Swift CLI** — drop SSH plumbing:
+    - `VMCommand.swift`: removed the deprecated `--no-ssh` flag and its no-op shim message.
+    - `VMLifecycle.swift`: removed the `sshReady` helper, the entire SSH-wait block in `startTart`, and the `sshEndpoint` variable + spec-file population.
+    - `VMSpec.swift`: dropped the `ssh: String?` field and parameter from the public initialiser.
+
+    **Tests** — match the new shape:
+    - `VMSpecTests.swift`: rewritten to drop `ssh:` from all fixtures, replaced
+      `decodesBashProducedSpecJSON` with `decodesLegacySpecWithSshField` (locks in
+      forward-compat: legacy spec files containing `"ssh"` still decode because
+      `JSONDecoder` ignores unknown keys by default).
+    - `TartRunnerTests.swift`: removed `ssh: nil` from 9 fixture sites.
+
+    **Docs** — drop SSH from the spec-file schema and golden descriptions:
+    - `README.md`, `LLM_INSTRUCTIONS.md`, `docs/reference/cli-commands.md`,
+      `docs/reference/connection-spec.md`, `docs/user/golden-images.md`, and the
+      three matching mirrors under `website/docs/`. Each got the same treatment:
+      drop the `ssh` field from the spec example/table, drop the `--no-ssh`
+      bullet, replace "SSH key auth" golden bullets with "No SSH at runtime"
+      bullets that name the disable mechanism, retain the "SSH key" requirements
+      row (still needed during golden creation only).
+
+    ## Verification
+
+    ### Static / unit / pre-rebuild integration
+    - `swift build` clean.
+    - `swift test` — **326/326 passed in 69.3s** against the OLD goldens. This
+      proved the Swift-side cleanup is independent of golden rebuild (the
+      removed SSH-wait was already a no-op in code paths that mattered).
+
+    ### Live golden rebuilds
+    - **Linux golden** (`testanyware-golden-linux-24.04`): rebuilt from scratch
+      via `vm-create-golden-linux.sh`. Script exited 0. Total time ~10 min.
+    - **macOS golden** (`testanyware-golden-macos-tahoe`): rebuilt from scratch
+      via `vm-create-golden-macos.sh`. Script exited 0 — the full 5-boot
+      SIP-disable / TCC-grant / SIP-re-enable cycle survived the new SSH-disable
+      ordering. Total time ~18 min.
+
+    ### Live clone validation — Linux
+    After `vm-start.sh --platform linux` against the new golden:
+    - `nc -z -w 3 $ip 22` → connection refused (port 22 unreachable).
+    - `systemctl is-enabled ssh.service` → `masked`.
+    - `systemctl is-active ssh.service` → `inactive`.
+    - `ls -la /etc/systemd/system/ssh.service` → `lrwxrwxrwx ... -> /dev/null`
+      (mask symlink in place, persists across reboots).
+    - Agent on port 8648 healthy (`accessible: true`).
+
+    ### Live clone validation — macOS
+    After `vm-start.sh --platform macos` against the new golden:
+    - `nc -z -w 3 $ip 22` → connection refused (port 22 unreachable).
+    - `pgrep -l sshd` → exit 1 (no process running).
+    - `launchctl print system/com.openssh.sshd` → "Could not find service ... in
+      domain for system" (sshd unloaded).
+    - `launchctl print-disabled system | grep ssh` →
+      `"com.openssh.sshd" => disabled` (canonical persisted launchd state).
+    - Agent on port 8648 healthy.
+
+    ### Final integration suite against new goldens
+    - `swift test --filter startStopRoundTrip` —
+      **3/3 passed** (`startStopRoundTripMacOS`, `startStopRoundTripLinux`,
+      `startStopRoundTripWindows`) in 40.5 s for tart, 43.0 s for QEMU.
+
+    ## Backups
+
+    Before the rebuild I cloned both existing goldens to `*-backup` names as a
+    safety net. Now that validation is complete, these backup images can be
+    deleted:
+    - `tart delete testanyware-golden-macos-tahoe-backup`
+    - `tart delete testanyware-golden-linux-24.04-backup`
+
+    Left in place for the user to delete at their convenience, since they are
+    ~28 GB (macOS) and ~9 GB (linux) of disk.
+
+    ## What this suggests next
+
+    - The `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden`
+      task is now half-unblocked — its other dependency
+      (`audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe`)
+      is still open.
+    - The `ssh-wait-dominates-macos-vm-start-latency` memory entry is now
+      historical and worth either updating or marking superseded — the wait
+      itself is gone from `VMLifecycle.swift` *and* the goldens no longer
+      accept SSH connections, so the latency improvement is realised, not just
+      potential.
+    - Memory notes captured during validation:
+      - macOS canonical persisted-disable check: `launchctl print-disabled
+        system | grep <service>` returns `"<service>" => disabled` for any
+        service that `systemsetup` (or other Apple tooling) has off.
+      - Linux mask check: `/etc/systemd/system/<unit> -> /dev/null` is the
+        on-disk evidence that `systemctl mask` ran successfully.
+    - Combined-shutdown idiom is reusable: any time we need to alter system
+      state that may sever the SSH session itself, fold the change into the
+      same `vm_ssh` call as the shutdown so the queued shutdown survives.
 - id: audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe
   title: Audit testanyware-agent entitlements for Documents folder access on Tahoe
   category: bug

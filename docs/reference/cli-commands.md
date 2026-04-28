@@ -423,7 +423,7 @@ Container for VM lifecycle operations. Sub-sub-commands below.
 stdout.
 
 ```
-testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--display <display>] [--viewer] [--no-ssh]
+testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--display <display>] [--viewer]
 ```
 
 - `--platform <platform>` — `macos`, `linux`, or `windows`. Default: `macos`.
@@ -432,7 +432,6 @@ testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--disp
 - `--id <id>` — VM instance id. Default: `testanyware-<hex8>`.
 - `--display <display>` — Display resolution (e.g. `1920x1080`).
 - `--viewer` — Open a VNC viewer after boot.
-- `--no-ssh` — Accepted for backward compatibility; ignored (deprecated).
 
 **Example:**
 ```bash

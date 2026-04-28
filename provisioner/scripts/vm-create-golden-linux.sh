@@ -15,16 +15,17 @@
 #
 # What this creates:
 #   A tart VM cloned from Cirrus Labs' vanilla Ubuntu image with:
-#   - Host SSH public key in ~/.ssh/authorized_keys (key-based auth)
 #   - Ubuntu Desktop (minimal) installed
 #   - GDM autologin configured for the admin user
 #   - Solid gray desktop background, screen lock and blanking disabled
 #   - testanyware-agent Python TCP service on port 8648 (systemd user service)
 #   - AT-SPI2 accessibility enabled for GUI automation
 #   - xdotool for window management fallback
+#   - SSH (openssh-server) disabled and masked — agent HTTP is the only ingress
 #
-# SSH is used during golden image CREATION only. At runtime, the agent TCP
-# service on port 8648 is the primary communication channel.
+# SSH is used during golden image CREATION only (host public key in
+# authorized_keys for setup). The service is disabled and masked before the
+# final shutdown, so clones boot with sshd off.
 #
 # The golden image is never run directly — clone from it for each test session.
 
@@ -456,10 +457,19 @@ fi
 
 echo "Agent health verified: $(curl -sf "http://$_IP:8648/health")"
 
-# --- Shutdown ---
+# --- Disable SSH + shutdown ---
+# SSH was used during golden creation only. Clones do not need it: all
+# runtime communication goes through the testanyware agent on port 8648,
+# matching the Windows golden which has no SSH at all.
+#
+# `disable` removes auto-start across reboots; `mask` symlinks the unit to
+# /dev/null so it cannot be enabled again accidentally. We deliberately
+# omit `--now` so the running sshd (and our active session) survives long
+# enough to queue the shutdown. The next boot has sshd off, masked, and
+# unreachable.
 
-echo "Shutting down VM..."
-vm_ssh "sudo shutdown -h now" 2>/dev/null || true
+echo "Disabling SSH service and shutting down VM..."
+vm_ssh "sudo systemctl disable ssh.service 2>/dev/null || sudo systemctl disable ssh 2>/dev/null; sudo systemctl mask ssh.service 2>/dev/null || sudo systemctl mask ssh 2>/dev/null; sudo shutdown -h now" 2>/dev/null || true
 
 echo -n "Waiting for shutdown..."
 for i in $(seq 1 60); do

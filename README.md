@@ -391,8 +391,7 @@ reading it directly can rely on this schema:
 {
   "vnc":      { "host": "127.0.0.1", "port": 63530, "password": "..." },
   "agent":    { "host": "192.168.64.2", "port": 8648 },
-  "platform": "macos",
-  "ssh":      "admin@192.168.64.2"
+  "platform": "macos"
 }
 ```
 
@@ -401,8 +400,10 @@ reading it directly can rely on this schema:
 - `agent` is present when the agent reached health during startup (expected
   for all golden images). Absent if the boot wait timed out.
 - `platform` is always present: `macos` | `linux` | `windows`.
-- `ssh` is present only for tart VMs when SSH became reachable; it's a
-  debug convenience and not consumed by the CLI.
+
+Older spec files written by VMs started before the SSH-disable change may
+still carry an `ssh` field. The decoder ignores unknown keys, so they load
+without modification; new specs do not emit it.
 
 A sibling `<id>.meta.json` is written alongside. It's an internal sidecar
 for `vm-stop.sh` (PID, tool, clone dir, viewer window id) — clients should
@@ -425,7 +426,7 @@ All images share these properties:
 - **Accessibility** — TCC grant via system TCC database with code signing requirement (SIP disable/enable cycle during image creation)
 - **Package manager** — Homebrew (`/opt/homebrew/bin/brew`)
 - **Dev tools** — Xcode Command Line Tools (`swift`, `clang`, `git`, `make`)
-- **SSH key auth** — host's public key in `authorized_keys` (used during golden image creation)
+- **No SSH at runtime** — Remote Login is enabled during golden creation only and turned off (`systemsetup -f -setremotelogin off`) before the final shutdown; clones communicate via the agent on port 8648
 - **Session restore disabled** — apps don't reopen old windows
 - **SIP enabled** — standard security posture after image creation
 
@@ -435,7 +436,7 @@ All images share these properties:
 - **Agent autostart** — systemd user service (`testanyware-agent.service`)
 - **Accessibility** — AT-SPI2 enabled, `python3-pyatspi` for bindings, `xdotool` for window management fallback
 - **Package manager** — apt
-- **SSH key auth** — host's public key in `authorized_keys` (used during golden image creation)
+- **No SSH at runtime** — `openssh-server` is used during golden creation only and disabled + masked (`systemctl disable ssh && systemctl mask ssh`) immediately before the final shutdown; clones communicate via the agent on port 8648
 - **Silent boot** — GRUB hidden, Plymouth splash, no text-mode console output
 - **Screen lock and blanking disabled** — no interruptions during tests
 - **NetworkManager** — configured via netplan (replaces systemd-networkd from base image)

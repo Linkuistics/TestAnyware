@@ -38,15 +38,7 @@ struct VMCommand: AsyncParsableCommand {
         @Flag(name: .long, help: "Open a VNC viewer after boot")
         var viewer: Bool = false
 
-        @Flag(name: .long, help: "Skip waiting for SSH (accepted, ignored — deprecated)")
-        var noSsh: Bool = false
-
         func run() async throws {
-            if noSsh {
-                FileHandle.standardError.write(Data(
-                    "NOTE: --no-ssh is accepted but ignored; will be removed when SSH is disabled in the goldens.\n".utf8
-                ))
-            }
             guard let resolvedPlatform = Platform(rawValue: platform) else {
                 throw ValidationError("Unknown platform '\(platform)'. Must be macos, linux, or windows.")
             }

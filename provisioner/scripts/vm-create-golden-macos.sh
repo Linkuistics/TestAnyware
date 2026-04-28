@@ -17,9 +17,13 @@
 #   A tart VM cloned from Cirrus Labs' vanilla macOS image with:
 #   - testanyware-agent running as LaunchAgent on port 8648
 #   - TCC accessibility permission granted (SIP disable/enable cycle)
-#   - Host SSH public key in ~/.ssh/authorized_keys
+#   - Remote Login (SSH) disabled — agent HTTP is the only ingress
 #   - Xcode CLI tools, Homebrew
 #   - Session restore disabled, clean desktop state
+#
+#   SSH is used during golden creation only (host key auth) and is
+#   turned off via `systemsetup -f -setremotelogin off` before the
+#   final shutdown, so clones boot with sshd off.
 #
 # Boot sequence (3 normal + 2 recovery = 5 boots):
 #   1. Normal: SSH key, defaults, CLT, Homebrew, agent + plist → shutdown
@@ -709,15 +713,20 @@ vm_ssh "killall Terminal 2>/dev/null || true"
 sleep 2
 vm_ssh "rm -rf ~/Library/Saved\ Application\ State/*" 2>/dev/null || true
 
-# --- Clean shutdown ---
+# --- Disable Remote Login + clean shutdown ---
 # CRITICAL: Use System Events "shut down" (not `sudo shutdown -h now`).
 # `sudo shutdown -h now` kills loginwindow before it can save session state,
 # causing apps (including Terminal) to be relaunched on next boot.
 # System Events triggers loginwindow's full shutdown sequence which properly
 # records that no apps are open. (From TestAnyware/VMCommands.swift.)
+#
+# SSH-disable is folded into the same vm_ssh call: `systemsetup -setremotelogin off`
+# unloads the sshd launchd job and may kill the current SSH session, so we queue
+# the shutdown afterwards in the same shell. If the session dies, we don't care —
+# the shutdown is already in flight and `|| true` masks the error.
 
-echo "Shutting down VM (clean, via System Events)..."
-vm_ssh "osascript -e 'tell application \"System Events\" to shut down'" 2>/dev/null || true
+echo "Disabling Remote Login and shutting down VM (clean, via System Events)..."
+vm_ssh "sudo systemsetup -f -setremotelogin off >/dev/null 2>&1; osascript -e 'tell application \"System Events\" to shut down'" 2>/dev/null || true
 
 echo -n "Waiting for shutdown..."
 for i in $(seq 1 60); do

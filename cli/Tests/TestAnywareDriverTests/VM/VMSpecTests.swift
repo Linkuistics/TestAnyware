@@ -27,8 +27,7 @@ struct VMSpecTests {
         let spec = VMSpec(
             vnc: VNCSpec(host: "127.0.0.1", port: 63530, password: "secret"),
             agent: AgentSpec(host: "192.168.64.2", port: 8648),
-            platform: .macos,
-            ssh: "admin@192.168.64.2"
+            platform: .macos
         )
         let url = tempSpecURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -41,8 +40,7 @@ struct VMSpecTests {
         let spec = VMSpec(
             vnc: VNCSpec(host: "h", port: 1, password: nil),
             agent: nil,
-            platform: .linux,
-            ssh: nil
+            platform: .linux
         )
         let url = tempSpecURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -57,8 +55,7 @@ struct VMSpecTests {
         let spec = VMSpec(
             vnc: VNCSpec(host: "127.0.0.1", port: 63530, password: "secret"),
             agent: AgentSpec(host: "192.168.64.2", port: 8648),
-            platform: .macos,
-            ssh: "admin@192.168.64.2"
+            platform: .macos
         )
         let url = tempSpecURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -73,15 +70,14 @@ struct VMSpecTests {
         #expect(agent?["host"] as? String == "192.168.64.2")
         #expect(agent?["port"] as? Int == 8648)
         #expect(json["platform"] as? String == "macos")
-        #expect(json["ssh"] as? String == "admin@192.168.64.2")
+        #expect(json["ssh"] == nil)
     }
 
     @Test func omitsOptionalFieldsWhenNil() throws {
         let spec = VMSpec(
             vnc: VNCSpec(host: "h", port: 1, password: nil),
             agent: nil,
-            platform: .linux,
-            ssh: nil
+            platform: .linux
         )
         let url = tempSpecURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -91,7 +87,6 @@ struct VMSpecTests {
         let vnc = json["vnc"] as? [String: Any]
         #expect(vnc?["password"] == nil)
         #expect(json["agent"] == nil)
-        #expect(json["ssh"] == nil)
     }
 
     // MARK: - File permissions
@@ -100,8 +95,7 @@ struct VMSpecTests {
         let spec = VMSpec(
             vnc: VNCSpec(host: "h", port: 1, password: nil),
             agent: nil,
-            platform: .macos,
-            ssh: nil
+            platform: .macos
         )
         let url = tempSpecURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -119,15 +113,13 @@ struct VMSpecTests {
         let first = VMSpec(
             vnc: VNCSpec(host: "a", port: 1, password: nil),
             agent: nil,
-            platform: .macos,
-            ssh: nil
+            platform: .macos
         )
         try first.writeAtomic(to: url.path)
         let second = VMSpec(
             vnc: VNCSpec(host: "b", port: 2, password: "pw"),
             agent: AgentSpec(host: "b", port: 8648),
-            platform: .windows,
-            ssh: "admin@b"
+            platform: .windows
         )
         try second.writeAtomic(to: url.path)
         let loaded = try VMSpec.load(from: url.path)
@@ -140,8 +132,7 @@ struct VMSpecTests {
         let spec = VMSpec(
             vnc: VNCSpec(host: "h", port: 1, password: nil),
             agent: nil,
-            platform: .macos,
-            ssh: nil
+            platform: .macos
         )
         try spec.writeAtomic(to: url.path)
         #expect(!FileManager.default.fileExists(atPath: url.path + ".tmp"))
@@ -153,8 +144,7 @@ struct VMSpecTests {
         let spec = VMSpec(
             vnc: VNCSpec(host: "127.0.0.1", port: 63530, password: "pw"),
             agent: AgentSpec(host: "192.168.64.2", port: 8648),
-            platform: .macos,
-            ssh: "admin@192.168.64.2"
+            platform: .macos
         )
         let url = tempSpecURL()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -168,12 +158,15 @@ struct VMSpecTests {
         #expect(loaded.platform == .macos)
     }
 
-    // MARK: - Interop with bash vm-start.sh output
+    // MARK: - Forward compatibility with legacy spec files
 
-    @Test func decodesBashProducedSpecJSON() throws {
+    @Test func decodesLegacySpecWithSshField() throws {
+        // Older spec files (pre-SSH-disable, written by running VMs that
+        // span this upgrade) may still contain an `ssh` field. JSONDecoder
+        // ignores unknown keys by default, so decode must succeed.
         let url = tempSpecURL()
         defer { try? FileManager.default.removeItem(at: url) }
-        let bashStyleJSON = """
+        let legacyJSON = """
         {
           "vnc": { "host": "127.0.0.1", "port": 63530, "password": "secret" },
           "agent": { "host": "192.168.64.2", "port": 8648 },
@@ -181,7 +174,7 @@ struct VMSpecTests {
           "ssh": "admin@192.168.64.2"
         }
         """
-        try bashStyleJSON.write(to: url, atomically: true, encoding: .utf8)
+        try legacyJSON.write(to: url, atomically: true, encoding: .utf8)
         let loaded = try VMSpec.load(from: url.path)
         #expect(loaded.vnc.host == "127.0.0.1")
         #expect(loaded.vnc.port == 63530)
@@ -189,23 +182,21 @@ struct VMSpecTests {
         #expect(loaded.agent?.host == "192.168.64.2")
         #expect(loaded.agent?.port == 8648)
         #expect(loaded.platform == .macos)
-        #expect(loaded.ssh == "admin@192.168.64.2")
     }
 
-    @Test func decodesBashSpecWithoutOptionalFields() throws {
+    @Test func decodesMinimalSpecWithoutOptionalFields() throws {
         let url = tempSpecURL()
         defer { try? FileManager.default.removeItem(at: url) }
-        let bashStyleJSON = """
+        let minimalJSON = """
         {
           "vnc": { "host": "h", "port": 1 },
           "platform": "linux"
         }
         """
-        try bashStyleJSON.write(to: url, atomically: true, encoding: .utf8)
+        try minimalJSON.write(to: url, atomically: true, encoding: .utf8)
         let loaded = try VMSpec.load(from: url.path)
         #expect(loaded.vnc.password == nil)
         #expect(loaded.agent == nil)
-        #expect(loaded.ssh == nil)
         #expect(loaded.platform == .linux)
     }
 }

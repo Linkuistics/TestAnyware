@@ -197,14 +197,12 @@ The spec file `vm-start.sh` writes (and that `--vm <id>` / `--connect <path>` co
 ```json
 {"vnc":      {"host": "localhost", "port": 5900, "password": "secret"},
  "agent":    {"host": "192.168.64.100", "port": 8648},
- "platform": "macos",
- "ssh":      "admin@192.168.64.100"}
+ "platform": "macos"}
 ```
 
 - `vnc` always present; `vnc.password` present on tart (macOS/Linux) and QEMU (Windows).
 - `agent` present when the agent reached health during startup.
 - `platform` always present: `macos` | `linux` | `windows`.
-- `ssh` is a debug convenience (tart only), not consumed by the CLI.
 
 Pass via `--connect spec.json` for an explicit file, or `--vm <id>` to resolve automatically from `${XDG_STATE_HOME:-$HOME/.local/state}/testanyware/vms/<id>.json`.
 

@@ -3,26 +3,21 @@ import Foundation
 /// Public per-VM spec file written by `testanyware vm start`, consumed by
 /// `ConnectionOptions.resolve()` via `ConnectionSpec.load`.
 ///
-/// Schema mirrors the JSON produced by `scripts/macos/vm-start.sh` so either
-/// side can read the other's output during the bash → Swift transition.
-/// Reuses `VNCSpec`, `AgentSpec`, and `Platform` from `ConnectionSpec` to
-/// avoid divergence; adds `ssh` which `ConnectionSpec` does not carry.
+/// Reuses `VNCSpec`, `AgentSpec`, and `Platform` from `ConnectionSpec` so
+/// the two stay in sync without parallel wrapper types.
 public struct VMSpec: Codable, Equatable, Sendable {
     public var vnc: VNCSpec
     public var agent: AgentSpec?
     public var platform: Platform
-    public var ssh: String?
 
     public init(
         vnc: VNCSpec,
         agent: AgentSpec?,
-        platform: Platform,
-        ssh: String?
+        platform: Platform
     ) {
         self.vnc = vnc
         self.agent = agent
         self.platform = platform
-        self.ssh = ssh
     }
 
     public static func load(from path: String) throws -> VMSpec {

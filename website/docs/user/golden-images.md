@@ -26,8 +26,9 @@ All golden images share these properties:
   signing requirement (SIP disable/enable cycle during image creation).
 - **Package manager** — Homebrew (`/opt/homebrew/bin/brew`).
 - **Dev tools** — Xcode Command Line Tools (`swift`, `clang`, `git`, `make`).
-- **SSH key auth** — host's public key in `authorized_keys` (used during
-  golden image creation).
+- **No SSH at runtime** — Remote Login is used during golden creation only
+  and turned off (`systemsetup -f -setremotelogin off`) before the final
+  shutdown; clones communicate via the agent on port 8648.
 - **Session restore disabled** — apps don't reopen old windows.
 - **SIP enabled** — standard security posture after image creation.
 
@@ -40,8 +41,10 @@ All golden images share these properties:
 - **Accessibility** — AT-SPI2 enabled, `python3-pyatspi` for bindings,
   `xdotool` for window management fallback.
 - **Package manager** — apt.
-- **SSH key auth** — host's public key in `authorized_keys` (used during
-  golden image creation).
+- **No SSH at runtime** — `openssh-server` is used during golden creation
+  only and disabled + masked (`systemctl disable ssh && systemctl mask
+  ssh`) immediately before the final shutdown; clones communicate via the
+  agent on port 8648.
 - **Silent boot** — GRUB hidden, Plymouth splash, no text-mode console
   output.
 - **Screen lock and blanking disabled** — no interruptions during tests.

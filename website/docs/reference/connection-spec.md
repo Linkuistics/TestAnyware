@@ -20,8 +20,7 @@ reuses the `VNCSpec`, `AgentSpec`, and `Platform` types from
 {
   "vnc":      { "host": "127.0.0.1", "port": 63530, "password": "..." },
   "agent":    { "host": "192.168.64.2", "port": 8648 },
-  "platform": "macos",
-  "ssh":      "admin@192.168.64.2"
+  "platform": "macos"
 }
 ```
 
@@ -37,15 +36,17 @@ reuses the `VNCSpec`, `AgentSpec`, and `Platform` types from
 | `agent.host` | string | yes (when `agent` present) | Agent host (VM LAN IP). |
 | `agent.port` | integer | yes (when `agent` present) | Agent TCP port. Defaults to 8648 but can be overridden per-platform. |
 | `platform` | string enum | yes | One of `macos`, `linux`, `windows`. |
-| `ssh` | string | optional | SSH user@host, tart only. Debug convenience; not consumed by the CLI. Absent on QEMU (Windows). |
+
+Spec files written by VMs that started before SSH was disabled in the
+goldens may still contain a top-level `ssh` field. The decoder ignores
+unknown keys, so legacy specs continue to load; new specs do not emit it.
 
 ### Canonical writer / reader
 
 - **Writer:** `VMSpec.writeAtomic(to:)` — pretty-printed, sorted keys,
   atomic rename from `<path>.tmp` to ensure readers never see a partial
   file. Mode 0600.
-- **Reader:** `VMSpec.load(from:)` and `ConnectionSpec.load(from:)` (the
-  latter ignores `ssh` since it isn't in `ConnectionSpec`).
+- **Reader:** `VMSpec.load(from:)` and `ConnectionSpec.load(from:)`.
 
 ### Sidecar: `<id>.meta.json`
 

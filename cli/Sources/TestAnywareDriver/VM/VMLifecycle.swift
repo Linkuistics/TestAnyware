@@ -174,19 +174,7 @@ public enum VMLifecycle {
         logStderr("Waiting for VM IP...")
         let ip = TartRunner.pollIP(id: options.id, attempts: 30, intervalSeconds: 2.0)
         if ip == nil {
-            logStderr("WARNING: Could not get VM IP — agent and SSH will be unavailable")
-        }
-
-        // SSH wait — temporary; dies with backlog Task 5 (SSH disabled in goldens).
-        var sshEndpoint: String? = nil
-        if let ipValue = ip {
-            logStderr("Waiting for SSH at admin@\(ipValue)...")
-            if sshReady(ip: ipValue, attempts: 40, intervalSeconds: 3.0) {
-                sshEndpoint = "admin@\(ipValue)"
-                logStderr("SSH: \(sshEndpoint!) (debug convenience)")
-            } else {
-                logStderr("WARNING: SSH not reachable — SSH debugging will be unavailable")
-            }
+            logStderr("WARNING: Could not get VM IP — agent will be unavailable")
         }
 
         var agentEndpoint: AgentSpec? = nil
@@ -225,8 +213,7 @@ public enum VMLifecycle {
         let spec = VMSpec(
             vnc: VNCSpec(host: vncURL.host, port: vncURL.port, password: vncURL.password),
             agent: agentEndpoint,
-            platform: options.platform,
-            ssh: sshEndpoint
+            platform: options.platform
         )
         try spec.writeAtomic(to: paths.specPath(forID: options.id))
 
@@ -244,7 +231,6 @@ public enum VMLifecycle {
         logStderr("  Spec:   \(paths.specPath(forID: options.id))")
         logStderr("  Meta:   \(paths.metaPath(forID: options.id))")
         if let a = agentEndpoint { logStderr("  Agent:  \(a.host):\(a.port)") }
-        if let s = sshEndpoint { logStderr("  SSH:    \(s)") }
         logStderr("")
         logStderr("Use with the CLI:")
         logStderr("  testanyware screenshot --vm \(options.id) -o s.png")
@@ -311,8 +297,7 @@ public enum VMLifecycle {
         let spec = VMSpec(
             vnc: VNCSpec(host: "localhost", port: artifacts.vncPort, password: "testanyware"),
             agent: agentEndpoint,
-            platform: options.platform,
-            ssh: nil
+            platform: options.platform
         )
         try spec.writeAtomic(to: paths.specPath(forID: options.id))
 
@@ -344,30 +329,6 @@ public enum VMLifecycle {
 
     private static func tartVMExists(id: String) -> Bool {
         TartRunner.vmExists(name: id)
-    }
-
-    private static func sshReady(ip: String, attempts: Int, intervalSeconds: Double) -> Bool {
-        for attempt in 0..<attempts {
-            let proc = Process()
-            proc.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-            proc.arguments = [
-                "-o", "StrictHostKeyChecking=no",
-                "-o", "UserKnownHostsFile=/dev/null",
-                "-o", "LogLevel=ERROR",
-                "-o", "ConnectTimeout=5",
-                "-o", "BatchMode=yes",
-                "admin@\(ip)", "echo ok"
-            ]
-            proc.standardOutput = Pipe()
-            proc.standardError = Pipe()
-            do { try proc.run() } catch { return false }
-            proc.waitUntilExit()
-            if proc.terminationStatus == 0 { return true }
-            if attempt < attempts - 1 {
-                Thread.sleep(forTimeInterval: intervalSeconds)
-            }
-        }
-        return false
     }
 
     private static func logStderr(_ msg: String) {

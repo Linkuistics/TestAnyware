@@ -160,8 +160,7 @@ struct TartRunnerTests {
         let spec = VMSpec(
             vnc: VNCSpec(host: "127.0.0.1", port: 59000, password: "pw"),
             agent: AgentSpec(host: "192.168.64.50", port: 8648),
-            platform: .macos,
-            ssh: nil
+            platform: .macos
         )
         try writeSpec(spec, forID: "my-custom-vm", paths: paths)
         try writeMeta(
@@ -193,8 +192,7 @@ struct TartRunnerTests {
             VMSpec(
                 vnc: VNCSpec(host: "127.0.0.1", port: 59000, password: nil),
                 agent: nil,
-                platform: .linux,
-                ssh: nil
+                platform: .linux
             ),
             forID: "testanyware-a1b2c3d4",
             paths: paths
@@ -215,8 +213,7 @@ struct TartRunnerTests {
             VMSpec(
                 vnc: VNCSpec(host: "127.0.0.1", port: 59000, password: nil),
                 agent: nil,
-                platform: .linux,
-                ssh: nil
+                platform: .linux
             ),
             forID: "stopped-vm",
             paths: paths
@@ -249,8 +246,7 @@ struct TartRunnerTests {
             VMSpec(
                 vnc: VNCSpec(host: "127.0.0.1", port: 5901, password: nil),
                 agent: AgentSpec(host: "10.0.0.1", port: 8648),
-                platform: .windows,
-                ssh: nil
+                platform: .windows
             ),
             forID: "spec-only",
             paths: paths
@@ -285,8 +281,7 @@ struct TartRunnerTests {
             VMSpec(
                 vnc: VNCSpec(host: "127.0.0.1", port: 59100, password: "pw"),
                 agent: AgentSpec(host: "192.168.64.10", port: 8648),
-                platform: .macos,
-                ssh: nil
+                platform: .macos
             ),
             forID: id,
             paths: paths
@@ -318,8 +313,7 @@ struct TartRunnerTests {
             VMSpec(
                 vnc: VNCSpec(host: "127.0.0.1", port: 5901, password: nil),
                 agent: AgentSpec(host: "10.0.0.5", port: 8648),
-                platform: .linux,
-                ssh: nil
+                platform: .linux
             ),
             forID: id,
             paths: paths
@@ -343,8 +337,7 @@ struct TartRunnerTests {
             VMSpec(
                 vnc: VNCSpec(host: "127.0.0.1", port: 5901, password: nil),
                 agent: AgentSpec(host: "10.0.0.5", port: 8648),
-                platform: .linux,
-                ssh: nil
+                platform: .linux
             ),
             forID: id,
             paths: paths
@@ -393,8 +386,7 @@ struct TartRunnerTests {
             VMSpec(
                 vnc: VNCSpec(host: "127.0.0.1", port: 5901, password: nil),
                 agent: AgentSpec(host: "10.0.0.1", port: 8648),
-                platform: .linux,
-                ssh: nil
+                platform: .linux
             ),
             forID: id,
             paths: paths
@@ -417,8 +409,7 @@ struct TartRunnerTests {
             VMSpec(
                 vnc: VNCSpec(host: "10.0.0.99", port: 5999, password: nil),
                 agent: AgentSpec(host: "10.0.0.99", port: 8648),
-                platform: .macos,
-                ssh: nil
+                platform: .macos
             ),
             forID: id,
             paths: paths
