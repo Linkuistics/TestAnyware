@@ -90,7 +90,7 @@ entries:
 - id: menu-bar-accessibility-tree-is-lazy
   title: Menu bar accessibility tree is lazy
   body: |
-    `testanyware agent snapshot --window "Menu Bar"` only exposes top-level menu bar items. Submenus do not appear until the menu is open. Use `testanyware agent snapshot --open-menu <label>` to click the named menu item via VNC (400 ms settle), then capture; the menu is left open for follow-up `agent press` commands. The 400 ms settle delay is best-effort — may need tuning if submenus are not yet populated at snapshot time.
+    `testanyware agent snapshot --window "Menu Bar"` only exposes top-level menu bar items. Submenus do not appear until the menu is open. Use `testanyware agent snapshot --open-menu <path>` to click the named menu item via VNC (400 ms settle), then capture; the menu is left open for follow-up `agent press` commands. `<path>` is a comma-separated label sequence for submenu drill-down (e.g., `"File,Recent Files"`); each segment clicks the matching item, re-snapshots at increasing depth, then proceeds to the next. The 400 ms settle delay is best-effort — may need tuning if submenus are not yet populated at snapshot time.
 - id: vmtypes-swift-extends-platform-instead-of-defining-vmplatform
   title: VMTypes.swift extends Platform instead of defining VMPlatform
   body: |
@@ -200,9 +200,9 @@ entries:
   body: |
     `--index 0` always returns `.notFound`. Users encountering "Multiple elements matched" must pass `--index 1` (or higher). Zero is not a valid index value.
 - id: window-flag-includes-drop-shadow-in-ax-origin
-  title: '`--window` flag includes drop-shadow in AX origin'
+  title: '`--window` auto-compensates Tahoe 40 px drop-shadow'
   body: |
-    On Tahoe, the AX-reported window origin includes the drop-shadow inset. Coords passed with `--window <name>` to `testanyware input click` land ~40 px below the intended position. Use screen-absolute coords from a full-screen `testanyware screenshot` instead of window-relative coords when click precision matters. Documented in `--window` help text and README Gotchas.
+    On Tahoe, the AX-reported window origin includes a ~40 px structural drop-shadow inset on the y axis. `WindowOriginCompensation.offset(for:platform:environment:)` (`cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift`) subtracts `defaultMacosTopInset` (40 px) from the window's y position for `.macos` platform; non-macOS and nil platforms pass through unchanged. All six `--window`-relative input commands (click, mouse-down, mouse-up, move, scroll, drag) share a single async `windowOffset(connection:spec:windowFilter:)` helper that applies this compensation. Override via `TESTANYWARE_WINDOW_TOP_INSET=<int>`.
 - id: swift-testing-enabled-if-evaluates-at-discovery-time
   title: swift-testing .enabled(if:) evaluates at discovery time
   body: |
@@ -254,7 +254,7 @@ entries:
 - id: open-menu-settle-delay-is-hardcoded-at-400ms
   title: open-menu settle delay is hardcoded at 400ms
   body: |
-    The `--open-menu` flag in `testanyware agent snapshot` uses a hardcoded 400 ms settle delay after the VNC click before capturing the AX tree. This value was chosen from AppKit menu animation norms and has not been validated against real VMs.
+    The `--open-menu` flag in `testanyware agent snapshot` uses a hardcoded 400 ms settle delay after each VNC click before capturing the AX tree. This value was chosen from AppKit menu animation norms and has not been validated against real VMs.
 
     If live-VM testing finds submenus not yet populated at snapshot time, the fix is either:
     - Add a `--menu-settle-ms <int>` option to `AgentSnapshotCmd` (trivial — one `@Option` in `AgentCommand.swift`)
@@ -262,4 +262,4 @@ entries:
 
     The poll-and-retry approach is more robust but requires defining a "menu is open" predicate on the AX tree. The tunable flag is simpler and sufficient if the delay just needs to be longer.
 
-    Code location: `cli/Sources/testanyware/AgentCommand.swift` — `openMenuBarItem(named:agent:)`.
+    Code location: `cli/Sources/testanyware/AgentCommand.swift` — `openMenuBarPath(rawPath:)`.
