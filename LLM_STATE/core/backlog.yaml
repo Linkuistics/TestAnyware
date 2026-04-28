@@ -2,7 +2,7 @@ tasks:
 - id: fix-dylib-bundling-in-release-build-sh-and-formula-template-p6-prereq
   title: Fix dylib bundling in release-build.sh and formula template (P6 prereq)
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Apply the two code changes that unblock P6 (end-to-end homebrew pipeline retry).
@@ -65,11 +65,64 @@ tasks:
     **Memory refs:** `build-cli-must-bundle-libroyalvnckit-dylib-with-the-binary`,
     `release-build-sh-captured-functions-must-write-progress-to-stderr` (the
     stdout-capture bug is already committed as of `b99f971`).
+  results: |
+    ## Both changes applied — P6 retry unblocked
+
+    ### Edits
+
+    **1. `scripts/release-build.sh` (build_cli function)** — after `cp`'ing the
+    binary and chmod'ing it, added:
+
+    ```bash
+    local dylib="$bin_path/libRoyalVNCKit.dylib"
+    [[ -f "$dylib" ]] || die "expected RoyalVNCKit dylib at $dylib"
+    cp "$dylib" "$stage_bin/libRoyalVNCKit.dylib"
+    ```
+
+    The `die` guard catches the future case where `RoyalVNCKit` stops being a
+    dynamic library (e.g. if the vendored package is ever rebuilt as a static
+    library) — the script will fail loudly instead of silently shipping a
+    binary that dyld will refuse to load.
+
+    **2. `scripts/templates/testanyware.rb.tmpl` (install method)** — changed
+    `bin.install "bin/testanyware"` to `bin.install Dir["bin/*"]` so brew picks
+    up the dylib alongside the binary.
+
+    ### Verification done in this phase
+
+    - `bash -n scripts/release-build.sh` — syntax OK.
+    - `ruby -c scripts/templates/testanyware.rb.tmpl` — syntax OK.
+    - Empirically confirmed `swift build --package-path cli -c release
+      --show-bin-path` returns `cli/.build/arm64-apple-macosx/release` and
+      that directory contains both `testanyware` and `libRoyalVNCKit.dylib`.
+      So the new `cp "$dylib" ...` line will succeed against a real build.
+    - `shellcheck` is not installed on this host; could not gate-test, but
+      the change adds three trivial lines that follow the exact pattern of
+      the existing binary `cp` two lines above.
+
+    ### Verification deferred to P6 retry
+
+    The full proof — running `scripts/release-build.sh` end-to-end and
+    confirming `tar -tJf .../testanyware-*-aarch64-apple-darwin.tar.xz | grep
+    dylib` returns `bin/libRoyalVNCKit.dylib` — requires a tagged HEAD and
+    clean tree, which is the explicit setup of the unblocked P6 task. Not
+    duplicating it here.
+
+    ### What this suggests next
+
+    - The dependent P6 smoke-test task should now flip from `blocked` to
+      `not_started`. I'm running `ravel-lite state backlog repair-stale-statuses`
+      to do that automatically (its semantics are exactly: blocked tasks
+      whose structural deps are all done → not_started).
+    - The next work phase that picks up P6 should follow the "Post-fix retry
+      sequence" in the P6 results block verbatim (tag → build → publish →
+      fresh-shell brew install → brew-shipped golden rebuild → integration
+      suite). The `bash audit` warning about a non-executable in `bin/` is
+      cosmetic per the original analysis.
 - id: p6-end-to-end-homebrew-pipeline-smoke-test-tag-brew-install-golden-rebuild
   title: 'P6: end-to-end homebrew pipeline smoke test (tag → brew install → golden rebuild)'
   category: feature
-  status: blocked
-  blocked_reason: 'Brew-installed CLI fails at runtime: libRoyalVNCKit.dylib not bundled in tarball. Requires release-build.sh + formula template fix before retry. Full v1.0.0 release rolled back. See Results body for the precise fix and retry sequence.'
+  status: not_started
   dependencies:
   - fix-dylib-bundling-in-release-build-sh-and-formula-template-p6-prereq
   description: |

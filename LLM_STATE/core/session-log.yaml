@@ -308,3 +308,34 @@ sessions:
     - Task status flipped to `blocked` with the precise dylib-bundling fix inlined in the results block; a full retry sequence is documented there.
     - What to try next: the dylib bundling fix and formula template update are small, mechanical changes — implement them at the top of the next work session before re-tagging, then retry P6.
     - Key learning: `RoyalVNCKit` is a dynamic library by design (its `Bindings/{dotnet,kotlin}/` consumers require it); the fix is to bundle `libRoyalVNCKit.dylib` next to the binary in `bin/` and update the formula's install block to `bin.install Dir["bin/*"]`.
+- id: session-13
+  timestamp: 2026-04-28T03:46:18Z
+  phase: work
+  body: |
+    ### Session 13 (2026-04-28T03:46:18Z) — Bundle libRoyalVNCKit.dylib in release tarball; unblock P6 retry
+
+    - Applied the two mechanical fixes identified in session 12's P6 post-mortem as the full
+      prerequisite for retrying the end-to-end Homebrew pipeline smoke test.
+    - **`scripts/release-build.sh` (`build_cli` function):** After copying the executable
+      and chmod'ing it, added three lines that locate `libRoyalVNCKit.dylib` in the same
+      Swift build output directory and `cp` it into `stage_bin/`. A `die` guard fires if the
+      dylib is absent — catches the future scenario where RoyalVNCKit is rebuilt as a static
+      library before the script is updated.
+    - **`scripts/templates/testanyware.rb.tmpl` (install block):** Changed
+      `bin.install "bin/testanyware"` to `bin.install Dir["bin/*"]` so Homebrew picks up
+      the dylib alongside the executable. A `brew audit` cosmetic warning about a
+      non-executable in `bin/` is expected and harmless.
+    - Verification in this phase: `bash -n scripts/release-build.sh` (syntax OK),
+      `ruby -c scripts/templates/testanyware.rb.tmpl` (syntax OK), confirmed that
+      `cli/.build/arm64-apple-macosx/release/` contains both `testanyware` and
+      `libRoyalVNCKit.dylib`, so the new `cp` line will succeed against a real build.
+    - Full end-to-end verification (tarball inspection, brew install, dyld success) is
+      deferred to the P6 retry task, which is now unblocked.
+    - `repair-stale-statuses` confirmed no further drift; the `blocked` → `not_started`
+      flip for P6 was already applied by the work session itself.
+    - What this suggests next: P6 (`p6-end-to-end-homebrew-pipeline-smoke-test-tag-brew-install-golden-rebuild`)
+      is the top-priority unblocked task. Follow the retry sequence in the P6 results block
+      verbatim: tag HEAD → `release-build.sh` → `release-publish.sh` → fresh-shell brew
+      install → `testanyware --version` (no dyld error) → golden rebuild → integration suite.
+      Remove `/usr/local/bin/testanyware` (stale dev symlink) before testing so `which
+      testanyware` resolves to the brew-installed binary.

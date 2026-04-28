@@ -54,6 +54,9 @@ build_cli() {
   [[ -f "$bin_path/testanyware" ]] || die "CLI build did not produce $bin_path/testanyware"
   cp "$bin_path/testanyware" "$stage_bin/testanyware"
   chmod +x "$stage_bin/testanyware"
+  local dylib="$bin_path/libRoyalVNCKit.dylib"
+  [[ -f "$dylib" ]] || die "expected RoyalVNCKit dylib at $dylib"
+  cp "$dylib" "$stage_bin/libRoyalVNCKit.dylib"
 }
 
 build_macos_agent() {
