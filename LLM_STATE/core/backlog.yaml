@@ -62,7 +62,7 @@ tasks:
 - id: extend-doctor-verify-bundled-agents-exist-and-are-executable
   title: 'Extend doctor: verify bundled agents exist and are executable'
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Extend `testanyware doctor` to verify that the per-platform bundled agent binaries exist and are executable under the Homebrew prefix.
@@ -77,10 +77,54 @@ tasks:
     **Implementation:** Add `BundledAgentCheck.swift` in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern. Wire into `DoctorCommand.swift`. Add unit tests alongside `InstallPathCheckTests.swift`.
 
     **Promoted from:** `add-doctor-check-for-usr-local-bin-testanyware-dev-symlink-shadowing-brew-install` — "## What this suggests next" item (b).
+  results: |
+    ## What was done
+
+    Added `BundledAgentsCheck` to `cli/Sources/TestAnywareDriver/Diagnostics/`
+    mirroring the classify/run split established by `InstallPathCheck`. The
+    check verifies three slots under `<brewPrefix>/share/testanyware/agents/`:
+
+    - `macos/testanyware-agent` — exists and is marked executable
+    - `windows/testanyware-agent.exe` — exists (presence-only; the win-arm64
+      binary won't carry the macOS executable bit and we should not assert one)
+    - `linux/testanyware_agent/__main__.py` — Python package entry-point
+      marker (the Linux agent ships as a directory tree, not a binary)
+
+    `BundledAgentsCheck.classify(brewPrefix:probes:)` is pure: it takes
+    `SlotProbe(slot, expectedPath, exists, isExecutable)` per platform and
+    returns `Verdict` (`allPresent`, `missing(brewPrefix, issues)`, or
+    `noHomebrew`). `BundledAgentsCheck.run()` resolves the brew prefix via
+    `brew --prefix`, probes the three paths via `FileManager`, and calls
+    `classify`. Wired into `DoctorCommand.run()` between the install-path
+    section and host-tool section.
+
+    Unit tests in `BundledAgentsCheckTests.swift` cover all-present, missing
+    binary, present-but-not-executable (macOS-only assertion), windows .exe
+    presence-only semantics, linux package marker presence-only semantics,
+    multi-platform missing accumulation, expected-path lockstep with the
+    release bundle layout, and `isOK` polarity for each verdict. All 11 new
+    tests pass alongside the existing 15.
+
+    ## Verification
+
+    - `swift build` (cli/) — clean, 9.12s.
+    - `swift test --filter "BundledAgentsCheckTests|ToolAvailabilityCheckTests|InstallPathCheckTests"` — 26/26 pass.
+    - `testanyware doctor` against the live install (brew prefix
+      `/opt/homebrew`) reports `✓ macOS, Windows, and Linux agents all
+      present` with the bundle root printed.
+
+    ## What this suggests next
+
+    - `share/testanyware/scripts/` (vm-*.sh) and `share/testanyware/helpers/`
+      (autounattend.xml etc.) are also bundled by `release-build.sh` but
+      not currently verified by doctor. A future task could extend
+      `BundledAgentsCheck` (or split out a sibling `BundledScriptsCheck`)
+      to cover them — the same pattern applies. Not added in this task to
+      stay scoped to the explicit "agents" wording of the request.
 - id: extend-doctor-verify-tart-and-qemu-tool-availability
   title: 'Extend doctor: verify tart and qemu tool availability'
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Extend `testanyware doctor` to verify that `tart` and `qemu-system-aarch64` are discoverable at the paths expected by `TartRunner` and `QEMURunner`.
@@ -94,3 +138,55 @@ tasks:
     **Implementation:** Add `ToolAvailabilityCheck.swift` in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern. Wire into `DoctorCommand.swift`. Add unit tests alongside `InstallPathCheckTests.swift`.
 
     **Promoted from:** `add-doctor-check-for-usr-local-bin-testanyware-dev-symlink-shadowing-brew-install` — "## What this suggests next" item (c).
+  results: |
+    ## What was done
+
+    Added `ToolAvailabilityCheck` to `cli/Sources/TestAnywareDriver/Diagnostics/`
+    following the same classify/run split. The check probes three host
+    binaries via `/usr/bin/which`:
+
+    - `tart` — macOS and Linux VMs
+    - `qemu-system-aarch64` — Windows VMs
+    - `swtpm` — TPM 2.0 emulation for Windows 11 VMs
+
+    `ToolAvailabilityCheck.classify(resolve:tools:)` is pure: it takes a
+    `(String) -> String?` resolver and returns one `Status` entry per known
+    tool, in `knownTools` order. `run()` instantiates the resolver as a
+    local `which` helper. Each `Tool` carries its purpose and an install
+    hint — surfaced verbatim in the doctor output when a tool is missing.
+
+    Tool availability is **advisory**: missing tools do not flip `isOK`. A
+    user running only macOS GUI tests has no use for QEMU or swtpm, and
+    failing the doctor on their absence would cry wolf on a serviceable
+    install. Missing tools surface with `!` (warning) and the install hint;
+    present tools surface with `✓` and the resolved path.
+
+    Wired into `DoctorCommand.run()` as a third section after install-path
+    and bundled-agents. The doctor exits non-zero only when install-path or
+    bundled-agents flag a hard issue.
+
+    Unit tests in `ToolAvailabilityCheckTests.swift` cover all-present,
+    all-missing, partial availability, stable reporting order, and the
+    "every known tool carries non-empty purpose + install hint" invariant.
+    All 5 new tests pass.
+
+    ## Verification
+
+    - `swift build` (cli/) — clean.
+    - `swift test --filter ToolAvailabilityCheckTests` — 5/5 pass; combined
+      with `BundledAgentsCheckTests` and `InstallPathCheckTests`, 26/26
+      pass.
+    - `testanyware doctor` against the live install reports all three tools
+      resolved (`tart`, `qemu-system-aarch64`, `swtpm` under
+      `/opt/homebrew/bin/`).
+
+    ## What this suggests next
+
+    - The `--version` of each resolved tool isn't checked. `tart` and
+      `qemu-system-aarch64` have known-incompatible-version hazards
+      (release notes mention version-specific behavior in
+      `provisioner/scripts/`). A version-floor check could go on top of
+      the path resolution.
+    - `dotnet` (for contributor-only Windows agent builds) is intentionally
+      not checked — it's not a runtime dep. If contributor tooling ever
+      gets its own doctor target, it belongs there, not here.

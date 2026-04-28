@@ -5,22 +5,35 @@ import TestAnywareDriver
 struct DoctorCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "doctor",
-        abstract: "Diagnose the testanyware install (PATH shadowing, Homebrew layout)"
+        abstract: "Diagnose the testanyware install (PATH, bundled agents, host tools)"
     )
 
     func run() async throws {
-        let check = InstallPathCheck.run()
+        let install = InstallPathCheck.run()
+        let bundled = BundledAgentsCheck.run()
+        let tools = ToolAvailabilityCheck.run()
 
         print("testanyware doctor")
-        print("  running binary:  \(check.runningBinary)")
-        printVerdict(check.verdict)
+        print("")
 
-        if !check.isOK {
+        print("Install path")
+        print("  running binary:  \(install.runningBinary)")
+        printInstallVerdict(install.verdict)
+        print("")
+
+        print("Bundled agents")
+        printBundledVerdict(bundled.verdict)
+        print("")
+
+        print("Host tools")
+        printToolStatuses(tools.statuses)
+
+        if !install.isOK || !bundled.isOK || !tools.isOK {
             throw ExitCode.failure
         }
     }
 
-    private func printVerdict(_ verdict: InstallPathCheck.Verdict) {
+    private func printInstallVerdict(_ verdict: InstallPathCheck.Verdict) {
         switch verdict {
         case let .homebrewInstall(path, brewPrefix):
             print("  on PATH:         \(path)")
@@ -46,6 +59,38 @@ struct DoctorCommand: AsyncParsableCommand {
             } else {
                 print("  Homebrew prefix: not found")
                 print("  ✗ testanyware is not on PATH and Homebrew is not installed")
+            }
+        }
+    }
+
+    private func printBundledVerdict(_ verdict: BundledAgentsCheck.Verdict) {
+        switch verdict {
+        case let .allPresent(brewPrefix):
+            print("  bundle root:     \(brewPrefix)/share/testanyware/agents")
+            print("  ✓ macOS, Windows, and Linux agents all present")
+        case .noHomebrew:
+            print("  bundle root:     (skipped — Homebrew not installed)")
+        case let .missing(brewPrefix, issues):
+            print("  bundle root:     \(brewPrefix)/share/testanyware/agents")
+            for (slot, issue) in issues {
+                switch issue {
+                case let .missing(path):
+                    print("  ✗ \(slot.rawValue) agent missing: \(path)")
+                case let .notExecutable(path):
+                    print("  ✗ \(slot.rawValue) agent not executable: \(path)")
+                }
+            }
+            print("    remediation: brew reinstall Linkuistics/taps/testanyware")
+        }
+    }
+
+    private func printToolStatuses(_ statuses: [ToolAvailabilityCheck.Status]) {
+        for status in statuses {
+            if let path = status.path {
+                print("  ✓ \(status.tool.name) — \(path)")
+            } else {
+                print("  ! \(status.tool.name) — not found (\(status.tool.purpose))")
+                print("    install hint: \(status.tool.installHint)")
             }
         }
     }

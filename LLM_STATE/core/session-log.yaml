@@ -367,3 +367,15 @@ sessions:
     - All 316 tests pass (`swift test --skip IntegrationTests`); manual shadow simulation verified.
     - Key design choice: path comparison uses the raw `which` result, not `realpath`, so the remediation hint names the symlink itself (`sudo rm /usr/local/bin/testanyware`) rather than the build artifact it points to.
     - What this suggests next: extend doctor with additional checks — OCR status recovery, bundled-agent existence under brew prefix, `tart`/`qemu` availability. The Diagnostics module structure supports this without redesign.
+- id: session-16
+  timestamp: 2026-04-28T06:12:21Z
+  phase: work
+  body: |
+    ### Session 16 (2026-04-28T06:12:21Z) — Extend doctor with bundled-agent and host-tool checks
+
+    - Implemented `BundledAgentsCheck` in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern. Verifies three agent slots under `<brewPrefix>/share/testanyware/agents/`: `macos/testanyware-agent` (executable), `windows/testanyware-agent.exe` (presence-only), and `linux/testanyware_agent/__main__.py` (presence-only). `noHomebrew` verdict skips the check gracefully when Homebrew is absent. 11 unit tests added; all pass.
+    - Implemented `ToolAvailabilityCheck` in the same Diagnostics module. Probes `tart`, `qemu-system-aarch64`, and `swtpm` via `which`. Tool availability is advisory (`isOK` stays true regardless); missing tools surface with `!` and an install hint rather than failing doctor. 5 unit tests added; all pass.
+    - Extended `DoctorCommand.swift` to call both new checks and print results in three sections: "Install path", "Bundled agents", "Host tools". Exits non-zero only when install-path or bundled-agents flag a hard issue; missing host tools are warnings only.
+    - `swift build` and `swift test --filter "BundledAgentsCheckTests|ToolAvailabilityCheckTests|InstallPathCheckTests"` pass (26/26). Manual `testanyware doctor` against the live Homebrew prefix confirmed correct output.
+    - Both tasks completed as specified; no scope creep. Stale-status repair was a no-op.
+    - What this suggests next: `share/testanyware/scripts/` and `share/testanyware/helpers/` bundles are not yet verified; a sibling `BundledScriptsCheck` would follow the identical pattern. Version-floor checks for `tart` and `qemu-system-aarch64` would catch known incompatible-version hazards identified in release notes.
