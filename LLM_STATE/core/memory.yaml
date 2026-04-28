@@ -354,9 +354,9 @@ entries:
   body: |
     `ToolAvailabilityCheck` probes `tart`, `qemu-system-aarch64`, and `swtpm` via `which`, then runs `--version` probes for `tart` (floor 2.0.0) and `qemu-system-aarch64` (floor 8.0.0). Advisory only: `isOK` stays `true` regardless of what is missing or below the version floor. Missing or out-of-date tools surface under the "Host tools" section with `!` prefix and an install/upgrade hint, but do not cause `testanyware doctor` to exit non-zero. `versionProbe` closure is injectable for deterministic testing.
 - id: doctor-exits-non-zero-only-for-install-path-or-bundled-agent-failures
-  title: doctor exits non-zero for install-path, bundled-agents, or bundled-scripts
+  title: doctor exits non-zero for install-path, bundled-agents, bundled-scripts, or provisioner-scripts
   body: |
-    `testanyware doctor` exits non-zero when `InstallPathCheck`, `BundledAgentsCheck`, or `BundledScriptsCheck` flag a hard issue. `ToolAvailabilityCheck` ("Host tools") failures are warnings only — they never contribute to a non-zero exit.
+    `testanyware doctor` exits non-zero when `InstallPathCheck`, `BundledAgentsCheck`, `BundledScriptsCheck`, or `ProvisionerScriptsVersionCheck` flag a hard issue. `ToolAvailabilityCheck` ("Host tools") failures are advisory only — they never contribute to a non-zero exit.
 - id: bundledscriptscheck-verifies-scripts-and-helpers-under-brew-prefix
   title: BundledScriptsCheck verifies scripts and helpers under brew prefix
   body: |
@@ -365,27 +365,21 @@ entries:
   title: Windows QEMU cold-boot tests need 15-minute timeout
   body: |
     Both `startStopRoundTripWindows` and `qemuMonitorDiscoversAgentPort` in `VMLifecycleQEMUTests.swift` use `.minutes(15)`. These tests share the same cold-boot path; the limit must be applied to both — applying it to only one leaves the sibling flaky. Prior `.minutes(10)` limit was too tight for cold Windows QEMU boot.
-- id: resolvebrewprefix-duplicated-across-three-diagnostics-files
-  title: resolveBrewPrefix() duplicated across three Diagnostics files
-  body: |
-    `BundledScriptsCheck.resolveBrewPrefix()` is now duplicated in three `cli/Sources/TestAnywareDriver/Diagnostics/` files: `BundledScriptsCheck.swift`, `BundledAgentsCheck.swift`, and `InstallPathCheck.swift`. The Diagnostics module uses the classify/run split pattern (see `diagnostics-module-uses-classify-run-split-for-testability`).
-
-    **Strategic intent:** When a fourth Diagnostics file appears, factor `resolveBrewPrefix()` into a shared `BrewPrefixResolver` helper in the same directory. Three copies is survivable; four is the natural refactor trigger.
-
-    **Why deferred:** The list is small and stable. Adding the shared helper before a fourth consumer exists adds complexity without reducing duplication meaningfully.
-
-    Source: `extend-doctor-verify-bundled-scripts-and-helpers` results — "## What this suggests next" item 2.
 - id: queryresolver-deduplicates-by-role-label-id-position-size
   title: QueryResolver deduplicates by role/label/id/position/size
   body: |
     `QueryResolver.dedupedByIdentity` deduplicates `--role` (and other windowed-search) results using `role | label | id | platformRole | position | size` as identity key. Coordinate-gated: elements without position/size (synthetic) pass through undeduped. When multiple matches remain after dedup, `AgentServer.swift` returns an error directing the caller to use `--index N`.
 - id: findliveelement-cannot-re-match-deduped-element-via-index-n
-  title: findLiveElement cannot re-match deduped element via --index N
+  title: LiveElementMatcher uses dedupedByIdentity key for re-matching
   body: |
-    `findLiveElement` cannot relocate a deduped element by `--index N` after the element is acted on. NSStackView anonymous text fields are the known trigger. Separate defect from the `dedupedByIdentity` fix; `set-value --index N` returns `.notFound` on subsequent calls to the same element. See `QueryResolver deduplicates by role/label/id/position/size`.
+    LiveElementMatcher (`agents/macos/Sources/TestAnywareAgent/LiveElementMatcher.swift`) uses `role | label | id | platformRole | position | size` as identity key — the same key as `dedupedByIdentity`. `AgentServer.findLiveElement` delegates to it. NSStackView anonymous text fields can be relocated after a dedup-based `--index N` selection. See `QueryResolver deduplicates by role/label/id/position/size`.
 - id: versionprobe-helper-deferred-until-third-tool-needs-version-aware-check
   title: VersionProbe helper deferred until third tool needs version-aware check
   body: |
     Consider a shared `VersionProbe` helper when a third tool needs version-aware checks in `ToolAvailabilityCheck`. The `--version` probe pattern (`/usr/bin/env <tool> --version` → first dotted-numeric token, ignoring year-only tokens) is already duplicated across the `tart` and `qemu-system-aarch64` checks. Current count: 2 tools. Factor into a `VersionProbe` struct when a third tool is added.
 
     Code location: `cli/Sources/TestAnywareDriver/Diagnostics/ToolAvailabilityCheck.swift` — `parseVersion`, `compareVersion`, and the `versionProbe: (String) -> String?` injectable closure.
+- id: provisionerscriptsversioncheck-reads-min-tool-sentinels
+  title: ProvisionerScriptsVersionCheck reads min-tool sentinels
+  body: |
+    `ProvisionerScriptsVersionCheck` (`cli/Sources/TestAnywareDriver/Diagnostics/`) reads `# testanyware-min-tool: <tool> <version>` comment lines from bundled `.sh` files and verifies installed tool versions meet declared floors. No bundled scripts currently declare sentinels; doctor prints `✓ no version sentinels declared`. Follows classify/run split pattern. A hard check: triggers non-zero exit when a declared version floor is not met.
