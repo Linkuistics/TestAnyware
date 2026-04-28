@@ -41,10 +41,14 @@ read_version() {
   git -C "$REPO_ROOT" describe --tags --abbrev=0 | sed 's/^v//'
 }
 
+# Helper functions whose stdout is captured via $(...) MUST send all
+# progress output to stderr — otherwise the caller's command substitution
+# splices informational text into the returned path. assemble_bundle and
+# package_bundle below are the captured callers.
 build_cli() {
   local stage_bin="$1"
-  echo "release-build: building CLI (testanyware)"
-  swift build --package-path "$REPO_ROOT/cli" -c release
+  echo "release-build: building CLI (testanyware)" >&2
+  swift build --package-path "$REPO_ROOT/cli" -c release >&2
   local bin_path
   bin_path="$(swift build --package-path "$REPO_ROOT/cli" -c release --show-bin-path)"
   [[ -f "$bin_path/testanyware" ]] || die "CLI build did not produce $bin_path/testanyware"
@@ -54,8 +58,8 @@ build_cli() {
 
 build_macos_agent() {
   local stage_agents="$1"
-  echo "release-build: building macOS agent (testanyware-agent)"
-  swift build --package-path "$REPO_ROOT/agents/macos" -c release
+  echo "release-build: building macOS agent (testanyware-agent)" >&2
+  swift build --package-path "$REPO_ROOT/agents/macos" -c release >&2
   local bin_path
   bin_path="$(swift build --package-path "$REPO_ROOT/agents/macos" -c release --show-bin-path)"
   [[ -f "$bin_path/testanyware-agent" ]] || die "macOS agent build did not produce $bin_path/testanyware-agent"
@@ -66,10 +70,10 @@ build_macos_agent() {
 
 build_windows_agent() {
   local stage_agents="$1"
-  echo "release-build: building Windows agent (testanyware-agent.exe, win-arm64)"
+  echo "release-build: building Windows agent (testanyware-agent.exe, win-arm64)" >&2
   local proj="$REPO_ROOT/agents/windows"
   dotnet publish "$proj" -r win-arm64 --self-contained \
-    -p:PublishSingleFile=true -c Release --nologo -v quiet
+    -p:PublishSingleFile=true -c Release --nologo -v quiet >&2
   local exe="$proj/bin/Release/net9.0-windows/win-arm64/publish/testanyware-agent.exe"
   [[ -f "$exe" ]] || die "Windows agent build did not produce $exe"
   mkdir -p "$stage_agents/windows"
@@ -78,7 +82,7 @@ build_windows_agent() {
 
 stage_linux_agent() {
   local stage_agents="$1"
-  echo "release-build: staging Linux agent (Python source)"
+  echo "release-build: staging Linux agent (Python source)" >&2
   local src="$REPO_ROOT/agents/linux/testanyware_agent"
   [[ -d "$src" ]] || die "Linux agent source not found at $src"
   mkdir -p "$stage_agents/linux"
@@ -90,7 +94,7 @@ stage_linux_agent() {
 
 stage_scripts() {
   local stage_scripts="$1"
-  echo "release-build: staging provisioner scripts"
+  echo "release-build: staging provisioner scripts" >&2
   mkdir -p "$stage_scripts"
   cp "$REPO_ROOT/provisioner/scripts/"_testanyware-paths.sh "$stage_scripts/"
   cp "$REPO_ROOT/provisioner/scripts/"vm-*.sh "$stage_scripts/"
@@ -99,7 +103,7 @@ stage_scripts() {
 
 stage_helpers() {
   local stage_helpers="$1"
-  echo "release-build: staging helpers"
+  echo "release-build: staging helpers" >&2
   mkdir -p "$stage_helpers"
   cp -R "$REPO_ROOT/provisioner/helpers/." "$stage_helpers/"
 }
@@ -131,7 +135,7 @@ assemble_bundle() {
 package_bundle() {
   local bundle_root="$1" version="$2"
   local archive="$DIST_DIR/testanyware-v${version}-${TARGET}.tar.xz"
-  echo "release-build: packaging $archive"
+  echo "release-build: packaging $archive" >&2
   tar -C "$DIST_DIR/staging" -cJf "$archive" "$(basename "$bundle_root")"
   echo "$archive"
 }

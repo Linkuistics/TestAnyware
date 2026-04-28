@@ -1,15 +1,13 @@
-id: session-11
-timestamp: 2026-04-28T02:44:40Z
+id: session-12
+timestamp: 2026-04-28T03:31:27Z
 phase: work
 body: |
-  ### Session 11 (2026-04-28T02:44:40Z) — Homebrew distribution release scripts and golden-script refactor
+  ### Session 12 (2026-04-28T03:31:27Z) — P6 smoke test exposed dylib bundling defect; release rolled back
 
-  - Implemented P1–P5 of the Homebrew distribution plan (HomebrewDistribution.plan.md).
-  - Added `scripts/release-doctor.sh` (preflight checks), `scripts/release-build.sh` (builds CLI + macOS agent via swift, Windows agent via dotnet, stages Linux agent source, packages into `.tar.xz`, renders the formula), `scripts/release-publish.sh` (creates GitHub release, copies formula into tap), and `scripts/templates/testanyware.rb.tmpl` (single-tarball Homebrew formula, arm64 macOS only).
-  - Refactored all three golden scripts (`vm-create-golden-macos.sh`, `vm-create-golden-linux.sh`, `vm-create-golden-windows.sh`) to resolve agent/CLI binaries from `$(brew --prefix testanyware)/share/testanyware/agents/<platform>/...` by default, with `TESTANYWARE_AGENT_BIN_OVERRIDE` / `TESTANYWARE_CLI_BIN_OVERRIDE` env-var escape hatches for contributor builds. Removed all in-script `swift build`, `dotnet publish`, and `_PROJECT_ROOT`/`_PROJECT_DIR` references.
-  - Updated README with a new `## Install (Homebrew)` section (chosen invocation: `bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-*.sh"`), reframed `## Building from Source` as a contributor section, and documented the override env vars.
-  - Added `/target/dist/` to `.gitignore`.
-  - Verification: `bash -n` clean on all scripts, `ruby -c` clean on formula template, `release-doctor.sh` reports all prerequisites met, `release-build.sh` fires the dirty-tree gate correctly before proceeding.
-  - P6 (end-to-end smoke test via actual release tag + brew install + golden rebuild) deferred — requires a clean tagged HEAD.
-  - Key open questions: (a) invocation UX for brew users invoking golden scripts (documented bash invocation vs a future `testanyware vm create-golden` subcommand); (b) TCC-csreq correctness when the in-VM agent arrives via brew rather than `swift build` — should be fine but unverified until P6.
-  - Suggests next: create release tag, run P6 smoke test; after P6 passes, replace existing from-source formula in tap with the new bundled formula.
+  - Executed the full P6 pipeline end-to-end: tagged HEAD as v1.0.0, pushed 44 commits and the tag, ran `scripts/release-build.sh` (hitting a latent SHA-capture bug), manually worked around it, published the GitHub release, copied the rendered formula into the homebrew-taps repo, and ran `brew install Linkuistics/taps/testanyware` in a fresh shell.
+  - Install succeeded and the tarball layout was correct, but the brew-installed CLI failed at runtime with `dyld: Library not loaded: @rpath/libRoyalVNCKit.dylib` — the `build_cli` function in `release-build.sh` copies only the executable, leaving the dynamic library that `swift build` produces alongside it.
+  - Fully rolled back: deleted the GitHub release and v1.0.0 tag from origin, force-pushed the homebrew-taps repo back to its prior commit, uninstalled the brew package, and removed `target/dist/`. Repo is at a clean post-P5 state.
+  - Fixed the latent SHA-capture bug in `release-build.sh`: all progress `echo` calls in helper functions whose stdout is captured via `$(...)` now redirect to `>&2`, and the `swift build` / `dotnet publish` invocations also redirect stdout to stderr. Without this fix, dotnet's first-run welcome banner polluted the captured archive path and caused `sha256sum` to fail.
+  - Task status flipped to `blocked` with the precise dylib-bundling fix inlined in the results block; a full retry sequence is documented there.
+  - What to try next: the dylib bundling fix and formula template update are small, mechanical changes — implement them at the top of the next work session before re-tagging, then retry P6.
+  - Key learning: `RoyalVNCKit` is a dynamic library by design (its `Bindings/{dotnet,kotlin}/` consumers require it); the fix is to bundle `libRoyalVNCKit.dylib` next to the binary in `bin/` and update the formula's install block to `bin.install Dir["bin/*"]`.

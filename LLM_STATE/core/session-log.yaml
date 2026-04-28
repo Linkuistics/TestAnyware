@@ -295,3 +295,16 @@ sessions:
     - P6 (end-to-end smoke test via actual release tag + brew install + golden rebuild) deferred — requires a clean tagged HEAD.
     - Key open questions: (a) invocation UX for brew users invoking golden scripts (documented bash invocation vs a future `testanyware vm create-golden` subcommand); (b) TCC-csreq correctness when the in-VM agent arrives via brew rather than `swift build` — should be fine but unverified until P6.
     - Suggests next: create release tag, run P6 smoke test; after P6 passes, replace existing from-source formula in tap with the new bundled formula.
+- id: session-12
+  timestamp: 2026-04-28T03:31:27Z
+  phase: work
+  body: |
+    ### Session 12 (2026-04-28T03:31:27Z) — P6 smoke test exposed dylib bundling defect; release rolled back
+
+    - Executed the full P6 pipeline end-to-end: tagged HEAD as v1.0.0, pushed 44 commits and the tag, ran `scripts/release-build.sh` (hitting a latent SHA-capture bug), manually worked around it, published the GitHub release, copied the rendered formula into the homebrew-taps repo, and ran `brew install Linkuistics/taps/testanyware` in a fresh shell.
+    - Install succeeded and the tarball layout was correct, but the brew-installed CLI failed at runtime with `dyld: Library not loaded: @rpath/libRoyalVNCKit.dylib` — the `build_cli` function in `release-build.sh` copies only the executable, leaving the dynamic library that `swift build` produces alongside it.
+    - Fully rolled back: deleted the GitHub release and v1.0.0 tag from origin, force-pushed the homebrew-taps repo back to its prior commit, uninstalled the brew package, and removed `target/dist/`. Repo is at a clean post-P5 state.
+    - Fixed the latent SHA-capture bug in `release-build.sh`: all progress `echo` calls in helper functions whose stdout is captured via `$(...)` now redirect to `>&2`, and the `swift build` / `dotnet publish` invocations also redirect stdout to stderr. Without this fix, dotnet's first-run welcome banner polluted the captured archive path and caused `sha256sum` to fail.
+    - Task status flipped to `blocked` with the precise dylib-bundling fix inlined in the results block; a full retry sequence is documented there.
+    - What to try next: the dylib bundling fix and formula template update are small, mechanical changes — implement them at the top of the next work session before re-tagging, then retry P6.
+    - Key learning: `RoyalVNCKit` is a dynamic library by design (its `Bindings/{dotnet,kotlin}/` consumers require it); the fix is to bundle `libRoyalVNCKit.dylib` next to the binary in `bin/` and update the formula's install block to `bin.install Dir["bin/*"]`.

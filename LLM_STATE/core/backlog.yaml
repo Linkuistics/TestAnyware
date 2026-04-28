@@ -2,7 +2,8 @@ tasks:
 - id: p6-end-to-end-homebrew-pipeline-smoke-test-tag-brew-install-golden-rebuild
   title: 'P6: end-to-end homebrew pipeline smoke test (tag → brew install → golden rebuild)'
   category: feature
-  status: not_started
+  status: blocked
+  blocked_reason: 'Brew-installed CLI fails at runtime: libRoyalVNCKit.dylib not bundled in tarball. Requires release-build.sh + formula template fix before retry. Full v1.0.0 release rolled back. See Results body for the precise fix and retry sequence.'
   dependencies: []
   description: |
     Run the end-to-end homebrew pipeline smoke test (P6 of `0-docs/plans/HomebrewDistribution.plan.md`).
@@ -22,6 +23,179 @@ tasks:
     **Bundle opportunity:** The Tahoe golden rebuild in step 5 is also the natural moment to execute the `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden` task (--window 40 px compensation and --open-menu comma-path drill-down). Run those checks during step 5's golden-creation session so a second golden rebuild is not needed.
 
     **Post-P6 follow-up (do not block P6 on this):** Decide between option A (`testanyware vm create-golden --platform <p>` subcommand) and the currently-documented bash invocation for the brew-user UX. Memory entry `homebrew-formula-bundles-cli-agents-and-scripts-in-one-tarball` has the full context.
+  results: |
+    ## P6 outcome: blocked on dylib-bundling defect (rolled back to clean slate)
+
+    P6 was executed end-to-end and uncovered a real distribution defect that
+    must be fixed before retry. The release was fully rolled back; the repo
+    is at a clean post-P5 state with one uncommitted bug fix in the working
+    tree.
+
+    ### What was executed
+
+    1. Tagged HEAD as `v1.0.0` (annotated, with release notes), pushed all
+       44 unpushed commits (including the entire P1–P5 implementation) plus
+       the tag to `origin/main`.
+    2. Ran `scripts/release-build.sh`. **Hit a latent bug** (see "Uncommitted
+       fix" below) but the bundle tarball was correctly assembled at
+       `target/dist/testanyware-v1.0.0-aarch64-apple-darwin.tar.xz` (43MB,
+       39 entries: CLI binary, all three agents, scripts, helpers, README,
+       LICENSE).
+    3. Manually computed SHA + rendered formula via `sed` on the template to
+       work around the script bug.
+    4. Ran `scripts/release-publish.sh`: created
+       `https://github.com/Linkuistics/TestAnyware/releases/tag/v1.0.0`,
+       uploaded the tarball, copied formula into
+       `~/Development/homebrew-taps/Formula/testanyware.rb`, committed
+       (`testanyware v1.0.0` = e790f18), pushed the tap.
+    5. Ran `brew install Linkuistics/taps/testanyware` in a fresh shell
+       (env -i, brew-only PATH). **Install succeeded** — layout under
+       `/opt/homebrew/Cellar/testanyware/1.0.0/` is correct: `bin/testanyware`
+       plus `share/testanyware/{agents/{macos,linux,windows},scripts,helpers}/`
+       with the right file types (Mach-O arm64, PE32+ Aarch64, Python source).
+    6. Tried to invoke the brew-installed CLI. **FAILED at runtime** with
+       `dyld[…]: Library not loaded: @rpath/libRoyalVNCKit.dylib` — the
+       tarball ships the binary but not the dylib it depends on.
+    7. Rolled back: `gh release delete v1.0.0 --cleanup-tag` (deleted both
+       the GitHub release and the tag from origin), `git tag -d v1.0.0`
+       locally, `git -C ~/Development/homebrew-taps reset --hard 22d810a`
+       then `--force-with-lease push` (restored the prior `ravel-lite v1.0.3`
+       tap commit). Uninstalled the broken brew install. Removed
+       `target/dist/`.
+
+    ### Findings
+
+    **Critical (blocks P6):**
+
+    - **`libRoyalVNCKit.dylib` is not bundled in the release tarball.** The
+      Swift CLI links against `RoyalVNCKit` from the vendored package at
+      `vendored/royalvnc/`, which declares `type: .dynamic` in its
+      `Package.swift` (line 42). `swift build -c release` produces both
+      `testanyware` and `libRoyalVNCKit.dylib` in the same `.build/release/`
+      directory, and the binary's `LC_RPATH` already includes `@loader_path`,
+      so dyld finds the dylib next to the binary in the dev workflow. The
+      `release-build.sh` `build_cli` function copies only the executable,
+      leaving the dylib behind.
+
+    - **Cannot drop `type: .dynamic` from `vendored/royalvnc/Package.swift`.**
+      The royalvnc package's `Bindings/{dotnet,kotlin}/` consumers depend on
+      the dynamic library output. The OLD pre-Homebrew tap formula's
+      `inreplace` workaround (mentioned in `docs/Homebrew design history`)
+      was applied per-build by Homebrew, not committed to the source — the
+      vendored package's upstream behavior is preserved deliberately.
+
+    **Side issue (not blocking P6, but flagged):**
+
+    - **`/usr/local/bin/testanyware` is a stale dev symlink** pointing at
+      `/Users/antony/Development/TestAnyware/cli/.build/release/testanyware`,
+      created 19 Apr 2026. It shadows `/opt/homebrew/bin/testanyware` on the
+      host PATH and reports v0.2.0. Not a release defect — but you'll want to
+      `rm /usr/local/bin/testanyware` before testing v1.0.0+ on this host so
+      `which testanyware` returns the brew install.
+
+    ### Uncommitted fix in working tree
+
+    `scripts/release-build.sh` has uncommitted edits that fix a latent
+    shell-function-return bug:
+
+    - **Bug:** Helper functions whose stdout is captured via `$(...)` (e.g.
+      `assemble_bundle`, `package_bundle`) emitted both progress messages and
+      their return value on stdout. The captured string contained the
+      progress message PLUS the actual path. `sha256_of "$archive"` then got
+      a multi-line filename, errored, and `set -euo pipefail` killed the
+      script before the formula was rendered.
+    - **Trigger:** The bug only surfaced because `dotnet`'s first-run
+      welcome banner added enough stdout pollution. On a host with
+      `~/.dotnet/<ver>/.dotnetFirstUseSentinel` already set (e.g. CI), the
+      bug is silent.
+    - **Fix:** All progress `echo`s in `build_cli`, `build_macos_agent`,
+      `build_windows_agent`, `stage_linux_agent`, `stage_scripts`,
+      `stage_helpers`, and `package_bundle` now go to `>&2`. The `swift
+      build` and `dotnet publish` invocations also redirect stdout to stderr
+      for defense in depth.
+
+    This fix should be committed by the analyse-work phase that immediately
+    follows.
+
+    ### Required for next P6 retry
+
+    The next work-phase implementer must:
+
+    **1. Bundle the dylib in the tarball.**
+
+    In `scripts/release-build.sh`'s `build_cli` function, after copying the
+    binary, also copy `libRoyalVNCKit.dylib`:
+
+    ```bash
+    build_cli() {
+      local stage_bin="$1"
+      echo "release-build: building CLI (testanyware)" >&2
+      swift build --package-path "$REPO_ROOT/cli" -c release >&2
+      local bin_path
+      bin_path="$(swift build --package-path "$REPO_ROOT/cli" -c release --show-bin-path)"
+      [[ -f "$bin_path/testanyware" ]] || die "CLI build did not produce $bin_path/testanyware"
+      cp "$bin_path/testanyware" "$stage_bin/testanyware"
+      chmod +x "$stage_bin/testanyware"
+      # Bundle the RoyalVNCKit dylib next to the binary; the binary's
+      # LC_RPATH already includes @loader_path so dyld will find it here.
+      local dylib="$bin_path/libRoyalVNCKit.dylib"
+      [[ -f "$dylib" ]] || die "expected RoyalVNCKit dylib at $dylib"
+      cp "$dylib" "$stage_bin/libRoyalVNCKit.dylib"
+    }
+    ```
+
+    This is the "simple path" approved by the user (dylib in `bin/` next to
+    executable, no `install_name_tool` rpath surgery needed).
+
+    **2. Update the formula template install rule.**
+
+    In `scripts/templates/testanyware.rb.tmpl`, change the install block to
+    copy *all* files in `bin/`, not just the executable:
+
+    ```ruby
+    def install
+      bin.install Dir["bin/*"]
+      pkgshare.install Dir["share/testanyware/*"]
+    end
+    ```
+
+    (Currently: `bin.install "bin/testanyware"` — would skip the dylib.)
+
+    **3. Possible `brew audit` warning.**
+
+    A non-executable file in `bin/` may trigger a `brew audit` warning. It
+    is cosmetic, not a runtime error. If unacceptable, fall back to the
+    "idiomatic path" (rejected this round): put the dylib in `lib/` and use
+    `install_name_tool -change @rpath/libRoyalVNCKit.dylib
+    @loader_path/../lib/libRoyalVNCKit.dylib bin/testanyware` during
+    `build_cli` staging. Requires updating the formula's install to also do
+    `lib.install Dir["lib/*"]`.
+
+    **4. Post-fix retry sequence.**
+
+    After the two source edits commit (analyse-work will commit the existing
+    SHA-bug fix; this work phase or the next one commits the dylib changes):
+
+    1. `git tag -a v1.0.0 -m "..."` at the new HEAD.
+    2. `git push origin main --follow-tags`.
+    3. `bash scripts/release-build.sh` — should succeed cleanly end-to-end.
+    4. Inspect `target/dist/`. Confirm `tar -tJf
+       target/dist/testanyware-v1.0.0-aarch64-apple-darwin.tar.xz | grep
+       dylib` returns `bin/libRoyalVNCKit.dylib`.
+    5. `bash scripts/release-publish.sh`.
+    6. In a fresh shell with PATH limited to brew (and stale `/usr/local/bin/testanyware` removed): `brew install Linkuistics/taps/testanyware && testanyware --version` — should print the version, NOT a dyld error.
+    7. `bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-macos.sh"`. Bundle the smoke-test for `--window` 40 px compensation and `--open-menu` comma-path during this golden-creation session (the `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden` backlog task explicitly says to bundle).
+    8. Run integration suite: `swift test --package-path cli --filter IntegrationTests`. Expect 270/272 (2 QEMU swtpm pre-existing baseline).
+
+    ### State at end of this work phase
+
+    - `origin/main` is up to date with local `main` (44 commits pushed, including the entire P1–P5 implementation).
+    - No `v1.0.0` tag exists locally or remotely.
+    - No GitHub release exists.
+    - `~/Development/homebrew-taps/Formula/testanyware.rb` is the prior v0.11.0 stub (force-pushed back to commit `22d810a`).
+    - `target/dist/` removed.
+    - Brew has nothing installed for `testanyware`.
+    - Working tree: `scripts/release-build.sh` modified (uncommitted SHA-bug fix; analyse-work commits it).
 - id: smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden
   title: Smoke-test --window compensation and --open-menu path on Tahoe golden
   category: bug
