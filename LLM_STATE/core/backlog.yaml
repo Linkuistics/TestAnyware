@@ -1,277 +1,51 @@
 tasks:
-- id: p6-end-to-end-homebrew-pipeline-smoke-test-tag-brew-install-golden-rebuild
-  title: 'P6: end-to-end homebrew pipeline smoke test (tag → brew install → golden rebuild)'
-  category: feature
-  status: done
-  dependencies: []
-  description: |
-    Run the end-to-end homebrew pipeline smoke test (P6 of `0-docs/plans/HomebrewDistribution.plan.md`).
-
-    P1–P5 are complete: release scripts, formula template, golden-script brew-prefix wiring, and README all landed. P6 is the only remaining phase and requires a clean tagged HEAD to execute.
-
-    **Steps (in order):**
-
-    1. `git tag -a v0.0.1-rc1 -m "Release candidate for brew smoke test"` — creates the tag release-build.sh requires.
-    2. `scripts/release-build.sh` — full swift + dotnet builds; stages Linux agent source; packages `.tar.xz`; renders `target/dist/testanyware.rb`.
-    3. `scripts/release-publish.sh` — creates GitHub release on `Linkuistics/TestAnyware`; copies rendered formula into `Linkuistics/homebrew-taps`.
-    4. In a fresh shell (no repo on PATH): `brew update && brew install Linkuistics/taps/testanyware`.
-    5. `bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-macos.sh"` — highest-risk step: confirms TCC-csreq correctness for the brew-shipped agent (see memory: `tcc-csreq-correctness-for-brew-installed-agent-is-unverified`).
-    6. Run the integration suite against the resulting golden. Expect 270/272 (2 QEMU swtpm failures are pre-existing baseline).
-    7. If passing: promote to `v0.1.0` and replace `Formula/testanyware.rb` in the tap with the bundled formula.
-
-    **Bundle opportunity:** The Tahoe golden rebuild in step 5 is also the natural moment to execute the `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden` task (--window 40 px compensation and --open-menu comma-path drill-down). Run those checks during step 5's golden-creation session so a second golden rebuild is not needed.
-
-    **Post-P6 follow-up (do not block P6 on this):** Decide between option A (`testanyware vm create-golden --platform <p>` subcommand) and the currently-documented bash invocation for the brew-user UX. Memory entry `homebrew-formula-bundles-cli-agents-and-scripts-in-one-tarball` has the full context.
-  results: |
-    ## P6 outcome: brew distribution pipeline verified end-to-end for all three platforms
-
-    The previously-blocking dylib defect was already fixed in `2f74c3d` and the
-    SHA-bug fix in `b99f971` (committed by analyse-work in cycles between the
-    prior P6 attempt and this one). This run found a separate distribution bug
-    (in-binary `--version` constant lying), fixed it Ravel-Lite-style, and
-    shipped v1.0.1 as the verified-good release.
-
-    ### What was executed
-
-    1. Tagged HEAD as `v1.0.0` (annotated). Pushed 12 unpushed commits +
-       the tag to `origin/main`.
-    2. Ran `scripts/release-build.sh`. Dylib correctly bundled this time:
-       tarball contains `bin/libRoyalVNCKit.dylib` alongside `bin/testanyware`.
-    3. Ran `scripts/release-publish.sh`. Created GitHub release
-       `https://github.com/Linkuistics/TestAnyware/releases/tag/v1.0.0`,
-       uploaded the 44 MB tarball, and committed the rendered formula into
-       `Linkuistics/homebrew-taps` (commit `074fe8f`).
-    4. Cleaned brew tap rebase corruption left over from the prior P6
-       rollback's force-push (the brew clone at
-       `/opt/homebrew/Library/Taps/linkuistics/homebrew-taps/` had a stale
-       in-progress rebase trying to replay the deleted `e790f18` commit on
-       top of the new tip). Recovery: `git rebase --abort` + `git reset
-       --hard origin/main`. See "Findings" for follow-up.
-    5. Removed stale dev symlink at `/usr/local/bin/testanyware` (created
-       2026-04-19, shadowed brew install).
-    6. `brew install Linkuistics/taps/testanyware`. **Install succeeded; CLI
-       ran without dyld error** — the previous P6 blocker is fixed. But
-       `testanyware --version` reported `0.2.0`, revealing a hardcoded
-       version constant in `cli/Sources/testanyware/TestAnywareCLI.swift:10`
-       that didn't track the release tag.
-    7. Implemented Ravel-Lite-style version generation:
-       - `cli/scripts/generate-version.sh` shells out to `git describe
-         --tags --always --dirty` + `date -u +%Y-%m-%dT%H:%M:%SZ` and
-         writes `cli/Sources/testanyware/Version.swift` defining
-         `enum BuildInfo { marketing, gitDescribe, buildTimestamp, full }`.
-       - The committed stub uses `0.0.0-dev` placeholders so plain `swift
-         build` works for devs.
-       - `scripts/release-build.sh` invokes the generator before
-         `swift build`; an EXIT trap reverts `Version.swift` so the
-         working tree stays clean (works for both success + failure
-         paths).
-       - `TestAnywareCLI.swift` uses `version: BuildInfo.full`.
-       - Output format mirrors Ravel-Lite: `1.0.1 (v1.0.1, built
-         2026-04-28T04:11:31Z)`.
-       Committed (`151e549`).
-    8. Tagged `v1.0.1` (annotated). Pushed + republished. `brew upgrade`
-       went through without rebase corruption (clean fast-forward; the
-       prior corruption was specifically caused by the rollback's
-       force-push, not normal forward motion).
-    9. Verified brew CLI now reports `1.0.1 (v1.0.1, built 2026-04-28T...)`.
-    10. Built all three goldens via the brew-shipped scripts (`bash "$(brew
-        --prefix testanyware)/share/testanyware/scripts/vm-create-golden-*.sh"`):
-        - **macOS** (~12 min): TCC csreq + SIP cycle worked. `auth_value=2`
-          verified for both `kTCCServiceAccessibility` and
-          `kTCCServiceSystemPolicyAllFiles`. The brew-installed CLI
-          successfully drove the recovery-mode VNC session to type
-          `csrutil disable` / `enable` (recursive bootstrap).
-        - **Linux** (~12 min): apt install + agent setup. Final agent
-          health: `{"accessible": true, "platform": "linux"}`.
-        - **Windows** (~30 min, ISO cached): autounattend.xml-driven Win11
-          install + Task Scheduler agent registration. Agent responded to
-          shutdown HTTP request before final image creation.
-        All three goldens present at the expected paths after run.
-    11. Bundled smoke-tests against macOS clone: `--window` 40 px
-        compensation and `--open-menu` drill-down both verified. See the
-        other backlog task's Results for the detailed outcome.
-    12. Ran integration suite: `swift test --package-path cli --filter
-        IntegrationTests` against macOS clone. **20/21 passed**. The single
-        failure is `startStopRoundTripWindows()` exceeding the 600 s test
-        timeout; cold Windows clones take 8-12 min for first-logon + Task
-        Scheduler + agent startup (consistent with the "2 QEMU swtpm
-        failures are pre-existing baseline" note in the original task
-        description, and unrelated to the brew distribution).
-
-    ### Confirmed-positive memory entries
-
-    - `tcc-csreq-correctness-for-brew-installed-agent-is-unverified` — now
-      **verified positive**. The brew-installed agent's CDHash is the
-      correct anchor for TCC csreq; both Accessibility and Full Disk
-      Access grants persisted and `auth_value=2` was reported by the agent
-      on first boot of the cloned VM.
-
-    ### Findings (follow-up backlog candidates)
-
-    1. **Brew tap clone rebase corruption from force-push.** When a tap
-       force-pushes (which we did during the prior P6 rollback), every
-       user's local `/opt/homebrew/Library/Taps/<tap>/` clone hits an
-       in-progress rebase trying to replay its now-deleted local commit
-       on the new tip. Manual `git rebase --abort && git reset --hard
-       origin/main` is required. **Implication:** never force-push a tap
-       that has been installed by anyone. The rollback path used in the
-       prior P6 attempt is not safe for a tap that real users would
-       install — only safe for the maintainer's own host.
-
-    2. **`startStopRoundTripWindows()` 600 s timeout is too tight.** A
-       fresh Windows clone needs 8-12 min for first-logon + Task
-       Scheduler + agent startup. Either bump the test timeout to 900 s
-       or split the test into "boot" (slow) + "API roundtrip" (fast)
-       phases.
-
-    3. **`/usr/local/bin/testanyware` dev symlink hazard.** A 19 Apr dev
-       symlink at `/usr/local/bin/testanyware` shadowed
-       `/opt/homebrew/bin/testanyware` on this host. Removed during P6.
-       Future cleanup: either gate `swift build`'s install location to
-       `/opt/homebrew/bin` only, or add a doctor check that warns when
-       `which testanyware` returns something other than the brew path.
-
-    4. **`agent inspect --role <role>` errors with "Multiple elements
-       matched" even when scoped via `--window`.** Surfaced during
-       `--window` smoke-test on the macOS clone. The window scope
-       apparently doesn't deduplicate matching elements across the
-       text area + scroll bar role tree. Not blocking but worth
-       investigating.
-
-    ### State at end of this work phase
-
-    - `origin/main` is up to date with local `main`. Two new tags exist:
-      `v1.0.0` and `v1.0.1`. Both pushed.
-    - GitHub releases `v1.0.0` and `v1.0.1` are live at
-      `https://github.com/Linkuistics/TestAnyware/releases/`.
-    - Tap `Linkuistics/homebrew-taps` head is `c5e3892 testanyware v1.0.1`.
-    - `brew --prefix testanyware` resolves to the v1.0.1 install with the
-      bundled bash scripts and three platform agents.
-    - All three goldens rebuilt cleanly via the brew-shipped scripts.
-    - Working tree is clean (Version.swift reverted by EXIT trap).
-    - The version-generation infrastructure is committed and persistent —
-      future releases automatically pick up the tag in `--version`.
-- id: smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden
-  title: Smoke-test --window compensation and --open-menu path on Tahoe golden
+- id: fix-open-menu-docs-example-file-open-recent-not-file-recent-files
+  title: 'Fix --open-menu docs example: File,Open Recent not File,Recent Files'
   category: bug
-  status: done
+  status: not_started
   dependencies: []
   description: |
-    Verify the `--window` 40 px drop-shadow compensation and the `--open-menu` comma-path
-    drill-down against a real Tahoe VM after the next golden rebuild.
+    Fix `--open-menu` docs example: use `"File,Open Recent"` not `"File,Recent Files"`.
 
-    Both features landed in code but could not be exercised end-to-end in the sessions that
-    implemented them because the in-VM agent cannot be hot-swapped without losing TCC
-    accessibility (see `agent-hot-swap-does-not-re-grant-tcc-accessibility` memory entry).
+    The `--open-menu` flag documentation (and the original `smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden` task description) uses `--open-menu "File,Recent Files"` as a sample path. On macOS Tahoe the actual submenu is named "Open Recent", not "Recent Files". The smoke test confirmed this: `--open-menu "File,Recent Files"` errors with "No menu item matching 'Recent Files'".
 
-    **Checks to perform (fold into whichever session next rebuilds the Tahoe golden):**
+    **Files to update:**
+    - The `--open-menu` help string in `cli/Sources/testanyware/AgentCommand.swift` (if it names the submenu).
+    - Any inline code comments or docstrings referencing `"File,Recent Files"`.
+    - `0-docs/` plan files or README sections that quote this example (search for `Recent Files`).
+- id: fix-startstoproundtripwindows-integration-test-600-s-timeout
+  title: Fix startStopRoundTripWindows() integration test 600 s timeout
+  category: bug
+  status: not_started
+  dependencies: []
+  description: |
+    Fix `startStopRoundTripWindows()` integration test timeout: 600 s is too tight for cold Windows VM boot.
 
-    1. `testanyware input click --window <name> 100 100` against a known-position UI control
-       (e.g. a button in TextEdit whose screen-absolute position is known).  Confirm the click
-       lands on the intended target rather than ~40 px below it.  If the default 40 px inset
-       does not match reality, update `WindowOriginCompensation.defaultMacosTopInset` and
-       note the correct value in the `window-flag-includes-drop-shadow-in-ax-origin` memory
-       entry.
+    A fresh Windows clone needs 8–12 min for first-logon + Task Scheduler + agent startup. The current 600 s (`swift test`) timeout fires before the agent is ready, producing a spurious failure that is unrelated to any code defect.
 
-    2. `testanyware agent snapshot --open-menu "File,Recent Files"` against the macOS golden's
-       TextEdit or Finder.  Confirm the snapshot includes the recent-files submenu items.
-       If the 400 ms per-segment settle is insufficient (submenu not populated at snapshot
-       time), apply either the `--menu-settle-ms` flag approach or the poll-and-retry loop
-       described in the `open-menu-settle-delay-is-hardcoded-at-400ms` memory entry.
+    **Options (pick one):**
+    1. Bump the test timeout to 900 s (simplest fix; matches observed worst-case ~8 min + headroom).
+    2. Split the test into a slow "boot" phase (new `startWindowsVm()` helper with 900 s timeout) and a fast "API roundtrip" phase that asserts after the boot completes. Lets CI report the phases separately.
 
-    **Related backlog tasks:** `disable-ssh-in-macos-and-linux-golden-images` and
-    `audit-testanyware-agent-entitlements-for-documents-folder-access-on-tahoe` both require
-    Tahoe golden rebuilds and are natural opportunities to bundle this smoke-test.
-  results: |
-    ## Both smoke-tests pass on the v1.0.1 brew-installed agent against a fresh macOS Tahoe golden clone
+    Whichever option is chosen, the 2 pre-existing QEMU swtpm failures remain; a passing suite shows 20/21 non-Windows + 1/1 Windows = 21/21 (or 270+1=271/272 if QEMU tests are included in the same run).
 
-    Bundled with the P6 macOS golden rebuild (per the task description's
-    guidance). Ran against a clone of the just-built
-    `testanyware-golden-macos-tahoe` golden using the brew-installed CLI
-    and bundled agent — same artifacts a normal brew user would get.
+    **Surfaced during:** P6 end-to-end smoke test integration suite run (step 12), where the Windows test was the sole failure.
+- id: investigate-agent-inspect-role-returning-multiple-elements-matched-when-window-is-scoped
+  title: Investigate agent inspect --role returning Multiple elements matched when --window is scoped
+  category: bug
+  status: not_started
+  dependencies: []
+  description: |
+    Investigate and fix `agent inspect --role <role>` returning "Multiple elements matched" even when `--window` is also passed.
 
-    ### `--window` 40 px drop-shadow compensation: WORKS
+    **Bug:** During the P6 `--window` smoke-test on the macOS Tahoe clone, `agent inspect --role <role> --window <name>` errored with "Multiple elements matched" even though `--window` was intended to scope the search to a single window. The window scope apparently does not deduplicate elements that appear in both the text-area and scroll-bar subtrees of the AX role tree.
 
-    Setup:
-    - TextEdit launched in the clone via `testanyware exec "open -a
-      TextEdit"`.
-    - Window AX origin reported as `(79, 55)`. Inner text area starts at
-      absolute `(79, 155)` (a 100 px gap = title bar + toolbar).
+    **Investigation starting points:**
+    - `cli/Sources/TestAnywareDriver/Agent/` — the `inspect` command's `--window` filtering logic.
+    - `AXElementWrapper` / AX walker — check whether scroll-bar children inherit the same role as the text area.
+    - Reproduce: open TextEdit in the macOS golden clone, then `testanyware agent inspect --role AXTextArea --window "Untitled"`.
 
-    Test:
-    ```
-    testanyware input click --window "Untitled" 300 300
-    # → "Clicked at (379, 315) button=left count=1"
-    testanyware input type "smoke-test 40px"
-    ```
-
-    Math: window AX origin Y=55, with the -40 compensation the click
-    translated to absolute Y = 55 - 40 + 300 = 315 (the X computation has
-    no compensation: 79 + 300 = 379). Y=315 is well inside the visible
-    text area (which starts at Y=155).
-
-    Verification: a follow-up `agent snapshot --window "Untitled"` showed
-    the text area `value="Smoke-test 40px"` (the leading character was
-    auto-capitalized by macOS, but the click landed correctly and typing
-    worked).
-
-    Conclusion: `WindowOriginCompensation.defaultMacosTopInset = 40 px` is
-    correct on macOS Tahoe. No code change required.
-
-    ### `--open-menu` comma-path drill-down: WORKS
-
-    Test 1 (initial attempt with wrong submenu name):
-    ```
-    testanyware agent snapshot --open-menu "File,Recent Files"
-    # → Error: No menu item matching 'Recent Files' in --open-menu path 'File,Recent Files'
-    ```
-
-    This is the feature working correctly — failing loudly when the path
-    can't be matched. The submenu in TextEdit is actually called "Open
-    Recent", not "Recent Files".
-
-    Test 2 (corrected submenu name):
-    ```
-    testanyware agent snapshot --open-menu "File,Open Recent"
-    # Snapshot completed successfully, included TextEdit with focused text
-    # area (no recent-files submenu items visible because this is a fresh
-    # golden with no prior file history)
-    ```
-
-    Test 3 (single-level drill-in):
-    ```
-    testanyware agent snapshot --open-menu "File"
-    # Snapshot included TextEdit File menu items: "Rename…", "Untitled",
-    # etc. — confirming the menu was opened and traversed before the
-    # snapshot captured AX state.
-    ```
-
-    Conclusion: `--open-menu` correctly opens menu items along a comma-
-    separated path before snapshotting. The 400 ms per-segment settle is
-    sufficient for the menus tested. No code change required.
-
-    ### Suggested follow-up
-
-    - The `Recent Files` vs `Open Recent` confusion in the original task
-      description suggests a docs fix: the example in
-      `agent-snapshot-related-docs` should use `--open-menu "File,Open
-      Recent"` (the actual menu name), not `--open-menu "File,Recent
-      Files"` (which doesn't exist on macOS).
-    - Consider testing `--open-menu` against a deeper path (3+ segments)
-      in a future session — the 400 ms-per-segment settle hasn't been
-      stress-tested at depth.
-
-    ### Memory entries that can be cleared
-
-    The following memory entries were "to be confirmed" and are now
-    positively confirmed by this smoke-test:
-
-    - `window-flag-includes-drop-shadow-in-ax-origin` — confirmed: 40 px
-      is the correct value on Tahoe. Promote from "default value, may
-      need adjustment" to "verified default".
-    - `open-menu-settle-delay-is-hardcoded-at-400ms` — settle is
-      sufficient for File and File→Open Recent. Still untested at
-      greater depth.
+    **Acceptance:** `agent inspect --role AXTextArea --window "Untitled"` returns a single match (the text area), not an error. If there are legitimately multiple role matches in a window, the error message should tell the user to add `--index N` rather than failing silently.
 - id: virtiofs-serves-stale-cached-files-after-host-update
   title: VirtioFS serves stale cached files after host update
   category: bug
@@ -285,3 +59,18 @@ tasks:
     --no-virtio-cache`) would eliminate this class of silent transfer error. Affects
     any workflow that edits a source file on the host and then recompiles or re-runs it
     inside the VM. Surfaced on 2026-04-17 during Racket sample app validation.
+- id: add-doctor-check-for-usr-local-bin-testanyware-dev-symlink-shadowing-brew-install
+  title: Add doctor check for /usr/local/bin/testanyware dev-symlink shadowing brew install
+  category: feature
+  status: not_started
+  dependencies: []
+  description: |
+    Add a `testanyware doctor` check (or equivalent safeguard) for a `/usr/local/bin/testanyware` dev symlink that shadows the Homebrew-installed binary.
+
+    **Problem:** During the P6 smoke test a stale dev symlink at `/usr/local/bin/testanyware` (created 2026-04-19, pointing to a `swift build -c release` artifact) shadowed `/opt/homebrew/bin/testanyware`. This caused the brew-installed CLI to be ignored silently. The symlink had to be removed manually before the smoke test could proceed.
+
+    **Proposed fix — choose one or both:**
+    1. **Doctor check:** Add a `testanyware doctor` subcommand (or extend an existing one) that warns when `which testanyware` returns something other than a path under `$(brew --prefix)`. Print a remediation hint (`sudo rm /usr/local/bin/testanyware`).
+    2. **Build-time gate:** Document in `CONTRIBUTING.md` that `swift build` output should never be symlinked into `/usr/local/bin`; contributors should use `$(brew --prefix)/bin` exclusively after release testing.
+
+    Option 1 is the higher-value safety net because it catches the hazard at runtime for any contributor, not just after reading the docs.
