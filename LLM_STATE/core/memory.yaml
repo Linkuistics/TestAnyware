@@ -90,7 +90,7 @@ entries:
 - id: menu-bar-accessibility-tree-is-lazy
   title: Menu bar accessibility tree is lazy
   body: |
-    `testanyware agent snapshot --window "Menu Bar"` only exposes top-level menu bar items. Submenus do not appear until the menu is open. Use `testanyware agent snapshot --open-menu <path>` to click the named menu item via VNC (400 ms settle), then capture; the menu is left open for follow-up `agent press` commands. `<path>` is a comma-separated label sequence for submenu drill-down (e.g., `"File,Recent Files"`); each segment clicks the matching item, re-snapshots at increasing depth, then proceeds to the next. The 400 ms settle delay is best-effort — may need tuning if submenus are not yet populated at snapshot time.
+    `testanyware agent snapshot --window "Menu Bar"` only exposes top-level menu bar items. Submenus do not appear until the menu is open. Use `testanyware agent snapshot --open-menu <path>` to click the named menu item via VNC (400 ms settle), then capture; the menu is left open for follow-up `agent press` commands. `<path>` is a comma-separated label sequence for submenu drill-down (e.g., `"File,Open Recent"`); each segment clicks the matching item, re-snapshots at increasing depth, then proceeds to the next. The 400 ms settle delay is best-effort — may need tuning if submenus are not yet populated at snapshot time.
 - id: vmtypes-swift-extends-platform-instead-of-defining-vmplatform
   title: VMTypes.swift extends Platform instead of defining VMPlatform
   body: |
@@ -354,6 +354,14 @@ entries:
   body: |
     `ToolAvailabilityCheck` probes `tart`, `qemu-system-aarch64`, and `swtpm` via `which`. Advisory only: `isOK` stays `true` regardless of what is missing. Missing tools surface under the "Host tools" section with `!` prefix and an install hint, but do not cause `testanyware doctor` to exit non-zero.
 - id: doctor-exits-non-zero-only-for-install-path-or-bundled-agent-failures
-  title: doctor exits non-zero only for install-path or bundled-agent failures
+  title: doctor exits non-zero for install-path, bundled-agents, or bundled-scripts
   body: |
-    `testanyware doctor` prints three sections: "Install path", "Bundled agents", "Host tools". Exits non-zero only when `InstallPathCheck` or `BundledAgentsCheck` flag a hard issue. `ToolAvailabilityCheck` ("Host tools") failures are warnings only — they never contribute to a non-zero exit.
+    `testanyware doctor` exits non-zero when `InstallPathCheck`, `BundledAgentsCheck`, or `BundledScriptsCheck` flag a hard issue. `ToolAvailabilityCheck` ("Host tools") failures are warnings only — they never contribute to a non-zero exit.
+- id: bundledscriptscheck-verifies-scripts-and-helpers-under-brew-prefix
+  title: BundledScriptsCheck verifies scripts and helpers under brew prefix
+  body: |
+    `BundledScriptsCheck` verifies bundled scripts and XML helpers under `$(brew --prefix testanyware)/share/testanyware/`. `requiresExecutable` is set per-file on `FileProbe`: scripts require the executable bit; XML helpers do not. Returns `noHomebrew` verdict when Homebrew is absent, skipping the check entirely. Hard failure when any expected file is missing or a required-executable file lacks the exec bit. Resides in `cli/Sources/TestAnywareDriver/Diagnostics/` as a sibling to `BundledAgentsCheck`.
+- id: windows-qemu-cold-boot-tests-need-15-minute-timeout
+  title: Windows QEMU cold-boot tests need 15-minute timeout
+  body: |
+    Both `startStopRoundTripWindows` and `qemuMonitorDiscoversAgentPort` in `VMLifecycleQEMUTests.swift` use `.minutes(15)`. These tests share the same cold-boot path; the limit must be applied to both — applying it to only one leaves the sibling flaky. Prior `.minutes(10)` limit was too tight for cold Windows QEMU boot.
