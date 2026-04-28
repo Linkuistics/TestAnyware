@@ -246,7 +246,7 @@ entries:
 - id: usr-local-bin-testanyware-symlink-requires-manual-rebuild
   title: /usr/local/bin/testanyware symlink requires manual rebuild
   body: |
-    `/usr/local/bin/testanyware` is a symlink to a specific `swift build -c release` output artifact. Commits to the repo are not reflected until the binary is rebuilt (`swift build -c release`) and the symlink updated. A discrepancy between `swift test` results and live `testanyware` behavior indicates a stale symlink.
+    `/usr/local/bin/testanyware` is a symlink to a specific `swift build -c release` output artifact. Commits to the repo are not reflected until the binary is rebuilt (`swift build -c release`) and the symlink updated. A discrepancy between `swift test` results and live `testanyware` behavior indicates a stale symlink. Before brew-install testing, remove the symlink so `which testanyware` resolves to the brew-installed binary.
 - id: enrichrunningfromsidecar-covers-tart-and-qemu-platform-column-not-yet-enriched
   title: enrichRunningFromSidecar populates platform from spec sidecar
   body: |
@@ -306,7 +306,7 @@ entries:
     - `scripts/release-publish.sh` — creates GitHub release via `gh`, copies rendered formula into tap
     - `scripts/templates/testanyware.rb.tmpl` — single-tarball Homebrew formula template
 
-    P6 (end-to-end smoke test: tag → brew install → golden rebuild) blocked by dylib bundling defect; v1.0.0 release and formula were attempted and rolled back. Retry P6 after applying the dylib fix (see `build_cli must bundle libRoyalVNCKit.dylib with the binary`). Invocation UX for brew users (documented bash vs `testanyware vm create-golden` subcommand) also unresolved.
+    P6 (end-to-end smoke test: tag → brew install → golden rebuild) unblocked; dylib bundling fix applied (see `build_cli must bundle libRoyalVNCKit.dylib with the binary`). Invocation UX for brew users (documented bash vs `testanyware vm create-golden` subcommand) unresolved.
 
     Plan: `0-docs/plans/HomebrewDistribution.plan.md` (P0–P6).
 - id: golden-scripts-resolve-agent-cli-from-brew-prefix-by-default
@@ -329,3 +329,7 @@ entries:
   title: release-build.sh captured functions must write progress to stderr
   body: |
     Subshells capturing return values via `$(...)` receive all stdout. Progress `echo` calls inside such functions, and `swift build` / `dotnet publish` invocations, must redirect output to `>&2`. Without this, dotnet's first-run welcome banner pollutes the captured archive path and causes `sha256sum` to fail.
+- id: brew-audit-non-executable-warning-in-bin-is-harmless
+  title: brew audit non-executable warning in bin is harmless
+  body: |
+    `bin.install Dir["bin/*"]` places `libRoyalVNCKit.dylib` in Homebrew's `bin/` directory alongside the CLI binary. `brew audit` emits a non-fatal warning about a non-executable file in `bin/`. The warning is cosmetic and harmless.
