@@ -202,7 +202,7 @@ entries:
 - id: window-flag-includes-drop-shadow-in-ax-origin
   title: '`--window` auto-compensates Tahoe 40 px drop-shadow'
   body: |
-    On Tahoe, the AX-reported window origin includes a ~40 px structural drop-shadow inset on the y axis. `WindowOriginCompensation.offset(for:platform:environment:)` (`cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift`) subtracts `defaultMacosTopInset` (40 px) from the window's y position for `.macos` platform; non-macOS and nil platforms pass through unchanged. All six `--window`-relative input commands (click, mouse-down, mouse-up, move, scroll, drag) share a single async `windowOffset(connection:spec:windowFilter:)` helper that applies this compensation. Override via `TESTANYWARE_WINDOW_TOP_INSET=<int>`.
+    On Tahoe, the AX-reported window origin includes a ~40 px structural drop-shadow inset on the y axis. `WindowOriginCompensation.offset(for:platform:environment:)` (`cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift`) subtracts `defaultMacosTopInset` (40 px) from the window's y position for `.macos` platform; non-macOS and nil platforms pass through unchanged. All six `--window`-relative input commands (click, mouse-down, mouse-up, move, scroll, drag) share a single async `windowOffset(connection:spec:windowFilter:)` helper that applies this compensation. Override via `TESTANYWARE_WINDOW_TOP_INSET=<int>`. The 40 px value was validated on the Tahoe golden in P6 smoke tests.
 - id: swift-testing-enabled-if-evaluates-at-discovery-time
   title: swift-testing .enabled(if:) evaluates at discovery time
   body: |
@@ -254,31 +254,11 @@ entries:
 - id: open-menu-settle-delay-is-hardcoded-at-400ms
   title: open-menu settle delay is hardcoded at 400ms
   body: |
-    The `--open-menu` flag in `testanyware agent snapshot` uses a hardcoded 400 ms settle delay after each VNC click before capturing the AX tree. This value was chosen from AppKit menu animation norms and has not been validated against real VMs.
-
-    If live-VM testing finds submenus not yet populated at snapshot time, the fix is either:
+    The `--open-menu` flag in `testanyware agent snapshot` uses a hardcoded 400 ms settle delay after each VNC click before capturing the AX tree. This value was validated in P6 smoke tests on the Tahoe golden: comma-path drill-down navigates submenus and snapshots correctly at 400 ms. If future VMs show submenus not yet populated at snapshot time, fix options are:
     - Add a `--menu-settle-ms <int>` option to `AgentSnapshotCmd` (trivial — one `@Option` in `AgentCommand.swift`)
-    - Replace the fixed sleep with a poll-and-retry loop: snapshot after click, check for children on the opened menu item, retry up to N times with short sleeps
-
-    The poll-and-retry approach is more robust but requires defining a "menu is open" predicate on the AX tree. The tunable flag is simpler and sufficient if the delay just needs to be longer.
+    - Replace the fixed sleep with a poll-and-retry loop on the AX tree
 
     Code location: `cli/Sources/testanyware/AgentCommand.swift` — `openMenuBarPath(rawPath:)`.
-- id: windoworigincompensation-subrole-extension-speculative-follow-up
-  title: WindowOriginCompensation subrole extension — speculative follow-up
-  body: |
-    If live-VM testing reveals that different AppKit window subroles (`AXDialog`, `AXSheet`,
-    `AXFloatingWindow`) report different drop-shadow insets on Tahoe, extend
-    `WindowOriginCompensation.offset(for:platform:environment:)` to dispatch on
-    `WindowInfo.windowType` (or a derived subrole string) rather than applying a single global
-    `defaultMacosTopInset` for all macOS windows.
-
-    Current implementation location:
-    `cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift` —
-    `offset(for:platform:environment:)`.
-
-    This is speculative until the smoke-test task
-    (`smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden`) confirms whether the
-    40 px default is universally correct or subrole-dependent.
 - id: ssh-disabled-in-both-tart-golden-images
   title: SSH disabled in both tart golden images
   body: |
@@ -300,13 +280,13 @@ entries:
   body: |
     Single-tarball bundle covers CLI binary, all three agents (macOS arm64, Linux, Windows), and golden scripts. Eliminates per-artifact `gh release download` dependency. Ad-hoc signing only; arm64-only macOS distribution. Tap: `Linkuistics/homebrew-taps`.
 
-    Release pipeline scripts (P1–P5 complete):
+    Release pipeline scripts (P1–P6 all complete and verified end-to-end):
     - `scripts/release-doctor.sh` — preflight checks (git clean, tools present)
     - `scripts/release-build.sh` — builds CLI (`swift build`) + macOS agent, Windows agent (`dotnet publish`), stages Linux agent source; packages into `.tar.xz`; renders formula from template
     - `scripts/release-publish.sh` — creates GitHub release via `gh`, copies rendered formula into tap
     - `scripts/templates/testanyware.rb.tmpl` — single-tarball Homebrew formula template
 
-    P6 (end-to-end smoke test: tag → brew install → golden rebuild) unblocked; dylib bundling fix applied (see `build_cli must bundle libRoyalVNCKit.dylib with the binary`). Invocation UX for brew users (documented bash vs `testanyware vm create-golden` subcommand) unresolved.
+    P6 smoke test (tag → release-build → release-publish → brew install → three-platform golden rebuild → smoke tests → integration suite) completed successfully. dylib bundling fix applied (see `build_cli must bundle libRoyalVNCKit.dylib with the binary`).
 
     Plan: `0-docs/plans/HomebrewDistribution.plan.md` (P0–P6).
 - id: golden-scripts-resolve-agent-cli-from-brew-prefix-by-default
@@ -316,9 +296,9 @@ entries:
 
     Contributor override: set `TESTANYWARE_AGENT_BIN_OVERRIDE` (path to the agent binary) and/or `TESTANYWARE_CLI_BIN_OVERRIDE` (path to the CLI binary) before running a golden script to bypass the brew-prefix resolution. Both vars are independent.
 - id: tcc-csreq-correctness-for-brew-installed-agent-is-unverified
-  title: TCC-csreq correctness for brew-installed agent is unverified
+  title: 'TCC-csreq verified: brew-installed agent retains TCC after golden grants it'
   body: |
-    When the in-VM agent binary arrives via `brew install testanyware` rather than `swift build`, its CDHash changes. TCC pins accessibility grants to the original binary's csreq (CDHash for adhoc-signed binaries). Whether the brew-installed agent retains TCC accessibility without re-granting is unverified; to be confirmed during P6 smoke test.
+    When the in-VM agent binary arrives via `brew install testanyware` rather than `swift build`, its CDHash changes. TCC pins accessibility grants to the original binary's csreq (CDHash for adhoc-signed binaries). P6 smoke test confirmed: the golden-build scripts grant TCC (accessibility + FDA) to the brew-installed binary's CDHash during golden creation; the VM boots with TCC already pinned to the correct binary. No re-grant required at run time.
 
     See also: `agent-hot-swap-does-not-re-grant-tcc-accessibility` (direct binary replacement case) and `testanyware-agent-lacks-tcc-documents-access-on-tahoe-golden` (FDA grant in golden).
 - id: build-cli-must-bundle-libroyalvnckit-dylib-with-the-binary
@@ -333,3 +313,7 @@ entries:
   title: brew audit non-executable warning in bin is harmless
   body: |
     `bin.install Dir["bin/*"]` places `libRoyalVNCKit.dylib` in Homebrew's `bin/` directory alongside the CLI binary. `brew audit` emits a non-fatal warning about a non-executable file in `bin/`. The warning is cosmetic and harmless.
+- id: release-build-sh-generates-version-swift-from-git-describe
+  title: release-build.sh generates Version.swift from git describe
+  body: |
+    `cli/scripts/generate-version.sh` shells out to `git describe --tags --always --dirty` and writes `cli/Sources/testanyware/Version.swift`. `release-build.sh` calls this script before `swift build` and reverts the file on EXIT (trapping both success and failure paths). Non-release builds leave the dev-stub values unchanged.
