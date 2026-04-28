@@ -114,11 +114,27 @@ struct DoctorCommand: AsyncParsableCommand {
 
     private func printToolStatuses(_ statuses: [ToolAvailabilityCheck.Status]) {
         for status in statuses {
-            if let path = status.path {
-                print("  ✓ \(status.tool.name) — \(path)")
-            } else {
+            guard let path = status.path else {
                 print("  ! \(status.tool.name) — not found (\(status.tool.purpose))")
                 print("    install hint: \(status.tool.installHint)")
+                continue
+            }
+            switch status.versionVerdict {
+            case .ok(let detected):
+                if let detected {
+                    print("  ✓ \(status.tool.name) \(detected) — \(path)")
+                } else {
+                    print("  ✓ \(status.tool.name) — \(path)")
+                }
+            case let .belowFloor(detected, minimum):
+                print("  ! \(status.tool.name) \(detected) — \(path)")
+                print("    below supported floor (\(minimum)); upgrade with: \(status.tool.installHint)")
+            case let .unparseable(rawOutput, minimum):
+                print("  ! \(status.tool.name) — \(path)")
+                print("    could not parse --version output (expected ≥ \(minimum)); raw: \(rawOutput)")
+            case let .probeFailed(minimum):
+                print("  ! \(status.tool.name) — \(path)")
+                print("    --version probe produced no output; cannot verify ≥ \(minimum)")
             }
         }
     }

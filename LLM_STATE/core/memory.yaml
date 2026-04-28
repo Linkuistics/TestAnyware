@@ -86,7 +86,7 @@ entries:
 - id: virtiofs-can-serve-stale-cached-content
   title: VirtioFS can serve stale cached content
   body: |
-    VirtioFS does not always propagate host-side file updates to the guest immediately. Workaround: transfer files via `testanyware scp` (base64 over SSH) or restart the VM. Do not rely on VirtioFS for files that are edited on the host and read back in the VM within the same session.
+    VirtioFS does not always propagate host-side file updates to the guest immediately. TestAnyware does not configure VirtioFS itself — the bug bites when callers stack a tart `--dir` mount on top of a TestAnyware VM. Workaround: bypass the share with `testanyware upload <local> <remote>` / `testanyware download <remote> <local>`, which transfer bytes over the in-VM HTTP agent on port 8648 and never touch the shared-folder cache. Restarting the VM also clears the cache. Do not rely on VirtioFS for files edited on the host and read back in the VM within the same session. Documented in `docs/user/troubleshooting.md`.
 - id: menu-bar-accessibility-tree-is-lazy
   title: Menu bar accessibility tree is lazy
   body: |

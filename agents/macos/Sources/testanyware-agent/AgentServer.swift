@@ -223,7 +223,8 @@ private func handleInspect(_ request: Request) async throws -> Response {
     case .notFound:
         return jsonError("No element found matching query")
     case .multiple(let matches):
-        return jsonError("Multiple elements matched", details: matches.map { describeElement($0) }.joined(separator: "\n"))
+        return jsonError("Multiple elements matched — refine your query or use --index N",
+                        details: matches.map { describeElement($0) }.joined(separator: "\n"))
     case .found(let info):
         guard let liveElement = findLiveElement(matching: info, in: windows) else {
             return jsonError("Element found in snapshot but could not locate live AX element")

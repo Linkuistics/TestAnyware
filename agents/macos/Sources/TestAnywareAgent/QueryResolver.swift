@@ -32,6 +32,13 @@ public struct QueryResolver {
     ) -> QueryResult {
         var matches: [ElementInfo] = []
         collectMatches(in: elements, role: role, label: label, id: id, into: &matches)
+        // The macOS AX tree exposes the same element through multiple
+        // parent paths (notably NSStackView descendants and scroll-area
+        // subtrees), so the same logical element can land in `matches`
+        // more than once. Dedup on identifying attributes; element
+        // identity in AX is structural, so two ElementInfos with the
+        // same role/label/id/position/size are the same element.
+        matches = dedupedByIdentity(matches)
 
         switch matches.count {
         case 0:
@@ -67,6 +74,41 @@ public struct QueryResolver {
                 collectMatches(in: children, role: role, label: label, id: id, into: &matches)
             }
         }
+    }
+
+    /// Collapses elements that share an identity-key (role, label, id,
+    /// platformRole, position, size). Two `ElementInfo` values with the
+    /// same key represent the same underlying AX element reached via
+    /// different parent paths. Only elements with both `position` and
+    /// `size` participate in dedup — without coordinates we cannot tell
+    /// "same element via two paths" apart from "two distinct elements
+    /// that happen to share role/label/id".
+    static func dedupedByIdentity(_ elements: [ElementInfo]) -> [ElementInfo] {
+        var seen: Set<String> = []
+        var out: [ElementInfo] = []
+        out.reserveCapacity(elements.count)
+        for e in elements {
+            guard let key = identityKey(e) else {
+                out.append(e)
+                continue
+            }
+            if seen.insert(key).inserted {
+                out.append(e)
+            }
+        }
+        return out
+    }
+
+    private static func identityKey(_ e: ElementInfo) -> String? {
+        guard let pos = e.position, let sz = e.size else { return nil }
+        return [
+            e.role.rawValue,
+            e.label ?? "_",
+            e.id ?? "_",
+            e.platformRole ?? "_",
+            "\(pos.x),\(pos.y)",
+            "\(sz.width),\(sz.height)",
+        ].joined(separator: "|")
     }
 
     private static func elementMatches(

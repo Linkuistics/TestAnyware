@@ -76,6 +76,34 @@ triple-click at those coords to focus and select existing text, then
 `testanyware input type` + `testanyware input key return`. Backlog
 item #8 tracks the fix.
 
+## VirtioFS shared folders can serve stale file content
+
+VirtioFS (the FS-sharing mechanism used by tart's `--dir` flag and
+similar QEMU `virtiofsd` setups) does not always propagate host-side
+file updates to the guest immediately. Editing a source file on the
+host and then recompiling or re-running it in the VM can pick up the
+old content even after the host write has flushed. Surfaced 2026-04-17
+during Racket sample-app validation.
+
+The TestAnyware CLI does not configure VirtioFS itself — this bites
+when callers stack a tart `--dir` mount on top of a TestAnyware-managed
+VM. The agent-channel file-transfer commands bypass the shared-folder
+layer entirely and are the recommended cache-bust path:
+
+```bash
+testanyware upload   /host/path/file.rkt /Users/admin/file.rkt
+testanyware download /Users/admin/output.txt ./output.txt
+```
+
+`upload` and `download` push and pull bytes through the in-VM HTTP
+agent on port 8648, which reads and writes the guest's local
+filesystem directly. There is no intermediate cache. If a host edit
+must be visible to the guest within the same session, `upload` it; do
+not rely on a VirtioFS share that was mounted at VM start.
+
+Restarting the VM also clears the cache, but `upload`/`download` is
+the per-file alternative that does not interrupt other in-flight work.
+
 ## Electron apps on `testanyware-golden-linux-24.04` need `--disable-gpu`
 
 Launching an Electron app (Obsidian, VSCode, Slack, etc.) inside the

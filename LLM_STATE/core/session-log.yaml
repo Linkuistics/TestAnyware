@@ -402,3 +402,26 @@ sessions:
       - The `classify`/`run` split pattern in `Diagnostics/` is clean and consistent; adding a sibling rather than extending an existing check keeps each check's invariants self-contained.
       - Per-file `requiresExecutable` on `FileProbe` (rather than a slot-wide flag) was the right granularity — scripts need exec bit, XML helpers do not.
       - Bumping both sibling Windows tests together (not just the named one) avoids a latent timeout sibling; the test name in the backlog task title was the proximate trigger but the fix scope was the full `VMLifecycleQEMUTests` suite.
+- id: session-18
+  timestamp: 2026-04-28T11:16:53Z
+  phase: work
+  body: |
+    ### Session 18 (2026-04-28T11:16:53Z) — AX dedup, VirtioFS doc, tool version floors
+
+    - **Attempted / completed:** Three backlog tasks were worked in this session: (1) AX query resolver dedup fix for `--role` returning multiple matches in windowed searches, (2) VirtioFS stale-cache bug reframed as a documentation correction, (3) version-floor checks added to `ToolAvailabilityCheck` for `tart` and `qemu-system-aarch64`.
+
+    - **What worked:**
+      - AX dedup landed cleanly: `dedupedByIdentity` helper uses `role | label | id | platformRole | position | size` as identity key. Coordinate-gated so synthetic/coord-less elements are unaffected. 18/18 QueryResolver tests pass; full agent suite 28/28 green. Error message in `AgentServer.swift` now tells the user to use `--index N`.
+      - VirtioFS: investigation found TestAnyware does not own VirtioFS mounts. Workaround (`upload`/`download`) already ships. Fixed misleading memory entry; added troubleshooting doc entry.
+      - Version floors: `ToolAvailabilityCheck` now runs `--version` probes for `tart` (floor 2.0.0) and `qemu-system-aarch64` (floor 8.0.0). Injectable `versionProbe` closure keeps everything deterministically testable. 16 new test cases; 358 CLI tests + 28 agent tests all pass. Live `testanyware doctor` shows correct version output.
+
+    - **What didn't work / open questions:**
+      - The AX dedup fix was not smoke-tested against a live Tahoe golden VM — the structural fix addresses the AX-back-reference root cause, but a live run of `testanyware agent inspect --role AXTextArea --window "Untitled"` (TextEdit) would close the loop.
+      - The NSStackView text-field `set-value` downstream bug (`findLiveElement` cannot relocate a deduped element via `--index N`) is a separate defect not addressed here.
+      - Version floors for tart/qemu are conservative judgement calls (2.0.0 / 8.0.0); no machine-readable release notes exist to anchor against.
+
+    - **What this suggests next:**
+      - Smoke-test AX dedup on next Tahoe golden boot.
+      - Investigate `findLiveElement` matching to fix the NSStackView `--index N` follow-on bug.
+      - Consider a `VersionProbe` helper if more tools need version-aware checks (pattern is now established).
+      - Add a `ProvisionerScriptsVersionCheck` comparing `release-build.sh` pinned versions against bundled scripts.

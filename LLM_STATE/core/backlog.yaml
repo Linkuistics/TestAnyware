@@ -2,7 +2,7 @@ tasks:
 - id: investigate-agent-inspect-role-returning-multiple-elements-matched-when-window-is-scoped
   title: Investigate agent inspect --role returning Multiple elements matched when --window is scoped
   category: bug
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Investigate and fix `agent inspect --role <role>` returning "Multiple elements matched" even when `--window` is also passed.
@@ -15,10 +15,45 @@ tasks:
     - Reproduce: open TextEdit in the macOS golden clone, then `testanyware agent inspect --role AXTextArea --window "Untitled"`.
 
     **Acceptance:** `agent inspect --role AXTextArea --window "Untitled"` returns a single match (the text area), not an error. If there are legitimately multiple role matches in a window, the error message should tell the user to add `--index N` rather than failing silently.
+  results: |
+    ## What was done
+
+    Two-part fix in the macOS agent — content-based dedup at the resolver, and a more actionable error message when legitimate multi-match remains.
+
+    **Dedup (`agents/macos/Sources/TestAnywareAgent/QueryResolver.swift`):**
+    - Added `dedupedByIdentity` and `identityKey` private helpers. Identity-key is `role | label | id | platformRole | (x,y) | (w,h)` — only elements with both `position` and `size` participate. `resolve` now passes match output through `dedupedByIdentity` before counting/index disambiguation.
+    - Coordinate-gated dedup deliberately preserves the existing behaviour for synthetic / coord-less elements (the pre-existing `resolveMultipleMatchesWithoutIndexReturnsMultiple` test with two coord-less buttons still returns `.multiple`). AX always reports coords for visible elements, which is exactly when dedup matters.
+
+    **Error message (`agents/macos/Sources/testanyware-agent/AgentServer.swift`):**
+    - `handleInspect`'s `.multiple` branch now reads `Multiple elements matched — refine your query or use --index N`, matching the wording the action handler (`resolveAndAct`) already used. The acceptance criterion's "tell the user to add `--index N` rather than failing silently" is satisfied.
+
+    **Tests (`agents/macos/Tests/TestAnywareAgentTests/QueryResolverTests.swift`):**
+    - Extended `makeElement` with `position`, `size`, `platformRole` parameters.
+    - 4 new cases:
+      - `resolveDedupsSameElementReachedViaTwoPaths` — same element via two ancestor subtrees (NSStackView shape) collapses to `.found`.
+      - `resolveKeepsDistinctElementsAtDifferentPositions` — body vs Find-banner shape stays as 2 matches.
+      - `resolveDedupSkipsElementsWithoutCoordinates` — coord-less duplicates are NOT collapsed (synthetic-test compat).
+      - `resolveDedupRespectsIndexAfterCollapse` — `--index 2` addresses into the deduped list.
+
+    ## What worked
+
+    - 18/18 QueryResolver tests pass; full agent suite 28/28 still green.
+    - Identity-by-coords correctly distinguishes "same AX element via two paths" from "two distinct elements that share role/label/id".
+    - Error wording change is local to one branch; no behavioural ripple.
+
+    ## What didn't work / open questions
+
+    - **Not reproduced live.** A Tahoe golden was not booted this session, so I could not run the original `agent inspect --role AXTextArea --window "Untitled"` repro against TextEdit. The fix is structural — addresses the AX-back-reference root cause, not a specific app — but a smoke-test on the next golden boot would close the loop.
+    - **NSStackView text-field set-value bug** (existing `docs/user/troubleshooting.md` entry, "Multiple elements matched" → `--index N` returns "No element found") is partially addressed: dedup should collapse the multiple-matches symptom, but the *separate* downstream defect where `findLiveElement` cannot relocate a deduped element via `--index N` is independent. If the troubleshooting note's "Backlog item #8" predicted a single fix, expect to need a second change in `findLiveElement`'s search-key matching.
+
+    ## What this suggests next
+
+    - Smoke-test on the next Tahoe golden: `testanyware agent inspect --role AXTextArea --window "Untitled"` (TextEdit) and the NSStackView text-field set-value path. If set-value's `findLiveElement` still misses, instrument it to log the matching attribute set.
+    - Consider extending `findLiveElement` to accept a richer matching signature (role + position + size) consistent with the dedup key — closes the loop where `--index N` resolves a snapshot element but the live walker can't find it.
 - id: virtiofs-serves-stale-cached-files-after-host-update
   title: VirtioFS serves stale cached files after host update
   category: bug
-  status: not_started
+  status: done
   dependencies: []
   description: |
     VirtioFS shared filesystem can serve cached (stale) file content
@@ -28,10 +63,36 @@ tasks:
     --no-virtio-cache`) would eliminate this class of silent transfer error. Affects
     any workflow that edits a source file on the host and then recompiles or re-runs it
     inside the VM. Surfaced on 2026-04-17 during Racket sample app validation.
+  results: |
+    ## What was done
+
+    Reframed as a documentation task. Investigation showed:
+
+    - **No VirtioFS configuration in the codebase.** `grep -r virtiofs cli/ provisioner/ docs/` returns only references in `LLM_STATE` memory — TestAnyware does not invoke `tart --dir` or QEMU `virtiofsd`. The stale-cache failure mode bites only when a user stacks a `--dir` mount on top of a TestAnyware-managed VM.
+    - **The cache-bust workaround already exists.** `testanyware upload <local> <remote>` and `testanyware download <remote> <local>` (in `cli/Sources/testanyware/ExecCommand.swift`) push and pull bytes through the in-VM HTTP agent on port 8648, which reads/writes the guest's local filesystem directly. There is no shared-folder cache in that path.
+    - **The memory entry was misleading.** It pointed users at a non-existent `testanyware scp` command. The actual primitives are `upload` / `download`.
+
+    Actions taken:
+
+    - **`docs/user/troubleshooting.md`** — added a "VirtioFS shared folders can serve stale file content" entry naming the existing `upload` / `download` primitives as the per-file cache-bust path, with the date the issue was surfaced (2026-04-17 Racket sample-app validation) and an explicit note that the TestAnyware CLI does not configure VirtioFS itself.
+    - **`LLM_STATE/core/memory.yaml`** — rewrote the `virtiofs-can-serve-stale-cached-content` entry to remove the `testanyware scp` reference and point to `upload`/`download` plus the new troubleshooting section.
+
+    ## What worked
+
+    - The fix is a doc/state correction; no code change is required because the workaround already ships.
+    - The doc and memory now point to the same concrete commands rather than a phantom `scp` subcommand.
+
+    ## What didn't work / open questions
+
+    - **No proactive sync command.** The original task floated a `testanyware sync` or `testanyware scp --no-virtio-cache` flag. Both would only matter if TestAnyware itself owned a VirtioFS mount, which it doesn't. Re-evaluate if a future feature adds host-side share configuration to the VM lifecycle.
+
+    ## What this suggests next
+
+    - If a future workflow promotes VirtioFS to a first-class TestAnyware feature (e.g. a `testanyware vm start --share <host>:<guest>` flag), revisit this with a cache-bust mechanism (mtime stat on the host before each transfer, or an in-VM `posix_fadvise(DONTNEED)` invocation). Until then the doc-level steer to `upload`/`download` is the right answer.
 - id: add-version-floor-checks-for-tart-and-qemu-system-aarch64-in-toolavailabilitycheck
   title: Add version-floor checks for tart and qemu-system-aarch64 in ToolAvailabilityCheck
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Add minimum-version checks for `tart` and `qemu-system-aarch64` in `ToolAvailabilityCheck`.
@@ -46,3 +107,27 @@ tasks:
     - Add unit tests covering: version at floor (pass), above floor (pass), below floor (warn), version parse failure (warn gracefully).
 
     **Promoted from:** `extend-doctor-verify-tart-and-qemu-tool-availability` results — "## What this suggests next".
+  results: |
+    ## What was done
+
+    - Extended `ToolAvailabilityCheck.Tool` with an optional `minimumVersion`. Set floors: `tart` ≥ 2.0.0, `qemu-system-aarch64` ≥ 8.0.0. `swtpm` keeps no floor — its releases haven't broken QEMU integration historically.
+    - Added `VersionVerdict` (`.ok(detected:)` / `.belowFloor(detected:minimum:)` / `.unparseable(rawOutput:minimum:)` / `.probeFailed(minimum:)`) and `Status.versionVerdict`. Below-floor and probe-failure are advisory: `CheckResult.isOK` stays `true` to match the existing presence-only contract.
+    - `classify` now takes an injectable `versionProbe: (String) -> String?` alongside `resolve`, preserving the pure/testable shape. `run` wires `which` + a `--version` subprocess via `/usr/bin/env <tool> --version`. Missing tools are never probed.
+    - Added `parseVersion` (first dotted-numeric token; ignores year-only tokens like `2026`) and `compareVersion` (uses `String.compare(_:options:.numeric)` to avoid lexicographic surprises like `2.32.1` vs `2.5.0`).
+    - Updated `DoctorCommand.printToolStatuses` to render the verdict — version included on the ✓ line when present, below-floor / probe-failed surfaces as `!` warnings with remediation hints.
+    - Tests: 16 new cases in `ToolAvailabilityCheckTests` covering presence-only behaviour preserved, parser edge cases (tart/qemu/swtpm formats, year-token rejection, garbage), comparator (at-floor / above-floor / below-floor / numeric vs lexicographic / unparseable / probe failure / no-floor pass-through), and the full classify wiring (verdicts attached, missing tools never probed, below-floor still passes overall).
+
+    ## What worked
+
+    - Live `testanyware doctor` against the local Homebrew install correctly shows `tart 2.32.1`, `qemu-system-aarch64 11.0.0`, `swtpm 0.10.1`, all ✓.
+    - All 358 unit tests in `cli/` pass; agent suite still 28/28.
+    - Pure `classify` + injectable `versionProbe` keeps every behaviour deterministically testable without subprocess calls.
+
+    ## What didn't work / risks
+
+    - The version floors are a judgement call — there are no machine-readable release notes in `provisioner/scripts/` to anchor against. 2.0.0 (tart) and 8.0.0 (qemu) are conservative; tightening them later if a known-broken-version-X surfaces is a one-line change.
+
+    ## What this suggests next
+
+    - Add an analogous `ProvisionerScriptsVersionCheck` that compares `release-build.sh`'s pinned versions against the bundled scripts — orthogonal to the tool floor.
+    - The `--version` probe pattern (`/usr/bin/env <tool> --version` → first dotted-numeric token) generalises; consider a `VersionProbe` helper if more tools need version-aware checks.
