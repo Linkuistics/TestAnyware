@@ -246,7 +246,7 @@ entries:
 - id: usr-local-bin-testanyware-symlink-requires-manual-rebuild
   title: /usr/local/bin/testanyware symlink requires manual rebuild
   body: |
-    `/usr/local/bin/testanyware` is a symlink to a specific `swift build -c release` output artifact. Commits to the repo are not reflected until the binary is rebuilt (`swift build -c release`) and the symlink updated. A discrepancy between `swift test` results and live `testanyware` behavior indicates a stale symlink. Before brew-install testing, remove the symlink so `which testanyware` resolves to the brew-installed binary.
+    `/usr/local/bin/testanyware` is a symlink to a specific `swift build -c release` output artifact. Commits to the repo are not reflected until the binary is rebuilt and the symlink updated. A discrepancy between `swift test` results and live `testanyware` behavior indicates a stale symlink. Before brew-install testing, remove the symlink so `which testanyware` resolves to the brew-installed binary. Run `testanyware doctor` to detect the shadow scenario automatically. See `testanyware doctor detects brew-shadow install-path hazard`.
 - id: enrichrunningfromsidecar-covers-tart-and-qemu-platform-column-not-yet-enriched
   title: enrichRunningFromSidecar populates platform from spec sidecar
   body: |
@@ -347,3 +347,11 @@ entries:
     **Why:** The P6 smoke test only exercised depth ≤ 2. Deeper submenus may not populate within 400 ms if macOS defers lazy-loading of nested items.
 
     **How to apply:** If a future workflow requires a 3+ segment `--open-menu` path and it fails (submenu not populated at snapshot time), consider adding `--menu-settle-ms <int>` to `AgentSnapshotCmd` (trivial — one `@Option` in `cli/Sources/testanyware/AgentCommand.swift`, `openMenuBarPath(rawPath:)`) or replacing the fixed sleep with a poll-and-retry loop.
+- id: testanyware-doctor-detects-brew-shadow-install-path-hazard
+  title: testanyware doctor detects brew-shadow install-path hazard
+  body: |
+    `testanyware doctor` checks whether `/usr/local/bin/testanyware` (a dev symlink) shadows the Homebrew-installed binary. Uses raw `which` output — not `realpath` — so the remediation hint names the symlink itself (`sudo rm /usr/local/bin/testanyware`). Exits non-zero when a problem is detected. See `usr-local-bin-testanyware-symlink-requires-manual-rebuild` for the underlying hazard.
+- id: diagnostics-module-uses-classify-run-split-for-testability
+  title: Diagnostics module uses classify/run split for testability
+  body: |
+    `cli/Sources/TestAnywareDriver/Diagnostics/` holds install-path and future doctor checks. Each check uses a classify/run split: `classify` is a pure function (no I/O, unit-testable without a real Homebrew install), `run` is the subprocess-driven entry point. `DoctorCommand.swift` is a thin ArgumentParser wrapper. Add new checks to this directory without redesigning `DoctorCommand`.
