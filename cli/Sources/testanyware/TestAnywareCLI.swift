@@ -7,7 +7,7 @@ struct TestAnywareCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "testanyware",
         abstract: "VNC + agent driver for virtual machine automation",
-        version: "0.2.0",
+        version: BuildInfo.full,
         subcommands: [
             ScreenshotCommand.self,
             ScreenSizeCommand.self,

@@ -24,11 +24,20 @@ readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly DIST_DIR="$REPO_ROOT/target/dist"
 readonly TEMPLATE="$REPO_ROOT/scripts/templates/testanyware.rb.tmpl"
 readonly TARGET="aarch64-apple-darwin"
+readonly VERSION_SWIFT_REL="cli/Sources/testanyware/Version.swift"
 
 die() {
   echo "release-build: $*" >&2
   exit 1
 }
+
+# build_cli regenerates Version.swift from git so the released binary's
+# --version reflects the tag. Always revert on exit (including failure)
+# so the working tree returns to the committed dev stub.
+restore_version_swift() {
+  git -C "$REPO_ROOT" checkout -- "$VERSION_SWIFT_REL" 2>/dev/null || true
+}
+trap restore_version_swift EXIT
 
 require_clean_tagged_tree() {
   [[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]] \
@@ -48,6 +57,7 @@ read_version() {
 build_cli() {
   local stage_bin="$1"
   echo "release-build: building CLI (testanyware)" >&2
+  bash "$REPO_ROOT/cli/scripts/generate-version.sh" >&2
   swift build --package-path "$REPO_ROOT/cli" -c release >&2
   local bin_path
   bin_path="$(swift build --package-path "$REPO_ROOT/cli" -c release --show-bin-path)"
