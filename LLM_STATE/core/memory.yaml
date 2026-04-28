@@ -306,7 +306,7 @@ entries:
     - `scripts/release-publish.sh` — creates GitHub release via `gh`, copies rendered formula into tap
     - `scripts/templates/testanyware.rb.tmpl` — single-tarball Homebrew formula template
 
-    P6 (end-to-end smoke test: tag → brew install → golden rebuild) deferred; requires a clean tagged HEAD. Invocation UX for brew users (documented bash vs `testanyware vm create-golden` subcommand) also unresolved.
+    P6 (end-to-end smoke test: tag → brew install → golden rebuild) blocked by dylib bundling defect; v1.0.0 release and formula were attempted and rolled back. Retry P6 after applying the dylib fix (see `build_cli must bundle libRoyalVNCKit.dylib with the binary`). Invocation UX for brew users (documented bash vs `testanyware vm create-golden` subcommand) also unresolved.
 
     Plan: `0-docs/plans/HomebrewDistribution.plan.md` (P0–P6).
 - id: golden-scripts-resolve-agent-cli-from-brew-prefix-by-default
@@ -321,3 +321,11 @@ entries:
     When the in-VM agent binary arrives via `brew install testanyware` rather than `swift build`, its CDHash changes. TCC pins accessibility grants to the original binary's csreq (CDHash for adhoc-signed binaries). Whether the brew-installed agent retains TCC accessibility without re-granting is unverified; to be confirmed during P6 smoke test.
 
     See also: `agent-hot-swap-does-not-re-grant-tcc-accessibility` (direct binary replacement case) and `testanyware-agent-lacks-tcc-documents-access-on-tahoe-golden` (FDA grant in golden).
+- id: build-cli-must-bundle-libroyalvnckit-dylib-with-the-binary
+  title: build_cli must bundle libRoyalVNCKit.dylib with the binary
+  body: |
+    RoyalVNCKit is a dynamic library by design (required by its `Bindings/{dotnet,kotlin}/` consumers). `swift build` outputs `libRoyalVNCKit.dylib` alongside the CLI binary. `release-build.sh`'s `build_cli` function must copy `libRoyalVNCKit.dylib` into `bin/` alongside the CLI; the formula's install block must use `bin.install Dir["bin/*"]`. Omitting the dylib causes `dyld: Library not loaded: @rpath/libRoyalVNCKit.dylib` at runtime on a brew-installed CLI.
+- id: release-build-sh-captured-functions-must-write-progress-to-stderr
+  title: release-build.sh captured functions must write progress to stderr
+  body: |
+    Subshells capturing return values via `$(...)` receive all stdout. Progress `echo` calls inside such functions, and `swift build` / `dotnet publish` invocations, must redirect output to `>&2`. Without this, dotnet's first-run welcome banner pollutes the captured archive path and causes `sha256sum` to fail.
