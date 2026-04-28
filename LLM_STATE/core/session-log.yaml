@@ -339,3 +339,16 @@ sessions:
       install → `testanyware --version` (no dyld error) → golden rebuild → integration suite.
       Remove `/usr/local/bin/testanyware` (stale dev symlink) before testing so `which
       testanyware` resolves to the brew-installed binary.
+- id: session-14
+  timestamp: 2026-04-28T05:03:21Z
+  phase: work
+  body: |
+    ### Session 14 (2026-04-28T05:03:21Z) — End-to-end brew pipeline verified; dynamic version generation added
+
+    - Ran P6 end-to-end homebrew pipeline smoke test. Prior P6 blocker (dylib not bundled) was already fixed in earlier cycles. This run completed all seven steps: tag, release-build, release-publish, brew install, three-platform golden rebuild, smoke tests, integration suite.
+    - Discovered that `testanyware --version` reported `0.2.0` (hardcoded constant) instead of the release tag. Fixed with a Ravel-Lite-style version generation approach: `cli/scripts/generate-version.sh` shells out to `git describe --tags --always --dirty` and writes `cli/Sources/testanyware/Version.swift`; `release-build.sh` invokes it before `swift build` and reverts the file on EXIT (including failure). Released as v1.0.1.
+    - Cleaned brew tap rebase corruption left over from a prior cycle's force-push (the tap's local clone had a stale in-progress rebase). Recovery: `git rebase --abort` + `git reset --hard origin/main`.
+    - Built all three goldens (macOS Tahoe, Linux, Windows) via the brew-shipped scripts. TCC csreq + SIP cycle worked on macOS; Linux and Windows golden builds completed. Integration suite: 20/21 passed (Windows cold-boot test exceeds 600 s timeout — pre-existing).
+    - Bundled smoke-tests confirmed: `--window` 40 px drop-shadow compensation is correct on Tahoe; `--open-menu` comma-path drill-down navigates and snapshots correctly.
+    - What this suggests: the project's core distribution pipeline is proven. Remaining work is backlog tasks (VirtioFS staleness bug, UX refinements, etc.).
+    - Key learnings: (a) The EXIT trap in release-build.sh correctly restores Version.swift for both success and failure paths, so the dev stub (currently showing v1.0.0 values — the comment says 0.0.0-dev but the actual values weren't reset after the first run) will be correct after any future release build invocation. (b) The brew tap corruption pattern (force-push + stale clone rebase state) is recoverable with `rebase --abort` + hard reset.

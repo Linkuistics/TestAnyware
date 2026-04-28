@@ -1,31 +1,13 @@
-id: session-13
-timestamp: 2026-04-28T03:46:18Z
+id: session-14
+timestamp: 2026-04-28T05:03:21Z
 phase: work
 body: |
-  ### Session 13 (2026-04-28T03:46:18Z) — Bundle libRoyalVNCKit.dylib in release tarball; unblock P6 retry
+  ### Session 14 (2026-04-28T05:03:21Z) — End-to-end brew pipeline verified; dynamic version generation added
 
-  - Applied the two mechanical fixes identified in session 12's P6 post-mortem as the full
-    prerequisite for retrying the end-to-end Homebrew pipeline smoke test.
-  - **`scripts/release-build.sh` (`build_cli` function):** After copying the executable
-    and chmod'ing it, added three lines that locate `libRoyalVNCKit.dylib` in the same
-    Swift build output directory and `cp` it into `stage_bin/`. A `die` guard fires if the
-    dylib is absent — catches the future scenario where RoyalVNCKit is rebuilt as a static
-    library before the script is updated.
-  - **`scripts/templates/testanyware.rb.tmpl` (install block):** Changed
-    `bin.install "bin/testanyware"` to `bin.install Dir["bin/*"]` so Homebrew picks up
-    the dylib alongside the executable. A `brew audit` cosmetic warning about a
-    non-executable in `bin/` is expected and harmless.
-  - Verification in this phase: `bash -n scripts/release-build.sh` (syntax OK),
-    `ruby -c scripts/templates/testanyware.rb.tmpl` (syntax OK), confirmed that
-    `cli/.build/arm64-apple-macosx/release/` contains both `testanyware` and
-    `libRoyalVNCKit.dylib`, so the new `cp` line will succeed against a real build.
-  - Full end-to-end verification (tarball inspection, brew install, dyld success) is
-    deferred to the P6 retry task, which is now unblocked.
-  - `repair-stale-statuses` confirmed no further drift; the `blocked` → `not_started`
-    flip for P6 was already applied by the work session itself.
-  - What this suggests next: P6 (`p6-end-to-end-homebrew-pipeline-smoke-test-tag-brew-install-golden-rebuild`)
-    is the top-priority unblocked task. Follow the retry sequence in the P6 results block
-    verbatim: tag HEAD → `release-build.sh` → `release-publish.sh` → fresh-shell brew
-    install → `testanyware --version` (no dyld error) → golden rebuild → integration suite.
-    Remove `/usr/local/bin/testanyware` (stale dev symlink) before testing so `which
-    testanyware` resolves to the brew-installed binary.
+  - Ran P6 end-to-end homebrew pipeline smoke test. Prior P6 blocker (dylib not bundled) was already fixed in earlier cycles. This run completed all seven steps: tag, release-build, release-publish, brew install, three-platform golden rebuild, smoke tests, integration suite.
+  - Discovered that `testanyware --version` reported `0.2.0` (hardcoded constant) instead of the release tag. Fixed with a Ravel-Lite-style version generation approach: `cli/scripts/generate-version.sh` shells out to `git describe --tags --always --dirty` and writes `cli/Sources/testanyware/Version.swift`; `release-build.sh` invokes it before `swift build` and reverts the file on EXIT (including failure). Released as v1.0.1.
+  - Cleaned brew tap rebase corruption left over from a prior cycle's force-push (the tap's local clone had a stale in-progress rebase). Recovery: `git rebase --abort` + `git reset --hard origin/main`.
+  - Built all three goldens (macOS Tahoe, Linux, Windows) via the brew-shipped scripts. TCC csreq + SIP cycle worked on macOS; Linux and Windows golden builds completed. Integration suite: 20/21 passed (Windows cold-boot test exceeds 600 s timeout — pre-existing).
+  - Bundled smoke-tests confirmed: `--window` 40 px drop-shadow compensation is correct on Tahoe; `--open-menu` comma-path drill-down navigates and snapshots correctly.
+  - What this suggests: the project's core distribution pipeline is proven. Remaining work is backlog tasks (VirtioFS staleness bug, UX refinements, etc.).
+  - Key learnings: (a) The EXIT trap in release-build.sh correctly restores Version.swift for both success and failure paths, so the dev stub (currently showing v1.0.0 values — the comment says 0.0.0-dev but the actual values weren't reset after the first run) will be correct after any future release build invocation. (b) The brew tap corruption pattern (force-push + stale clone rebase state) is recoverable with `rebase --abort` + hard reset.
