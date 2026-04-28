@@ -184,9 +184,9 @@ entries:
   body: |
     Smaller disk + lighter desktop: Linux round-trip is ~11.7 s vs macOS ~19 s. Set integration test time limits accordingly; the current 5-minute limit has headroom on both platforms.
 - id: ssh-wait-dominates-macos-vm-start-latency
-  title: SSH wait dominates macOS VM start latency
+  title: SSH removed; ~11s macOS start-wait cost eliminated
   body: |
-    SSH readiness polling accounts for ~11s of the ~26s macOS start round-trip. Disabling SSH in the golden image (backlog Task 5) would eliminate this cost entirely.
+    SSH is disabled in both tart goldens at golden-build time. The formerly ~11s SSH-readiness poll is gone from `startTart`; `VMSpec.ssh`, `sshReady`, and all `sshEndpoint` plumbing are removed from the Swift CLI. The timing numbers in 'linux-tart-vms-boot-38-faster-than-macos' predate this change.
 - id: vmlifecycle-stop-runs-vnc-viewer-close-for-missing-ids
   title: VMLifecycle.stop runs VNC-viewer close for missing ids
   body: |
@@ -279,3 +279,19 @@ entries:
     This is speculative until the smoke-test task
     (`smoke-test-window-compensation-and-open-menu-path-on-tahoe-golden`) confirms whether the
     40 px default is universally correct or subrole-dependent.
+- id: ssh-disabled-in-both-tart-golden-images
+  title: SSH disabled in both tart golden images
+  body: |
+    Both macOS and Linux tart goldens disable SSH at golden-build time. `VMSpec.ssh`, `sshReady`, and all `sshEndpoint` plumbing are removed from the Swift CLI. Old spec files carrying an `ssh` field still decode correctly (JSONDecoder ignores unknown keys).
+- id: macos-golden-folds-ssh-off-into-shutdown-call
+  title: macOS golden folds SSH-off into shutdown call
+  body: |
+    `vm-create-golden-macos.sh` passes `systemsetup -f -setremotelogin off` in the same `vm_ssh` call as the System Events shutdown command. A separate call would risk the SSH session dying mid-flight after SSH is disabled, before shutdown completes.
+- id: linux-golden-masks-ssh-service-to-block-re-enable
+  title: Linux golden masks ssh.service to block re-enable
+  body: |
+    `vm-create-golden-linux.sh` runs `systemctl disable ssh.service && systemctl mask ssh.service && shutdown` in a single SSH call. `mask` writes a `/dev/null` symlink; `systemctl enable` cannot re-enable it. `disable` alone is insufficient.
+- id: decodeslegacyspecwithsshfield-guards-ssh-removal-compat
+  title: decodesLegacySpecWithSshField guards ssh-removal compat
+  body: |
+    `VMSpecTests.decodesLegacySpecWithSshField` verifies old spec files with an `ssh` field still decode without error. `JSONDecoder` ignores unknown keys by default; this test will catch any future migration to a strict decoder.
