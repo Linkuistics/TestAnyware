@@ -16,7 +16,10 @@
 # What this creates:
 #   A tart VM cloned from Cirrus Labs' vanilla macOS image with:
 #   - testanyware-agent running as LaunchAgent on port 8648
-#   - TCC accessibility permission granted (SIP disable/enable cycle)
+#   - TCC permissions granted (SIP disable/enable cycle):
+#       * kTCCServiceAccessibility       — AXUIElement traversal
+#       * kTCCServiceSystemPolicyAllFiles — Full Disk Access for tests
+#         that read protected paths (Documents, Downloads, Desktop)
 #   - Remote Login (SSH) disabled — agent HTTP is the only ingress
 #   - Xcode CLI tools, Homebrew
 #   - Session restore disabled, clean desktop state
@@ -578,11 +581,22 @@ recovery_boot_enable_sip() {
     _recovery_boot_csrutil "csrutil enable" "re-enabling SIP"
 }
 
-# Write the testanyware-agent accessibility grant directly into the system-level
-# TCC database.  SIP MUST be disabled before this sqlite3 write will succeed —
-# call this function between recovery_boot_disable_sip and recovery_boot_enable_sip.
-grant_accessibility_permission() {
-    echo "Granting accessibility permission to testanyware-agent..."
+# Write the testanyware-agent TCC grants directly into the system-level
+# TCC database.  SIP MUST be disabled before these sqlite3 writes will
+# succeed — call this function between recovery_boot_disable_sip and
+# recovery_boot_enable_sip.
+#
+# Two grants are written, sharing one csreq blob:
+#   - kTCCServiceAccessibility — required for AXUIElement traversal,
+#     the agent's primary GUI-introspection mechanism.
+#   - kTCCServiceSystemPolicyAllFiles (Full Disk Access) — required so
+#     `testanyware exec ls /Users/admin/Documents/` and similar test
+#     commands don't trip a TCC privacy dialog.  FDA covers Documents,
+#     Downloads, Desktop, and protected system locations in a single
+#     grant — operationally simpler than per-folder grants, and the VM
+#     is disposable so the broader scope is acceptable.
+grant_tcc_permissions() {
+    echo "Granting TCC permissions to testanyware-agent..."
 
     # Stop tccd before writing — it holds a lock on TCC.db and causes
     # "database is locked" errors.  launchd will restart it automatically.
@@ -590,9 +604,11 @@ grant_accessibility_permission() {
     vm_ssh "sudo killall tccd" 2>/dev/null || true
     sleep 2
 
-    # Generate the csreq blob from the binary's designated code signing requirement.
-    # macOS Tahoe requires this field for TCC to accept the entry.
-    echo "  Generating code signing requirement blob..."
+    # Generate the csreq blob from the binary's designated code signing
+    # requirement and INSERT both grants in one VM-shell session so the
+    # csreq computation is shared.
+    # macOS Tahoe requires the csreq field for TCC to accept the entry.
+    echo "  Generating code signing requirement blob and inserting TCC grants..."
     vm_ssh 'CSREQ_HEX=$(codesign -dr- /usr/local/bin/testanyware-agent 2>&1 \
         | sed -n "s/.*=> //p" \
         | csreq -r- -b /dev/stdout \
@@ -604,16 +620,27 @@ grant_accessibility_permission() {
            csreq, indirect_object_identifier_type, indirect_object_identifier, flags, last_modified) \
         VALUES \
           ('"'"'kTCCServiceAccessibility'"'"', '"'"'/usr/local/bin/testanyware-agent'"'"', 1, 2, 0, 1, \
+           X'"'"'${CSREQ_HEX}'"'"', 0, '"'"'UNUSED'"'"', 0, CAST(strftime('"'"'%s'"'"','"'"'now'"'"') AS INTEGER));" && \
+        sudo sqlite3 "/Library/Application Support/com.apple.TCC/TCC.db" \
+        "INSERT OR REPLACE INTO access \
+          (service, client, client_type, auth_value, auth_reason, auth_version, \
+           csreq, indirect_object_identifier_type, indirect_object_identifier, flags, last_modified) \
+        VALUES \
+          ('"'"'kTCCServiceSystemPolicyAllFiles'"'"', '"'"'/usr/local/bin/testanyware-agent'"'"', 1, 2, 0, 1, \
            X'"'"'${CSREQ_HEX}'"'"', 0, '"'"'UNUSED'"'"', 0, CAST(strftime('"'"'%s'"'"','"'"'now'"'"') AS INTEGER));"'
 
-    local _RESULT
-    _RESULT=$(vm_ssh "sudo sqlite3 \"/Library/Application Support/com.apple.TCC/TCC.db\" \
-        \"SELECT client, length(csreq) FROM access WHERE service='kTCCServiceAccessibility' \
+    local _AX_LEN _FDA_LEN
+    _AX_LEN=$(vm_ssh "sudo sqlite3 \"/Library/Application Support/com.apple.TCC/TCC.db\" \
+        \"SELECT length(csreq) FROM access WHERE service='kTCCServiceAccessibility' \
           AND client='/usr/local/bin/testanyware-agent';\"" 2>/dev/null || true)
-    if echo "$_RESULT" | grep -q "testanyware-agent"; then
-        echo "  Accessibility permission granted (csreq: $(echo "$_RESULT" | cut -d'|' -f2) bytes)."
+    _FDA_LEN=$(vm_ssh "sudo sqlite3 \"/Library/Application Support/com.apple.TCC/TCC.db\" \
+        \"SELECT length(csreq) FROM access WHERE service='kTCCServiceSystemPolicyAllFiles' \
+          AND client='/usr/local/bin/testanyware-agent';\"" 2>/dev/null || true)
+    if [[ -n "$_AX_LEN" && -n "$_FDA_LEN" ]]; then
+        echo "  TCC grants installed: Accessibility (csreq ${_AX_LEN} bytes), Full Disk Access (csreq ${_FDA_LEN} bytes)."
     else
-        echo "  ERROR: TCC insert verification failed — SIP may still be enabled or sqlite3 unavailable"
+        echo "  ERROR: TCC insert verification failed — Accessibility=${_AX_LEN}, FullDiskAccess=${_FDA_LEN}"
+        echo "  SIP may still be enabled or sqlite3 unavailable"
         exit 1
     fi
 
@@ -642,22 +669,26 @@ else
     echo "  Check /tmp/testanyware-recovery-*.png screenshots for debugging."
 fi
 
-grant_accessibility_permission
+grant_tcc_permissions
 
-# Verify the TCC entry directly in the database.
+# Verify the TCC entries directly in the database.
 # Note: AXIsProcessTrusted() returns false when called via SSH because macOS
 # Ventura+ checks the "responsible client" (sshd, not testanyware-agent).
-# The TCC entry IS correct and will work when the agent is launched by launchd
-# during actual testing (matching TestAnyware's approach).
-echo "Verifying TCC database entry..."
-_TCC_CHECK=$(vm_ssh "sudo sqlite3 '/Library/Application Support/com.apple.TCC/TCC.db' \
+# The TCC entries ARE correct and will work when the agent is launched by
+# launchd during actual testing (matching TestAnyware's approach).
+echo "Verifying TCC database entries..."
+_TCC_AX=$(vm_ssh "sudo sqlite3 '/Library/Application Support/com.apple.TCC/TCC.db' \
     'SELECT auth_value, length(csreq) FROM access \
      WHERE service=\"kTCCServiceAccessibility\" AND client=\"/usr/local/bin/testanyware-agent\";'" 2>/dev/null || true)
-echo "  TCC entry: $_TCC_CHECK"
-if echo "$_TCC_CHECK" | grep -q "^2|"; then
-    echo "  TCC accessibility grant verified (auth_value=2)."
+_TCC_FDA=$(vm_ssh "sudo sqlite3 '/Library/Application Support/com.apple.TCC/TCC.db' \
+    'SELECT auth_value, length(csreq) FROM access \
+     WHERE service=\"kTCCServiceSystemPolicyAllFiles\" AND client=\"/usr/local/bin/testanyware-agent\";'" 2>/dev/null || true)
+echo "  Accessibility entry:    $_TCC_AX"
+echo "  Full Disk Access entry: $_TCC_FDA"
+if echo "$_TCC_AX" | grep -q "^2|" && echo "$_TCC_FDA" | grep -q "^2|"; then
+    echo "  Both TCC grants verified (auth_value=2)."
 else
-    echo "  ERROR: TCC entry missing or denied"
+    echo "  ERROR: One or both TCC entries missing or denied"
     exit 1
 fi
 
@@ -673,13 +704,21 @@ fi
 
 echo "Final agent verification..."
 
-# Verify TCC entry survives SIP re-enable
-_TCC_FINAL=$(vm_ssh "sudo sqlite3 '/Library/Application Support/com.apple.TCC/TCC.db' \
+# Verify both TCC entries survive SIP re-enable
+_TCC_AX_FINAL=$(vm_ssh "sudo sqlite3 '/Library/Application Support/com.apple.TCC/TCC.db' \
     'SELECT auth_value, length(csreq) FROM access \
      WHERE service=\"kTCCServiceAccessibility\" AND client=\"/usr/local/bin/testanyware-agent\";'" 2>/dev/null || true)
-echo "  TCC entry: $_TCC_FINAL"
-if ! echo "$_TCC_FINAL" | grep -q "^2|"; then
+_TCC_FDA_FINAL=$(vm_ssh "sudo sqlite3 '/Library/Application Support/com.apple.TCC/TCC.db' \
+    'SELECT auth_value, length(csreq) FROM access \
+     WHERE service=\"kTCCServiceSystemPolicyAllFiles\" AND client=\"/usr/local/bin/testanyware-agent\";'" 2>/dev/null || true)
+echo "  Accessibility entry:    $_TCC_AX_FINAL"
+echo "  Full Disk Access entry: $_TCC_FDA_FINAL"
+if ! echo "$_TCC_AX_FINAL" | grep -q "^2|"; then
     echo "  ERROR: TCC accessibility entry missing after SIP re-enable"
+    exit 1
+fi
+if ! echo "$_TCC_FDA_FINAL" | grep -q "^2|"; then
+    echo "  ERROR: TCC Full Disk Access entry missing after SIP re-enable"
     exit 1
 fi
 
