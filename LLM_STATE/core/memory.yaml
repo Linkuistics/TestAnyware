@@ -383,3 +383,9 @@ entries:
   title: findLiveElement cannot re-match deduped element via --index N
   body: |
     `findLiveElement` cannot relocate a deduped element by `--index N` after the element is acted on. NSStackView anonymous text fields are the known trigger. Separate defect from the `dedupedByIdentity` fix; `set-value --index N` returns `.notFound` on subsequent calls to the same element. See `QueryResolver deduplicates by role/label/id/position/size`.
+- id: versionprobe-helper-deferred-until-third-tool-needs-version-aware-check
+  title: VersionProbe helper deferred until third tool needs version-aware check
+  body: |
+    Consider a shared `VersionProbe` helper when a third tool needs version-aware checks in `ToolAvailabilityCheck`. The `--version` probe pattern (`/usr/bin/env <tool> --version` → first dotted-numeric token, ignoring year-only tokens) is already duplicated across the `tart` and `qemu-system-aarch64` checks. Current count: 2 tools. Factor into a `VersionProbe` struct when a third tool is added.
+
+    Code location: `cli/Sources/TestAnywareDriver/Diagnostics/ToolAvailabilityCheck.swift` — `parseVersion`, `compareVersion`, and the `versionProbe: (String) -> String?` injectable closure.
