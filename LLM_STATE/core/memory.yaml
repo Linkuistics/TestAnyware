@@ -134,7 +134,7 @@ entries:
 - id: detachedprocess-is-the-setsid-escape-hatch
   title: DetachedProcess is the setsid escape hatch
   body: |
-    `VM/DetachedProcess.swift` uses `posix_spawn` + `POSIX_SPAWN_SETSID` to spawn children that are session + process-group leaders. Memory notes "Foundation Process does not call setsid or setpgrp" and "pgrep -P snapshot must precede killing bash" describe the problem this solves. Use `DetachedProcess.spawn` for any VM-lifecycle child that must outlive the Swift parent. Do not substitute Foundation `Process` for long-running VM processes.
+    `VM/DetachedProcess.swift` uses `posix_spawn` + `POSIX_SPAWN_SETSID` to spawn children that are session + process-group leaders. See `Foundation Process does not call setsid or setpgrp` and `pgrep -P snapshot must precede killing bash` for the underlying problem. Use `DetachedProcess.spawn` for any VM-lifecycle child that must outlive the Swift parent. Do not substitute Foundation `Process` for long-running VM processes.
 - id: vmlifecycle-delete-auto-detects-backend-refuses-if-clones-present
   title: VMLifecycle.delete auto-detects backend; refuses if clones present
   body: |
@@ -202,7 +202,7 @@ entries:
 - id: window-flag-includes-drop-shadow-in-ax-origin
   title: '`--window` auto-compensates Tahoe 40 px drop-shadow'
   body: |
-    On Tahoe, the AX-reported window origin includes a ~40 px structural drop-shadow inset on the y axis. `WindowOriginCompensation.offset(for:platform:environment:)` (`cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift`) subtracts `defaultMacosTopInset` (40 px) from the window's y position for `.macos` platform; non-macOS and nil platforms pass through unchanged. All six `--window`-relative input commands (click, mouse-down, mouse-up, move, scroll, drag) share a single async `windowOffset(connection:spec:windowFilter:)` helper that applies this compensation. Override via `TESTANYWARE_WINDOW_TOP_INSET=<int>`. The 40 px value was validated on the Tahoe golden in P6 smoke tests.
+    On Tahoe, the AX-reported window origin includes a ~40 px structural drop-shadow inset on the y axis. `WindowOriginCompensation.offset(for:platform:environment:)` (`cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift`) subtracts `defaultMacosTopInset` (40 px) from the window's y position for `.macos` platform; non-macOS and nil platforms pass through unchanged. All six `--window`-relative input commands (click, mouse-down, mouse-up, move, scroll, drag) share a single async `windowOffset(connection:spec:windowFilter:)` helper that applies this compensation. Override via `TESTANYWARE_WINDOW_TOP_INSET=<int>`. Validated on the Tahoe golden.
 - id: swift-testing-enabled-if-evaluates-at-discovery-time
   title: swift-testing .enabled(if:) evaluates at discovery time
   body: |
@@ -210,7 +210,7 @@ entries:
 - id: testanyware-agent-lacks-tcc-documents-access-on-tahoe-golden
   title: testanyware-agent lacks TCC Documents access on Tahoe golden
   body: |
-    `testanyware exec ls /Users/admin/Documents/` triggers a TCC privacy dialog on the Tahoe VM. The current golden does not grant Full Disk Access to the agent. `vm-create-golden-macos.sh` now grants both `kTCCServiceAccessibility` and `kTCCServiceSystemPolicyAllFiles` (FDA); `grant_accessibility_permission()` was renamed `grant_tcc_permissions()` to reflect the broader scope. Fix takes effect after the next golden rebuild (smoke-test task pending).
+    `testanyware exec ls /Users/admin/Documents/` triggers a TCC privacy dialog on the Tahoe VM. The current golden does not grant Full Disk Access to the agent. `vm-create-golden-macos.sh` now grants both `kTCCServiceAccessibility` and `kTCCServiceSystemPolicyAllFiles` (FDA); `grant_accessibility_permission()` was renamed `grant_tcc_permissions()` to reflect the broader scope. Fix takes effect after the next golden rebuild.
 - id: unifiedrole-swift-is-duplicated-both-copies-must-stay-in-sync
   title: UnifiedRole.swift is duplicated; both copies must stay in sync
   body: |
@@ -238,7 +238,7 @@ entries:
 - id: starttart-removes-stale-clones-before-tart-clone
   title: startTart removes stale clones before tart clone
   body: |
-    `startTart`'s collision branch always removes the stale clone before calling `tart clone`. Before this fix, a persisted macOS VM left a stale clone that caused `tart clone` to fail silently for Linux targets.
+    `startTart`'s collision branch removes the stale clone before calling `tart clone`. A stale macOS clone causes `tart clone` to fail silently when starting a Linux target.
 - id: vm-list-omits-non-prefix-id-vms
   title: vm list shows non-prefix running VMs with spec sidecar
   body: |
@@ -254,7 +254,7 @@ entries:
 - id: open-menu-settle-delay-is-hardcoded-at-400ms
   title: open-menu settle delay is hardcoded at 400ms
   body: |
-    The `--open-menu` flag in `testanyware agent snapshot` uses a hardcoded 400 ms settle delay after each VNC click before capturing the AX tree. This value was validated in P6 smoke tests on the Tahoe golden: comma-path drill-down navigates submenus and snapshots correctly at 400 ms. If future VMs show submenus not yet populated at snapshot time, fix options are:
+    The `--open-menu` flag in `testanyware agent snapshot` uses a hardcoded 400 ms settle delay after each VNC click before capturing the AX tree. Validated on the Tahoe golden: comma-path drill-down navigates submenus and snapshots correctly at 400 ms. If future VMs show submenus not yet populated at snapshot time, fix options are:
     - Add a `--menu-settle-ms <int>` option to `AgentSnapshotCmd` (trivial — one `@Option` in `AgentCommand.swift`)
     - Replace the fixed sleep with a poll-and-retry loop on the AX tree
 
@@ -280,15 +280,13 @@ entries:
   body: |
     Single-tarball bundle covers CLI binary, all three agents (macOS arm64, Linux, Windows), and golden scripts. Eliminates per-artifact `gh release download` dependency. Ad-hoc signing only; arm64-only macOS distribution. Tap: `Linkuistics/homebrew-taps`.
 
-    Release pipeline scripts (P1–P6 all complete and verified end-to-end):
+    Release pipeline scripts:
     - `scripts/release-doctor.sh` — preflight checks (git clean, tools present)
     - `scripts/release-build.sh` — builds CLI (`swift build`) + macOS agent, Windows agent (`dotnet publish`), stages Linux agent source; packages into `.tar.xz`; renders formula from template
     - `scripts/release-publish.sh` — creates GitHub release via `gh`, copies rendered formula into tap
     - `scripts/templates/testanyware.rb.tmpl` — single-tarball Homebrew formula template
 
-    P6 smoke test (tag → release-build → release-publish → brew install → three-platform golden rebuild → smoke tests → integration suite) completed successfully. dylib bundling fix applied (see `build_cli must bundle libRoyalVNCKit.dylib with the binary`).
-
-    Plan: `0-docs/plans/HomebrewDistribution.plan.md` (P0–P6).
+    Plan: `0-docs/plans/HomebrewDistribution.plan.md`.
 - id: golden-scripts-resolve-agent-cli-from-brew-prefix-by-default
   title: golden scripts resolve agent/CLI from brew prefix by default
   body: |
@@ -298,7 +296,7 @@ entries:
 - id: tcc-csreq-correctness-for-brew-installed-agent-is-unverified
   title: 'TCC-csreq verified: brew-installed agent retains TCC after golden grants it'
   body: |
-    When the in-VM agent binary arrives via `brew install testanyware` rather than `swift build`, its CDHash changes. TCC pins accessibility grants to the original binary's csreq (CDHash for adhoc-signed binaries). P6 smoke test confirmed: the golden-build scripts grant TCC (accessibility + FDA) to the brew-installed binary's CDHash during golden creation; the VM boots with TCC already pinned to the correct binary. No re-grant required at run time.
+    When the in-VM agent binary arrives via `brew install testanyware` rather than `swift build`, its CDHash changes. TCC pins accessibility grants to the original binary's csreq (CDHash for adhoc-signed binaries). The golden-build scripts grant TCC (accessibility + FDA) to the brew-installed binary's CDHash during golden creation; the VM boots with TCC already pinned to the correct binary. No re-grant required at run time.
 
     See also: `agent-hot-swap-does-not-re-grant-tcc-accessibility` (direct binary replacement case) and `testanyware-agent-lacks-tcc-documents-access-on-tahoe-golden` (FDA grant in golden).
 - id: build-cli-must-bundle-libroyalvnckit-dylib-with-the-binary
@@ -320,33 +318,15 @@ entries:
 - id: brew-tap-force-push-rebase-corruption
   title: brew-tap-force-push-rebase-corruption
   body: |
-    ---
-    name: brew-tap-force-push-rebase-corruption
-    description: Force-pushing a Homebrew tap causes rebase corruption in all installed clones; never force-push a tap with real users
-    type: project
-    ---
+    Never force-push to a Homebrew tap once it has been installed by real users (including the maintainer's own host). Force-pushing leaves every user's local `/opt/homebrew/Library/Taps/<tap>/` clone stuck in a rebase replaying its now-deleted local commit. `brew update` cannot recover automatically. Manual recovery: `cd /opt/homebrew/Library/Taps/linkuistics/homebrew-taps && git rebase --abort && git reset --hard origin/main`.
 
-    Never force-push to a Homebrew tap repository once it has been installed by real users (including the maintainer's own host).
-
-    **Why:** When a tap is force-pushed, every user's local `/opt/homebrew/Library/Taps/<tap>/` clone retains an in-progress rebase trying to replay its now-deleted local commit on the new tip. `brew update` cannot recover automatically. Manual recovery requires: `cd /opt/homebrew/Library/Taps/linkuistics/homebrew-taps && git rebase --abort && git reset --hard origin/main`.
-
-    This was discovered during the P6 smoke test rollback: the prior P6 attempt used a force-push to roll back the tap, which left a stale rebase in the maintainer's own tap clone that blocked `brew upgrade`.
-
-    **How to apply:** If a bad release needs to be retracted, publish a new corrected release (bump the version) rather than force-pushing. Only force-push the tap in a context where the tap has zero real-user installs (pre-first-release development).
+    If a bad release needs retraction, publish a corrected release (bump the version) rather than force-pushing. Only force-push a tap that has zero real-user installs (pre-first-release development).
 - id: open-menu-deep-path-untested
   title: open-menu-deep-path-untested
   body: |
-    ---
-    name: open-menu-deep-path-untested
-    description: --open-menu settle delay validated for 1-2 segment paths; deeper paths (3+ segments) have not been stress-tested
-    type: project
-    ---
+    The `--open-menu` 400 ms per-segment settle delay is validated for depth ≤ 2 (single-level and two-level menu paths). Three-or-more-segment paths are untested; macOS may defer lazy-loading of deeply nested items beyond 400 ms.
 
-    The `--open-menu` 400 ms per-segment settle delay was validated on macOS Tahoe for single-level (`"File"`) and two-level (`"File,Open Recent"`) paths. Three-or-more-segment paths have not been tested.
-
-    **Why:** The P6 smoke test only exercised depth ≤ 2. Deeper submenus may not populate within 400 ms if macOS defers lazy-loading of nested items.
-
-    **How to apply:** If a future workflow requires a 3+ segment `--open-menu` path and it fails (submenu not populated at snapshot time), consider adding `--menu-settle-ms <int>` to `AgentSnapshotCmd` (trivial — one `@Option` in `cli/Sources/testanyware/AgentCommand.swift`, `openMenuBarPath(rawPath:)`) or replacing the fixed sleep with a poll-and-retry loop.
+    If a 3+ segment `--open-menu` path fails (submenu not populated at snapshot time): add `--menu-settle-ms <int>` to `AgentSnapshotCmd` (one `@Option` in `cli/Sources/testanyware/AgentCommand.swift`, `openMenuBarPath(rawPath:)`) or replace the fixed sleep with a poll-and-retry loop.
 - id: testanyware-doctor-detects-brew-shadow-install-path-hazard
   title: testanyware doctor detects brew-shadow install-path hazard
   body: |
