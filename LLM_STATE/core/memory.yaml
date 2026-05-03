@@ -413,3 +413,15 @@ entries:
   title: Swift CLI retired only after Rust reaches parity
   body: |
     The Swift CLI at `cli/` coexists with the Rust workspace until Rust reaches feature parity. Retirement is task 15 of the Rust CLI port arc; do not remove Swift CLI code before that task is complete.
+- id: swift-jsonencoder-emits-integer-literals-for-whole-number-doubles
+  title: Swift JSONEncoder emits integer literals for whole-number Doubles
+  body: |
+    Swift `JSONEncoder` serializes `Double` values like `8.0` as `8`, not `8.0`. serde-json always emits `8.0`. Cross-language contract tests must use semantic value comparison (`serde_json::Value`) rather than string or byte equality.
+- id: filepath-in-swift-tests-resolves-from-package-root
+  title: '#filePath in Swift tests resolves from Package root'
+  body: |
+    `#filePath` in Swift test source resolves relative to the Swift Package root directory, not the `.swift` file location. Both Swift and Rust test suites can share the same fixture directory by constructing paths from `#filePath` on the Swift side.
+- id: rust-workspace-at-cli-rs-has-three-crates
+  title: Rust workspace at cli-rs/ has three crates
+  body: |
+    `cli-rs/` workspace contains three crates: `testanyware-protocol` (shared types + serde), `testanyware-agent-client` (HTTP client), and `testanyware-cli` (ArgumentParser equivalent). `testanyware-protocol` is the canonical source for cross-language contract fixtures shared with the Swift test suite.
