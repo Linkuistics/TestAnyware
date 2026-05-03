@@ -433,3 +433,9 @@ entries:
   title: Swift CLI gap report maps failures to Rust-port acceptance criteria
   body: |
     §10 of `docs/architecture/cli-design-contract.md` records the six axes on which the Swift CLI fails the contract (JSON coverage, help examples, error structure, verb/noun convention, behaviour gaps, discoverability) and maps each to the Rust-port acceptance criterion for the implementing task. Port-task authors read §10; no re-audit of the Swift CLI is needed.
+- id: linux-agent-error-responses-use-code-details-split
+  title: Linux agent error responses use code + details split
+  body: |
+    Linux agent error responses use code + details split
+
+    `accessibility.py` and `system_endpoints.py` return `{"error": "<code>", "details": "..."}`. Error codes are snake_case with no interpolation: `not_found`, `ambiguous`, `window_not_found`, `download_failed`. Callers match on `error`; `details` is diagnostic context only. The live AT-SPI2 re-location failure returns `not_found` with a `details` string explaining the snapshot-vs-live discrepancy.
