@@ -51,7 +51,7 @@ tasks:
 - id: audit-current-cli-and-define-rust-cli-design-contract
   title: Audit current CLI and define Rust CLI design contract
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Audit the current Swift CLI surface against the LLM-friendly CLI design guidelines at `/Users/antony/Development/Ravel-Lite/defaults/fixed-memory/cli-tool-design.md`, and produce a **design contract** that all subsequent Rust command ports must follow. The Swift CLI is being retired; this task does NOT refactor it. The deliverable is a written contract for the Rust port.
@@ -87,6 +87,54 @@ tasks:
     - `agent {health,windows,snapshot,inspect,press}` is also noun-first.
     - `screenshot`, `record`, `find-text`, `screen-size`, `exec`, `upload`, `download` are verb-first.
     - A clean noun-first migration would group these as `screen {capture,record,size,find-text}` and `file {upload,download}`. Keep the verb-first names as aliases for backwards compatibility, since users have scripts.
+  results: |
+    **Deliverable:** `docs/architecture/cli-design-contract.md` (~600 lines, 12 sections) plus a scaffolded `docs/reference/cli-schemas/` directory with stub JSON Schemas for all 20 declared commands and a shared error envelope.
+
+    **Scope decisions baked into the contract**
+
+    - **Verb/noun: noun-first canonical, verb-first aliases.** `screenshot` / `record` / `find-text` / `screen-size` / `upload` / `download` / `exec` are kept as aliases of their `screen *` / `file *` canonical forms. Both forms are testable; alias removal is a breaking change.
+    - **One name per concept.** §2 enumerates the entire flag vocabulary the Rust port may use (`--json`, `--output`, `--out` (file), `--quiet`, `--verbose`, `--dry-run`, `--yes`, `--force`, `--filter`, `--limit`, `--all`, `--format`, `--color`). Reserves short flags (`-q -v -y -o -h -V`). Forbids `--confirm`, `--noprompt`, `--silent`, `--debug`, `--no-color`, `--pretty`, `--raw` so future ports can't reintroduce drift.
+    - **Schema directory is canonical from day one.** Every command listed in §3.1 has a schema file (stubbed with `schema_version` + `ok` only) so `testanyware schema <cmd>` can `include_str!` from the first commit and CI can fail any port that ships a command without a schema.
+    - **Error catalogue (§4) closes a known gap.** `docs/reference/error-codes.md` notes that the three agent implementations use different `error` strings; the contract pins a single canonical wire→code mapping, requires Linux/Windows agents to be brought into line during their respective ports, and disallows host-side translation maps. Unknown wire strings surface as `AGENT_ERROR_UNKNOWN`.
+    - **Exit codes (§5) bucket-bind to error codes.** `0/1/2/3/4/5/6/7` with `7` reserved for boot/connect/OCR timeouts (the original guideline didn't have a timeout slot, but TestAnyware has many).
+    - **Hard help-text gate (§7).** ≥ 2 examples per public subcommand is a CI gate, not a recommendation. The exception is alias help, which one-lines to "Alias of `<canonical>`".
+    - **Discoverability commands required (§8).** `capabilities`, `schema <cmd>`, and `llm-instructions` are MUST-haves for v1 of the Rust binary. `capabilities` exposes the error-code catalogue so agents can detect new codes without parsing help.
+    - **Idempotency table (§9.2) per command.** Pinned now so port authors don't re-derive it; flags ports of `agent press` / `input *` / `screen record` / `file exec` as application-defined or non-idempotent (must be documented in their `--help`).
+    - **Out-of-scope list (§12)** so future PRs don't accidentally drag in i18n, REPL mode, plugins, or hand-written completions.
+
+    **Gap report (§10) summary**
+
+    The Swift CLI fails the contract on roughly six axes:
+
+    1. **JSON coverage:** only `agent snapshot` and `agent inspect` have `--json`. `find-text` paradoxically emits JSON unconditionally with no human mode. `vm list`, `agent windows`, `screen-size`, `doctor`, all action commands, and the file-transfer commands are prose-only.
+    2. **Help:** every subcommand has a one-line abstract only. Zero examples, no exit codes section, no see-also.
+    3. **Errors:** no structured `code` field anywhere. Agent error strings disagree across the three implementations.
+    4. **Conventions:** verb/noun mixed, no aliases (`vm list` ≠ `vm ls`, etc.), flag vocabulary ad-hoc.
+    5. **Behaviour:** no TTY detection, no `--dry-run` anywhere, no `--yes` (only `--force` on `vm delete`), `vm list` unbounded, `record --duration 0` silently maps to 300 s.
+    6. **Discoverability:** no `capabilities`, no `schema`, no `llm-instructions`.
+
+    The gap report lists the Rust-port target for each gap row — these become the per-command acceptance criteria for tasks 3–13.
+
+    **Worked**
+
+    - Audit walked all 12 source files in `cli/Sources/testanyware/` (1,439 lines) against the §Audit-checklist of `cli-tool-design.md`.
+    - Stub schemas (`{schema_version, ok}` only) parse as valid JSON for all 20 commands plus the shared `error.json` — verified via `python3 -c json.load`.
+    - The contract is referenced by name from §11 (Acceptance for downstream port tasks), so subsequent backlog tasks already have a fixed bar.
+    - `.gitignore` audit: nothing introduced needs ignoring (markdown + JSON only).
+
+    **Didn't work / open questions**
+
+    - The contract picks `--limit 100` as the default for list commands, but `agent snapshot` element count can far exceed that and the right pagination cut is not obvious. Flagging as a v1 calibration job in `port-agent-only-cli-commands-exec-upload-download-agent-to-rust`.
+    - `--window-regex` for exact window matching (vs. the current loose substring match) is mentioned in §10.4 as optional v1; whether to require it in the port-agent task or defer to a follow-up was not decided.
+    - Linux/Windows agent error-string realignment (§4.5) is required by the contract but is technically out of scope of the host-CLI port tasks. Should probably appear as a separate backlog task per agent.
+
+    **What this suggests next**
+
+    - The next port task to dispatch is `port-agent-only-cli-commands-exec-upload-download-agent-to-rust` or `port-qemu-runner-and-vm-lifecycle-to-rust` — both directly depend on this contract and exercise the error-code mapping, the help-text template, and the JSON schema policy in their first command. Pick whichever has lower coupling to RFB protocol work (which is gated on `implement-rfb-client-crate-...`).
+    - Triage should add three new backlog items spawned by the contract:
+      1. **Realign Linux agent error strings to §4.5 of the contract.**
+      2. **Realign Windows agent error strings to §4.5 of the contract.**
+      3. **Add `tests/cli-contract.rs` skeleton in the Rust workspace** that walks every public subcommand and asserts §11.1–§11.6.
 - id: port-agent-only-cli-commands-exec-upload-download-agent-to-rust
   title: Port agent-only CLI commands (exec, upload, download, agent *) to Rust
   category: feature
