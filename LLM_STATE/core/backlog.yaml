@@ -371,6 +371,33 @@ tasks:
 
     **Notes**
     - This is the most protocol-fiddly task. Tight in particular has a sub-encoding state machine that's easy to get subtly wrong. Allocate time for it.
+- id: investigate-video-codec-licensing-for-embedded-libav-static-linking
+  title: Investigate video codec licensing for embedded libav static linking
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Investigate video codec licensing for embedded libav static linking in the Rust CLI.
+
+    **Background:** `port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess` requires statically linking libavcodec to keep the Rust binary self-contained. The canonical H.264 encoder (libx264) is GPL-licensed. Statically linking GPL code into a project that isn't fully GPL is legally contentious and may block distribution via Homebrew bottles.
+
+    **Decision needed (runs independently of all code tasks):**
+    - Determine whether static linking libx264 into the `testanyware` binary is compatible with the project's distribution model (Homebrew formula, linuxbrew, Windows zip).
+    - Assess the LGPL-only alternative: libopenh264 (Cisco's OpenH264). LGPL permits static linking with non-GPL projects; bitrate and quality may differ.
+    - Assess vendored x264 with a separate GPL-licensed Linux build variant (would require Homebrew to bottle separate GPL and non-GPL variants).
+    - If neither is acceptable, assess HEVC-only (libx265 is LGPL for the main library).
+
+    **Deliverable:**
+    Write `docs/architecture/video-codec-licensing.md` documenting:
+    1. Chosen codec set and rationale.
+    2. Licensing implications for the distribution model.
+    3. Any platform-specific differences (e.g. hardware encoder fallbacks on macOS/Linux).
+
+    **Acceptance criteria:**
+    - `docs/architecture/video-codec-licensing.md` exists and names a specific codec decision.
+    - The decision is referenced from the recording task description's "Constraints" section.
+
+    **Why extracted:** This is a legal/licensing research spike buried inside the recording implementation task. It requires no code, has no dependencies, and can run in parallel with any task in the Rust port arc. Starting the recording task without this decision risks a mid-implementation pivot on codec choice.
 - id: port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess
   title: Port testanyware record to embedded libav (ffmpeg-next) instead of subprocess
   category: feature
