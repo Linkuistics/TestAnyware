@@ -407,7 +407,7 @@ tasks:
 - id: realign-linux-agent-error-strings-to-cli-design-contract-4-5
   title: Realign Linux agent error strings to CLI design contract §4.5
   category: chore
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Realign Linux agent error strings to §4.5 of the CLI design contract
@@ -430,6 +430,110 @@ tasks:
     **Notes**
     - Promoted from `audit-current-cli-and-define-rust-cli-design-contract` results — "What this suggests next" item 1.
     - This task affects `agents/linux/` only; no changes to host CLI or other agents.
+  results: |
+    ## Outcome
+
+    Replaced all 17 4xx error responses in the Linux agent with canonical
+    wire `error` tokens from `docs/architecture/cli-design-contract.md` §4.5.
+    Human-readable prose moved to `details` where genuinely informative.
+
+    ## Changes
+
+    `agents/linux/testanyware_agent/accessibility.py` — 16 sites:
+
+    | Old `error` string                                                    | New `error` token   | `details`                                              |
+    |-----------------------------------------------------------------------|---------------------|--------------------------------------------------------|
+    | `No element found matching query` (×3)                                | `not_found`         | —                                                      |
+    | `Multiple elements matched` / `Multiple elements matched — refine…` (×3) | `ambiguous`         | (kept) joined `_describe_element` list of matches      |
+    | `No matching windows found` (×2)                                      | `window_not_found`  | —                                                      |
+    | `Element found in snapshot but could not locate live AT-SPI2 element` (×2) | `not_found`         | `snapshot match could not be re-located via live AT-SPI2` |
+    | `No window matching '<filter>'` (×6)                                  | `window_not_found`  | `window filter: <filter!r>`                            |
+
+    `agents/linux/testanyware_agent/system_endpoints.py` — 1 site:
+
+    | Old `error` string             | New `error` token | `details`        |
+    |--------------------------------|-------------------|------------------|
+    | `Download failed: <e>` (×1)    | `download_failed` | `str(e)`         |
+
+    ## Verification
+
+    - `python3 -m py_compile` on both files — OK.
+    - `grep` confirms no human-readable English strings remain in the agent's
+      emitted `error` fields.
+    - All 17 emitted tokens are members of the §4.5 canonical set (`not_found`,
+      `ambiguous`, `window_not_found`, `download_failed`).
+
+    ## Out of scope (intentional)
+
+    These were *not* changed because they would be behavior changes, not
+    string realignments:
+
+    1. **`action_unsupported` emission**: the Linux agent currently
+       `try/except`s action invocation and returns `200 + {success: false,
+       message: "<action> failed: <exc>"}`. Detecting "action genuinely
+       not supported by this element" vs "action failed at runtime"
+       requires inspecting AT-SPI2 action interfaces before invoking and
+       is a behavior change, not a string rename.
+
+    2. **`accessibility_unavailable` emission**: the agent does not
+       currently distinguish "AT-SPI2 unavailable" from other errors at
+       error-emit time. Adding this would require a probe path.
+
+    3. **`exec_failed` emission**: the contract reserves this token for
+       "process failed to spawn". `handle_exec` currently returns 200 with
+       `exitCode: -1, stderr: <exc>` on `Exception` and 200 with `exitCode:
+       -1, stderr: "Process timed out"` on `TimeoutExpired`. The contract
+       notes "exit codes are returned in the receipt, not via this error",
+       so the *spawn-failure* path (e.g. `OSError: [Errno 13] Permission
+       denied`) is the only place `exec_failed` would apply. Switching the
+       spawn-failure case to a 4xx + `exec_failed` is a wire-shape
+       change for callers that today see `exitCode=-1` for both spawn
+       failure and any other exception. Better handled in a dedicated
+       follow-up that audits the exec error taxonomy.
+
+    4. **`upload_failed` emission**: `handle_upload` currently returns
+       `200 + {success: false, message: "Upload failed: <e>"}`. Switching
+       to `400 + {error: "upload_failed"}` is also a wire-shape change.
+
+    5. **HTTP-plumbing errors in `server.py`** (`Not found: <path>`,
+       `Invalid JSON in request body`, generic 500 `str(e)`) are routing-
+       /framing-level errors, not §4.5 agent semantics. Out of scope.
+
+    ## Cross-impact
+
+    - The host (Swift) CLI's `AgentTCPClient.parseErrorMessage` decodes
+      `{error: String}` and surfaces that string verbatim via
+      `httpError(_, msg)`. After this change, the Swift CLI will display
+      raw tokens (e.g. "not_found") for Linux-agent failures. The contract
+      anticipates this: "the host CLI maps them 1:1 to a `code`" — the
+      CLI-side mapping is a separate task. Until that lands, Linux agent
+      errors against the legacy Swift CLI are uglier.
+
+    - The macOS agent (`agents/macos/Sources/testanyware-agent/AgentServer.swift`)
+      still emits the old human-readable strings (lines 224, 226, 230, 295,
+      308, 310, 314, 330, 350, 365, 380, 403, 486). Aligning macOS is a
+      separate, currently-untracked piece of work — backlog only carries
+      Linux + Windows realignment tasks. Worth flagging in triage so a
+      matching macOS realignment task can be added (or so this realignment
+      is explicitly absorbed into the Rust port effort, since the contract
+      is the contract regardless of impl language).
+
+    - Windows-agent realignment is the sibling task; its scope mirrors this
+      one and can use the same token map.
+
+    ## Suggestions for next session
+
+    - Add a backlog task for macOS-agent error-string realignment (or
+      scope it into the Rust port).
+    - Consider a tiny `pyproject.toml` + ruff/pytest config under
+      `agents/linux/` so future changes have lint/test in CI (the README
+      notes "no venv: uses system Python" but a project metadata file
+      doesn't conflict with that).
+    - The CLI-side token→message mapper (per contract §4.5 "the host CLI
+      maps them 1:1 to a `code`") is the other half of this work. Worth
+      a backlog entry once the Rust CLI's error-rendering layer is in
+      place — landing the agent side first means the wire is contract-
+      compliant ahead of the consumer.
 - id: realign-windows-agent-error-strings-to-cli-design-contract-4-5
   title: Realign Windows agent error strings to CLI design contract §4.5
   category: chore

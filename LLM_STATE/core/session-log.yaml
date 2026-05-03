@@ -486,3 +486,14 @@ sessions:
     - What didn't work / open questions: (1) The right `--limit` default for `agent snapshot` (element counts can far exceed 100) is deferred to the port task. (2) Whether `--window-regex` is a v1 requirement or a follow-up was not decided; flagged in the contract as optional v1. (3) Linux/Windows agent error-string realignment is required by the contract but is not covered by any existing backlog task.
     - What this suggests next: Port tasks (`port-agent-only-cli-commands-exec-upload-download-agent-to-rust` or `port-qemu-runner-and-vm-lifecycle-to-rust`) can now begin against this contract. Triage should spawn three new tasks: realign Linux agent error strings, realign Windows agent error strings, add `tests/cli-contract.rs` skeleton.
     - Key learnings: The Swift CLI fails the contract on six axes (JSON coverage, help examples, error structure, verb/noun convention, behaviour gaps, discoverability). The gap report in §10 maps each failure to the Rust-port acceptance criterion for the implementing task, so port-task authors have a fixed bar without re-reading the audit.
+- id: session-23
+  timestamp: 2026-05-03T23:52:34Z
+  phase: work
+  body: |
+    ### Session 23 (2026-05-03T23:52:34Z) — Realign Linux agent error strings to CLI design contract
+
+    - Attempted: Realign all error string values in the Linux AT-SPI2 accessibility agent and system endpoints to use machine-readable error codes (snake_case, no interpolation) as required by the CLI design contract.
+    - What worked: All targeted error strings replaced successfully across `accessibility.py` and `system_endpoints.py`. Human-readable prose replaced with canonical error codes: `not_found`, `ambiguous`, `window_not_found`, `download_failed`. Where contextual detail is still useful, it was moved to a separate `details` key rather than embedded in the `error` value.
+    - What didn't work: Nothing — the changes are mechanical and straightforward.
+    - What this suggests next: The Windows agent likely has the same class of prose error strings and should undergo the same realignment. A test task should add contract-compliance checks to catch future regressions before they reach the contract boundary.
+    - Key learnings: The pattern `{"error": "code", "details": "..."}` cleanly separates the machine-matchable error code from optional diagnostic context. The live AT-SPI2 re-location failure case in `handle_action` and `handle_set_value` was previously returning a confusing "element not found" message without any context; it now returns `not_found` with a `details` string explaining the snapshot-vs-live discrepancy, making it actionable for the caller.

@@ -387,10 +387,10 @@ def handle_inspect(body: dict) -> tuple[int, dict]:
                                             element_id, index)
 
     if result_type == "not_found":
-        return 400, {"error": "No element found matching query"}
+        return 400, {"error": "not_found"}
     if result_type == "multiple":
         return 400, {
-            "error": "Multiple elements matched",
+            "error": "ambiguous",
             "details": "\n".join(_describe_element(e) for e in (matches or [])),
         }
 
@@ -436,7 +436,7 @@ def handle_action(body: dict, action_name: str) -> tuple[int, dict]:
         windows = [w for w in windows if _window_matches(w, window_filter)]
 
     if not windows:
-        return 400, {"error": "No matching windows found"}
+        return 400, {"error": "window_not_found"}
 
     all_elements: list[ElementInfo] = []
     for win in windows:
@@ -450,16 +450,19 @@ def handle_action(body: dict, action_name: str) -> tuple[int, dict]:
                                             element_id, index)
 
     if result_type == "not_found":
-        return 400, {"error": "No element found matching query"}
+        return 400, {"error": "not_found"}
     if result_type == "multiple":
         return 400, {
-            "error": "Multiple elements matched \u2014 refine your query or use index",
+            "error": "ambiguous",
             "details": "\n".join(_describe_element(e) for e in (matches or [])),
         }
 
     live = _find_live_element(element)  # type: ignore[arg-type]
     if live is None:
-        return 400, {"error": "Element found in snapshot but could not locate live AT-SPI2 element"}
+        return 400, {
+            "error": "not_found",
+            "details": "snapshot match could not be re-located via live AT-SPI2",
+        }
 
     try:
         if action_name == "press":
@@ -491,7 +494,7 @@ def handle_set_value(body: dict) -> tuple[int, dict]:
         windows = [w for w in windows if _window_matches(w, window_filter)]
 
     if not windows:
-        return 400, {"error": "No matching windows found"}
+        return 400, {"error": "window_not_found"}
 
     all_elements: list[ElementInfo] = []
     for win in windows:
@@ -505,16 +508,19 @@ def handle_set_value(body: dict) -> tuple[int, dict]:
                                             element_id, index)
 
     if result_type == "not_found":
-        return 400, {"error": "No element found matching query"}
+        return 400, {"error": "not_found"}
     if result_type == "multiple":
         return 400, {
-            "error": "Multiple elements matched \u2014 refine your query or use index",
+            "error": "ambiguous",
             "details": "\n".join(_describe_element(e) for e in (matches or [])),
         }
 
     live = _find_live_element(element)  # type: ignore[arg-type]
     if live is None:
-        return 400, {"error": "Element found in snapshot but could not locate live AT-SPI2 element"}
+        return 400, {
+            "error": "not_found",
+            "details": "snapshot match could not be re-located via live AT-SPI2",
+        }
 
     try:
         _perform_set_value(live, value)
@@ -531,12 +537,18 @@ def handle_window_action(body: dict, action_name: str) -> tuple[int, dict]:
     matching = [w for w in windows if _window_matches(w, window_filter)]
 
     if not matching:
-        return 400, {"error": f"No window matching '{window_filter}'"}
+        return 400, {
+            "error": "window_not_found",
+            "details": f"window filter: {window_filter!r}",
+        }
 
     win = matching[0]
     win_accessible = _find_window_accessible(win)
     if win_accessible is None:
-        return 400, {"error": f"No window matching '{window_filter}'"}
+        return 400, {
+            "error": "window_not_found",
+            "details": f"window filter: {window_filter!r}",
+        }
 
     try:
         if action_name == "window-focus":
@@ -608,12 +620,18 @@ def handle_window_resize(body: dict) -> tuple[int, dict]:
     matching = [w for w in windows if _window_matches(w, window_filter)]
 
     if not matching:
-        return 400, {"error": f"No window matching '{window_filter}'"}
+        return 400, {
+            "error": "window_not_found",
+            "details": f"window filter: {window_filter!r}",
+        }
 
     win = matching[0]
     win_accessible = _find_window_accessible(win)
     if win_accessible is None:
-        return 400, {"error": f"No window matching '{window_filter}'"}
+        return 400, {
+            "error": "window_not_found",
+            "details": f"window filter: {window_filter!r}",
+        }
 
     xid = _get_window_xid(win_accessible)
     if xid == 0:
@@ -637,12 +655,18 @@ def handle_window_move(body: dict) -> tuple[int, dict]:
     matching = [w for w in windows if _window_matches(w, window_filter)]
 
     if not matching:
-        return 400, {"error": f"No window matching '{window_filter}'"}
+        return 400, {
+            "error": "window_not_found",
+            "details": f"window filter: {window_filter!r}",
+        }
 
     win = matching[0]
     win_accessible = _find_window_accessible(win)
     if win_accessible is None:
-        return 400, {"error": f"No window matching '{window_filter}'"}
+        return 400, {
+            "error": "window_not_found",
+            "details": f"window filter: {window_filter!r}",
+        }
 
     xid = _get_window_xid(win_accessible)
     if xid == 0:

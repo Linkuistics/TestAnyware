@@ -74,7 +74,7 @@ def handle_download(body: dict) -> tuple[int, dict]:
             data = f.read()
         return 200, {"content": base64.b64encode(data).decode("ascii")}
     except Exception as e:
-        return 400, {"error": f"Download failed: {e}"}
+        return 400, {"error": "download_failed", "details": str(e)}
 
 
 def handle_shutdown() -> tuple[int, dict]:
