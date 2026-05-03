@@ -107,6 +107,34 @@ tasks:
     - This task is the first concrete validation that Linux-host headless work is viable. Run the test suite from a Linux box against a QEMU Linux guest before declaring done.
     - Reuse `testanyware-agent-client` crate from task 1.
     - The Swift CLI's JSON output shapes are the de-facto schema; lock them down in `docs/reference/cli-schemas/` per task 2.
+- id: implement-cli-side-agent-error-code-mapper-in-rust-cli-for-canonical-token-display
+  title: Implement CLI-side agent error code mapper in Rust CLI for canonical token display
+  category: feature
+  status: not_started
+  dependencies:
+  - port-agent-only-cli-commands-exec-upload-download-agent-to-rust
+  description: |
+    Implement CLI-side agent error code mapper in Rust CLI for canonical token display
+
+    **Background:** §4.5 of the CLI design contract specifies that "the host CLI maps [agent error tokens] 1:1 to a `code`" for structured error output. The Linux and macOS agents have been (or are being) realigned to emit canonical wire tokens (`not_found`, `ambiguous`, `window_not_found`, etc.). Until the CLI-side mapper lands, the Rust CLI surfaces raw snake_case tokens directly to users and LLMs rather than the structured `code` field specified by the contract.
+
+    **Scope:**
+    - In the Rust CLI's agent response handling layer, map canonical agent error tokens to structured CLI error codes per §4.5.
+    - Cover the full §4.5 canonical token set: `not_found`, `ambiguous`, `window_not_found`, `download_failed`, `action_unsupported`, `accessibility_unavailable`, `exec_failed`, `upload_failed`.
+    - For any unrecognised token: surface as `AGENT_ERROR_UNKNOWN` with the raw token preserved for diagnostics (per contract fallback).
+    - JSON output (`--json` mode) emits the structured `code` field (e.g. `"AGENT_NOT_FOUND"`) not the raw wire token (`"not_found"`).
+    - Human-readable output translates the token to a friendly message.
+
+    **Acceptance criteria:**
+    - All canonical tokens from §4.5 map to named CLI error codes in the Rust implementation.
+    - `--json` output contains a `code` field that matches the §4.5 code catalogue.
+    - `AGENT_ERROR_UNKNOWN` fires correctly for any unrecognised token, with the raw token in `details`.
+    - Unit tests cover the full mapping table.
+
+    **Notes:**
+    - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — "Suggestions for next session" item 3.
+    - This task is the other half of the agent error realignment work; the agent side (Linux + macOS + Windows) emits canonical tokens, this task ensures the CLI consumer maps them to the contract-defined `code` values.
+    - Depends on `port-agent-only-cli-commands-exec-upload-download-agent-to-rust` since the mapper lives inside the Rust CLI's agent response handling.
 - id: port-qemu-runner-and-vm-lifecycle-to-rust
   title: Port QEMU runner and VM lifecycle to Rust
   category: feature
@@ -404,136 +432,35 @@ tasks:
       - LGPL-only codec set (libopenh264 instead of libx264).
       - Vendored x264 with the Linux build configured separately.
       - Document the chosen approach in `docs/architecture/video-codec-licensing.md`.
-- id: realign-linux-agent-error-strings-to-cli-design-contract-4-5
-  title: Realign Linux agent error strings to CLI design contract §4.5
+- id: realign-macos-agent-error-strings-to-cli-design-contract-4-5
+  title: Realign macOS agent error strings to CLI design contract §4.5
   category: chore
-  status: done
+  status: not_started
   dependencies: []
   description: |
-    Realign Linux agent error strings to §4.5 of the CLI design contract
+    Realign macOS agent error strings to CLI design contract §4.5
 
-    **Background:** The CLI design contract (§4.5, `docs/architecture/cli-design-contract.md`) pins a single canonical wire→code mapping for agent error strings. The three agent implementations (macOS Swift, Linux Python, Windows C#) currently use different `error` field values. The contract requires Linux and Windows agents to be brought into line; host-side translation maps are explicitly disallowed.
+    **Background:** The Linux Python agent error strings were realigned to §4.5 in `realign-linux-agent-error-strings-to-cli-design-contract-4-5`. The macOS Swift agent (`agents/macos/Sources/testanyware-agent/AgentServer.swift`) still emits human-readable strings. Known offending lines: 224, 226, 230, 295, 308, 310, 314, 330, 350, 365, 380, 403, 486.
 
-    Unknown wire strings surfacing as `AGENT_ERROR_UNKNOWN` is the fallback — any Linux agent error string not in the canonical mapping would surface as `AGENT_ERROR_UNKNOWN` on the host CLI, breaking structured error handling and LLM-readable error codes.
+    The CLI design contract (§4.5) requires all three agent implementations to emit canonical wire tokens. The macOS agent is the last agent remaining unaligned (Windows is tracked separately).
 
-    **Scope**
-    - Audit `agents/linux/` (Python agent) for all `error` strings returned in HTTP responses.
-    - Compare against the canonical error code mapping in `docs/architecture/cli-design-contract.md` §4.
-    - Update the Python agent to emit the canonical error strings.
-    - Verify with the existing contract test fixture suite (cross-language JSON fixtures in `cli-rs/`).
+    **Scope:**
+    - Audit `agents/macos/Sources/testanyware-agent/AgentServer.swift` for all `error` strings in HTTP responses.
+    - Compare against the canonical error code mapping in `docs/architecture/cli-design-contract.md` §4.5.
+    - Update the Swift agent to emit the canonical wire tokens (e.g. `not_found`, `ambiguous`, `window_not_found`).
+    - Move human-readable prose to `details` where genuinely informative (mirror the Linux agent pattern).
+    - Verify with the existing cross-language contract test fixture suite.
 
-    **Acceptance criteria**
-    - Every error string emitted by the Linux Python agent matches a canonical code in §4.5.
+    **Acceptance criteria:**
+    - Every `error` string emitted by the macOS Swift agent matches a canonical code in §4.5.
     - No host-side translation map is introduced.
-    - Cross-language contract fixtures for Linux-agent errors pass without modification.
+    - Cross-language contract fixtures pass without modification.
+    - `AgentServer.swift` emits only snake_case token strings in the `error` field, not English prose.
 
-    **Notes**
-    - Promoted from `audit-current-cli-and-define-rust-cli-design-contract` results — "What this suggests next" item 1.
-    - This task affects `agents/linux/` only; no changes to host CLI or other agents.
-  results: |
-    ## Outcome
-
-    Replaced all 17 4xx error responses in the Linux agent with canonical
-    wire `error` tokens from `docs/architecture/cli-design-contract.md` §4.5.
-    Human-readable prose moved to `details` where genuinely informative.
-
-    ## Changes
-
-    `agents/linux/testanyware_agent/accessibility.py` — 16 sites:
-
-    | Old `error` string                                                    | New `error` token   | `details`                                              |
-    |-----------------------------------------------------------------------|---------------------|--------------------------------------------------------|
-    | `No element found matching query` (×3)                                | `not_found`         | —                                                      |
-    | `Multiple elements matched` / `Multiple elements matched — refine…` (×3) | `ambiguous`         | (kept) joined `_describe_element` list of matches      |
-    | `No matching windows found` (×2)                                      | `window_not_found`  | —                                                      |
-    | `Element found in snapshot but could not locate live AT-SPI2 element` (×2) | `not_found`         | `snapshot match could not be re-located via live AT-SPI2` |
-    | `No window matching '<filter>'` (×6)                                  | `window_not_found`  | `window filter: <filter!r>`                            |
-
-    `agents/linux/testanyware_agent/system_endpoints.py` — 1 site:
-
-    | Old `error` string             | New `error` token | `details`        |
-    |--------------------------------|-------------------|------------------|
-    | `Download failed: <e>` (×1)    | `download_failed` | `str(e)`         |
-
-    ## Verification
-
-    - `python3 -m py_compile` on both files — OK.
-    - `grep` confirms no human-readable English strings remain in the agent's
-      emitted `error` fields.
-    - All 17 emitted tokens are members of the §4.5 canonical set (`not_found`,
-      `ambiguous`, `window_not_found`, `download_failed`).
-
-    ## Out of scope (intentional)
-
-    These were *not* changed because they would be behavior changes, not
-    string realignments:
-
-    1. **`action_unsupported` emission**: the Linux agent currently
-       `try/except`s action invocation and returns `200 + {success: false,
-       message: "<action> failed: <exc>"}`. Detecting "action genuinely
-       not supported by this element" vs "action failed at runtime"
-       requires inspecting AT-SPI2 action interfaces before invoking and
-       is a behavior change, not a string rename.
-
-    2. **`accessibility_unavailable` emission**: the agent does not
-       currently distinguish "AT-SPI2 unavailable" from other errors at
-       error-emit time. Adding this would require a probe path.
-
-    3. **`exec_failed` emission**: the contract reserves this token for
-       "process failed to spawn". `handle_exec` currently returns 200 with
-       `exitCode: -1, stderr: <exc>` on `Exception` and 200 with `exitCode:
-       -1, stderr: "Process timed out"` on `TimeoutExpired`. The contract
-       notes "exit codes are returned in the receipt, not via this error",
-       so the *spawn-failure* path (e.g. `OSError: [Errno 13] Permission
-       denied`) is the only place `exec_failed` would apply. Switching the
-       spawn-failure case to a 4xx + `exec_failed` is a wire-shape
-       change for callers that today see `exitCode=-1` for both spawn
-       failure and any other exception. Better handled in a dedicated
-       follow-up that audits the exec error taxonomy.
-
-    4. **`upload_failed` emission**: `handle_upload` currently returns
-       `200 + {success: false, message: "Upload failed: <e>"}`. Switching
-       to `400 + {error: "upload_failed"}` is also a wire-shape change.
-
-    5. **HTTP-plumbing errors in `server.py`** (`Not found: <path>`,
-       `Invalid JSON in request body`, generic 500 `str(e)`) are routing-
-       /framing-level errors, not §4.5 agent semantics. Out of scope.
-
-    ## Cross-impact
-
-    - The host (Swift) CLI's `AgentTCPClient.parseErrorMessage` decodes
-      `{error: String}` and surfaces that string verbatim via
-      `httpError(_, msg)`. After this change, the Swift CLI will display
-      raw tokens (e.g. "not_found") for Linux-agent failures. The contract
-      anticipates this: "the host CLI maps them 1:1 to a `code`" — the
-      CLI-side mapping is a separate task. Until that lands, Linux agent
-      errors against the legacy Swift CLI are uglier.
-
-    - The macOS agent (`agents/macos/Sources/testanyware-agent/AgentServer.swift`)
-      still emits the old human-readable strings (lines 224, 226, 230, 295,
-      308, 310, 314, 330, 350, 365, 380, 403, 486). Aligning macOS is a
-      separate, currently-untracked piece of work — backlog only carries
-      Linux + Windows realignment tasks. Worth flagging in triage so a
-      matching macOS realignment task can be added (or so this realignment
-      is explicitly absorbed into the Rust port effort, since the contract
-      is the contract regardless of impl language).
-
-    - Windows-agent realignment is the sibling task; its scope mirrors this
-      one and can use the same token map.
-
-    ## Suggestions for next session
-
-    - Add a backlog task for macOS-agent error-string realignment (or
-      scope it into the Rust port).
-    - Consider a tiny `pyproject.toml` + ruff/pytest config under
-      `agents/linux/` so future changes have lint/test in CI (the README
-      notes "no venv: uses system Python" but a project metadata file
-      doesn't conflict with that).
-    - The CLI-side token→message mapper (per contract §4.5 "the host CLI
-      maps them 1:1 to a `code`") is the other half of this work. Worth
-      a backlog entry once the Rust CLI's error-rendering layer is in
-      place — landing the agent side first means the wire is contract-
-      compliant ahead of the consumer.
+    **Notes:**
+    - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — Cross-impact section.
+    - Scope mirrors the Linux realignment task. The same §4.5 token map applies.
+    - The macOS agent may also need `action_unsupported` and `accessibility_unavailable` wired for cases where those paths exist in Swift — review with the Linux "out of scope intentional" list as a guide.
 - id: realign-windows-agent-error-strings-to-cli-design-contract-4-5
   title: Realign Windows agent error strings to CLI design contract §4.5
   category: chore
@@ -560,6 +487,32 @@ tasks:
     **Notes**
     - Promoted from `audit-current-cli-and-define-rust-cli-design-contract` results — "What this suggests next" item 2.
     - This task affects `agents/windows/` only; no changes to host CLI or other agents.
+- id: add-pyproject-toml-and-ruff-pytest-config-to-agents-linux-for-ci-lint-and-test-coverage
+  title: Add pyproject.toml and ruff/pytest config to agents/linux/ for CI lint and test coverage
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Add pyproject.toml and ruff/pytest config to agents/linux/ for CI lint and test coverage
+
+    **Background:** The Linux agent at `agents/linux/` uses system Python with no venv (by design), but currently has no `pyproject.toml` or static analysis configuration. Changes like the error string realignment have no automated quality gate in CI — correctness was verified by manual `grep` and `py_compile` only.
+
+    **Scope:**
+    - Add `pyproject.toml` under `agents/linux/` with:
+      - `ruff` configuration for linting (rules appropriate for a small production Python service).
+      - `pytest` as the test runner.
+    - Add at least minimal pytest tests verifying that canonical error tokens are emitted correctly — specifically the 17 sites changed in the realignment (the `not_found`, `ambiguous`, `window_not_found`, `download_failed` paths in `accessibility.py` and `system_endpoints.py`).
+    - Extend the existing CI workflow (`.github/workflows/`) to run `ruff check` and `pytest` on `agents/linux/` on every push and pull request.
+
+    **Acceptance criteria:**
+    - `ruff check agents/linux/` passes in CI.
+    - `pytest agents/linux/` runs at least the token-emission tests and passes.
+    - The existing "no venv: uses system Python" deployment model is unchanged — `pyproject.toml` is a development tooling file only.
+    - A future error string change that introduces a non-canonical token causes a test failure rather than a silent regression.
+
+    **Notes:**
+    - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — "Suggestions for next session" item 2.
+    - Keep test scope narrow: the agent's HTTP server doesn't need to be spun up — unit tests mocking the AT-SPI2 layer or driving response-construction functions directly are sufficient to cover the token emission paths.
 - id: port-tart-runner-for-macos-host-macos-guest-path-cfg-target-os-macos
   title: Port tart runner for macOS-host-macOS-guest path (cfg target_os macos)
   category: feature
