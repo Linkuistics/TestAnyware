@@ -48,99 +48,38 @@ tasks:
     - This is cheap insurance: catches Linux drift before any of the Linux-primary port tasks (agent commands, QEMU runner, doctor) begin in earnest.
     - Does NOT require a live VM or QEMU; just `cargo test --workspace` (unit + contract tests).
     - Extracted from `bootstrap-rust-workspace-and-shared-protocol-crate` results — "Suggestions for next session" item 2.
-- id: audit-current-cli-and-define-rust-cli-design-contract
-  title: Audit current CLI and define Rust CLI design contract
-  category: feature
-  status: done
+- id: add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions
+  title: Add cli-contract.rs skeleton in Rust workspace for per-subcommand contract assertions
+  category: chore
+  status: not_started
   dependencies: []
   description: |
-    Audit the current Swift CLI surface against the LLM-friendly CLI design guidelines at `/Users/antony/Development/Ravel-Lite/defaults/fixed-memory/cli-tool-design.md`, and produce a **design contract** that all subsequent Rust command ports must follow. The Swift CLI is being retired; this task does NOT refactor it. The deliverable is a written contract for the Rust port.
+    Add tests/cli-contract.rs skeleton in the Rust workspace
 
-    **Why this is task #2, not task #14:** establishing flag vocabulary, output formats, exit codes, and verb/noun convention BEFORE porting commands is one task; retrofitting after porting all of them is fourteen tasks worth of churn.
+    **Background:** The CLI design contract (§11) defines acceptance gates every public subcommand must satisfy: ≥2 help examples, `--json` flag, stable error codes, correct exit code, and a machine-readable schema file. The contract audit (`audit-current-cli-and-define-rust-cli-design-contract`) confirmed all three of these requirements and flagged that a contract-test skeleton should be added to the workspace early so port authors get immediate failure signals.
 
-    **Audit scope (current Swift CLI, read-only)**
-    Walk every subcommand in `cli/Sources/testanyware/` against the audit checklist in §Audit checklist of the design guide:
-    - Output: which commands support `--json`? Which emit only prose?
-    - Help: which subcommands include examples?
-    - Errors: which errors name remediation? Are error codes stable?
-    - Conventions: verb/noun ordering (current state mixes both — `vm start` is noun-first, `screenshot` and `find-text` are verb-first top-level).
-    - Behaviour: are interactive prompts blocked when stdout is non-TTY?
-
-    **Design contract (deliverable)**
-    Write `docs/architecture/cli-design-contract.md` that pins down for the Rust port:
-    1. **Verb/noun convention.** Pick one (recommendation: noun-first like `vm start` / `agent windows`, with top-level verb shortcuts like `screenshot`/`record`/`find-text` aliased as `screen capture`/`screen record`/`screen find-text` for discoverability).
-    2. **Flag vocabulary.** Concrete flag names for: structured output (`--json` vs `--output json`), quiet, verbose, dry-run, yes, force, filter, limit, all, format. ONE name per concept.
-    3. **JSON schema policy.** Every data-producing command emits stable JSON with `--json`. Schemas live at `docs/reference/cli-schemas/<command>.json`. Breaking changes need a major version bump.
-    4. **Error codes.** Stable `code` strings for JSON error output (e.g. `AUTH_REQUIRED`, `VM_NOT_FOUND`, `VNC_CONNECTION_REFUSED`). Catalog them in the contract doc.
-    5. **Exit code scheme.** 0 success / 1 generic / 2 usage / 3 not-found / 4 auth / 5 conflict / 6 rate-limited (or pick another scheme — but document it).
-    6. **Identifier conventions.** VM ids stay `testanyware-<hex>` (already prefix-typed). Document this. Round-trippable inputs/outputs.
-    7. **Help-text template.** One-line summary → description → synopsis → flags → exit codes → **at least 2 examples** → see-also. This is a hard requirement for every subcommand.
-    8. **Discoverability commands.** Decide whether to ship `testanyware capabilities --json`, `testanyware schema <cmd>`, and `testanyware llm-instructions`. Recommend a default.
+    **Scope**
+    - Add `cli-rs/tests/cli-contract.rs` (integration test driven by the `testanyware` binary via `std::process::Command`).
+    - Walk every public subcommand listed in `docs/reference/cli-schemas/` and assert:
+      - `--help` exits 0.
+      - `--help` output contains at least 2 `#` or `$ testanyware` example lines (§7 gate).
+      - `--json` flag is listed in `--help` output (§2 gate).
+      - The matching schema file in `docs/reference/cli-schemas/<cmd>.json` is valid JSON (parse-only; schema is still a stub).
+    - Skeleton test: most assertions will fail with "not yet implemented" exits for unported commands. Mark those with `#[ignore]` so CI stays green while the port proceeds; remove `#[ignore]` as each command lands.
 
     **Acceptance criteria**
-    - `docs/architecture/cli-design-contract.md` exists, is reviewed, and is referenced by name from each of tasks 3–13's acceptance criteria.
-    - A **JSON-schema directory** is scaffolded at `docs/reference/cli-schemas/` (empty schemas for commands not yet ported is fine).
-    - A **gap report** is included in the contract doc listing every Swift-CLI command that does NOT meet the contract today, and what changes are needed when porting.
+    - `cargo test --test cli-contract` runs without panic on the CI matrix (macOS + Ubuntu).
+    - Ported commands pass all assertions without `#[ignore]`.
+    - The test file compiles cleanly for the full workspace even when no commands are yet ported (all assertions `#[ignore]`d initially).
 
     **Notes**
-    - The current `vm-{start,stop,list,delete}` commands are already noun-first.
-    - `agent {health,windows,snapshot,inspect,press}` is also noun-first.
-    - `screenshot`, `record`, `find-text`, `screen-size`, `exec`, `upload`, `download` are verb-first.
-    - A clean noun-first migration would group these as `screen {capture,record,size,find-text}` and `file {upload,download}`. Keep the verb-first names as aliases for backwards compatibility, since users have scripts.
-  results: |
-    **Deliverable:** `docs/architecture/cli-design-contract.md` (~600 lines, 12 sections) plus a scaffolded `docs/reference/cli-schemas/` directory with stub JSON Schemas for all 20 declared commands and a shared error envelope.
-
-    **Scope decisions baked into the contract**
-
-    - **Verb/noun: noun-first canonical, verb-first aliases.** `screenshot` / `record` / `find-text` / `screen-size` / `upload` / `download` / `exec` are kept as aliases of their `screen *` / `file *` canonical forms. Both forms are testable; alias removal is a breaking change.
-    - **One name per concept.** §2 enumerates the entire flag vocabulary the Rust port may use (`--json`, `--output`, `--out` (file), `--quiet`, `--verbose`, `--dry-run`, `--yes`, `--force`, `--filter`, `--limit`, `--all`, `--format`, `--color`). Reserves short flags (`-q -v -y -o -h -V`). Forbids `--confirm`, `--noprompt`, `--silent`, `--debug`, `--no-color`, `--pretty`, `--raw` so future ports can't reintroduce drift.
-    - **Schema directory is canonical from day one.** Every command listed in §3.1 has a schema file (stubbed with `schema_version` + `ok` only) so `testanyware schema <cmd>` can `include_str!` from the first commit and CI can fail any port that ships a command without a schema.
-    - **Error catalogue (§4) closes a known gap.** `docs/reference/error-codes.md` notes that the three agent implementations use different `error` strings; the contract pins a single canonical wire→code mapping, requires Linux/Windows agents to be brought into line during their respective ports, and disallows host-side translation maps. Unknown wire strings surface as `AGENT_ERROR_UNKNOWN`.
-    - **Exit codes (§5) bucket-bind to error codes.** `0/1/2/3/4/5/6/7` with `7` reserved for boot/connect/OCR timeouts (the original guideline didn't have a timeout slot, but TestAnyware has many).
-    - **Hard help-text gate (§7).** ≥ 2 examples per public subcommand is a CI gate, not a recommendation. The exception is alias help, which one-lines to "Alias of `<canonical>`".
-    - **Discoverability commands required (§8).** `capabilities`, `schema <cmd>`, and `llm-instructions` are MUST-haves for v1 of the Rust binary. `capabilities` exposes the error-code catalogue so agents can detect new codes without parsing help.
-    - **Idempotency table (§9.2) per command.** Pinned now so port authors don't re-derive it; flags ports of `agent press` / `input *` / `screen record` / `file exec` as application-defined or non-idempotent (must be documented in their `--help`).
-    - **Out-of-scope list (§12)** so future PRs don't accidentally drag in i18n, REPL mode, plugins, or hand-written completions.
-
-    **Gap report (§10) summary**
-
-    The Swift CLI fails the contract on roughly six axes:
-
-    1. **JSON coverage:** only `agent snapshot` and `agent inspect` have `--json`. `find-text` paradoxically emits JSON unconditionally with no human mode. `vm list`, `agent windows`, `screen-size`, `doctor`, all action commands, and the file-transfer commands are prose-only.
-    2. **Help:** every subcommand has a one-line abstract only. Zero examples, no exit codes section, no see-also.
-    3. **Errors:** no structured `code` field anywhere. Agent error strings disagree across the three implementations.
-    4. **Conventions:** verb/noun mixed, no aliases (`vm list` ≠ `vm ls`, etc.), flag vocabulary ad-hoc.
-    5. **Behaviour:** no TTY detection, no `--dry-run` anywhere, no `--yes` (only `--force` on `vm delete`), `vm list` unbounded, `record --duration 0` silently maps to 300 s.
-    6. **Discoverability:** no `capabilities`, no `schema`, no `llm-instructions`.
-
-    The gap report lists the Rust-port target for each gap row — these become the per-command acceptance criteria for tasks 3–13.
-
-    **Worked**
-
-    - Audit walked all 12 source files in `cli/Sources/testanyware/` (1,439 lines) against the §Audit-checklist of `cli-tool-design.md`.
-    - Stub schemas (`{schema_version, ok}` only) parse as valid JSON for all 20 commands plus the shared `error.json` — verified via `python3 -c json.load`.
-    - The contract is referenced by name from §11 (Acceptance for downstream port tasks), so subsequent backlog tasks already have a fixed bar.
-    - `.gitignore` audit: nothing introduced needs ignoring (markdown + JSON only).
-
-    **Didn't work / open questions**
-
-    - The contract picks `--limit 100` as the default for list commands, but `agent snapshot` element count can far exceed that and the right pagination cut is not obvious. Flagging as a v1 calibration job in `port-agent-only-cli-commands-exec-upload-download-agent-to-rust`.
-    - `--window-regex` for exact window matching (vs. the current loose substring match) is mentioned in §10.4 as optional v1; whether to require it in the port-agent task or defer to a follow-up was not decided.
-    - Linux/Windows agent error-string realignment (§4.5) is required by the contract but is technically out of scope of the host-CLI port tasks. Should probably appear as a separate backlog task per agent.
-
-    **What this suggests next**
-
-    - The next port task to dispatch is `port-agent-only-cli-commands-exec-upload-download-agent-to-rust` or `port-qemu-runner-and-vm-lifecycle-to-rust` — both directly depend on this contract and exercise the error-code mapping, the help-text template, and the JSON schema policy in their first command. Pick whichever has lower coupling to RFB protocol work (which is gated on `implement-rfb-client-crate-...`).
-    - Triage should add three new backlog items spawned by the contract:
-      1. **Realign Linux agent error strings to §4.5 of the contract.**
-      2. **Realign Windows agent error strings to §4.5 of the contract.**
-      3. **Add `tests/cli-contract.rs` skeleton in the Rust workspace** that walks every public subcommand and asserts §11.1–§11.6.
+    - Promoted from `audit-current-cli-and-define-rust-cli-design-contract` results — "What this suggests next" item 3.
+    - The test does not need a live VM; it drives the CLI binary with `--help` only, so it runs in bare CI.
 - id: port-agent-only-cli-commands-exec-upload-download-agent-to-rust
   title: Port agent-only CLI commands (exec, upload, download, agent *) to Rust
   category: feature
   status: not_started
-  dependencies:
-  - audit-current-cli-and-define-rust-cli-design-contract
+  dependencies: []
   description: |
     Port commands that talk only to the in-VM agent over HTTP. No VNC, no OCR, no video. This delivers end-to-end value for the primary use case (Linux host driving Linux/Windows guests headlessly) before any RFB work begins.
 
@@ -172,8 +111,7 @@ tasks:
   title: Port QEMU runner and VM lifecycle to Rust
   category: feature
   status: not_started
-  dependencies:
-  - audit-current-cli-and-define-rust-cli-design-contract
+  dependencies: []
   description: |
     Port the QEMU-based VM lifecycle to Rust. This is the **primary VM path** under the new constraints (Linux/Windows guests on Linux/macOS hosts). Tart support is a separate later task (12).
 
@@ -246,8 +184,7 @@ tasks:
   title: Implement RFB client crate with handshake, Raw, CopyRect; port screenshot and screen-size
   category: feature
   status: not_started
-  dependencies:
-  - audit-current-cli-and-define-rust-cli-design-contract
+  dependencies: []
   description: |
     Implement the foundation of the new VNC layer: handshake + Raw + CopyRect encodings. Pure Rust, shared between the CLI and the viewer (task 8).
 
@@ -357,8 +294,7 @@ tasks:
   title: Port OCR client to Rust against existing Python EasyOCR daemon
   category: feature
   status: not_started
-  dependencies:
-  - audit-current-cli-and-define-rust-cli-design-contract
+  dependencies: []
   description: |
     Port the OCR client (host side) to Rust. The Python EasyOCR daemon used by `OCRChildBridge.swift` is already cross-platform — it was the primary OCR engine all along; Apple Vision is a 51-line fallback.
 
@@ -468,6 +404,58 @@ tasks:
       - LGPL-only codec set (libopenh264 instead of libx264).
       - Vendored x264 with the Linux build configured separately.
       - Document the chosen approach in `docs/architecture/video-codec-licensing.md`.
+- id: realign-linux-agent-error-strings-to-cli-design-contract-4-5
+  title: Realign Linux agent error strings to CLI design contract §4.5
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Realign Linux agent error strings to §4.5 of the CLI design contract
+
+    **Background:** The CLI design contract (§4.5, `docs/architecture/cli-design-contract.md`) pins a single canonical wire→code mapping for agent error strings. The three agent implementations (macOS Swift, Linux Python, Windows C#) currently use different `error` field values. The contract requires Linux and Windows agents to be brought into line; host-side translation maps are explicitly disallowed.
+
+    Unknown wire strings surfacing as `AGENT_ERROR_UNKNOWN` is the fallback — any Linux agent error string not in the canonical mapping would surface as `AGENT_ERROR_UNKNOWN` on the host CLI, breaking structured error handling and LLM-readable error codes.
+
+    **Scope**
+    - Audit `agents/linux/` (Python agent) for all `error` strings returned in HTTP responses.
+    - Compare against the canonical error code mapping in `docs/architecture/cli-design-contract.md` §4.
+    - Update the Python agent to emit the canonical error strings.
+    - Verify with the existing contract test fixture suite (cross-language JSON fixtures in `cli-rs/`).
+
+    **Acceptance criteria**
+    - Every error string emitted by the Linux Python agent matches a canonical code in §4.5.
+    - No host-side translation map is introduced.
+    - Cross-language contract fixtures for Linux-agent errors pass without modification.
+
+    **Notes**
+    - Promoted from `audit-current-cli-and-define-rust-cli-design-contract` results — "What this suggests next" item 1.
+    - This task affects `agents/linux/` only; no changes to host CLI or other agents.
+- id: realign-windows-agent-error-strings-to-cli-design-contract-4-5
+  title: Realign Windows agent error strings to CLI design contract §4.5
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Realign Windows agent error strings to §4.5 of the CLI design contract
+
+    **Background:** The CLI design contract (§4.5, `docs/architecture/cli-design-contract.md`) pins a single canonical wire→code mapping for agent error strings. The three agent implementations (macOS Swift, Linux Python, Windows C#) currently use different `error` field values. The contract requires Linux and Windows agents to be brought into line; host-side translation maps are explicitly disallowed.
+
+    Unknown wire strings surfacing as `AGENT_ERROR_UNKNOWN` is the fallback — any Windows agent error string not in the canonical mapping would surface as `AGENT_ERROR_UNKNOWN` on the host CLI, breaking structured error handling and LLM-readable error codes.
+
+    **Scope**
+    - Audit `agents/windows/` (C# .NET 9 agent) for all `error` strings returned in HTTP responses.
+    - Compare against the canonical error code mapping in `docs/architecture/cli-design-contract.md` §4.
+    - Update the C# agent to emit the canonical error strings.
+    - Verify with the existing contract test fixture suite (cross-language JSON fixtures in `cli-rs/`).
+
+    **Acceptance criteria**
+    - Every error string emitted by the Windows C# agent matches a canonical code in §4.5.
+    - No host-side translation map is introduced.
+    - Cross-language contract fixtures for Windows-agent errors pass without modification.
+
+    **Notes**
+    - Promoted from `audit-current-cli-and-define-rust-cli-design-contract` results — "What this suggests next" item 2.
+    - This task affects `agents/windows/` only; no changes to host CLI or other agents.
 - id: port-tart-runner-for-macos-host-macos-guest-path-cfg-target-os-macos
   title: Port tart runner for macOS-host-macOS-guest path (cfg target_os macos)
   category: feature
