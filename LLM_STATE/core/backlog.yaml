@@ -20,3 +20,515 @@ tasks:
     **Acceptance:** `testanyware doctor` reports the release pipeline tool floors from `release-build.sh` sentinels. Below-floor installs produce advisory warnings matching `ToolAvailabilityCheck` precedent.
 
     **Promoted from:** `add-provisionerscriptsversioncheck-to-doctor-command` results — "What this suggests next" item 2.
+- id: bootstrap-rust-workspace-and-shared-protocol-crate
+  title: Bootstrap Rust workspace and shared protocol crate
+  category: feature
+  status: not_started
+  dependencies: []
+  description: |
+    Set up the foundational Rust workspace alongside the existing Swift `cli/`. This is the first step of the Rust port that delivers the cross-platform host story (Linux primary, macOS secondary, Windows lower-priority goal). The work happens on a long-lived branch — no cutover concerns until task 15.
+
+    **Background from the design conversation (2026-05-04):**
+    - Linux is the primary host; macOS and Windows are secondary/tertiary.
+    - Primary guests are Linux + Windows (via QEMU on either host); macOS guests stay tart-on-macOS-only.
+    - The macOS Swift agent (`agents/macos/`) stays where it is. Only the host CLI moves.
+    - `royalvnc` FFI is **off the table** — Swift toolchain on Linux is a non-starter. RFB client must be pure Rust.
+    - ffmpeg is **embedded as a library** (ffmpeg-next), not subprocess.
+    - Distribution is **homebrew on macOS + linuxbrew on Linux**, plus a zip for Windows later.
+
+    **Scope**
+    - Create a Rust workspace at `cli-rs/` (peer of `cli/`).
+    - Crates: `testanyware-protocol` (serde wire types), `testanyware-agent-client` (HTTP client over reqwest), `testanyware-cli` (binary).
+    - Port wire types from `cli/Sources/TestAnywareAgentProtocol/` into `testanyware-protocol` with serde derives: AgentResponses, ElementInfo, UnifiedRole, RoleMapper, WindowInfo, AgentFormatter.
+    - Set up clap for arg parsing; subcommand stubs only (no behaviour yet).
+    - Set up tokio runtime; reqwest as HTTP client.
+    - Wire `cargo-dist` config (release pipeline lands in task 13; this just sets up the metadata).
+
+    **Acceptance criteria**
+    - `cargo build --workspace` succeeds on Linux x86_64 + arm64 and macOS arm64.
+    - `cargo test --workspace` passes; unit tests cover serde round-trip on every protocol type.
+    - A **contract test** loads canonical JSON fixtures generated from the Swift side and parses them through the Rust types without manual fix-ups; fails loudly if a field is renamed or dropped between the two impls.
+    - `testanyware --help` shows the same top-level subcommands as the Swift CLI (stubs OK), so users see no command-line surface change.
+
+    **Constraints**
+    - `TestAnywareAgentProtocol` will exist in three places after this task (cli-Swift, agents/macos-Swift, cli-rs-Rust). Don't try to unify yet — the contract test is the safety net.
+    - Avoid Linux-only APIs (raw `nix::*` calls); prefer `std::process` and `tokio::process` so Windows-host work in task 14 doesn't require rewrites.
+    - Use the `directories` crate (or equivalent) for XDG_STATE_HOME / XDG_DATA_HOME / %LOCALAPPDATA% — NOT hardcoded `~/.local/state`.
+- id: audit-current-cli-and-define-rust-cli-design-contract
+  title: Audit current CLI and define Rust CLI design contract
+  category: feature
+  status: not_started
+  dependencies:
+  - bootstrap-rust-workspace-and-shared-protocol-crate
+  description: |
+    Audit the current Swift CLI surface against the LLM-friendly CLI design guidelines at `/Users/antony/Development/Ravel-Lite/defaults/fixed-memory/cli-tool-design.md`, and produce a **design contract** that all subsequent Rust command ports must follow. The Swift CLI is being retired; this task does NOT refactor it. The deliverable is a written contract for the Rust port.
+
+    **Why this is task #2, not task #14:** establishing flag vocabulary, output formats, exit codes, and verb/noun convention BEFORE porting commands is one task; retrofitting after porting all of them is fourteen tasks worth of churn.
+
+    **Audit scope (current Swift CLI, read-only)**
+    Walk every subcommand in `cli/Sources/testanyware/` against the audit checklist in §Audit checklist of the design guide:
+    - Output: which commands support `--json`? Which emit only prose?
+    - Help: which subcommands include examples?
+    - Errors: which errors name remediation? Are error codes stable?
+    - Conventions: verb/noun ordering (current state mixes both — `vm start` is noun-first, `screenshot` and `find-text` are verb-first top-level).
+    - Behaviour: are interactive prompts blocked when stdout is non-TTY?
+
+    **Design contract (deliverable)**
+    Write `docs/architecture/cli-design-contract.md` that pins down for the Rust port:
+    1. **Verb/noun convention.** Pick one (recommendation: noun-first like `vm start` / `agent windows`, with top-level verb shortcuts like `screenshot`/`record`/`find-text` aliased as `screen capture`/`screen record`/`screen find-text` for discoverability).
+    2. **Flag vocabulary.** Concrete flag names for: structured output (`--json` vs `--output json`), quiet, verbose, dry-run, yes, force, filter, limit, all, format. ONE name per concept.
+    3. **JSON schema policy.** Every data-producing command emits stable JSON with `--json`. Schemas live at `docs/reference/cli-schemas/<command>.json`. Breaking changes need a major version bump.
+    4. **Error codes.** Stable `code` strings for JSON error output (e.g. `AUTH_REQUIRED`, `VM_NOT_FOUND`, `VNC_CONNECTION_REFUSED`). Catalog them in the contract doc.
+    5. **Exit code scheme.** 0 success / 1 generic / 2 usage / 3 not-found / 4 auth / 5 conflict / 6 rate-limited (or pick another scheme — but document it).
+    6. **Identifier conventions.** VM ids stay `testanyware-<hex>` (already prefix-typed). Document this. Round-trippable inputs/outputs.
+    7. **Help-text template.** One-line summary → description → synopsis → flags → exit codes → **at least 2 examples** → see-also. This is a hard requirement for every subcommand.
+    8. **Discoverability commands.** Decide whether to ship `testanyware capabilities --json`, `testanyware schema <cmd>`, and `testanyware llm-instructions`. Recommend a default.
+
+    **Acceptance criteria**
+    - `docs/architecture/cli-design-contract.md` exists, is reviewed, and is referenced by name from each of tasks 3–13's acceptance criteria.
+    - A **JSON-schema directory** is scaffolded at `docs/reference/cli-schemas/` (empty schemas for commands not yet ported is fine).
+    - A **gap report** is included in the contract doc listing every Swift-CLI command that does NOT meet the contract today, and what changes are needed when porting.
+
+    **Notes**
+    - The current `vm-{start,stop,list,delete}` commands are already noun-first.
+    - `agent {health,windows,snapshot,inspect,press}` is also noun-first.
+    - `screenshot`, `record`, `find-text`, `screen-size`, `exec`, `upload`, `download` are verb-first.
+    - A clean noun-first migration would group these as `screen {capture,record,size,find-text}` and `file {upload,download}`. Keep the verb-first names as aliases for backwards compatibility, since users have scripts.
+- id: port-agent-only-cli-commands-exec-upload-download-agent-to-rust
+  title: Port agent-only CLI commands (exec, upload, download, agent *) to Rust
+  category: feature
+  status: not_started
+  dependencies:
+  - bootstrap-rust-workspace-and-shared-protocol-crate
+  - audit-current-cli-and-define-rust-cli-design-contract
+  description: |
+    Port commands that talk only to the in-VM agent over HTTP. No VNC, no OCR, no video. This delivers end-to-end value for the primary use case (Linux host driving Linux/Windows guests headlessly) before any RFB work begins.
+
+    **Scope**
+    - `testanyware exec` — run a command in the guest, capture stdout/stderr/exit code.
+    - `testanyware upload`, `testanyware download` — file transfer through the agent.
+    - `testanyware agent health`, `agent windows`, `agent snapshot` (with `--mode interact|full`, `--window`, `--open-menu`), `agent inspect` (`--role`, `--label`), `agent press`.
+    - Connection resolution chain (must mirror the priority order in README.md):
+      1. `--connect <path>`
+      2. `--vm <id>`
+      3. `--vnc` / `--agent` / `--platform`
+      4. `TESTANYWARE_VM_ID`
+      5. `TESTANYWARE_VNC` / `TESTANYWARE_VNC_PASSWORD` / `TESTANYWARE_AGENT` / `TESTANYWARE_PLATFORM`
+      6. Error
+    - Per-VM spec file reading from `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.json` (with `directories` crate for cross-platform path resolution; `%LOCALAPPDATA%` on Windows).
+
+    **Acceptance criteria**
+    - All listed commands behave identically to the Swift CLI in flag names, output format, and exit codes.
+    - Each command's `--help` includes ≥2 concrete examples per the CLI design contract (task 2).
+    - Each command supports `--json` per the design contract.
+    - Errors emit stable `code` fields in JSON mode.
+    - IntegrationTests-equivalent suite runs against a live golden VM (Linux or Windows) on a Linux host.
+
+    **Notes**
+    - This task is the first concrete validation that Linux-host headless work is viable. Run the test suite from a Linux box against a QEMU Linux guest before declaring done.
+    - Reuse `testanyware-agent-client` crate from task 1.
+    - The Swift CLI's JSON output shapes are the de-facto schema; lock them down in `docs/reference/cli-schemas/` per task 2.
+- id: port-qemu-runner-and-vm-lifecycle-to-rust
+  title: Port QEMU runner and VM lifecycle to Rust
+  category: feature
+  status: not_started
+  dependencies:
+  - bootstrap-rust-workspace-and-shared-protocol-crate
+  - audit-current-cli-and-define-rust-cli-design-contract
+  description: |
+    Port the QEMU-based VM lifecycle to Rust. This is the **primary VM path** under the new constraints (Linux/Windows guests on Linux/macOS hosts). Tart support is a separate later task (12).
+
+    **Scope (port from Swift)**
+    - `cli/Sources/TestAnywareDriver/VM/QEMURunner.swift`
+    - `cli/Sources/TestAnywareDriver/VM/QEMUMonitorClient.swift`
+    - `cli/Sources/TestAnywareDriver/VM/VMLifecycle.swift` (QEMU paths only — tart paths in task 12)
+    - `cli/Sources/TestAnywareDriver/VM/AgentHealthWaiter.swift`
+    - `cli/Sources/TestAnywareDriver/VM/DetachedProcess.swift`
+    - `cli/Sources/TestAnywareDriver/VM/VMPaths.swift`
+    - `cli/Sources/TestAnywareDriver/VM/VMSpec.swift` and `VMMeta.swift`
+    - swtpm setup for Windows guests (TPM 2.0 socket).
+    - Per-VM spec write/read; meta sidecar with PID + clone-dir + (later) viewer-PID.
+
+    **Commands**
+    - `testanyware vm start --platform {linux|windows} --display WxH [--viewer]`
+    - `testanyware vm stop <id>`
+    - `testanyware vm list`
+    - `testanyware vm delete <name>`
+
+    **Acceptance criteria**
+    - On a Linux host: `testanyware vm start --platform windows --display 1920x1080` clones and starts a Windows golden, returns a usable VM id, agent reaches health within timeout.
+    - On a Linux host: same flow for `--platform linux`.
+    - On a macOS host: same QEMU flows work (linux + windows guests).
+    - `testanyware vm stop` cleanly terminates QEMU + swtpm. Viewer wiring lands in task 8.
+    - Meta sidecar shape stays compatible: an in-flight VM started by the Swift CLI can be stopped by the Rust CLI on macOS (and vice versa) for the duration of the parallel-tooling period.
+    - Each command satisfies the CLI design contract from task 2: examples in help, `--json` output, stable error codes.
+
+    **Constraints from the design conversation**
+    - Use `tokio::process` for child management. On Unix use `setsid` (via `nix` behind `#[cfg(unix)]`); on Windows use `CREATE_NEW_PROCESS_GROUP` (via `windows-sys` or `std::os::windows::process::CommandExt`).
+    - The existing memory entries on Darwin pipe EOF and Foundation `Process` not calling `setsid` **do not apply** to Rust — most of those workarounds drop away. Re-validate the process-tree-kill sequence in Rust rather than porting the workaround verbatim.
+    - KVM access on Linux: `/dev/kvm` must be readable+writable. If missing, fail with `code: KVM_PERMISSION_DENIED` and a remediation message naming `usermod -aG kvm $USER` (per CLI design contract §Errors).
+    - swtpm is required for Windows guests. If missing, fail with `code: SWTPM_MISSING` and remediation `apt install swtpm swtpm-tools` on Linux / `brew install swtpm` on macOS.
+- id: port-testanyware-doctor-with-linux-host-preflight-checks
+  title: Port testanyware doctor with Linux-host preflight checks
+  category: feature
+  status: not_started
+  dependencies:
+  - port-agent-only-cli-commands-exec-upload-download-agent-to-rust
+  - port-qemu-runner-and-vm-lifecycle-to-rust
+  description: |
+    Port `testanyware doctor` with cross-platform host preflight checks. Doctor is the primary feedback loop for users on a new host — when something is missing, doctor tells them what to install.
+
+    **Scope**
+    - Port `cli/Sources/testanyware/DoctorCommand.swift` to Rust.
+    - Existing checks (preserve): dev-symlink/brew-shadowing detection, agent payload presence at `$(brew --prefix testanyware)/share/testanyware/`, bundled-script `testanyware-min-tool` sentinel parsing.
+    - **New Linux-host checks:**
+      - `/dev/kvm` permission (suggest `usermod -aG kvm $USER`).
+      - `swtpm` and `swtpm-tools` presence (apt instruction).
+      - `qemu-system-{x86_64,aarch64}` presence and minimum version (pin in source).
+      - `ffmpeg` embedded availability self-check (link against libav at build time; runtime check that the linked symbols load).
+    - **macOS-host checks (preserve + extend):**
+      - `tart` presence if any macOS-platform operation is requested.
+      - `swtpm` via brew.
+    - **Windows-host checks (lower priority but design now):**
+      - WHPX/HAXM accelerator presence.
+      - `swtpm.exe` presence (Windows port).
+      - `qemu-system-*.exe` presence.
+
+    **Acceptance criteria**
+    - Per the CLI design contract (task 2): `testanyware doctor` supports `--json` with a stable schema (`{"checks": [{"name", "status", "remediation", "code"}], "summary": {...}}`).
+    - On a fresh Linux host with KVM but no swtpm: doctor exits non-zero, names `apt install swtpm swtpm-tools`, JSON output includes `code: "SWTPM_MISSING"`.
+    - On a healthy macOS host: doctor exits 0 with the same diagnostic quality as the Swift version.
+    - Examples in `--help` cover both the human-readable invocation and the JSON-consumed-by-script invocation.
+
+    **Notes**
+    - This task can ship with stub checks for parts that aren't yet implemented (e.g. ffmpeg check stays a stub until task 11). Doctor is intended to evolve; the schema is the stable thing.
+    - The existing min-tool-sentinels backlog item is independent and orthogonal — it adds version sentinels to bundled scripts. That task can land before or after this one.
+- id: implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
+  title: Implement RFB client crate with handshake, Raw, CopyRect; port screenshot and screen-size
+  category: feature
+  status: not_started
+  dependencies:
+  - bootstrap-rust-workspace-and-shared-protocol-crate
+  - audit-current-cli-and-define-rust-cli-design-contract
+  description: |
+    Implement the foundation of the new VNC layer: handshake + Raw + CopyRect encodings. Pure Rust, shared between the CLI and the viewer (task 8).
+
+    **Why pure Rust:** royalvnc FFI was considered but ruled out — Swift toolchain on Linux is a non-starter for the primary host platform.
+
+    **Scope**
+    - New crate: `testanyware-rfb`. RFB protocol per RFC 6143.
+    - Security types: None, VNC password.
+    - Encodings: Raw, CopyRect.
+    - Pseudo-encodings: DesktopSize, LastRect.
+    - Pixel format negotiation.
+    - Framebuffer abstraction with a `FrameSink` trait — separates protocol from output target. Same crate consumed by:
+      - CLI: `FrameSink` writes one PNG to disk and disconnects (`testanyware screenshot`).
+      - Viewer (task 8): `FrameSink` blits into a wgpu texture, stays connected.
+    - API sketch: `RfbConnection::connect(host, port, password) -> Result<Self>`, `.request_update()`, `.next_message()`.
+
+    **Commands**
+    - `testanyware screenshot --vnc <ep> [-o out.png] [--region x,y,w,h] [--json]`
+    - `testanyware screen-size --vnc <ep> [--json]`
+
+    **Acceptance criteria — spike-as-first-test**
+    1. Connects to a running QEMU Linux guest on a Linux host, completes RFB handshake with password auth, requests one framebuffer update, decodes a Raw-encoded rectangle, writes a PNG that opens correctly.
+    2. Same code path works on a macOS host against a tart macOS guest (validates two host OSes and the least-common-denominator encoding).
+    3. `testanyware screenshot` output is byte-identical to the Swift CLI for an identical VNC frame (use a deterministic reference VM frame as fixture).
+    4. `testanyware screen-size --json` returns `{"width": <int>, "height": <int>}` per the CLI design contract.
+
+    **Constraints**
+    - Don't implement ZRLE/Tight here — task 10. Most golden VMs negotiate down to Raw if Tight isn't offered, so Raw + CopyRect is enough to validate the rest of the pipeline (input, viewer, video) end-to-end.
+    - API designed for two consumers (CLI one-shot, viewer continuous render). The `FrameSink` trait is the abstraction boundary.
+    - Pure Rust, no C deps beyond what `image` crate already pulls in.
+- id: implement-rfb-input-messages-and-port-testanyware-input-subcommands
+  title: Implement RFB input messages and port testanyware input subcommands
+  category: feature
+  status: not_started
+  dependencies:
+  - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
+  description: |
+    Add outbound RFB messages for keyboard and mouse input. Builds on `testanyware-rfb` from task 6 — same crate, additional code path.
+
+    **Scope**
+    - `KeyEvent` (RFB message type 4): down/up with X11 keysym.
+    - `PointerEvent` (RFB message type 5): button mask + x/y.
+    - Port `cli/Sources/TestAnywareDriver/Input/PlatformKeymap.swift` to Rust: per-platform Cmd/Alt/Ctrl keysym mapping.
+    - Port `cli/Sources/TestAnywareDriver/Input/VNCInput.swift` higher-level helpers (typeText, click, drag, scroll).
+
+    **Commands (port from Swift CLI)**
+    - `testanyware input key <name> [--modifiers cmd,shift]`
+    - `testanyware input key-down <name>` / `key-up <name>`
+    - `testanyware input type <text>`
+    - `testanyware input click <x> <y> [--button right] [--count 2]`
+    - `testanyware input mouse-down <x> <y>` / `mouse-up <x> <y>`
+    - `testanyware input move <x> <y>`
+    - `testanyware input scroll <x> <y> --dy <n>`
+    - `testanyware input drag <x1> <y1> <x2> <y2>`
+
+    **Acceptance criteria**
+    - Each input subcommand has identical flag surface and exit codes to the Swift CLI.
+    - macOS Cmd-key behaviour verified against a macOS guest. Apply existing project memory: macOS Cmd = `XK_Alt_L (0xffe9)`, Option = `XK_Meta_L (0xffe7)` for Virtualization.framework VNC.
+    - Integration test: `testanyware input type "Hello"`, then `testanyware agent snapshot` confirms the focused text field contains "Hello". Runs on Linux host against Linux guest AND macOS host against macOS guest.
+    - Help text + `--json` per the CLI design contract.
+
+    **Constraints**
+    - Reuse the open `RfbConnection` (no separate connection per command in scripted flows — though one-shot CLI invocations naturally open + send + close).
+    - Modifier-key handling for typed text (uppercase, shifted symbols) is already mapped in the Swift code — port the table verbatim, then verify against the existing Swift unit tests as a parity check.
+- id: build-cross-platform-vnc-viewer-with-egui-to-replace-applescript-launcher
+  title: Build cross-platform VNC viewer with egui to replace AppleScript launcher
+  category: feature
+  status: not_started
+  dependencies:
+  - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
+  - implement-rfb-input-messages-and-port-testanyware-input-subcommands
+  - port-qemu-runner-and-vm-lifecycle-to-rust
+  description: |
+    Build a cross-platform VNC viewer that **replaces the AppleScript-based Screen Sharing.app launcher entirely**. New `testanyware-viewer` binary in the Rust workspace, sharing the `testanyware-rfb` crate with the CLI.
+
+    **Why bundled, not launched:** users on Linux have no consistent system VNC viewer; system-viewer launching is flaky on macOS (AppleScript permission prompt, no reliable close handle); forking TigerVNC/Remmina costs more than building a focused viewer for the deliberately-small scope below.
+
+    **Scope**
+    - New crate: `testanyware-viewer`. egui/eframe with wgpu backend.
+    - Single window: connect to localhost VNC endpoint with password from per-VM spec; render framebuffer to a wgpu texture; forward keyboard + mouse events as RFB input via the shared `testanyware-rfb` crate.
+    - "Send Ctrl-Alt-Del" menu item for Windows guests.
+    - SIGTERM handler (Unix) / `SetConsoleCtrlHandler` (Windows) → clean window close → process exit.
+    - Window titlebar shows VM id + connection state.
+    - Window auto-sizes to match VNC framebuffer resolution on connect.
+    - Lifecycle wiring:
+      - `testanyware vm start --viewer` spawns `testanyware-viewer --vm <id>` as a detached child; writes its PID to `<id>.meta.json`.
+      - `testanyware vm stop <id>` SIGTERMs the viewer PID (if present in meta) before stopping the VM.
+
+    **Acceptance criteria**
+    - On a Linux host: `testanyware vm start --viewer --platform linux` opens a window, displays the guest's framebuffer, accepts keyboard/mouse that reach the guest.
+    - Same on a macOS host. **Zero AppleScript involved on either platform.**
+    - `testanyware vm stop` closes the window cleanly without leaving an orphan window or process.
+    - Crash in the viewer process does NOT affect the CLI driving the test (separate processes, OS handles cleanup).
+    - No first-run macOS Automation permission prompt — we open our own window, not Screen Sharing.app.
+    - README's "First-run permission" section is updated to reflect this (the Automation grant becomes obsolete).
+
+    **Deliberately out of scope**
+    - Clipboard sync (interferes with deterministic test input).
+    - File transfer (the agent does that).
+    - Encryption negotiation beyond VNC password (loopback only).
+    - Multi-monitor, bookmarks/profiles, audio.
+    - Settings UI.
+
+    **Distribution decision**
+    - Separate binary, not a CLI subcommand. Keeps egui/wgpu deps optional behind a cargo feature for headless CI builds (`cargo build --no-default-features --features headless`).
+- id: port-ocr-client-to-rust-against-existing-python-easyocr-daemon
+  title: Port OCR client to Rust against existing Python EasyOCR daemon
+  category: feature
+  status: not_started
+  dependencies:
+  - bootstrap-rust-workspace-and-shared-protocol-crate
+  - audit-current-cli-and-define-rust-cli-design-contract
+  description: |
+    Port the OCR client (host side) to Rust. The Python EasyOCR daemon used by `OCRChildBridge.swift` is already cross-platform — it was the primary OCR engine all along; Apple Vision is a 51-line fallback.
+
+    **Scope**
+    - Port `cli/Sources/TestAnywareDriver/OCR/OCRChildBridge.swift` (Python-daemon client, actor-based) to Rust.
+    - Port `cli/Sources/TestAnywareDriver/OCR/OCRStatusFile.swift` (status-file protocol).
+    - Port `cli/Sources/TestAnywareDriver/OCR/OCRDetection.swift` (text-finding logic).
+    - Same wire protocol: temp-file PNG path + JSON line on stdin, JSON line on stdout.
+    - Same daemon discovery: interpreter path resolution mirroring `cli/Sources/TestAnywareDriver/ExecutablePath.swift` and `DoctorCommand.swift`.
+    - **Drop the Apple Vision OCR engine** (`VisionOCREngine.swift`). It was a fallback; Linux + Windows hosts have no equivalent and EasyOCR works on all platforms.
+
+    **Commands**
+    - `testanyware find-text [--vnc <ep>] [<query>] [--timeout <secs>] [--json]`
+
+    **Acceptance criteria**
+    - On a Linux host: `testanyware find-text --vnc <ep> "Loading"` produces the same text-with-coordinates output as the Swift CLI on a macOS host for the same input PNG (within OCR-acceptable tolerances; reuse existing `vision/` test fixtures).
+    - `--timeout` polling matches Swift behaviour (poll interval, total deadline, exit code on timeout).
+    - Daemon lifecycle preserved: warm-start, sticky-unavailable on permanent failure, transient-failure retry with backoff.
+    - Per CLI design contract: `--json` output, error codes for `OCR_DAEMON_UNAVAILABLE`, `OCR_TIMEOUT`, `OCR_INTERNAL_ERROR`.
+
+    **Notes**
+    - Daemon reaping needs the same care as task 4's process management — but the daemon is long-lived and intentionally single-instance per CLI process, so this is simpler than QEMU lifecycle.
+    - The EasyOCR Python source itself is unchanged; this task only touches the host-side Rust client.
+- id: add-zrle-and-tight-encodings-to-rfb-client-crate
+  title: Add ZRLE and Tight encodings to RFB client crate
+  category: feature
+  status: not_started
+  dependencies:
+  - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
+  description: |
+    Extend `testanyware-rfb` with ZRLE and Tight encodings. Defer this task until empirical evidence shows it's needed — most golden VMs negotiate down to Raw.
+
+    **Scope**
+    - ZRLE encoding (zlib-compressed RLE) per RFC 6143.
+    - Tight encoding (basic + JPEG sub-encoding). JPEG decode via `jpeg-decoder` or `image` crate.
+    - Pseudo-encodings to verify coverage: Cursor, DesktopSize (added in task 6 foundation; double-check edge cases here).
+    - Encoding-priority list during handshake: Raw → CopyRect → ZRLE → Tight (the SetEncodings message orders by client preference — most efficient last in some impls, most efficient first in others; use whichever is correct for our chosen interpretation and document it).
+
+    **Acceptance criteria**
+    - A connection to a server that ONLY offers Tight (e.g. some RealVNC variants) still produces a correct framebuffer.
+    - ZRLE compatibility verified against a server known to push ZRLE under the right conditions (TigerVNC server in compressed mode).
+    - Performance regression test: ZRLE/Tight on a 1080p frame should be no worse than Raw end-to-end over loopback (compressed bytes vs uncompressed bytes both fit in memory; CPU is the variable). Failure here means a slow decoder, not a correctness bug.
+    - Existing `testanyware screenshot` and viewer continue to work unchanged (encoding negotiation is hidden inside the crate).
+
+    **When to start this task**
+    - Only after tasks 6 + 7 + 8 are landed and you've actually hit a server that won't fall back to Raw. If golden VMs (tart-macOS, tart-linux, QEMU-windows, QEMU-linux) all negotiate Raw without complaint, this task can wait indefinitely.
+
+    **Notes**
+    - This is the most protocol-fiddly task. Tight in particular has a sub-encoding state machine that's easy to get subtly wrong. Allocate time for it.
+- id: port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess
+  title: Port testanyware record to embedded libav (ffmpeg-next) instead of subprocess
+  category: feature
+  status: not_started
+  dependencies:
+  - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
+  description: |
+    Replace `AVAssetWriter`-based `StreamingCapture.swift` with libav-backed encoding via the `ffmpeg-next` crate. **Embedded library, not subprocess** — explicit user decision in the design conversation.
+
+    **Scope**
+    - New module in `testanyware-driver` (or a dedicated `testanyware-record` crate) using `ffmpeg-next` (Rust bindings to libavcodec/libavformat).
+    - H.264 + HEVC encode targets (libx264, libx265). Hardware encoders where available is a stretch goal, not required.
+    - Configurable resolution, fps, codec — match Swift CLI's `--fps` / `--codec` / `--duration` / `--resolution` flags.
+    - Capture loop: pull frames from `testanyware-rfb` `FrameSink` → encode → mux into MP4.
+    - Static linking strategy: vendor or statically link libavcodec to keep distribution simple.
+
+    **Commands**
+    - `testanyware record --vnc <ep> -o out.mp4 --fps 30 --duration 10 [--codec h264|hevc] [--resolution WxH]`
+
+    **Acceptance criteria**
+    - On Linux + macOS hosts: `testanyware record` produces a playable MP4.
+    - Output bitrate / file size in the same ballpark as Swift CLI's AVAssetWriter output for an identical frame sequence (no order-of-magnitude regression).
+    - Cleanly stops on signal; no half-written or unindexable MP4 left behind.
+    - Help and `--json` per the CLI design contract.
+
+    **Constraints from the design conversation**
+    - Embedded library — do NOT shell out to ffmpeg.
+    - Static-link libavcodec to keep the binary self-contained.
+    - If GPL issues with x264 prove unworkable for static linking in the Linux distribution path (libx264 is GPL; combining with non-GPL code statically is contentious), consider:
+      - LGPL-only codec set (libopenh264 instead of libx264).
+      - Vendored x264 with the Linux build configured separately.
+      - Document the chosen approach in `docs/architecture/video-codec-licensing.md`.
+- id: port-tart-runner-for-macos-host-macos-guest-path-cfg-target-os-macos
+  title: Port tart runner for macOS-host-macOS-guest path (cfg target_os macos)
+  category: feature
+  status: not_started
+  dependencies:
+  - port-qemu-runner-and-vm-lifecycle-to-rust
+  description: |
+    Port the tart runner for the macOS-host-macOS-guest path. Under the new constraints this is a **minority code path**, gated behind `#[cfg(target_os = "macos")]`.
+
+    **Scope**
+    - Port `cli/Sources/TestAnywareDriver/VM/TartRunner.swift` to a Rust module gated by `#[cfg(target_os = "macos")]`.
+    - Wire it into the existing `vm-start` / `vm-stop` flow alongside QEMU (from task 4).
+    - Tart's VNC password extraction quirk: tart generates a dynamic VNC URL containing the password; the Swift code parses it from the URL. Port carefully — get this wrong and the VM is unreachable.
+    - The macOS golden image creation script (`vm-create-golden-macos.sh`) is shell — it keeps working unchanged regardless of CLI implementation.
+
+    **Commands affected**
+    - `testanyware vm start --platform macos` (only on macOS hosts).
+    - `testanyware vm stop <id>` (cleanup path for tart VMs).
+    - `testanyware vm list` (must list tart goldens + clones alongside QEMU ones).
+    - `testanyware vm delete <name>` (auto-detect tart vs QEMU backend).
+
+    **Acceptance criteria**
+    - On a macOS host: `testanyware vm start --platform macos` clones and starts a tart VM and returns a usable VM id whose agent reaches health.
+    - All existing macOS-VM integration tests pass against the Rust CLI on a macOS host.
+    - The tart code path does not even compile on Linux — the `#[cfg]` gate is clean.
+    - Per CLI design contract: error codes for `TART_NOT_FOUND`, `TART_VM_NOT_FOUND`, `TART_PASSWORD_PARSE_FAILED`, etc.
+
+    **Notes**
+    - Per project memory `tart_ip_lies`: use `tart list` state column, not `tart ip`, to check running/stopped. This memory entry applies to Rust just as much as Swift — port the workaround.
+    - Per project memory `cmd_key_tahoe`: macOS guests need `XK_Alt_L (0xffe9)` for Cmd in the Virtualization.framework VNC server. This is task 7's problem, not this task's — but verify the integration here.
+- id: distribute-rust-testanyware-via-homebrew-macos-linux-and-windows-zip
+  title: Distribute Rust testanyware via homebrew (macOS + Linux) and Windows zip
+  category: feature
+  status: not_started
+  dependencies:
+  - port-agent-only-cli-commands-exec-upload-download-agent-to-rust
+  - port-qemu-runner-and-vm-lifecycle-to-rust
+  - port-testanyware-doctor-with-linux-host-preflight-checks
+  - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
+  - implement-rfb-input-messages-and-port-testanyware-input-subcommands
+  - build-cross-platform-vnc-viewer-with-egui-to-replace-applescript-launcher
+  description: |
+    Distribute the Rust `testanyware` via homebrew (macOS + Linux via linuxbrew) and a zip for Windows. **User confirmed:** linuxbrew is the deal for Linux; Windows is a goal but lower priority.
+
+    **Scope**
+    - Update homebrew formula at `Linkuistics/taps/testanyware` for the Rust binary.
+      - macOS arm64 + x86_64 bottles.
+      - Linux x86_64 + arm64 bottles (linuxbrew).
+    - Windows zip distribution (manual download initially via GitHub Releases; scoop/chocolatey can come later if there's demand).
+    - `cargo-dist` GitHub Action workflow producing the artifacts on tag.
+    - Bundled in-VM agents (macOS Swift binary, Linux Python source, Windows .NET 9 `.exe`) ship alongside the host CLI as before — at `$(brew --prefix testanyware)/share/testanyware/agents/<platform>/`.
+
+    **Acceptance criteria**
+    - `brew install Linkuistics/taps/testanyware` installs and runs on macOS arm64, macOS x86_64, Linux x86_64, Linux arm64.
+    - The released binary passes `testanyware doctor` (task 5) on a fresh install.
+    - Bundled agents land at the same `share/testanyware/` paths as the Swift CLI shipped — `vm-create-golden-{macos,linux,windows}.sh` scripts find them without modification.
+    - Windows zip: download, extract, run `testanyware.exe agent health` against a known-running agent succeeds.
+    - Release pipeline tagging produces all four (macOS×2 + Linux×2) bottles + Windows zip in a single CI run.
+
+    **Sequencing**
+    - Depends on a viable shippable baseline: agent commands (3), QEMU runner (4), doctor (5), RFB foundation + input (6 + 7), viewer (8). Tasks 9–11 (OCR, encodings, video) can be added as they land — no need to block release on them.
+- id: cross-platform-pass-for-windows-host-support
+  title: Cross-platform pass for Windows host support
+  category: feature
+  status: not_started
+  dependencies:
+  - port-qemu-runner-and-vm-lifecycle-to-rust
+  - build-cross-platform-vnc-viewer-with-egui-to-replace-applescript-launcher
+  description: |
+    Sweep the Rust codebase for Linux-isms that would break on Windows hosts, and produce a working Windows-host build. Windows is a goal under the new constraints but lower priority than Linux — this task ensures we don't accumulate debt that makes Windows support hard later.
+
+    **Scope**
+    - Audit `nix::*` usage for Unix-only calls; gate behind `#[cfg(unix)]` or replace with cross-platform alternatives.
+    - Audit path handling for forward-slash assumptions; use `Path` / `PathBuf` consistently. No `format!("{}/{}", ...)` for path joins.
+    - Audit process management for SIGTERM-only shutdown:
+      - Windows: `SetConsoleCtrlHandler` + `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, ...)` for QEMU + viewer lifecycle.
+      - Use `windows-sys` crate for the bindings.
+    - Audit XDG path usage for Windows fallback (must use `directories` crate or equivalent — Windows uses `%LOCALAPPDATA%`, not `~/.local/state`).
+    - Verify QEMU on Windows (WHPX accelerator) launches Windows + Linux guests correctly.
+    - Add Windows CI runner to GitHub Actions for the workspace.
+
+    **Acceptance criteria**
+    - On a Windows host: `testanyware exec`, `testanyware agent {health,windows,snapshot,inspect,press}`, `testanyware vm start --platform linux` (Linux guest only initially — Windows-on-Windows-via-QEMU works but adds nesting complexity), and `testanyware viewer` all work.
+    - `cargo test --workspace` passes on Windows in CI.
+    - `testanyware doctor` on Windows produces useful remediation instructions for missing prerequisites (WHPX, swtpm.exe, qemu-system-*.exe).
+    - A Windows-specific section is added to `docs/user/golden-images.md` covering host-side prereqs.
+
+    **Sequencing**
+    - Lower priority than tasks 1–11. Likely sequenced after the Linux-host baseline is solid (tasks 1–8 done) and at least one full release has happened on Linux + macOS.
+    - Windows-on-Windows guest support (Hyper-V instead of QEMU) is explicitly out of scope.
+- id: retire-swift-cli-once-rust-port-is-at-parity
+  title: Retire Swift cli/ once Rust port is at parity
+  category: feature
+  status: not_started
+  dependencies:
+  - port-agent-only-cli-commands-exec-upload-download-agent-to-rust
+  - port-qemu-runner-and-vm-lifecycle-to-rust
+  - port-testanyware-doctor-with-linux-host-preflight-checks
+  - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
+  - implement-rfb-input-messages-and-port-testanyware-input-subcommands
+  - build-cross-platform-vnc-viewer-with-egui-to-replace-applescript-launcher
+  - port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess
+  - distribute-rust-testanyware-via-homebrew-macos-linux-and-windows-zip
+  description: |
+    Retire the Swift `cli/` once the Rust port is at parity. The Rust port lives on a long-lived branch throughout tasks 1–14; this task is the merge + cleanup.
+
+    **Scope**
+    - Delete `cli/` directory entirely (including `cli/Tests/`).
+    - Update `README.md` and all `docs/` references to point at the Rust crates and build commands.
+    - Update brew formula to install the Rust binary as `testanyware` (no transitional naming).
+    - `agents/macos/` continues to build with its own copy of `TestAnywareAgentProtocol` — it's unaffected by this task.
+    - Decide on a permanent `TestAnywareAgentProtocol` strategy:
+      - **Option A:** keep two copies (Rust in `cli-rs/`, Swift in `agents/macos/`), maintained by hand with the contract test from task 1 as the safety net.
+      - **Option B:** introduce a `protocol.json` JSON Schema as source-of-truth and codegen both copies.
+      - Recommend Option A initially (simpler, contract test catches drift); Option B if drift becomes painful.
+
+    **Acceptance criteria**
+    - All integration tests pass against the Rust CLI on Linux + macOS hosts.
+    - `README.md`, `docs/`, and the brew formula reference Rust as the canonical implementation.
+    - `agents/macos/` builds and tests cleanly after `cli/` deletion.
+    - The `Linkuistics/taps/testanyware` formula installs the Rust binary (already wired up in task 13).
+    - Memory entries that no longer apply (Darwin pipe EOF, Foundation Process not setsid, etc. — see `LLM_STATE/core/memory.yaml`) are reviewed and either marked obsolete or deleted, with rationale in the commit message.
+
+    **Sequencing**
+    - Depends on tasks 1–8 + 11 + 13. (Tasks 9 OCR, 10 encodings, 12 tart, 14 Windows can be present-or-not without blocking cutover.)
+    - This task can be split into "branch merge" (mechanical) and "doc + memory pass" (judgment) if the branch merge ends up large.
+
+    **Notes**
+    - The Swift CLI may still be useful for one or two months post-cutover if the Rust version has any quality issues — keep the pre-cutover commit tagged for easy revert.

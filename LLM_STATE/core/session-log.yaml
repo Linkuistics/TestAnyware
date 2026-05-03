@@ -445,3 +445,22 @@ sessions:
     - **What this suggests next:**
       - Smoke-test `set-value --role AXTextField --index N` with two anonymous NSStackView text fields on a live Tahoe VM.
       - If `release-build.sh` ever needs a specific tart/qemu version in CI, a `# testanyware-min-tool:` sentinel is all that's needed; no further plumbing required.
+- id: session-20
+  timestamp: 2026-05-03T14:37:45Z
+  phase: work
+  body: |
+    ### Session 20 (2026-05-03T14:37:45Z) — Plan Rust CLI port roadmap
+
+    - **What was attempted:** Design and backlog-entry for a complete Rust rewrite of the TestAnyware host CLI (`cli/`), driven by the need for Linux-host support. The Swift CLI only runs on macOS; the Rust port targets Linux (primary), macOS (secondary), and Windows (lower-priority).
+
+    - **What worked:** Fifteen backlog tasks were authored covering the full migration arc — workspace bootstrap, CLI design contract, command-by-command ports, RFB client crate, egui VNC viewer, OCR client, recording, tart runner (macOS-only path), distribution, Windows host pass, and Swift CLI retirement. Key design decisions were settled in session and inlined into each task description rather than left as pointers.
+
+    - **Key design decisions settled this session:**
+      - `royalvnc` FFI is off the table — Swift toolchain on Linux is a non-starter; RFB client must be pure Rust.
+      - ffmpeg is embedded as a library (`ffmpeg-next` crate), not called as a subprocess.
+      - Rust workspace lives at `cli-rs/` alongside the existing `cli/`; the Swift CLI is retired only after Rust reaches parity (task 15).
+      - Distribution is homebrew (macOS + linuxbrew on Linux) plus a Windows zip via `cargo-dist`.
+      - Linux is the primary host target; macOS guests via tart are confined to a `#[cfg(target_os = "macos")]` path (task 12).
+      - Use the `directories` crate for cross-platform state paths (XDG_STATE_HOME / %LOCALAPPDATA%) throughout.
+
+    - **What this suggests trying next:** Begin with task 1 (bootstrap Rust workspace), then task 2 (CLI design contract) to lock in flag vocabulary and output schema before any command is ported.
