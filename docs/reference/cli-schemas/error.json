@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testanyware.dev/schemas/error.json",
+  "title": "CLI error envelope",
+  "description": "Emitted on any failure when --json (or --output json|jsonl) is set. See cli-design-contract.md §3.4 and §4 for the catalogue of stable codes.",
+  "type": "object",
+  "required": ["schema_version", "ok", "code", "message"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string" },
+    "ok":             { "const": false },
+    "code":           { "type": "string", "description": "Stable error code from contract §4." },
+    "message":        { "type": "string", "description": "Developer-language summary." },
+    "remediation":    { "type": "string", "description": "When set, names a concrete fix the agent can act on." },
+    "details":        { "type": "object", "description": "Free-form per-code metadata; documented per code where useful." }
+  }
+}
