@@ -389,3 +389,27 @@ entries:
     `BrewPrefixResolver` is the canonical brew-prefix resolver for all diagnostics checks in `cli/Sources/TestAnywareDriver/Diagnostics/`. It was extracted when `ProvisionerScriptsVersionCheck` was added as a fourth consumer of the brew-prefix logic.
 
     `BrewPrefixResolver.swift` resolves the brew prefix via `brew --prefix`, with an injectable candidates list for deterministic tests. Future diagnostic checks must not roll their own `resolveBrewPrefix` — delegate to `BrewPrefixResolver` instead. The three original duplicates (`BundledAgentsCheck`, `BundledScriptsCheck`, `InstallPathCheck`) were refactored to use it.
+- id: royalvnc-ffi-is-off-the-table-on-linux
+  title: RoyalVNC FFI is off the table on Linux
+  body: |
+    `royalvnc` FFI requires the Swift toolchain, which is a non-starter on Linux. The Rust CLI port must use a pure-Rust RFB client; no Swift bridging layer is possible. See `build_cli must bundle libRoyalVNCKit.dylib with the binary` for the Swift CLI's current RoyalVNCKit dependency.
+- id: rust-port-embeds-ffmpeg-via-ffmpeg-next-crate
+  title: Rust port embeds ffmpeg via ffmpeg-next crate
+  body: |
+    `ffmpeg-next` crate links ffmpeg as a library, not a subprocess. Recording and frame capture in the Rust CLI use this embedded path.
+- id: rust-port-uses-directories-crate-for-state-paths
+  title: Rust port uses directories crate for state paths
+  body: |
+    The `directories` crate provides `XDG_STATE_HOME` on Linux and `%LOCALAPPDATA%` on Windows. All Rust CLI state paths route through it; do not use `std::env` directly for platform state directories.
+- id: rust-port-targets-linux-primary-macos-tart-is-cfg-gated
+  title: Rust port targets Linux primary; macOS tart is cfg-gated
+  body: |
+    Linux is the primary host target for the Rust CLI. All macOS-specific tart VM paths are gated behind `#[cfg(target_os = "macos")]`. Windows is a lower-priority stretch goal.
+- id: rust-cli-distributes-via-homebrew-and-cargo-dist-windows-zip
+  title: Rust CLI distributes via Homebrew and cargo-dist Windows zip
+  body: |
+    Rust CLI distribution: Homebrew for macOS (and linuxbrew for Linux), `cargo-dist` for a Windows `.zip`. Same tap as the Swift CLI (`Linkuistics/homebrew-taps`). See `Homebrew formula bundles CLI, agents, and scripts in one tarball` for the current Swift CLI release pipeline — the Rust release pipeline is separate.
+- id: swift-cli-retired-only-after-rust-reaches-parity
+  title: Swift CLI retired only after Rust reaches parity
+  body: |
+    The Swift CLI at `cli/` coexists with the Rust workspace until Rust reaches feature parity. Retirement is task 15 of the Rust CLI port arc; do not remove Swift CLI code before that task is complete.
