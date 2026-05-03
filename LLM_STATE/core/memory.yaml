@@ -425,3 +425,11 @@ entries:
   title: Rust workspace at cli-rs/ has three crates
   body: |
     `cli-rs/` workspace contains three crates: `testanyware-protocol` (shared types + serde), `testanyware-agent-client` (HTTP client), and `testanyware-cli` (ArgumentParser equivalent). `testanyware-protocol` is the canonical source for cross-language contract fixtures shared with the Swift test suite.
+- id: cli-design-contract-is-at-docs-architecture-cli-design-contract-md
+  title: CLI design contract is at docs/architecture/cli-design-contract.md
+  body: |
+    `docs/architecture/cli-design-contract.md` is the canonical spec for the Rust CLI port. Covers: noun-first command names with verb-first aliases, frozen flag vocabulary, error-code catalogue, bucketed exit codes (0–7, slot 7 reserved for timeouts), CI gate (≥ 2 help examples per public subcommand), required discoverability commands (`capabilities`, `schema <cmd>`, `llm-instructions`), and per-command idempotency table. Stub JSON Schema files for all 20 commands plus a shared error envelope are in `docs/reference/cli-schemas/`.
+- id: swift-cli-gap-report-maps-failures-to-rust-port-acceptance-criteria
+  title: Swift CLI gap report maps failures to Rust-port acceptance criteria
+  body: |
+    §10 of `docs/architecture/cli-design-contract.md` records the six axes on which the Swift CLI fails the contract (JSON coverage, help examples, error structure, verb/noun convention, behaviour gaps, discoverability) and maps each to the Rust-port acceptance criterion for the implementing task. Port-task authors read §10; no re-audit of the Swift CLI is needed.
