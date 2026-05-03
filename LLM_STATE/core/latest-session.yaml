@@ -1,19 +1,11 @@
-id: session-20
-timestamp: 2026-05-03T14:37:45Z
+id: session-21
+timestamp: 2026-05-03T23:21:18Z
 phase: work
 body: |
-  ### Session 20 (2026-05-03T14:37:45Z) — Plan Rust CLI port roadmap
+  ### Session 21 (2026-05-03T23:21:18Z) — Bootstrap Rust workspace and shared protocol crate
 
-  - **What was attempted:** Design and backlog-entry for a complete Rust rewrite of the TestAnyware host CLI (`cli/`), driven by the need for Linux-host support. The Swift CLI only runs on macOS; the Rust port targets Linux (primary), macOS (secondary), and Windows (lower-priority).
-
-  - **What worked:** Fifteen backlog tasks were authored covering the full migration arc — workspace bootstrap, CLI design contract, command-by-command ports, RFB client crate, egui VNC viewer, OCR client, recording, tart runner (macOS-only path), distribution, Windows host pass, and Swift CLI retirement. Key design decisions were settled in session and inlined into each task description rather than left as pointers.
-
-  - **Key design decisions settled this session:**
-    - `royalvnc` FFI is off the table — Swift toolchain on Linux is a non-starter; RFB client must be pure Rust.
-    - ffmpeg is embedded as a library (`ffmpeg-next` crate), not called as a subprocess.
-    - Rust workspace lives at `cli-rs/` alongside the existing `cli/`; the Swift CLI is retired only after Rust reaches parity (task 15).
-    - Distribution is homebrew (macOS + linuxbrew on Linux) plus a Windows zip via `cargo-dist`.
-    - Linux is the primary host target; macOS guests via tart are confined to a `#[cfg(target_os = "macos")]` path (task 12).
-    - Use the `directories` crate for cross-platform state paths (XDG_STATE_HOME / %LOCALAPPDATA%) throughout.
-
-  - **What this suggests trying next:** Begin with task 1 (bootstrap Rust workspace), then task 2 (CLI design contract) to lock in flag vocabulary and output schema before any command is ported.
+  - Attempted: Create the foundational Rust workspace at `cli-rs/` alongside the existing Swift `cli/`, with three crates (`testanyware-protocol`, `testanyware-agent-client`, `testanyware-cli`), cross-language contract tests, and cargo-dist metadata.
+  - What worked: All acceptance criteria met. `cargo build --workspace` succeeds on macOS arm64. `cargo test --workspace` passes 61 tests (45 unit + 14 contract fixtures + 2 client-config). `cargo clippy` clean. Both Rust and Swift sides of the cross-language contract test pass against the same 14 fixture JSON files. The `testanyware --help` surface matches the Swift CLI exactly.
+  - What was NOT done: Linux build not yet verified (workspace uses only cross-platform crates, so it should work); real subcommand bodies not implemented (every subcommand exits 2); `cargo dist init` CI workflow not generated (only metadata in Cargo.toml).
+  - What this suggests next: Run `cargo build --workspace` on a Linux host as cheap insurance. The next blocking task is the CLI design contract audit — the Rust skeleton is in place and ready to anchor per-subcommand contract tables.
+  - Key learnings: The Swift `JSONEncoder` emits integer literals for whole-number `Double` values (e.g. `8` not `8.0`) while serde-json always emits `n.0`; the contract test uses `serde_json::Value` semantic equality with numeric tolerance to absorb this. The `#filePath` relative path trick in Swift tests resolves correctly from the Package root, enabling both test suites to share the same fixture directory.

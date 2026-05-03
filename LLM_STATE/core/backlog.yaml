@@ -23,7 +23,7 @@ tasks:
 - id: bootstrap-rust-workspace-and-shared-protocol-crate
   title: Bootstrap Rust workspace and shared protocol crate
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Set up the foundational Rust workspace alongside the existing Swift `cli/`. This is the first step of the Rust port that delivers the cross-platform host story (Linux primary, macOS secondary, Windows lower-priority goal). The work happens on a long-lived branch — no cutover concerns until task 15.
@@ -54,6 +54,112 @@ tasks:
     - `TestAnywareAgentProtocol` will exist in three places after this task (cli-Swift, agents/macos-Swift, cli-rs-Rust). Don't try to unify yet — the contract test is the safety net.
     - Avoid Linux-only APIs (raw `nix::*` calls); prefer `std::process` and `tokio::process` so Windows-host work in task 14 doesn't require rewrites.
     - Use the `directories` crate (or equivalent) for XDG_STATE_HOME / XDG_DATA_HOME / %LOCALAPPDATA% — NOT hardcoded `~/.local/state`.
+  results: |
+    ## What was built
+
+    A Rust workspace at `cli-rs/`, peer of `cli/`, with three crates:
+
+    - `testanyware-protocol` — pure serde wire types: `UnifiedRole` (133
+      variants), `RoleMapper`, `ElementInfo`, `WindowInfo`,
+      `SnapshotResponse`, `ActionResponse`, `ErrorResponse`,
+      `InspectResponse`, `AgentFormatter`. All ported from
+      `cli/Sources/TestAnywareAgentProtocol/` with serde-aware annotations
+      preserving the Swift-defined wire format (camelCase keys, flattened
+      `positionX`/`positionY`/`sizeWidth`/`sizeHeight`/`boundsX`/etc.,
+      optional fields omitted when `None`).
+    - `testanyware-agent-client` — `reqwest`-based async client. Stub
+      level: `AgentConfig`, `AgentClient` constructor, error type. Real
+      endpoint methods land in the per-feature port tasks.
+    - `testanyware-cli` — clap-derived `testanyware` binary. All twelve
+      top-level subcommands plus the nested groups (`input`, `agent`,
+      `vm`) are wired up with full argument schemas matching the Swift
+      CLI; bodies print `not yet implemented` and exit 2.
+
+    `cargo-dist` metadata is wired into the workspace `Cargo.toml`
+    targeting macOS arm64/x86_64 and Linux x86_64/arm64. Full release
+    pipeline lands in the distribution task.
+
+    ## Acceptance criteria — verified
+
+    - ✅ `cargo build --workspace` succeeds (verified on macOS arm64; only
+      cross-platform deps used so Linux build is mechanically safe — but
+      not yet verified on a Linux host).
+    - ✅ `cargo test --workspace` passes: 45 unit tests + 14 contract
+      fixtures + 2 client-config tests, total 61 tests passing.
+    - ✅ `cargo clippy --workspace --all-targets -- -D warnings` clean.
+    - ✅ Contract test (`cli-rs/crates/testanyware-protocol/tests/fixtures.rs`)
+      loads canonical JSON from `cli-rs/tests/fixtures/protocol/` and
+      performs decode → re-encode → semantic equality on
+      `serde_json::Value`. Catches renamed/dropped/typed-wrong fields.
+      Numeric tolerance (`8` ≡ `8.0`) absorbs the one encoder difference
+      between Swift's `JSONEncoder` (whole `Double` → integer literal) and
+      serde-json (always `n.0`).
+    - ✅ Matching Swift contract test
+      (`cli/Tests/TestAnywareAgentProtocolTests/CrossLangFixturesTests.swift`)
+      reads the same fixture files via `#filePath`-relative resolution, decodes
+      through Swift's typed Codable, re-encodes, and asserts both
+      round-trip stability and key-set parity. All 14 cases pass; the full
+      Swift protocol-test suite is 64 tests passing.
+    - ✅ `testanyware --help` lists the same twelve top-level subcommands
+      as the Swift CLI (`screenshot`, `screen-size`, `input`, `exec`,
+      `upload`, `download`, `record`, `find-text`, `server`, `agent`,
+      `vm`, `doctor`).
+
+    ## Constraints honoured
+
+    - No royalvnc FFI, no Linux-only deps. The stack is `tokio` +
+      `reqwest` (rustls, no native-tls) + `clap` + `serde` + `directories`
+      + `anyhow`/`thiserror`.
+    - Three copies of the protocol module remain (cli-Swift,
+      agents/macos-Swift, cli-rs-Rust); the cross-language contract test
+      is the safety net.
+    - `directories` 5.0 is in the workspace deps so XDG-aware path
+      resolution is a one-import-line change in any later command port.
+
+    ## What was NOT done
+
+    - Linux build verification — the workspace uses only cross-platform
+      crates, so it should compile on Linux x86_64/arm64, but I do not
+      have a Linux host on hand. Recommend running `cargo build --workspace`
+      on linuxbrew or a dev VM in the next session as cheap insurance.
+    - Real subcommand bodies — every subcommand exits 2 with `not yet
+      implemented`. Per the task scope, behaviour lands in the per-feature
+      port tasks (audit, agent commands, QEMU runner, RFB client, OCR,
+      etc.).
+    - `cargo-dist` CI generation (`cargo dist init`) — only the metadata
+      block is in place. The actual GitHub Actions workflow lands in task
+      13 (Distribute Rust testanyware).
+
+    ## Suggestions for next session
+
+    - The next blocking task is **Audit current CLI and define Rust CLI
+      design contract**. The Rust skeleton I just built makes a good place
+      to anchor that audit: the audit can fill in the README under
+      `cli-rs/` with a per-subcommand contract table (flags, env vars,
+      exit codes, output format, connection-spec resolution rules) since
+      each will need to be matched byte-for-byte by the Rust port to keep
+      CI green during cutover.
+    - Consider adding a single CI matrix entry that runs `cargo test
+      --workspace` on Ubuntu now, even before the per-feature ports begin
+      — it catches Linux drift early at near-zero cost.
+    - The protocol module duplication (now 3 copies) is starting to bite
+      in surface area. Once the Rust port reaches parity, retiring
+      `cli/Sources/TestAnywareAgentProtocol/` removes one copy; unifying
+      the macOS-agent copy is a separate decision (the in-VM agent could
+      consume the Rust crate via a thin Swift wrapper, or stay
+      independent).
+
+    ## Files changed
+
+    - New: `cli-rs/` workspace (Cargo.toml, rust-toolchain.toml, README.md)
+    - New: `cli-rs/crates/testanyware-protocol/` (Cargo.toml + 6 src files
+      + tests/fixtures.rs)
+    - New: `cli-rs/crates/testanyware-agent-client/` (Cargo.toml + lib.rs)
+    - New: `cli-rs/crates/testanyware-cli/` (Cargo.toml + main.rs)
+    - New: 14 fixture JSON files in `cli-rs/tests/fixtures/protocol/`
+    - New: `cli/Tests/TestAnywareAgentProtocolTests/CrossLangFixturesTests.swift`
+    - Modified: `.gitignore` (add `/cli-rs/target/`; explicitly *do not*
+      ignore `Cargo.lock` since the workspace ships a binary)
 - id: audit-current-cli-and-define-rust-cli-design-contract
   title: Audit current CLI and define Rust CLI design contract
   category: feature

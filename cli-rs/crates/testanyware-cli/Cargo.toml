@@ -1,0 +1,20 @@
+[package]
+name = "testanyware-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "TestAnyware host CLI (Rust port; in progress)."
+
+[[bin]]
+name = "testanyware"
+path = "src/main.rs"
+
+[dependencies]
+testanyware-protocol = { path = "../testanyware-protocol" }
+testanyware-agent-client = { path = "../testanyware-agent-client" }
+clap = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+directories = { workspace = true }
