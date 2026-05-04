@@ -523,3 +523,15 @@ entries:
   title: 'macOS agent has two response paths: jsonError and jsonOK'
   body: |
     macOS `AgentServer` has two distinct response paths. `jsonError("code", details: ...)` handles lookup and protocol errors (element not found, ambiguous match, window not found). `jsonOK(ActionResponse(success: false, message: ...))` handles action-endpoint failures (e.g. upload with invalid base64). Do not substitute `jsonError` into action-response paths.
+- id: ci-has-rust-linux-and-python-linux-agent-jobs
+  title: CI has rust-linux and python-linux-agent jobs
+  body: |
+    `.github/workflows/ci.yml` runs two Ubuntu jobs: `rust-linux` (build/test/clippy on the Rust workspace) and `python-linux-agent` (ruff lint + pytest on `agents/linux/`). Ruff baseline violations in the existing Linux agent source were fixed before the CI was added. First CI push is the Linux green verification — macOS cannot run these jobs locally.
+- id: gi-require-version-must-precede-gi-repository-imports
+  title: gi.require_version must precede gi.repository imports
+  body: |
+    `agents/linux/` code must call `gi.require_version()` before any `gi.repository` import. `tree_walker.py` places `gi.require_version("Atspi", "2.0")` before `from gi.repository import Atspi`; the relative order of the pyatspi import is immaterial to this invariant.
+- id: pytest-may-import-accessibility-py-at-collection-without-gi
+  title: pytest may import accessibility.py at collection without gi
+  body: |
+    If pytest discovers `agents/linux/` and imports `accessibility.py` at collection time, it will fail on CI without apt-installed `python3-gi`/`pyatspi`. Mitigation: exclude `accessibility.py` from pytest collection in `pyproject.toml`, or install `python3-gi` in the `python-linux-agent` CI job. Not yet confirmed — first CI run will reveal whether collection triggers the import.
