@@ -1,5 +1,7 @@
 import sys
+
 from testanyware_agent.server import run_server
+
 
 def main():
     port = 8648

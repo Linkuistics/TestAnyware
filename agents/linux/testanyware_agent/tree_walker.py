@@ -5,9 +5,8 @@ from __future__ import annotations
 import gi
 
 gi.require_version("Atspi", "2.0")
-from gi.repository import Atspi  # noqa: E402
-
 import pyatspi  # noqa: E402
+from gi.repository import Atspi  # noqa: E402
 
 from testanyware_agent.models import ElementInfo  # noqa: E402
 from testanyware_agent.role_mapper import map_role  # noqa: E402

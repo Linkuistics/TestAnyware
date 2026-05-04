@@ -1,6 +1,6 @@
 from __future__ import annotations
+
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
@@ -11,16 +11,16 @@ class ElementInfo:
     child_count: int
     showing: bool = True
     actions: list[str] = field(default_factory=list)
-    label: Optional[str] = None
-    value: Optional[str] = None
-    description: Optional[str] = None
-    id: Optional[str] = None
-    position_x: Optional[float] = None
-    position_y: Optional[float] = None
-    size_width: Optional[float] = None
-    size_height: Optional[float] = None
-    platform_role: Optional[str] = None
-    children: Optional[list[ElementInfo]] = None
+    label: str | None = None
+    value: str | None = None
+    description: str | None = None
+    id: str | None = None
+    position_x: float | None = None
+    position_y: float | None = None
+    size_width: float | None = None
+    size_height: float | None = None
+    platform_role: str | None = None
+    children: list[ElementInfo] | None = None
 
     def to_dict(self) -> dict:
         d: dict = {"role": self.role, "enabled": self.enabled, "focused": self.focused,
@@ -52,7 +52,7 @@ class ElementInfo:
 
 @dataclass
 class WindowInfo:
-    title: Optional[str]
+    title: str | None
     window_type: str
     size_width: float
     size_height: float
@@ -60,7 +60,7 @@ class WindowInfo:
     position_y: float
     app_name: str
     focused: bool
-    elements: Optional[list[ElementInfo]] = None
+    elements: list[ElementInfo] | None = None
 
     def to_dict(self) -> dict:
         d: dict = {}

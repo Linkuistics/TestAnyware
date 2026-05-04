@@ -4,10 +4,9 @@ Uses Python's built-in http.server — zero pip dependencies.
 """
 
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from testanyware_agent import accessibility
-from testanyware_agent import system_endpoints
+from testanyware_agent import accessibility, system_endpoints
 
 
 class AgentRequestHandler(BaseHTTPRequestHandler):

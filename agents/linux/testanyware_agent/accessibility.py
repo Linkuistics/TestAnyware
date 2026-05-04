@@ -14,7 +14,6 @@ from testanyware_agent.query_resolver import resolve
 from testanyware_agent.role_mapper import map_from_string, map_role
 from testanyware_agent.tree_walker import walk
 
-
 # Interactive roles — same set as macOS and Windows agents
 _INTERACTIVE_ROLES = frozenset([
     "button", "checkbox", "radio", "textfield", "editable-text", "slider",
@@ -580,11 +579,17 @@ def handle_window_action(body: dict, action_name: str) -> tuple[int, dict]:
             # Fallback: xdotool (X11 only — will fail under Wayland)
             xid = _get_window_xid(win_accessible)
             if xid == 0:
-                return 200, {"success": False, "message": "window-close: no X11 window ID (Wayland session?)"}
+                return 200, {
+                    "success": False,
+                    "message": "window-close: no X11 window ID (Wayland session?)",
+                }
             result = subprocess.run(["xdotool", "windowclose", str(xid)],
                                     capture_output=True, timeout=5)
             if result.returncode != 0:
-                return 200, {"success": False, "message": f"window-close: xdotool failed: {result.stderr.decode().strip()}"}
+                return 200, {
+                    "success": False,
+                    "message": f"window-close: xdotool failed: {result.stderr.decode().strip()}",
+                }
             return 200, {"success": True, "message": "Window closed successfully"}
 
         elif action_name == "window-minimize":
@@ -598,11 +603,17 @@ def handle_window_action(body: dict, action_name: str) -> tuple[int, dict]:
                 pass
             xid = _get_window_xid(win_accessible)
             if xid == 0:
-                return 200, {"success": False, "message": "window-minimize: no X11 window ID (Wayland session?)"}
+                return 200, {
+                    "success": False,
+                    "message": "window-minimize: no X11 window ID (Wayland session?)",
+                }
             result = subprocess.run(["xdotool", "windowminimize", str(xid)],
                                     capture_output=True, timeout=5)
             if result.returncode != 0:
-                return 200, {"success": False, "message": f"window-minimize: xdotool failed: {result.stderr.decode().strip()}"}
+                return 200, {
+                    "success": False,
+                    "message": f"window-minimize: xdotool failed: {result.stderr.decode().strip()}",
+                }
             return 200, {"success": True, "message": "Window minimized successfully"}
 
         return 200, {"success": False, "message": f"Unknown action: {action_name}"}
@@ -635,12 +646,18 @@ def handle_window_resize(body: dict) -> tuple[int, dict]:
 
     xid = _get_window_xid(win_accessible)
     if xid == 0:
-        return 200, {"success": False, "message": "window-resize: no X11 window ID (Wayland session?)"}
+        return 200, {
+            "success": False,
+            "message": "window-resize: no X11 window ID (Wayland session?)",
+        }
     try:
         result = subprocess.run(["xdotool", "windowsize", str(xid), str(width), str(height)],
                                 capture_output=True, timeout=5)
         if result.returncode != 0:
-            return 200, {"success": False, "message": f"window-resize: xdotool failed: {result.stderr.decode().strip()}"}
+            return 200, {
+                "success": False,
+                "message": f"window-resize: xdotool failed: {result.stderr.decode().strip()}",
+            }
         return 200, {"success": True, "message": f"Window resized to {width}\u00d7{height}"}
     except Exception as e:
         return 200, {"success": False, "message": f"window-resize failed: {e}"}
@@ -670,12 +687,18 @@ def handle_window_move(body: dict) -> tuple[int, dict]:
 
     xid = _get_window_xid(win_accessible)
     if xid == 0:
-        return 200, {"success": False, "message": "window-move: no X11 window ID (Wayland session?)"}
+        return 200, {
+            "success": False,
+            "message": "window-move: no X11 window ID (Wayland session?)",
+        }
     try:
         result = subprocess.run(["xdotool", "windowmove", str(xid), str(x), str(y)],
                                 capture_output=True, timeout=5)
         if result.returncode != 0:
-            return 200, {"success": False, "message": f"window-move: xdotool failed: {result.stderr.decode().strip()}"}
+            return 200, {
+                "success": False,
+                "message": f"window-move: xdotool failed: {result.stderr.decode().strip()}",
+            }
         return 200, {"success": True, "message": f"Window moved to ({x}, {y})"}
     except Exception as e:
         return 200, {"success": False, "message": f"window-move failed: {e}"}
@@ -962,7 +985,7 @@ def _perform_focus(accessible: pyatspi.Accessible) -> None:
             if action_iface.getName(j) == "focus":
                 action_iface.doAction(j)
                 return
-        raise RuntimeError("Element does not support focus")
+        raise RuntimeError("Element does not support focus") from None
 
 
 def _perform_show_menu(accessible: pyatspi.Accessible) -> None:
