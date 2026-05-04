@@ -37,82 +37,6 @@ tasks:
     - The existing memory entries on Darwin pipe EOF and Foundation `Process` not calling `setsid` **do not apply** to Rust — most of those workarounds drop away. Re-validate the process-tree-kill sequence in Rust rather than porting the workaround verbatim.
     - KVM access on Linux: `/dev/kvm` must be readable+writable. If missing, fail with `code: KVM_PERMISSION_DENIED` and a remediation message naming `usermod -aG kvm $USER` (per CLI design contract §Errors).
     - swtpm is required for Windows guests. If missing, fail with `code: SWTPM_MISSING` and remediation `apt install swtpm swtpm-tools` on Linux / `brew install swtpm` on macOS.
-- id: resolve-cli-rs-licence-inconsistency-mit-vs-apache-2-0
-  title: Resolve CLI-rs licence inconsistency (MIT vs Apache-2.0)
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    Resolve the licence inconsistency between `cli-rs/Cargo.toml` (declares `license = "MIT"`)
-    and the top-level `LICENSE` file (Apache-2.0). The inconsistency was noted during the video
-    codec licensing investigation as a project-hygiene issue and a pre-release blocker for any
-    Homebrew formula reviewer.
-
-    **Scope**
-    - Decide the canonical licence: Apache-2.0 (aligned with top-level `LICENSE`) is the
-      recommended choice — it matches the intent of the existing file and is what Homebrew
-      formula reviewers will verify.
-    - Update `cli-rs/Cargo.toml` to `license = "Apache-2.0"`.
-    - Update any other `Cargo.toml` files in `cli-rs/crates/` that declare `license = "MIT"`.
-    - Verify `cargo metadata` reports a consistent licence across the workspace.
-    - Update `docs/architecture/video-codec-licensing.md` §Licences section if it references
-      the old inconsistency as an open question.
-
-    **Acceptance criteria**
-    - `grep -r 'license' cli-rs/Cargo.toml cli-rs/crates/*/Cargo.toml` shows a single
-      consistent value across all workspace members.
-    - `cargo metadata --format-version 1 | jq '[.packages[] | select(.name | startswith("testanyware")) | .license] | unique'` returns a single-element array.
-    - `docs/architecture/video-codec-licensing.md` no longer lists this as an open question.
-    - CI (clippy, tests) stays green after the change.
-
-    **Notes**
-    - This is a pre-release blocker for the Homebrew distribution task. Homebrew formula
-      reviewers check `license` fields against the actual licence file; a mismatch causes
-      formula rejection.
-    - The change has no runtime impact — `license` is metadata only.
-  results: |
-    ## Outcome — done
-
-    Workspace licence is now consistent at Apache-2.0, matching the
-    top-level `LICENSE` file. Homebrew-formula reviewers will no longer
-    hit the MIT-vs-Apache-2.0 mismatch.
-
-    ## Changes
-
-    - `cli-rs/Cargo.toml` line 15: `license = "MIT"` → `license = "Apache-2.0"`.
-      All five workspace member crates inherit via `license.workspace = true`,
-      so this single edit propagates across the whole workspace.
-    - `docs/architecture/video-codec-licensing.md`:
-      - §Constraints (4) — rewrote the "permissive licensing" paragraph to
-        state that workspace and top-level `LICENSE` both declare Apache-2.0
-        (no longer mentions a discrepancy).
-      - §Open questions for project ownership — removed item 1 (licence
-        reconciliation), renumbered the remaining two items.
-
-    ## Verification
-
-    - `grep -rn 'license' cli-rs/Cargo.toml cli-rs/crates/*/Cargo.toml` —
-      workspace root reports `Apache-2.0`; all five member crates declare
-      `license.workspace = true`.
-    - `cargo metadata --format-version 1 --no-deps` followed by a Python
-      filter for `name.startswith('testanyware')` returns exactly
-      `['Apache-2.0']` — single-element array as required.
-    - No code changes; no test impact.
-
-    ## Acceptance criteria status
-
-    | # | Criterion | Status |
-    |---|---|---|
-    | 1 | grep across workspace + member Cargo.toml shows single value | **Met** |
-    | 2 | `cargo metadata` returns single-element license array for `testanyware-*` crates | **Met** (returns `['Apache-2.0']`) |
-    | 3 | `docs/architecture/video-codec-licensing.md` no longer lists this as an open question | **Met** (item removed; constraints text rewritten) |
-    | 4 | CI (clippy, tests) stays green | **Inferred — metadata-only change**; no source code touched. The follow-on RFB-input task in this same session runs `cargo build --workspace` which exercises manifest parsing across all crates. |
-
-    ## What this unblocks
-
-    Pre-release blocker for `distribute-rust-testanyware-via-homebrew-...`
-    is now cleared. The Homebrew formula's `license "Apache-2.0"` line
-    will now match every Cargo.toml under `cli-rs/`.
 - id: implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
   title: Implement RFB client crate with handshake, Raw, CopyRect; port screenshot and screen-size
   category: feature
@@ -339,6 +263,47 @@ tasks:
       --json on ConnectionArgs / ScreenCaptureArgs)
     - `cli-rs/crates/testanyware-cli/src/resolve.rs` (resolve_vnc,
       ResolvedVnc, NoVncInSpec, removed dead-code annotations on VncSpec)
+- id: live-vm-verification-gate-for-rfb-client-and-input-layer
+  title: Live-VM verification gate for RFB client and input layer
+  category: feature
+  status: not_started
+  dependencies:
+  - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
+  description: |
+    Run all deferred live-VM acceptance criteria for the RFB client crate and the input layer against real running golden VMs. On success, close the blocked RFB-client task and add a connect timeout.
+
+    **Background**
+
+    Both `implement-rfb-client-crate-...` (task 6) and the now-completed input subcommands task (task 7) landed with unit and fixture tests passing but acceptance criteria deferred to a session with running golden VMs. Task 6 is currently status `blocked` for exactly this reason. This task is the session-with-goldens gate.
+
+    **Scope — RFB client (closes task 6 on success)**
+
+    1. Connect `testanyware screen-size --vnc <ep>` to a running QEMU Linux guest on a Linux host. Confirm `{"width": <int>, "height": <int>}` JSON output is correct.
+    2. Connect `testanyware screenshot --vnc <ep> -o /tmp/shot.png` to the same guest. Confirm PNG opens correctly.
+    3. Repeat steps 1–2 on a macOS host against a tart macOS guest (validates both host OSes).
+    4. Compare `testanyware screenshot` output against the Swift CLI for the same VM frame (byte-identical or perceptually equivalent PNG). Note any colour/endianness drift.
+    5. Add a `tokio::time::timeout` wrapper to `RfbConnection::connect` before closing — no hard-coded timeout, expose as a config knob or a reasonable default (e.g. 10 s). The results task noted this as a must-have before declaring done.
+
+    **Scope — input layer**
+
+    6. `testanyware input type "Hello" --vnc <ep>` into a focused text field in a Linux guest; follow with `testanyware agent snapshot` to confirm the text field contains "Hello".
+    7. Same on a macOS guest (validates macOS Cmd-key mapping — Cmd = XK_Alt_L, Option = XK_Meta_L, which is already pinned by unit tests but should be confirmed behaviourally).
+
+    **Scope — schema declarations (polish, bundle here)**
+
+    8. Add JSON schema declaration files for `screen size` and `screen capture` so the `every_schema_id_has_a_schema_file` CLI-contract test covers these commands (currently 6 of 16 are ignored; this reduces the ignored count).
+    9. Optionally add §7 after_help blocks (EXIT CODES, EXAMPLES, SEE ALSO) to the `screen` and `input` subcommands for help-text parity with agent/file commands.
+
+    **On success**
+
+    - Flip `implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size` from `blocked` → `done`.
+    - This unblocks: `build-cross-platform-vnc-viewer-with-egui-...`, `add-zrle-and-tight-encodings-...`, `port-testanyware-record-...`.
+
+    **Acceptance criteria**
+
+    - All four criteria from task 6 verified with real VMs (or documented failures with root cause if any fail).
+    - Connect timeout merged before PR.
+    - `testanyware input type "Hello"` confirmed against agent snapshot on Linux guest.
 - id: port-testanyware-doctor-with-linux-host-preflight-checks
   title: Port testanyware doctor with Linux-host preflight checks
   category: feature
@@ -373,217 +338,42 @@ tasks:
     **Notes**
     - This task can ship with stub checks for parts that aren't yet implemented (e.g. ffmpeg check stays a stub until task 11). Doctor is intended to evolve; the schema is the stable thing.
     - The existing min-tool-sentinels backlog item is independent and orthogonal — it adds version sentinels to bundled scripts. That task can land before or after this one.
-- id: implement-rfb-input-messages-and-port-testanyware-input-subcommands
-  title: Implement RFB input messages and port testanyware input subcommands
+- id: port-windoworigincompensation-and-wire-window-into-rust-input-subcommands
+  title: Port WindowOriginCompensation and wire --window into Rust input subcommands
   category: feature
-  status: done
-  dependencies:
-  - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
+  status: not_started
+  dependencies: []
   description: |
-    Add outbound RFB messages for keyboard and mouse input. Builds on `testanyware-rfb` from task 6 — same crate, additional code path.
+    Port `WindowOriginCompensation` from the Swift CLI and wire the `--window <name>` flag into all six window-relative Rust input subcommands (click, mouse-down, mouse-up, move, scroll, drag).
+
+    **Background**
+
+    The Swift CLI carries `WindowOriginCompensation.offset(for:platform:environment:)` in `cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift`. It subtracts `defaultMacosTopInset` (40 px) from the AX-reported window origin on macOS Tahoe, where the structural drop-shadow inflates the y position. All six `--window`-relative commands share a single `windowOffset(connection:spec:windowFilter:)` async helper. The Rust port intentionally omitted this when task 7 (input subcommands) landed — that task's results note it as the explicit follow-up.
 
     **Scope**
-    - `KeyEvent` (RFB message type 4): down/up with X11 keysym.
-    - `PointerEvent` (RFB message type 5): button mask + x/y.
-    - Port `cli/Sources/TestAnywareDriver/Input/PlatformKeymap.swift` to Rust: per-platform Cmd/Alt/Ctrl keysym mapping.
-    - Port `cli/Sources/TestAnywareDriver/Input/VNCInput.swift` higher-level helpers (typeText, click, drag, scroll).
 
-    **Commands (port from Swift CLI)**
-    - `testanyware input key <name> [--modifiers cmd,shift]`
-    - `testanyware input key-down <name>` / `key-up <name>`
-    - `testanyware input type <text>`
-    - `testanyware input click <x> <y> [--button right] [--count 2]`
-    - `testanyware input mouse-down <x> <y>` / `mouse-up <x> <y>`
-    - `testanyware input move <x> <y>`
-    - `testanyware input scroll <x> <y> --dy <n>`
-    - `testanyware input drag <x1> <y1> <x2> <y2>`
+    - Port `WindowOriginCompensation` logic to Rust: a function that takes a platform + optional env override (`TESTANYWARE_WINDOW_TOP_INSET`) and returns a `(dx, dy)` offset.
+    - Port the `windowOffset` helper that calls the agent's `/windows` endpoint to resolve the named window's origin, then applies the compensation.
+    - Wire `--window <name>` into the six commands in `cli-rs/crates/testanyware-cli/src/commands/input.rs`.
+    - The override env var `TESTANYWARE_WINDOW_TOP_INSET=<int>` must work identically to the Swift version.
 
     **Acceptance criteria**
-    - Each input subcommand has identical flag surface and exit codes to the Swift CLI.
-    - macOS Cmd-key behaviour verified against a macOS guest. Apply existing project memory: macOS Cmd = `XK_Alt_L (0xffe9)`, Option = `XK_Meta_L (0xffe7)` for Virtualization.framework VNC.
-    - Integration test: `testanyware input type "Hello"`, then `testanyware agent snapshot` confirms the focused text field contains "Hello". Runs on Linux host against Linux guest AND macOS host against macOS guest.
-    - Help text + `--json` per the CLI design contract.
 
-    **Constraints**
-    - Reuse the open `RfbConnection` (no separate connection per command in scripted flows — though one-shot CLI invocations naturally open + send + close).
-    - Modifier-key handling for typed text (uppercase, shifted symbols) is already mapped in the Swift code — port the table verbatim, then verify against the existing Swift unit tests as a parity check.
-  results: |
-    ## Outcome — implementation complete; live-VM verification deferred
+    - `testanyware input click --window "Safari" 100 200` resolves the Safari window origin via the agent, applies the 40 px Tahoe compensation, and sends the correct absolute VNC coordinates.
+    - `TESTANYWARE_WINDOW_TOP_INSET=0 testanyware input click --window "Safari" 100 200` bypasses the Tahoe inset (useful for non-Tahoe macOS targets or Linux guests).
+    - Help text shows `--window` on each of the six applicable subcommands.
+    - No macOS-specific logic leaks into the Linux build path; the inset applies only when `platform == macos`.
 
-    The full input layer for the Rust port lands in-tree: KeyEvent/PointerEvent
-    wire messages, a platform-aware keymap (with the macOS Cmd/Option swap
-    from project memory `cmd_key_tahoe`), and ten `testanyware input`
-    subcommands wired through `main.rs`. Mirrors the Swift CLI's behaviour
-    verbatim where it matters; departs in two intentional places (collapsed
-    `useRawKeysyms` branch, added `--json` per CLI design contract).
+    **Notes**
 
-    The same caveat as the parent RFB task applies: end-to-end against a
-    running guest (typing into a focused text field, then verifying via
-    `agent snapshot`) requires a session with live golden VMs. Unit and
-    fixture tests cover the wire layout exhaustively; what remains is
-    behavioural verification on a real guest.
-
-    ## What's in-tree
-
-    ### `testanyware-rfb` extensions
-
-    - `src/keymap.rs` (new) — pure-data port of
-      `cli/Sources/TestAnywareDriver/Input/PlatformKeymap.swift`:
-      - `Platform` enum + `from_name()` accepting `macos|mac|darwin|linux|
-        windows|win`.
-      - `xk` module: 27 X11 keysym constants extracted from
-        `vendored/royalvnc/Sources/RoyalVNCKit/Input/X11KeySymbols.swift`.
-      - `key_for_name()`: handles ASCII letters/digits inline (return the
-        byte value as keysym), then named specials and `f1`..`f19` via
-        explicit match.
-      - `modifier_for_name(&str, Platform)`: the macOS table maps
-        `cmd→XK_Alt_L (0xffe9)` and `alt/option→XK_Meta_L (0xffe7)` —
-        the swap is documented in the module-level note and locked down
-        by two pinned tests so future "tidying" can't quietly invert it.
-      - `shifted_char_to_base()`, `mouse_button_bit_for_name()`,
-        `decompose_scroll()` (Y-then-X order matching Swift).
-      - `KeymapError` with `UnknownKey(String)` and
-        `UnknownButton(String)` variants.
-      - 14 unit tests.
-    - `src/input.rs` (new) — high-level helpers as inherent impls on
-      `RfbConnection<T>` for any `AsyncRead + AsyncWrite + Unpin` transport:
-      - `press_key(name, &[modifier_names], Platform)`,
-        `key_down_named()`, `key_up_named()`,
-      - `type_text(&str)` with US-shifted-symbol handling and uppercase
-        Shift-bracketing,
-      - `click(x,y,button,count)`, `mouse_down`/`mouse_up`/`mouse_move`,
-      - `scroll(x,y,dx,dy)` — wheel pulses as transient bit-flips,
-      - `drag(from→to, button, steps)` with f64 lerp interpolation.
-      - 50 ms `tokio::time::sleep` around modifier transitions matches
-        Swift parity (some guests drop the modifier-down before the
-        keystroke arrives without it).
-      - `InputError` wraps `KeymapError` and `RfbError` with `#[from]`.
-    - `src/connection.rs` — added `key_event(keysym, down: bool)` and
-      `pointer_event(button_mask, x, y)`. Wire-format byte layouts match
-      RFC 6143 §7.5.4 / §7.5.5 exactly.
-    - `src/lib.rs` — re-exports `Platform`, `KeymapError`, `InputError`.
-    - `tests/input_fixture.rs` (new) — 11 wire-format integration tests
-      using the same `ScriptedTransport` pattern as the handshake fixture.
-      Each test slices past `HANDSHAKE_WRITE_LEN = 58` bytes of handshake
-      prelude and asserts byte-exact equality on the input messages.
-      Coverage:
-      - KeyEvent press/release layout,
-      - PointerEvent layout,
-      - click emits down(mask)+up(0),
-      - click count=2 emits 4 events,
-      - type_text uppercase brackets with Shift,
-      - type_text lowercase letter without Shift,
-      - type_text shifted symbol uses base + Shift,
-      - **press_key with macOS cmd modifier sends keysym 0xffe9** —
-        pinned regression test for the `cmd_key_tahoe` memory,
-      - press_key surfaces InputError on unknown key,
-      - drag emits 1 down + N moves + 1 up,
-      - scroll dy<0 emits wheel-up pulses (mask bit 3).
-
-    ### CLI integration
-
-    - `cli/Sources/testanyware/InputCommand.swift` is the source of truth
-      for the canonical surface; the `InputAction` clap enum in
-      `cli-rs/crates/testanyware-cli/src/main.rs` mirrors it 1:1 with
-      one addition: every variant now carries `--json` per CLI design
-      contract §3.1.
-    - `crates/testanyware-cli/src/commands/input.rs` (new) — ten handlers
-      (`run_key`, `run_key_down`, `run_key_up`, `run_type`, `run_click`,
-      `run_mouse_down`, `run_mouse_up`, `run_move`, `run_scroll`,
-      `run_drag`). Each handler:
-      - resolves connection via `resolve_vnc()` (existing helper),
-      - resolves platform via the new `resolve_platform()` (defaults to
-        `Macos`, matching Swift's `Platform.macos` default; emits an
-        `INVALID_PLATFORM` envelope for unknown values),
-      - opens one short-lived RFB connection, sends the input,
-        disconnects,
-      - emits text or §3 JSON envelope per `OutputMode`.
-    - `clamp_coords(i32, i32)` rejects negative or >65535 coordinates with
-      a `USAGE_ERROR` envelope rather than silently `as u16`-wrapping —
-      prevents action-at-a-distance bugs where `-1` becomes 65535.
-    - Error mapping:
-      - `KeymapError::UnknownKey` → `UNKNOWN_KEY` (exit 2),
-      - `KeymapError::UnknownButton` → `UNKNOWN_BUTTON` (exit 2),
-      - `RfbError::Io` → `CONNECTION_REFUSED` (exit 1),
-      - `RfbError::AuthFailed/PasswordRequired/NoMutualSecurityType/
-        SecurityNegotiationFailed` → `AUTH_REQUIRED` (exit 4).
-    - `crates/testanyware-cli/src/commands/mod.rs` — module declaration.
-
-    ### Intentional simplification: collapsed `useRawKeysyms`
-
-    The Swift CLI carries an env-var-controlled `useRawKeysyms` boolean to
-    bypass RoyalVNCKit's silent ARD remapping of Cmd/Option. The Rust port
-    talks RFB directly with no wrapper, so every keysym is sent verbatim.
-    The whole branch collapses; `TESTANYWARE_VNC_ARD_REMAP` no longer has
-    any effect because there is nothing for it to bypass.
-
-    ### Intentional departure: `--window` not yet wired
-
-    The Swift `InputCommand` accepts `--window <name>` for window-relative
-    coordinates (computed via the agent + `WindowOriginCompensation`). The
-    Rust port omits this for now — porting `WindowOriginCompensation`
-    involves a chunk of macOS-Tahoe-specific drop-shadow inset logic that
-    is its own task. The bare flag-surface match is otherwise complete.
-    Suggested follow-up task: "Port WindowOriginCompensation and wire
-    --window into Rust input subcommands".
-
-    ## Verification
-
-    - `cargo build --workspace` — zero warnings.
-    - `cargo test --workspace` — **210 passing, 6 ignored** (those 6 are
-      pre-existing live-VM-required cli-contract tests; baseline matched).
-      Of the 210 passing, ~35 are new in this task:
-      - testanyware-rfb keymap unit: 14
-      - testanyware-rfb input unit: 2
-      - testanyware-rfb input_fixture integration: 11
-      - testanyware-cli unit: unchanged net (we removed one stub but
-        the `commands/input.rs` adds none of its own — handler bodies
-        aren't unit-testable because they exit via `print_error`).
-    - Surface spot-check:
-      - `testanyware input --help` lists all 10 subcommands.
-      - `testanyware input key --help` shows `--modifiers`, `--platform`,
-        `--vnc/--vm/--connect/--agent`, and `--json`.
-      - `testanyware input key return --json` (no connection) emits
-        `code: NO_CONNECTION_SPECIFIED`, exit 2.
-      - `testanyware input key return --vnc 127.0.0.1:65530 --json`
-        (port refused) emits `code: CONNECTION_REFUSED`, exit 1.
-      - `testanyware input drag 0 0 100 100 --steps 4 --json` is parsed
-        by clap (positional fan-out works as expected).
-
-    ## Acceptance criteria status
-
-    | # | Criterion | Status |
-    |---|---|---|
-    | 1 | Each input subcommand has identical flag surface and exit codes to the Swift CLI | **Met** for the canonical surface; one intentional departure (`--window` deferred) and one intentional addition (`--json` per CLI design contract). |
-    | 2 | macOS Cmd-key behaviour: Cmd → XK_Alt_L (0xffe9), Option → XK_Meta_L (0xffe7) | **Met** — encoded in `keymap::modifier_for_name` and pinned by `keymap::tests::macos_cmd_maps_to_xk_alt_l` + `tests::macos_option_maps_to_xk_meta_l`. End-to-end byte-on-the-wire pinning by `input_fixture::press_key_with_macos_cmd_modifier_uses_xk_alt_l`. |
-    | 3 | Integration test: `input type "Hello"` → `agent snapshot` confirms text on Linux and macOS guests | **Deferred** — needs running golden VMs. The `type_text` wire-byte sequence is pinned by `input_fixture::type_text_*` tests against the synthetic transport; what remains is the cross-process verification through a real guest's accessibility tree. |
-    | 4 | Help text + `--json` per CLI design contract | **Met** — every variant carries `--json`; help text via clap derives is automatic. After-help / examples blocks are not yet attached (matching the current state of other input subcommands; if §7 long-help is required for input commands the discoverability surface task can address it uniformly). |
-
-    ## What this unblocks
-
-    - `build-cross-platform-vnc-viewer-with-egui-...` — the viewer needs
-      the same `RfbConnection.key_event()` / `.pointer_event()` calls this
-      task adds.
-    - `retire-swift-cli` — input was one of the larger Swift surfaces left
-      to port. Remaining gaps: VM lifecycle (QEMU runner, doctor),
-      recording, find-text, server mode.
-
-    ## Suggested follow-up tasks
-
-    1. Port `WindowOriginCompensation` and wire `--window` into Rust input
-       subcommands.
-    2. Optional: add §7 long-help (EXAMPLES / SEE ALSO) blocks to the input
-       subcommands for parity with the agent / file commands.
-    3. Live-VM verification for both this task and the parent RFB-client
-       task (`testanyware screenshot` byte-identical, `testanyware input
-       type "Hello"` cross-validated via agent snapshot).
+    - From project memory `window-flag-includes-drop-shadow-in-ax-origin`: on Tahoe, `defaultMacosTopInset` = 40 px on y. The inset logic is already captured in the memory entry.
+    - The agent endpoint for window discovery is already ported to Rust; this is wiring, not a new protocol addition.
 - id: build-cross-platform-vnc-viewer-with-egui-to-replace-applescript-launcher
   title: Build cross-platform VNC viewer with egui to replace AppleScript launcher
   category: feature
   status: not_started
   dependencies:
   - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
-  - implement-rfb-input-messages-and-port-testanyware-input-subcommands
   - port-qemu-runner-and-vm-lifecycle-to-rust
   description: |
     Build a cross-platform VNC viewer that **replaces the AppleScript-based Screen Sharing.app launcher entirely**. New `testanyware-viewer` binary in the Rust workspace, sharing the `testanyware-rfb` crate with the CLI.
@@ -714,7 +504,6 @@ tasks:
   - port-qemu-runner-and-vm-lifecycle-to-rust
   - port-testanyware-doctor-with-linux-host-preflight-checks
   - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
-  - implement-rfb-input-messages-and-port-testanyware-input-subcommands
   - build-cross-platform-vnc-viewer-with-egui-to-replace-applescript-launcher
   description: |
     Distribute the Rust `testanyware` via homebrew (macOS + Linux via linuxbrew) and a zip for Windows. **User confirmed:** linuxbrew is the deal for Linux; Windows is a goal but lower priority.
@@ -773,7 +562,6 @@ tasks:
   - port-qemu-runner-and-vm-lifecycle-to-rust
   - port-testanyware-doctor-with-linux-host-preflight-checks
   - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
-  - implement-rfb-input-messages-and-port-testanyware-input-subcommands
   - build-cross-platform-vnc-viewer-with-egui-to-replace-applescript-launcher
   - port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess
   - distribute-rust-testanyware-via-homebrew-macos-linux-and-windows-zip
