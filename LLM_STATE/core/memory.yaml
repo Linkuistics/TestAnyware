@@ -451,3 +451,17 @@ entries:
   title: docs/reference/cli-schemas/ stubs needed to unblock contract test
   body: |
     `every_schema_id_has_a_schema_file` in `cli-contract.rs` is `#[ignore]`; it checks each distinct `schema_id` from `CANONICAL_COMMANDS` against `docs/reference/cli-schemas/<schema-id>.json`. Scaffold one stub JSON file per distinct `schema_id` to bring this test off `#[ignore]`.
+- id: first-port-task-should-adopt-7-help-template-as-reference
+  title: First port task should adopt §7 help template as reference
+  body: |
+    First real command port should establish §7 help template as in-tree reference
+
+    When the first "real" command port lands (beyond the existing stub), it should adopt the full §7 help template structure (`USAGE` / `OUTPUT` / `EXIT CODES` / `EXAMPLES` ≥ 2 / `SEE ALSO`). Doing so lets subsequent port tasks copy the pattern from an in-tree example rather than from the spec document alone.
+
+    Best candidates (smallest scope):
+    - `screen size` — smallest data-producing command
+    - `agent health` — smallest agent command
+
+    One of these ports landing with §7 template will let the `each_subcommand_help_follows_template` test in `cli-contract.rs` come off `#[ignore]` for that command, and serve as the reference for all subsequent ports.
+
+    Source: `add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions` results — "Next moves this suggests" item 2.
