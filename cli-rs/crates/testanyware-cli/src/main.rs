@@ -8,6 +8,72 @@
 //! added by the per-feature port tasks tracked in `LLM_STATE/core/`.
 
 use clap::{Args, Parser, Subcommand};
+use testanyware_cli::discoverability::{run_capabilities, run_llm_instructions, run_schema};
+
+// §7-template "after-help" blocks for the three §8 discoverability
+// commands. Clap renders these after the auto-generated USAGE/OPTIONS,
+// completing the OUTPUT/EXIT CODES/EXAMPLES/SEE ALSO sections.
+
+const CAPABILITIES_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: --json (default; this is a machine-only command).
+    Schema: capabilities.
+
+EXIT CODES:
+    0  success
+
+EXAMPLES:
+    # Detect whether the schema subcommand is available
+    testanyware capabilities | jq '.features.schema_command'
+
+    # List every error code the binary can emit
+    testanyware capabilities | jq -r '.error_codes[]'
+
+    # Diff the surface across two builds
+    testanyware capabilities | jq -S . > /tmp/now.json
+
+SEE ALSO:
+    testanyware schema, testanyware llm-instructions, testanyware --help
+";
+
+const SCHEMA_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: JSON Schema (Draft 2020-12) on stdout for known
+    commands. Error envelope on stdout (and exit 3) on miss.
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR (no command argument supplied)
+    3  SCHEMA_NOT_FOUND (command unknown or has no declared schema)
+
+EXAMPLES:
+    # Print the schema for `vm list --json`
+    testanyware schema vm list
+
+    # Pipe into a JSON Schema validator
+    testanyware schema agent snapshot | check-jsonschema --schemafile -
+
+SEE ALSO:
+    testanyware capabilities, testanyware <command> --help
+";
+
+const LLM_INSTRUCTIONS_AFTER_HELP: &str = "\
+OUTPUT:
+    Plain text on stdout. Not a structured format.
+
+EXIT CODES:
+    0  success
+
+EXAMPLES:
+    # Prepend as context to an LLM agent prompt
+    testanyware llm-instructions
+
+    # Save for offline use
+    testanyware llm-instructions > testanyware-llm.txt
+
+SEE ALSO:
+    testanyware capabilities, testanyware schema, testanyware --help
+";
 
 #[derive(Parser, Debug)]
 #[command(
@@ -89,9 +155,32 @@ enum Command {
     Doctor,
 
     /// Print stable JSON describing the binary's surface
-    Capabilities,
+    #[command(
+        long_about = "Print stable JSON describing the binary's surface.\n\n\
+                      Emits a single JSON document on stdout enumerating the canonical \
+                      command tree, alias maps, output formats, supported platforms, \
+                      and the full error-code catalogue from contract §4. Agents poll \
+                      this to detect feature availability without parsing --help.\n\n\
+                      Default output is JSON — this is a machine-only command. The \
+                      --json flag is accepted for symmetry but is a no-op.",
+        after_long_help = CAPABILITIES_AFTER_HELP,
+    )]
+    Capabilities {
+        /// Accepted for symmetry with other commands; output is always JSON.
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Emit a JSON schema for a command's `--json` output
+    #[command(
+        long_about = "Emit the JSON Schema for a command's --json output.\n\n\
+                      Reads from docs/reference/cli-schemas/<schema-id>.json (embedded \
+                      at build time via include_str!). The argument is the canonical \
+                      noun-first command path, e.g. `schema vm list` or \
+                      `schema screen capture`. Verb-first aliases are not accepted; \
+                      pass the canonical form.",
+        after_long_help = SCHEMA_AFTER_HELP,
+    )]
     Schema {
         /// Command path tokens, e.g. `vm start` or `screen capture`
         #[arg(value_name = "COMMAND")]
@@ -99,6 +188,15 @@ enum Command {
     },
 
     /// Emit a focused LLM-oriented manual
+    #[command(
+        long_about = "Emit a focused LLM-oriented manual for the binary.\n\n\
+                      Plain-text manual covering the mental model (noun-first \
+                      commands, verb-first aliases, connection resolution chain), \
+                      two or three end-to-end workflows, common mistakes, and \
+                      pointers to --json / exit codes / per-command schemas. Capped \
+                      at ~3000 tokens so an LLM can prepend it as context.",
+        after_long_help = LLM_INSTRUCTIONS_AFTER_HELP,
+    )]
     LlmInstructions,
 
     /// Run as an agent server (development helper)
@@ -491,9 +589,9 @@ async fn main() {
             VmAction::Delete { .. } => unimplemented("vm delete"),
         },
         Command::Doctor => unimplemented("doctor"),
-        Command::Capabilities => unimplemented("capabilities"),
-        Command::Schema { .. } => unimplemented("schema"),
-        Command::LlmInstructions => unimplemented("llm-instructions"),
+        Command::Capabilities { json: _ } => run_capabilities(),
+        Command::Schema { command } => run_schema(&command),
+        Command::LlmInstructions => run_llm_instructions(),
         Command::Server { .. } => unimplemented("server"),
         // Verb-first aliases dispatch to the same handler as the canonical.
         Command::Screenshot(_) => unimplemented("screen capture"),

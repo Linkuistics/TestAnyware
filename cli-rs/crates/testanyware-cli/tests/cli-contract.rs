@@ -523,39 +523,192 @@ fn list_commands_default_limit_and_truncate() {
 /// Contract §8.1: `capabilities --json` enumerates every public
 /// subcommand from §1 and every error code from §4.
 #[test]
-#[ignore = "contract §8.1: enable when `capabilities` is ported"]
 fn capabilities_lists_full_surface() {
-    todo!(
-        "run `testanyware capabilities --json`; assert `subcommands` is \
-         a superset of CANONICAL_COMMANDS' top-level groups, and \
-         `error_codes` contains every code referenced in §4. Filled in by \
-         the `capabilities` port task."
+    let out = run(&["capabilities", "--json"]);
+    assert!(
+        out.status.success(),
+        "`testanyware capabilities --json` exited non-zero (status: {:?}, stderr: {})",
+        out.status,
+        String::from_utf8_lossy(&out.stderr),
     );
+
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout)
+        .expect("capabilities stdout must parse as JSON");
+
+    let obj = body.as_object().expect("capabilities body is a JSON object");
+    assert_eq!(
+        obj.get("ok").and_then(|v| v.as_bool()),
+        Some(true),
+        "capabilities body missing ok:true; got: {body:#?}",
+    );
+    assert!(
+        obj.get("schema_version").and_then(|v| v.as_str()).is_some(),
+        "capabilities body missing schema_version; got: {body:#?}",
+    );
+
+    // §8.1: `subcommands` must include every top-level group reachable
+    // from the canonical surface.
+    let subcommands: Vec<&str> = obj
+        .get("subcommands")
+        .and_then(|v| v.as_array())
+        .expect("capabilities.subcommands must be an array")
+        .iter()
+        .map(|v| v.as_str().expect("subcommands entries are strings"))
+        .collect();
+
+    let expected_groups: std::collections::BTreeSet<&str> = CANONICAL_COMMANDS
+        .iter()
+        .map(|spec| spec.path[0])
+        .collect();
+    for group in &expected_groups {
+        assert!(
+            subcommands.contains(group),
+            "capabilities.subcommands missing canonical group {group:?}; got: {subcommands:?}",
+        );
+    }
+
+    // §8.1 + §4.7: `error_codes` carries the catalogue. Spot-check codes
+    // that span §4.1, §4.2, §4.5, §4.6, and §8.2.
+    let error_codes: Vec<&str> = obj
+        .get("error_codes")
+        .and_then(|v| v.as_array())
+        .expect("capabilities.error_codes must be an array")
+        .iter()
+        .map(|v| v.as_str().expect("error_codes entries are strings"))
+        .collect();
+    for required in [
+        "AUTH_REQUIRED",
+        "VM_NOT_FOUND",
+        "ELEMENT_NOT_FOUND",
+        "USAGE_ERROR",
+        "SCHEMA_NOT_FOUND",
+    ] {
+        assert!(
+            error_codes.contains(&required),
+            "capabilities.error_codes missing {required:?}; got: {error_codes:?}",
+        );
+    }
 }
 
 /// Contract §8.2: `testanyware schema <command>` emits the JSON Schema
 /// for `<command> --json` (or exits 3 with `SCHEMA_NOT_FOUND` on miss).
 #[test]
-#[ignore = "contract §8.2: enable when `schema` is ported"]
 fn schema_command_emits_json_schema_for_each_command() {
-    todo!(
-        "for each spec in CANONICAL_COMMANDS with schema_id.is_some(), \
-         run `testanyware schema <path...>`; assert stdout parses as \
-         JSON Schema (object with $schema or type field) matching the \
-         file at schema_path(spec.schema_id.unwrap()). Filled in by the \
-         `schema` port task."
+    let mut failures: Vec<String> = Vec::new();
+
+    for spec in CANONICAL_COMMANDS {
+        let Some(schema_id) = spec.schema_id else { continue };
+
+        let mut argv: Vec<&str> = Vec::with_capacity(spec.path.len() + 1);
+        argv.push("schema");
+        for token in spec.path {
+            argv.push(token);
+        }
+        let out = run(&argv);
+        if !out.status.success() {
+            failures.push(format!(
+                "`testanyware {}` exited non-zero (status: {:?}): {}",
+                argv.join(" "),
+                out.status,
+                String::from_utf8_lossy(&out.stderr),
+            ));
+            continue;
+        }
+
+        let actual: serde_json::Value = match serde_json::from_slice(&out.stdout) {
+            Ok(v) => v,
+            Err(e) => {
+                failures.push(format!(
+                    "`testanyware {}` stdout did not parse as JSON: {e}",
+                    argv.join(" "),
+                ));
+                continue;
+            }
+        };
+        let actual_obj = match actual.as_object() {
+            Some(o) => o,
+            None => {
+                failures.push(format!(
+                    "`testanyware {}` did not produce a JSON object",
+                    argv.join(" "),
+                ));
+                continue;
+            }
+        };
+        if !(actual_obj.contains_key("$schema") || actual_obj.contains_key("type")) {
+            failures.push(format!(
+                "`testanyware {}` output lacks $schema or type — not a JSON Schema",
+                argv.join(" "),
+            ));
+            continue;
+        }
+
+        // Must equal the on-disk schema file byte-for-byte (modulo
+        // semantic value comparison for whitespace tolerance).
+        let path = schema_path(schema_id);
+        let file_bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                failures.push(format!(
+                    "could not read schema file {}: {e}",
+                    path.display(),
+                ));
+                continue;
+            }
+        };
+        let expected: serde_json::Value = serde_json::from_slice(&file_bytes)
+            .expect("schema file is malformed");
+        if expected != actual {
+            failures.push(format!(
+                "`testanyware {}` output differs from {}",
+                argv.join(" "),
+                path.display(),
+            ));
+        }
+    }
+
+    // Miss path: a path that is not a canonical command must exit 3 and
+    // emit a SCHEMA_NOT_FOUND envelope on stdout.
+    let miss = run(&["schema", "definitely", "not", "real"]);
+    assert_eq!(
+        miss.status.code(),
+        Some(3),
+        "schema-miss must exit 3 (got: {:?}, stderr: {})",
+        miss.status,
+        String::from_utf8_lossy(&miss.stderr),
     );
+    let miss_body: serde_json::Value = serde_json::from_slice(&miss.stdout)
+        .expect("schema-miss stdout must parse as JSON");
+    assert_eq!(
+        miss_body.get("code").and_then(|v| v.as_str()),
+        Some("SCHEMA_NOT_FOUND"),
+        "schema-miss code must be SCHEMA_NOT_FOUND; got: {miss_body:#?}",
+    );
+
+    assert!(failures.is_empty(), "schema command failures:\n{}", failures.join("\n---\n"));
 }
 
 /// Contract §8.3: `testanyware llm-instructions` emits a focused manual
 /// (~3000 tokens cap, English-only).
 #[test]
-#[ignore = "contract §8.3: enable when `llm-instructions` is ported"]
 fn llm_instructions_command_emits_manual() {
-    todo!(
-        "assert `testanyware llm-instructions` exits 0 and stdout is \
-         non-empty text. §8.3 says ~3000-token cap; we don't enforce a \
-         hard token count here (that lives in the port task's own \
-         tests). Filled in by the `llm-instructions` port task."
+    let out = run(&["llm-instructions"]);
+    assert!(
+        out.status.success(),
+        "`testanyware llm-instructions` exited non-zero (status: {:?}, stderr: {})",
+        out.status,
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let body = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        !body.trim().is_empty(),
+        "`testanyware llm-instructions` produced empty stdout",
+    );
+    // §8.3 cap is "~3000 tokens"; assert a generous byte-length ceiling.
+    // 4 chars/token × 3000 tokens × 1.5x slack ≈ 18000 bytes.
+    assert!(
+        body.len() < 18_000,
+        "llm-instructions output is {} bytes — well above the §8.3 ~3000-token cap",
+        body.len(),
     );
 }
