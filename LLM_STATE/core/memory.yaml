@@ -412,9 +412,9 @@ entries:
   body: |
     `#filePath` in Swift test source resolves relative to the Swift Package root directory, not the `.swift` file location. Both Swift and Rust test suites can share the same fixture directory by constructing paths from `#filePath` on the Swift side.
 - id: rust-workspace-at-cli-rs-has-three-crates
-  title: Rust workspace at cli-rs/ has three crates
+  title: Rust workspace at cli-rs/ has five crates
   body: |
-    `cli-rs/` workspace contains three crates: `testanyware-protocol` (shared types + serde), `testanyware-agent-client` (HTTP client), and `testanyware-cli` (ArgumentParser equivalent). `testanyware-protocol` is the canonical source for cross-language contract fixtures shared with the Swift test suite.
+    `cli-rs/` workspace contains five crates: `testanyware-protocol` (shared wire types + serde), `testanyware-agent-client` (HTTP client), `testanyware-cli` (ArgumentParser equivalent), `testanyware-rfb` (RFB client — input layer done, handshake pending), and `testanyware-ocr-client` (OCR daemon bridge). `testanyware-protocol` is the canonical source for cross-language contract fixtures shared with the Swift test suite.
 - id: cli-design-contract-is-at-docs-architecture-cli-design-contract-md
   title: CLI design contract is at docs/architecture/cli-design-contract.md
   body: |
@@ -588,6 +588,22 @@ entries:
   body: |
     Two-tier codec strategy documented in `docs/architecture/video-codec-licensing.md`. Tier-1: hardware-accelerated H.264 via OS/platform encoders (no GPL exposure). Tier-2: software AV1 via rav1e/libaom (permissively licensed). libx264 and libx265 are explicitly excluded to preserve permissive binary licensing.
 - id: testanyware-rfb-crate-scaffolded-handshake-not-yet-implemented
-  title: testanyware-rfb crate scaffolded; handshake not yet implemented
+  title: testanyware-rfb input layer complete; handshake pending
   body: |
-    `cli-rs/crates/testanyware-rfb/` is wired into the workspace. `resolve.rs` has `resolve_vnc` chain (spec path, `--vm` lookup, direct `--vnc` endpoint, `TESTANYWARE_VNC_PASSWORD` env var). `commands/screen.rs` dispatches `screen capture` and `screen size` as non-stub paths. Blocked: RFB handshake and pixel reading in `testanyware-rfb` are not yet implemented.
+    `cli-rs/crates/testanyware-rfb/` has a full input layer but no handshake or pixel reading yet.
+
+    Implemented: `resolve.rs` resolves VNC connections (spec path, `--vm`, `--vnc`, `TESTANYWARE_VNC_PASSWORD`). `connection.rs` has `key_event` and `pointer_event` wire methods (RFC 6143 §7.5.4–5). `keymap.rs` provides 27 X11 keysym constants plus `key_for_name`, `modifier_for_name`, `shifted_char_to_base`, and mouse helpers. `input.rs` exposes `press_key`, `type_text`, `click`, `drag`, `scroll` on `RfbConnection<T>` with a 50 ms modifier-transition delay. All ten input CLI subcommands are wired in `commands/input.rs`. 14 unit tests (keymap) + 11 wire-byte integration tests (input fixture using `ScriptedTransport`).
+
+    Still blocked: RFB handshake and pixel reading — `screen capture` and `screen size` dispatch paths exist but cannot operate without the handshake landing. `--window` coordinate compensation (`WindowOriginCompensation`) is also deferred; see `rust-cli-window-flag-not-yet-ported`.
+- id: rust-rfb-cmd-option-keysym-mapping-pinned-by-tests
+  title: Rust RFB Cmd/Option keysym mapping pinned by tests
+  body: |
+    `cli-rs/crates/testanyware-rfb/src/keymap.rs` defines `XK_Alt_L = 0xffe9` (macOS Command key) and `XK_Meta_L = 0xffe7` (Option key). The swap from the expected name-to-key assignment is intentional for Virtualization.framework VNC. Pinned by 14 unit tests in `keymap.rs` and one wire-byte integration test in `tests/input_fixture.rs`. Do not invert these without updating the fixture.
+- id: rust-port-has-no-userawkeysyms-branch
+  title: Rust port has no useRawKeysyms branch
+  body: |
+    The Swift CLI's `useRawKeysyms` env-var bypass (for ARD-wrapper keysym translation) does not exist in the Rust port. The Rust RFB client sends keysyms directly on the wire with no ARD wrapper layer, so the bypass is unnecessary.
+- id: rust-cli-window-flag-not-yet-ported
+  title: Rust CLI --window flag not yet ported
+  body: |
+    The `--window` coordinate-compensation flag (drop-shadow inset logic in `WindowOriginCompensation`) is not yet ported to the Rust CLI. All six window-relative input subcommands (`click`, `mouse-down`, `mouse-up`, `move`, `scroll`, `drag`) accept raw absolute coordinates only. Porting `WindowOriginCompensation` is its own backlog task. See `window-flag-includes-drop-shadow-in-ax-origin` for the Swift CLI implementation.
