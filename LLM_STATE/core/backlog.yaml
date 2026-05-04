@@ -1,4 +1,25 @@
 tasks:
+- id: add-schema-not-found-to-4-of-cli-design-contract-doc
+  title: Add SCHEMA_NOT_FOUND to §4 of CLI design contract doc
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Add SCHEMA_NOT_FOUND to §4 of CLI design contract doc
+
+    **Background:** `SCHEMA_NOT_FOUND` was added to the Rust capabilities catalogue during the §8 discoverability implementation — it appears in `surface.rs` as error code `SCHEMA_NOT_FOUND` and is exercised by `testanyware schema <unknown-command>`. However, it was only mentioned in §8.2 prose of `docs/architecture/cli-design-contract.md`, not listed in §4 (the canonical error code table). The capabilities output includes 44 error codes including this one, but §4 doesn't enumerate it.
+
+    **Scope:**
+    - Add `SCHEMA_NOT_FOUND` to §4 of `docs/architecture/cli-design-contract.md` — either as §4.7 (Discoverability errors) or appended to §4.6.
+    - Ensure the section mirrors the format of other §4 entries: code name, exit code, description.
+    - No code changes needed — this is a doc-only task.
+
+    **Acceptance criteria:**
+    - `docs/architecture/cli-design-contract.md` §4 enumerates `SCHEMA_NOT_FOUND` with its exit code (3) and description.
+    - The §8.2 prose cross-references §4 so future reviewers find the canonical table.
+
+    **Notes:**
+    - Extracted from `port-8-discoverability-commands-capabilities-schema-llm-instructions-to-rust` results — "open hazards" section: "Worth a small doc-only follow-up to add it to §4.7 ('Discoverability') or a new §4.8 for completeness. Not blocking."
 - id: add-ubuntu-ci-matrix-entry-for-cargo-build-test-linux-build-verification
   title: Add Ubuntu CI matrix entry for cargo build/test (Linux build verification)
   category: chore
@@ -620,83 +641,3 @@ tasks:
 
     **Notes**
     - The Swift CLI may still be useful for one or two months post-cutover if the Rust version has any quality issues — keep the pre-cutover commit tagged for easy revert.
-- id: add-schema-not-found-to-4-of-cli-design-contract-doc
-  title: Add SCHEMA_NOT_FOUND to §4 of CLI design contract doc
-  category: chore
-  status: not_started
-  dependencies: []
-  description: |
-    Add SCHEMA_NOT_FOUND to §4 of CLI design contract doc
-
-    **Background:** `SCHEMA_NOT_FOUND` was added to the Rust capabilities catalogue during the §8 discoverability implementation — it appears in `surface.rs` as error code `SCHEMA_NOT_FOUND` and is exercised by `testanyware schema <unknown-command>`. However, it was only mentioned in §8.2 prose of `docs/architecture/cli-design-contract.md`, not listed in §4 (the canonical error code table). The capabilities output includes 44 error codes including this one, but §4 doesn't enumerate it.
-
-    **Scope:**
-    - Add `SCHEMA_NOT_FOUND` to §4 of `docs/architecture/cli-design-contract.md` — either as §4.7 (Discoverability errors) or appended to §4.6.
-    - Ensure the section mirrors the format of other §4 entries: code name, exit code, description.
-    - No code changes needed — this is a doc-only task.
-
-    **Acceptance criteria:**
-    - `docs/architecture/cli-design-contract.md` §4 enumerates `SCHEMA_NOT_FOUND` with its exit code (3) and description.
-    - The §8.2 prose cross-references §4 so future reviewers find the canonical table.
-
-    **Notes:**
-    - Extracted from `port-8-discoverability-commands-capabilities-schema-llm-instructions-to-rust` results — "open hazards" section: "Worth a small doc-only follow-up to add it to §4.7 ('Discoverability') or a new §4.8 for completeness. Not blocking."
-- id: refactor-cli-contract-rs-to-consume-testanyware-cli-surface-tables
-  title: Refactor cli-contract.rs to consume testanyware_cli::surface tables
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    Refactor cli-contract.rs to consume testanyware_cli::surface tables
-
-    **Background:** After the §8 discoverability implementation, `testanyware_cli::surface` became the canonical single source of truth for `CANONICAL_COMMANDS`, `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES`. However, `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` still has its own hardcoded copies of these tables. This is a dual source of truth — a future change to the command surface requires two edits (surface.rs + cli-contract.rs) instead of one.
-
-    **Scope:**
-    - Update `cli-contract.rs` to import the tables from `testanyware_cli::surface` instead of maintaining local copies.
-    - Remove the local `CANONICAL_COMMANDS`, `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES` definitions from the test file.
-    - Verify `cargo test --workspace` stays green after the refactor.
-
-    **Timing:**
-    - "out of scope [for the §8 task] because it touches every ignored test" — do this pass once one or two more command port tasks have landed and the ignored tests are graduating, so the refactor is done once with full coverage rather than redone per task.
-
-    **Acceptance criteria:**
-    - `cli-contract.rs` imports surface tables from `testanyware_cli::surface`; no local duplicates.
-    - `cargo test --workspace` stays green.
-    - Adding a new command to `surface.rs` automatically updates the contract test's expectations.
-
-    **Notes:**
-    - Extracted from `port-8-discoverability-commands-capabilities-schema-llm-instructions-to-rust` results — "open hazards" section: "Refactoring the test to consume the lib's tables would eliminate the dual source of truth; out of scope for this task because it touches every ignored test."
-    - Best done alongside a port task that graduates several ignored tests simultaneously.
-  results: |
-    **What landed**
-
-    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` now imports `CANONICAL_COMMANDS`, `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES` from `testanyware_cli::surface`. The local `CommandSpec` struct and the three local table copies (~91 lines) were removed and replaced with a single `use` statement plus a short comment explaining the consolidation. The three `#[allow(dead_code)]` attributes that guarded the local copies are gone with them.
-
-    **Why this works**
-
-    - `cli-rs/crates/testanyware-cli/src/lib.rs` already exposes `pub mod surface`, so integration tests in `tests/` can name `testanyware_cli::surface::*` directly. No `[dev-dependencies]` change was needed.
-    - `surface::CommandSpec` already has `pub` fields (`path`, `mutating`, `data_producing`, `schema_id`), so the active tests' field accesses (`spec.path`, `spec.schema_id`, etc.) keep working without renaming or wrapping.
-    - The three imported consts are read by **active**, non-`#[ignore]` tests (`every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`, `every_schema_id_has_a_schema_file`, `capabilities_lists_full_surface`, `schema_command_emits_json_schema_for_each_command`), so the `use` line never trips an `unused_imports` warning.
-
-    **Verification**
-
-    - `cargo test --workspace` is green.
-    - `tests/cli-contract.rs`: 16 tests — 10 passed, 0 failed, 6 ignored. Same active/ignored split as before the refactor.
-    - `cargo build --tests --workspace` emits zero warnings or errors.
-    - File size: 715 → 624 lines.
-
-    **What this suggests next**
-
-    - The acceptance criterion "adding a new command to `surface.rs` automatically updates the contract test's expectations" is now structurally guaranteed — a future port task that adds a command to `CANONICAL_COMMANDS` will see the contract checks fan out without a parallel test edit.
-    - Memory entry `cli-contract.rs-is-the-rust-cli-contract-test-skeleton` references "Eleven tests are active". The current count is **ten** active + six ignored = sixteen total. The discrepancy predates this refactor (no test was added or removed by this change) but should be reconciled when memory is next refreshed.
-    - The companion follow-up "first port task should adopt §7 help template as reference" remains untouched — when the next port task graduates an `#[ignore]` test, that test now reads from `surface.rs` for free.
-
-    **Files touched**
-
-    - `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`
-
-    **Files explicitly not touched (and why)**
-
-    - `cli-rs/crates/testanyware-cli/src/surface.rs` — already canonical; no API change required.
-    - `cli-rs/crates/testanyware-cli/src/lib.rs` — `pub mod surface` was already in place.
-    - `Cargo.toml` — integration tests inherit the crate's `[dependencies]`; no new dev-dep needed.
