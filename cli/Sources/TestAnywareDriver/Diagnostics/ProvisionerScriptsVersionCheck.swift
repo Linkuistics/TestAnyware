@@ -84,6 +84,47 @@ public enum ProvisionerScriptsVersionCheck {
     /// the declaration syntax.
     public static let sentinelPrefix = "# testanyware-min-tool:"
 
+    /// Per-tool probe customisation. Used when a sentinel-declared tool
+    /// is not covered by `ToolAvailabilityCheck` and the default
+    /// `<tool> --version` + greedy-first-token parser would extract
+    /// the wrong value (or when the tool's `--version` selector differs).
+    public struct ProbeCustomization: Sendable {
+        /// Arguments passed to the tool, e.g. `["--version"]`.
+        public let arguments: [String]
+        /// Extracts a dotted-version string from the probe's stdout,
+        /// or `nil` if the output cannot be parsed.
+        public let parser: @Sendable (String) -> String?
+
+        public init(arguments: [String], parser: @escaping @Sendable (String) -> String?) {
+            self.arguments = arguments
+            self.parser = parser
+        }
+    }
+
+    /// Per-tool probe overrides for sentinel-declared tools that aren't
+    /// covered by `ToolAvailabilityCheck.knownTools`. Tools without an
+    /// entry here fall back to `<tool> --version` + the greedy-first-token
+    /// parser shared with `ToolAvailabilityCheck`.
+    public static let probeCustomizations: [String: ProbeCustomization] = [
+        // `swift --version` writes the compiler banner to stdout (the
+        // `swift-driver version: ...` shim is on stderr and discarded by
+        // the probe). Anchoring on "Apple Swift version" is defence-in-
+        // depth against future format changes that might prepend other
+        // dotted tokens — the explicit marker is more robust than
+        // positional parsing.
+        "swift": ProbeCustomization(
+            arguments: ["--version"],
+            parser: { ProvisionerScriptsVersionCheck.parseSwiftVersion(from: $0) }
+        ),
+        // `dotnet --version` already prints a clean dotted token like
+        // `9.0.100`. Listed for explicitness so the table is the
+        // canonical reference for sentinel-declared tools.
+        "dotnet": ProbeCustomization(
+            arguments: ["--version"],
+            parser: { ToolAvailabilityCheck.parseVersion(from: $0) }
+        ),
+    ]
+
     /// Pure classifier. Aggregates the highest declared floor per tool
     /// across all scanned `floors`, then compares each aggregate to
     /// the corresponding host version in `hostVersions` (`nil` means
@@ -176,7 +217,9 @@ public enum ProvisionerScriptsVersionCheck {
     /// source-tree's `scripts/release-build.sh` when the running binary
     /// is located inside a dev source tree (see
     /// `locateReleaseBuildScript(near:)`). Compares aggregated floors
-    /// against the host versions reported by `ToolAvailabilityCheck`.
+    /// against the host versions reported by `ToolAvailabilityCheck`,
+    /// supplemented by extra probes for sentinel-declared tools that
+    /// `ToolAvailabilityCheck` doesn't cover (see `probeCustomizations`).
     public static func run() -> CheckResult {
         var scripts: [String] = []
         if let brewPrefix = BrewPrefixResolver.resolve() {
@@ -197,7 +240,7 @@ public enum ProvisionerScriptsVersionCheck {
             guard let content = try? String(contentsOfFile: path, encoding: .utf8) else { continue }
             floors.append(contentsOf: parseSentinels(in: content, source: path))
         }
-        let hostVersions = collectHostVersions()
+        let hostVersions = collectHostVersions(forFloors: floors)
         return classify(floors: floors, hostVersions: hostVersions)
     }
 
@@ -262,14 +305,16 @@ public enum ProvisionerScriptsVersionCheck {
         return true
     }
 
-    /// Collect the host's resolved tool versions from
-    /// `ToolAvailabilityCheck`. Maps each known tool's verdict to a
-    /// dotted-version string when the host reported one, or `nil`
-    /// when the tool is missing / unparseable / the probe failed.
-    private static func collectHostVersions() -> [String: String?] {
-        let result = ToolAvailabilityCheck.run()
+    /// Collect host versions for every tool referenced by `floors`.
+    /// Tools covered by `ToolAvailabilityCheck` reuse its result; any
+    /// extra tools (e.g. `swift`, `dotnet`) are probed via the
+    /// customisation table or the universal `<tool> --version` fallback.
+    /// Maps each tool to its dotted version, or `nil` when the tool is
+    /// missing / the probe failed / the output didn't parse.
+    private static func collectHostVersions(forFloors floors: [DeclaredFloor]) -> [String: String?] {
         var hostVersions: [String: String?] = [:]
-        for status in result.statuses {
+        let toolResult = ToolAvailabilityCheck.run()
+        for status in toolResult.statuses {
             switch status.versionVerdict {
             case .ok(let detected):
                 hostVersions[status.tool.name] = detected
@@ -279,7 +324,59 @@ public enum ProvisionerScriptsVersionCheck {
                 hostVersions[status.tool.name] = nil
             }
         }
+        let coveredByToolCheck = Set(ToolAvailabilityCheck.knownTools.map(\.name))
+        let extras = Set(floors.map(\.tool)).subtracting(coveredByToolCheck)
+        for tool in extras {
+            hostVersions[tool] = resolveExtraHostVersion(forTool: tool)
+        }
         return hostVersions
+    }
+
+    /// Probe and parse the host's installed version of a sentinel-
+    /// declared tool that isn't covered by `ToolAvailabilityCheck`.
+    /// Uses the customisation table when present, otherwise falls back
+    /// to `<tool> --version` + `ToolAvailabilityCheck.parseVersion`.
+    static func resolveExtraHostVersion(forTool tool: String) -> String? {
+        let custom = probeCustomizations[tool]
+        let arguments = custom?.arguments ?? ["--version"]
+        let parse: (String) -> String? = custom?.parser
+            ?? { ToolAvailabilityCheck.parseVersion(from: $0) }
+        guard let raw = runProbe(tool: tool, arguments: arguments) else {
+            return nil
+        }
+        return parse(raw)
+    }
+
+    /// Extracts `MAJOR.MINOR[.PATCH]` from `Apple Swift version X.Y[.Z]`
+    /// in `swift --version` stdout. The default greedy-first-token
+    /// parser would otherwise attach itself to a `swift-driver version:`
+    /// prefix if Apple ever moves that line to stdout — anchoring on
+    /// the explicit "Apple Swift version" marker keeps the extraction
+    /// stable across format drift.
+    static func parseSwiftVersion(from rawOutput: String) -> String? {
+        guard let range = rawOutput.range(of: "Apple Swift version ") else {
+            return nil
+        }
+        return ToolAvailabilityCheck.parseVersion(from: String(rawOutput[range.upperBound...]))
+    }
+
+    /// Runs `/usr/bin/env <tool> <arguments>` and returns trimmed stdout,
+    /// or `nil` on launch failure / empty output. Mirrors
+    /// `ToolAvailabilityCheck.probeVersion` so all host probes share the
+    /// same execution semantics (stderr discarded, stdout-only capture).
+    private static func runProbe(tool: String, arguments: [String]) -> String? {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        proc.arguments = [tool] + arguments
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = Pipe()
+        do { try proc.run() } catch { return nil }
+        proc.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let text = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return (text?.isEmpty ?? true) ? nil : text
     }
 
     /// Returns the path of the currently-running executable, preferring

@@ -243,6 +243,81 @@ struct ProvisionerScriptsVersionCheckTests {
         #expect(!Check.isDottedVersion(".5.0"))
     }
 
+    // MARK: - parseSwiftVersion
+
+    @Test func parseSwiftVersionExtractsCompilerVersionFromStdoutOnly() {
+        // What the swift probe actually sees (stderr discarded by the
+        // probe pipe). Anchoring on "Apple Swift version" extracts the
+        // compiler version even though it's the first dotted token.
+        let raw = """
+        Apple Swift version 6.3.1 (swiftlang-6.3.1.1.2 clang-2100.0.123.102)
+        Target: arm64-apple-macosx26.0
+        """
+        #expect(Check.parseSwiftVersion(from: raw) == "6.3.1")
+    }
+
+    @Test func parseSwiftVersionIgnoresSwiftDriverPrefix() {
+        // Defence against a future swift release that moves the
+        // `swift-driver version: ...` shim back to stdout — the marker
+        // anchor still picks the compiler version, not the driver one.
+        let raw = "swift-driver version: 1.95 Apple Swift version 6.1.2 (swift-6.1.2-RELEASE)"
+        #expect(Check.parseSwiftVersion(from: raw) == "6.1.2")
+    }
+
+    @Test func parseSwiftVersionAcceptsTwoComponentVersion() {
+        // Some toolchain previews omit the patch component; the
+        // underlying greedy parser handles this once the marker has
+        // anchored the search.
+        let raw = "Apple Swift version 6.0 (...)"
+        #expect(Check.parseSwiftVersion(from: raw) == "6.0")
+    }
+
+    @Test func parseSwiftVersionReturnsNilWhenMarkerAbsent() {
+        // No "Apple Swift version" anchor in output → no extraction;
+        // the caller will surface this as `hostVersionUnknown` rather
+        // than misreport a stale token from a different prefix.
+        #expect(Check.parseSwiftVersion(from: "swift-driver version: 1.95") == nil)
+        #expect(Check.parseSwiftVersion(from: "") == nil)
+    }
+
+    // MARK: - probeCustomizations
+
+    @Test func probeCustomizationsCoverSwiftAndDotnet() {
+        // The table is the canonical place where sentinel-declared
+        // tools opt out of the universal `<tool> --version` + greedy
+        // parser path. Tools covered by ToolAvailabilityCheck
+        // (tart/qemu/swtpm) intentionally do NOT appear here.
+        let table = Check.probeCustomizations
+        #expect(table["swift"] != nil)
+        #expect(table["dotnet"] != nil)
+        #expect(table["tart"] == nil)
+        #expect(table["qemu-system-aarch64"] == nil)
+    }
+
+    @Test func swiftCustomizationParsesActualSwiftOutput() {
+        // End-to-end sanity check that the table entry is wired to the
+        // anchored parser, not the greedy default.
+        guard let custom = Check.probeCustomizations["swift"] else {
+            #expect(Bool(false), "swift customization missing")
+            return
+        }
+        #expect(custom.arguments == ["--version"])
+        let raw = "Apple Swift version 6.3.1 (swiftlang-6.3.1.1.2)"
+        #expect(custom.parser(raw) == "6.3.1")
+    }
+
+    @Test func dotnetCustomizationUsesGreedyParser() {
+        // dotnet's `--version` already prints a clean dotted token —
+        // the customization is a thin wrapper around the shared parser.
+        guard let custom = Check.probeCustomizations["dotnet"] else {
+            #expect(Bool(false), "dotnet customization missing")
+            return
+        }
+        #expect(custom.arguments == ["--version"])
+        #expect(custom.parser("9.0.100") == "9.0.100")
+        #expect(custom.parser("10.0.203\n") == "10.0.203")
+    }
+
     // MARK: - locateReleaseBuildScript
 
     /// Build a disposable directory tree mirroring a dev source tree:

@@ -2,7 +2,7 @@ tasks:
 - id: add-per-tool-version-probe-customisation-to-provisionerscriptsversioncheck
   title: Add per-tool version-probe customisation to ProvisionerScriptsVersionCheck
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Add per-tool version-probe customisation hook to ProvisionerScriptsVersionCheck
@@ -25,6 +25,34 @@ tasks:
     **Acceptance:** `testanyware doctor` from a dev source tree reports `ok` or `belowFloor` for swift and dotnet sentinel floors (not `hostVersionUnknown`). Tests cover the custom-parser path for swift.
 
     **Dependencies:** None (precondition — `release-build.sh` sentinels — is already done).
+  results: |
+    **What was done**
+
+    Added a per-tool probe customisation table to `ProvisionerScriptsVersionCheck` so sentinel-declared tools that aren't in `ToolAvailabilityCheck.knownTools` (today: `swift`, `dotnet`) get probed and parsed correctly.
+
+    - `ProbeCustomization` struct: `(arguments: [String], parser: @Sendable (String) -> String?)`. `Sendable` for Swift 6 strict concurrency; closures held in static state must be `@Sendable`.
+    - `probeCustomizations` static table with entries for `swift` (anchored "Apple Swift version" parser) and `dotnet` (delegates to the shared greedy parser; included for explicitness).
+    - `parseSwiftVersion(from:)` — finds `"Apple Swift version "`, then delegates to `ToolAvailabilityCheck.parseVersion` on the tail. Defence against future format drift.
+    - `runProbe(tool:arguments:)` — mirrors `ToolAvailabilityCheck.probeVersion` (stdout-only capture, stderr discarded into an unread `Pipe()`).
+    - `resolveExtraHostVersion(forTool:)` — table-or-fallback dispatcher.
+    - `collectHostVersions()` → `collectHostVersions(forFloors:)`. Now runs `ToolAvailabilityCheck.run()` first, then probes any extras referenced by floors but not covered there.
+
+    **What worked**
+
+    - Acceptance met: `testanyware doctor` now reports `✓ swift 6.3.1 ≥ 6.0 (release-build.sh)` and `✓ dotnet 10.0.203 ≥ 9.0 (release-build.sh)` instead of `hostVersionUnknown`.
+    - 5 new tests added (399 total now pass; previously 394). Coverage: anchored extraction with two- and three-component versions, marker-absent → nil, table presence/absence assertions, and end-to-end check that table entries wire to the right parsers.
+    - All existing tests pass unchanged — the `collectHostVersions` signature change was contained to a single private call site.
+
+    **What didn't work / was wrong in the plan**
+
+    - The task description claimed `hostVersionUnknown` was caused by `parseVersion` greedy-matching the wrong dotted token. That's misleading: `swift --version`'s `swift-driver version: ...` line goes to **stderr**, which `probeVersion` discards via `proc.standardError = Pipe()`. Stdout starts cleanly with `Apple Swift version 6.3.1`, so the greedy parser would actually have worked. The real cause was that swift/dotnet aren't in `ToolAvailabilityCheck.knownTools` at all and were never probed.
+    - The anchored swift parser is still the right call, just for a different reason: defence against Apple ever moving the driver line to stdout, or against a user manually merging streams. Documented this rationale in the parser doc-comment so future readers don't repeat the misanalysis.
+
+    **What this suggests next**
+
+    - Worth considering: a similar customisation may be needed for `gh` or `python3` if future scripts add sentinels for them. The mechanism is now in place — adding a tool is a single table entry.
+    - The `swift-driver version: ...` line landing on stderr is a quiet platform contract — if a future macOS toolchain merges streams, this code will silently start picking the driver version. A test that runs the real `swift --version` probe and asserts the parsed version starts with `6.` (i.e. compiler not driver) would catch that drift, but couples the test to the host environment. Not adding it now; flagging as a hazard.
+    - Note for the next phase: today's `probeCustomizations` table is `public static let`. If extension by client code becomes useful (e.g., for downstream tools building on `TestAnywareDriver`), this would need to become a `var` or take a parameter. Not needed today.
 - id: add-ubuntu-ci-matrix-entry-for-cargo-build-test-linux-build-verification
   title: Add Ubuntu CI matrix entry for cargo build/test (Linux build verification)
   category: chore
