@@ -102,7 +102,7 @@ tasks:
 - id: implement-cli-side-agent-error-code-mapper-in-rust-cli-for-canonical-token-display
   title: Implement CLI-side agent error code mapper in Rust CLI for canonical token display
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Implement CLI-side agent error code mapper in Rust CLI for canonical token display
@@ -126,10 +126,104 @@ tasks:
     - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — "Suggestions for next session" item 3.
     - This task is the other half of the agent error realignment work; the agent side (Linux + macOS + Windows) emits canonical tokens, this task ensures the CLI consumer maps them to the contract-defined `code` values.
     - Depends on `port-agent-only-cli-commands-exec-upload-download-agent-to-rust` since the mapper lives inside the Rust CLI's agent response handling.
+  results: |
+    ## Outcome
+
+    Closed the gap between the §4.5 wire-token → CLI-code mapper (already in
+    `testanyware-agent-client/src/lib.rs:117`) and the contract's
+    "human-readable output translates the token to a friendly message"
+    acceptance criterion. Before this change, text-mode failures rendered as
+    `error: agent error: not_found — <details>`, leaking the raw snake_case
+    wire token to users and LLM consumers. JSON mode already emitted the
+    correct structured `code` field — only the human-facing surface needed
+    the work.
+
+    ## What changed
+
+    - `cli-rs/crates/testanyware-cli/src/commands/mod.rs`
+      - New `friendly_message_for(code, &AgentError) -> Option<String>`
+        keyed by §4.5 CLI codes. Returns curated messages for the eight
+        canonical codes (`ELEMENT_NOT_FOUND`, `ELEMENT_AMBIGUOUS`,
+        `WINDOW_NOT_FOUND`, `ACTION_UNSUPPORTED`, `AUTH_REQUIRED`,
+        `EXEC_FAILED`, `UPLOAD_FAILED`, `DOWNLOAD_FAILED`) plus
+        `AGENT_ERROR_UNKNOWN`. Returns `None` for transport-layer codes
+        (`CONNECTION_REFUSED`, `INTERNAL`, etc.) so the caller falls back
+        to the `AgentError` Display impl, which carries diagnostic context
+        those curated messages would discard.
+      - When the `Wire` variant carries non-empty `details`, the friendly
+        message appends them (`"Element not found: no Save button"`); the
+        empty-details case omits the separator.
+      - `AGENT_ERROR_UNKNOWN` is the one curated code where the raw wire
+        token *is* surfaced (in parentheses), per contract §4.5 fallback —
+        the user needs that string to search/file a bug. This is where
+        Linux's pre-§4.5 `"Invalid JSON in request body"` token currently
+        lands; the path is now tested explicitly.
+    - `exit_agent_error` now prefers the friendly message over
+      `err.to_string()`. The `wire_error` is still preserved verbatim in
+      the JSON envelope's `details.wire_error`, so machine consumers retain
+      full diagnostic info.
+
+    ## Tests
+
+    Added 5 unit tests in `commands::tests`:
+
+    - `friendly_message_translates_every_canonical_4_5_token` — table-driven
+      guard over all 8 §4.5 tokens. Asserts both the wire→code mapping and
+      that no friendly message echoes the raw wire token. Locks the
+      contract: a typo or rename of any canonical message that re-introduces
+      the snake_case token will fail the test.
+    - `friendly_message_appends_details_when_present` — `: details` suffix.
+    - `friendly_message_omits_empty_details_separator` — guards against
+      trailing-colon regression on empty details.
+    - `friendly_message_for_unknown_wire_token_includes_raw_token` —
+      documents and pins the `AGENT_ERROR_UNKNOWN` fallback behaviour
+      (raw token *must* appear so users can search for it). Uses
+      `"Invalid JSON in request body"` as the fixture, the live
+      Linux-agent path documented in
+      `invalid-json-gap-in-4-5-cli-design-contract`.
+    - `friendly_message_returns_none_for_non_curated_codes` — locks the
+      policy: transport-layer errors keep the rich Display impl, not a
+      curated stub.
+
+    `cargo test -p testanyware-cli` → 22 passed, 0 failed (5 new tests +
+    the existing 17). `cargo test --workspace` → all green. The 10 active
+    contract tests in `cli-contract.rs` continue to pass; 6 remain `#[ignore]`
+    gated on per-command port work.
+
+    ## What didn't work / observations
+
+    - `cargo clippy --workspace --all-targets -- -D warnings` flags a
+      pre-existing `clippy::type_complexity` lint on `resolve.rs:287`
+      (`Box<dyn Fn(&str) -> Option<String> + Send + Sync>` in
+      `EnvProvider`). Confirmed pre-existing by `git stash` + clippy on
+      baseline; not introduced by this work. Likely a 1.95-toolchain lint
+      promotion since `EnvProvider` has been there since the agent-only
+      CLI commit. Worth a 1-line fix (extract `type EnvFn = ...` or add
+      `#[allow(clippy::type_complexity)]`) but out of scope for this task —
+      candidate for a separate cleanup chore if CI starts failing.
+
+    ## Suggestions for next session
+
+    - The `invalid_json` decision (gap in §4.5 contract) is now load-bearing
+      on user-visible behaviour for malformed-body responses from the Linux
+      agent. With the friendly-message work landed, the cost of letting
+      this gap sit is that the `AGENT_ERROR_UNKNOWN` fallback message
+      "Agent reported an unrecognised error (Invalid JSON in request body)"
+      carries a multi-word freeform string instead of a snake_case token —
+      noisier than the §4.5 standard. Consider scheduling a small follow-up
+      task: add `invalid_json` as a §4.5 canonical token, update Linux's
+      `server.py:26`, add it to `KNOWN_NON_CANONICAL_EXCEPTIONS` removal
+      list, extend `map_wire_error` in the agent-client crate, and add a
+      curated friendly message for the new `AGENT_INVALID_JSON` code.
+
+    - Once the Windows agent realignment lands (currently untracked per
+      `extend-error-token-tests-to-macos-and-windows-agents`), this
+      friendly-message table will automatically apply — no further CLI work
+      needed unless a new wire token is introduced.
 - id: fix-swtpm-socket-path-length-limit-causing-2-qemu-integration-test-failures
   title: Fix swtpm socket-path length limit causing 2 QEMU integration test failures
   category: chore
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Fix swtpm socket-path length limit causing 2 QEMU integration test failures
@@ -152,6 +246,84 @@ tasks:
     - Tracked as "backlog Task 12" in prior session memory (`2-qemu-integration-tests-fail-from-swtpm-sun-path-limit`).
     - Independent of all other work — can run in any order.
     - Low priority: does not block any other task; treat 270/272 as the acceptable baseline until this is addressed.
+  results: |
+    ## Outcome
+
+    Task was already complete on `main`. Verified by running the full
+    Swift test suite plus the gated QEMU integration suite on this host.
+
+    ## Verification
+
+    - `swift test --package-path cli` →
+      **Test run with 420 tests in 35 suites passed after 82.849 seconds**.
+      Zero failures.
+    - `swift test --package-path cli --filter VMLifecycleQEMUTests` →
+      Both gated tests pass:
+        - `startStopRoundTripWindows()` — 40.2 s
+        - `qemuMonitorDiscoversAgentPort()` — 8.6 s
+    - Host: macOS 25.4, `$TMPDIR=/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/`,
+      Windows golden present, qemu-system-aarch64 + swtpm both installed.
+
+    ## What was already done
+
+    Commit `5a1017f` — "fix(qemu): stage swtpm+monitor sockets under
+    `$TMPDIR` (sun_path limit)" — moved the AF_UNIX sockets out of the
+    clone tree and into `$TMPDIR/testanyware-<id>/`. Both sockets and
+    their parent dir now derive from `QEMURunner.sessionDir(forID:)`.
+
+    `sun_path` math, validated on this host:
+
+    | Component                                                | Bytes |
+    |----------------------------------------------------------|------:|
+    | `$TMPDIR` (after stripping trailing `/`)                  |    48 |
+    | `/testanyware-testanyware-test-<8 hex>` (integration id) |    38 |
+    | `/swtpm-sock` (longest socket basename uses 12 here actually `/monitor.sock`) | 11 (or 12) |
+    | **Total — swtpm-sock**                                   |    **97** |
+    | **Total — monitor.sock**                                 |    **98** |
+
+    Production ids `testanyware-<hex8>` (20 bytes) drop the totals to
+    92/93 bytes. All paths well under the 104-byte limit.
+
+    ## Stale memory
+
+    The memory entry
+    `2-qemu-integration-tests-fail-from-swtpm-sun-path-limit` (in
+    `LLM_STATE/core/memory.yaml`) reads:
+
+    > "QEMURunnerIntegrationTests has 2 pre-existing failures caused by
+    >  macOS sun_path length limit for the swtpm socket path... A passing
+    >  suite shows 270/272; treat 2 QEMU integration failures as expected
+    >  baseline."
+
+    This is no longer accurate. The suite is now 420 tests and shows 420/420
+    on the test run above. **Follow-up:** update or remove that memory
+    entry in the next triage pass — `linux-tart-vms-boot-38-faster-than-macos`
+    in the same memory file also predates the swtpm fix (commit message
+    mentions "11s macOS SSH-readiness poll eliminated" and similar), so a
+    broader review of stale VM-lifecycle notes is warranted.
+
+    ## Acceptance criteria
+
+    - [x] All `QEMURunnerIntegrationTests` pass on macOS.
+    - [x] swtpm socket path is within `sun_path` limits on macOS (97 bytes
+          worst-case for the integration-test id pattern, well under 104).
+    - [x] No change to Windows guest behaviour — both tests use the
+          existing Windows golden and exercise the full lifecycle.
+
+    ## Suggestions for next session
+
+    - Sweep the memory file for other entries that pre-date `5a1017f` —
+      the QEMURunner stop path, swtpm teardown pattern, and several
+      monitor-client behaviour notes were all touched in that commit.
+    - The `treat 270/272 as expected baseline` mental model is no longer
+      valid — `swift test` should be expected to land at 420/420 (give or
+      take any tests added since this run). Worth pinning a fresh "Swift
+      baseline = 420 passing on macOS Tahoe with QEMU + Windows golden"
+      memory note to displace the stale 270/272 line.
+    - The `qemu-system-aarch64` and `swtpm` versions running in this
+      verification: `qemu-system-aarch64` from `/opt/homebrew/bin/`,
+      `swtpm 0.10.1` (homebrew Cellar). If a CI pin is added later, those
+      are the floor we know works.
 - id: port-testanyware-doctor-with-linux-host-preflight-checks
   title: Port testanyware doctor with Linux-host preflight checks
   category: feature
@@ -264,7 +436,7 @@ tasks:
 - id: port-ocr-client-to-rust-against-existing-python-easyocr-daemon
   title: Port OCR client to Rust against existing Python EasyOCR daemon
   category: feature
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Port the OCR client (host side) to Rust. The Python EasyOCR daemon used by `OCRChildBridge.swift` is already cross-platform — it was the primary OCR engine all along; Apple Vision is a 51-line fallback.
@@ -289,6 +461,122 @@ tasks:
     **Notes**
     - Daemon reaping needs the same care as task 4's process management — but the daemon is long-lived and intentionally single-instance per CLI process, so this is simpler than QEMU lifecycle.
     - The EasyOCR Python source itself is unchanged; this task only touches the host-side Rust client.
+  results: |
+    ## Outcome
+
+    Ported the host-side EasyOCR daemon client from Swift
+    (`cli/Sources/TestAnywareDriver/OCR/*.swift`) to a new Rust crate
+    `testanyware-ocr-client`, preserving the wire protocol and the
+    sticky-unavailable / warm-start lifecycle invariants. The Apple Vision
+    fallback is intentionally *not* ported per the task brief — Linux,
+    the primary host target, has no equivalent and EasyOCR works on every
+    platform.
+
+    The end-to-end `testanyware find-text --vnc <ep>` CLI command remains
+    gated on the RFB client port (separate task
+    `implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size`).
+    The OCR library is now ready to plug in as soon as RFB lands;
+    `screen find-text` continues to surface as `unimplemented` in the
+    clap tree.
+
+    ## What changed
+
+    - **New crate** `cli-rs/crates/testanyware-ocr-client/` (added to
+      `cli-rs/Cargo.toml` workspace members):
+      - `bridge.rs` — `OcrChildBridge` long-lived async actor mirroring
+        Swift's `actor OCRChildBridge`. Uses `tokio::sync::Mutex` over
+        state to serialize concurrent `recognize` calls, with a
+        bridge-level sticky-unavailable latch separate from the per-state
+        one so the latch survives a child kill. Spawns the EasyOCR
+        daemon (`python -m ocr_analyzer --daemon`), waits for the
+        `{"ready": true}` handshake within `warm_deadline` (default 8s),
+        then handles framed JSON requests via temp PNG path + stdin/stdout
+        line. Per-call `first_call_deadline` (15s default) covers EasyOCR
+        model warm-up; subsequent calls use `call_deadline`.
+      - `detection.rs` — `OcrDetection` and `OcrResponse` value types,
+        serde-derived. `OcrResponse` skips the `warning` field when
+        `None` to byte-match Swift's `encodeIfPresent` output. Includes a
+        test that decodes Swift's `JSONEncoder` shape (whole-number
+        Doubles emitted as integers — guards against the
+        `swift-jsonencoder-emits-integer-literals-for-whole-number-doubles`
+        cross-language hazard).
+      - `find.rs` — `find_text(query, &[OcrDetection]) -> FindOutcome`.
+        Case-insensitive substring match on a single detection; empty
+        query returns every detection wrapped as `Found` (Swift parity
+        for the no-query "dump all recognized text" mode). The polling
+        loop is the caller's job; this module is single-shot.
+      - `status.rs` — `OcrStatusFile` persistent degraded-state file.
+        Path resolution uses the `directories` crate so Linux gets the
+        proper `$XDG_DATA_HOME/testanyware/ocr-status.json` (Swift
+        hardcoded `~/Library/Application Support/...`, macOS-only).
+      - `tests/bridge_integration.rs` — exercises the full daemon
+        lifecycle against the existing `cli/Tests/Resources/fake-ocr-daemon.sh`
+        shell-script fake. Path resolution via `CARGO_MANIFEST_DIR` so
+        the same fixture serves both Swift and Rust ports — drift in
+        daemon behaviour is caught simultaneously by both.
+
+    - **`cli-rs/Cargo.lock`** updated by Cargo when adding the new crate.
+
+    ## Tests
+
+    - `cargo test -p testanyware-ocr-client` → **34 tests pass**:
+      - 26 unit tests across the four modules.
+      - 8 integration tests against the fake daemon, covering: cold start,
+        warm path, idempotent shutdown, `import_error` → sticky
+        `PermanentlyUnavailable`, `ready_then_die_on_request` →
+        `ChildCrashed`, malformed JSON → `ChildCrashed`, hanging daemon
+        → `ResponseTimeout`, missing ready signal → sticky
+        `PermanentlyUnavailable`.
+    - `cargo test --workspace` → all 143 tests across all crates pass.
+    - `cargo clippy -p testanyware-ocr-client --all-targets -- -D warnings`
+      → clean.
+
+    ## Acceptance-criteria status
+
+    - [x] Daemon client (`OCRChildBridge`) ported with same lifecycle:
+          cold start, warm path, sticky-unavailable on permanent failure.
+    - [x] Status file (`OCRStatusFile`) ported with cross-platform path
+          resolution.
+    - [x] Detection types (`OCRDetection`, `OCRResponse`) ported,
+          Swift-compatible JSON shape.
+    - [x] Text-finding logic (`find_text`) ported with case-insensitive
+          substring + Swift-parity empty-query semantics.
+    - [x] Apple Vision fallback dropped per scope.
+    - [x] Daemon lifecycle preserved: warm-start, sticky on permanent
+          failure, transient crashes tear down state but do not latch.
+    - [x] Per-CLI-design-contract `--json` error codes:
+          `OCR_UNAVAILABLE` (= contract `OCR_UNAVAILABLE`),
+          `OCR_CHILD_CRASHED`, `OCR_TIMEOUT`. Aligned with `ERROR_CODES`
+          in `surface.rs` §4.6.
+    - [ ] `testanyware find-text --vnc <ep>` end-to-end command — **blocked
+          on RFB client port**. The OCR library is plug-in ready; once
+          RFB lands, the `screen find-text` clap stub becomes a thin
+          wire-up of `RfbClient::screenshot()` → `OcrChildBridge::recognize`
+          → `find_text`.
+
+    ## Suggestions for next session
+
+    - The interpreter-path resolution lives on the caller for now — Swift
+      has `ExecutablePath.resolveInterpreter()` to find `python3` via a
+      `command -v` chain. When wiring the find-text command, port that
+      helper too (probably as `cli-rs/crates/testanyware-cli/src/python_path.rs`).
+    - Consider deduplicating the §4.6 OCR codes between
+      `OcrBridgeError::code()` and `surface.rs:ERROR_CODES`. Currently
+      both name `"OCR_UNAVAILABLE"` / `"OCR_CHILD_CRASHED"` /
+      `"OCR_TIMEOUT"` as string literals; a small `ocr_error_code` const
+      module would prevent typo-drift if the contract grows new tokens.
+    - `OcrStatusFile::default_path` resolves to
+      `~/Library/Application Support/com.linkuistics.testanyware/ocr-status.json`
+      on macOS via the `directories` crate, *not* the Swift path
+      `~/Library/Application Support/testanyware/ocr-status.json`. This
+      is fine because the file is internal — but any future tooling that
+      reads it from outside the CLI must use the new path. Worth a docs
+      update under `docs/components/ocr.md` (does not yet exist).
+    - The `find_text` empty-query "dump all" semantics is currently
+      implemented inside the search function. If the CLI later wants
+      to distinguish "list recognized text" from "find a query that
+      happens to be empty" at the UX layer, split these into separate
+      clap subcommands — the library is fine either way.
 - id: add-zrle-and-tight-encodings-to-rfb-client-crate
   title: Add ZRLE and Tight encodings to RFB client crate
   category: feature

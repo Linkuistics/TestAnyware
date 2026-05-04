@@ -643,3 +643,14 @@ sessions:
     - All commands have `--help` after-help blocks with ≥2 examples and full EXIT CODES sections per §7-template.
     - Task `port-agent-only-cli-commands-exec-upload-download-agent-to-rust` marked done.
     - What this suggests next: run the wiremock suite (`cargo test -p testanyware-agent-client`) and validate against a live QEMU Linux guest before declaring live parity; then proceed to VNC/OCR-dependent commands.
+- id: session-34
+  timestamp: 2026-05-04T08:25:46Z
+  phase: work
+  body: |
+    ### Session 34 (2026-05-04T08:25:46Z) — Add agent error friendly messages and port OCR client to Rust
+
+    - Completed three tasks: CLI-side agent error code mapper, swtpm socket-path fix verification, and OCR client Rust port.
+    - What worked: `friendly_message_for()` in `commands/mod.rs` correctly translates §4.5 wire tokens to human-readable messages; full unit test suite guards all eight canonical codes plus `AGENT_ERROR_UNKNOWN` fallback. New `testanyware-ocr-client` crate faithfully mirrors Swift's `OCRChildBridge` actor semantics using `tokio::sync::Mutex`.
+    - swtpm task was pre-verified complete on `main` (commit `5a1017f` already moved sockets to `$TMPDIR`); 420 Swift tests + both QEMU integration tests passed on this host.
+    - What this suggests next: the OCR client plugs in as soon as the RFB client lands (`implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size`); `screen find-text` remains stubbed until then.
+    - Key learning: the `AGENT_ERROR_UNKNOWN` curated message is the *only* user-visible surface where the raw wire token is intentionally preserved (diagnostic searchability); all other curated codes suppress the snake_case token entirely. The `None` fallback path preserves diagnostic context (`AgentError` Display impl) for transport-layer codes that the curated messages would lose.

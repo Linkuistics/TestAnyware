@@ -1,18 +1,11 @@
-id: session-33
-timestamp: 2026-05-04T07:51:17Z
+id: session-34
+timestamp: 2026-05-04T08:25:46Z
 phase: work
 body: |
-  ### Session 33 (2026-05-04T07:51:17Z) — Port agent-only CLI commands to Rust
+  ### Session 34 (2026-05-04T08:25:46Z) — Add agent error friendly messages and port OCR client to Rust
 
-  - Implemented `agent {health,windows,snapshot,inspect,press}` and `file {exec,upload,download}` commands in Rust, end-to-end from CLI flags to HTTP agent calls.
-  - Added `AgentClient` endpoint methods in `cli-rs/crates/testanyware-agent-client/src/lib.rs` — expanded from a stub to ~316 lines covering all eight endpoints plus typed error conversion from `reqwest::Error`.
-  - Added connection resolution in `cli-rs/crates/testanyware-cli/src/resolve.rs` mirroring Swift's `ConnectionOptions.resolveAgent` chain: `--connect` spec file, `--vm` per-VM spec under `$XDG_STATE_HOME`, `--agent` direct endpoint, env vars, then error.
-  - Added `OutputMode` and JSON/text envelope helpers in `cli-rs/crates/testanyware-cli/src/output.rs` implementing the §3 success and §3.4 error envelopes.
-  - Extracted command handlers into `cli-rs/crates/testanyware-cli/src/commands/agent.rs` (211 lines) and `file.rs` (173 lines).
-  - Added `agent_requests.rs` to `testanyware-protocol` (192 lines) with typed structs for all request/response bodies.
-  - Wrote wiremock-based integration tests in `cli-rs/crates/testanyware-agent-client/tests/endpoint_integration.rs` (299 lines) covering all endpoints against a local mock HTTP server.
-  - Updated all JSON schemas under `docs/reference/cli-schemas/` to reflect correct wire shapes.
-  - `AgentError` carries stable `code()` tokens aligned with §4 of the CLI design contract; wire-error strings are mapped via `map_wire_error()`.
-  - All commands have `--help` after-help blocks with ≥2 examples and full EXIT CODES sections per §7-template.
-  - Task `port-agent-only-cli-commands-exec-upload-download-agent-to-rust` marked done.
-  - What this suggests next: run the wiremock suite (`cargo test -p testanyware-agent-client`) and validate against a live QEMU Linux guest before declaring live parity; then proceed to VNC/OCR-dependent commands.
+  - Completed three tasks: CLI-side agent error code mapper, swtpm socket-path fix verification, and OCR client Rust port.
+  - What worked: `friendly_message_for()` in `commands/mod.rs` correctly translates §4.5 wire tokens to human-readable messages; full unit test suite guards all eight canonical codes plus `AGENT_ERROR_UNKNOWN` fallback. New `testanyware-ocr-client` crate faithfully mirrors Swift's `OCRChildBridge` actor semantics using `tokio::sync::Mutex`.
+  - swtpm task was pre-verified complete on `main` (commit `5a1017f` already moved sockets to `$TMPDIR`); 420 Swift tests + both QEMU integration tests passed on this host.
+  - What this suggests next: the OCR client plugs in as soon as the RFB client lands (`implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size`); `screen find-text` remains stubbed until then.
+  - Key learning: the `AGENT_ERROR_UNKNOWN` curated message is the *only* user-visible surface where the raw wire token is intentionally preserved (diagnostic searchability); all other curated codes suppress the snake_case token entirely. The `None` fallback path preserves diagnostic context (`AgentError` Display impl) for transport-layer codes that the curated messages would lose.

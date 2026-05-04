@@ -54,7 +54,8 @@ pub fn exit_resolve_error(err: ResolveError, mode: OutputMode) -> ! {
 
 pub fn exit_agent_error(err: AgentError, mode: OutputMode) -> ! {
     let code = err.code();
-    let message = err.to_string();
+    let raw = err.to_string();
+    let message = friendly_message_for(code, &err).unwrap_or(raw);
     let details = match &err {
         AgentError::Wire { wire_error, details } => serde_json::json!({
             "wire_error": wire_error,
@@ -74,6 +75,59 @@ pub fn exit_agent_error(err: AgentError, mode: OutputMode) -> ! {
         details,
         exit_code_for(code),
     );
+}
+
+/// §4.5 friendly-message generator. Translates the §4 CLI code into a
+/// human-readable message so the raw snake_case wire token (e.g.
+/// `not_found`) does not leak into text-mode output. Returns `None` for
+/// codes without a curated message — the caller falls back to the
+/// `AgentError` Display impl, which carries diagnostic context (HTTP
+/// status, decode-error specifics) the curated messages would lose.
+///
+/// The wire token is preserved in the JSON envelope's `details.wire_error`
+/// regardless, per contract §4.5 fallback rule.
+pub fn friendly_message_for(code: &str, err: &AgentError) -> Option<String> {
+    let detail = match err {
+        AgentError::Wire { details, .. } => details.as_deref(),
+        _ => None,
+    };
+    let with_detail = |base: &str| match detail {
+        Some(d) if !d.is_empty() => format!("{base}: {d}"),
+        _ => base.to_string(),
+    };
+    match code {
+        "ELEMENT_NOT_FOUND" => Some(with_detail(
+            "Element not found",
+        )),
+        "ELEMENT_AMBIGUOUS" => Some(with_detail(
+            "Multiple elements matched the query",
+        )),
+        "WINDOW_NOT_FOUND" => Some(with_detail(
+            "No window matched the --window filter",
+        )),
+        "ACTION_UNSUPPORTED" => Some(with_detail(
+            "Element does not support the requested action",
+        )),
+        "AUTH_REQUIRED" => Some(with_detail(
+            "Accessibility permission is not granted on the target VM",
+        )),
+        "EXEC_FAILED" => Some(with_detail(
+            "Process failed to spawn on the target VM",
+        )),
+        "UPLOAD_FAILED" => Some(with_detail(
+            "Upload failed on the target VM",
+        )),
+        "DOWNLOAD_FAILED" => Some(with_detail(
+            "Download failed on the target VM",
+        )),
+        "AGENT_ERROR_UNKNOWN" => match err {
+            AgentError::Wire { wire_error, .. } => Some(with_detail(&format!(
+                "Agent reported an unrecognised error ({wire_error})"
+            ))),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn remediation_for(code: &str) -> Option<&'static str> {
@@ -108,5 +162,105 @@ fn remediation_for(code: &str) -> Option<&'static str> {
             "Run `testanyware agent windows` to see available windows.",
         ),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn wire(code: &str, details: Option<&str>) -> AgentError {
+        AgentError::Wire {
+            wire_error: code.to_string(),
+            details: details.map(|s| s.to_string()),
+        }
+    }
+
+    #[test]
+    fn friendly_message_translates_every_canonical_4_5_token() {
+        // §4.5 of the contract: the wire-token → CLI-code mapping is
+        // 1:1, and user-facing text never carries the raw snake_case
+        // token. This test guards both halves.
+        let cases = [
+            ("not_found", "ELEMENT_NOT_FOUND", "Element not found"),
+            ("ambiguous", "ELEMENT_AMBIGUOUS", "Multiple elements matched the query"),
+            ("window_not_found", "WINDOW_NOT_FOUND", "No window matched the --window filter"),
+            (
+                "action_unsupported",
+                "ACTION_UNSUPPORTED",
+                "Element does not support the requested action",
+            ),
+            (
+                "accessibility_unavailable",
+                "AUTH_REQUIRED",
+                "Accessibility permission is not granted on the target VM",
+            ),
+            ("exec_failed", "EXEC_FAILED", "Process failed to spawn on the target VM"),
+            ("upload_failed", "UPLOAD_FAILED", "Upload failed on the target VM"),
+            ("download_failed", "DOWNLOAD_FAILED", "Download failed on the target VM"),
+        ];
+        for (token, expected_code, expected_msg) in cases {
+            let err = wire(token, None);
+            assert_eq!(err.code(), expected_code, "wire {token} → code");
+            let friendly = friendly_message_for(err.code(), &err)
+                .unwrap_or_else(|| panic!("expected friendly message for {token}"));
+            assert_eq!(friendly, expected_msg, "wire {token} → friendly message");
+            // Critical: the user-visible message never echoes the raw
+            // wire token.
+            assert!(
+                !friendly.contains(token),
+                "friendly message for {token} leaked the raw wire token: {friendly:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn friendly_message_appends_details_when_present() {
+        let err = wire("not_found", Some("no Save button"));
+        let friendly = friendly_message_for(err.code(), &err).unwrap();
+        assert_eq!(friendly, "Element not found: no Save button");
+    }
+
+    #[test]
+    fn friendly_message_omits_empty_details_separator() {
+        let err = wire("not_found", Some(""));
+        let friendly = friendly_message_for(err.code(), &err).unwrap();
+        assert_eq!(friendly, "Element not found");
+    }
+
+    #[test]
+    fn friendly_message_for_unknown_wire_token_includes_raw_token() {
+        // Per §4.5 fallback: unrecognised wire strings surface as
+        // AGENT_ERROR_UNKNOWN with the wire string preserved in
+        // details.wire_error. The friendly message also names the raw
+        // token so the user can search for it; this is the *only*
+        // canonical user-visible surface where the raw token appears.
+        // The Linux agent's "Invalid JSON in request body" path takes
+        // exactly this route until §4.5 grows an `invalid_json` token.
+        let err = wire("Invalid JSON in request body", None);
+        assert_eq!(err.code(), "AGENT_ERROR_UNKNOWN");
+        let friendly = friendly_message_for(err.code(), &err).unwrap();
+        assert!(
+            friendly.contains("Invalid JSON in request body"),
+            "AGENT_ERROR_UNKNOWN friendly message must surface the raw \
+             token for diagnostics: got {friendly:?}"
+        );
+    }
+
+    #[test]
+    fn friendly_message_returns_none_for_non_curated_codes() {
+        // Codes outside §4.5 (transport-layer, INTERNAL, USAGE_ERROR,
+        // etc.) keep the AgentError Display impl, which carries
+        // context the curated messages would discard.
+        let err = AgentError::ConnectionRefused("dial tcp: connection refused".into());
+        assert_eq!(err.code(), "CONNECTION_REFUSED");
+        assert!(friendly_message_for(err.code(), &err).is_none());
+
+        // Decode failures aren't curated either: the parse error
+        // (column, expected token, etc.) is the diagnostic context the
+        // user needs.
+        let err = AgentError::Decode("expected `,`".into());
+        assert_eq!(err.code(), "INTERNAL");
+        assert!(friendly_message_for(err.code(), &err).is_none());
     }
 }
