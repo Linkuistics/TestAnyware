@@ -48,102 +48,33 @@ tasks:
     - This is cheap insurance: catches Linux drift before any of the Linux-primary port tasks (agent commands, QEMU runner, doctor) begin in earnest.
     - Does NOT require a live VM or QEMU; just `cargo test --workspace` (unit + contract tests).
     - Extracted from `bootstrap-rust-workspace-and-shared-protocol-crate` results — "Suggestions for next session" item 2.
-- id: scaffold-stub-json-files-in-docs-reference-cli-schemas-for-each-schema-id-in-canonical-commands
-  title: Scaffold stub JSON files in docs/reference/cli-schemas/ for each schema_id in CANONICAL_COMMANDS
+- id: investigate-video-codec-licensing-for-embedded-libav-static-linking
+  title: Investigate video codec licensing for embedded libav static linking
   category: chore
-  status: done
+  status: not_started
   dependencies: []
   description: |
-    Scaffold stub JSON files in docs/reference/cli-schemas/ for each schema_id in CANONICAL_COMMANDS
+    Investigate video codec licensing for embedded libav static linking in the Rust CLI.
 
-    **Background:** `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` encodes a `CANONICAL_COMMANDS` table with 39 entries, each carrying a `schema_id` field. The test `every_schema_id_has_a_schema_file` (§3.3) checks that `docs/reference/cli-schemas/<schema-id>.json` exists and is valid JSON. This test is currently `#[ignore]`d because no schema files exist. The contract document (§3.3) explicitly permits stubs.
+    **Background:** `port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess` requires statically linking libavcodec to keep the Rust binary self-contained. The canonical H.264 encoder (libx264) is GPL-licensed. Statically linking GPL code into a project that isn't fully GPL is legally contentious and may block distribution via Homebrew bottles.
 
-    **Work to do:**
-    - Extract the distinct `schema_id` values from `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` (the `CANONICAL_COMMANDS` table). Each unique `schema_id` needs one file.
-    - Create `docs/reference/cli-schemas/<schema-id>.json` for each with content `{"schema_version": "1.0", "$comment": "TODO"}`.
-    - Remove `#[ignore]` from the `every_schema_id_has_a_schema_file` test and verify `cargo test --test cli-contract` passes.
+    **Decision needed (runs independently of all code tasks):**
+    - Determine whether static linking libx264 into the `testanyware` binary is compatible with the project's distribution model (Homebrew formula, linuxbrew, Windows zip).
+    - Assess the LGPL-only alternative: libopenh264 (Cisco's OpenH264). LGPL permits static linking with non-GPL projects; bitrate and quality may differ.
+    - Assess vendored x264 with a separate GPL-licensed Linux build variant (would require Homebrew to bottle separate GPL and non-GPL variants).
+    - If neither is acceptable, assess HEVC-only (libx265 is LGPL for the main library).
+
+    **Deliverable:**
+    Write `docs/architecture/video-codec-licensing.md` documenting:
+    1. Chosen codec set and rationale.
+    2. Licensing implications for the distribution model.
+    3. Any platform-specific differences (e.g. hardware encoder fallbacks on macOS/Linux).
 
     **Acceptance criteria:**
-    - `cargo test --test cli-contract every_schema_id_has_a_schema_file` passes without `#[ignore]`.
-    - All stub files are valid JSON (parse-only validation is the gate).
-    - No other previously-passing tests regress.
+    - `docs/architecture/video-codec-licensing.md` exists and names a specific codec decision.
+    - The decision is referenced from the recording task description's "Constraints" section.
 
-    **Notes:**
-    - Small standalone chore; no VM required and no Rust changes beyond removing one `#[ignore]`.
-    - Extracted from `add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions` results — "Next moves this suggests" item 1.
-    - Reference: `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` CANONICAL_COMMANDS table and `schema_path()` helper.
-  results: |
-    ## What was done
-
-    Wired up the `every_schema_id_has_a_schema_file` contract test in
-    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`. Discovered on entry
-    that the schema files were already created in commit `b1b1c5d`
-    ("Add Rust CLI design contract and stub command schemas") — all 20 distinct
-    `schema_id` values from `CANONICAL_COMMANDS` already have corresponding
-    files at `docs/reference/cli-schemas/<schema-id>.json`. The remaining work
-    was the test wiring itself.
-
-    Specific changes:
-
-    - `cli-rs/crates/testanyware-cli/Cargo.toml` — added `serde_json` to a new
-      `[dev-dependencies]` block (kept out of binary's runtime deps).
-    - `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` — replaced the
-      `todo!()` body of `every_schema_id_has_a_schema_file` with a real
-      implementation that walks `CANONICAL_COMMANDS`, dedupes `schema_id`
-      values via a `BTreeSet`, asserts each `<schema-id>.json` is a file and
-      parses as JSON via `serde_json::from_slice::<Value>`. Removed the
-      `#[ignore = "contract §3.3: enable when the first stub schemas land"]`
-      attribute. The assertion accumulates `missing` and `malformed` lists
-      before failing so a future regression names every offender at once
-      rather than failing on the first one.
-    - `cli-rs/Cargo.lock` — auto-regenerated to record `serde_json` as a dev
-      dep of `testanyware-cli`.
-
-    ## Verification
-
-    - `cargo test --test cli-contract every_schema_id_has_a_schema_file` —
-      passes (was previously `#[ignore]`).
-    - `cargo test --test cli-contract` — 4 passed, 0 failed, 12 ignored
-      (was 3 / 0 / 13). Per-task increment matches the skeleton design:
-      one `#[ignore]` removed, one test wired up.
-    - `cargo test --workspace` — 63 passed (was 62), 0 failed, no regressions
-      across `testanyware-protocol`, `testanyware-agent-client`, or
-      `testanyware-cli`.
-    - `cargo clippy --all-targets -- -D warnings` — clean.
-
-    ## Acceptance criteria
-
-    - [x] `cargo test --test cli-contract every_schema_id_has_a_schema_file`
-      passes without `#[ignore]`.
-    - [x] All stub files are valid JSON (parse-only validation is the gate).
-      The test now enforces this via `serde_json::from_slice::<Value>`.
-    - [x] No other previously-passing tests regress.
-
-    ## What this suggests next
-
-    1. **The "scaffold stub JSON files" task description was stale** — schemas
-       already shipped in commit `b1b1c5d`. Future port tasks should grep
-       `docs/reference/cli-schemas/` before assuming work is needed; the test
-       suite now enforces presence so any new `schema_id` added to
-       `CANONICAL_COMMANDS` without a corresponding file fails CI immediately.
-    2. **First real port task should adopt the §7 help template (memory
-       `first-port-task-should-adopt-7-help-template-as-reference`)**. With
-       schemas in place and the existence gate live, the next leverage point
-       is making `each_subcommand_help_follows_template` testable for at
-       least one ported command. Smallest candidates: `screen size` or
-       `agent health`.
-    3. **The ignored test `each_data_command_supports_json` (§3.1) cannot
-       come off `#[ignore]` until commands actually emit JSON** — the schema
-       files are passive references, not enforced output. Wiring `--json`
-       output for one data-producing command would let that test become
-       per-command rather than wholesale.
-    4. **The schema files use richer Draft 2020-12 structure** (with `$schema`
-       header, `$id`, `title`, `required: ["schema_version", "ok"]`, etc.)
-       than the task description's minimal `{"schema_version":"1.0",
-       "$comment":"TODO"}` suggested. When commands start emitting actual
-       data, expand each schema in place rather than rewriting from scratch
-       — the structure is already there and follows the README at
-       `docs/reference/cli-schemas/README.md`.
+    **Why extracted:** This is a legal/licensing research spike buried inside the recording implementation task. It requires no code, has no dependencies, and can run in parallel with any task in the Rust port arc. Starting the recording task without this decision risks a mid-implementation pivot on codec choice.
 - id: migrate-rust-cli-surface-to-noun-first-command-structure-1-alignment
   title: Migrate Rust CLI surface to noun-first command structure (§1 alignment)
   category: feature
@@ -181,6 +112,87 @@ tasks:
     - After this migration, port tasks that add new commands should target the noun-first tree directly, which activates the per-command `#[ignore]` tests incrementally.
 
     **Dependencies:** `add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions` (already done; provides the CANONICAL_COMMANDS reference).
+- id: realign-macos-agent-error-strings-to-cli-design-contract-4-5
+  title: Realign macOS agent error strings to CLI design contract §4.5
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Realign macOS agent error strings to CLI design contract §4.5
+
+    **Background:** The Linux Python agent error strings were realigned to §4.5 in `realign-linux-agent-error-strings-to-cli-design-contract-4-5`. The macOS Swift agent (`agents/macos/Sources/testanyware-agent/AgentServer.swift`) still emits human-readable strings. Known offending lines: 224, 226, 230, 295, 308, 310, 314, 330, 350, 365, 380, 403, 486.
+
+    The CLI design contract (§4.5) requires all three agent implementations to emit canonical wire tokens. The macOS agent is the last agent remaining unaligned (Windows is tracked separately).
+
+    **Scope:**
+    - Audit `agents/macos/Sources/testanyware-agent/AgentServer.swift` for all `error` strings in HTTP responses.
+    - Compare against the canonical error code mapping in `docs/architecture/cli-design-contract.md` §4.5.
+    - Update the Swift agent to emit the canonical wire tokens (e.g. `not_found`, `ambiguous`, `window_not_found`).
+    - Move human-readable prose to `details` where genuinely informative (mirror the Linux agent pattern).
+    - Verify with the existing cross-language contract test fixture suite.
+
+    **Acceptance criteria:**
+    - Every `error` string emitted by the macOS Swift agent matches a canonical code in §4.5.
+    - No host-side translation map is introduced.
+    - Cross-language contract fixtures pass without modification.
+    - `AgentServer.swift` emits only snake_case token strings in the `error` field, not English prose.
+
+    **Notes:**
+    - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — Cross-impact section.
+    - Scope mirrors the Linux realignment task. The same §4.5 token map applies.
+    - The macOS agent may also need `action_unsupported` and `accessibility_unavailable` wired for cases where those paths exist in Swift — review with the Linux "out of scope intentional" list as a guide.
+- id: realign-windows-agent-error-strings-to-cli-design-contract-4-5
+  title: Realign Windows agent error strings to CLI design contract §4.5
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Realign Windows agent error strings to §4.5 of the CLI design contract
+
+    **Background:** The CLI design contract (§4.5, `docs/architecture/cli-design-contract.md`) pins a single canonical wire→code mapping for agent error strings. The three agent implementations (macOS Swift, Linux Python, Windows C#) currently use different `error` field values. The contract requires Linux and Windows agents to be brought into line; host-side translation maps are explicitly disallowed.
+
+    Unknown wire strings surfacing as `AGENT_ERROR_UNKNOWN` is the fallback — any Windows agent error string not in the canonical mapping would surface as `AGENT_ERROR_UNKNOWN` on the host CLI, breaking structured error handling and LLM-readable error codes.
+
+    **Scope**
+    - Audit `agents/windows/` (C# .NET 9 agent) for all `error` strings returned in HTTP responses.
+    - Compare against the canonical error code mapping in `docs/architecture/cli-design-contract.md` §4.
+    - Update the C# agent to emit the canonical error strings.
+    - Verify with the existing contract test fixture suite (cross-language JSON fixtures in `cli-rs/`).
+
+    **Acceptance criteria**
+    - Every error string emitted by the Windows C# agent matches a canonical code in §4.5.
+    - No host-side translation map is introduced.
+    - Cross-language contract fixtures for Windows-agent errors pass without modification.
+
+    **Notes**
+    - Promoted from `audit-current-cli-and-define-rust-cli-design-contract` results — "What this suggests next" item 2.
+    - This task affects `agents/windows/` only; no changes to host CLI or other agents.
+- id: add-pyproject-toml-and-ruff-pytest-config-to-agents-linux-for-ci-lint-and-test-coverage
+  title: Add pyproject.toml and ruff/pytest config to agents/linux/ for CI lint and test coverage
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Add pyproject.toml and ruff/pytest config to agents/linux/ for CI lint and test coverage
+
+    **Background:** The Linux agent at `agents/linux/` uses system Python with no venv (by design), but currently has no `pyproject.toml` or static analysis configuration. Changes like the error string realignment have no automated quality gate in CI — correctness was verified by manual `grep` and `py_compile` only.
+
+    **Scope:**
+    - Add `pyproject.toml` under `agents/linux/` with:
+      - `ruff` configuration for linting (rules appropriate for a small production Python service).
+      - `pytest` as the test runner.
+    - Add at least minimal pytest tests verifying that canonical error tokens are emitted correctly — specifically the 17 sites changed in the realignment (the `not_found`, `ambiguous`, `window_not_found`, `download_failed` paths in `accessibility.py` and `system_endpoints.py`).
+    - Extend the existing CI workflow (`.github/workflows/`) to run `ruff check` and `pytest` on `agents/linux/` on every push and pull request.
+
+    **Acceptance criteria:**
+    - `ruff check agents/linux/` passes in CI.
+    - `pytest agents/linux/` runs at least the token-emission tests and passes.
+    - The existing "no venv: uses system Python" deployment model is unchanged — `pyproject.toml` is a development tooling file only.
+    - A future error string change that introduces a non-canonical token causes a test failure rather than a silent regression.
+
+    **Notes:**
+    - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — "Suggestions for next session" item 2.
+    - Keep test scope narrow: the agent's HTTP server doesn't need to be spun up — unit tests mocking the AT-SPI2 layer or driving response-construction functions directly are sufficient to cover the token emission paths.
 - id: port-agent-only-cli-commands-exec-upload-download-agent-to-rust
   title: Port agent-only CLI commands (exec, upload, download, agent *) to Rust
   category: feature
@@ -478,33 +490,6 @@ tasks:
 
     **Notes**
     - This is the most protocol-fiddly task. Tight in particular has a sub-encoding state machine that's easy to get subtly wrong. Allocate time for it.
-- id: investigate-video-codec-licensing-for-embedded-libav-static-linking
-  title: Investigate video codec licensing for embedded libav static linking
-  category: chore
-  status: not_started
-  dependencies: []
-  description: |
-    Investigate video codec licensing for embedded libav static linking in the Rust CLI.
-
-    **Background:** `port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess` requires statically linking libavcodec to keep the Rust binary self-contained. The canonical H.264 encoder (libx264) is GPL-licensed. Statically linking GPL code into a project that isn't fully GPL is legally contentious and may block distribution via Homebrew bottles.
-
-    **Decision needed (runs independently of all code tasks):**
-    - Determine whether static linking libx264 into the `testanyware` binary is compatible with the project's distribution model (Homebrew formula, linuxbrew, Windows zip).
-    - Assess the LGPL-only alternative: libopenh264 (Cisco's OpenH264). LGPL permits static linking with non-GPL projects; bitrate and quality may differ.
-    - Assess vendored x264 with a separate GPL-licensed Linux build variant (would require Homebrew to bottle separate GPL and non-GPL variants).
-    - If neither is acceptable, assess HEVC-only (libx265 is LGPL for the main library).
-
-    **Deliverable:**
-    Write `docs/architecture/video-codec-licensing.md` documenting:
-    1. Chosen codec set and rationale.
-    2. Licensing implications for the distribution model.
-    3. Any platform-specific differences (e.g. hardware encoder fallbacks on macOS/Linux).
-
-    **Acceptance criteria:**
-    - `docs/architecture/video-codec-licensing.md` exists and names a specific codec decision.
-    - The decision is referenced from the recording task description's "Constraints" section.
-
-    **Why extracted:** This is a legal/licensing research spike buried inside the recording implementation task. It requires no code, has no dependencies, and can run in parallel with any task in the Rust port arc. Starting the recording task without this decision risks a mid-implementation pivot on codec choice.
 - id: port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess
   title: Port testanyware record to embedded libav (ffmpeg-next) instead of subprocess
   category: feature
@@ -538,87 +523,6 @@ tasks:
       - LGPL-only codec set (libopenh264 instead of libx264).
       - Vendored x264 with the Linux build configured separately.
       - Document the chosen approach in `docs/architecture/video-codec-licensing.md`.
-- id: realign-macos-agent-error-strings-to-cli-design-contract-4-5
-  title: Realign macOS agent error strings to CLI design contract §4.5
-  category: chore
-  status: not_started
-  dependencies: []
-  description: |
-    Realign macOS agent error strings to CLI design contract §4.5
-
-    **Background:** The Linux Python agent error strings were realigned to §4.5 in `realign-linux-agent-error-strings-to-cli-design-contract-4-5`. The macOS Swift agent (`agents/macos/Sources/testanyware-agent/AgentServer.swift`) still emits human-readable strings. Known offending lines: 224, 226, 230, 295, 308, 310, 314, 330, 350, 365, 380, 403, 486.
-
-    The CLI design contract (§4.5) requires all three agent implementations to emit canonical wire tokens. The macOS agent is the last agent remaining unaligned (Windows is tracked separately).
-
-    **Scope:**
-    - Audit `agents/macos/Sources/testanyware-agent/AgentServer.swift` for all `error` strings in HTTP responses.
-    - Compare against the canonical error code mapping in `docs/architecture/cli-design-contract.md` §4.5.
-    - Update the Swift agent to emit the canonical wire tokens (e.g. `not_found`, `ambiguous`, `window_not_found`).
-    - Move human-readable prose to `details` where genuinely informative (mirror the Linux agent pattern).
-    - Verify with the existing cross-language contract test fixture suite.
-
-    **Acceptance criteria:**
-    - Every `error` string emitted by the macOS Swift agent matches a canonical code in §4.5.
-    - No host-side translation map is introduced.
-    - Cross-language contract fixtures pass without modification.
-    - `AgentServer.swift` emits only snake_case token strings in the `error` field, not English prose.
-
-    **Notes:**
-    - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — Cross-impact section.
-    - Scope mirrors the Linux realignment task. The same §4.5 token map applies.
-    - The macOS agent may also need `action_unsupported` and `accessibility_unavailable` wired for cases where those paths exist in Swift — review with the Linux "out of scope intentional" list as a guide.
-- id: realign-windows-agent-error-strings-to-cli-design-contract-4-5
-  title: Realign Windows agent error strings to CLI design contract §4.5
-  category: chore
-  status: not_started
-  dependencies: []
-  description: |
-    Realign Windows agent error strings to §4.5 of the CLI design contract
-
-    **Background:** The CLI design contract (§4.5, `docs/architecture/cli-design-contract.md`) pins a single canonical wire→code mapping for agent error strings. The three agent implementations (macOS Swift, Linux Python, Windows C#) currently use different `error` field values. The contract requires Linux and Windows agents to be brought into line; host-side translation maps are explicitly disallowed.
-
-    Unknown wire strings surfacing as `AGENT_ERROR_UNKNOWN` is the fallback — any Windows agent error string not in the canonical mapping would surface as `AGENT_ERROR_UNKNOWN` on the host CLI, breaking structured error handling and LLM-readable error codes.
-
-    **Scope**
-    - Audit `agents/windows/` (C# .NET 9 agent) for all `error` strings returned in HTTP responses.
-    - Compare against the canonical error code mapping in `docs/architecture/cli-design-contract.md` §4.
-    - Update the C# agent to emit the canonical error strings.
-    - Verify with the existing contract test fixture suite (cross-language JSON fixtures in `cli-rs/`).
-
-    **Acceptance criteria**
-    - Every error string emitted by the Windows C# agent matches a canonical code in §4.5.
-    - No host-side translation map is introduced.
-    - Cross-language contract fixtures for Windows-agent errors pass without modification.
-
-    **Notes**
-    - Promoted from `audit-current-cli-and-define-rust-cli-design-contract` results — "What this suggests next" item 2.
-    - This task affects `agents/windows/` only; no changes to host CLI or other agents.
-- id: add-pyproject-toml-and-ruff-pytest-config-to-agents-linux-for-ci-lint-and-test-coverage
-  title: Add pyproject.toml and ruff/pytest config to agents/linux/ for CI lint and test coverage
-  category: chore
-  status: not_started
-  dependencies: []
-  description: |
-    Add pyproject.toml and ruff/pytest config to agents/linux/ for CI lint and test coverage
-
-    **Background:** The Linux agent at `agents/linux/` uses system Python with no venv (by design), but currently has no `pyproject.toml` or static analysis configuration. Changes like the error string realignment have no automated quality gate in CI — correctness was verified by manual `grep` and `py_compile` only.
-
-    **Scope:**
-    - Add `pyproject.toml` under `agents/linux/` with:
-      - `ruff` configuration for linting (rules appropriate for a small production Python service).
-      - `pytest` as the test runner.
-    - Add at least minimal pytest tests verifying that canonical error tokens are emitted correctly — specifically the 17 sites changed in the realignment (the `not_found`, `ambiguous`, `window_not_found`, `download_failed` paths in `accessibility.py` and `system_endpoints.py`).
-    - Extend the existing CI workflow (`.github/workflows/`) to run `ruff check` and `pytest` on `agents/linux/` on every push and pull request.
-
-    **Acceptance criteria:**
-    - `ruff check agents/linux/` passes in CI.
-    - `pytest agents/linux/` runs at least the token-emission tests and passes.
-    - The existing "no venv: uses system Python" deployment model is unchanged — `pyproject.toml` is a development tooling file only.
-    - A future error string change that introduces a non-canonical token causes a test failure rather than a silent regression.
-
-    **Notes:**
-    - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — "Suggestions for next session" item 2.
-    - Keep test scope narrow: the agent's HTTP server doesn't need to be spun up — unit tests mocking the AT-SPI2 layer or driving response-construction functions directly are sufficient to cover the token emission paths.
 - id: port-tart-runner-for-macos-host-macos-guest-path-cfg-target-os-macos
   title: Port tart runner for macOS-host-macOS-guest path (cfg target_os macos)
   category: feature
