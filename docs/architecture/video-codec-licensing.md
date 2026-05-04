@@ -20,13 +20,11 @@ conversation:
 
 To these we add a fourth constraint coming from the project itself:
 
-4. **Permissive licensing.** The `cli-rs` workspace declares
-   `license = "MIT"` in `Cargo.toml`; the top-level `LICENSE` is
-   Apache-2.0. (These two should be reconciled — it is a project hygiene
-   issue independent of this decision.) Either way, the binary is
-   distributed under a permissive non-GPL license. Static linking GPL
-   code into this binary would relicense the whole binary as GPL — a
-   policy change well outside the scope of the recording task.
+4. **Permissive licensing.** The `cli-rs` workspace and the top-level
+   `LICENSE` both declare Apache-2.0. The binary is distributed under
+   a permissive non-GPL license. Static linking GPL code into this
+   binary would relicense the whole binary as GPL — a policy change
+   well outside the scope of the recording task.
 
 ## The codec / licence matrix
 
@@ -154,17 +152,12 @@ window) the AV1 software fallback is the correct choice.
 
 ## Open questions for project ownership
 
-1. **Licence reconciliation.** `cli-rs/Cargo.toml` says MIT, the top-
-   level `LICENSE` says Apache-2.0. Settle on one before publishing
-   bottles. Both are permissive and equivalent for this codec
-   discussion, but the inconsistency will trip the homebrew formula
-   reviewer.
-2. **Future GPL build variant.** If a power user requests
+1. **Future GPL build variant.** If a power user requests
    high-quality software H.264 via `libx264`, we could add a
    `--features gpl` cargo build that produces a separately-distributed
    GPL-licensed binary. Decision is "not now" but worth recording the
    knob exists.
-3. **Legal review.** This document is engineering analysis, not legal
+2. **Legal review.** This document is engineering analysis, not legal
    advice. Have a lawyer review before tagging the first release that
    ships any encoder.
 
