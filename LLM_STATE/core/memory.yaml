@@ -183,10 +183,6 @@ entries:
   title: Linux tart VMs boot ~38% faster than macOS
   body: |
     Smaller disk + lighter desktop: Linux round-trip is ~11.7 s vs macOS ~19 s. Set integration test time limits accordingly; the current 5-minute limit has headroom on both platforms.
-- id: ssh-wait-dominates-macos-vm-start-latency
-  title: SSH removed; ~11s macOS start-wait cost eliminated
-  body: |
-    SSH is disabled in both tart goldens at golden-build time. The formerly ~11s SSH-readiness poll is gone from `startTart`; `VMSpec.ssh`, `sshReady`, and all `sshEndpoint` plumbing are removed from the Swift CLI. The timing numbers in 'linux-tart-vms-boot-38-faster-than-macos' predate this change.
 - id: vmlifecycle-stop-runs-vnc-viewer-close-for-missing-ids
   title: VMLifecycle.stop runs VNC-viewer close for missing ids
   body: |
@@ -208,9 +204,9 @@ entries:
   body: |
     `.enabled(if:)` conditions on a `@Test` or `@Suite` are evaluated when the test runner discovers tests, not at execution time. Use it for TCC checks and env-var gates; do not rely on runtime guards inside the test body for skipping.
 - id: testanyware-agent-lacks-tcc-documents-access-on-tahoe-golden
-  title: testanyware-agent lacks TCC Documents access on Tahoe golden
+  title: macOS golden script grants accessibility and FDA to agent
   body: |
-    `testanyware exec ls /Users/admin/Documents/` triggers a TCC privacy dialog on the Tahoe VM. The current golden does not grant Full Disk Access to the agent. `vm-create-golden-macos.sh` now grants both `kTCCServiceAccessibility` and `kTCCServiceSystemPolicyAllFiles` (FDA); `grant_accessibility_permission()` was renamed `grant_tcc_permissions()` to reflect the broader scope. Fix takes effect after the next golden rebuild.
+    `vm-create-golden-macos.sh` grants both `kTCCServiceAccessibility` and `kTCCServiceSystemPolicyAllFiles` (FDA) to the agent binary; the function is named `grant_tcc_permissions()`. Goldens built before this change lack FDA: `testanyware exec ls /Users/admin/Documents/` triggers a TCC privacy dialog on pre-fix goldens. Rebuild the golden to get the FDA grant.
 - id: unifiedrole-swift-is-duplicated-both-copies-must-stay-in-sync
   title: UnifiedRole.swift is duplicated; both copies must stay in sync
   body: |
@@ -262,7 +258,7 @@ entries:
 - id: ssh-disabled-in-both-tart-golden-images
   title: SSH disabled in both tart golden images
   body: |
-    Both macOS and Linux tart goldens disable SSH at golden-build time. `VMSpec.ssh`, `sshReady`, and all `sshEndpoint` plumbing are removed from the Swift CLI. Old spec files carrying an `ssh` field still decode correctly (JSONDecoder ignores unknown keys).
+    Both tart goldens disable SSH at golden-build time. `VMSpec.ssh`, `sshReady`, and all `sshEndpoint` plumbing are removed from the Swift CLI. The formerly ~11s macOS SSH-readiness poll in `startTart` is eliminated. Old spec files carrying an `ssh` field still decode correctly (`JSONDecoder` ignores unknown keys). The timing numbers in `linux-tart-vms-boot-38-faster-than-macos` predate SSH removal.
 - id: macos-golden-folds-ssh-off-into-shutdown-call
   title: macOS golden folds SSH-off into shutdown call
   body: |
@@ -343,8 +339,6 @@ entries:
     Strategic intent: a future doctor check should clear a degraded OCR status file on recovery, giving users a self-service path out of a stuck OCR state. The OCR status infrastructure is in place; the doctor wiring is not.
 
     Design note: new doctor checks go in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern (see `diagnostics-module-uses-classify-run-split-for-testability`). The check would read the OCR status file, detect a degraded flag, clear it, and print a remediation message.
-
-    Source: `add-doctor-check-for-usr-local-bin-testanyware-dev-symlink-shadowing-brew-install` results section — "## What this suggests next" item (a), described as "separate concern" and deferred.
 - id: bundledagentscheck-verifies-three-agent-slots-under-brew-prefix
   title: BundledAgentsCheck verifies three agent slots under brew prefix
   body: |
@@ -436,8 +430,6 @@ entries:
 - id: linux-agent-error-responses-use-code-details-split
   title: Linux agent error responses use code + details split
   body: |
-    Linux agent error responses use code + details split
-
     `accessibility.py` and `system_endpoints.py` return `{"error": "<code>", "details": "..."}`. Error codes are snake_case with no interpolation: `not_found`, `ambiguous`, `window_not_found`, `download_failed`. Callers match on `error`; `details` is diagnostic context only. The live AT-SPI2 re-location failure returns `not_found` with a `details` string explaining the snapshot-vs-live discrepancy.
 - id: cli-contract-rs-is-the-rust-cli-contract-test-skeleton
   title: cli-contract.rs is the Rust CLI contract test skeleton
@@ -454,8 +446,6 @@ entries:
 - id: first-port-task-should-adopt-7-help-template-as-reference
   title: First port task should adopt §7 help template as reference
   body: |
-    First real command port should establish §7 help template as in-tree reference
-
     When the first "real" command port lands (beyond the existing stub), it should adopt the full §7 help template structure (`USAGE` / `OUTPUT` / `EXIT CODES` / `EXAMPLES` ≥ 2 / `SEE ALSO`). Doing so lets subsequent port tasks copy the pattern from an in-tree example rather than from the spec document alone.
 
     Best candidates (smallest scope):
@@ -463,5 +453,3 @@ entries:
     - `agent health` — smallest agent command
 
     One of these ports landing with §7 template will let the `each_subcommand_help_follows_template` test in `cli-contract.rs` come off `#[ignore]` for that command, and serve as the reference for all subsequent ports.
-
-    Source: `add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions` results — "Next moves this suggests" item 2.
