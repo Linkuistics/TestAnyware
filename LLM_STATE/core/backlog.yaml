@@ -51,7 +51,7 @@ tasks:
 - id: add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions
   title: Add cli-contract.rs skeleton in Rust workspace for per-subcommand contract assertions
   category: chore
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Add tests/cli-contract.rs skeleton in the Rust workspace
@@ -75,6 +75,47 @@ tasks:
     **Notes**
     - Promoted from `audit-current-cli-and-define-rust-cli-design-contract` results — "What this suggests next" item 3.
     - The test does not need a live VM; it drives the CLI binary with `--help` only, so it runs in bare CI.
+  results: |
+    ## Outcome
+
+    Skeleton committed at `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`. Behaves as designed:
+
+    - `cargo test` (default): **3 active tests pass, 13 ignored.** CI stays green.
+      - `binary_exists_and_top_level_help_succeeds`
+      - `version_flag_succeeds`
+      - `each_present_subcommand_help_succeeds` (dynamic — parses clap `--help` so it tracks the binary's actual surface as ports land)
+    - `cargo test -- --ignored`: **all 13 ignored tests panic at `todo!()`,** each with a comment naming the exact contract section (§1, §3.1, §3.3, §3.4+§4+§5, §6.1, §7, §8.1/2/3, §9.3/4) and the port task that will fill it in. This makes the file a **machine-readable port-task checklist**, not just a stub.
+    - `cargo test` (full workspace): no regressions — 64 active tests pass across all crates; 13 ignored come exclusively from the new file.
+
+    ## What was done
+
+    - Located `cli-rs/` to confirm the Rust workspace already exists with a stub binary and the `testanyware-protocol` / `testanyware-agent-client` crates. Confirmed that `cli-contract.rs` is the gate file the contract document explicitly references in §11 — i.e. this task is the bootstrap the contract was already pointing at.
+    - File location chosen as `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` (per-crate integration test under the binary), matching the existing pattern of `cli-rs/crates/testanyware-protocol/tests/fixtures.rs`. The kebab-case file name preserves the contract doc's `tests/cli-contract.rs` reference verbatim — no doc amendment required.
+    - Encoded the §1 noun-first canonical surface in a single `CANONICAL_COMMANDS` table (39 entries) plus `VERB_FIRST_ALIASES` and `SYNONYM_ALIASES` tables. Each row carries `mutating` / `data_producing` / `schema_id` so port tasks reuse one surface description for all the §3 / §6 / §9 checks.
+    - Wrote `schema_path()` / `schema_file_exists()` helpers that resolve the repo-relative `docs/reference/cli-schemas/` directory from `CARGO_MANIFEST_DIR` — same pattern the protocol crate uses for fixtures.
+    - No new dependencies. Used `std::process::Command` with `env!("CARGO_BIN_EXE_testanyware")` (Cargo-injected); rejected `assert_cmd` per the rust-style "avoid unnecessary dependencies" rule.
+
+    ## What worked
+
+    - The `#[ignore = "<contract section>"]` + `todo!("<filled in by which task>")` pattern hits the brief. Default test runs are silent; opting into `--ignored` produces a self-explaining port-task checklist. Each panic message points at both the contract clause and the responsible upstream port.
+    - Active tests are useful even before any command is ported — `each_present_subcommand_help_succeeds` already runs every existing top-level subcommand's `--help` (parsed dynamically from clap's output), so any port task that breaks clap wiring will fail this test immediately.
+
+    ## What didn't / open
+
+    - `each_present_subcommand_help_succeeds` parses clap's default `Commands:` block. If a port task customises the help layout enough to remove that header, the parser silently returns an empty list (we assert non-empty so it fails loudly, but the failure mode is "fix the parser" not "fix the help"). Acceptable for a skeleton; revisit if customisation lands.
+    - The current Rust binary's surface still mirrors the **Swift CLI** (verb-first `screenshot`, `exec`, `upload`, etc., plus noun-first `vm`/`agent`/`input`). The skeleton's `every_canonical_command_is_present` test encodes the **target** noun-first surface from §1 and is therefore `#[ignore]`d until the surface migration to noun-first happens. No port task today is forced to do that migration.
+    - Acceptance #1 in the original task description ("`--help` output contains at least 2 example lines") is encoded in the ignored `each_subcommand_help_follows_template` test rather than the active suite, because no current command's help carries `EXAMPLES:`. Activating this would fail every command — that's the per-command port task's job to fix incrementally.
+
+    ## Next moves this suggests
+
+    - **Schema scaffold task (small, standalone).** Create stub JSON files at `docs/reference/cli-schemas/<schema-id>.json` for every distinct `schema_id` in `CANONICAL_COMMANDS` (each containing only `{"schema_version": "1.0", "$comment": "TODO"}`). That unblocks `every_schema_id_has_a_schema_file` (§3.3 explicitly permits stubs). Could be a new chore in the backlog.
+    - **First "real" command port should adopt the §7 help template** (`USAGE` / `OUTPUT` / `EXIT CODES` / `EXAMPLES` ≥ 2 / `SEE ALSO`) so subsequent ports have a concrete in-tree reference. Likely candidates: `screen size` (smallest data-producing command) or `agent health` (smallest agent command). Either would let one of the §7 / §3.1 ignored tests come off `#[ignore]` first.
+    - **Activate the contract gate in CI.** Once a few commands port, add `cargo test -- --ignored` as a separate (non-blocking, reportable) CI step. The `todo!()` panics become a visible "what's still missing" board on every PR. Could be folded into the `Add Ubuntu CI matrix entry for cargo build/test` chore.
+    - **Surface migration to noun-first (§1)** is a self-contained refactor that would let `every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`, and `each_canonical_command_help_succeeds` come off `#[ignore]` together. Plausible single-task scope.
+
+    ## Files touched
+
+    - `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` — new, 311 lines.
 - id: port-agent-only-cli-commands-exec-upload-download-agent-to-rust
   title: Port agent-only CLI commands (exec, upload, download, agent *) to Rust
   category: feature
@@ -642,3 +683,27 @@ tasks:
 
     **Notes**
     - The Swift CLI may still be useful for one or two months post-cutover if the Rust version has any quality issues — keep the pre-cutover commit tagged for easy revert.
+- id: scaffold-stub-json-files-in-docs-reference-cli-schemas-for-each-schema-id-in-canonical-commands
+  title: Scaffold stub JSON files in docs/reference/cli-schemas/ for each schema_id in CANONICAL_COMMANDS
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Scaffold stub JSON files in docs/reference/cli-schemas/ for each schema_id in CANONICAL_COMMANDS
+
+    **Background:** `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` encodes a `CANONICAL_COMMANDS` table with 39 entries, each carrying a `schema_id` field. The test `every_schema_id_has_a_schema_file` (§3.3) checks that `docs/reference/cli-schemas/<schema-id>.json` exists and is valid JSON. This test is currently `#[ignore]`d because no schema files exist. The contract document (§3.3) explicitly permits stubs.
+
+    **Work to do:**
+    - Extract the distinct `schema_id` values from `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` (the `CANONICAL_COMMANDS` table). Each unique `schema_id` needs one file.
+    - Create `docs/reference/cli-schemas/<schema-id>.json` for each with content `{"schema_version": "1.0", "$comment": "TODO"}`.
+    - Remove `#[ignore]` from the `every_schema_id_has_a_schema_file` test and verify `cargo test --test cli-contract` passes.
+
+    **Acceptance criteria:**
+    - `cargo test --test cli-contract every_schema_id_has_a_schema_file` passes without `#[ignore]`.
+    - All stub files are valid JSON (parse-only validation is the gate).
+    - No other previously-passing tests regress.
+
+    **Notes:**
+    - Small standalone chore; no VM required and no Rust changes beyond removing one `#[ignore]`.
+    - Extracted from `add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions` results — "Next moves this suggests" item 1.
+    - Reference: `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` CANONICAL_COMMANDS table and `schema_path()` helper.

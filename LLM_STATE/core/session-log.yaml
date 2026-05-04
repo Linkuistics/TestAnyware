@@ -497,3 +497,20 @@ sessions:
     - What didn't work: Nothing — the changes are mechanical and straightforward.
     - What this suggests next: The Windows agent likely has the same class of prose error strings and should undergo the same realignment. A test task should add contract-compliance checks to catch future regressions before they reach the contract boundary.
     - Key learnings: The pattern `{"error": "code", "details": "..."}` cleanly separates the machine-matchable error code from optional diagnostic context. The live AT-SPI2 re-location failure case in `handle_action` and `handle_set_value` was previously returning a confusing "element not found" message without any context; it now returns `not_found` with a `details` string explaining the snapshot-vs-live discrepancy, making it actionable for the caller.
+- id: session-24
+  timestamp: 2026-05-04T01:09:56Z
+  phase: work
+  body: |
+    ### Session 24 (2026-05-04T01:09:56Z) — Add cli-contract.rs integration test skeleton
+
+    - Implemented `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` (311 lines) — a per-subcommand contract assertion test file keyed to §1–§11 of the CLI design contract document.
+    - Three active tests pass immediately (`binary_exists_and_top_level_help_succeeds`, `version_flag_succeeds`, `each_present_subcommand_help_succeeds`); 13 tests are `#[ignore]`d with `todo!()` panics that each name the contract clause and port task responsible.
+    - Full workspace test run reports 64 active tests pass (no regressions), 13 ignored — all from the new file.
+
+    - The `#[ignore = "§N"] + todo!("filled in by <task>")` pattern produces a machine-readable port-task checklist: `cargo test -- --ignored` surfaces exactly what's missing per contract section, without blocking CI.
+    - `CANONICAL_COMMANDS` table (39 entries) encodes the noun-first target surface with `mutating`/`data_producing`/`schema_id` fields reusable by all the §3/§6/§9 gate tests; two alias tables for verb-first and synonym aliases also encoded.
+    - `schema_path()`/`schema_file_exists()` helpers use `CARGO_MANIFEST_DIR` to resolve `docs/reference/cli-schemas/` — same pattern as the protocol crate's fixture tests.
+    - No new crate dependencies; used `std::process::Command` + `env!("CARGO_BIN_EXE_testanyware")`.
+
+    - Next logical step: scaffold stub JSON schema files at `docs/reference/cli-schemas/<schema-id>.json` (one per distinct `schema_id` in the table) so the `every_schema_id_has_a_schema_file` test can come off `#[ignore]`.
+    - The `each_present_subcommand_help_succeeds` active test already exercises every existing clap subcommand's `--help` dynamically, so any port that breaks wiring fails immediately even before the ignored tests are unblocked.
