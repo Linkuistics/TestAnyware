@@ -514,9 +514,9 @@ entries:
   body: |
     If pytest discovers `agents/linux/` and imports `accessibility.py` at collection time, it will fail on CI without apt-installed `python3-gi`/`pyatspi`. Mitigation: exclude `accessibility.py` from pytest collection in `pyproject.toml`, or install `python3-gi` in the `python-linux-agent` CI job. Not yet confirmed — first CI run will reveal whether collection triggers the import.
 - id: invalid-json-gap-in-4-5-cli-design-contract
-  title: invalid_json gap in §4.5 CLI design contract
+  title: invalid_json is canonical §4.5 token; allowlist is empty
   body: |
-    The Linux agent's `server.py` emits `"error": "Invalid JSON in request body"` — a free-form string, not a canonical snake_case token. The `KNOWN_NON_CANONICAL_EXCEPTIONS` allowlist in `agents/linux/tests/test_error_tokens.py` captures this gap. Decision pending: add `invalid_json` to §4.5 and update `server.py`, or leave as-is. If added, the `implement-cli-side-agent-error-code-mapper` task must handle `invalid_json → AGENT_INVALID_JSON`; otherwise `AGENT_ERROR_UNKNOWN` fires for this path.
+    `invalid_json` is a canonical §4.5 wire token. The Linux agent emits it with a `details` field carrying the JSONDecodeError string. The Rust CLI maps `invalid_json → AGENT_INVALID_JSON`. `KNOWN_NON_CANONICAL_EXCEPTIONS` in `agents/linux/tests/test_error_tokens.py` is empty.
 - id: extend-error-token-tests-to-macos-and-windows-agents
   title: Extend error-token tests to macOS and Windows agents
   body: |
@@ -583,3 +583,11 @@ entries:
     However, any future tooling (scripts, diagnostics, external observers) that reads the status file
     must use the new Rust path when invoked via the Rust CLI. If the Swift CLI is removed after the Rust
     port reaches parity, the old path becomes dead. Do not rely on both paths pointing to the same file.
+- id: video-codec-strategy-h-264-os-native-av1-permissive
+  title: 'video codec strategy: H.264 OS-native, AV1 permissive'
+  body: |
+    Two-tier codec strategy documented in `docs/architecture/video-codec-licensing.md`. Tier-1: hardware-accelerated H.264 via OS/platform encoders (no GPL exposure). Tier-2: software AV1 via rav1e/libaom (permissively licensed). libx264 and libx265 are explicitly excluded to preserve permissive binary licensing.
+- id: testanyware-rfb-crate-scaffolded-handshake-not-yet-implemented
+  title: testanyware-rfb crate scaffolded; handshake not yet implemented
+  body: |
+    `cli-rs/crates/testanyware-rfb/` is wired into the workspace. `resolve.rs` has `resolve_vnc` chain (spec path, `--vm` lookup, direct `--vnc` endpoint, `TESTANYWARE_VNC_PASSWORD` env var). `commands/screen.rs` dispatches `screen capture` and `screen size` as non-stub paths. Blocked: RFB handshake and pixel reading in `testanyware-rfb` are not yet implemented.
