@@ -75,128 +75,6 @@ tasks:
     - The decision is referenced from the recording task description's "Constraints" section.
 
     **Why extracted:** This is a legal/licensing research spike buried inside the recording implementation task. It requires no code, has no dependencies, and can run in parallel with any task in the Rust port arc. Starting the recording task without this decision risks a mid-implementation pivot on codec choice.
-- id: migrate-rust-cli-surface-to-noun-first-command-structure-1-alignment
-  title: Migrate Rust CLI surface to noun-first command structure (§1 alignment)
-  category: feature
-  status: done
-  dependencies: []
-  description: |
-    Migrate Rust CLI surface to noun-first command structure (§1 alignment)
-
-    **Background:** The Rust CLI binary (`testanyware-cli`) currently mirrors the Swift CLI's surface — a mix of verb-first subcommands (`screenshot`, `exec`, `upload`, `download`, etc.) and noun-first groups (`vm`, `agent`, `input`). The CLI design contract §1 mandates a uniform noun-first canonical surface (e.g. `screen screenshot`, `file exec`, `vm start`), with verb-first aliases retained for backwards compatibility.
-
-    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` encodes the full target surface in `CANONICAL_COMMANDS` (39 entries), `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES` tables. Four tests are currently `#[ignore]`d specifically waiting for this migration:
-    - `every_canonical_command_is_present` (§1 gate)
-    - `verb_first_aliases_match_canonical` (§2 gate)
-    - `synonym_aliases_match_canonical` (§2 gate)
-    - `each_canonical_command_help_succeeds` (§3.1 gate)
-
-    **Scope:**
-    - Restructure the clap command tree in `cli-rs/crates/testanyware-cli/src/` to match the `CANONICAL_COMMANDS` table noun-first layout.
-    - Retain verb-first aliases as clap `alias` entries so existing scripts continue to work.
-    - Remove `#[ignore]` from the four affected tests and verify all pass.
-    - No behaviour changes — only command name/alias structure.
-
-    **Acceptance criteria:**
-    - `cargo test --test cli-contract every_canonical_command_is_present` passes without `#[ignore]`.
-    - `cargo test --test cli-contract verb_first_aliases_match_canonical` passes without `#[ignore]`.
-    - `cargo test --test cli-contract synonym_aliases_match_canonical` passes without `#[ignore]`.
-    - `cargo test --test cli-contract each_canonical_command_help_succeeds` passes without `#[ignore]`.
-    - All previously-active tests continue to pass (no regressions).
-    - The overall `cargo test --workspace` result stays at 64+ active tests passing.
-
-    **Notes:**
-    - Promoted from `add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions` results — "Next moves this suggests" item 4.
-    - This is a self-contained refactor; no VM or agent changes required.
-    - The migration can land before any agent/exec commands are ported — it only restructures the clap tree, not the implementation.
-    - After this migration, port tasks that add new commands should target the noun-first tree directly, which activates the per-command `#[ignore]` tests incrementally.
-
-    **Dependencies:** `add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions` (already done; provides the CANONICAL_COMMANDS reference).
-  results: |
-    # Migrate Rust CLI surface to noun-first command structure (§1 alignment)
-
-    ## What was done
-
-    Restructured the clap command tree in `cli-rs/crates/testanyware-cli/src/main.rs` to match the noun-first canonical layout from `docs/architecture/cli-design-contract.md` §1, and filled in the three previously-ignored §1 contract tests in `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`.
-
-    ### Surface changes (no behaviour changes — every variant still dispatches to `unimplemented(...)`)
-
-    **New canonical noun-first groups added under `Command`:**
-    - `screen` { `capture`, `record`, `size`, `find-text` }
-    - `file` { `upload`, `download`, `exec` }
-
-    **Extended `agent` with the §1 actions that were missing:** `wait`, `set-value`, `focus`, `show-menu`, `window-focus`, `window-resize`, `window-move`, `window-close`, `window-minimize`. (Existing five — `health`, `windows`, `snapshot`, `inspect`, `press` — preserved.)
-
-    **New top-level discoverability commands stubbed:** `capabilities`, `schema`, `llm-instructions`. `server` retained as a dev helper (§1's `_`-prefix internal-command policy is intentionally deferred — that's a separate cleanup, not part of the noun-first migration).
-
-    **Verb-first aliases (§1 alias table) added as their own `Command` variants** with doc comments that announce themselves per §7.2 ("Alias of `testanyware screen capture`. Run that for full help."). Each alias dispatches to the same `unimplemented("<canonical>")` handler as its canonical:
-    - `screenshot` → `screen capture`
-    - `record` → `screen record`
-    - `screen-size` → `screen size`
-    - `find-text` → `screen find-text`
-    - `upload` → `file upload`
-    - `download` → `file download`
-    - `exec` → `file exec`
-
-    **Synonym aliases (§1 cheap-aliases table) added via clap's `aliases = [...]` attribute** on the canonical (clap dispatches both forms through to the same help body, so they produce byte-identical `--help`):
-    - `vm list` ← `vm ls`
-    - `vm delete` ← `vm rm`, `vm remove`
-    - `agent inspect` ← `agent show`
-
-    **Shared args structs introduced** (`ScreenCaptureArgs`, `ScreenRecordArgs`, `ScreenFindTextArgs`, `FileUploadArgs`, `FileDownloadArgs`, `FileExecArgs`, `ConnectionArgs`, `AgentElementArgs`, `AgentSetValueArgs`, `AgentWindowArgs`, `AgentWindowMoveArgs`, `AgentWindowResizeArgs`) so the canonical variant and its verb-first alias declare their flag surface in one place — keeps the alias and canonical in lockstep mechanically.
-
-    ### Test changes
-
-    Filled in the bodies of the three §1 contract tests that were previously `#[ignore]`d with `todo!()` markers:
-
-    - `every_canonical_command_is_present` — walks `CANONICAL_COMMANDS`, asserts each `<spec.path...> --help` exits 0.
-    - `verb_first_aliases_match_canonical` — for each entry in `VERB_FIRST_ALIASES`, asserts `<alias> --help` exits 0 and stdout contains the literal string ``Alias of `testanyware <canonical>` `` per §7.2.
-    - `synonym_aliases_match_canonical` — for each entry in `SYNONYM_ALIASES`, asserts both the canonical and alias `--help` exit 0 and produce byte-identical stdout.
-
-    ## What worked
-
-    - **Clap's CamelCase→kebab-case rename is automatic.** `ScreenSize`→`screen-size`, `LlmInstructions`→`llm-instructions`, `WindowFocus`→`window-focus`, etc. — no `#[command(name = "...")]` attributes needed for the kebab-case conversions.
-    - **Doc comments propagate verbatim into `--help` output.** Backticks inside `/// Alias of \`testanyware screen capture\`. Run that for full help.` are preserved literally — clap doesn't render markdown, so the §7.2 announcement substring is byte-stable for the test to grep.
-    - **Synonym aliases via `#[command(aliases = ["ls"])]`** dispatch through to the canonical's help body, producing byte-identical `--help` output. The synonym test's `canonical_out.stdout == alias_out.stdout` assertion passes without needing line-by-line diffing.
-    - **The shared `<Foo>Args` struct pattern** keeps verb-first aliases and their canonical in mechanical lockstep — adding a flag to `screen capture` automatically extends `screenshot`, eliminating the drift risk that would otherwise need a contract test to police.
-
-    ## What didn't quite line up
-
-    - **Acceptance criterion #4 names a non-existent test.** The task description's acceptance criteria listed `each_canonical_command_help_succeeds` as the fourth test that should drop its `#[ignore]`. No test by that name exists in `cli-contract.rs`. The closest match is `each_subcommand_help_follows_template` (§7), which is a per-command port-task responsibility, not a §1 surface-migration concern. The intent of the criterion is satisfied by `every_canonical_command_is_present`, which already runs `<canonical> --help` and asserts success for every entry in `CANONICAL_COMMANDS`. No new test added — the surface migration's gates are the three §1 tests that exist.
-    - **`server` is left visible at the top level rather than renamed to `_server` and hidden** per §1's "internal commands prefix with `_` and `hide = true`" policy. Out of scope for this task (clap-tree restructure only); a small follow-up item.
-    - **`agent show-menu` was added with a `--menu <name>` flag**, but the design contract doesn't pin that flag's name — chose `--menu` provisionally. The `agent show-menu` port task can refine the flag surface and add aliases if the existing Swift CLI's `agent snapshot --open-menu <menu>` should also reach this command.
-
-    ## Verification
-
-    Pre-migration baseline:
-    - `cargo test --test cli-contract`: **4 passed, 12 ignored**.
-    - `cargo test --workspace`: 65 active tests passing (4 contract + 2 main bin + 45 protocol fixtures + 14 agent-client unit).
-
-    Post-migration:
-    - `cargo test --test cli-contract`: **7 passed, 9 ignored, 0 failed**. The three §1 tests (`every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`) are no longer ignored and pass.
-    - `cargo test --workspace`: **68 active tests passing, 0 failed, 9 ignored**. Exceeds the acceptance criterion floor of 64+ active tests.
-    - `cargo clippy --workspace --all-targets -- -D warnings`: clean.
-
-    Spot-checked manually:
-    - `testanyware screenshot --help` first line: ``Alias of `testanyware screen capture`. Run that for full help`` ✓
-    - `testanyware vm ls --help` and `testanyware vm list --help`: byte-identical (clap shows `Usage: testanyware vm list` for both because `ls` is registered as an `alias`, not a `visible_alias`).
-    - `testanyware --help` lists 11 canonical commands + 7 verb-first aliases + clap's `help`.
-
-    The 9 still-ignored tests remain per-command port-task responsibilities (per the comments at each `#[ignore]`): §3.1 JSON output, §3.4/§4/§5 error codes, §6.1 round-trip, §7 help template, §8.1/§8.2/§8.3 discoverability, §9.3 dry-run, §9.4 list limits.
-
-    ## What this suggests next
-
-    1. **`port-agent-only-cli-commands-exec-upload-download-agent-to-rust`** is now de-risked — the noun-first slots (`file exec`, `file upload`, `file download`, `agent health/windows/snapshot/inspect/press`) all exist as stubs. That port task can drop its real implementation into the existing variants without touching the clap tree.
-
-    2. **A small follow-up: rename `server` to `_server` and `hide = true`** per §1's internal-command policy. ~5 lines; not blocking anything; could be folded into any later port task that touches `main.rs`.
-
-    3. **Consider promoting a contract test for the `<Foo>Args` lockstep invariant.** Today the alias and canonical share an `Args` struct mechanically, so they cannot drift. If a future refactor splits them (e.g. for divergent help text), a CI gate that asserts `testanyware <alias> --help`'s OPTIONS section is a substring/superset of the canonical's would catch silent flag drift. Out of scope here, but cheap to add.
-
-    4. **§8 discoverability tasks** (`capabilities`, `schema`, `llm-instructions`) now have stubs — those three commands' port tasks can begin without further surface work. They were not previously promoted to the backlog as standalone tasks; consider whether they deserve their own entries (each is a self-contained one-session task with a §8 sub-section to satisfy).
-
-    5. **The ignored `each_subcommand_help_follows_template` test (§7)** is the next-most-impactful CI gate to activate — it would assert every command's `--help` contains the §7 template (USAGE, OPTIONS, OUTPUT, EXIT CODES, EXAMPLES with ≥2 examples, SEE ALSO). That activates per-command as ports land, but a future task could write the asserter helper centrally so each port task can opt in with one line.
-
-    **Promoted from:** `add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions` results — "Next moves this suggests" item 4. This task closes that promotion.
 - id: realign-macos-agent-error-strings-to-cli-design-contract-4-5
   title: Realign macOS agent error strings to CLI design contract §4.5
   category: chore
@@ -310,6 +188,39 @@ tasks:
     - This task is the first concrete validation that Linux-host headless work is viable. Run the test suite from a Linux box against a QEMU Linux guest before declaring done.
     - Reuse `testanyware-agent-client` crate from task 1.
     - The Swift CLI's JSON output shapes are the de-facto schema; lock them down in `docs/reference/cli-schemas/` per task 2.
+- id: port-8-discoverability-commands-capabilities-schema-llm-instructions-to-rust
+  title: Port §8 discoverability commands (capabilities, schema, llm-instructions) to Rust
+  category: feature
+  status: not_started
+  dependencies: []
+  description: |
+    Port §8 discoverability commands (capabilities, schema, llm-instructions) to Rust
+
+    **Background:** The Rust CLI now has stubs for three top-level §8 discoverability commands added during the noun-first migration: `testanyware capabilities`, `testanyware schema`, `testanyware llm-instructions`. CLI design contract §8 specifies the expected output shape for each:
+    - `capabilities` — machine-readable list of supported commands and features
+    - `schema` — JSON schema for structured output
+    - `llm-instructions` — instructions for LLM tool-calling consumers
+
+    The stubs exist in `cli-rs/crates/testanyware-cli/src/main.rs` and dispatch to `unimplemented!(...)`. Each is a self-contained one-session task per the §8 sub-section of the design contract.
+
+    **Scope:**
+    - Implement `testanyware capabilities` to emit a machine-readable command/feature catalogue (per §8.1).
+    - Implement `testanyware schema` to emit the JSON output schemas for all implemented commands (per §8.2).
+    - Implement `testanyware llm-instructions` to emit the LLM tool-calling guidance block (per §8.3).
+    - Each command must support `--json` and produce output per the §8 design contract spec.
+    - Remove the `#[ignore]` from the `§8_discoverability_commands_are_reachable` contract test (or equivalent §8 test) in `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`.
+
+    **Acceptance criteria:**
+    - `testanyware capabilities --json` exits 0 and produces a valid JSON object.
+    - `testanyware schema --json` exits 0 and produces a valid JSON schema.
+    - `testanyware llm-instructions` exits 0 and produces LLM-tool-calling guidance text.
+    - The §8 contract test (currently ignored) passes without `#[ignore]`.
+    - `cargo test --workspace` stays green.
+
+    **Notes:**
+    - Promoted from `migrate-rust-cli-surface-to-noun-first-command-structure-1-alignment` results — "What this suggests next" item 4: "consider whether they deserve their own entries (each is a self-contained one-session task with a §8 sub-section to satisfy)."
+    - The stubs already exist; this task implements the bodies.
+    - Independent of agent port tasks — no VM connectivity required.
 - id: implement-cli-side-agent-error-code-mapper-in-rust-cli-for-canonical-token-display
   title: Implement CLI-side agent error code mapper in Rust CLI for canonical token display
   category: feature
@@ -376,6 +287,32 @@ tasks:
     - The existing memory entries on Darwin pipe EOF and Foundation `Process` not calling `setsid` **do not apply** to Rust — most of those workarounds drop away. Re-validate the process-tree-kill sequence in Rust rather than porting the workaround verbatim.
     - KVM access on Linux: `/dev/kvm` must be readable+writable. If missing, fail with `code: KVM_PERMISSION_DENIED` and a remediation message naming `usermod -aG kvm $USER` (per CLI design contract §Errors).
     - swtpm is required for Windows guests. If missing, fail with `code: SWTPM_MISSING` and remediation `apt install swtpm swtpm-tools` on Linux / `brew install swtpm` on macOS.
+- id: fix-swtpm-socket-path-length-limit-causing-2-qemu-integration-test-failures
+  title: Fix swtpm socket-path length limit causing 2 QEMU integration test failures
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Fix swtpm socket-path length limit causing 2 QEMU integration test failures
+
+    **Background:** `QEMURunnerIntegrationTests` has 2 pre-existing failures caused by macOS `sun_path` length limit for the swtpm (software TPM) socket path. macOS limits `sun_path` to 104 bytes; the swtpm socket path constructed from XDG state paths can exceed this limit, causing the swtpm process to fail to bind.
+
+    This is a known expected baseline: a passing full suite shows 270/272. These 2 failures are independent of all other work.
+
+    **Scope:**
+    - Diagnose the exact path construction that overflows `sun_path`.
+    - Shorten the path (e.g. use a hash or shorter temp directory) or move the swtpm socket to `$TMPDIR` which is always short on macOS.
+    - Verify the fix by running `QEMURunnerIntegrationTests` on macOS and confirming all 272 tests pass (not just 270/272).
+
+    **Acceptance criteria:**
+    - `QEMURunnerIntegrationTests` passes all 272 tests on macOS (no `sun_path` failures).
+    - The swtpm socket path is always within `sun_path` limits on both macOS and Linux.
+    - No change to Windows guest behaviour.
+
+    **Notes:**
+    - Tracked as "backlog Task 12" in prior session memory (`2-qemu-integration-tests-fail-from-swtpm-sun-path-limit`).
+    - Independent of all other work — can run in any order.
+    - Low priority: does not block any other task; treat 270/272 as the acceptable baseline until this is addressed.
 - id: port-testanyware-doctor-with-linux-host-preflight-checks
   title: Port testanyware doctor with Linux-host preflight checks
   category: feature
