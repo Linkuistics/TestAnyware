@@ -380,7 +380,7 @@ entries:
 
     Script sources: brew-bundled scripts under `$(brew --prefix testanyware)/share/testanyware/scripts/`, plus source-tree `scripts/release-build.sh` when running from a dev source tree (see `ProvisionerScriptsVersionCheck scans source-tree release-build.sh`).
 
-    `scripts/release-build.sh` declares sentinels for swift (≥6.0) and dotnet (≥9.0). Host probing returns `hostVersionUnknown` for both — `parseVersion` greedy-matches the first dotted token and returns the wrong version for swift (see `parseVersion greedy-matches first dotted token`).
+    `scripts/release-build.sh` declares sentinels for swift (≥6.0) and dotnet (≥9.0). Both produce `ok`/`belowFloor` verdicts via `ProbeCustomization` entries in the check (see `ProvisionerScriptsVersionCheck ProbeCustomization handles sentinel-only tools`).
 - id: brewprefixresolver-is-canonical-brew-prefix-resolver-for-diagnostics
   title: BrewPrefixResolver is canonical brew-prefix resolver for diagnostics
   body: |
@@ -472,7 +472,7 @@ entries:
 - id: parseversion-greedy-matches-first-dotted-token
   title: parseVersion greedy-matches first dotted token
   body: |
-    `parseVersion` in `ToolAvailabilityCheck` returns the first dotted-numeric token from `--version` output. `swift --version` starts with `swift-driver version: 1.95 Apple Swift version 6.1.2 ...`; `parseVersion` returns `1.95`, which falls below the ≥6.0 sentinel floor. A per-tool parser hook (custom command + custom parser) is needed before swift/dotnet sentinel floors can produce `ok`/`belowFloor` verdicts.
+    `parseVersion` in `ToolAvailabilityCheck` returns the first dotted-numeric token from `--version` output. Latent hazard: any future tool added to `ToolAvailabilityCheck.knownTools` whose `--version` output leads with a non-version prefix will parse incorrectly. Currently only tart and qemu-system-aarch64 are in `knownTools`; both output version as the first token. `ProvisionerScriptsVersionCheck` uses its own `ProbeCustomization` mechanism for sentinel-declared tools not in `knownTools` — see `ProvisionerScriptsVersionCheck ProbeCustomization handles sentinel-only tools`.
 - id: macos-tmp-symlink-requires-resolvingsymlinksinpath-in-tests
   title: macOS /tmp symlink requires resolvingSymlinksInPath in tests
   body: |
@@ -492,20 +492,16 @@ entries:
 
     **How to apply:** When revisiting `scripts/release-doctor.sh`, consider adding a sentinel-validation pass that sources release-build.sh sentinel lines and compares against installed tool versions. This is a shell-script-only change; no Swift/Rust required. Not yet concrete enough for a standalone backlog task — needs a decision on failure mode (hard-fail vs. advisory) and how to extract sentinels in bash.
 - id: more-release-tool-sentinels-follow-on-gh-xz-after-per-tool-probe-lands
-  title: More release-tool sentinels follow-on (gh, xz) after per-tool probe lands
+  title: 'More release-tool sentinels follow-on: gh, xz'
   body: |
-    ---
-    name: more-release-tool-sentinels-follow-on
-    description: Follow-on work after per-tool version probe is in place — add sentinels for gh, xz, and other release-pipeline tools
-    type: project
-    ---
+    `ProbeCustomization` mechanism in `ProvisionerScriptsVersionCheck` is in place for sentinel-declared tools with non-standard `--version` output. Next: add `# testanyware-min-tool:` sentinel lines for `gh` (used by `release-publish.sh`) and `xz` (used by `release-build.sh`). Both need a minimum version floor determined before sentinel lines can be added.
 
-    Once `add-per-tool-version-probe-customisation-to-provisionerscriptsversioncheck` is done (giving per-tool custom parsers for tools whose `--version` output isn't first-token-parseable), the next step is to add more `# testanyware-min-tool:` sentinels to `scripts/release-build.sh` and potentially `scripts/release-publish.sh`.
-
-    Candidates identified in session 27:
-    - `gh` (used by `release-publish.sh` for GitHub release creation) — needs a minimum version floor documented
-    - `xz` (used for tar packaging in release-build.sh) — needs a minimum version floor documented
-
-    **Why:** Currently only `swift` and `dotnet` have declared floors. Other release-pipeline tools have no automated version-coherence coverage, meaning below-floor installs fail silently at release time rather than being caught by `testanyware doctor` on a dev machine.
-
-    **How to apply:** After the per-tool probe task lands and produces `ok`/`belowFloor` verdicts for swift/dotnet, add a follow-on task to add sentinels for `gh` and `xz` (and any other release tools whose minimum versions can be confidently determined from usage in the scripts).
+    Tools with standard first-token `--version` output need no `ProbeCustomization` entry — `parseVersion` handles them.
+- id: swift-version-driver-line-goes-to-stderr
+  title: swift --version driver line goes to stderr
+  body: |
+    `swift --version` sends `swift-driver version: X.Y` to stderr; stdout starts with `Apple Swift version X.Y.Z ...`. `ProvisionerScriptsVersionCheck.parseSwiftVersion` uses an anchored `Apple Swift version` match — correct for current behavior and defensive if the driver line ever moves to stdout.
+- id: provisionerscriptsversioncheck-probecustomization-handles-sentinel-only-tools
+  title: ProvisionerScriptsVersionCheck ProbeCustomization handles sentinel-only tools
+  body: |
+    Sentinel-declared tools absent from `ToolAvailabilityCheck.knownTools` (currently swift, dotnet) are probed via `probeCustomizations` static table in `ProvisionerScriptsVersionCheck`. Each `ProbeCustomization` supplies a custom command and custom parser. `collectHostVersions(forFloors:)` routes unknown tools through `resolveExtraHostVersion(forTool:)` instead of producing `hostVersionUnknown`. `testanyware doctor` reports `ok`/`belowFloor` for swift and dotnet. See `parseVersion greedy-matches first dotted token` for the `ToolAvailabilityCheck` hazard this bypasses.
