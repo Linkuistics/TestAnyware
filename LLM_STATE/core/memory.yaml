@@ -442,7 +442,7 @@ entries:
 - id: canonical-commands-table-encodes-39-noun-first-commands
   title: CANONICAL_COMMANDS table encodes 39 noun-first commands
   body: |
-    `CANONICAL_COMMANDS` (39 entries) in `cli-contract.rs` encodes the noun-first target surface with `mutating`, `data_producing`, and `schema_id` fields. Two alias tables cover verb-first and synonym aliases. Reusable by all §3, §6, and §9 gate tests in the contract file. See `cli-design-contract-is-at-docs-architecture-cli-design-contract-md`.
+    `CANONICAL_COMMANDS` (39 entries) lives in `surface.rs`. `cli-contract.rs` imports it (plus `VERB_FIRST_ALIASES`, `SYNONYM_ALIASES`, `CommandSpec`) from `testanyware_cli::surface`; no local table copy exists. Adding a command to `surface.rs` automatically updates contract test expectations. Serves §3, §6, and §9 gate tests. See `cli-design-contract-is-at-docs-architecture-cli-design-contract-md`.
 - id: docs-reference-cli-schemas-stubs-needed-to-unblock-contract-test
   title: every_schema_id_has_a_schema_file is enabled; schema stubs need real content
   body: |
