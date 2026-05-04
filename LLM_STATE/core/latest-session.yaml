@@ -1,25 +1,11 @@
-id: session-29
-timestamp: 2026-05-04T03:32:18Z
+id: session-30
+timestamp: 2026-05-04T04:51:02Z
 phase: work
 body: |
-  ### Session 29 (2026-05-04T03:32:18Z) — Implement §8 discoverability commands in Rust CLI
+  ### Session 30 (2026-05-04T04:51:02Z) — Consolidate cli-contract.rs tables into surface module
 
-  - **Attempted:** Port the three §8 discoverability commands (`capabilities`, `schema`, `llm-instructions`) from the Python/Swift CLI to the Rust port, satisfying contract §8.1–§8.3.
-  - **What worked:**
-    - Added `lib.rs` to convert the `[[bin]]`-only crate to also expose a library target (no `[lib]` block needed in `Cargo.toml`); this lets `discoverability.rs` and `surface.rs` be shared between `main.rs` and the integration test.
-    - `surface.rs` now serves as the single source of truth for the canonical command list, alias tables, top-level groups, and the §4+§8.2 error-code catalogue (44 entries).
-    - `discoverability.rs` implements the three handlers: `run_capabilities()` emits a JSON envelope with `schema_version`, `ok`, `version`, `git_revision`, `subcommands`, `aliases`, `output_formats`, `features`, `platforms`, and `error_codes`; `run_schema()` does a path → schema-id lookup and `include_str!`-embeds the JSON Schema file; `run_llm_instructions()` prints the embedded `llm_instructions.md` manual.
-    - `main.rs` updated: dispatches `Capabilities`/`Schema`/`LlmInstructions` to the new handlers (replacing `unimplemented!` stubs), and adds §7-template `long_about` + `after_long_help` on all three commands — the first reference implementation of the §7 help template pattern for future port tasks.
-    - `serde_json` promoted from `dev-dependencies` to regular `dependencies` in `Cargo.toml` (the handlers construct JSON at runtime).
-    - Three §8 contract tests in `tests/cli-contract.rs` graduated from `#[ignore]` / `todo!` to full implementations: `capabilities_lists_full_surface`, `schema_command_emits_json_schema_for_each_command`, `llm_instructions_command_emits_manual`.
-    - Test count: 10 passed, 6 ignored, 0 failed (was 7 passed, 9 ignored).
-    - `cargo clippy -p testanyware-cli --all-targets -- -D warnings`: clean.
-  - **What didn't / open hazards:**
-    - `git_revision` is a stub (`"unknown"` via `option_env!`). The release pipeline still needs to populate `TESTANYWARE_GIT_REVISION` at build time — tracked under the Homebrew distribution task.
-    - `SCHEMA_NOT_FOUND` is in the Rust error catalogue but only mentioned in §8.2 prose of `docs/architecture/cli-design-contract.md`, not in §4. Small doc-only follow-up needed.
-    - `cli-contract.rs` still duplicates `CANONICAL_COMMANDS`, `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES` from `surface.rs`. Refactoring the test to consume the lib's tables is out of scope until more port tasks land.
-    - 6 contract tests remain `#[ignore]`'d, gated on per-command port tasks (real `--json` output, `--dry-run`, listing/truncation, etc.).
-  - **Suggested next:**
-    - Port `screen size` (the smallest data-producing command) — it can flip `each_subcommand_help_follows_template` and `each_data_command_supports_json` for that command, and exercise the `screen-size` schema.
-    - Add `SCHEMA_NOT_FOUND` to §4 of `cli-design-contract.md` for completeness.
-    - Once 2–3 more commands land, refactor `cli-contract.rs` to consume `testanyware_cli::surface` tables.
+  - Attempted refactoring `cli-contract.rs` to import `CANONICAL_COMMANDS`, `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES` from `testanyware_cli::surface` instead of maintaining a local duplicate.
+  - Removed the local `CommandSpec` struct and the three local table copies (~91 lines), replaced with a single `use testanyware_cli::surface::{...}` statement.
+  - `cargo test --workspace` passed green with 10 active + 6 ignored tests; `cargo build --tests --workspace` emitted zero warnings.
+  - `lib.rs` already exposed `pub mod surface` and `CommandSpec` already had `pub` fields, so no API changes were needed and no `unused_imports` warnings triggered.
+  - The refactor achieves its goal: adding a new command to `surface.rs` now automatically updates the contract test's expectations — no parallel table to maintain.

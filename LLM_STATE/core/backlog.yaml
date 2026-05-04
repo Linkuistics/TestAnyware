@@ -644,7 +644,7 @@ tasks:
 - id: refactor-cli-contract-rs-to-consume-testanyware-cli-surface-tables
   title: Refactor cli-contract.rs to consume testanyware_cli::surface tables
   category: chore
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Refactor cli-contract.rs to consume testanyware_cli::surface tables
@@ -667,3 +667,36 @@ tasks:
     **Notes:**
     - Extracted from `port-8-discoverability-commands-capabilities-schema-llm-instructions-to-rust` results — "open hazards" section: "Refactoring the test to consume the lib's tables would eliminate the dual source of truth; out of scope for this task because it touches every ignored test."
     - Best done alongside a port task that graduates several ignored tests simultaneously.
+  results: |
+    **What landed**
+
+    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` now imports `CANONICAL_COMMANDS`, `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES` from `testanyware_cli::surface`. The local `CommandSpec` struct and the three local table copies (~91 lines) were removed and replaced with a single `use` statement plus a short comment explaining the consolidation. The three `#[allow(dead_code)]` attributes that guarded the local copies are gone with them.
+
+    **Why this works**
+
+    - `cli-rs/crates/testanyware-cli/src/lib.rs` already exposes `pub mod surface`, so integration tests in `tests/` can name `testanyware_cli::surface::*` directly. No `[dev-dependencies]` change was needed.
+    - `surface::CommandSpec` already has `pub` fields (`path`, `mutating`, `data_producing`, `schema_id`), so the active tests' field accesses (`spec.path`, `spec.schema_id`, etc.) keep working without renaming or wrapping.
+    - The three imported consts are read by **active**, non-`#[ignore]` tests (`every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`, `every_schema_id_has_a_schema_file`, `capabilities_lists_full_surface`, `schema_command_emits_json_schema_for_each_command`), so the `use` line never trips an `unused_imports` warning.
+
+    **Verification**
+
+    - `cargo test --workspace` is green.
+    - `tests/cli-contract.rs`: 16 tests — 10 passed, 0 failed, 6 ignored. Same active/ignored split as before the refactor.
+    - `cargo build --tests --workspace` emits zero warnings or errors.
+    - File size: 715 → 624 lines.
+
+    **What this suggests next**
+
+    - The acceptance criterion "adding a new command to `surface.rs` automatically updates the contract test's expectations" is now structurally guaranteed — a future port task that adds a command to `CANONICAL_COMMANDS` will see the contract checks fan out without a parallel test edit.
+    - Memory entry `cli-contract.rs-is-the-rust-cli-contract-test-skeleton` references "Eleven tests are active". The current count is **ten** active + six ignored = sixteen total. The discrepancy predates this refactor (no test was added or removed by this change) but should be reconciled when memory is next refreshed.
+    - The companion follow-up "first port task should adopt §7 help template as reference" remains untouched — when the next port task graduates an `#[ignore]` test, that test now reads from `surface.rs` for free.
+
+    **Files touched**
+
+    - `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`
+
+    **Files explicitly not touched (and why)**
+
+    - `cli-rs/crates/testanyware-cli/src/surface.rs` — already canonical; no API change required.
+    - `cli-rs/crates/testanyware-cli/src/lib.rs` — `pub mod surface` was already in place.
+    - `Cargo.toml` — integration tests inherit the crate's `[dependencies]`; no new dev-dep needed.

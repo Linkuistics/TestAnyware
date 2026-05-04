@@ -47,103 +47,13 @@ const BIN: &str = env!("CARGO_BIN_EXE_testanyware");
 // ---------------------------------------------------------------------------
 // Canonical command surface (§1)
 // ---------------------------------------------------------------------------
+//
+// The canonical surface lives in `testanyware_cli::surface` (the single
+// source of truth consumed by `main.rs` and the §8 discoverability
+// handlers). Adding a new command to `surface.rs` automatically updates
+// this test's expectations — there is no parallel table to keep in sync.
 
-/// One canonical subcommand from §1.
-///
-/// `path` is the noun-first canonical invocation (space-separated tokens).
-/// `mutating` flags whether `--dry-run` is required by §9.3.
-/// `data_producing` flags whether `--json` is required by §3.1.
-/// `schema_id` names the schema file under
-/// `docs/reference/cli-schemas/<schema-id>.json` (§3.3); `None` for
-/// non-data commands.
-#[allow(dead_code)] // fields are read by ignored tests once they are filled in
-struct CommandSpec {
-    path: &'static [&'static str],
-    mutating: bool,
-    data_producing: bool,
-    schema_id: Option<&'static str>,
-}
-
-#[allow(dead_code)] // read by ignored tests once they are filled in
-const CANONICAL_COMMANDS: &[CommandSpec] = &[
-    // vm (§1)
-    CommandSpec { path: &["vm", "start"],   mutating: true,  data_producing: true, schema_id: Some("vm-start") },
-    CommandSpec { path: &["vm", "stop"],    mutating: true,  data_producing: true, schema_id: Some("vm-stop") },
-    CommandSpec { path: &["vm", "list"],    mutating: false, data_producing: true, schema_id: Some("vm-list") },
-    CommandSpec { path: &["vm", "delete"],  mutating: true,  data_producing: true, schema_id: Some("vm-delete") },
-
-    // agent — query (§1)
-    CommandSpec { path: &["agent", "health"],   mutating: false, data_producing: true, schema_id: Some("agent-health") },
-    CommandSpec { path: &["agent", "snapshot"], mutating: false, data_producing: true, schema_id: Some("agent-snapshot") },
-    CommandSpec { path: &["agent", "inspect"],  mutating: false, data_producing: true, schema_id: Some("agent-inspect") },
-    CommandSpec { path: &["agent", "windows"],  mutating: false, data_producing: true, schema_id: Some("agent-windows") },
-    CommandSpec { path: &["agent", "wait"],     mutating: false, data_producing: true, schema_id: Some("agent-action") },
-
-    // agent — action (§1, §9.2)
-    CommandSpec { path: &["agent", "press"],     mutating: true, data_producing: true, schema_id: Some("agent-action") },
-    CommandSpec { path: &["agent", "set-value"], mutating: true, data_producing: true, schema_id: Some("agent-action") },
-    CommandSpec { path: &["agent", "focus"],     mutating: true, data_producing: true, schema_id: Some("agent-action") },
-    CommandSpec { path: &["agent", "show-menu"], mutating: true, data_producing: true, schema_id: Some("agent-action") },
-
-    // agent — window-* (§1, §9.2)
-    CommandSpec { path: &["agent", "window-focus"],    mutating: true, data_producing: true, schema_id: Some("agent-window-action") },
-    CommandSpec { path: &["agent", "window-resize"],   mutating: true, data_producing: true, schema_id: Some("agent-window-action") },
-    CommandSpec { path: &["agent", "window-move"],     mutating: true, data_producing: true, schema_id: Some("agent-window-action") },
-    CommandSpec { path: &["agent", "window-close"],    mutating: true, data_producing: true, schema_id: Some("agent-window-action") },
-    CommandSpec { path: &["agent", "window-minimize"], mutating: true, data_producing: true, schema_id: Some("agent-window-action") },
-
-    // input (§1, §9.2 — every input is mutating and not retry-safe)
-    CommandSpec { path: &["input", "key"],        mutating: true, data_producing: true, schema_id: Some("input-action") },
-    CommandSpec { path: &["input", "key-down"],   mutating: true, data_producing: true, schema_id: Some("input-action") },
-    CommandSpec { path: &["input", "key-up"],     mutating: true, data_producing: true, schema_id: Some("input-action") },
-    CommandSpec { path: &["input", "type"],       mutating: true, data_producing: true, schema_id: Some("input-action") },
-    CommandSpec { path: &["input", "click"],      mutating: true, data_producing: true, schema_id: Some("input-action") },
-    CommandSpec { path: &["input", "mouse-down"], mutating: true, data_producing: true, schema_id: Some("input-action") },
-    CommandSpec { path: &["input", "mouse-up"],   mutating: true, data_producing: true, schema_id: Some("input-action") },
-    CommandSpec { path: &["input", "move"],       mutating: true, data_producing: true, schema_id: Some("input-action") },
-    CommandSpec { path: &["input", "scroll"],     mutating: true, data_producing: true, schema_id: Some("input-action") },
-    CommandSpec { path: &["input", "drag"],       mutating: true, data_producing: true, schema_id: Some("input-action") },
-
-    // screen (§1)
-    CommandSpec { path: &["screen", "capture"],   mutating: false, data_producing: true, schema_id: Some("screen-capture") },
-    CommandSpec { path: &["screen", "record"],    mutating: true,  data_producing: true, schema_id: Some("screen-record") },
-    CommandSpec { path: &["screen", "size"],      mutating: false, data_producing: true, schema_id: Some("screen-size") },
-    CommandSpec { path: &["screen", "find-text"], mutating: false, data_producing: true, schema_id: Some("screen-find-text") },
-
-    // file (§1)
-    CommandSpec { path: &["file", "upload"],   mutating: true, data_producing: true, schema_id: Some("file-upload") },
-    CommandSpec { path: &["file", "download"], mutating: true, data_producing: true, schema_id: Some("file-download") },
-    CommandSpec { path: &["file", "exec"],     mutating: true, data_producing: true, schema_id: Some("file-exec") },
-
-    // top-level utilities (§8)
-    CommandSpec { path: &["doctor"],           mutating: false, data_producing: true, schema_id: Some("doctor") },
-    CommandSpec { path: &["capabilities"],     mutating: false, data_producing: true, schema_id: Some("capabilities") },
-    CommandSpec { path: &["schema"],           mutating: false, data_producing: true, schema_id: None },
-    CommandSpec { path: &["llm-instructions"], mutating: false, data_producing: false, schema_id: None },
-];
-
-/// Verb-first aliases retained for muscle memory (§1).
-///
-/// Each entry maps the alias name to its canonical noun-first form.
-#[allow(dead_code)]
-const VERB_FIRST_ALIASES: &[(&str, &[&str])] = &[
-    ("screenshot",  &["screen", "capture"]),
-    ("record",      &["screen", "record"]),
-    ("screen-size", &["screen", "size"]),
-    ("find-text",   &["screen", "find-text"]),
-    ("upload",      &["file", "upload"]),
-    ("download",    &["file", "download"]),
-    ("exec",        &["file", "exec"]),
-];
-
-/// Synonym aliases required by §1.
-#[allow(dead_code)]
-const SYNONYM_ALIASES: &[(&[&str], &[&str])] = &[
-    (&["vm", "list"],      &["vm", "ls"]),
-    (&["vm", "delete"],    &["vm", "rm"]),
-    (&["vm", "delete"],    &["vm", "remove"]),
-    (&["agent", "inspect"], &["agent", "show"]),
-];
+use testanyware_cli::surface::{CANONICAL_COMMANDS, SYNONYM_ALIASES, VERB_FIRST_ALIASES};
 
 // ---------------------------------------------------------------------------
 // Helpers

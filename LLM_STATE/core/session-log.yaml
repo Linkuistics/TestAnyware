@@ -593,3 +593,14 @@ sessions:
       - Port `screen size` (the smallest data-producing command) — it can flip `each_subcommand_help_follows_template` and `each_data_command_supports_json` for that command, and exercise the `screen-size` schema.
       - Add `SCHEMA_NOT_FOUND` to §4 of `cli-design-contract.md` for completeness.
       - Once 2–3 more commands land, refactor `cli-contract.rs` to consume `testanyware_cli::surface` tables.
+- id: session-30
+  timestamp: 2026-05-04T04:51:02Z
+  phase: work
+  body: |
+    ### Session 30 (2026-05-04T04:51:02Z) — Consolidate cli-contract.rs tables into surface module
+
+    - Attempted refactoring `cli-contract.rs` to import `CANONICAL_COMMANDS`, `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES` from `testanyware_cli::surface` instead of maintaining a local duplicate.
+    - Removed the local `CommandSpec` struct and the three local table copies (~91 lines), replaced with a single `use testanyware_cli::surface::{...}` statement.
+    - `cargo test --workspace` passed green with 10 active + 6 ignored tests; `cargo build --tests --workspace` emitted zero warnings.
+    - `lib.rs` already exposed `pub mod surface` and `CommandSpec` already had `pub` fields, so no API changes were needed and no `unused_imports` warnings triggered.
+    - The refactor achieves its goal: adding a new command to `surface.rs` now automatically updates the contract test's expectations — no parallel table to maintain.
