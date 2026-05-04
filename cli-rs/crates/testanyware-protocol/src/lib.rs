@@ -19,6 +19,7 @@
 //!   multi-word variants (e.g. `menu-item`, `combo-box`).
 
 pub mod agent_formatter;
+pub mod agent_requests;
 pub mod agent_responses;
 pub mod element_info;
 pub mod role_mapper;
@@ -26,6 +27,10 @@ pub mod unified_role;
 pub mod window_info;
 
 pub use agent_formatter::AgentFormatter;
+pub use agent_requests::{
+    DownloadRequest, DownloadResponse, ElementQuery, ExecRequest, ExecResult, HealthResponse,
+    SnapshotRequest, UploadRequest,
+};
 pub use agent_responses::{ActionResponse, ErrorResponse, InspectResponse, SnapshotResponse};
 pub use element_info::ElementInfo;
 pub use role_mapper::RoleMapper;

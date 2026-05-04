@@ -1,12 +1,69 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/agent-snapshot.json",
-  "title": "agent-snapshot (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "agent-snapshot",
+  "description": "Output of `testanyware agent snapshot --json`. Carries one window per visible app plus an optional menu-bar pseudo-window on macOS.",
   "type": "object",
-  "required": ["schema_version", "ok"],
+  "required": ["schema_version", "ok", "windows"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "windows": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/window" }
+    }
+  },
+  "$defs": {
+    "window": {
+      "type": "object",
+      "required": [
+        "windowType",
+        "sizeWidth",
+        "sizeHeight",
+        "positionX",
+        "positionY",
+        "appName",
+        "focused"
+      ],
+      "properties": {
+        "title": { "type": "string" },
+        "windowType": { "type": "string" },
+        "sizeWidth": { "type": "number" },
+        "sizeHeight": { "type": "number" },
+        "positionX": { "type": "number" },
+        "positionY": { "type": "number" },
+        "appName": { "type": "string" },
+        "focused": { "type": "boolean" },
+        "elements": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/element" }
+        }
+      }
+    },
+    "element": {
+      "type": "object",
+      "required": ["role", "enabled", "focused", "childCount", "actions"],
+      "properties": {
+        "role": { "type": "string" },
+        "label": { "type": "string" },
+        "value": { "type": "string" },
+        "description": { "type": "string" },
+        "id": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "focused": { "type": "boolean" },
+        "showing": { "type": "boolean" },
+        "positionX": { "type": "number" },
+        "positionY": { "type": "number" },
+        "sizeWidth": { "type": "number" },
+        "sizeHeight": { "type": "number" },
+        "childCount": { "type": "integer" },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "platformRole": { "type": "string" },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/element" }
+        }
+      }
+    }
   }
 }

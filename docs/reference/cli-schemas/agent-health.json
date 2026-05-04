@@ -1,12 +1,25 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/agent-health.json",
-  "title": "agent-health (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "agent-health",
+  "description": "Output of `testanyware agent health --json`.",
   "type": "object",
   "required": ["schema_version", "ok"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "reachable": {
+      "type": "boolean",
+      "description": "True when the agent responded to GET /health within the timeout."
+    },
+    "accessibility_status": {
+      "type": "string",
+      "enum": ["granted", "denied"],
+      "description": "Whether the in-VM agent has accessibility permission. AUTH_REQUIRED is raised on `denied`."
+    },
+    "platform": {
+      "type": "string",
+      "enum": ["macos", "linux", "windows"]
+    }
   }
 }

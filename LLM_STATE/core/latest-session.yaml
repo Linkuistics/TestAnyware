@@ -1,11 +1,18 @@
-id: session-32
-timestamp: 2026-05-04T06:57:47Z
+id: session-33
+timestamp: 2026-05-04T07:51:17Z
 phase: work
 body: |
-  ### Session 32 (2026-05-04T06:57:47Z) — CI pipeline established: Rust Linux build + Python agent lint/test
+  ### Session 33 (2026-05-04T07:51:17Z) — Port agent-only CLI commands to Rust
 
-  - Attempted: Add GitHub Actions CI for the Rust workspace (Ubuntu x86_64 build/test/clippy) and add pyproject.toml with ruff/pytest to agents/linux/.
-  - What worked: Both tasks completed. `.github/workflows/ci.yml` created with two jobs — `rust-linux` and `python-linux-agent`. The Python job applies ruff lint and pytest across the Linux agent source. Ruff baseline violations (26) in existing agent source were fixed: isort reordering in 5 files, Optional→X|None modernisation in models.py, 8 long-line wraps in accessibility.py, and one `raise ... from None` for a B904 bugbear rule.
-  - What didn't: True Linux green for both CI jobs is unverifiable from macOS; the first push will exercise them. The gi/pyatspi import shuffle in tree_walker.py preserves the load-order invariant but can only be confirmed on Linux.
-  - What to try next: Watch the first CI run. If python-linux-agent fails, investigate whether pytest collection imports accessibility.py at discovery time (which would require apt-installed pyatspi); consider excluding accessibility.py from pytest collection or installing gi packages in CI.
-  - Key learnings: The `raise ... from None` pattern to suppress chained tracebacks (B904) is appropriate when a NotImplementedError is an expected fallback path, not the root cause. The `tree_walker.py` import reorder is safe because gi.require_version() runs before any gi.repository import regardless of the pyatspi/Atspi relative order.
+  - Implemented `agent {health,windows,snapshot,inspect,press}` and `file {exec,upload,download}` commands in Rust, end-to-end from CLI flags to HTTP agent calls.
+  - Added `AgentClient` endpoint methods in `cli-rs/crates/testanyware-agent-client/src/lib.rs` — expanded from a stub to ~316 lines covering all eight endpoints plus typed error conversion from `reqwest::Error`.
+  - Added connection resolution in `cli-rs/crates/testanyware-cli/src/resolve.rs` mirroring Swift's `ConnectionOptions.resolveAgent` chain: `--connect` spec file, `--vm` per-VM spec under `$XDG_STATE_HOME`, `--agent` direct endpoint, env vars, then error.
+  - Added `OutputMode` and JSON/text envelope helpers in `cli-rs/crates/testanyware-cli/src/output.rs` implementing the §3 success and §3.4 error envelopes.
+  - Extracted command handlers into `cli-rs/crates/testanyware-cli/src/commands/agent.rs` (211 lines) and `file.rs` (173 lines).
+  - Added `agent_requests.rs` to `testanyware-protocol` (192 lines) with typed structs for all request/response bodies.
+  - Wrote wiremock-based integration tests in `cli-rs/crates/testanyware-agent-client/tests/endpoint_integration.rs` (299 lines) covering all endpoints against a local mock HTTP server.
+  - Updated all JSON schemas under `docs/reference/cli-schemas/` to reflect correct wire shapes.
+  - `AgentError` carries stable `code()` tokens aligned with §4 of the CLI design contract; wire-error strings are mapped via `map_wire_error()`.
+  - All commands have `--help` after-help blocks with ≥2 examples and full EXIT CODES sections per §7-template.
+  - Task `port-agent-only-cli-commands-exec-upload-download-agent-to-rust` marked done.
+  - What this suggests next: run the wiremock suite (`cargo test -p testanyware-agent-client`) and validate against a live QEMU Linux guest before declaring live parity; then proceed to VNC/OCR-dependent commands.

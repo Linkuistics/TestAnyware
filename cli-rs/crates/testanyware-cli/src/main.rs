@@ -3,16 +3,20 @@
 //! Surface follows the noun-first canonical layout from
 //! `docs/architecture/cli-design-contract.md` §1, with the curated
 //! verb-first aliases from §1's alias table announcing themselves per
-//! §7.2. All subcommands are stubs that print `not yet implemented` to
-//! stderr and exit with status 2 when invoked. Per-command behaviour is
-//! added by the per-feature port tasks tracked in `LLM_STATE/core/`.
+//! §7.2. The agent-only commands (`agent {health,windows,snapshot,
+//! inspect,press}`, `file {exec,upload,download}`) and their verb-first
+//! aliases are fully wired; the remaining subcommands are stubs that
+//! print `not yet implemented` and exit with status 2 — they land in
+//! later port tasks tracked in `LLM_STATE/core/`.
 
 use clap::{Args, Parser, Subcommand};
-use testanyware_cli::discoverability::{run_capabilities, run_llm_instructions, run_schema};
 
-// §7-template "after-help" blocks for the three §8 discoverability
-// commands. Clap renders these after the auto-generated USAGE/OPTIONS,
-// completing the OUTPUT/EXIT CODES/EXAMPLES/SEE ALSO sections.
+use testanyware_cli::commands::{agent as agent_cmds, file as file_cmds};
+use testanyware_cli::discoverability::{run_capabilities, run_llm_instructions, run_schema};
+use testanyware_cli::output::OutputMode;
+use testanyware_cli::resolve::ConnectionOptions as ResolveOptions;
+
+// §7-template "after-help" blocks.
 
 const CAPABILITIES_AFTER_HELP: &str = "\
 OUTPUT:
@@ -75,6 +79,209 @@ SEE ALSO:
     testanyware capabilities, testanyware schema, testanyware --help
 ";
 
+const AGENT_HEALTH_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`OK` or `UNHEALTHY: <reason>`), --json
+    (schema: agent-health).
+
+EXIT CODES:
+    0  success (agent reachable, accessibility granted)
+    1  generic agent failure
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND
+    4  AUTH_REQUIRED (agent reachable but accessibility not granted)
+    7  CONNECTION_TIMEOUT
+
+EXAMPLES:
+    # Quick reachability check via a running VM
+    testanyware agent health --vm \"$TESTANYWARE_VM_ID\"
+
+    # Direct endpoint, scriptable
+    testanyware agent health --agent 192.168.64.5:8648 --json
+
+SEE ALSO:
+    testanyware agent windows, testanyware doctor
+";
+
+const AGENT_WINDOWS_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (one window per line), --json (schema:
+    agent-windows).
+
+EXIT CODES:
+    0  success
+    1  generic agent failure
+    2  NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+EXAMPLES:
+    # List visible windows on a running VM
+    testanyware agent windows --vm \"$TESTANYWARE_VM_ID\"
+
+    # JSON for scripting
+    testanyware agent windows --vm \"$TESTANYWARE_VM_ID\" --json | jq '.windows[].title'
+
+SEE ALSO:
+    testanyware agent snapshot, testanyware agent wait
+";
+
+const AGENT_SNAPSHOT_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (formatted tree), --json (schema:
+    agent-snapshot).
+
+EXIT CODES:
+    0  success
+    1  generic agent failure
+    2  NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND / WINDOW_NOT_FOUND
+    4  AUTH_REQUIRED
+    5  ACTION_UNSUPPORTED (e.g. --open-menu without VNC)
+    7  CONNECTION_TIMEOUT
+
+EXAMPLES:
+    # Interact-mode snapshot of a specific window
+    testanyware agent snapshot --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\"
+
+    # Full tree for layout analysis
+    testanyware agent snapshot --vm \"$TESTANYWARE_VM_ID\" --mode full --json
+
+SEE ALSO:
+    testanyware agent windows, testanyware agent inspect
+";
+
+const AGENT_INSPECT_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (one element + bounds + font), --json
+    (schema: agent-inspect).
+
+EXIT CODES:
+    0  success
+    3  ELEMENT_NOT_FOUND / WINDOW_NOT_FOUND
+    5  ELEMENT_AMBIGUOUS
+
+EXAMPLES:
+    # Inspect a specific button
+    testanyware agent inspect --vm \"$TESTANYWARE_VM_ID\" --role button --label \"Save\"
+
+    # Drill into a labelled text field as JSON
+    testanyware agent inspect --vm \"$TESTANYWARE_VM_ID\" --role textfield --label \"Email\" --json
+
+SEE ALSO:
+    testanyware agent snapshot, testanyware agent press
+";
+
+const AGENT_PRESS_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`OK` / `FAILED: <message>`), --json (schema:
+    agent-action).
+
+EXIT CODES:
+    0  success
+    3  ELEMENT_NOT_FOUND / WINDOW_NOT_FOUND
+    5  ELEMENT_AMBIGUOUS / ACTION_UNSUPPORTED
+
+IDEMPOTENCY:
+    Not idempotent — pressing twice equals two presses. Retry only when
+    the previous attempt's outcome is unknown.
+
+EXAMPLES:
+    # Press a button by role + label
+    testanyware agent press --vm \"$TESTANYWARE_VM_ID\" --role button --label \"OK\"
+
+    # Plan only — emit the request without performing it
+    testanyware agent press --vm \"$TESTANYWARE_VM_ID\" --role button --label \"OK\" --dry-run --json
+
+SEE ALSO:
+    testanyware agent inspect, testanyware agent set-value
+";
+
+const FILE_EXEC_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: stdout/stderr passthrough in text mode (Swift
+    parity); --json emits a single envelope (schema: file-exec). The
+    binary's exit code is the in-VM process's exit code in text mode;
+    --json mode exits 0 on a clean spawn and surfaces the in-VM exit
+    via `details.exit_code` and the top-level `exit_code` field.
+
+EXIT CODES (text mode):
+    <in-VM exit code> (0 on success)
+    1  EXEC_FAILED, generic agent failure
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Application-defined.
+
+EXAMPLES:
+    # Run a quick command in the guest
+    testanyware file exec --vm \"$TESTANYWARE_VM_ID\" \"uname -a\"
+
+    # Capture exit code as JSON
+    testanyware file exec --vm \"$TESTANYWARE_VM_ID\" --json \"true\"
+
+    # Plan a longer command without spawning it
+    testanyware file exec --vm \"$TESTANYWARE_VM_ID\" --dry-run --timeout 120 \"sleep 60\"
+
+SEE ALSO:
+    testanyware file upload, testanyware file download, testanyware doctor
+";
+
+const FILE_UPLOAD_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (one-line confirmation), --json (schema:
+    file-upload).
+
+EXIT CODES:
+    0  success
+    1  UPLOAD_FAILED, generic agent failure
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Idempotent — overwrites the remote file completely. Retry-safe.
+
+EXAMPLES:
+    # Upload a build artefact
+    testanyware file upload --vm \"$TESTANYWARE_VM_ID\" ./out.bin /tmp/out.bin
+
+    # Plan only
+    testanyware file upload --vm \"$TESTANYWARE_VM_ID\" ./out.bin /tmp/out.bin --dry-run
+
+SEE ALSO:
+    testanyware file download, testanyware file exec
+";
+
+const FILE_DOWNLOAD_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (one-line confirmation), --json (schema:
+    file-download).
+
+EXIT CODES:
+    0  success
+    1  DOWNLOAD_FAILED, generic agent failure
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Idempotent — overwrites the local file completely. Retry-safe.
+
+EXAMPLES:
+    # Pull a log file off the VM
+    testanyware file download --vm \"$TESTANYWARE_VM_ID\" /var/log/system.log ./system.log
+
+    # JSON envelope for scripting
+    testanyware file download --vm \"$TESTANYWARE_VM_ID\" /tmp/x ./x --json
+
+SEE ALSO:
+    testanyware file upload, testanyware file exec
+";
+
 #[derive(Parser, Debug)]
 #[command(
     name = "testanyware",
@@ -115,6 +322,18 @@ struct ConnectionOptions {
 
     #[arg(long, value_name = "PLATFORM", env = "TESTANYWARE_PLATFORM")]
     platform: Option<String>,
+}
+
+impl From<ConnectionOptions> for ResolveOptions {
+    fn from(c: ConnectionOptions) -> Self {
+        ResolveOptions {
+            connect: c.connect,
+            vm: c.vm,
+            agent: c.agent,
+            vnc: c.vnc,
+            platform: c.platform,
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -206,10 +425,6 @@ enum Command {
     },
 
     // ---- Verb-first aliases (§1, §7.2) ----------------------------------
-    //
-    // The doc comment on each variant is rendered into the alias's
-    // `--help` per §7.2 so the alias announces itself rather than
-    // re-documenting the canonical command.
 
     /// Alias of `testanyware screen capture`. Run that for full help.
     Screenshot(ScreenCaptureArgs),
@@ -235,13 +450,13 @@ enum Command {
 
 // ---- Shared args structs (used by both canonical and alias variants) ----
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct ConnectionArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct ScreenCaptureArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
@@ -251,7 +466,7 @@ struct ScreenCaptureArgs {
     region: Option<String>,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct ScreenRecordArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
@@ -263,7 +478,7 @@ struct ScreenRecordArgs {
     duration: Option<u32>,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct ScreenFindTextArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
@@ -272,27 +487,47 @@ struct ScreenFindTextArgs {
     timeout: Option<u32>,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct FileUploadArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
     local: String,
     remote: String,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
+    #[arg(long, help = "Plan the upload but do not perform it")]
+    dry_run: bool,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct FileDownloadArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
     remote: String,
     local: String,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
+    #[arg(long, help = "Plan the download but do not perform it")]
+    dry_run: bool,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct FileExecArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
+    /// Command to execute in the guest
     command: String,
+    /// Per-command timeout in seconds (the agent enforces; HTTP layer
+    /// gets a +10s buffer).
+    #[arg(long, default_value_t = 30)]
+    timeout: i64,
+    /// Spawn detached and return immediately without waiting.
+    #[arg(long)]
+    detach: bool,
+    #[arg(long, help = "Emit JSON envelope on stdout (no stdout/stderr passthrough)")]
+    json: bool,
+    #[arg(long, help = "Plan the exec but do not run it")]
+    dry_run: bool,
 }
 
 // ---- Subcommand groups --------------------------------------------------
@@ -312,10 +547,13 @@ enum ScreenAction {
 #[derive(Subcommand, Debug)]
 enum FileAction {
     /// Upload a file from host to guest
+    #[command(after_long_help = FILE_UPLOAD_AFTER_HELP)]
     Upload(FileUploadArgs),
     /// Download a file from guest to host
+    #[command(after_long_help = FILE_DOWNLOAD_AFTER_HELP)]
     Download(FileDownloadArgs),
     /// Run a command in the guest, capture stdout/stderr/exit
+    #[command(after_long_help = FILE_EXEC_AFTER_HELP)]
     Exec(FileExecArgs),
 }
 
@@ -405,7 +643,7 @@ enum InputAction {
     },
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct AgentElementArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
@@ -413,9 +651,25 @@ struct AgentElementArgs {
     role: String,
     #[arg(long)]
     label: Option<String>,
+    #[arg(long)]
+    window: Option<String>,
+    #[arg(long)]
+    id: Option<String>,
+    #[arg(long)]
+    index: Option<i64>,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
+struct AgentPressArgs {
+    #[command(flatten)]
+    common: AgentElementArgs,
+    #[arg(long, help = "Plan the press but do not perform it")]
+    dry_run: bool,
+}
+
+#[derive(Args, Debug, Clone)]
 struct AgentSetValueArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
@@ -427,7 +681,7 @@ struct AgentSetValueArgs {
     value: String,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct AgentWindowArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
@@ -435,7 +689,7 @@ struct AgentWindowArgs {
     window: String,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct AgentWindowMoveArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
@@ -445,7 +699,7 @@ struct AgentWindowMoveArgs {
     y: i32,
 }
 
-#[derive(Args, Debug)]
+#[derive(Args, Debug, Clone)]
 struct AgentWindowResizeArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
@@ -458,16 +712,23 @@ struct AgentWindowResizeArgs {
 #[derive(Subcommand, Debug)]
 enum AgentAction {
     /// Check the agent is reachable
+    #[command(after_long_help = AGENT_HEALTH_AFTER_HELP)]
     Health {
         #[command(flatten)]
         conn: ConnectionOptions,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// List visible windows
+    #[command(after_long_help = AGENT_WINDOWS_AFTER_HELP)]
     Windows {
         #[command(flatten)]
         conn: ConnectionOptions,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Snapshot the accessibility tree
+    #[command(after_long_help = AGENT_SNAPSHOT_AFTER_HELP)]
     Snapshot {
         #[command(flatten)]
         conn: ConnectionOptions,
@@ -475,16 +736,25 @@ enum AgentAction {
         mode: String,
         #[arg(long)]
         window: Option<String>,
+        #[arg(long)]
+        role: Option<String>,
+        #[arg(long)]
+        label: Option<String>,
+        #[arg(long)]
+        depth: Option<i64>,
         #[arg(long, value_name = "MENU")]
         open_menu: Option<String>,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Inspect a single element
-    #[command(aliases = ["show"])]
+    #[command(aliases = ["show"], after_long_help = AGENT_INSPECT_AFTER_HELP)]
     Inspect(AgentElementArgs),
     /// Wait for an element to become available
     Wait(AgentElementArgs),
     /// Press an element by role and label
-    Press(AgentElementArgs),
+    #[command(after_long_help = AGENT_PRESS_AFTER_HELP)]
+    Press(AgentPressArgs),
     /// Set the value of an element
     SetValue(AgentSetValueArgs),
     /// Focus an element
@@ -550,9 +820,9 @@ async fn main() {
             ScreenAction::FindText(_) => unimplemented("screen find-text"),
         },
         Command::File { action } => match action {
-            FileAction::Upload(_) => unimplemented("file upload"),
-            FileAction::Download(_) => unimplemented("file download"),
-            FileAction::Exec(_) => unimplemented("file exec"),
+            FileAction::Upload(args) => run_upload(args).await,
+            FileAction::Download(args) => run_download(args).await,
+            FileAction::Exec(args) => run_exec(args).await,
         },
         Command::Input { action } => match action {
             InputAction::Key { .. } => unimplemented("input key"),
@@ -567,12 +837,56 @@ async fn main() {
             InputAction::Drag { .. } => unimplemented("input drag"),
         },
         Command::Agent { action } => match action {
-            AgentAction::Health { .. } => unimplemented("agent health"),
-            AgentAction::Windows { .. } => unimplemented("agent windows"),
-            AgentAction::Snapshot { .. } => unimplemented("agent snapshot"),
-            AgentAction::Inspect(_) => unimplemented("agent inspect"),
+            AgentAction::Health { conn, json } => {
+                agent_cmds::run_health(conn.into(), OutputMode::from_flags(json)).await
+            }
+            AgentAction::Windows { conn, json } => {
+                agent_cmds::run_windows(conn.into(), OutputMode::from_flags(json)).await
+            }
+            AgentAction::Snapshot {
+                conn,
+                mode,
+                window,
+                role,
+                label,
+                depth,
+                open_menu,
+                json,
+            } => {
+                agent_cmds::run_snapshot(
+                    conn.into(),
+                    agent_cmds::SnapshotArgs {
+                        mode_arg: Some(mode),
+                        window,
+                        role,
+                        label,
+                        depth,
+                        open_menu,
+                    },
+                    OutputMode::from_flags(json),
+                )
+                .await
+            }
+            AgentAction::Inspect(args) => {
+                agent_cmds::run_inspect(
+                    args.conn.clone().into(),
+                    element_args_to_query(args.clone()),
+                    OutputMode::from_flags(args.json),
+                )
+                .await
+            }
             AgentAction::Wait(_) => unimplemented("agent wait"),
-            AgentAction::Press(_) => unimplemented("agent press"),
+            AgentAction::Press(args) => {
+                let mode = OutputMode::from_flags(args.common.json);
+                let dry_run = args.dry_run;
+                agent_cmds::run_press(
+                    args.common.conn.clone().into(),
+                    element_args_to_query(args.common),
+                    mode,
+                    dry_run,
+                )
+                .await
+            }
             AgentAction::SetValue(_) => unimplemented("agent set-value"),
             AgentAction::Focus(_) => unimplemented("agent focus"),
             AgentAction::ShowMenu { .. } => unimplemented("agent show-menu"),
@@ -598,8 +912,57 @@ async fn main() {
         Command::Record(_) => unimplemented("screen record"),
         Command::ScreenSize(_) => unimplemented("screen size"),
         Command::FindText(_) => unimplemented("screen find-text"),
-        Command::Upload(_) => unimplemented("file upload"),
-        Command::Download(_) => unimplemented("file download"),
-        Command::Exec(_) => unimplemented("file exec"),
+        Command::Upload(args) => run_upload(args).await,
+        Command::Download(args) => run_download(args).await,
+        Command::Exec(args) => run_exec(args).await,
     }
+}
+
+fn element_args_to_query(args: AgentElementArgs) -> agent_cmds::ElementQueryArgs {
+    agent_cmds::ElementQueryArgs {
+        role: args.role,
+        label: args.label,
+        window: args.window,
+        id: args.id,
+        index: args.index,
+    }
+}
+
+async fn run_upload(args: FileUploadArgs) {
+    let mode = OutputMode::from_flags(args.json);
+    file_cmds::run_upload(
+        args.conn.into(),
+        args.local,
+        args.remote,
+        mode,
+        args.dry_run,
+    )
+    .await
+}
+
+async fn run_download(args: FileDownloadArgs) {
+    let mode = OutputMode::from_flags(args.json);
+    file_cmds::run_download(
+        args.conn.into(),
+        args.remote,
+        args.local,
+        mode,
+        args.dry_run,
+    )
+    .await
+}
+
+async fn run_exec(args: FileExecArgs) {
+    let mode = OutputMode::from_flags(args.json);
+    file_cmds::run_exec(
+        args.conn.into(),
+        file_cmds::ExecArgs {
+            command: args.command,
+            timeout: args.timeout,
+            detach: args.detach,
+        },
+        mode,
+        args.dry_run,
+    )
+    .await
 }

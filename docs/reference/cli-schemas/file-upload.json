@@ -1,12 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/file-upload.json",
-  "title": "file-upload (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "file-upload",
+  "description": "Output of `testanyware file upload --json`. Confirmation receipt for a host→guest file transfer.",
   "type": "object",
   "required": ["schema_version", "ok"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "local": { "type": "string" },
+    "remote": { "type": "string" },
+    "bytes": { "type": "integer" },
+    "dry_run": { "type": "boolean" }
   }
 }

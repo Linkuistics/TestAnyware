@@ -1,12 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/file-download.json",
-  "title": "file-download (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "file-download",
+  "description": "Output of `testanyware file download --json`. Confirmation receipt for a guest→host file transfer.",
   "type": "object",
   "required": ["schema_version", "ok"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "remote": { "type": "string" },
+    "local": { "type": "string" },
+    "bytes": { "type": "integer" },
+    "dry_run": { "type": "boolean" }
   }
 }

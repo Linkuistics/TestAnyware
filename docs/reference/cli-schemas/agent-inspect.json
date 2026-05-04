@@ -1,12 +1,41 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/agent-inspect.json",
-  "title": "agent-inspect (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "agent-inspect",
+  "description": "Output of `testanyware agent inspect --json`. Wraps an `ElementInfo` plus optional bounds and font metadata.",
   "type": "object",
-  "required": ["schema_version", "ok"],
+  "required": ["schema_version", "ok", "element"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "element": {
+      "type": "object",
+      "required": ["role", "enabled", "focused", "childCount", "actions"],
+      "properties": {
+        "role": { "type": "string" },
+        "label": { "type": "string" },
+        "value": { "type": "string" },
+        "description": { "type": "string" },
+        "id": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "focused": { "type": "boolean" },
+        "showing": { "type": "boolean" },
+        "positionX": { "type": "number" },
+        "positionY": { "type": "number" },
+        "sizeWidth": { "type": "number" },
+        "sizeHeight": { "type": "number" },
+        "childCount": { "type": "integer" },
+        "actions": { "type": "array", "items": { "type": "string" } },
+        "platformRole": { "type": "string" }
+      }
+    },
+    "fontFamily": { "type": "string" },
+    "fontSize": { "type": "number" },
+    "fontWeight": { "type": "string" },
+    "textColor": { "type": "string" },
+    "boundsX": { "type": "number" },
+    "boundsY": { "type": "number" },
+    "boundsWidth": { "type": "number" },
+    "boundsHeight": { "type": "number" }
   }
 }

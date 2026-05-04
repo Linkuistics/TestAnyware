@@ -1,12 +1,29 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/agent-action.json",
-  "title": "agent-action (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "agent-action",
+  "description": "Output of `testanyware agent {press|set-value|focus|show-menu|wait} --json`. A receipt for an intent-level UI action.",
   "type": "object",
-  "required": ["schema_version", "ok"],
+  "required": ["schema_version", "ok", "action", "success"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "action": {
+      "type": "string",
+      "enum": ["press", "set-value", "focus", "show-menu", "wait"]
+    },
+    "success": { "type": "boolean" },
+    "message": { "type": ["string", "null"] },
+    "dry_run": { "type": "boolean" },
+    "query": {
+      "type": "object",
+      "properties": {
+        "role": { "type": "string" },
+        "label": { "type": "string" },
+        "window": { "type": "string" },
+        "id": { "type": "string" },
+        "index": { "type": "integer" }
+      }
+    }
   }
 }
