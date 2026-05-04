@@ -334,11 +334,7 @@ entries:
 - id: doctor-ocrstatusfile-clear-on-recovery-is-aspirational-not-yet-wired
   title: 'Doctor: OCRStatusFile clear-on-recovery is aspirational (not yet wired)'
   body: |
-    `OCRStatusFile.swift` line 4 carries an aspirational comment stating the file is "cleared by `testanyware doctor` on recovery" — this wiring was never implemented.
-
-    Strategic intent: a future doctor check should clear a degraded OCR status file on recovery, giving users a self-service path out of a stuck OCR state. The OCR status infrastructure is in place; the doctor wiring is not.
-
-    Design note: new doctor checks go in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split pattern (see `diagnostics-module-uses-classify-run-split-for-testability`). The check would read the OCR status file, detect a degraded flag, clear it, and print a remediation message.
+    `OCRStatusFile.swift` line 4 claims the file is "cleared by `testanyware doctor` on recovery" — this wiring is not implemented. A future doctor check in `cli/Sources/TestAnywareDriver/Diagnostics/` using the classify/run split (see `diagnostics-module-uses-classify-run-split-for-testability`) would read the OCR status file, detect a degraded flag, clear it, and print a remediation message.
 - id: bundledagentscheck-verifies-three-agent-slots-under-brew-prefix
   title: BundledAgentsCheck verifies three agent slots under brew prefix
   body: |
@@ -438,7 +434,7 @@ entries:
 - id: cli-contract-rs-is-the-rust-cli-contract-test-skeleton
   title: cli-contract.rs is the Rust CLI contract test skeleton
   body: |
-    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` contains per-subcommand contract assertions keyed to §1–§11 of `docs/architecture/cli-design-contract.md`. Ten tests are active (16 total: 10 active + 6 ignored); prior memory incorrectly cited 11 active. Named active tests include: `binary_exists_and_top_level_help_succeeds`, `version_flag_succeeds`, `each_present_subcommand_help_succeeds`, `every_schema_id_has_a_schema_file`, `every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`, `each_canonical_command_help_succeeds`, `capabilities_lists_full_surface`, `schema_command_emits_json_schema_for_each_command`; 6 remain `#[ignore = "§N"]` with `todo!("filled in by <task>")`, surfacing remaining port gaps via `cargo test -- --ignored` without blocking CI. `llm_instructions_command_emits_manual` status should be verified in the test file. Uses `env!("CARGO_BIN_EXE_testanyware")` for binary path; schema path helpers use `CARGO_MANIFEST_DIR` to resolve `docs/reference/cli-schemas/`.
+    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` contains per-subcommand contract assertions keyed to §1–§11 of `docs/architecture/cli-design-contract.md`. Ten tests are active (16 total: 10 active + 6 ignored). Named active tests: `binary_exists_and_top_level_help_succeeds`, `version_flag_succeeds`, `each_present_subcommand_help_succeeds`, `every_schema_id_has_a_schema_file`, `every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`, `each_canonical_command_help_succeeds`, `capabilities_lists_full_surface`, `schema_command_emits_json_schema_for_each_command`; 6 remain `#[ignore = "§N"]` with `todo!("filled in by <task>")`, surfacing remaining port gaps via `cargo test -- --ignored` without blocking CI. `llm_instructions_command_emits_manual` status should be verified in the test file. Uses `env!("CARGO_BIN_EXE_testanyware")` for binary path; schema path helpers use `CARGO_MANIFEST_DIR` to resolve `docs/reference/cli-schemas/`.
 - id: canonical-commands-table-encodes-39-noun-first-commands
   title: CANONICAL_COMMANDS table encodes 39 noun-first commands
   body: |
@@ -474,27 +470,13 @@ entries:
 - id: release-doctor-sh-self-enforcing-sentinel-design-intent
   title: release-doctor.sh self-enforcing sentinel design intent
   body: |
-    ---
-    name: release-doctor-sh-self-enforcing-sentinel-design-intent
-    description: Strategic intent for release-doctor.sh to self-enforce release-build.sh sentinel floors, separate from testanyware doctor
-    type: project
-    ---
-
-    `release-doctor.sh` currently only prints `swift --version` for visual inspection. The design intent (from session 27 work on release-build.sh sentinels) is that it could be taught to read its sibling `release-build.sh`'s `# testanyware-min-tool:` sentinels and fail fast if a host floor is below them.
-
-    **Why:** This would be a release-pipeline-internal cross-check, independent of `testanyware doctor`. The doctor surface is end-user-oriented; release-doctor.sh is developer/CI-oriented. Two separate enforcement surfaces.
-
-    **How to apply:** When revisiting `scripts/release-doctor.sh`, consider adding a sentinel-validation pass that sources release-build.sh sentinel lines and compares against installed tool versions. This is a shell-script-only change; no Swift/Rust required. Not yet concrete enough for a standalone backlog task — needs a decision on failure mode (hard-fail vs. advisory) and how to extract sentinels in bash.
+    `release-doctor.sh` currently only prints `swift --version` for visual inspection. It could be extended to read `release-build.sh`'s `# testanyware-min-tool:` sentinels and fail fast when a host tool is below the declared floor. This is a release-pipeline-internal check independent of `testanyware doctor` (end-user-oriented). Shell-script-only change; no Swift/Rust required. Not yet a concrete backlog task — blocking decision: hard-fail vs. advisory failure mode.
 - id: more-release-tool-sentinels-follow-on-gh-xz-after-per-tool-probe-lands
   title: 'More release-tool sentinels follow-on: gh, xz'
   body: |
     `ProbeCustomization` mechanism in `ProvisionerScriptsVersionCheck` is in place for sentinel-declared tools with non-standard `--version` output. Next: add `# testanyware-min-tool:` sentinel lines for `gh` (used by `release-publish.sh`) and `xz` (used by `release-build.sh`). Both need a minimum version floor determined before sentinel lines can be added.
 
     Tools with standard first-token `--version` output need no `ProbeCustomization` entry — `parseVersion` handles them.
-- id: swift-version-driver-line-goes-to-stderr
-  title: swift --version driver line goes to stderr
-  body: |
-    `swift --version` sends `swift-driver version: X.Y` to stderr; stdout starts with `Apple Swift version X.Y.Z ...`. `ProvisionerScriptsVersionCheck.parseSwiftVersion` uses an anchored `Apple Swift version` match — correct for current behavior and defensive if the driver line ever moves to stdout.
 - id: provisionerscriptsversioncheck-probecustomization-handles-sentinel-only-tools
   title: ProvisionerScriptsVersionCheck ProbeCustomization handles sentinel-only tools
   body: |
@@ -502,7 +484,7 @@ entries:
 - id: swift-version-driver-line-is-stderr-compiler-line-is-stdout
   title: 'swift --version: driver line is stderr, compiler line is stdout'
   body: |
-    `swift --version` emits the `swift-driver version: X.Y` line to **stderr** and the `Apple Swift version X.Y.Z` line to **stdout**. `ProvisionerScriptsVersionCheck.runProbe` discards stderr via `proc.standardError = Pipe()`, so greedy first-token parsing of stdout actually works for swift. The per-tool `ProbeCustomization` table and anchored `"Apple Swift version "` parser were added anyway for defence against Apple ever moving the driver line to stdout. If stdout output format changes, the anchored parser returns `nil` and version comparison fails loudly rather than silently picking the driver version.
+    `swift --version` emits the `swift-driver version: X.Y` line to stderr and `Apple Swift version X.Y.Z` to stdout. `ProvisionerScriptsVersionCheck.runProbe` discards stderr via `proc.standardError = Pipe()`; greedy first-token stdout parsing works for swift. The anchored `"Apple Swift version "` parser is defensive — if stdout format changes, it returns `nil` and fails loudly rather than silently picking the driver version.
 - id: surface-rs-is-canonical-rust-cli-surface-registry
   title: surface.rs is canonical Rust CLI surface registry
   body: |
@@ -538,21 +520,11 @@ entries:
 - id: invalid-json-gap-in-4-5-cli-design-contract
   title: invalid_json gap in §4.5 CLI design contract
   body: |
-    The Linux agent's `server.py` emits `"error": "Invalid JSON in request body"` — a free-form string literal, not a canonical snake_case token. The `KNOWN_NON_CANONICAL_EXCEPTIONS` allowlist in `agents/linux/tests/test_error_tokens.py` captures this gap.
-
-    **Design decision pending:** either add `invalid_json` to §4.5 of the CLI design contract and update `server.py` to emit it, or leave it as-is. The test makes the gap visible; it does not enforce a direction.
-
-    **Why this matters for the Rust CLI:** The `implement-cli-side-agent-error-code-mapper` task maps §4.5 canonical tokens to structured CLI error codes. If `invalid_json` is added to §4.5, the Rust mapper must also handle `invalid_json → AGENT_INVALID_JSON`. If not, the mapper's `AGENT_ERROR_UNKNOWN` fallback fires for this path, which is acceptable but not ideal.
+    The Linux agent's `server.py` emits `"error": "Invalid JSON in request body"` — a free-form string, not a canonical snake_case token. The `KNOWN_NON_CANONICAL_EXCEPTIONS` allowlist in `agents/linux/tests/test_error_tokens.py` captures this gap. Decision pending: add `invalid_json` to §4.5 and update `server.py`, or leave as-is. If added, the `implement-cli-side-agent-error-code-mapper` task must handle `invalid_json → AGENT_INVALID_JSON`; otherwise `AGENT_ERROR_UNKNOWN` fires for this path.
 - id: extend-error-token-tests-to-macos-and-windows-agents
   title: Extend error-token tests to macOS and Windows agents
   body: |
-    The error-token test pattern in `agents/linux/tests/test_error_tokens.py` is language-agnostic and should be extended to the macOS and Windows agents once those agents are realigned to emit canonical §4.5 wire tokens.
-
-    **Pattern:** regex over source for `"error": "<token>"` literals; check against a CANONICAL set + KNOWN_NON_CANONICAL_EXCEPTIONS allowlist; one real behavioral test per changed code path.
-
-    **Sequencing:** This work is gated on macOS and Windows agent realignment (analogous to `realign-linux-agent-error-strings-to-cli-design-contract-4-5`). A Swift variant for `agents/macos/` and a C# variant for `agents/windows/` would use the same approach.
-
-    **Note:** The macOS agent realignment is not yet tracked as a backlog task. Add a realignment task for each remaining agent before adding the test-extension task.
+    Error-token tests should be extended to macOS and Windows agents once those agents are realigned to emit canonical §4.5 wire tokens. Pattern: regex over source for `"error": "<token>"` literals against a CANONICAL set + KNOWN_NON_CANONICAL_EXCEPTIONS allowlist; one behavioral test per changed code path. Gated on realignment tasks (analogous to `realign-linux-agent-error-strings-to-cli-design-contract-4-5`); macOS realignment not yet tracked as a backlog task.
 - id: resolve-rs-implements-rust-agent-connection-resolution
   title: resolve.rs implements Rust agent connection resolution
   body: |
