@@ -64,7 +64,6 @@ pub struct ConnectionSpec {
     #[serde(default)]
     pub agent: Option<AgentSpec>,
     #[serde(default)]
-    #[allow(dead_code)]
     pub platform: Option<String>,
 }
 
@@ -275,6 +274,54 @@ pub fn parse_vnc_endpoint(value: &str) -> Result<ResolvedVnc, ResolveError> {
         host,
         port,
         password: None,
+    })
+}
+
+/// Resolve the target platform string from `--platform`/env or, when
+/// neither is supplied, from the per-VM spec referenced by
+/// `--connect`/`--vm`. Returns `Ok(None)` when no source was available.
+///
+/// Mirrors Swift's `ConnectionSpec.platform` precedence: explicit flag
+/// wins, otherwise the spec's `platform` field is consulted, otherwise
+/// the caller decides the default.
+pub fn resolve_platform(opts: &ConnectionOptions) -> Result<Option<String>, ResolveError> {
+    resolve_platform_with_env(opts, &EnvProvider::process())
+}
+
+pub fn resolve_platform_with_env(
+    opts: &ConnectionOptions,
+    env: &EnvProvider,
+) -> Result<Option<String>, ResolveError> {
+    if let Some(p) = &opts.platform {
+        if !p.is_empty() {
+            return Ok(Some(p.clone()));
+        }
+    }
+    if let Some(path) = &opts.connect {
+        let spec_path = expand_tilde(path, env);
+        return Ok(load_spec(&spec_path)?.platform);
+    }
+    if let Some(id) = &opts.vm {
+        let spec_path = vms_dir(env)?.join(format!("{id}.json"));
+        if !spec_path.is_file() {
+            return Err(ResolveError::VmNotFound {
+                id: id.clone(),
+                path: spec_path,
+            });
+        }
+        return Ok(load_spec(&spec_path)?.platform);
+    }
+    Ok(None)
+}
+
+fn load_spec(path: &std::path::Path) -> Result<ConnectionSpec, ResolveError> {
+    let bytes = std::fs::read(path).map_err(|source| ResolveError::SpecRead {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    serde_json::from_slice(&bytes).map_err(|source| ResolveError::SpecParse {
+        path: path.to_path_buf(),
+        source,
     })
 }
 

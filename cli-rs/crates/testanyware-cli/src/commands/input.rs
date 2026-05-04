@@ -8,8 +8,12 @@
 use serde_json::json;
 use testanyware_rfb::{InputError, KeymapError, Platform, RfbConnection, RfbError};
 
+use crate::commands::window::resolve_window_offset;
 use crate::output::{print_error, print_success, OutputMode};
-use crate::resolve::{resolve_vnc, ConnectionOptions, ResolveError, ResolvedVnc};
+use crate::resolve::{
+    resolve_platform_with_env, resolve_vnc, ConnectionOptions, EnvProvider, ResolveError,
+    ResolvedVnc,
+};
 
 /// Connect to the resolved VNC endpoint, or print a typed error and exit.
 async fn connect_or_exit(
@@ -32,23 +36,25 @@ async fn connect_or_exit(
     }
 }
 
-/// Resolve the platform from the connection options. Defaults to macOS
-/// when neither `--platform` nor `TESTANYWARE_PLATFORM` is set, matching
-/// the Swift CLI's `Platform.macos` default.
-fn resolve_platform(opts: &ConnectionOptions, mode: OutputMode) -> Platform {
-    match opts.platform.as_deref() {
-        None => Platform::Macos,
-        Some(name) => match Platform::from_name(name) {
-            Some(p) => p,
-            None => print_error(
-                mode,
-                "INVALID_PLATFORM",
-                &format!("unknown platform '{name}'; expected macos|linux|windows"),
-                Some("Pass --platform macos, --platform linux, or --platform windows."),
-                json!({ "value": name }),
-                2,
-            ),
-        },
+/// Resolve the target platform from `--platform`/env, falling back to
+/// the per-VM spec's `platform` field when an explicit flag is absent,
+/// and finally to macOS to match the Swift CLI's default.
+fn resolve_target_platform(opts: &ConnectionOptions, mode: OutputMode) -> Platform {
+    let raw = match resolve_platform_with_env(opts, &EnvProvider::process()) {
+        Ok(p) => p,
+        Err(err) => exit_resolve_error(err, mode),
+    };
+    let Some(name) = raw else { return Platform::Macos };
+    match Platform::from_name(&name) {
+        Some(p) => p,
+        None => print_error(
+            mode,
+            "INVALID_PLATFORM",
+            &format!("unknown platform '{name}'; expected macos|linux|windows"),
+            Some("Pass --platform macos, --platform linux, or --platform windows."),
+            json!({ "value": name }),
+            2,
+        ),
     }
 }
 
@@ -60,7 +66,7 @@ pub async fn run_key(
     modifiers: Vec<String>,
     mode: OutputMode,
 ) {
-    let platform = resolve_platform(&opts, mode);
+    let platform = resolve_target_platform(&opts, mode);
     let mut conn = connect_or_exit(&opts, mode).await;
     let mod_refs: Vec<&str> = modifiers.iter().map(String::as_str).collect();
     if let Err(err) = conn.press_key(&key, &mod_refs, platform).await {
@@ -115,8 +121,10 @@ pub async fn run_click(
     y: i32,
     button: String,
     count: u32,
+    window: Option<String>,
     mode: OutputMode,
 ) {
+    let (x, y) = apply_window_offset(&opts, x, y, window.as_deref(), mode).await;
     let (x, y) = match clamp_coords(x, y, mode) {
         Some(p) => p,
         None => return,
@@ -137,8 +145,10 @@ pub async fn run_mouse_down(
     x: i32,
     y: i32,
     button: String,
+    window: Option<String>,
     mode: OutputMode,
 ) {
+    let (x, y) = apply_window_offset(&opts, x, y, window.as_deref(), mode).await;
     let (x, y) = match clamp_coords(x, y, mode) {
         Some(p) => p,
         None => return,
@@ -159,8 +169,10 @@ pub async fn run_mouse_up(
     x: i32,
     y: i32,
     button: String,
+    window: Option<String>,
     mode: OutputMode,
 ) {
+    let (x, y) = apply_window_offset(&opts, x, y, window.as_deref(), mode).await;
     let (x, y) = match clamp_coords(x, y, mode) {
         Some(p) => p,
         None => return,
@@ -176,7 +188,14 @@ pub async fn run_mouse_up(
     );
 }
 
-pub async fn run_move(opts: ConnectionOptions, x: i32, y: i32, mode: OutputMode) {
+pub async fn run_move(
+    opts: ConnectionOptions,
+    x: i32,
+    y: i32,
+    window: Option<String>,
+    mode: OutputMode,
+) {
+    let (x, y) = apply_window_offset(&opts, x, y, window.as_deref(), mode).await;
     let (x, y) = match clamp_coords(x, y, mode) {
         Some(p) => p,
         None => return,
@@ -198,8 +217,10 @@ pub async fn run_scroll(
     y: i32,
     dx: i32,
     dy: i32,
+    window: Option<String>,
     mode: OutputMode,
 ) {
+    let (x, y) = apply_window_offset(&opts, x, y, window.as_deref(), mode).await;
     let (x, y) = match clamp_coords(x, y, mode) {
         Some(p) => p,
         None => return,
@@ -215,6 +236,7 @@ pub async fn run_scroll(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_drag(
     opts: ConnectionOptions,
     from_x: i32,
@@ -223,13 +245,24 @@ pub async fn run_drag(
     to_y: i32,
     button: String,
     steps: u32,
+    window: Option<String>,
     mode: OutputMode,
 ) {
-    let (from_x, from_y) = match clamp_coords(from_x, from_y, mode) {
+    // The Swift helper resolves the window once and applies the same
+    // offset to both endpoints — drag start and end are both relative
+    // to the same window origin.
+    let (ox, oy) = match window.as_deref() {
+        Some(filter) => {
+            let platform = resolve_target_platform(&opts, mode);
+            resolve_window_offset(&opts, Some(platform), Some(filter), mode).await
+        }
+        None => (0, 0),
+    };
+    let (from_x, from_y) = match clamp_coords(from_x.saturating_add(ox), from_y.saturating_add(oy), mode) {
         Some(p) => p,
         None => return,
     };
-    let (to_x, to_y) = match clamp_coords(to_x, to_y, mode) {
+    let (to_x, to_y) = match clamp_coords(to_x.saturating_add(ox), to_y.saturating_add(oy), mode) {
         Some(p) => p,
         None => return,
     };
@@ -250,6 +283,21 @@ pub async fn run_drag(
 }
 
 // ---- Helpers --------------------------------------------------------------
+
+/// Resolve `--window <name>` once and add the offset to (x, y). For
+/// `None` the call is a no-op so the common no-window path stays cheap.
+async fn apply_window_offset(
+    opts: &ConnectionOptions,
+    x: i32,
+    y: i32,
+    window: Option<&str>,
+    mode: OutputMode,
+) -> (i32, i32) {
+    let Some(filter) = window else { return (x, y) };
+    let platform = resolve_target_platform(opts, mode);
+    let (ox, oy) = resolve_window_offset(opts, Some(platform), Some(filter), mode).await;
+    (x.saturating_add(ox), y.saturating_add(oy))
+}
 
 /// Coordinates arrive as `i32` from clap so users get a clean error on
 /// `--500`, but the RFB wire format is `u16`. We reject negatives and

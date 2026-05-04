@@ -20,6 +20,10 @@ use testanyware_cli::resolve::ConnectionOptions as ResolveOptions;
 
 // §7-template "after-help" blocks.
 
+const WINDOW_FLAG_HELP: &str = "Window name for relative coordinates. \
+    The macOS Tahoe drop-shadow inset (~40 px in y) is compensated automatically; \
+    override the inset via `TESTANYWARE_WINDOW_TOP_INSET=<int>` if your macOS version differs.";
+
 const CAPABILITIES_AFTER_HELP: &str = "\
 OUTPUT:
     Stable formats: --json (default; this is a machine-only command).
@@ -609,6 +613,8 @@ enum InputAction {
         button: String,
         #[arg(long, default_value_t = 1)]
         count: u32,
+        #[arg(long, help = WINDOW_FLAG_HELP)]
+        window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
     },
@@ -620,6 +626,8 @@ enum InputAction {
         y: i32,
         #[arg(long, default_value = "left")]
         button: String,
+        #[arg(long, help = WINDOW_FLAG_HELP)]
+        window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
     },
@@ -631,6 +639,8 @@ enum InputAction {
         y: i32,
         #[arg(long, default_value = "left")]
         button: String,
+        #[arg(long, help = WINDOW_FLAG_HELP)]
+        window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
     },
@@ -640,6 +650,8 @@ enum InputAction {
         conn: ConnectionOptions,
         x: i32,
         y: i32,
+        #[arg(long, help = WINDOW_FLAG_HELP)]
+        window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
     },
@@ -653,6 +665,8 @@ enum InputAction {
         dx: Option<i32>,
         #[arg(long)]
         dy: Option<i32>,
+        #[arg(long, help = WINDOW_FLAG_HELP)]
+        window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
     },
@@ -668,6 +682,8 @@ enum InputAction {
         button: String,
         #[arg(long, default_value_t = 10)]
         steps: u32,
+        #[arg(long, help = WINDOW_FLAG_HELP)]
+        window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
     },
@@ -879,6 +895,7 @@ async fn main() {
                 y,
                 button,
                 count,
+                window,
                 json,
             } => {
                 input_cmds::run_click(
@@ -887,6 +904,7 @@ async fn main() {
                     y,
                     button,
                     count,
+                    window,
                     OutputMode::from_flags(json),
                 )
                 .await
@@ -896,6 +914,7 @@ async fn main() {
                 x,
                 y,
                 button,
+                window,
                 json,
             } => {
                 input_cmds::run_mouse_down(
@@ -903,6 +922,7 @@ async fn main() {
                     x,
                     y,
                     button,
+                    window,
                     OutputMode::from_flags(json),
                 )
                 .await
@@ -912,6 +932,7 @@ async fn main() {
                 x,
                 y,
                 button,
+                window,
                 json,
             } => {
                 input_cmds::run_mouse_up(
@@ -919,12 +940,19 @@ async fn main() {
                     x,
                     y,
                     button,
+                    window,
                     OutputMode::from_flags(json),
                 )
                 .await
             }
-            InputAction::Move { conn, x, y, json } => {
-                input_cmds::run_move(conn.into(), x, y, OutputMode::from_flags(json)).await
+            InputAction::Move {
+                conn,
+                x,
+                y,
+                window,
+                json,
+            } => {
+                input_cmds::run_move(conn.into(), x, y, window, OutputMode::from_flags(json)).await
             }
             InputAction::Scroll {
                 conn,
@@ -932,6 +960,7 @@ async fn main() {
                 y,
                 dx,
                 dy,
+                window,
                 json,
             } => {
                 input_cmds::run_scroll(
@@ -940,6 +969,7 @@ async fn main() {
                     y,
                     dx.unwrap_or(0),
                     dy.unwrap_or(0),
+                    window,
                     OutputMode::from_flags(json),
                 )
                 .await
@@ -952,6 +982,7 @@ async fn main() {
                 to_y,
                 button,
                 steps,
+                window,
                 json,
             } => {
                 input_cmds::run_drag(
@@ -962,6 +993,7 @@ async fn main() {
                     to_y,
                     button,
                     steps,
+                    window,
                     OutputMode::from_flags(json),
                 )
                 .await
