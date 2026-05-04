@@ -20,9 +20,13 @@ pub mod auth;
 pub mod connection;
 pub mod error;
 pub mod framebuffer;
+pub mod input;
+pub mod keymap;
 pub mod proto;
 
 pub use connection::{RfbConnection, ServerEvent};
 pub use error::RfbError;
 pub use framebuffer::Framebuffer;
+pub use input::InputError;
+pub use keymap::{KeymapError, Platform};
 pub use proto::PixelFormat;

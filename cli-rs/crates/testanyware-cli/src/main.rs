@@ -11,7 +11,9 @@
 
 use clap::{Args, Parser, Subcommand};
 
-use testanyware_cli::commands::{agent as agent_cmds, file as file_cmds, screen as screen_cmds};
+use testanyware_cli::commands::{
+    agent as agent_cmds, file as file_cmds, input as input_cmds, screen as screen_cmds,
+};
 use testanyware_cli::discoverability::{run_capabilities, run_llm_instructions, run_schema};
 use testanyware_cli::output::OutputMode;
 use testanyware_cli::resolve::ConnectionOptions as ResolveOptions;
@@ -570,24 +572,32 @@ enum InputAction {
         key: String,
         #[arg(long, value_delimiter = ',')]
         modifiers: Vec<String>,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Press a key (no release)
     KeyDown {
         #[command(flatten)]
         conn: ConnectionOptions,
         key: String,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Release a key
     KeyUp {
         #[command(flatten)]
         conn: ConnectionOptions,
         key: String,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Type a string
     Type {
         #[command(flatten)]
         conn: ConnectionOptions,
         text: String,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Click at a point
     Click {
@@ -599,6 +609,8 @@ enum InputAction {
         button: String,
         #[arg(long, default_value_t = 1)]
         count: u32,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Press a mouse button (no release)
     MouseDown {
@@ -608,6 +620,8 @@ enum InputAction {
         y: i32,
         #[arg(long, default_value = "left")]
         button: String,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Release a mouse button
     MouseUp {
@@ -617,6 +631,8 @@ enum InputAction {
         y: i32,
         #[arg(long, default_value = "left")]
         button: String,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Move the mouse cursor
     Move {
@@ -624,6 +640,8 @@ enum InputAction {
         conn: ConnectionOptions,
         x: i32,
         y: i32,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Scroll at a point
     Scroll {
@@ -635,6 +653,8 @@ enum InputAction {
         dx: Option<i32>,
         #[arg(long)]
         dy: Option<i32>,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
     /// Drag from one point to another
     Drag {
@@ -644,6 +664,12 @@ enum InputAction {
         from_y: i32,
         to_x: i32,
         to_y: i32,
+        #[arg(long, default_value = "left")]
+        button: String,
+        #[arg(long, default_value_t = 10)]
+        steps: u32,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
     },
 }
 
@@ -829,16 +855,117 @@ async fn main() {
             FileAction::Exec(args) => run_exec(args).await,
         },
         Command::Input { action } => match action {
-            InputAction::Key { .. } => unimplemented("input key"),
-            InputAction::KeyDown { .. } => unimplemented("input key-down"),
-            InputAction::KeyUp { .. } => unimplemented("input key-up"),
-            InputAction::Type { .. } => unimplemented("input type"),
-            InputAction::Click { .. } => unimplemented("input click"),
-            InputAction::MouseDown { .. } => unimplemented("input mouse-down"),
-            InputAction::MouseUp { .. } => unimplemented("input mouse-up"),
-            InputAction::Move { .. } => unimplemented("input move"),
-            InputAction::Scroll { .. } => unimplemented("input scroll"),
-            InputAction::Drag { .. } => unimplemented("input drag"),
+            InputAction::Key {
+                conn,
+                key,
+                modifiers,
+                json,
+            } => {
+                input_cmds::run_key(conn.into(), key, modifiers, OutputMode::from_flags(json))
+                    .await
+            }
+            InputAction::KeyDown { conn, key, json } => {
+                input_cmds::run_key_down(conn.into(), key, OutputMode::from_flags(json)).await
+            }
+            InputAction::KeyUp { conn, key, json } => {
+                input_cmds::run_key_up(conn.into(), key, OutputMode::from_flags(json)).await
+            }
+            InputAction::Type { conn, text, json } => {
+                input_cmds::run_type(conn.into(), text, OutputMode::from_flags(json)).await
+            }
+            InputAction::Click {
+                conn,
+                x,
+                y,
+                button,
+                count,
+                json,
+            } => {
+                input_cmds::run_click(
+                    conn.into(),
+                    x,
+                    y,
+                    button,
+                    count,
+                    OutputMode::from_flags(json),
+                )
+                .await
+            }
+            InputAction::MouseDown {
+                conn,
+                x,
+                y,
+                button,
+                json,
+            } => {
+                input_cmds::run_mouse_down(
+                    conn.into(),
+                    x,
+                    y,
+                    button,
+                    OutputMode::from_flags(json),
+                )
+                .await
+            }
+            InputAction::MouseUp {
+                conn,
+                x,
+                y,
+                button,
+                json,
+            } => {
+                input_cmds::run_mouse_up(
+                    conn.into(),
+                    x,
+                    y,
+                    button,
+                    OutputMode::from_flags(json),
+                )
+                .await
+            }
+            InputAction::Move { conn, x, y, json } => {
+                input_cmds::run_move(conn.into(), x, y, OutputMode::from_flags(json)).await
+            }
+            InputAction::Scroll {
+                conn,
+                x,
+                y,
+                dx,
+                dy,
+                json,
+            } => {
+                input_cmds::run_scroll(
+                    conn.into(),
+                    x,
+                    y,
+                    dx.unwrap_or(0),
+                    dy.unwrap_or(0),
+                    OutputMode::from_flags(json),
+                )
+                .await
+            }
+            InputAction::Drag {
+                conn,
+                from_x,
+                from_y,
+                to_x,
+                to_y,
+                button,
+                steps,
+                json,
+            } => {
+                input_cmds::run_drag(
+                    conn.into(),
+                    from_x,
+                    from_y,
+                    to_x,
+                    to_y,
+                    button,
+                    steps,
+                    OutputMode::from_flags(json),
+                )
+                .await
+            }
         },
         Command::Agent { action } => match action {
             AgentAction::Health { conn, json } => {

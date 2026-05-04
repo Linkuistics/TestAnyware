@@ -11,6 +11,7 @@
 
 pub mod agent;
 pub mod file;
+pub mod input;
 pub mod screen;
 
 use testanyware_agent_client::{AgentClient, AgentConfig, AgentError};

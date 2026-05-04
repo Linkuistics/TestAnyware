@@ -1,28 +1,23 @@
-id: session-35
-timestamp: 2026-05-04T10:04:41Z
+id: session-36
+timestamp: 2026-05-04T10:29:25Z
 phase: work
 body: |
-  ### Session 35 (2026-05-04T10:04:41Z) — §4.5 invalid_json token, RFB crate scaffolding, codec licensing
+  ### Session 36 (2026-05-04T10:29:25Z) — RFB input layer and licence fix
 
-  - Completed the `invalid_json` §4.5 canonical token thread end-to-end: Linux agent emits the
-    snake_case token with a `details` field carrying the JSONDecodeError string; the Rust CLI maps
-    it to `AGENT_INVALID_JSON` with a curated "indicates a CLI bug" friendly message; the design
-    contract §4.5 table and the agent contract test were updated in lock-step. `KNOWN_NON_CANONICAL_EXCEPTIONS`
-    is now empty.
-  - Completed the video codec licensing investigation. `docs/architecture/video-codec-licensing.md`
-    establishes a two-tier codec strategy: Tier-1 hardware-accelerated H.264 via OS/platform
-    encoders (no GPL exposure), Tier-2 software AV1 (rav1e/libaom, permissively licensed).
-    libx264 and libx265 are explicitly out of scope to preserve the permissive binary licence.
-    The recording task description was rewritten to cite the document.
-  - Started the RFB client crate. `cli-rs/crates/testanyware-rfb/` was scaffolded and wired into
-    the workspace. `resolve.rs` gained a full `resolve_vnc` chain (spec path, `--vm` lookup,
-    direct `--vnc` endpoint, `TESTANYWARE_VNC_PASSWORD` env var). `commands/screen.rs` and
-    plumbing in `main.rs` land `screen capture` and `screen size` as non-unimplemented dispatch
-    paths. The task is marked blocked — the RFB handshake and pixel reading in `testanyware-rfb`
-    itself are not yet complete.
-  - All three `cargo test --workspace` and `pytest agents/linux/` runs were green at end of session.
+  - Attempted two tasks: fix workspace licence inconsistency (MIT→Apache-2.0) and implement the full RFB input layer with all ten CLI input subcommands.
+  - Both tasks completed. `cargo build --workspace` clean; `cargo test --workspace` shows 210 passing, 6 ignored (pre-existing live-VM tests).
+  - The macOS Cmd/Option keysym swap (Cmd→XK_Alt_L 0xffe9, Option→XK_Meta_L 0xffe7) is locked down by two pinned unit tests and one wire-byte integration test.
+  - `--window` flag deferred: porting `WindowOriginCompensation` (macOS Tahoe drop-shadow inset logic) is its own task, not a small addition.
+  - Live-VM verification for both this task and the parent RFB-client task remains outstanding; requires a session with running golden VMs.
+  - The `useRawKeysyms` env-var branch in the Swift CLI collapses entirely in the Rust port (no ARD wrapper to bypass — keysyms go direct on wire).
 
-  - The `commands/mod.rs` file carries changes from both the `invalid_json` work and the screen
-    module declaration; splitting is not worth the overhead given the coupling.
-  - The task description for the Linux agent named `server.py:26` but the actual path is
-    `testanyware_agent/server.py:26` — a minor planning-phase pointer error, no code impact.
+  ## Key files changed
+
+  - `cli-rs/Cargo.toml`: `license = "MIT"` → `"Apache-2.0"` (propagates via `license.workspace = true` to all five member crates).
+  - `docs/architecture/video-codec-licensing.md`: removed the licence-reconciliation open question; rewrote constraints paragraph.
+  - `cli-rs/crates/testanyware-rfb/src/keymap.rs` (new): 27 X11 keysym constants, `key_for_name`, `modifier_for_name`, `shifted_char_to_base`, mouse helpers, 14 unit tests.
+  - `cli-rs/crates/testanyware-rfb/src/input.rs` (new): high-level helpers on `RfbConnection<T>` — press_key, type_text, click, drag, scroll; 50 ms modifier transition delay for guest parity.
+  - `cli-rs/crates/testanyware-rfb/src/connection.rs`: added `key_event` and `pointer_event` wire methods (RFC 6143 §7.5.4–5).
+  - `cli-rs/crates/testanyware-rfb/tests/input_fixture.rs` (new): 11 wire-byte integration tests using `ScriptedTransport`.
+  - `cli-rs/crates/testanyware-cli/src/commands/input.rs` (new): ten handlers with error-code mapping and coordinate clamping.
+  - `cli-rs/crates/testanyware-cli/src/main.rs`: wired all ten `InputAction` variants (previously `unimplemented`); added `--json`, `--button`, `--steps` flags.

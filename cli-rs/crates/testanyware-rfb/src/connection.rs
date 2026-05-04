@@ -222,6 +222,41 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
         Ok(())
     }
 
+    /// Send a `KeyEvent` (RFB §7.5.4). `down = true` is press,
+    /// `down = false` is release. The keysym is sent unmodified — no
+    /// ARD remapping or platform translation happens here. Callers
+    /// should resolve names via `keymap::key_for_name` first.
+    pub async fn key_event(&mut self, keysym: u32, down: bool) -> Result<(), RfbError> {
+        let mut msg = [0u8; 8];
+        msg[0] = client_msg::KEY_EVENT;
+        msg[1] = if down { 1 } else { 0 };
+        // bytes 2..4 padding
+        msg[4..8].copy_from_slice(&keysym.to_be_bytes());
+        self.transport.write_all(&msg).await?;
+        self.transport.flush().await?;
+        Ok(())
+    }
+
+    /// Send a `PointerEvent` (RFB §7.5.5). `button_mask` is the
+    /// bit-packed state of currently-held buttons (bit 0 = left,
+    /// bit 1 = middle, bit 2 = right; bits 3..6 encode wheel pulses
+    /// as transient down+up edges). `(x, y)` are framebuffer pixels.
+    pub async fn pointer_event(
+        &mut self,
+        button_mask: u8,
+        x: u16,
+        y: u16,
+    ) -> Result<(), RfbError> {
+        let mut msg = [0u8; 6];
+        msg[0] = client_msg::POINTER_EVENT;
+        msg[1] = button_mask;
+        msg[2..4].copy_from_slice(&x.to_be_bytes());
+        msg[4..6].copy_from_slice(&y.to_be_bytes());
+        self.transport.write_all(&msg).await?;
+        self.transport.flush().await?;
+        Ok(())
+    }
+
     /// Read one server message and apply it to internal state.
     pub async fn next_message(&mut self) -> Result<ServerEvent, RfbError> {
         let mut tag = [0u8; 1];
