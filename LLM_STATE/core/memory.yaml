@@ -477,3 +477,35 @@ entries:
   title: macOS /tmp symlink requires resolvingSymlinksInPath in tests
   body: |
     macOS `/tmp` is a symlink to `/private/tmp`. Test path comparisons involving temp file paths require `resolvingSymlinksInPath()` on both sides to avoid false inequality.
+- id: release-doctor-sh-self-enforcing-sentinel-design-intent
+  title: release-doctor.sh self-enforcing sentinel design intent
+  body: |
+    ---
+    name: release-doctor-sh-self-enforcing-sentinel-design-intent
+    description: Strategic intent for release-doctor.sh to self-enforce release-build.sh sentinel floors, separate from testanyware doctor
+    type: project
+    ---
+
+    `release-doctor.sh` currently only prints `swift --version` for visual inspection. The design intent (from session 27 work on release-build.sh sentinels) is that it could be taught to read its sibling `release-build.sh`'s `# testanyware-min-tool:` sentinels and fail fast if a host floor is below them.
+
+    **Why:** This would be a release-pipeline-internal cross-check, independent of `testanyware doctor`. The doctor surface is end-user-oriented; release-doctor.sh is developer/CI-oriented. Two separate enforcement surfaces.
+
+    **How to apply:** When revisiting `scripts/release-doctor.sh`, consider adding a sentinel-validation pass that sources release-build.sh sentinel lines and compares against installed tool versions. This is a shell-script-only change; no Swift/Rust required. Not yet concrete enough for a standalone backlog task — needs a decision on failure mode (hard-fail vs. advisory) and how to extract sentinels in bash.
+- id: more-release-tool-sentinels-follow-on-gh-xz-after-per-tool-probe-lands
+  title: More release-tool sentinels follow-on (gh, xz) after per-tool probe lands
+  body: |
+    ---
+    name: more-release-tool-sentinels-follow-on
+    description: Follow-on work after per-tool version probe is in place — add sentinels for gh, xz, and other release-pipeline tools
+    type: project
+    ---
+
+    Once `add-per-tool-version-probe-customisation-to-provisionerscriptsversioncheck` is done (giving per-tool custom parsers for tools whose `--version` output isn't first-token-parseable), the next step is to add more `# testanyware-min-tool:` sentinels to `scripts/release-build.sh` and potentially `scripts/release-publish.sh`.
+
+    Candidates identified in session 27:
+    - `gh` (used by `release-publish.sh` for GitHub release creation) — needs a minimum version floor documented
+    - `xz` (used for tar packaging in release-build.sh) — needs a minimum version floor documented
+
+    **Why:** Currently only `swift` and `dotnet` have declared floors. Other release-pipeline tools have no automated version-coherence coverage, meaning below-floor installs fail silently at release time rather than being caught by `testanyware doctor` on a dev machine.
+
+    **How to apply:** After the per-tool probe task lands and produces `ok`/`belowFloor` verdicts for swift/dotnet, add a follow-on task to add sentinels for `gh` and `xz` (and any other release tools whose minimum versions can be confidently determined from usage in the scripts).
