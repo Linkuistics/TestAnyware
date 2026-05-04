@@ -124,6 +124,7 @@ fn map_wire_error(wire: &str) -> &'static str {
         "exec_failed" => "EXEC_FAILED",
         "upload_failed" => "UPLOAD_FAILED",
         "download_failed" => "DOWNLOAD_FAILED",
+        "invalid_json" => "AGENT_INVALID_JSON",
         _ => "AGENT_ERROR_UNKNOWN",
     }
 }
@@ -338,6 +339,7 @@ mod tests {
         assert_eq!(map_wire_error("exec_failed"), "EXEC_FAILED");
         assert_eq!(map_wire_error("upload_failed"), "UPLOAD_FAILED");
         assert_eq!(map_wire_error("download_failed"), "DOWNLOAD_FAILED");
+        assert_eq!(map_wire_error("invalid_json"), "AGENT_INVALID_JSON");
         assert_eq!(map_wire_error("anything-else"), "AGENT_ERROR_UNKNOWN");
     }
 

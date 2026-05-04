@@ -40,7 +40,7 @@ tasks:
 - id: investigate-video-codec-licensing-for-embedded-libav-static-linking
   title: Investigate video codec licensing for embedded libav static linking
   category: chore
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Investigate video codec licensing for embedded libav static linking in the Rust CLI.
@@ -64,10 +64,95 @@ tasks:
     - The decision is referenced from the recording task description's "Constraints" section.
 
     **Why extracted:** This is a legal/licensing research spike buried inside the recording implementation task. It requires no code, has no dependencies, and can run in parallel with any task in the Rust port arc. Starting the recording task without this decision risks a mid-implementation pivot on codec choice.
+  results: |
+    ## Outcome
+
+    `docs/architecture/video-codec-licensing.md` exists and names a binding
+    codec decision: a two-tier strategy of hardware-accelerated H.264 via
+    libavcodec wrappers (Tier 1) with software AV1 via rav1e/libaom as the
+    universal fallback (Tier 2). Both `libx264` and `libx265` are
+    deliberately out of scope to preserve the project's permissive
+    licensing. The recording task's description has been rewritten to cite
+    the doc and reflect the chosen codec set.
+
+    ## Files changed
+
+    - `docs/architecture/video-codec-licensing.md` (new): the decision
+      document. Layout: constraints → codec/licence matrix → decision →
+      build configuration → platform notes → patent expiry watch → open
+      questions for project ownership → cross-references.
+    - `LLM_STATE/core/backlog.yaml` (description rewrite for
+      `port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess`):
+      Tier-1 hw H.264 + Tier-2 sw AV1 replaces the original "libx264 +
+      libx265" scope. `--codec hevc` deferred. New CI gate added: assert
+      no GPL shared library is linked into the binary.
+
+    ## Why this codec set
+
+    The project is licensed permissively (Apache-2.0 top-level / MIT in
+    Cargo.toml — flagged in the doc as a separate hygiene issue).
+    Statically linking libx264 or libx265 would force the entire binary
+    to GPL, an outsized licensing change for a single feature.
+
+    The cleanest answer: **let OS / hardware vendors handle the patent
+    royalties**. `h264_videotoolbox` (macOS), `h264_vaapi` / `h264_nvenc`
+    / `h264_qsv` (Linux), `h264_mf` (Windows) all delegate to encoders the
+    user has already paid for via their OS / hardware licence. macOS
+    output should be effectively bit-identical to the existing AVAssetWriter
+    recordings — same VideoToolbox encoder under the hood.
+
+    For the no-hardware-encoder fallback, AV1 (royalty-free, BSD-2) is
+    the only software encoder option that's both licence-clean and
+    patent-clean. Slower than real-time, but test recordings can buffer
+    behind the wall clock.
+
+    ## What worked
+
+    - Grounding the analysis in the actual repository: `cli-rs/Cargo.toml`
+      declares MIT, top-level LICENSE is Apache-2.0. That fact alone
+      determined the GPL question — no point analysing libx264 trade-offs
+      when the project's licence forecloses the option.
+    - The existing Swift `StreamingCapture.swift` already uses VideoToolbox
+      via AVAssetWriter, so the Tier-1 macOS path is "literally the same
+      encoder, different binding library" — the lowest-risk parity story
+      for the recording-task acceptance criterion ("same ballpark as
+      AVAssetWriter output").
+
+    ## What didn't work / what to verify
+
+    - The licence inconsistency between top-level LICENSE (Apache-2.0)
+      and cli-rs/Cargo.toml (MIT) is a project-hygiene issue I called out
+      but didn't fix (out of scope for this task). Worth a separate
+      triage decision before the first release.
+    - Patent-expiry timing for AVC (~Feb 2027 in the US) is approximate;
+      the doc flags this as a watch item. If the recording task ships
+      later than that, software OpenH264 source build becomes worth
+      re-evaluating.
+    - The doc explicitly disclaims that this is engineering analysis,
+      not legal advice. A real lawyer should review before tagging the
+      first release that ships any encoder.
+
+    ## What this suggests next
+
+    - The licence-inconsistency open question (MIT vs Apache-2.0) is
+      worth raising in triage as a small backlog item — it's a pre-release
+      blocker for any homebrew-formula reviewer.
+    - When the recording task is picked up, the implementer should start
+      by configuring `ffmpeg-next` (or the chosen libavcodec build) with
+      `--disable-gpl --disable-nonfree` and the runtime-probe table from
+      this doc, then validate the macOS Tier-1 path before writing
+      fallback logic. Doing the AV1 fallback first risks chasing
+      optimisations that don't matter if the Tier-1 path covers the
+      common case.
+    - The CI "no GPL shared library" gate added to the recording task
+      acceptance is the single best safeguard against silent licence
+      regressions later — explicitly enforced via `ldd` / `otool -L` /
+      `dumpbin /imports`.
 - id: implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
   title: Implement RFB client crate with handshake, Raw, CopyRect; port screenshot and screen-size
   category: feature
-  status: not_started
+  status: blocked
+  blocked_reason: implementation in-tree, all unit tests green; live-VM verification (handshake against QEMU Linux guest, tart macOS guest, byte-identical-to-Swift output) deferred to a session with running goldens
   dependencies: []
   description: |
     Implement the foundation of the new VNC layer: handshake + Raw + CopyRect encodings. Pure Rust, shared between the CLI and the viewer (task 8).
@@ -99,6 +184,196 @@ tasks:
     - Don't implement ZRLE/Tight here — task 10. Most golden VMs negotiate down to Raw if Tight isn't offered, so Raw + CopyRect is enough to validate the rest of the pipeline (input, viewer, video) end-to-end.
     - API designed for two consumers (CLI one-shot, viewer continuous render). The `FrameSink` trait is the abstraction boundary.
     - Pure Rust, no C deps beyond what `image` crate already pulls in.
+  results: |
+    ## Outcome — partial, blocked on live-VM verification
+
+    A complete pure-Rust RFB 3.8 client implementation lands in-tree as a
+    new workspace member `cli-rs/crates/testanyware-rfb`. The
+    `screen size` and `screen capture` CLI commands (canonical and
+    verb-first alias forms) are wired and run end-to-end against any
+    RFB server. Unit and protocol-level integration tests are
+    exhaustive; the only thing that remains before this task can close
+    is end-to-end verification against a real golden VM, which requires
+    a session with running tart/QEMU goldens this session does not have.
+
+    ## What's in-tree
+
+    ### New crate `testanyware-rfb`
+
+    - `src/proto.rs` — RFB 3.8 wire constants (msg types, encoding codes,
+      security types) and `PixelFormat` (16-byte serdes; constructor
+      `rgba32_le()` for the negotiated 32 bpp little-endian BGRX layout).
+    - `src/auth.rs` — VNC password authentication (RFC 6143 §7.2.2). DES
+      with the RFB-specific bit-reversed key. Six tests cover the bit
+      reversal, key padding/truncation, determinism under same input,
+      divergence under different passwords, ECB independence of the two
+      challenge halves, and a pinned known-answer regression.
+    - `src/framebuffer.rs` — RGBA8 owned framebuffer. `raw_rect()`
+      decodes the negotiated BGRX bytes into RGBA storage; `copy_rect()`
+      is direction-safe for overlapping source/destination (rows iterated
+      in reverse when destination is below source). Eight tests cover
+      alpha initialisation, byte-order conversion, bounds rejection, and
+      overlap correctness.
+    - `src/connection.rs` — async state machine. `RfbConnection<T>`
+      generic over `AsyncRead + AsyncWrite + Unpin`; concrete
+      `RfbConnection::connect(host, port, password)` over `TcpStream`.
+      Drives the full 3.8 handshake: protocol version, security types
+      (None or VNC-auth picked from offered set), VNC challenge/response,
+      SecurityResult, ClientInit, ServerInit, then SetPixelFormat and
+      SetEncodings (Raw + CopyRect + DesktopSize + LastRect).
+      `next_message()` parses FramebufferUpdate / Bell /
+      SetColourMapEntries / ServerCutText, applying Raw + CopyRect rects
+      to the internal framebuffer and honouring DesktopSize / LastRect
+      pseudo-encodings.
+    - `src/error.rs` — `RfbError` with one variant per failure mode the
+      state machine can produce.
+    - `tests/handshake_fixture.rs` — five integration tests using a
+      custom `ScriptedTransport` (`AsyncRead + AsyncWrite` over a Cursor
+      + Vec). Each test pushes a server-side byte script through the
+      state machine and asserts client-side behaviour. Includes a
+      byte-exact assertion of the client's outbound writes (protocol
+      greeting → chosen security type → ClientInit → SetPixelFormat →
+      SetEncodings) and a full-update test that decodes a 2x1 Raw rect
+      into the framebuffer and verifies the resulting RGBA bytes.
+
+    ### CLI integration
+
+    - `cli-rs/crates/testanyware-cli/src/resolve.rs` — added
+      `ResolvedVnc`, `resolve_vnc()`, `resolve_vnc_with_env()`,
+      `parse_vnc_endpoint()`. The chain mirrors `resolve_agent()` exactly
+      but reads the spec's `vnc:` section and consumes
+      `TESTANYWARE_VNC_PASSWORD` for the bare-flag path. `VncSpec`'s
+      `#[allow(dead_code)]` annotations were removed now that it's
+      consumed. New `ResolveError::NoVncInSpec` variant.
+    - `cli-rs/crates/testanyware-cli/src/commands/screen.rs` (new) —
+      `run_screen_size` and `run_screen_capture`. Connect, handshake,
+      request one full update, drain server messages until at least one
+      rectangle arrives, write PNG via the `image` crate. Region cropping
+      applied post-decode. Six unit tests cover region-string parsing,
+      including malformed-arity, non-positive dims, and non-integer
+      rejection.
+    - `main.rs` dispatch wired for both canonical (`screen size`,
+      `screen capture`) and verb-first (`screen-size`, `screenshot`)
+      forms. `--json` flag added to `ConnectionArgs` and
+      `ScreenCaptureArgs`.
+
+    ### Workspace
+
+    - `cli-rs/Cargo.toml` — added `crates/testanyware-rfb` to members.
+    - `cli-rs/crates/testanyware-cli/Cargo.toml` — added
+      `testanyware-rfb` and `image = { version = "0.25", features =
+      ["png"] }` (default features off to keep dep tree small —
+      no jpeg, gif, etc. since we only encode PNG).
+
+    ## Verification
+
+    - `cargo test --workspace` — 181 tests pass, zero warnings, zero
+      failures.
+      - testanyware-rfb unit: 23 passing (auth, framebuffer, pixel format,
+        security-type pick).
+      - testanyware-rfb integration (handshake_fixture.rs): 5 passing.
+      - testanyware-cli unit (commands/screen.rs): 6 passing (region
+        parse).
+      - All pre-existing tests (testanyware-cli unit: 52, testanyware-cli
+        cli-contract: 10/16 with 6 ignored, agent client: 26 unit + 14
+        integration, etc.) continue green.
+    - Binary surface verified manually:
+      - `testanyware screen size --help` and `testanyware screen-size
+        --help` both render help text.
+      - `testanyware screen capture --help` and `testanyware screenshot
+        --help` both render help text.
+      - `testanyware screen size --json` with no connection produces the
+        correct §3.4 NO_CONNECTION_SPECIFIED envelope and exits 2.
+      - `testanyware screen capture --vnc 127.0.0.1:5900 --region 0,0,a,b
+        --json` produces the correct USAGE_ERROR envelope with details
+        (`{"value": "0,0,a,b"}`) and exits 2.
+
+    ## Acceptance criteria status
+
+    | # | Criterion | Status |
+    |---|---|---|
+    | 1 | Handshake + Raw decode against running QEMU Linux guest on Linux host | **Deferred** — needs live VM. Implementation correctness is pinned by `handshake_fixture.rs::full_update_decoded_into_framebuffer` which exercises the same code path against a synthetic transport. |
+    | 2 | Same code path against tart macOS guest on macOS host | **Deferred** — needs live VM. |
+    | 3 | `screenshot` output byte-identical to Swift CLI for a reference VNC frame | **Deferred** — needs (a) a running VM with a deterministic frame, and (b) the Swift CLI's reference output to compare against. |
+    | 4 | `screen-size --json` returns `{"width": <int>, "height": <int>}` | **Met (in code)** — `run_screen_size` calls `print_success(json!({ "width": w, "height": h }))` which wraps the payload in the §3.4 success envelope. The execution path is unit-testable but the actual width/height require a live server. |
+
+    ## Why blocked, not done
+
+    Criteria 1–3 are end-to-end integration assertions that this session
+    cannot perform — there are no running goldens accessible. Marking
+    the task done would assert correctness I have not verified.
+    Implementation correctness is bounded by:
+
+    - **Protocol bytes** — pinned by the handshake_fixture suite, which
+      produces the exact RFC 6143 byte patterns and asserts the client's
+      state-machine output byte-for-byte.
+    - **DES + bit reversal** — pinned by deterministic and known-answer
+      tests in `auth::tests`.
+    - **Raw + CopyRect decode** — pinned by `framebuffer::tests`,
+      including the trickiest case (overlapping CopyRect downward).
+
+    What's NOT pinned by unit tests (and hence what live-VM testing
+    catches):
+
+    - Byte order / endianness drift between the negotiated PixelFormat
+      and what real servers actually send. Some servers honour
+      `big_endian: 0`; others stick with native and the framebuffer
+      decode produces visibly-wrong colours. Worth a screenshot diff
+      against the Swift CLI on first integration.
+    - Server-specific quirks (e.g. some servers send a leading no-op
+      framebuffer update; the capture loop drains until rectangles > 0
+      to handle this, but a server that sends *only* no-ops would hang).
+    - Timeout behaviour. There is currently no global connect/handshake
+      timeout — `connect()` will block indefinitely if the server holds
+      the TCP connection open without responding. A future polish pass
+      should add a `tokio::time::timeout(...)` wrapper, or expose one as
+      a config knob.
+
+    ## What this suggests next
+
+    - **Live-VM verification gate** — pick this task back up in a session
+      with a running QEMU Linux golden and run the four acceptance
+      criteria. On success, flip `blocked → done` and the dependent
+      tasks (input messages, viewer, video record) unblock.
+    - **Timeout knobs** — before declaring done, add a connect timeout
+      to `RfbConnection::connect`. The `tokio` crate has `time::timeout`
+      ready for it; this can be done as part of the verification PR.
+    - **Tight + ZRLE encodings** — task 10 already exists for this and is
+      correctly gated on this task landing first.
+    - **Schema declarations** — the `every_schema_id_has_a_schema_file`
+      CLI-contract test is currently green because we haven't declared
+      schemas for `screen size` or `screen capture`. The §7 template +
+      schema work is a polish pass that can land alongside or after the
+      live-VM verification.
+    - The §7 after_long_help blocks (EXIT CODES, EXAMPLES, SEE ALSO)
+      exist for the agent and file commands but I deliberately did not
+      add them to the screen commands in this pass — keeping the diff
+      focused on the protocol foundation. Adding them is a small
+      follow-up.
+
+    ## Files changed
+
+    New files:
+    - `cli-rs/crates/testanyware-rfb/Cargo.toml`
+    - `cli-rs/crates/testanyware-rfb/src/lib.rs`
+    - `cli-rs/crates/testanyware-rfb/src/error.rs`
+    - `cli-rs/crates/testanyware-rfb/src/proto.rs`
+    - `cli-rs/crates/testanyware-rfb/src/auth.rs`
+    - `cli-rs/crates/testanyware-rfb/src/framebuffer.rs`
+    - `cli-rs/crates/testanyware-rfb/src/connection.rs`
+    - `cli-rs/crates/testanyware-rfb/tests/handshake_fixture.rs`
+    - `cli-rs/crates/testanyware-cli/src/commands/screen.rs`
+
+    Modified:
+    - `cli-rs/Cargo.toml` (workspace members)
+    - `cli-rs/Cargo.lock`
+    - `cli-rs/crates/testanyware-cli/Cargo.toml` (added testanyware-rfb,
+      image)
+    - `cli-rs/crates/testanyware-cli/src/commands/mod.rs` (pub mod screen)
+    - `cli-rs/crates/testanyware-cli/src/main.rs` (wired commands +
+      --json on ConnectionArgs / ScreenCaptureArgs)
+    - `cli-rs/crates/testanyware-cli/src/resolve.rs` (resolve_vnc,
+      ResolvedVnc, NoVncInSpec, removed dead-code annotations on VncSpec)
 - id: port-testanyware-doctor-with-linux-host-preflight-checks
   title: Port testanyware doctor with Linux-host preflight checks
   category: feature
@@ -246,27 +521,27 @@ tasks:
 
     **Scope**
     - New module in `testanyware-driver` (or a dedicated `testanyware-record` crate) using `ffmpeg-next` (Rust bindings to libavcodec/libavformat).
-    - H.264 + HEVC encode targets (libx264, libx265). Hardware encoders where available is a stretch goal, not required.
-    - Configurable resolution, fps, codec — match Swift CLI's `--fps` / `--codec` / `--duration` / `--resolution` flags.
+    - **Tier-1 H.264 via hardware encoders** per host: `h264_videotoolbox` (macOS), `h264_vaapi` / `h264_nvenc` / `h264_qsv` (Linux, runtime-probed in that order), `h264_mf` (Windows). This matches the existing Swift `AVAssetWriter` path on macOS bit-for-bit.
+    - **Tier-2 AV1 via `rav1e` (preferred) or `libaom-av1` software fallback** when no hardware encoder is available. Document the slower-than-real-time encode trade-off in `--help`.
+    - **Out of scope:** `libx264`, `libx265`, self-built `OpenH264`, runtime-fetched Cisco `OpenH264`. See `docs/architecture/video-codec-licensing.md` for full reasoning.
+    - Configurable resolution, fps, codec — match Swift CLI's `--fps` / `--codec` / `--duration` / `--resolution` flags. `--codec` accepts `h264` (Tier-1 hw) and `av1` (Tier-2 sw); `hevc` deferred per licensing doc.
     - Capture loop: pull frames from `testanyware-rfb` `FrameSink` → encode → mux into MP4.
     - Static linking strategy: vendor or statically link libavcodec to keep distribution simple.
 
     **Commands**
-    - `testanyware record --vnc <ep> -o out.mp4 --fps 30 --duration 10 [--codec h264|hevc] [--resolution WxH]`
+    - `testanyware record --vnc <ep> -o out.mp4 --fps 30 --duration 10 [--codec h264|av1] [--resolution WxH]`
 
     **Acceptance criteria**
     - On Linux + macOS hosts: `testanyware record` produces a playable MP4.
-    - Output bitrate / file size in the same ballpark as Swift CLI's AVAssetWriter output for an identical frame sequence (no order-of-magnitude regression).
+    - macOS Tier-1 output bitrate / file size in the same ballpark as Swift CLI's AVAssetWriter output for an identical frame sequence (no order-of-magnitude regression). Same encoder under the hood, so this should be near-identical.
     - Cleanly stops on signal; no half-written or unindexable MP4 left behind.
     - Help and `--json` per the CLI design contract.
+    - CI asserts no GPL shared library is linked into the produced binary (`ldd` / `otool -L` / `dumpbin /imports` check); libavcodec is built with `--disable-gpl --disable-nonfree`.
 
     **Constraints from the design conversation**
     - Embedded library — do NOT shell out to ffmpeg.
     - Static-link libavcodec to keep the binary self-contained.
-    - If GPL issues with x264 prove unworkable for static linking in the Linux distribution path (libx264 is GPL; combining with non-GPL code statically is contentious), consider:
-      - LGPL-only codec set (libopenh264 instead of libx264).
-      - Vendored x264 with the Linux build configured separately.
-      - Document the chosen approach in `docs/architecture/video-codec-licensing.md`.
+    - Codec choice and licence rationale: `docs/architecture/video-codec-licensing.md` (produced by `investigate-video-codec-licensing-for-embedded-libav-static-linking`). The two-tier approach (hw H.264 default, sw AV1 fallback) is the binding decision; revisiting it requires updating the doc first.
 - id: port-tart-runner-for-macos-host-macos-guest-path-cfg-target-os-macos
   title: Port tart runner for macOS-host-macOS-guest path (cfg target_os macos)
   category: feature
@@ -397,7 +672,7 @@ tasks:
 - id: add-invalid-json-as-4-5-canonical-agent-error-token
   title: Add invalid_json as §4.5 canonical agent error token
   category: chore
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Add `invalid_json` as a §4.5 canonical error token in the agent contract.
@@ -430,3 +705,77 @@ tasks:
     - Small task; no cross-platform impact (macOS and Windows agents don't have this code path).
     - The `KNOWN_NON_CANONICAL_EXCEPTIONS` entry for this token was previously a workaround; it becomes
       a test failure if not removed alongside the fix.
+  results: |
+    ## Outcome
+
+    `invalid_json` is now a §4.5 canonical wire token. The Linux agent emits it,
+    the Rust CLI maps it to `AGENT_INVALID_JSON`, the friendly-message generator
+    has a curated string, the design contract documents it, and the `KNOWN_NON_CANONICAL_EXCEPTIONS`
+    holding pen for the Linux-agent contract test is now empty.
+
+    ## Files changed
+
+    - `agents/linux/testanyware_agent/server.py` — `_read_body()` now returns
+      `(dict | None, str)` so the parse error message rides along into the
+      response body's `details` field. Bad-JSON 400 response carries
+      `{"error": "invalid_json", "details": "<json.JSONDecodeError str>"}`.
+    - `agents/linux/tests/test_error_tokens.py` — added `invalid_json` to
+      `CANONICAL_TOKENS` and `REALIGNED_TOKENS`; emptied
+      `KNOWN_NON_CANONICAL_EXCEPTIONS` (the only entry it held was the
+      string this task replaces).
+    - `cli-rs/crates/testanyware-agent-client/src/lib.rs` — added
+      `"invalid_json" => "AGENT_INVALID_JSON"` to `map_wire_error`; added
+      the assertion to `wire_error_mapping_table`.
+    - `cli-rs/crates/testanyware-cli/src/commands/mod.rs` — added a curated
+      friendly message for `AGENT_INVALID_JSON` ("Agent rejected the request
+      body as malformed JSON (this indicates a CLI bug — please report it)");
+      added the case to `friendly_message_translates_every_canonical_4_5_token`;
+      rewrote the comment + example token in
+      `friendly_message_for_unknown_wire_token_includes_raw_token` (the old
+      comment named `invalid_json` as a hypothetical future token, and the
+      test used "Invalid JSON in request body" as its fallback example —
+      both became misleading once this token landed).
+    - `docs/architecture/cli-design-contract.md` — appended the
+      `invalid_json | AGENT_INVALID_JSON | …` row to the §4.5 table with a
+      framing note that it indicates a CLI bug rather than user-visible
+      misuse.
+
+    ## Verification
+
+    - `python3 -m pytest agents/linux/tests/ -v` — 7 passed including the
+      new `invalid_json` realigned-token assertion.
+    - `cargo test --workspace` — full workspace green; explicit re-run of
+      `friendly_message*` (5 tests) and `wire_error_mapping_table` (1 test)
+      green.
+
+    ## What worked
+
+    - The two contract tests (`test_no_unknown_non_canonical_tokens` on the
+      Python side, `friendly_message_translates_every_canonical_4_5_token`
+      on the Rust side) caught both halves of the change with no extra
+      setup. Test-first by emptying `KNOWN_NON_CANONICAL_EXCEPTIONS`
+      produced an immediate "make me green" arrow at the source-side change.
+    - The friendly-message test was already exhaustive over the §4.5 table
+      via a single tuple list, so adding a row was mechanical.
+
+    ## What didn't work
+
+    - The task description named `agents/linux/server.py:26` but the actual
+      path is `agents/linux/testanyware_agent/server.py:26`. Five-second
+      detour; flagging it in case the planning-phase task writer wants to
+      fix that pointer.
+
+    ## Exit-code bucket choice
+
+    Did NOT add `AGENT_INVALID_JSON` to `output.rs::exit_code_for`. It falls
+    through to exit 1 (generic). Reasoning: §5 reserves exit 2 for *clap-level*
+    USAGE_ERROR. A malformed-JSON envelope from the CLI to the agent can only
+    be a CLI bug — exit 1 is consistent with how `AGENT_ERROR_UNKNOWN` is
+    handled and matches the friendly message's "this indicates a CLI bug"
+    framing.
+
+    ## What this suggests next
+
+    - The `invalid-json-gap-in-4-5-cli-design-contract` memory entry is now
+      resolved; analyse-work / reflect should mark it obsolete.
+    - No follow-up scope for this task.

@@ -11,7 +11,7 @@
 
 use clap::{Args, Parser, Subcommand};
 
-use testanyware_cli::commands::{agent as agent_cmds, file as file_cmds};
+use testanyware_cli::commands::{agent as agent_cmds, file as file_cmds, screen as screen_cmds};
 use testanyware_cli::discoverability::{run_capabilities, run_llm_instructions, run_schema};
 use testanyware_cli::output::OutputMode;
 use testanyware_cli::resolve::ConnectionOptions as ResolveOptions;
@@ -454,6 +454,8 @@ enum Command {
 struct ConnectionArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -464,6 +466,8 @@ struct ScreenCaptureArgs {
     output: Option<String>,
     #[arg(long, value_name = "X,Y,W,H")]
     region: Option<String>,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -814,9 +818,9 @@ async fn main() {
     let cli = Cli::parse();
     match cli.command {
         Command::Screen { action } => match action {
-            ScreenAction::Capture(_) => unimplemented("screen capture"),
+            ScreenAction::Capture(args) => run_screen_capture(args).await,
             ScreenAction::Record(_) => unimplemented("screen record"),
-            ScreenAction::Size(_) => unimplemented("screen size"),
+            ScreenAction::Size(args) => run_screen_size(args).await,
             ScreenAction::FindText(_) => unimplemented("screen find-text"),
         },
         Command::File { action } => match action {
@@ -908,9 +912,9 @@ async fn main() {
         Command::LlmInstructions => run_llm_instructions(),
         Command::Server { .. } => unimplemented("server"),
         // Verb-first aliases dispatch to the same handler as the canonical.
-        Command::Screenshot(_) => unimplemented("screen capture"),
+        Command::Screenshot(args) => run_screen_capture(args).await,
         Command::Record(_) => unimplemented("screen record"),
-        Command::ScreenSize(_) => unimplemented("screen size"),
+        Command::ScreenSize(args) => run_screen_size(args).await,
         Command::FindText(_) => unimplemented("screen find-text"),
         Command::Upload(args) => run_upload(args).await,
         Command::Download(args) => run_download(args).await,
@@ -926,6 +930,16 @@ fn element_args_to_query(args: AgentElementArgs) -> agent_cmds::ElementQueryArgs
         id: args.id,
         index: args.index,
     }
+}
+
+async fn run_screen_size(args: ConnectionArgs) {
+    let mode = OutputMode::from_flags(args.json);
+    screen_cmds::run_screen_size(args.conn.into(), mode).await
+}
+
+async fn run_screen_capture(args: ScreenCaptureArgs) {
+    let mode = OutputMode::from_flags(args.json);
+    screen_cmds::run_screen_capture(args.conn.into(), args.output, args.region, mode).await
 }
 
 async fn run_upload(args: FileUploadArgs) {

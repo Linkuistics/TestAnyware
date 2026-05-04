@@ -282,6 +282,7 @@ the host CLI maps them 1:1 to a `code`.
 | `exec_failed` | `EXEC_FAILED` | Process failed to spawn (exit codes are returned in the receipt, not via this error). |
 | `upload_failed` | `UPLOAD_FAILED` | File I/O error on the VM during upload. |
 | `download_failed` | `DOWNLOAD_FAILED` | File I/O error on the VM during download. |
+| `invalid_json` | `AGENT_INVALID_JSON` | Agent could not parse the request body as JSON. Indicates a CLI bug — agents do not generate this for valid client traffic. |
 
 The Linux and Windows agent ports MUST be brought into line with the
 table above as part of the per-platform agent backlog work; the host

@@ -654,3 +654,31 @@ sessions:
     - swtpm task was pre-verified complete on `main` (commit `5a1017f` already moved sockets to `$TMPDIR`); 420 Swift tests + both QEMU integration tests passed on this host.
     - What this suggests next: the OCR client plugs in as soon as the RFB client lands (`implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size`); `screen find-text` remains stubbed until then.
     - Key learning: the `AGENT_ERROR_UNKNOWN` curated message is the *only* user-visible surface where the raw wire token is intentionally preserved (diagnostic searchability); all other curated codes suppress the snake_case token entirely. The `None` fallback path preserves diagnostic context (`AgentError` Display impl) for transport-layer codes that the curated messages would lose.
+- id: session-35
+  timestamp: 2026-05-04T10:04:41Z
+  phase: work
+  body: |
+    ### Session 35 (2026-05-04T10:04:41Z) — §4.5 invalid_json token, RFB crate scaffolding, codec licensing
+
+    - Completed the `invalid_json` §4.5 canonical token thread end-to-end: Linux agent emits the
+      snake_case token with a `details` field carrying the JSONDecodeError string; the Rust CLI maps
+      it to `AGENT_INVALID_JSON` with a curated "indicates a CLI bug" friendly message; the design
+      contract §4.5 table and the agent contract test were updated in lock-step. `KNOWN_NON_CANONICAL_EXCEPTIONS`
+      is now empty.
+    - Completed the video codec licensing investigation. `docs/architecture/video-codec-licensing.md`
+      establishes a two-tier codec strategy: Tier-1 hardware-accelerated H.264 via OS/platform
+      encoders (no GPL exposure), Tier-2 software AV1 (rav1e/libaom, permissively licensed).
+      libx264 and libx265 are explicitly out of scope to preserve the permissive binary licence.
+      The recording task description was rewritten to cite the document.
+    - Started the RFB client crate. `cli-rs/crates/testanyware-rfb/` was scaffolded and wired into
+      the workspace. `resolve.rs` gained a full `resolve_vnc` chain (spec path, `--vm` lookup,
+      direct `--vnc` endpoint, `TESTANYWARE_VNC_PASSWORD` env var). `commands/screen.rs` and
+      plumbing in `main.rs` land `screen capture` and `screen size` as non-unimplemented dispatch
+      paths. The task is marked blocked — the RFB handshake and pixel reading in `testanyware-rfb`
+      itself are not yet complete.
+    - All three `cargo test --workspace` and `pytest agents/linux/` runs were green at end of session.
+
+    - The `commands/mod.rs` file carries changes from both the `invalid_json` work and the screen
+      module declaration; splitting is not worth the overhead given the coupling.
+    - The task description for the Linux agent named `server.py:26` but the actual path is
+      `testanyware_agent/server.py:26` — a minor planning-phase pointer error, no code impact.

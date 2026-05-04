@@ -28,18 +28,14 @@ CANONICAL_TOKENS: frozenset[str] = frozenset({
     "exec_failed",
     "upload_failed",
     "download_failed",
+    "invalid_json",
 })
 
 # Tokens emitted by Linux agent source today that are NOT in §4.5.
 # Each entry must be justified — typically a transitional human-readable
 # string predating the §4.5 effort. Adding to this set is a deliberate
 # design decision; do not extend casually.
-KNOWN_NON_CANONICAL_EXCEPTIONS: frozenset[str] = frozenset({
-    # server.py: emitted when the request body is not parseable JSON.
-    # Predates §4.5 tokenisation. Candidate for a future `invalid_json`
-    # canonical token in the design contract.
-    "Invalid JSON in request body",
-})
+KNOWN_NON_CANONICAL_EXCEPTIONS: frozenset[str] = frozenset()
 
 # Subset of §4.5 that the realignment work has actually wired up in
 # the Linux agent. These tokens MUST be present in source — losing
@@ -49,6 +45,7 @@ REALIGNED_TOKENS: frozenset[str] = frozenset({
     "ambiguous",
     "window_not_found",
     "download_failed",
+    "invalid_json",
 })
 
 AGENT_ROOT = Path(__file__).resolve().parent.parent / "testanyware_agent"

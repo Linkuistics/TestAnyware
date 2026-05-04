@@ -11,6 +11,7 @@
 
 pub mod agent;
 pub mod file;
+pub mod screen;
 
 use testanyware_agent_client::{AgentClient, AgentConfig, AgentError};
 
@@ -120,6 +121,10 @@ pub fn friendly_message_for(code: &str, err: &AgentError) -> Option<String> {
         "DOWNLOAD_FAILED" => Some(with_detail(
             "Download failed on the target VM",
         )),
+        "AGENT_INVALID_JSON" => Some(with_detail(
+            "Agent rejected the request body as malformed JSON \
+             (this indicates a CLI bug — please report it)",
+        )),
         "AGENT_ERROR_UNKNOWN" => match err {
             AgentError::Wire { wire_error, .. } => Some(with_detail(&format!(
                 "Agent reported an unrecognised error ({wire_error})"
@@ -198,6 +203,12 @@ mod tests {
             ("exec_failed", "EXEC_FAILED", "Process failed to spawn on the target VM"),
             ("upload_failed", "UPLOAD_FAILED", "Upload failed on the target VM"),
             ("download_failed", "DOWNLOAD_FAILED", "Download failed on the target VM"),
+            (
+                "invalid_json",
+                "AGENT_INVALID_JSON",
+                "Agent rejected the request body as malformed JSON \
+                 (this indicates a CLI bug — please report it)",
+            ),
         ];
         for (token, expected_code, expected_msg) in cases {
             let err = wire(token, None);
@@ -235,13 +246,15 @@ mod tests {
         // details.wire_error. The friendly message also names the raw
         // token so the user can search for it; this is the *only*
         // canonical user-visible surface where the raw token appears.
-        // The Linux agent's "Invalid JSON in request body" path takes
-        // exactly this route until §4.5 grows an `invalid_json` token.
-        let err = wire("Invalid JSON in request body", None);
+        // Use a token that is deliberately not in the §4.5 mapping
+        // table — adding a new canonical token would silently break
+        // this test if it picked an existing or soon-to-exist mapping.
+        let unknown = "totally_made_up_token";
+        let err = wire(unknown, None);
         assert_eq!(err.code(), "AGENT_ERROR_UNKNOWN");
         let friendly = friendly_message_for(err.code(), &err).unwrap();
         assert!(
-            friendly.contains("Invalid JSON in request body"),
+            friendly.contains(unknown),
             "AGENT_ERROR_UNKNOWN friendly message must surface the raw \
              token for diagnostics: got {friendly:?}"
         );

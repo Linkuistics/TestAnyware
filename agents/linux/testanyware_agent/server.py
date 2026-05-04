@@ -21,9 +21,9 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": f"Not found: {self.path}"})
 
     def do_POST(self) -> None:
-        body = self._read_body()
+        body, parse_error = self._read_body()
         if body is None:
-            self._send_json(400, {"error": "Invalid JSON in request body"})
+            self._send_json(400, {"error": "invalid_json", "details": parse_error})
             return
 
         routes: dict[str, object] = {
@@ -57,15 +57,15 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
         except Exception as e:
             self._send_json(500, {"error": str(e)})
 
-    def _read_body(self) -> dict | None:
+    def _read_body(self) -> tuple[dict | None, str]:
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
-            return {}
+            return {}, ""
         raw = self.rfile.read(content_length)
         try:
-            return json.loads(raw)
-        except (json.JSONDecodeError, ValueError):
-            return None
+            return json.loads(raw), ""
+        except (json.JSONDecodeError, ValueError) as e:
+            return None, str(e)
 
     def _send_json(self, status: int, body: dict) -> None:
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8")

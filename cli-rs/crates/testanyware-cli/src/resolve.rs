@@ -42,6 +42,19 @@ impl ResolvedAgent {
     pub const DEFAULT_PORT: u16 = 8648;
 }
 
+/// Resolved VNC endpoint. Surfaced for `screen size`, `screen capture`,
+/// and the `input` family of commands once they land.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedVnc {
+    pub host: String,
+    pub port: u16,
+    pub password: Option<String>,
+}
+
+impl ResolvedVnc {
+    pub const DEFAULT_PORT: u16 = 5900;
+}
+
 /// On-disk per-VM spec file. Mirrors Swift's `ConnectionSpec` JSON layout.
 #[derive(Debug, Clone, Deserialize)]
 pub struct ConnectionSpec {
@@ -57,12 +70,9 @@ pub struct ConnectionSpec {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct VncSpec {
-    #[allow(dead_code)]
     pub host: String,
-    #[allow(dead_code)]
     pub port: u16,
     #[serde(default)]
-    #[allow(dead_code)]
     pub password: Option<String>,
 }
 
@@ -88,6 +98,9 @@ pub enum ResolveError {
 
     #[error("Connection spec at {path} has no `agent` section; this command requires the in-VM agent")]
     NoAgentInSpec { path: PathBuf },
+
+    #[error("Connection spec at {path} has no `vnc` section; this command requires a VNC endpoint")]
+    NoVncInSpec { path: PathBuf },
 
     #[error("Failed to read spec file {path}: {source}")]
     SpecRead {
@@ -117,6 +130,7 @@ impl ResolveError {
             ResolveError::NoConnectionSpecified => "NO_CONNECTION_SPECIFIED",
             ResolveError::VmNotFound { .. } => "VM_NOT_FOUND",
             ResolveError::NoAgentInSpec { .. } => "NO_CONNECTION_SPECIFIED",
+            ResolveError::NoVncInSpec { .. } => "NO_CONNECTION_SPECIFIED",
             ResolveError::SpecRead { .. } => "IO_ERROR",
             ResolveError::SpecParse { .. } => "IO_ERROR",
             ResolveError::InvalidEndpoint { .. } => "INVALID_ENDPOINT",
@@ -130,6 +144,7 @@ impl ResolveError {
             ResolveError::VmNotFound { .. } => 3,
             ResolveError::NoConnectionSpecified
             | ResolveError::NoAgentInSpec { .. }
+            | ResolveError::NoVncInSpec { .. }
             | ResolveError::InvalidEndpoint { .. } => 2,
             _ => 1,
         }
@@ -145,6 +160,9 @@ impl ResolveError {
             ResolveError::NoAgentInSpec { path } => serde_json::json!({
                 "spec_path": path.display().to_string(),
             }),
+            ResolveError::NoVncInSpec { path } => serde_json::json!({
+                "spec_path": path.display().to_string(),
+            }),
             ResolveError::SpecRead { path, .. } | ResolveError::SpecParse { path, .. } => {
                 serde_json::json!({ "spec_path": path.display().to_string() })
             }
@@ -155,6 +173,109 @@ impl ResolveError {
             _ => serde_json::Value::Null,
         }
     }
+}
+
+/// Run the resolution chain to produce an addressable VNC endpoint.
+/// The chain mirrors `resolve_agent` but consumes the `vnc` section
+/// from spec files and the `--vnc` / `TESTANYWARE_VNC` direct flag.
+pub fn resolve_vnc(opts: &ConnectionOptions) -> Result<ResolvedVnc, ResolveError> {
+    resolve_vnc_with_env(opts, &EnvProvider::process())
+}
+
+pub fn resolve_vnc_with_env(
+    opts: &ConnectionOptions,
+    env: &EnvProvider,
+) -> Result<ResolvedVnc, ResolveError> {
+    if let Some(path) = &opts.connect {
+        let spec_path = expand_tilde(path, env);
+        return load_vnc_from_spec(&spec_path);
+    }
+    if let Some(id) = &opts.vm {
+        let spec_path = vms_dir(env)?.join(format!("{id}.json"));
+        if !spec_path.is_file() {
+            return Err(ResolveError::VmNotFound {
+                id: id.clone(),
+                path: spec_path,
+            });
+        }
+        return load_vnc_from_spec(&spec_path);
+    }
+    if let Some(endpoint) = &opts.vnc {
+        let mut resolved = parse_vnc_endpoint(endpoint)?;
+        // The TESTANYWARE_VNC_PASSWORD env var may carry the password
+        // when --vnc / TESTANYWARE_VNC carry only `host:port`.
+        if resolved.password.is_none() {
+            if let Some(pw) = env.get("TESTANYWARE_VNC_PASSWORD") {
+                if !pw.is_empty() {
+                    resolved.password = Some(pw);
+                }
+            }
+        }
+        return Ok(resolved);
+    }
+    Err(ResolveError::NoConnectionSpecified)
+}
+
+fn load_vnc_from_spec(path: &std::path::Path) -> Result<ResolvedVnc, ResolveError> {
+    let bytes = std::fs::read(path).map_err(|source| ResolveError::SpecRead {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let spec: ConnectionSpec =
+        serde_json::from_slice(&bytes).map_err(|source| ResolveError::SpecParse {
+            path: path.to_path_buf(),
+            source,
+        })?;
+    let vnc = spec.vnc.ok_or_else(|| ResolveError::NoVncInSpec {
+        path: path.to_path_buf(),
+    })?;
+    Ok(ResolvedVnc {
+        host: vnc.host,
+        port: vnc.port,
+        password: vnc.password,
+    })
+}
+
+/// Parse a `host:port` endpoint with no embedded password (port
+/// optional, defaults to 5900).
+pub fn parse_vnc_endpoint(value: &str) -> Result<ResolvedVnc, ResolveError> {
+    let (host, port) = match value.rsplit_once(':') {
+        Some((h, p)) => {
+            if h.is_empty() {
+                return Err(ResolveError::InvalidEndpoint {
+                    value: value.to_string(),
+                    reason: "host is empty".into(),
+                });
+            }
+            let port: u16 = p
+                .parse()
+                .map_err(|_| ResolveError::InvalidEndpoint {
+                    value: value.to_string(),
+                    reason: format!("invalid port '{p}'; expected 1..=65535"),
+                })?;
+            if port == 0 {
+                return Err(ResolveError::InvalidEndpoint {
+                    value: value.to_string(),
+                    reason: "port must be 1..=65535".into(),
+                });
+            }
+            (h.to_string(), port)
+        }
+        None => {
+            if value.is_empty() {
+                return Err(ResolveError::InvalidEndpoint {
+                    value: value.to_string(),
+                    reason: "host is empty".into(),
+                });
+            }
+            (value.to_string(), ResolvedVnc::DEFAULT_PORT)
+        }
+    };
+    Ok(ResolvedVnc {
+        host,
+        port,
+        password: None,
+    })
 }
 
 /// Run the resolution chain to produce an addressable agent endpoint.
