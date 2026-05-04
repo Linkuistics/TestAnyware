@@ -135,6 +135,41 @@ tasks:
     **Notes:**
     - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — "Suggestions for next session" item 2.
     - Keep test scope narrow: the agent's HTTP server doesn't need to be spun up — unit tests mocking the AT-SPI2 layer or driving response-construction functions directly are sufficient to cover the token emission paths.
+- id: implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
+  title: Implement RFB client crate with handshake, Raw, CopyRect; port screenshot and screen-size
+  category: feature
+  status: not_started
+  dependencies: []
+  description: |
+    Implement the foundation of the new VNC layer: handshake + Raw + CopyRect encodings. Pure Rust, shared between the CLI and the viewer (task 8).
+
+    **Why pure Rust:** royalvnc FFI was considered but ruled out — Swift toolchain on Linux is a non-starter for the primary host platform.
+
+    **Scope**
+    - New crate: `testanyware-rfb`. RFB protocol per RFC 6143.
+    - Security types: None, VNC password.
+    - Encodings: Raw, CopyRect.
+    - Pseudo-encodings: DesktopSize, LastRect.
+    - Pixel format negotiation.
+    - Framebuffer abstraction with a `FrameSink` trait — separates protocol from output target. Same crate consumed by:
+      - CLI: `FrameSink` writes one PNG to disk and disconnects (`testanyware screenshot`).
+      - Viewer (task 8): `FrameSink` blits into a wgpu texture, stays connected.
+    - API sketch: `RfbConnection::connect(host, port, password) -> Result<Self>`, `.request_update()`, `.next_message()`.
+
+    **Commands**
+    - `testanyware screenshot --vnc <ep> [-o out.png] [--region x,y,w,h] [--json]`
+    - `testanyware screen-size --vnc <ep> [--json]`
+
+    **Acceptance criteria — spike-as-first-test**
+    1. Connects to a running QEMU Linux guest on a Linux host, completes RFB handshake with password auth, requests one framebuffer update, decodes a Raw-encoded rectangle, writes a PNG that opens correctly.
+    2. Same code path works on a macOS host against a tart macOS guest (validates two host OSes and the least-common-denominator encoding).
+    3. `testanyware screenshot` output is byte-identical to the Swift CLI for an identical VNC frame (use a deterministic reference VM frame as fixture).
+    4. `testanyware screen-size --json` returns `{"width": <int>, "height": <int>}` per the CLI design contract.
+
+    **Constraints**
+    - Don't implement ZRLE/Tight here — task 10. Most golden VMs negotiate down to Raw if Tight isn't offered, so Raw + CopyRect is enough to validate the rest of the pipeline (input, viewer, video) end-to-end.
+    - API designed for two consumers (CLI one-shot, viewer continuous render). The `FrameSink` trait is the abstraction boundary.
+    - Pure Rust, no C deps beyond what `image` crate already pulls in.
 - id: port-agent-only-cli-commands-exec-upload-download-agent-to-rust
   title: Port agent-only CLI commands (exec, upload, download, agent *) to Rust
   category: feature
@@ -167,161 +202,6 @@ tasks:
     - This task is the first concrete validation that Linux-host headless work is viable. Run the test suite from a Linux box against a QEMU Linux guest before declaring done.
     - Reuse `testanyware-agent-client` crate from task 1.
     - The Swift CLI's JSON output shapes are the de-facto schema; lock them down in `docs/reference/cli-schemas/` per task 2.
-- id: port-8-discoverability-commands-capabilities-schema-llm-instructions-to-rust
-  title: Port §8 discoverability commands (capabilities, schema, llm-instructions) to Rust
-  category: feature
-  status: done
-  dependencies: []
-  description: |
-    Port §8 discoverability commands (capabilities, schema, llm-instructions) to Rust
-
-    **Background:** The Rust CLI now has stubs for three top-level §8 discoverability commands added during the noun-first migration: `testanyware capabilities`, `testanyware schema`, `testanyware llm-instructions`. CLI design contract §8 specifies the expected output shape for each:
-    - `capabilities` — machine-readable list of supported commands and features
-    - `schema` — JSON schema for structured output
-    - `llm-instructions` — instructions for LLM tool-calling consumers
-
-    The stubs exist in `cli-rs/crates/testanyware-cli/src/main.rs` and dispatch to `unimplemented!(...)`. Each is a self-contained one-session task per the §8 sub-section of the design contract.
-
-    **Scope:**
-    - Implement `testanyware capabilities` to emit a machine-readable command/feature catalogue (per §8.1).
-    - Implement `testanyware schema` to emit the JSON output schemas for all implemented commands (per §8.2).
-    - Implement `testanyware llm-instructions` to emit the LLM tool-calling guidance block (per §8.3).
-    - Each command must support `--json` and produce output per the §8 design contract spec.
-    - Remove the `#[ignore]` from the `§8_discoverability_commands_are_reachable` contract test (or equivalent §8 test) in `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`.
-
-    **Acceptance criteria:**
-    - `testanyware capabilities --json` exits 0 and produces a valid JSON object.
-    - `testanyware schema --json` exits 0 and produces a valid JSON schema.
-    - `testanyware llm-instructions` exits 0 and produces LLM-tool-calling guidance text.
-    - The §8 contract test (currently ignored) passes without `#[ignore]`.
-    - `cargo test --workspace` stays green.
-
-    **Notes:**
-    - Promoted from `migrate-rust-cli-surface-to-noun-first-command-structure-1-alignment` results — "What this suggests next" item 4: "consider whether they deserve their own entries (each is a self-contained one-session task with a §8 sub-section to satisfy)."
-    - The stubs already exist; this task implements the bodies.
-    - Independent of agent port tasks — no VM connectivity required.
-  results: |
-    ## What landed
-
-    `testanyware capabilities`, `testanyware schema <command>`, and
-    `testanyware llm-instructions` are now implemented in the Rust port and
-    behave per contract §8.
-
-    ### New files
-
-    - `cli-rs/crates/testanyware-cli/src/lib.rs` — converts the bin-only
-      crate to also expose a library, so the canonical surface is shared
-      between `main.rs` and `cli-contract.rs`.
-    - `cli-rs/crates/testanyware-cli/src/surface.rs` — single source of
-      truth for the canonical command list, alias tables, top-level groups,
-      and the §4+§8.2 error-code catalogue.
-    - `cli-rs/crates/testanyware-cli/src/discoverability.rs` — the three
-      command handlers. Each schema file under
-      `docs/reference/cli-schemas/` is embedded via `include_str!` per §8.2
-      with a path → schema-id lookup table.
-    - `cli-rs/crates/testanyware-cli/src/llm_instructions.md` — embedded
-      manual; ~115 lines, well under the §8.3 ~3000-token cap.
-
-    ### Edits
-
-    - `cli-rs/crates/testanyware-cli/src/main.rs`:
-      - dispatches `Capabilities`/`Schema`/`LlmInstructions` to the new
-        handlers (replaces the `unimplemented(...)` stubs);
-      - adds §7-template `long_about` (description) and `after_long_help`
-        (OUTPUT/EXIT CODES/EXAMPLES/SEE ALSO) on each of the three commands.
-        This is the in-tree reference template future port tasks will copy.
-      - `Capabilities` accepts a no-op `--json` flag for symmetry; default
-        output is JSON regardless.
-    - `cli-rs/crates/testanyware-cli/Cargo.toml`: promotes `serde_json` from
-      dev-dep to regular dep (capabilities/schema construct JSON envelopes
-      at runtime).
-    - `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`: enables the
-      three §8 tests (`capabilities_lists_full_surface`,
-      `schema_command_emits_json_schema_for_each_command`,
-      `llm_instructions_command_emits_manual`) — they now run instead of
-      being `#[ignore]`'d.
-
-    ### Behaviour
-
-    - `testanyware capabilities` emits a JSON envelope with
-      `schema_version`, `ok`, `version` (from `CARGO_PKG_VERSION`),
-      `git_revision` (from `option_env!("TESTANYWARE_GIT_REVISION")`,
-      defaults to `"unknown"` at dev-build time — release pipeline will
-      populate this), `subcommands` (9 top-level groups), `aliases` (11
-      entries; verb-first + synonym), `output_formats`, `features`,
-      `platforms`, and `error_codes` (44 entries spanning §4.1–§4.6 plus
-      `SCHEMA_NOT_FOUND` from §8.2). Exit 0.
-    - `testanyware schema <command...>` matches the path against
-      `CANONICAL_COMMANDS` and emits the embedded schema JSON. On miss
-      (unknown path or no declared schema), emits a `SCHEMA_NOT_FOUND` JSON
-      error envelope with distinct `details.reason` for the two miss cases
-      and exits 3. On empty path, emits a usage hint to stderr and exits 2.
-    - `testanyware llm-instructions` prints the embedded manual and exits 0.
-
-    ### Verification
-
-    - `cargo test -p testanyware-cli`: 10 passed, 6 ignored, 0 failed
-      (was 7 passed, 9 ignored before this task — three §8 tests
-      graduated).
-    - `cargo clippy -p testanyware-cli --all-targets -- -D warnings`: clean.
-    - `cargo build --workspace` and `cargo test --workspace`: clean.
-    - Manual smoke: `capabilities | jq` shows correct counts (9 groups, 44
-      codes, 11 aliases). `schema vm list` matches the on-disk file
-      byte-for-byte (the contract test enforces semantic equality). `schema
-      does not exist` exits 3 with a `SCHEMA_NOT_FOUND` envelope.
-    - `--help` for each of the three commands renders the §7 sections in
-      order: summary → description → `Usage:` → `Options:` → OUTPUT → EXIT
-      CODES → EXAMPLES → SEE ALSO.
-
-    ## What worked
-
-    - Adding `lib.rs` to a `[[bin]]`-only crate works seamlessly with cargo
-      — no `Cargo.toml` `[lib]` block needed; both targets build. Lets us
-      share the canonical surface table between the runtime and tests
-      without packaging gymnastics.
-    - The `long_about` + `after_long_help` split maps cleanly onto the §7
-      template ordering. Clap renders the auto-generated `Usage:` and
-      `Options:` between them, satisfying the contract sections 1–8 in
-      order. This is the reference pattern for all subsequent port tasks.
-    - `include_str!` for schema files makes the contract gate enforceable
-      with byte-level fidelity: `testanyware schema X` and the on-disk file
-      cannot drift, because the file IS the binary's source.
-
-    ## What didn't / open hazards
-
-    - `git_revision` is a stub (`"unknown"` from `option_env!`). The Swift
-      CLI's release pipeline regenerates `Version.swift` from
-      `git describe`; the Rust port needs an analogous mechanism. This is
-      appropriate to fold into the "Distribute Rust testanyware via
-      homebrew" backlog task, which already owns the release pipeline.
-    - The `SCHEMA_NOT_FOUND` code is now in the Rust catalogue but is not
-      yet listed in `docs/architecture/cli-design-contract.md` §4. The
-      contract document mentions it in §8.2 prose only. Worth a small
-      doc-only follow-up to add it to §4.7 ("Discoverability") or a new §4.8
-      for completeness. Not blocking.
-    - `cli-contract.rs` still has its own copy of `CANONICAL_COMMANDS`,
-      `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES`. The new
-      `testanyware_cli::surface` module duplicates them. Refactoring the
-      test to consume the lib's tables would eliminate the dual source of
-      truth; out of scope for this task because it touches every ignored
-      test.
-    - 6 contract tests remain `#[ignore]`'d. They are gated on per-command
-      port tasks (real `--json` output, `--dry-run`, listing/truncation,
-      identifier round-trip, error-code mapping, §7 template walk). None
-      block this task.
-
-    ## Suggested next
-
-    - "Implement RFB client crate with handshake, Raw, CopyRect; port
-      screenshot and screen-size" (no deps): now that §7 + §8 land as a
-      reference pattern, the smallest data-producing command (`screen
-      size`) is the natural next pick — a single canonical command port can
-      flip `each_subcommand_help_follows_template`, `each_data_command_supports_json`
-      for that command, and exercise the `screen-size` schema (turning the
-      stub into real content).
-    - Folding `SCHEMA_NOT_FOUND` into §4 of the design contract doc.
-    - Once one or two more commands land, refactoring `cli-contract.rs` to
-      consume `testanyware_cli::surface` tables instead of duplicating them.
 - id: implement-cli-side-agent-error-code-mapper-in-rust-cli-for-canonical-token-display
   title: Implement CLI-side agent error code mapper in Rust CLI for canonical token display
   category: feature
@@ -449,41 +329,6 @@ tasks:
     **Notes**
     - This task can ship with stub checks for parts that aren't yet implemented (e.g. ffmpeg check stays a stub until task 11). Doctor is intended to evolve; the schema is the stable thing.
     - The existing min-tool-sentinels backlog item is independent and orthogonal — it adds version sentinels to bundled scripts. That task can land before or after this one.
-- id: implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
-  title: Implement RFB client crate with handshake, Raw, CopyRect; port screenshot and screen-size
-  category: feature
-  status: not_started
-  dependencies: []
-  description: |
-    Implement the foundation of the new VNC layer: handshake + Raw + CopyRect encodings. Pure Rust, shared between the CLI and the viewer (task 8).
-
-    **Why pure Rust:** royalvnc FFI was considered but ruled out — Swift toolchain on Linux is a non-starter for the primary host platform.
-
-    **Scope**
-    - New crate: `testanyware-rfb`. RFB protocol per RFC 6143.
-    - Security types: None, VNC password.
-    - Encodings: Raw, CopyRect.
-    - Pseudo-encodings: DesktopSize, LastRect.
-    - Pixel format negotiation.
-    - Framebuffer abstraction with a `FrameSink` trait — separates protocol from output target. Same crate consumed by:
-      - CLI: `FrameSink` writes one PNG to disk and disconnects (`testanyware screenshot`).
-      - Viewer (task 8): `FrameSink` blits into a wgpu texture, stays connected.
-    - API sketch: `RfbConnection::connect(host, port, password) -> Result<Self>`, `.request_update()`, `.next_message()`.
-
-    **Commands**
-    - `testanyware screenshot --vnc <ep> [-o out.png] [--region x,y,w,h] [--json]`
-    - `testanyware screen-size --vnc <ep> [--json]`
-
-    **Acceptance criteria — spike-as-first-test**
-    1. Connects to a running QEMU Linux guest on a Linux host, completes RFB handshake with password auth, requests one framebuffer update, decodes a Raw-encoded rectangle, writes a PNG that opens correctly.
-    2. Same code path works on a macOS host against a tart macOS guest (validates two host OSes and the least-common-denominator encoding).
-    3. `testanyware screenshot` output is byte-identical to the Swift CLI for an identical VNC frame (use a deterministic reference VM frame as fixture).
-    4. `testanyware screen-size --json` returns `{"width": <int>, "height": <int>}` per the CLI design contract.
-
-    **Constraints**
-    - Don't implement ZRLE/Tight here — task 10. Most golden VMs negotiate down to Raw if Tight isn't offered, so Raw + CopyRect is enough to validate the rest of the pipeline (input, viewer, video) end-to-end.
-    - API designed for two consumers (CLI one-shot, viewer continuous render). The `FrameSink` trait is the abstraction boundary.
-    - Pure Rust, no C deps beyond what `image` crate already pulls in.
 - id: implement-rfb-input-messages-and-port-testanyware-input-subcommands
   title: Implement RFB input messages and port testanyware input subcommands
   category: feature
@@ -775,3 +620,50 @@ tasks:
 
     **Notes**
     - The Swift CLI may still be useful for one or two months post-cutover if the Rust version has any quality issues — keep the pre-cutover commit tagged for easy revert.
+- id: add-schema-not-found-to-4-of-cli-design-contract-doc
+  title: Add SCHEMA_NOT_FOUND to §4 of CLI design contract doc
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Add SCHEMA_NOT_FOUND to §4 of CLI design contract doc
+
+    **Background:** `SCHEMA_NOT_FOUND` was added to the Rust capabilities catalogue during the §8 discoverability implementation — it appears in `surface.rs` as error code `SCHEMA_NOT_FOUND` and is exercised by `testanyware schema <unknown-command>`. However, it was only mentioned in §8.2 prose of `docs/architecture/cli-design-contract.md`, not listed in §4 (the canonical error code table). The capabilities output includes 44 error codes including this one, but §4 doesn't enumerate it.
+
+    **Scope:**
+    - Add `SCHEMA_NOT_FOUND` to §4 of `docs/architecture/cli-design-contract.md` — either as §4.7 (Discoverability errors) or appended to §4.6.
+    - Ensure the section mirrors the format of other §4 entries: code name, exit code, description.
+    - No code changes needed — this is a doc-only task.
+
+    **Acceptance criteria:**
+    - `docs/architecture/cli-design-contract.md` §4 enumerates `SCHEMA_NOT_FOUND` with its exit code (3) and description.
+    - The §8.2 prose cross-references §4 so future reviewers find the canonical table.
+
+    **Notes:**
+    - Extracted from `port-8-discoverability-commands-capabilities-schema-llm-instructions-to-rust` results — "open hazards" section: "Worth a small doc-only follow-up to add it to §4.7 ('Discoverability') or a new §4.8 for completeness. Not blocking."
+- id: refactor-cli-contract-rs-to-consume-testanyware-cli-surface-tables
+  title: Refactor cli-contract.rs to consume testanyware_cli::surface tables
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Refactor cli-contract.rs to consume testanyware_cli::surface tables
+
+    **Background:** After the §8 discoverability implementation, `testanyware_cli::surface` became the canonical single source of truth for `CANONICAL_COMMANDS`, `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES`. However, `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` still has its own hardcoded copies of these tables. This is a dual source of truth — a future change to the command surface requires two edits (surface.rs + cli-contract.rs) instead of one.
+
+    **Scope:**
+    - Update `cli-contract.rs` to import the tables from `testanyware_cli::surface` instead of maintaining local copies.
+    - Remove the local `CANONICAL_COMMANDS`, `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES` definitions from the test file.
+    - Verify `cargo test --workspace` stays green after the refactor.
+
+    **Timing:**
+    - "out of scope [for the §8 task] because it touches every ignored test" — do this pass once one or two more command port tasks have landed and the ignored tests are graduating, so the refactor is done once with full coverage rather than redone per task.
+
+    **Acceptance criteria:**
+    - `cli-contract.rs` imports surface tables from `testanyware_cli::surface`; no local duplicates.
+    - `cargo test --workspace` stays green.
+    - Adding a new command to `surface.rs` automatically updates the contract test's expectations.
+
+    **Notes:**
+    - Extracted from `port-8-discoverability-commands-capabilities-schema-llm-instructions-to-rust` results — "open hazards" section: "Refactoring the test to consume the lib's tables would eliminate the dual source of truth; out of scope for this task because it touches every ignored test."
+    - Best done alongside a port task that graduates several ignored tests simultaneously.
