@@ -446,7 +446,7 @@ entries:
 - id: docs-reference-cli-schemas-stubs-needed-to-unblock-contract-test
   title: every_schema_id_has_a_schema_file is enabled; schema stubs need real content
   body: |
-    `every_schema_id_has_a_schema_file` in `cli-contract.rs` is now active (no longer `#[ignore]`). Twenty distinct stub files exist under `docs/reference/cli-schemas/<schema-id>.json`, each containing `{"schema_version": "1.0", "$comment": "TODO"}`. The test deduplicates `schema_id` values via `BTreeSet`, asserts file existence and valid JSON parse, and accumulates all failures before asserting. Evolve stubs to real JSON Schema documents as commands are ported.
+    `every_schema_id_has_a_schema_file` in `cli-contract.rs` is active (no longer `#[ignore]`). Twenty distinct files exist under `docs/reference/cli-schemas/<schema-id>.json`. Schemas for ported agent and file commands now contain real wire shapes. Remaining stubs for VNC/OCR-dependent and other unported commands still contain `{"schema_version": "1.0", "$comment": "TODO"}`. The test deduplicates `schema_id` values via `BTreeSet`, asserts file existence and valid JSON parse, and accumulates all failures before asserting. Evolve stubs to real JSON Schema documents as commands are ported.
 - id: first-port-task-should-adopt-7-help-template-as-reference
   title: §7 help template reference established at §8 discoverability commands
   body: |
@@ -454,7 +454,7 @@ entries:
 - id: rust-cli-noun-first-surface-migration-complete
   title: Rust CLI noun-first surface migration complete
   body: |
-    The clap command tree in `cli-rs/crates/testanyware-cli/src/main.rs` matches the §1 CANONICAL_COMMANDS table (39 commands). Top-level noun groups: `Screen` (capture, record, size, find-text), `File` (upload, download, exec), `Vm`, `Agent` (expanded with wait, set-value, focus, show-menu, window-focus/resize/move/close/minimize), `Capabilities`, `Schema`, `LlmInstructions`. Verb-first names retained as separate enum variants with §7.2 alias announcements. §8 discoverability commands (`capabilities`, `schema`, `llm-instructions`) have full behavior; remaining 36 commands are stubs.
+    The clap command tree in `cli-rs/crates/testanyware-cli/src/main.rs` matches the §1 CANONICAL_COMMANDS table (39 commands). Top-level noun groups: `Screen` (capture, record, size, find-text), `File` (upload, download, exec), `Vm`, `Agent` (expanded with wait, set-value, focus, show-menu, window-focus/resize/move/close/minimize), `Capabilities`, `Schema`, `LlmInstructions`. Verb-first names retained as separate enum variants with §7.2 alias announcements. §8 discoverability commands (`capabilities`, `schema`, `llm-instructions`) and `agent {health,windows,snapshot,inspect,press}` and `file {exec,upload,download}` have full behavior; remaining 28 commands are stubs.
 - id: clap-aliases-propagates-to-help-verb-first-as-enum-member
   title: clap aliases propagates to help; verb-first as enum member
   body: |
@@ -553,3 +553,23 @@ entries:
     **Sequencing:** This work is gated on macOS and Windows agent realignment (analogous to `realign-linux-agent-error-strings-to-cli-design-contract-4-5`). A Swift variant for `agents/macos/` and a C# variant for `agents/windows/` would use the same approach.
 
     **Note:** The macOS agent realignment is not yet tracked as a backlog task. Add a realignment task for each remaining agent before adding the test-extension task.
+- id: resolve-rs-implements-rust-agent-connection-resolution
+  title: resolve.rs implements Rust agent connection resolution
+  body: |
+    `cli-rs/crates/testanyware-cli/src/resolve.rs` resolves agent connections in order: `--connect` (spec file), `--vm` (per-VM spec under `$XDG_STATE_HOME`), `--agent` (direct endpoint), env vars, then error. Mirrors Swift's `ConnectionOptions.resolveAgent` chain.
+- id: agentclient-covers-all-8-agent-endpoints
+  title: AgentClient covers all 8 agent endpoints
+  body: |
+    `cli-rs/crates/testanyware-agent-client/src/lib.rs` (~316 lines) implements typed methods for all 8 agent HTTP endpoints. `reqwest::Error` converts to typed `AgentError` via `map_wire_error()`. Wire-error strings map to stable `code()` tokens aligned with §4 of the CLI design contract.
+- id: output-rs-implements-3-success-3-4-error-envelopes
+  title: output.rs implements §3 success/§3.4 error envelopes
+  body: |
+    `cli-rs/crates/testanyware-cli/src/output.rs` defines `OutputMode` and JSON/text envelope helpers implementing the §3 success envelope and §3.4 error envelope from the CLI design contract. All agent and file command handlers route through this module.
+- id: agent-requests-rs-holds-typed-agent-request-response-bodies
+  title: agent_requests.rs holds typed agent request/response bodies
+  body: |
+    `cli-rs/crates/testanyware-protocol/src/agent_requests.rs` (192 lines) defines typed structs for all agent endpoint request and response bodies. Canonical source for agent wire shapes in the Rust port; shared types live in `testanyware-protocol`, not in the CLI or client crates.
+- id: agent-client-integration-tests-use-wiremock
+  title: agent-client integration tests use wiremock
+  body: |
+    `cli-rs/crates/testanyware-agent-client/tests/endpoint_integration.rs` (299 lines) exercises all agent endpoints against a local wiremock HTTP server. Run with `cargo test -p testanyware-agent-client`. Live QEMU Linux guest validation is the next gate before declaring live parity.
