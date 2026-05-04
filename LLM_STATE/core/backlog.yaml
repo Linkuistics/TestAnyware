@@ -51,7 +51,7 @@ tasks:
 - id: scaffold-stub-json-files-in-docs-reference-cli-schemas-for-each-schema-id-in-canonical-commands
   title: Scaffold stub JSON files in docs/reference/cli-schemas/ for each schema_id in CANONICAL_COMMANDS
   category: chore
-  status: not_started
+  status: done
   dependencies: []
   description: |
     Scaffold stub JSON files in docs/reference/cli-schemas/ for each schema_id in CANONICAL_COMMANDS
@@ -72,6 +72,78 @@ tasks:
     - Small standalone chore; no VM required and no Rust changes beyond removing one `#[ignore]`.
     - Extracted from `add-cli-contract-rs-skeleton-in-rust-workspace-for-per-subcommand-contract-assertions` results — "Next moves this suggests" item 1.
     - Reference: `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` CANONICAL_COMMANDS table and `schema_path()` helper.
+  results: |
+    ## What was done
+
+    Wired up the `every_schema_id_has_a_schema_file` contract test in
+    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`. Discovered on entry
+    that the schema files were already created in commit `b1b1c5d`
+    ("Add Rust CLI design contract and stub command schemas") — all 20 distinct
+    `schema_id` values from `CANONICAL_COMMANDS` already have corresponding
+    files at `docs/reference/cli-schemas/<schema-id>.json`. The remaining work
+    was the test wiring itself.
+
+    Specific changes:
+
+    - `cli-rs/crates/testanyware-cli/Cargo.toml` — added `serde_json` to a new
+      `[dev-dependencies]` block (kept out of binary's runtime deps).
+    - `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` — replaced the
+      `todo!()` body of `every_schema_id_has_a_schema_file` with a real
+      implementation that walks `CANONICAL_COMMANDS`, dedupes `schema_id`
+      values via a `BTreeSet`, asserts each `<schema-id>.json` is a file and
+      parses as JSON via `serde_json::from_slice::<Value>`. Removed the
+      `#[ignore = "contract §3.3: enable when the first stub schemas land"]`
+      attribute. The assertion accumulates `missing` and `malformed` lists
+      before failing so a future regression names every offender at once
+      rather than failing on the first one.
+    - `cli-rs/Cargo.lock` — auto-regenerated to record `serde_json` as a dev
+      dep of `testanyware-cli`.
+
+    ## Verification
+
+    - `cargo test --test cli-contract every_schema_id_has_a_schema_file` —
+      passes (was previously `#[ignore]`).
+    - `cargo test --test cli-contract` — 4 passed, 0 failed, 12 ignored
+      (was 3 / 0 / 13). Per-task increment matches the skeleton design:
+      one `#[ignore]` removed, one test wired up.
+    - `cargo test --workspace` — 63 passed (was 62), 0 failed, no regressions
+      across `testanyware-protocol`, `testanyware-agent-client`, or
+      `testanyware-cli`.
+    - `cargo clippy --all-targets -- -D warnings` — clean.
+
+    ## Acceptance criteria
+
+    - [x] `cargo test --test cli-contract every_schema_id_has_a_schema_file`
+      passes without `#[ignore]`.
+    - [x] All stub files are valid JSON (parse-only validation is the gate).
+      The test now enforces this via `serde_json::from_slice::<Value>`.
+    - [x] No other previously-passing tests regress.
+
+    ## What this suggests next
+
+    1. **The "scaffold stub JSON files" task description was stale** — schemas
+       already shipped in commit `b1b1c5d`. Future port tasks should grep
+       `docs/reference/cli-schemas/` before assuming work is needed; the test
+       suite now enforces presence so any new `schema_id` added to
+       `CANONICAL_COMMANDS` without a corresponding file fails CI immediately.
+    2. **First real port task should adopt the §7 help template (memory
+       `first-port-task-should-adopt-7-help-template-as-reference`)**. With
+       schemas in place and the existence gate live, the next leverage point
+       is making `each_subcommand_help_follows_template` testable for at
+       least one ported command. Smallest candidates: `screen size` or
+       `agent health`.
+    3. **The ignored test `each_data_command_supports_json` (§3.1) cannot
+       come off `#[ignore]` until commands actually emit JSON** — the schema
+       files are passive references, not enforced output. Wiring `--json`
+       output for one data-producing command would let that test become
+       per-command rather than wholesale.
+    4. **The schema files use richer Draft 2020-12 structure** (with `$schema`
+       header, `$id`, `title`, `required: ["schema_version", "ok"]`, etc.)
+       than the task description's minimal `{"schema_version":"1.0",
+       "$comment":"TODO"}` suggested. When commands start emitting actual
+       data, expand each schema in place rather than rewriting from scratch
+       — the structure is already there and follows the README at
+       `docs/reference/cli-schemas/README.md`.
 - id: migrate-rust-cli-surface-to-noun-first-command-structure-1-alignment
   title: Migrate Rust CLI surface to noun-first command structure (§1 alignment)
   category: feature

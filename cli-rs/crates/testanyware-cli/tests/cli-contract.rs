@@ -363,13 +363,38 @@ fn each_data_command_supports_json() {
 /// `schema_version` and `$comment: "TODO"`) are explicitly permitted by
 /// §3.3 so this check can be enabled before any command emits real data.
 #[test]
-#[ignore = "contract §3.3: enable when the first stub schemas land"]
 fn every_schema_id_has_a_schema_file() {
-    todo!(
-        "collect distinct `schema_id`s from CANONICAL_COMMANDS; assert \
-         schema_path(id).is_file() for each. Filled in by the schema-\
-         scaffold port task that creates one stub JSON file per \
-         schema_id under docs/reference/cli-schemas/."
+    let mut seen = std::collections::BTreeSet::new();
+    let mut missing = Vec::new();
+    let mut malformed = Vec::new();
+
+    for spec in CANONICAL_COMMANDS {
+        let Some(id) = spec.schema_id else { continue };
+        if !seen.insert(id) {
+            continue;
+        }
+        let path = schema_path(id);
+        if !path.is_file() {
+            missing.push((id, path));
+            continue;
+        }
+        let bytes = match std::fs::read(&path) {
+            Ok(b) => b,
+            Err(e) => {
+                malformed.push((id, path, format!("read failed: {e}")));
+                continue;
+            }
+        };
+        if let Err(e) = serde_json::from_slice::<serde_json::Value>(&bytes) {
+            malformed.push((id, path, format!("invalid JSON: {e}")));
+        }
+    }
+
+    assert!(
+        missing.is_empty() && malformed.is_empty(),
+        "schema files missing or malformed:\n\
+         missing: {missing:#?}\n\
+         malformed: {malformed:#?}",
     );
 }
 
