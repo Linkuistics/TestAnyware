@@ -434,7 +434,7 @@ entries:
 - id: cli-contract-rs-is-the-rust-cli-contract-test-skeleton
   title: cli-contract.rs is the Rust CLI contract test skeleton
   body: |
-    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` contains per-subcommand contract assertions keyed to §1–§11 of `docs/architecture/cli-design-contract.md`. Four tests are active (`binary_exists_and_top_level_help_succeeds`, `version_flag_succeeds`, `each_present_subcommand_help_succeeds`, `every_schema_id_has_a_schema_file`); 12 are `#[ignore = "§N"]` with `todo!("filled in by <task>")`, surfacing remaining port gaps via `cargo test -- --ignored` without blocking CI. Uses `env!("CARGO_BIN_EXE_testanyware")` for binary path; schema path helpers use `CARGO_MANIFEST_DIR` to resolve `docs/reference/cli-schemas/` (same pattern as protocol crate fixture tests).
+    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` contains per-subcommand contract assertions keyed to §1–§11 of `docs/architecture/cli-design-contract.md`. Eight tests are now active: `binary_exists_and_top_level_help_succeeds`, `version_flag_succeeds`, `each_present_subcommand_help_succeeds`, `every_schema_id_has_a_schema_file`, `every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`, `each_canonical_command_help_succeeds`; 8 remain `#[ignore = "§N"]` with `todo!("filled in by <task>")`, surfacing remaining port gaps via `cargo test -- --ignored` without blocking CI. Uses `env!("CARGO_BIN_EXE_testanyware")` for binary path; schema path helpers use `CARGO_MANIFEST_DIR` to resolve `docs/reference/cli-schemas/` (same pattern as protocol crate fixture tests).
 - id: canonical-commands-table-encodes-39-noun-first-commands
   title: CANONICAL_COMMANDS table encodes 39 noun-first commands
   body: |
@@ -453,3 +453,11 @@ entries:
     - `agent health` — smallest agent command
 
     One of these ports landing with §7 template will let the `each_subcommand_help_follows_template` test in `cli-contract.rs` come off `#[ignore]` for that command, and serve as the reference for all subsequent ports.
+- id: rust-cli-noun-first-surface-migration-complete
+  title: Rust CLI noun-first surface migration complete
+  body: |
+    The clap command tree in `cli-rs/crates/testanyware-cli/src/main.rs` matches the §1 CANONICAL_COMMANDS table (39 commands). Top-level noun groups: `Screen` (capture, record, size, find-text), `File` (upload, download, exec), `Vm`, `Agent` (expanded with wait, set-value, focus, show-menu, window-focus/resize/move/close/minimize), `Capabilities`, `Schema`, `LlmInstructions`. Verb-first names retained as separate enum variants with §7.2 alias announcements. All 39 commands have stubs; behavior is not yet implemented.
+- id: clap-aliases-propagates-to-help-verb-first-as-enum-member
+  title: clap aliases propagates to help; verb-first as enum member
+  body: |
+    clap `aliases` attribute on `#[command]` propagates synonym aliases to the canonical's help body, satisfying the synonym-help-equality check in `cli-contract.rs`. Verb-first variants (e.g. `screenshot`, `record`, `screen-size`) are separate enum members with custom doc comments — this satisfies §7.2 alias-announcement without special macro machinery. Shared `Args` structs (`ConnectionArgs`, `ScreenCaptureArgs`, `ScreenRecordArgs`, etc.) deduplicate field definitions between canonical and alias variants.
