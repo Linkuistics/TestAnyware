@@ -1,47 +1,4 @@
 tasks:
-- id: add-schema-not-found-to-4-of-cli-design-contract-doc
-  title: Add SCHEMA_NOT_FOUND to §4 of CLI design contract doc
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    Add SCHEMA_NOT_FOUND to §4 of CLI design contract doc
-
-    **Background:** `SCHEMA_NOT_FOUND` was added to the Rust capabilities catalogue during the §8 discoverability implementation — it appears in `surface.rs` as error code `SCHEMA_NOT_FOUND` and is exercised by `testanyware schema <unknown-command>`. However, it was only mentioned in §8.2 prose of `docs/architecture/cli-design-contract.md`, not listed in §4 (the canonical error code table). The capabilities output includes 44 error codes including this one, but §4 doesn't enumerate it.
-
-    **Scope:**
-    - Add `SCHEMA_NOT_FOUND` to §4 of `docs/architecture/cli-design-contract.md` — either as §4.7 (Discoverability errors) or appended to §4.6.
-    - Ensure the section mirrors the format of other §4 entries: code name, exit code, description.
-    - No code changes needed — this is a doc-only task.
-
-    **Acceptance criteria:**
-    - `docs/architecture/cli-design-contract.md` §4 enumerates `SCHEMA_NOT_FOUND` with its exit code (3) and description.
-    - The §8.2 prose cross-references §4 so future reviewers find the canonical table.
-
-    **Notes:**
-    - Extracted from `port-8-discoverability-commands-capabilities-schema-llm-instructions-to-rust` results — "open hazards" section: "Worth a small doc-only follow-up to add it to §4.7 ('Discoverability') or a new §4.8 for completeness. Not blocking."
-  results: |
-    **What was done**
-
-    Added `SCHEMA_NOT_FOUND` to §4 of `docs/architecture/cli-design-contract.md`:
-
-    - New `### 4.7 Discoverability errors` sub-section with a one-row table: `SCHEMA_NOT_FOUND` mapped to "schema <command> with unknown command or no declared schema" and exit code `3`.
-    - Pre-existing prose at the old §4.7 (the catalogue-exposure rule about `capabilities --json`) was preserved intact, just renumbered to `### 4.8 Catalogue exposure`.
-    - §5 row 3 "Not found (`*_NOT_FOUND` family ...)" extended to include `SCHEMA_NOT_FOUND` so the exit-code mapping is explicit.
-    - §8.2 prose updated from `Exit 3 (SCHEMA_NOT_FOUND) when ...` to `Exit 3 with code: SCHEMA_NOT_FOUND (catalogued in §4.7) when ...`, satisfying the acceptance criterion that §8.2 cross-reference §4.
-
-    **Verification**
-
-    `grep -n "SCHEMA_NOT_FOUND"` shows exactly three references: §4.7 table row, §5 family list, §8.2 cross-reference. §4 numbering walks 4.1 → 4.8 with no gaps.
-
-    **Acceptance criteria**
-
-    - [x] §4 enumerates `SCHEMA_NOT_FOUND` with exit code 3 and a description.
-    - [x] §8.2 cross-references §4 so future reviewers find the canonical table.
-
-    **What this suggests next**
-
-    Nothing immediate. The Rust port's `surface.rs` already emits `SCHEMA_NOT_FOUND`, so the doc is now consistent with the implementation. If §4.7 grows (e.g. when future discoverability commands like `testanyware llm-instructions --topic <unknown>` need their own code), the table is in place to absorb it.
 - id: add-ubuntu-ci-matrix-entry-for-cargo-build-test-linux-build-verification
   title: Add Ubuntu CI matrix entry for cargo build/test (Linux build verification)
   category: chore
@@ -97,137 +54,6 @@ tasks:
     - The decision is referenced from the recording task description's "Constraints" section.
 
     **Why extracted:** This is a legal/licensing research spike buried inside the recording implementation task. It requires no code, has no dependencies, and can run in parallel with any task in the Rust port arc. Starting the recording task without this decision risks a mid-implementation pivot on codec choice.
-- id: realign-macos-agent-error-strings-to-cli-design-contract-4-5
-  title: Realign macOS agent error strings to CLI design contract §4.5
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    Realign macOS agent error strings to CLI design contract §4.5
-
-    **Background:** The Linux Python agent error strings were realigned to §4.5 in `realign-linux-agent-error-strings-to-cli-design-contract-4-5`. The macOS Swift agent (`agents/macos/Sources/testanyware-agent/AgentServer.swift`) still emits human-readable strings. Known offending lines: 224, 226, 230, 295, 308, 310, 314, 330, 350, 365, 380, 403, 486.
-
-    The CLI design contract (§4.5) requires all three agent implementations to emit canonical wire tokens. The macOS agent is the last agent remaining unaligned (Windows is tracked separately).
-
-    **Scope:**
-    - Audit `agents/macos/Sources/testanyware-agent/AgentServer.swift` for all `error` strings in HTTP responses.
-    - Compare against the canonical error code mapping in `docs/architecture/cli-design-contract.md` §4.5.
-    - Update the Swift agent to emit the canonical wire tokens (e.g. `not_found`, `ambiguous`, `window_not_found`).
-    - Move human-readable prose to `details` where genuinely informative (mirror the Linux agent pattern).
-    - Verify with the existing cross-language contract test fixture suite.
-
-    **Acceptance criteria:**
-    - Every `error` string emitted by the macOS Swift agent matches a canonical code in §4.5.
-    - No host-side translation map is introduced.
-    - Cross-language contract fixtures pass without modification.
-    - `AgentServer.swift` emits only snake_case token strings in the `error` field, not English prose.
-
-    **Notes:**
-    - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — Cross-impact section.
-    - Scope mirrors the Linux realignment task. The same §4.5 token map applies.
-    - The macOS agent may also need `action_unsupported` and `accessibility_unavailable` wired for cases where those paths exist in Swift — review with the Linux "out of scope intentional" list as a guide.
-  results: |
-    **What was done**
-
-    Realigned every `error` string emitted by the macOS Swift agent (`agents/macos/Sources/testanyware-agent/AgentServer.swift`) to the canonical wire-token vocabulary in §4.5 of the CLI design contract.
-
-    14 sites converted:
-
-    | Before | After |
-    |---|---|
-    | `"No element found matching query"` (×2: handleInspect, resolveAndAct) | `"not_found"` |
-    | `"Multiple elements matched — refine your query or use --index N"` (×2) | `"ambiguous"` (prose preserved as `details` only where it's a list of matches) |
-    | `"Element found in snapshot but could not locate live AX element"` (×2) | `"not_found"` with `details: "matched in snapshot but live AX element could not be located"` |
-    | `"No matching windows found"` (resolveAndAct) | `"window_not_found"` with `details: query.window` |
-    | `"No window matching '<x>'"` (×5: window-focus/resize/move/close/minimize) | `"window_not_found"` with `details: req.window` |
-    | `"Invalid base64 content"` (handleUpload) | `jsonOK(ActionResponse(success: false, message: "Upload failed: invalid base64 content"))` — switched envelope to match Linux's pattern (200 OK with `success:false`, no `error` field) |
-    | `"Download failed: <reason>"` (handleDownload) | `"download_failed"` with `details: error.localizedDescription` |
-
-    The "live AX element not located" case has no perfect mapping in §4.5; from the user's perspective the targeted element wasn't actionable, so `not_found` with explanatory `details` is the closest fit. `details` carries the diagnostic for any host-side surfacing.
-
-    **Verification**
-
-    - `swift build` from `agents/macos/` — succeeds, 0 errors. The pre-existing `textColor` warning at line 235 is unrelated.
-    - `swift test` from `agents/macos/` — all 43 tests pass (TreeWalker, QueryResolver, ProcessRunner, LiveElementMatcher, etc.).
-    - `swift test --filter TestAnywareAgentProtocolTests` from `cli/` — all 64 cross-language protocol tests pass (including `agentProtocolFilesAreByteIdentical` confirming the cli↔agent protocol copies remain in sync, and `crossLangErrorResponseWithDetails`/`crossLangErrorResponseNoDetails` confirming the wire envelope shape is unchanged).
-    - `cargo test --workspace` from `cli-rs/` — all 14 cross-language fixture tests pass on the Rust side.
-    - Final `grep -n 'jsonError\|jsonOK(ActionResponse(success: false' AgentServer.swift` confirms every `jsonError` site emits a canonical token.
-
-    **Acceptance criteria**
-
-    - [x] Every `error` string emitted by the macOS Swift agent matches a canonical code in §4.5.
-    - [x] No host-side translation map introduced.
-    - [x] Cross-language contract fixtures pass without modification.
-    - [x] `AgentServer.swift` emits only snake_case token strings in the `error` field, not English prose.
-
-    **What this suggests next**
-
-    - **Scope intentionally NOT touched** (mirrors Linux realignment's "out of scope" list): the `success: false` action-failure envelope on lines 320, 343, 358, 373, 383, 389, 396, 408, 409, 430, 475 still carries human prose in `message`. Mapping those to `action_unsupported` would require checking the throw type and is a deeper change. Same applies for `accessibility_unavailable` — macOS AX queries return empty rather than erroring, so there's no natural token site.
-    - The CLI-side mapper task (`implement-cli-side-agent-error-code-mapper-in-rust-cli-for-canonical-token-display`) can now safely consume canonical tokens from all three agents (Linux, macOS, and Windows post-this-session).
-    - The `add-pyproject-toml-and-ruff-pytest-config-to-agents-linux/` chore task would be valuable to extend to all three agents as a follow-up — currently the only safety net for token correctness is "don't typo when editing the source"; a unit test asserting on the wire token strings would catch silent regressions.
-- id: realign-windows-agent-error-strings-to-cli-design-contract-4-5
-  title: Realign Windows agent error strings to CLI design contract §4.5
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    Realign Windows agent error strings to §4.5 of the CLI design contract
-
-    **Background:** The CLI design contract (§4.5, `docs/architecture/cli-design-contract.md`) pins a single canonical wire→code mapping for agent error strings. The three agent implementations (macOS Swift, Linux Python, Windows C#) currently use different `error` field values. The contract requires Linux and Windows agents to be brought into line; host-side translation maps are explicitly disallowed.
-
-    Unknown wire strings surfacing as `AGENT_ERROR_UNKNOWN` is the fallback — any Windows agent error string not in the canonical mapping would surface as `AGENT_ERROR_UNKNOWN` on the host CLI, breaking structured error handling and LLM-readable error codes.
-
-    **Scope**
-    - Audit `agents/windows/` (C# .NET 9 agent) for all `error` strings returned in HTTP responses.
-    - Compare against the canonical error code mapping in `docs/architecture/cli-design-contract.md` §4.
-    - Update the C# agent to emit the canonical error strings.
-    - Verify with the existing contract test fixture suite (cross-language JSON fixtures in `cli-rs/`).
-
-    **Acceptance criteria**
-    - Every error string emitted by the Windows C# agent matches a canonical code in §4.5.
-    - No host-side translation map is introduced.
-    - Cross-language contract fixtures for Windows-agent errors pass without modification.
-
-    **Notes**
-    - Promoted from `audit-current-cli-and-define-rust-cli-design-contract` results — "What this suggests next" item 2.
-    - This task affects `agents/windows/` only; no changes to host CLI or other agents.
-  results: |
-    **What was done**
-
-    Realigned every `error` string emitted by the Windows C# agent (`agents/windows/AccessibilityEndpoints.cs` and `agents/windows/SystemEndpoints.cs`) to the canonical wire-token vocabulary in §4.5 of the CLI design contract.
-
-    12 sites converted:
-
-    | File / context | Before | After |
-    |---|---|---|
-    | AccessibilityEndpoints.cs `/inspect` NotFound | `"No element found matching query"` | `"not_found"` |
-    | AccessibilityEndpoints.cs `/inspect` Multiple | `"Multiple elements matched"` | `"ambiguous"` (preserves `Details` of matches) |
-    | AccessibilityEndpoints.cs window-focus/resize/move/close/minimize (×5, identical) | `$"No window matching '{req.Window}'"` | `"window_not_found"` with `Details = req.Window` |
-    | AccessibilityEndpoints.cs ResolveAndAct windows.Count == 0 | `"No matching windows found"` | `"window_not_found"` with `Details = query.Window` |
-    | AccessibilityEndpoints.cs ResolveAndAct NotFound | `"No element found matching query"` | `"not_found"` |
-    | AccessibilityEndpoints.cs ResolveAndAct Multiple | `"Multiple elements matched — refine your query or use index"` | `"ambiguous"` (preserves `Details`) |
-    | AccessibilityEndpoints.cs ResolveAndAct live UIA fallback | `"Element found in snapshot but could not locate live UIA element"` | `"not_found"` with `Details = "matched in snapshot but live UIA element could not be located"` |
-    | SystemEndpoints.cs `/download` exception | `$"Download failed: {ex.Message}"` | `"download_failed"` with `Details = ex.Message` |
-
-    The 5 identical window-management sites were converted in a single `replace_all` Edit; the rest were converted individually because surrounding context differed.
-
-    **Verification**
-
-    - `dotnet build -r win-arm64 --no-self-contained` from `agents/windows/` — succeeds, 0 warnings, 0 errors.
-    - All `ErrorResponse` instantiations now emit one of `not_found` / `ambiguous` / `window_not_found` / `download_failed`. Verified via `grep -n 'ErrorResponse' AccessibilityEndpoints.cs SystemEndpoints.cs`.
-    - The cross-language contract fixtures in `cli-rs/tests/fixtures/protocol/` test the envelope shape (`{error, details?}`), not specific token values — so they remain green without modification, which is the intended invariant for a wire-token rename.
-
-    **Acceptance criteria**
-
-    - [x] Every error string emitted by the Windows C# agent matches a canonical code in §4.5.
-    - [x] No host-side translation map is introduced.
-    - [x] Cross-language contract fixtures for Windows-agent errors pass without modification.
-
-    **What this suggests next**
-
-    - All three agents (Linux ✓ done previously, macOS ✓ this session, Windows ✓ this session) now emit canonical §4.5 tokens. The CLI-side mapper task (`implement-cli-side-agent-error-code-mapper-in-rust-cli-for-canonical-token-display`) is now unblocked from the wire-protocol side — though it still depends on `port-agent-only-cli-commands-exec-upload-download-agent-to-rust` for its host-side context.
-    - The Windows agent has the same "out of scope" gap as macOS: the `ActionResponse { Success = false, Message = ... }` envelope (lines 137, 158, 162, 166, 187, 191, 195, 212, 216, 233, 237, 116/96 in SystemEndpoints upload) still carries prose. Mapping those to `action_unsupported` would require checking the FlaUI exception type or the `Patterns.X.IsSupported` check result and is a deeper change.
-    - A unit test that pins the canonical token strings in each agent's responses would prevent silent regressions and is a natural follow-up to the `add-pyproject-toml-and-ruff-pytest-config-to-agents-linux/` task — extend to a per-agent contract test in each language.
 - id: add-pyproject-toml-and-ruff-pytest-config-to-agents-linux-for-ci-lint-and-test-coverage
   title: Add pyproject.toml and ruff/pytest config to agents/linux/ for CI lint and test coverage
   category: chore
@@ -254,6 +80,38 @@ tasks:
     **Notes:**
     - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — "Suggestions for next session" item 2.
     - Keep test scope narrow: the agent's HTTP server doesn't need to be spun up — unit tests mocking the AT-SPI2 layer or driving response-construction functions directly are sufficient to cover the token emission paths.
+- id: port-agent-only-cli-commands-exec-upload-download-agent-to-rust
+  title: Port agent-only CLI commands (exec, upload, download, agent *) to Rust
+  category: feature
+  status: not_started
+  dependencies: []
+  description: |
+    Port commands that talk only to the in-VM agent over HTTP. No VNC, no OCR, no video. This delivers end-to-end value for the primary use case (Linux host driving Linux/Windows guests headlessly) before any RFB work begins.
+
+    **Scope**
+    - `testanyware exec` — run a command in the guest, capture stdout/stderr/exit code.
+    - `testanyware upload`, `testanyware download` — file transfer through the agent.
+    - `testanyware agent health`, `agent windows`, `agent snapshot` (with `--mode interact|full`, `--window`, `--open-menu`), `agent inspect` (`--role`, `--label`), `agent press`.
+    - Connection resolution chain (must mirror the priority order in README.md):
+      1. `--connect <path>`
+      2. `--vm <id>`
+      3. `--vnc` / `--agent` / `--platform`
+      4. `TESTANYWARE_VM_ID`
+      5. `TESTANYWARE_VNC` / `TESTANYWARE_VNC_PASSWORD` / `TESTANYWARE_AGENT` / `TESTANYWARE_PLATFORM`
+      6. Error
+    - Per-VM spec file reading from `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.json` (with `directories` crate for cross-platform path resolution; `%LOCALAPPDATA%` on Windows).
+
+    **Acceptance criteria**
+    - All listed commands behave identically to the Swift CLI in flag names, output format, and exit codes.
+    - Each command's `--help` includes ≥2 concrete examples per the CLI design contract (task 2).
+    - Each command supports `--json` per the design contract.
+    - Errors emit stable `code` fields in JSON mode.
+    - IntegrationTests-equivalent suite runs against a live golden VM (Linux or Windows) on a Linux host.
+
+    **Notes**
+    - This task is the first concrete validation that Linux-host headless work is viable. Run the test suite from a Linux box against a QEMU Linux guest before declaring done.
+    - Reuse `testanyware-agent-client` crate from task 1.
+    - The Swift CLI's JSON output shapes are the de-facto schema; lock them down in `docs/reference/cli-schemas/` per task 2.
 - id: implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
   title: Implement RFB client crate with handshake, Raw, CopyRect; port screenshot and screen-size
   category: feature
@@ -289,38 +147,6 @@ tasks:
     - Don't implement ZRLE/Tight here — task 10. Most golden VMs negotiate down to Raw if Tight isn't offered, so Raw + CopyRect is enough to validate the rest of the pipeline (input, viewer, video) end-to-end.
     - API designed for two consumers (CLI one-shot, viewer continuous render). The `FrameSink` trait is the abstraction boundary.
     - Pure Rust, no C deps beyond what `image` crate already pulls in.
-- id: port-agent-only-cli-commands-exec-upload-download-agent-to-rust
-  title: Port agent-only CLI commands (exec, upload, download, agent *) to Rust
-  category: feature
-  status: not_started
-  dependencies: []
-  description: |
-    Port commands that talk only to the in-VM agent over HTTP. No VNC, no OCR, no video. This delivers end-to-end value for the primary use case (Linux host driving Linux/Windows guests headlessly) before any RFB work begins.
-
-    **Scope**
-    - `testanyware exec` — run a command in the guest, capture stdout/stderr/exit code.
-    - `testanyware upload`, `testanyware download` — file transfer through the agent.
-    - `testanyware agent health`, `agent windows`, `agent snapshot` (with `--mode interact|full`, `--window`, `--open-menu`), `agent inspect` (`--role`, `--label`), `agent press`.
-    - Connection resolution chain (must mirror the priority order in README.md):
-      1. `--connect <path>`
-      2. `--vm <id>`
-      3. `--vnc` / `--agent` / `--platform`
-      4. `TESTANYWARE_VM_ID`
-      5. `TESTANYWARE_VNC` / `TESTANYWARE_VNC_PASSWORD` / `TESTANYWARE_AGENT` / `TESTANYWARE_PLATFORM`
-      6. Error
-    - Per-VM spec file reading from `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.json` (with `directories` crate for cross-platform path resolution; `%LOCALAPPDATA%` on Windows).
-
-    **Acceptance criteria**
-    - All listed commands behave identically to the Swift CLI in flag names, output format, and exit codes.
-    - Each command's `--help` includes ≥2 concrete examples per the CLI design contract (task 2).
-    - Each command supports `--json` per the design contract.
-    - Errors emit stable `code` fields in JSON mode.
-    - IntegrationTests-equivalent suite runs against a live golden VM (Linux or Windows) on a Linux host.
-
-    **Notes**
-    - This task is the first concrete validation that Linux-host headless work is viable. Run the test suite from a Linux box against a QEMU Linux guest before declaring done.
-    - Reuse `testanyware-agent-client` crate from task 1.
-    - The Swift CLI's JSON output shapes are the de-facto schema; lock them down in `docs/reference/cli-schemas/` per task 2.
 - id: implement-cli-side-agent-error-code-mapper-in-rust-cli-for-canonical-token-display
   title: Implement CLI-side agent error code mapper in Rust CLI for canonical token display
   category: feature
