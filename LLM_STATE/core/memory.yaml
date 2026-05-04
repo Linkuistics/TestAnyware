@@ -143,10 +143,6 @@ entries:
   title: backingFile uses qemu-img info JSON, not python3
   body: |
     `QEMURunner.backingFile(ofQcow2:)` runs `qemu-img info --output=json` and parses the result with `JSONSerialization`. Replaces the bash approach of `python3 -c`. Path to `qemu-img` discovered via `TartRunner.which("qemu-img")` with homebrew fallback — consistent with `QEMURunner.start` pattern.
-- id: 2-qemu-integration-tests-fail-from-swtpm-sun-path-limit
-  title: 2 QEMU integration tests fail from swtpm sun_path limit
-  body: |
-    `QEMURunnerIntegrationTests` has 2 pre-existing failures caused by macOS `sun_path` length limit for the swtpm socket path. Tracked as backlog Task 12; independent of all other work. A passing suite shows 270/272; treat 2 QEMU integration failures as expected baseline.
 - id: qemurunner-discovers-vms-by-directory-scan
   title: QEMURunner discovers VMs by directory scan
   body: |
@@ -553,3 +549,11 @@ entries:
     **Why:** Drift between the three copies is currently caught by contract tests (§ cross-language fixture in `testanyware-protocol`). If the contract test coverage weakens or a fourth caller appears, manual sync becomes error-prone.
 
     **How to apply:** Track as a future refactor task when protocol evolution becomes frequent enough that manual sync is painful. The precondition is that the Rust port is at parity and the contract test suite is comprehensive. Do not block port tasks on this.
+- id: friendly-message-for-maps-4-5-tokens-agent-error-unknown-preserves-raw-token
+  title: friendly_message_for maps §4.5 tokens; AGENT_ERROR_UNKNOWN preserves raw token
+  body: |
+    `commands/mod.rs` in the Rust CLI contains `friendly_message_for()`, which maps §4.5 wire tokens to human-readable messages. `AGENT_ERROR_UNKNOWN` is the only curated code where the raw snake_case token is preserved in the user-visible output (for diagnostic searchability); all other curated codes suppress the token entirely. The `None` return path passes through the `AgentError` Display impl for transport-layer codes absent from the §4.5 table, preserving diagnostic context that curated messages would lose.
+- id: testanyware-ocr-client-crate-mirrors-ocrchildbridge-via-tokio-mutex
+  title: testanyware-ocr-client crate mirrors OCRChildBridge via tokio Mutex
+  body: |
+    `testanyware-ocr-client` Rust crate in the `cli-rs/` workspace implements the OCR client protocol, mirroring Swift's `OCRChildBridge` actor semantics using `tokio::sync::Mutex`. Plugs into the RFB client path once `implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size` lands; `screen find-text` remains stubbed until then.
