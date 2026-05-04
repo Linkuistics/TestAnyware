@@ -1,0 +1,36 @@
+[project]
+name = "testanyware-agent"
+version = "0.0.0"
+description = "TestAnyware in-VM Linux agent (HTTP server on port 8648)"
+requires-python = ">=3.12"
+
+# Intentionally NOT installable as a wheel. The Linux golden image
+# runs the agent via `python3 -m testanyware_agent` against the
+# system Python so that `python3-pyatspi` (apt-installed) is on
+# the import path. This pyproject.toml exists for development
+# tooling (ruff, pytest) only.
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["__pycache__"]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "B",  # bugbear's broad-exception checks are noisy in test code
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra"
