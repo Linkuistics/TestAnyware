@@ -194,7 +194,7 @@ entries:
 - id: window-flag-includes-drop-shadow-in-ax-origin
   title: '`--window` auto-compensates Tahoe 40 px drop-shadow'
   body: |
-    On Tahoe, the AX-reported window origin includes a ~40 px structural drop-shadow inset on the y axis. `WindowOriginCompensation.offset(for:platform:environment:)` (`cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift`) subtracts `defaultMacosTopInset` (40 px) from the window's y position for `.macos` platform; non-macOS and nil platforms pass through unchanged. All six `--window`-relative input commands (click, mouse-down, mouse-up, move, scroll, drag) share a single async `windowOffset(connection:spec:windowFilter:)` helper that applies this compensation. Override via `TESTANYWARE_WINDOW_TOP_INSET=<int>`. Validated on the Tahoe golden.
+    On Tahoe, the AX-reported window origin includes a ~40 px structural drop-shadow inset on the y axis. Swift: `WindowOriginCompensation.offset(for:platform:environment:)` (`cli/Sources/TestAnywareDriver/Agent/WindowOriginCompensation.swift`) subtracts `defaultMacosTopInset` (40 px) for `.macos` platform; validated on the Tahoe golden. Rust: `resolve_window_offset`/`apply_window_offset` in `commands/window.rs` with 9 unit tests; live-VM verification deferred. Both: all six `--window`-relative input commands (click, mouse-down, mouse-up, move, scroll, drag) apply compensation; non-macOS and nil platforms pass through unchanged; override via `TESTANYWARE_WINDOW_TOP_INSET=<int>`. `run_drag` resolves the window once and applies the same offset to both endpoints.
 - id: swift-testing-enabled-if-evaluates-at-discovery-time
   title: swift-testing .enabled(if:) evaluates at discovery time
   body: |
@@ -524,7 +524,7 @@ entries:
 - id: resolve-rs-implements-rust-agent-connection-resolution
   title: resolve.rs implements Rust agent connection resolution
   body: |
-    `cli-rs/crates/testanyware-cli/src/resolve.rs` resolves agent connections in order: `--connect` (spec file), `--vm` (per-VM spec under `$XDG_STATE_HOME`), `--agent` (direct endpoint), env vars, then error. Mirrors Swift's `ConnectionOptions.resolveAgent` chain.
+    `cli-rs/crates/testanyware-cli/src/resolve.rs` resolves agent connections in order: `--connect` (spec file), `--vm` (named id), `--agent` (direct endpoint), env vars, then error. Mirrors Swift's `ConnectionOptions.resolveAgent` chain. Also provides `resolve_platform()` and `resolve_platform_with_env()` following the `--platform`/env → spec.platform → caller-default chain; used by `input.rs` to fall back to the per-VM spec's `platform` field rather than defaulting to macOS immediately.
 - id: agentclient-covers-all-8-agent-endpoints
   title: AgentClient covers all 8 agent endpoints
   body: |
@@ -592,9 +592,9 @@ entries:
   body: |
     `cli-rs/crates/testanyware-rfb/` has a full input layer but no handshake or pixel reading yet.
 
-    Implemented: `resolve.rs` resolves VNC connections (spec path, `--vm`, `--vnc`, `TESTANYWARE_VNC_PASSWORD`). `connection.rs` has `key_event` and `pointer_event` wire methods (RFC 6143 §7.5.4–5). `keymap.rs` provides 27 X11 keysym constants plus `key_for_name`, `modifier_for_name`, `shifted_char_to_base`, and mouse helpers. `input.rs` exposes `press_key`, `type_text`, `click`, `drag`, `scroll` on `RfbConnection<T>` with a 50 ms modifier-transition delay. All ten input CLI subcommands are wired in `commands/input.rs`. 14 unit tests (keymap) + 11 wire-byte integration tests (input fixture using `ScriptedTransport`).
+    Implemented: `resolve.rs` resolves VNC connections (spec path, `--vm`, `--vnc`, `TESTANYWARE_VNC_PASSWORD`). `connection.rs` has `key_event` and `pointer_event` wire methods (RFC 6143 §7.5.4–5). `keymap.rs` provides 27 X11 keysym constants plus `key_for_name`, `modifier_for_name`, `shifted_char_to_base`, and mouse helpers. `input.rs` exposes `press_key`, `type_text`, `click`, `drag`, `scroll` on `RfbConnection<T>` with a 50 ms modifier-transition delay. All ten input CLI subcommands are wired in `commands/input.rs`. `--window` coordinate compensation is wired via `commands/window.rs`; see `window-flag-includes-drop-shadow-in-ax-origin`. 14 unit tests (keymap) + 11 wire-byte integration tests (input fixture using `ScriptedTransport`).
 
-    Still blocked: RFB handshake and pixel reading — `screen capture` and `screen size` dispatch paths exist but cannot operate without the handshake landing. `--window` coordinate compensation (`WindowOriginCompensation`) is also deferred; see `rust-cli-window-flag-not-yet-ported`.
+    Still blocked: RFB handshake and pixel reading — `screen capture` and `screen size` dispatch paths exist but cannot operate without the handshake landing.
 - id: rust-rfb-cmd-option-keysym-mapping-pinned-by-tests
   title: Rust RFB Cmd/Option keysym mapping pinned by tests
   body: |
@@ -603,7 +603,3 @@ entries:
   title: Rust port has no useRawKeysyms branch
   body: |
     The Swift CLI's `useRawKeysyms` env-var bypass (for ARD-wrapper keysym translation) does not exist in the Rust port. The Rust RFB client sends keysyms directly on the wire with no ARD wrapper layer, so the bypass is unnecessary.
-- id: rust-cli-window-flag-not-yet-ported
-  title: Rust CLI --window flag not yet ported
-  body: |
-    The `--window` coordinate-compensation flag (drop-shadow inset logic in `WindowOriginCompensation`) is not yet ported to the Rust CLI. All six window-relative input subcommands (`click`, `mouse-down`, `mouse-up`, `move`, `scroll`, `drag`) accept raw absolute coordinates only. Porting `WindowOriginCompensation` is its own backlog task. See `window-flag-includes-drop-shadow-in-ax-origin` for the Swift CLI implementation.
