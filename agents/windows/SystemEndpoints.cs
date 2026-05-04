@@ -115,7 +115,8 @@ public static class SystemEndpoints
             {
                 return Results.Json(new ErrorResponse
                 {
-                    Error = $"Download failed: {ex.Message}",
+                    Error = "download_failed",
+                    Details = ex.Message,
                 }, statusCode: 400);
             }
         });

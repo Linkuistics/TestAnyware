@@ -304,7 +304,13 @@ strings surface as `code: AGENT_ERROR_UNKNOWN` with the wire string in
 | `UNKNOWN_BUTTON` | Mouse button name not in `{left, right, middle, center}`. |
 | `INTERNAL` | The CLI itself failed in a way that should not happen. Should always be a bug; `details.trace_id` for log correlation. |
 
-### 4.7 Discoverability
+### 4.7 Discoverability errors
+
+| Code | When |
+|---|---|
+| `SCHEMA_NOT_FOUND` | `testanyware schema <command>` invoked with an unknown command, or with a command that has no declared schema. Exit code `3` (per §5). |
+
+### 4.8 Catalogue exposure
 
 `testanyware capabilities --json` (see §8) MUST emit the full code
 catalogue in `error_codes`. Adding a new code in a release means the
@@ -319,7 +325,7 @@ catalogue grows by one entry; agents can poll for additions.
 | `0` | Success. |
 | `1` | Generic failure (no more specific bucket fits). |
 | `2` | Usage error (`USAGE_ERROR` family — bad flags, missing args, invalid combinations). |
-| `3` | Not found (`*_NOT_FOUND` family: `VM_NOT_FOUND`, `WINDOW_NOT_FOUND`, `ELEMENT_NOT_FOUND`, `GOLDEN_NOT_FOUND`, `UEFI_NOT_FOUND`). |
+| `3` | Not found (`*_NOT_FOUND` family: `VM_NOT_FOUND`, `WINDOW_NOT_FOUND`, `ELEMENT_NOT_FOUND`, `GOLDEN_NOT_FOUND`, `UEFI_NOT_FOUND`, `SCHEMA_NOT_FOUND`). |
 | `4` | Auth/permission required (`AUTH_REQUIRED`). |
 | `5` | Conflict / precondition failed (`GOLDEN_IN_USE`, `RECORD_ALREADY_ACTIVE`, `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED`). |
 | `6` | Rate limited / try again later (reserved; not currently used). |
@@ -486,8 +492,8 @@ testanyware schema vm list
 testanyware schema agent snapshot
 ```
 
-Exit `3` (`SCHEMA_NOT_FOUND`) when the command is unknown or has no
-declared schema.
+Exit `3` with `code: SCHEMA_NOT_FOUND` (catalogued in §4.7) when the
+command is unknown or has no declared schema.
 
 ### 8.3 `testanyware llm-instructions`
 

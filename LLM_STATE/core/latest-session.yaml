@@ -1,11 +1,10 @@
-id: session-30
-timestamp: 2026-05-04T04:51:02Z
+id: session-31
+timestamp: 2026-05-04T05:30:59Z
 phase: work
 body: |
-  ### Session 30 (2026-05-04T04:51:02Z) — Consolidate cli-contract.rs tables into surface module
+  ### Session 31 (2026-05-04T05:30:59Z) — Align agent error strings to CLI design contract
 
-  - Attempted refactoring `cli-contract.rs` to import `CANONICAL_COMMANDS`, `VERB_FIRST_ALIASES`, and `SYNONYM_ALIASES` from `testanyware_cli::surface` instead of maintaining a local duplicate.
-  - Removed the local `CommandSpec` struct and the three local table copies (~91 lines), replaced with a single `use testanyware_cli::surface::{...}` statement.
-  - `cargo test --workspace` passed green with 10 active + 6 ignored tests; `cargo build --tests --workspace` emitted zero warnings.
-  - `lib.rs` already exposed `pub mod surface` and `CommandSpec` already had `pub` fields, so no API changes were needed and no `unused_imports` warnings triggered.
-  - The refactor achieves its goal: adding a new command to `surface.rs` now automatically updates the contract test's expectations — no parallel table to maintain.
+  - **What was attempted:** Three tasks completed: (1) add `SCHEMA_NOT_FOUND` to §4 of `docs/architecture/cli-design-contract.md`; (2) realign macOS agent error strings in `agents/macos/Sources/testanyware-agent/AgentServer.swift` to use machine-readable codes per §4.5; (3) apply the same realignment to the Windows agent in `agents/windows/AccessibilityEndpoints.cs` and `agents/windows/SystemEndpoints.cs`.
+  - **What worked:** All three tasks completed cleanly. The doc task was a surgical three-location edit (new §4.7 table, §5 family list extension, §8.2 cross-reference update). The macOS and Windows agent edits followed the same pattern: free-text error messages replaced with short machine-readable `error` codes (`not_found`, `ambiguous`, `window_not_found`, `download_failed`) with the human context demoted to the `details` field. The upload invalid-base64 case in the macOS agent was treated differently: since that path uses `jsonOK(ActionResponse(success: false, ...))` (not `jsonError`), the message was updated to be more descriptive rather than code-ified.
+  - **What this suggests trying next:** The Windows and macOS agents now emit consistent `error` codes for element/window lookup failures. The Rust CLI can rely on these codes when interpreting agent responses; the next sessions working on `port-agent-only-cli-commands-exec-upload-download-agent-to-rust` will benefit from this alignment.
+  - **Key learnings:** The macOS and Windows agents share a clear structural pattern for errors: `jsonError("code", details: ...)` vs. `Results.Json(new ErrorResponse { Error = "code", Details = ... })`. The parallelism made the Windows port of each fix straightforward once the macOS changes were established.

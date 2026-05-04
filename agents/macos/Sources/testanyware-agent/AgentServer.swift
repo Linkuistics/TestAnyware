@@ -221,13 +221,13 @@ private func handleInspect(_ request: Request) async throws -> Response {
 
     switch result {
     case .notFound:
-        return jsonError("No element found matching query")
+        return jsonError("not_found")
     case .multiple(let matches):
-        return jsonError("Multiple elements matched — refine your query or use --index N",
+        return jsonError("ambiguous",
                         details: matches.map { describeElement($0) }.joined(separator: "\n"))
     case .found(let info):
         guard let liveElement = findLiveElement(matching: info) else {
-            return jsonError("Element found in snapshot but could not locate live AX element")
+            return jsonError("not_found", details: "matched in snapshot but live AX element could not be located")
         }
         var fontFamily: String? = nil
         var fontSize: Double? = nil
@@ -292,7 +292,7 @@ private func resolveAndAct(
         windows = windows.filter { windowMatches($0, filter: filterStr) }
     }
     if windows.isEmpty {
-        return jsonError("No matching windows found")
+        return jsonError("window_not_found", details: query.window)
     }
 
     var allElements: [ElementInfo] = []
@@ -305,13 +305,13 @@ private func resolveAndAct(
 
     switch result {
     case .notFound:
-        return jsonError("No element found matching query")
+        return jsonError("not_found")
     case .multiple(let matches):
-        return jsonError("Multiple elements matched — refine your query or use index",
+        return jsonError("ambiguous",
                         details: matches.map { describeElement($0) }.joined(separator: "\n"))
     case .found(let info):
         guard let liveElement = findLiveElement(matching: info) else {
-            return jsonError("Element found in snapshot but could not locate live AX element")
+            return jsonError("not_found", details: "matched in snapshot but live AX element could not be located")
         }
         do {
             try perform(liveElement)
@@ -327,7 +327,7 @@ private func resolveAndAct(
 private func handleWindowFocus(_ request: Request) async throws -> Response {
     let req: WindowTarget = try await decode(request)
     guard let (windowElement, _) = resolveWindowElement(filter: req.window) else {
-        return jsonError("No window matching '\(req.window)'")
+        return jsonError("window_not_found", details: req.window)
     }
     do {
         // Activate the owning app by extracting PID from the AX element.
@@ -347,7 +347,7 @@ private func handleWindowFocus(_ request: Request) async throws -> Response {
 private func handleWindowResize(_ request: Request) async throws -> Response {
     let req: WindowResizeRequest = try await decode(request)
     guard let (windowElement, _) = resolveWindowElement(filter: req.window) else {
-        return jsonError("No window matching '\(req.window)'")
+        return jsonError("window_not_found", details: req.window)
     }
     do {
         var sz = CGSize(width: req.width, height: req.height)
@@ -362,7 +362,7 @@ private func handleWindowResize(_ request: Request) async throws -> Response {
 private func handleWindowMove(_ request: Request) async throws -> Response {
     let req: WindowMoveRequest = try await decode(request)
     guard let (windowElement, _) = resolveWindowElement(filter: req.window) else {
-        return jsonError("No window matching '\(req.window)'")
+        return jsonError("window_not_found", details: req.window)
     }
     do {
         var pt = CGPoint(x: req.x, y: req.y)
@@ -377,7 +377,7 @@ private func handleWindowMove(_ request: Request) async throws -> Response {
 private func handleWindowClose(_ request: Request) async throws -> Response {
     let req: WindowTarget = try await decode(request)
     guard let (windowElement, _) = resolveWindowElement(filter: req.window) else {
-        return jsonError("No window matching '\(req.window)'")
+        return jsonError("window_not_found", details: req.window)
     }
     guard let axWrapper = windowElement as? AXElementWrapper else {
         return jsonOK(ActionResponse(success: false, message: "window-close: element is not an AXElementWrapper"))
@@ -400,7 +400,7 @@ private func handleWindowClose(_ request: Request) async throws -> Response {
 private func handleWindowMinimize(_ request: Request) async throws -> Response {
     let req: WindowTarget = try await decode(request)
     guard let (windowElement, _) = resolveWindowElement(filter: req.window) else {
-        return jsonError("No window matching '\(req.window)'")
+        return jsonError("window_not_found", details: req.window)
     }
     do {
         try windowElement.setAttribute("AXMinimized", value: true)
@@ -464,7 +464,7 @@ private func handleExec(_ request: Request) async throws -> Response {
 private func handleUpload(_ request: Request) async throws -> Response {
     let req: UploadRequest = try await decode(request)
     guard let data = Data(base64Encoded: req.content) else {
-        return jsonError("Invalid base64 content")
+        return jsonOK(ActionResponse(success: false, message: "Upload failed: invalid base64 content"))
     }
     do {
         let url = URL(fileURLWithPath: req.path)
@@ -483,7 +483,7 @@ private func handleDownload(_ request: Request) async throws -> Response {
         let data = try Data(contentsOf: URL(fileURLWithPath: req.path))
         return jsonOK(DownloadResponse(content: data.base64EncodedString()))
     } catch {
-        return jsonError("Download failed: \(error.localizedDescription)")
+        return jsonError("download_failed", details: error.localizedDescription)
     }
 }
 

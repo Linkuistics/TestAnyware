@@ -62,12 +62,12 @@ public static class AccessibilityEndpoints
             return result.Result switch
             {
                 QueryResult.NotFound => Results.Json(
-                    new ErrorResponse { Error = "No element found matching query" },
+                    new ErrorResponse { Error = "not_found" },
                     statusCode: 400),
                 QueryResult.Multiple => Results.Json(
                     new ErrorResponse
                     {
-                        Error = "Multiple elements matched",
+                        Error = "ambiguous",
                         Details = string.Join("\n", result.Matches!.Select(DescribeElement)),
                     },
                     statusCode: 400),
@@ -123,7 +123,7 @@ public static class AccessibilityEndpoints
         {
             var winElement = windowEnumerator.FindWindowElement(req.Window);
             if (winElement == null)
-                return Results.Json(new ErrorResponse { Error = $"No window matching '{req.Window}'" }, statusCode: 400);
+                return Results.Json(new ErrorResponse { Error = "window_not_found", Details = req.Window }, statusCode: 400);
 
             try
             {
@@ -142,7 +142,7 @@ public static class AccessibilityEndpoints
         {
             var winElement = windowEnumerator.FindWindowElement(req.Window);
             if (winElement == null)
-                return Results.Json(new ErrorResponse { Error = $"No window matching '{req.Window}'" }, statusCode: 400);
+                return Results.Json(new ErrorResponse { Error = "window_not_found", Details = req.Window }, statusCode: 400);
 
             try
             {
@@ -171,7 +171,7 @@ public static class AccessibilityEndpoints
         {
             var winElement = windowEnumerator.FindWindowElement(req.Window);
             if (winElement == null)
-                return Results.Json(new ErrorResponse { Error = $"No window matching '{req.Window}'" }, statusCode: 400);
+                return Results.Json(new ErrorResponse { Error = "window_not_found", Details = req.Window }, statusCode: 400);
 
             try
             {
@@ -200,7 +200,7 @@ public static class AccessibilityEndpoints
         {
             var winElement = windowEnumerator.FindWindowElement(req.Window);
             if (winElement == null)
-                return Results.Json(new ErrorResponse { Error = $"No window matching '{req.Window}'" }, statusCode: 400);
+                return Results.Json(new ErrorResponse { Error = "window_not_found", Details = req.Window }, statusCode: 400);
 
             try
             {
@@ -221,7 +221,7 @@ public static class AccessibilityEndpoints
         {
             var winElement = windowEnumerator.FindWindowElement(req.Window);
             if (winElement == null)
-                return Results.Json(new ErrorResponse { Error = $"No window matching '{req.Window}'" }, statusCode: 400);
+                return Results.Json(new ErrorResponse { Error = "window_not_found", Details = req.Window }, statusCode: 400);
 
             try
             {
@@ -252,7 +252,7 @@ public static class AccessibilityEndpoints
             windows = windows.Where(w => WindowEnumerator.WindowInfoMatches(w, query.Window)).ToList();
 
         if (windows.Count == 0)
-            return Results.Json(new ErrorResponse { Error = "No matching windows found" }, statusCode: 400);
+            return Results.Json(new ErrorResponse { Error = "window_not_found", Details = query.Window }, statusCode: 400);
 
         var allElements = new List<ElementInfo>();
         foreach (var win in windows)
@@ -267,11 +267,11 @@ public static class AccessibilityEndpoints
         switch (result.Result)
         {
             case QueryResult.NotFound:
-                return Results.Json(new ErrorResponse { Error = "No element found matching query" }, statusCode: 400);
+                return Results.Json(new ErrorResponse { Error = "not_found" }, statusCode: 400);
             case QueryResult.Multiple:
                 return Results.Json(new ErrorResponse
                 {
-                    Error = "Multiple elements matched \u2014 refine your query or use index",
+                    Error = "ambiguous",
                     Details = string.Join("\n", result.Matches!.Select(DescribeElement)),
                 }, statusCode: 400);
         }
@@ -280,7 +280,8 @@ public static class AccessibilityEndpoints
         if (liveElement == null)
             return Results.Json(new ErrorResponse
             {
-                Error = "Element found in snapshot but could not locate live UIA element",
+                Error = "not_found",
+                Details = "matched in snapshot but live UIA element could not be located",
             }, statusCode: 400);
 
         try
