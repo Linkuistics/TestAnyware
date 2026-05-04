@@ -505,3 +505,7 @@ entries:
   title: ProvisionerScriptsVersionCheck ProbeCustomization handles sentinel-only tools
   body: |
     Sentinel-declared tools absent from `ToolAvailabilityCheck.knownTools` (currently swift, dotnet) are probed via `probeCustomizations` static table in `ProvisionerScriptsVersionCheck`. Each `ProbeCustomization` supplies a custom command and custom parser. `collectHostVersions(forFloors:)` routes unknown tools through `resolveExtraHostVersion(forTool:)` instead of producing `hostVersionUnknown`. `testanyware doctor` reports `ok`/`belowFloor` for swift and dotnet. See `parseVersion greedy-matches first dotted token` for the `ToolAvailabilityCheck` hazard this bypasses.
+- id: swift-version-driver-line-is-stderr-compiler-line-is-stdout
+  title: 'swift --version: driver line is stderr, compiler line is stdout'
+  body: |
+    `swift --version` emits the `swift-driver version: X.Y` line to **stderr** and the `Apple Swift version X.Y.Z` line to **stdout**. `ProvisionerScriptsVersionCheck.runProbe` discards stderr via `proc.standardError = Pipe()`, so greedy first-token parsing of stdout actually works for swift. The per-tool `ProbeCustomization` table and anchored `"Apple Swift version "` parser were added anyway for defence against Apple ever moving the driver line to stdout. If stdout output format changes, the anchored parser returns `nil` and version comparison fails loudly rather than silently picking the driver version.
