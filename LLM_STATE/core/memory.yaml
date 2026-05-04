@@ -432,9 +432,9 @@ entries:
   body: |
     §10 of `docs/architecture/cli-design-contract.md` records the six axes on which the Swift CLI fails the contract (JSON coverage, help examples, error structure, verb/noun convention, behaviour gaps, discoverability) and maps each to the Rust-port acceptance criterion for the implementing task. Port-task authors read §10; no re-audit of the Swift CLI is needed.
 - id: linux-agent-error-responses-use-code-details-split
-  title: Linux agent error responses use code + details split
+  title: All agents use code + details error split
   body: |
-    `accessibility.py` and `system_endpoints.py` return `{"error": "<code>", "details": "..."}`. Error codes are snake_case with no interpolation: `not_found`, `ambiguous`, `window_not_found`, `download_failed`. Callers match on `error`; `details` is diagnostic context only. The live AT-SPI2 re-location failure returns `not_found` with a `details` string explaining the snapshot-vs-live discrepancy.
+    All three agents return `{"error": "<code>", "details": "..."}` for lookup and protocol errors. macOS uses `jsonError("code", details: ...)`, Windows uses `Results.Json(new ErrorResponse { Error = "code", Details = ... })`, Linux uses the same JSON shape directly. Error codes are snake_case with no interpolation: `not_found`, `ambiguous`, `window_not_found`, `download_failed`. Callers match on `error`; `details` is diagnostic context only.
 - id: cli-contract-rs-is-the-rust-cli-contract-test-skeleton
   title: cli-contract.rs is the Rust CLI contract test skeleton
   body: |
@@ -519,7 +519,7 @@ entries:
   title: testanyware-cli crate exposes library target via lib.rs
   body: |
     `cli-rs/crates/testanyware-cli/src/lib.rs` exposes the crate as a library target alongside the `[[bin]]` target. No `[lib]` section in `Cargo.toml` is needed — Cargo auto-discovers `src/lib.rs`. This allows integration tests in `tests/` to import internal modules (`discoverability`, `surface`) directly rather than re-declaring them.
-- id: schema-not-found-absent-from-4-of-cli-design-contract-md
-  title: SCHEMA_NOT_FOUND absent from §4 of cli-design-contract.md
+- id: macos-agent-has-two-response-paths-jsonerror-and-jsonok
+  title: 'macOS agent has two response paths: jsonError and jsonOK'
   body: |
-    `SCHEMA_NOT_FOUND` appears in the Rust error-code catalogue in `surface.rs` and is referenced in §8.2 prose of `docs/architecture/cli-design-contract.md`, but is not listed in the §4 error-code table. A doc-only follow-up is needed to add it to §4 for completeness.
+    macOS `AgentServer` has two distinct response paths. `jsonError("code", details: ...)` handles lookup and protocol errors (element not found, ambiguous match, window not found). `jsonOK(ActionResponse(success: false, message: ...))` handles action-endpoint failures (e.g. upload with invalid base64). Do not substitute `jsonError` into action-response paths.
