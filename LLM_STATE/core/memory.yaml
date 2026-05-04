@@ -376,7 +376,11 @@ entries:
 - id: provisionerscriptsversioncheck-reads-min-tool-sentinels
   title: ProvisionerScriptsVersionCheck reads min-tool sentinels
   body: |
-    `ProvisionerScriptsVersionCheck` (`cli/Sources/TestAnywareDriver/Diagnostics/`) reads `# testanyware-min-tool: <tool> <version>` comment lines from bundled `.sh` files and verifies installed tool versions meet declared floors. No bundled scripts currently declare sentinels; doctor prints `✓ no version sentinels declared`. Follows classify/run split pattern. A hard check: triggers non-zero exit when a declared version floor is not met.
+    `ProvisionerScriptsVersionCheck` reads `# testanyware-min-tool: <tool> <version>` comment lines from scanned `.sh` files and verifies installed tool versions meet declared floors. Follows classify/run split pattern. A hard check: triggers non-zero exit when a declared version floor is not met.
+
+    Script sources: brew-bundled scripts under `$(brew --prefix testanyware)/share/testanyware/scripts/`, plus source-tree `scripts/release-build.sh` when running from a dev source tree (see `ProvisionerScriptsVersionCheck scans source-tree release-build.sh`).
+
+    `scripts/release-build.sh` declares sentinels for swift (≥6.0) and dotnet (≥9.0). Host probing returns `hostVersionUnknown` for both — `parseVersion` greedy-matches the first dotted token and returns the wrong version for swift (see `parseVersion greedy-matches first dotted token`).
 - id: brewprefixresolver-is-canonical-brew-prefix-resolver-for-diagnostics
   title: BrewPrefixResolver is canonical brew-prefix resolver for diagnostics
   body: |
@@ -461,3 +465,15 @@ entries:
   title: clap aliases propagates to help; verb-first as enum member
   body: |
     clap `aliases` attribute on `#[command]` propagates synonym aliases to the canonical's help body, satisfying the synonym-help-equality check in `cli-contract.rs`. Verb-first variants (e.g. `screenshot`, `record`, `screen-size`) are separate enum members with custom doc comments — this satisfies §7.2 alias-announcement without special macro machinery. Shared `Args` structs (`ConnectionArgs`, `ScreenCaptureArgs`, `ScreenRecordArgs`, etc.) deduplicate field definitions between canonical and alias variants.
+- id: provisionerscriptsversioncheck-scans-source-tree-release-build-sh
+  title: ProvisionerScriptsVersionCheck scans source-tree release-build.sh
+  body: |
+    `ProvisionerScriptsVersionCheck` locates `scripts/release-build.sh` by walking ancestor directories from the running binary's path. Brew installs naturally return nil — there is no `scripts/release-build.sh` above `<brewPrefix>/bin/`. Dev source tree runs see the script; end-user installs do not. Three tests cover the locator: happy path, absent-script path, and root-walk bound.
+- id: parseversion-greedy-matches-first-dotted-token
+  title: parseVersion greedy-matches first dotted token
+  body: |
+    `parseVersion` in `ToolAvailabilityCheck` returns the first dotted-numeric token from `--version` output. `swift --version` starts with `swift-driver version: 1.95 Apple Swift version 6.1.2 ...`; `parseVersion` returns `1.95`, which falls below the ≥6.0 sentinel floor. A per-tool parser hook (custom command + custom parser) is needed before swift/dotnet sentinel floors can produce `ok`/`belowFloor` verdicts.
+- id: macos-tmp-symlink-requires-resolvingsymlinksinpath-in-tests
+  title: macOS /tmp symlink requires resolvingSymlinksInPath in tests
+  body: |
+    macOS `/tmp` is a symlink to `/private/tmp`. Test path comparisons involving temp file paths require `resolvingSymlinksInPath()` on both sides to avoid false inequality.
