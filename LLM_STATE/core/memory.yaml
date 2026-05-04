@@ -545,3 +545,11 @@ entries:
   title: agent-client integration tests use wiremock
   body: |
     `cli-rs/crates/testanyware-agent-client/tests/endpoint_integration.rs` (299 lines) exercises all agent endpoints against a local wiremock HTTP server. Run with `cargo test -p testanyware-agent-client`. Live QEMU Linux guest validation is the next gate before declaring live parity.
+- id: testanyware-protocol-exists-in-three-copies-shared-submodule-is-aspirational
+  title: testanyware-protocol exists in three copies; shared submodule is aspirational
+  body: |
+    Three independent copies of the TestAnyware wire types now exist: Swift cli-side, Swift agent-side, and the Rust `testanyware-protocol` crate. The Rust protocol crate compiles cleanly and is the canonical source for cross-language contract fixtures. The crate could be lifted to a top-level git submodule consumed by all three callers, but this is a separate refactor task and not blocking any current port work.
+
+    **Why:** Drift between the three copies is currently caught by contract tests (§ cross-language fixture in `testanyware-protocol`). If the contract test coverage weakens or a fourth caller appears, manual sync becomes error-prone.
+
+    **How to apply:** Track as a future refactor task when protocol evolution becomes frequent enough that manual sync is painful. The precondition is that the Rust port is at parity and the contract test suite is comprehensive. Do not block port tasks on this.

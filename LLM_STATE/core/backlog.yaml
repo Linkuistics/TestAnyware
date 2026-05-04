@@ -1,166 +1,42 @@
 tasks:
-- id: port-agent-only-cli-commands-exec-upload-download-agent-to-rust
-  title: Port agent-only CLI commands (exec, upload, download, agent *) to Rust
+- id: port-qemu-runner-and-vm-lifecycle-to-rust
+  title: Port QEMU runner and VM lifecycle to Rust
   category: feature
-  status: done
+  status: not_started
   dependencies: []
   description: |
-    Port commands that talk only to the in-VM agent over HTTP. No VNC, no OCR, no video. This delivers end-to-end value for the primary use case (Linux host driving Linux/Windows guests headlessly) before any RFB work begins.
+    Port the QEMU-based VM lifecycle to Rust. This is the **primary VM path** under the new constraints (Linux/Windows guests on Linux/macOS hosts). Tart support is a separate later task (12).
 
-    **Scope**
-    - `testanyware exec` — run a command in the guest, capture stdout/stderr/exit code.
-    - `testanyware upload`, `testanyware download` — file transfer through the agent.
-    - `testanyware agent health`, `agent windows`, `agent snapshot` (with `--mode interact|full`, `--window`, `--open-menu`), `agent inspect` (`--role`, `--label`), `agent press`.
-    - Connection resolution chain (must mirror the priority order in README.md):
-      1. `--connect <path>`
-      2. `--vm <id>`
-      3. `--vnc` / `--agent` / `--platform`
-      4. `TESTANYWARE_VM_ID`
-      5. `TESTANYWARE_VNC` / `TESTANYWARE_VNC_PASSWORD` / `TESTANYWARE_AGENT` / `TESTANYWARE_PLATFORM`
-      6. Error
-    - Per-VM spec file reading from `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.json` (with `directories` crate for cross-platform path resolution; `%LOCALAPPDATA%` on Windows).
+    **Scope (port from Swift)**
+    - `cli/Sources/TestAnywareDriver/VM/QEMURunner.swift`
+    - `cli/Sources/TestAnywareDriver/VM/QEMUMonitorClient.swift`
+    - `cli/Sources/TestAnywareDriver/VM/VMLifecycle.swift` (QEMU paths only — tart paths in task 12)
+    - `cli/Sources/TestAnywareDriver/VM/AgentHealthWaiter.swift`
+    - `cli/Sources/TestAnywareDriver/VM/DetachedProcess.swift`
+    - `cli/Sources/TestAnywareDriver/VM/VMPaths.swift`
+    - `cli/Sources/TestAnywareDriver/VM/VMSpec.swift` and `VMMeta.swift`
+    - swtpm setup for Windows guests (TPM 2.0 socket).
+    - Per-VM spec write/read; meta sidecar with PID + clone-dir + (later) viewer-PID.
+
+    **Commands**
+    - `testanyware vm start --platform {linux|windows} --display WxH [--viewer]`
+    - `testanyware vm stop <id>`
+    - `testanyware vm list`
+    - `testanyware vm delete <name>`
 
     **Acceptance criteria**
-    - All listed commands behave identically to the Swift CLI in flag names, output format, and exit codes.
-    - Each command's `--help` includes ≥2 concrete examples per the CLI design contract (task 2).
-    - Each command supports `--json` per the design contract.
-    - Errors emit stable `code` fields in JSON mode.
-    - IntegrationTests-equivalent suite runs against a live golden VM (Linux or Windows) on a Linux host.
+    - On a Linux host: `testanyware vm start --platform windows --display 1920x1080` clones and starts a Windows golden, returns a usable VM id, agent reaches health within timeout.
+    - On a Linux host: same flow for `--platform linux`.
+    - On a macOS host: same QEMU flows work (linux + windows guests).
+    - `testanyware vm stop` cleanly terminates QEMU + swtpm. Viewer wiring lands in task 8.
+    - Meta sidecar shape stays compatible: an in-flight VM started by the Swift CLI can be stopped by the Rust CLI on macOS (and vice versa) for the duration of the parallel-tooling period.
+    - Each command satisfies the CLI design contract from task 2: examples in help, `--json` output, stable error codes.
 
-    **Notes**
-    - This task is the first concrete validation that Linux-host headless work is viable. Run the test suite from a Linux box against a QEMU Linux guest before declaring done.
-    - Reuse `testanyware-agent-client` crate from task 1.
-    - The Swift CLI's JSON output shapes are the de-facto schema; lock them down in `docs/reference/cli-schemas/` per task 2.
-  results: |
-    ## Outcome
-
-    Agent-only Rust port lands. The `testanyware` Rust binary now drives a
-    real in-VM agent end-to-end for `agent {health,windows,snapshot,inspect,
-    press}` and `file {exec,upload,download}` (plus the verb-first aliases
-    `exec`, `upload`, `download`). Everything else still falls through to
-    the existing `unimplemented(...)` exit-2 stubs, intact for the next
-    port tasks.
-
-    ## What was built
-
-    **`testanyware-protocol`** — added wire request types
-    (`SnapshotRequest`, `ElementQuery`, `ExecRequest`, `UploadRequest`,
-    `DownloadRequest`/`Response`, `HealthResponse`) and `ExecResult`
-    alongside the existing response types. All carry `serde` `camelCase`
-    renames and round-trip-omitting-Nones to match the Swift wire format.
-
-    **`testanyware-agent-client`** — endpoint methods:
-    `health`, `windows`, `snapshot`, `inspect`, `press`, `exec`, `upload`,
-    `download`. New `AgentError` variant set with a `code()` accessor that
-    maps connection / HTTP / wire-error states to the §4 catalogue, plus a
-    §4.5 wire→code table (`not_found → ELEMENT_NOT_FOUND`, etc.). The
-    error-envelope decoder falls back to `{error,details}` shape when the
-    response body shape is unexpected — matches the macOS agent's quirk of
-    returning success-200 on `download_failed`.
-
-    **`testanyware-cli`** — three new modules:
-    - `resolve` — connection-resolution chain mirroring Swift's
-      `resolveAgent` + `VMPaths`. Reads `${XDG_STATE_HOME:-~/.local/state}/
-      testanyware/vms/<id>.json` (and `%LOCALAPPDATA%` on Windows). Tested
-      via an injectable `EnvProvider` so no process-env mutation in tests.
-    - `output` — §3 envelope helpers (`success_envelope`, `error_envelope`,
-      `print_success`, `print_error`) plus the §5 exit-code table.
-    - `commands::{agent,file}` — per-command handler functions called from
-      `main.rs`. Both text and `--json` modes per §10.1; `--dry-run` on
-      `press`/`exec`/`upload`/`download` per §9.3.
-
-    **`main.rs`** — wired up the dispatch for the ported commands and
-    attached §7 help-text blocks (USAGE → OPTIONS → OUTPUT → EXIT CODES →
-    EXAMPLES → SEE ALSO with ≥2 examples each). The verb-first aliases
-    (`exec`, `upload`, `download`) now share the same handler as the
-    canonical noun-first form.
-
-    **Schemas** — replaced the eight stub schemas under
-    `docs/reference/cli-schemas/` with real ones for `agent-health`,
-    `agent-windows`, `agent-snapshot`, `agent-inspect`, `agent-action`,
-    `file-exec`, `file-upload`, `file-download`. Each declares the actual
-    emitted shape; `cli-contract.rs::schema_command_emits_json_schema_for_each_command`
-    still passes because `include_str!` re-embeds them at build time.
-
-    ## What was verified
-
-    **Unit + integration tests:** 110 passing, 6 ignored (those 6 are the
-    contract `todo!()` stubs reserved for cross-cutting checks like
-    "every mutating command supports `--dry-run`"; this task's commands
-    contribute their slice but the pan-binary assertion stays ignored
-    until more commands land).
-    - `testanyware-protocol`: 52 unit + 14 fixture tests
-    - `testanyware-agent-client`: 6 unit + 11 wiremock integration tests
-    - `testanyware-cli`: 17 unit (output + resolve) + 10 cli-contract
-      integration (6 ignored)
-
-    **Live-VM check (Linux golden, tart):**
-    Stood up `testanyware-golden-linux-24.04` clone via the existing Swift
-    CLI, then ran the new Rust binary against it.
-    - `agent health` text → `OK`; `--json` → `{accessibility_status:
-      "granted", platform: "linux", reachable: true, ok: true,
-      schema_version: "1.0"}`.
-    - `exec "echo hello && uname -a"` → stdout passthrough.
-    - `exec --json "ls /tmp | head -3"` → structured envelope.
-    - `exec "false"` → exit 1 (in-VM exit code propagated in text mode).
-    - `upload` → `download` round-trip → byte-exact diff.
-    - `agent windows --json` → real GNOME windows enumerated.
-    - `agent snapshot --json --depth 1` → tree.
-    - `agent press --dry-run --json` → `{action: "press", dry_run: true,
-      query: {...}, ok: true}` without contacting the agent.
-    - `agent snapshot --open-menu File` → exit 5 with
-      `ACTION_UNSUPPORTED` and a clear message that `--open-menu` requires
-      VNC support not yet ported (vs silently ignoring the flag).
-    - Bad input paths: `--agent bad:port:abc` → exit 2 with
-      `INVALID_ENDPOINT`; `--vm testanyware-doesnotexist --json` → exit 3
-      with the §3.4 envelope and `VM_NOT_FOUND`, including
-      `details.spec_path`.
-
-    VM stopped cleanly via `testanyware vm stop`.
-
-    ## What was NOT done (deliberately)
-
-    - **`agent` subcommands beyond {health,windows,snapshot,inspect,press}**
-      — the task scope listed only those plus the file commands. The
-      `set-value`, `focus`, `show-menu`, `wait`, and `window-*` variants
-      still hit `unimplemented(...)` and exit 2. Their endpoints are
-      one-line additions to the agent client when the next port task
-      lands — the protocol types and infrastructure are all in place.
-    - **Linux-host integration test suite.** The acceptance criterion
-      asks for "IntegrationTests-equivalent suite on a Linux host"; this
-      session ran the empirical check on a macOS host driving a Linux
-      guest, which validates the agent-only HTTP path but doesn't prove
-      the Linux-host story end-to-end. The guest-side path is what
-      matters for the strategic claim (HTTP only, no Apple-specific FFI),
-      and that's what was exercised.
-    - **Full §4.5 mapper exposure.** Wire-error mapping is implemented in
-      `AgentError::code()` and exercised by the live tests; the
-      dependent task `implement-cli-side-agent-error-code-mapper-in-rust-cli-for-canonical-token-display`
-      can build on it without rework.
-    - **Source commits.** Per work-phase rules, the analyse-work phase
-      commits the diff. `git status --short` left clean of generated
-      files — only edited source and new module files are dirty.
-
-    ## Suggestions for next steps
-
-    1. **`port-qemu-runner-and-vm-lifecycle-to-rust`** — biggest unlock
-       for end-to-end Linux-host testing, since today the live test still
-       relied on the Swift `vm start` to bring up the VM. Once that's
-       ported, the binary can run a fully self-contained
-       integration-test loop on Linux.
-    2. **`implement-cli-side-agent-error-code-mapper-in-rust-cli-for-canonical-token-display`**
-       — small follow-up on top of this task. The mapper already exists
-       inside `AgentError::code()`; that task should just expose it as a
-       stable public API and document the table in `docs/reference/error-codes.md`.
-    3. **`testanyware-protocol` shared crate.** Three independent copies of
-       the wire types now exist (Swift cli-side, Swift agent-side, Rust
-       protocol). The protocol crate compiles cleanly and could be lifted
-       to a top-level git submodule consumed from all three callers, but
-       that's a separate refactor task and not blocking.
-    4. **`each_subcommand_help_follows_template` cli-contract test** is
-       still `#[ignore]`d. The eight ported commands satisfy the §7
-       template; once a few more land, that test could be flipped to
-       active and walk every canonical command.
+    **Constraints from the design conversation**
+    - Use `tokio::process` for child management. On Unix use `setsid` (via `nix` behind `#[cfg(unix)]`); on Windows use `CREATE_NEW_PROCESS_GROUP` (via `windows-sys` or `std::os::windows::process::CommandExt`).
+    - The existing memory entries on Darwin pipe EOF and Foundation `Process` not calling `setsid` **do not apply** to Rust — most of those workarounds drop away. Re-validate the process-tree-kill sequence in Rust rather than porting the workaround verbatim.
+    - KVM access on Linux: `/dev/kvm` must be readable+writable. If missing, fail with `code: KVM_PERMISSION_DENIED` and a remediation message naming `usermod -aG kvm $USER` (per CLI design contract §Errors).
+    - swtpm is required for Windows guests. If missing, fail with `code: SWTPM_MISSING` and remediation `apt install swtpm swtpm-tools` on Linux / `brew install swtpm` on macOS.
 - id: investigate-video-codec-licensing-for-embedded-libav-static-linking
   title: Investigate video codec licensing for embedded libav static linking
   category: chore
@@ -227,8 +103,7 @@ tasks:
   title: Implement CLI-side agent error code mapper in Rust CLI for canonical token display
   category: feature
   status: not_started
-  dependencies:
-  - port-agent-only-cli-commands-exec-upload-download-agent-to-rust
+  dependencies: []
   description: |
     Implement CLI-side agent error code mapper in Rust CLI for canonical token display
 
@@ -251,44 +126,6 @@ tasks:
     - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — "Suggestions for next session" item 3.
     - This task is the other half of the agent error realignment work; the agent side (Linux + macOS + Windows) emits canonical tokens, this task ensures the CLI consumer maps them to the contract-defined `code` values.
     - Depends on `port-agent-only-cli-commands-exec-upload-download-agent-to-rust` since the mapper lives inside the Rust CLI's agent response handling.
-- id: port-qemu-runner-and-vm-lifecycle-to-rust
-  title: Port QEMU runner and VM lifecycle to Rust
-  category: feature
-  status: not_started
-  dependencies: []
-  description: |
-    Port the QEMU-based VM lifecycle to Rust. This is the **primary VM path** under the new constraints (Linux/Windows guests on Linux/macOS hosts). Tart support is a separate later task (12).
-
-    **Scope (port from Swift)**
-    - `cli/Sources/TestAnywareDriver/VM/QEMURunner.swift`
-    - `cli/Sources/TestAnywareDriver/VM/QEMUMonitorClient.swift`
-    - `cli/Sources/TestAnywareDriver/VM/VMLifecycle.swift` (QEMU paths only — tart paths in task 12)
-    - `cli/Sources/TestAnywareDriver/VM/AgentHealthWaiter.swift`
-    - `cli/Sources/TestAnywareDriver/VM/DetachedProcess.swift`
-    - `cli/Sources/TestAnywareDriver/VM/VMPaths.swift`
-    - `cli/Sources/TestAnywareDriver/VM/VMSpec.swift` and `VMMeta.swift`
-    - swtpm setup for Windows guests (TPM 2.0 socket).
-    - Per-VM spec write/read; meta sidecar with PID + clone-dir + (later) viewer-PID.
-
-    **Commands**
-    - `testanyware vm start --platform {linux|windows} --display WxH [--viewer]`
-    - `testanyware vm stop <id>`
-    - `testanyware vm list`
-    - `testanyware vm delete <name>`
-
-    **Acceptance criteria**
-    - On a Linux host: `testanyware vm start --platform windows --display 1920x1080` clones and starts a Windows golden, returns a usable VM id, agent reaches health within timeout.
-    - On a Linux host: same flow for `--platform linux`.
-    - On a macOS host: same QEMU flows work (linux + windows guests).
-    - `testanyware vm stop` cleanly terminates QEMU + swtpm. Viewer wiring lands in task 8.
-    - Meta sidecar shape stays compatible: an in-flight VM started by the Swift CLI can be stopped by the Rust CLI on macOS (and vice versa) for the duration of the parallel-tooling period.
-    - Each command satisfies the CLI design contract from task 2: examples in help, `--json` output, stable error codes.
-
-    **Constraints from the design conversation**
-    - Use `tokio::process` for child management. On Unix use `setsid` (via `nix` behind `#[cfg(unix)]`); on Windows use `CREATE_NEW_PROCESS_GROUP` (via `windows-sys` or `std::os::windows::process::CommandExt`).
-    - The existing memory entries on Darwin pipe EOF and Foundation `Process` not calling `setsid` **do not apply** to Rust — most of those workarounds drop away. Re-validate the process-tree-kill sequence in Rust rather than porting the workaround verbatim.
-    - KVM access on Linux: `/dev/kvm` must be readable+writable. If missing, fail with `code: KVM_PERMISSION_DENIED` and a remediation message naming `usermod -aG kvm $USER` (per CLI design contract §Errors).
-    - swtpm is required for Windows guests. If missing, fail with `code: SWTPM_MISSING` and remediation `apt install swtpm swtpm-tools` on Linux / `brew install swtpm` on macOS.
 - id: fix-swtpm-socket-path-length-limit-causing-2-qemu-integration-test-failures
   title: Fix swtpm socket-path length limit causing 2 QEMU integration test failures
   category: chore
@@ -320,7 +157,6 @@ tasks:
   category: feature
   status: not_started
   dependencies:
-  - port-agent-only-cli-commands-exec-upload-download-agent-to-rust
   - port-qemu-runner-and-vm-lifecycle-to-rust
   description: |
     Port `testanyware doctor` with cross-platform host preflight checks. Doctor is the primary feedback loop for users on a new host — when something is missing, doctor tells them what to install.
@@ -547,7 +383,6 @@ tasks:
   category: feature
   status: not_started
   dependencies:
-  - port-agent-only-cli-commands-exec-upload-download-agent-to-rust
   - port-qemu-runner-and-vm-lifecycle-to-rust
   - port-testanyware-doctor-with-linux-host-preflight-checks
   - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
@@ -607,7 +442,6 @@ tasks:
   category: feature
   status: not_started
   dependencies:
-  - port-agent-only-cli-commands-exec-upload-download-agent-to-rust
   - port-qemu-runner-and-vm-lifecycle-to-rust
   - port-testanyware-doctor-with-linux-host-preflight-checks
   - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
