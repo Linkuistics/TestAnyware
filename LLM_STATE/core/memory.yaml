@@ -438,7 +438,7 @@ entries:
 - id: cli-contract-rs-is-the-rust-cli-contract-test-skeleton
   title: cli-contract.rs is the Rust CLI contract test skeleton
   body: |
-    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` contains per-subcommand contract assertions keyed to §1–§11 of `docs/architecture/cli-design-contract.md`. Eight tests are now active: `binary_exists_and_top_level_help_succeeds`, `version_flag_succeeds`, `each_present_subcommand_help_succeeds`, `every_schema_id_has_a_schema_file`, `every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`, `each_canonical_command_help_succeeds`; 8 remain `#[ignore = "§N"]` with `todo!("filled in by <task>")`, surfacing remaining port gaps via `cargo test -- --ignored` without blocking CI. Uses `env!("CARGO_BIN_EXE_testanyware")` for binary path; schema path helpers use `CARGO_MANIFEST_DIR` to resolve `docs/reference/cli-schemas/` (same pattern as protocol crate fixture tests).
+    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` contains per-subcommand contract assertions keyed to §1–§11 of `docs/architecture/cli-design-contract.md`. Eleven tests are active: `binary_exists_and_top_level_help_succeeds`, `version_flag_succeeds`, `each_present_subcommand_help_succeeds`, `every_schema_id_has_a_schema_file`, `every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`, `each_canonical_command_help_succeeds`, `capabilities_lists_full_surface`, `schema_command_emits_json_schema_for_each_command`, `llm_instructions_command_emits_manual`; 6 remain `#[ignore = "§N"]` with `todo!("filled in by <task>")`, surfacing remaining port gaps via `cargo test -- --ignored` without blocking CI. Uses `env!("CARGO_BIN_EXE_testanyware")` for binary path; schema path helpers use `CARGO_MANIFEST_DIR` to resolve `docs/reference/cli-schemas/`.
 - id: canonical-commands-table-encodes-39-noun-first-commands
   title: CANONICAL_COMMANDS table encodes 39 noun-first commands
   body: |
@@ -448,19 +448,13 @@ entries:
   body: |
     `every_schema_id_has_a_schema_file` in `cli-contract.rs` is now active (no longer `#[ignore]`). Twenty distinct stub files exist under `docs/reference/cli-schemas/<schema-id>.json`, each containing `{"schema_version": "1.0", "$comment": "TODO"}`. The test deduplicates `schema_id` values via `BTreeSet`, asserts file existence and valid JSON parse, and accumulates all failures before asserting. Evolve stubs to real JSON Schema documents as commands are ported.
 - id: first-port-task-should-adopt-7-help-template-as-reference
-  title: First port task should adopt §7 help template as reference
+  title: §7 help template reference established at §8 discoverability commands
   body: |
-    When the first "real" command port lands (beyond the existing stub), it should adopt the full §7 help template structure (`USAGE` / `OUTPUT` / `EXIT CODES` / `EXAMPLES` ≥ 2 / `SEE ALSO`). Doing so lets subsequent port tasks copy the pattern from an in-tree example rather than from the spec document alone.
-
-    Best candidates (smallest scope):
-    - `screen size` — smallest data-producing command
-    - `agent health` — smallest agent command
-
-    One of these ports landing with §7 template will let the `each_subcommand_help_follows_template` test in `cli-contract.rs` come off `#[ignore]` for that command, and serve as the reference for all subsequent ports.
+    The §7 help template structure (`USAGE` / `OUTPUT` / `EXIT CODES` / `EXAMPLES` ≥ 2 / `SEE ALSO`) is established on `capabilities`, `schema`, and `llm-instructions` in `discoverability.rs`. These are the in-tree reference implementations; subsequent port tasks copy the pattern from them rather than from the spec document alone. The `each_subcommand_help_follows_template` test in `cli-contract.rs` remains `#[ignore]` until per-command ports activate it.
 - id: rust-cli-noun-first-surface-migration-complete
   title: Rust CLI noun-first surface migration complete
   body: |
-    The clap command tree in `cli-rs/crates/testanyware-cli/src/main.rs` matches the §1 CANONICAL_COMMANDS table (39 commands). Top-level noun groups: `Screen` (capture, record, size, find-text), `File` (upload, download, exec), `Vm`, `Agent` (expanded with wait, set-value, focus, show-menu, window-focus/resize/move/close/minimize), `Capabilities`, `Schema`, `LlmInstructions`. Verb-first names retained as separate enum variants with §7.2 alias announcements. All 39 commands have stubs; behavior is not yet implemented.
+    The clap command tree in `cli-rs/crates/testanyware-cli/src/main.rs` matches the §1 CANONICAL_COMMANDS table (39 commands). Top-level noun groups: `Screen` (capture, record, size, find-text), `File` (upload, download, exec), `Vm`, `Agent` (expanded with wait, set-value, focus, show-menu, window-focus/resize/move/close/minimize), `Capabilities`, `Schema`, `LlmInstructions`. Verb-first names retained as separate enum variants with §7.2 alias announcements. §8 discoverability commands (`capabilities`, `schema`, `llm-instructions`) have full behavior; remaining 36 commands are stubs.
 - id: clap-aliases-propagates-to-help-verb-first-as-enum-member
   title: clap aliases propagates to help; verb-first as enum member
   body: |
@@ -509,3 +503,23 @@ entries:
   title: 'swift --version: driver line is stderr, compiler line is stdout'
   body: |
     `swift --version` emits the `swift-driver version: X.Y` line to **stderr** and the `Apple Swift version X.Y.Z` line to **stdout**. `ProvisionerScriptsVersionCheck.runProbe` discards stderr via `proc.standardError = Pipe()`, so greedy first-token parsing of stdout actually works for swift. The per-tool `ProbeCustomization` table and anchored `"Apple Swift version "` parser were added anyway for defence against Apple ever moving the driver line to stdout. If stdout output format changes, the anchored parser returns `nil` and version comparison fails loudly rather than silently picking the driver version.
+- id: surface-rs-is-canonical-rust-cli-surface-registry
+  title: surface.rs is canonical Rust CLI surface registry
+  body: |
+    `cli-rs/crates/testanyware-cli/src/surface.rs` is the single source of truth for the canonical command list, alias tables, top-level noun groups, and §4+§8.2 error-code catalogue (44 entries). All runtime data served by `capabilities`, `schema`, and `llm-instructions` derives from this module. Do not duplicate surface definitions elsewhere in the crate.
+- id: discoverability-rs-implements-8-capabilities-schema-llm-instructions
+  title: discoverability.rs implements §8 capabilities/schema/llm-instructions
+  body: |
+    `cli-rs/crates/testanyware-cli/src/discoverability.rs` implements three handlers: `run_capabilities()` emits a JSON envelope with `schema_version`, `ok`, `version`, `git_revision`, `subcommands`, `aliases`, `output_formats`, `features`, `platforms`, and `error_codes`; `run_schema()` does path → schema-id lookup and `include_str!`-embeds the JSON Schema file; `run_llm_instructions()` prints the embedded `llm_instructions.md` manual. All three §8 contract tests are active.
+- id: capabilities-git-revision-is-an-option-env-build-time-stub
+  title: capabilities git_revision is an option_env! build-time stub
+  body: |
+    `run_capabilities()` populates `git_revision` via `option_env!("TESTANYWARE_GIT_REVISION")`, defaulting to `"unknown"`. The Homebrew release pipeline must set `TESTANYWARE_GIT_REVISION` at build time to populate this field. Tracked under the Homebrew distribution task.
+- id: testanyware-cli-crate-exposes-library-target-via-lib-rs
+  title: testanyware-cli crate exposes library target via lib.rs
+  body: |
+    `cli-rs/crates/testanyware-cli/src/lib.rs` exposes the crate as a library target alongside the `[[bin]]` target. No `[lib]` section in `Cargo.toml` is needed — Cargo auto-discovers `src/lib.rs`. This allows integration tests in `tests/` to import internal modules (`discoverability`, `surface`) directly rather than re-declaring them.
+- id: schema-not-found-absent-from-4-of-cli-design-contract-md
+  title: SCHEMA_NOT_FOUND absent from §4 of cli-design-contract.md
+  body: |
+    `SCHEMA_NOT_FOUND` appears in the Rust error-code catalogue in `surface.rs` and is referenced in §8.2 prose of `docs/architecture/cli-design-contract.md`, but is not listed in the §4 error-code table. A doc-only follow-up is needed to add it to §4 for completeness.
