@@ -557,3 +557,29 @@ entries:
   title: testanyware-ocr-client crate mirrors OCRChildBridge via tokio Mutex
   body: |
     `testanyware-ocr-client` Rust crate in the `cli-rs/` workspace implements the OCR client protocol, mirroring Swift's `OCRChildBridge` actor semantics using `tokio::sync::Mutex`. Plugs into the RFB client path once `implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size` lands; `screen find-text` remains stubbed until then.
+- id: swift-test-baseline-is-420-420-on-macos-tahoe-with-qemu-windows-golden
+  title: Swift test baseline is 420/420 on macOS Tahoe with QEMU + Windows golden
+  body: |
+    Full Swift test suite passes 420/420 on macOS 25.4 (Tahoe) with qemu-system-aarch64 and swtpm
+    installed, and a Windows golden present. The previously-expected 270/272 baseline (from the swtpm
+    sun_path limit) is no longer valid; that fix landed in commit `5a1017f`. Both QEMU integration
+    tests (`startStopRoundTripWindows`, `qemuMonitorDiscoversAgentPort`) run within the 15-minute
+    timeout.
+
+    Tool versions verified on this run: qemu-system-aarch64 from `/opt/homebrew/bin/`, swtpm 0.10.1
+    (homebrew Cellar). Use these as the minimum floor for CI pin decisions.
+
+    Run command: `swift test --package-path cli` followed by
+    `swift test --package-path cli --filter VMLifecycleQEMUTests`.
+- id: ocrstatusfile-default-path-differs-between-rust-and-swift-on-macos
+  title: OcrStatusFile default_path differs between Rust and Swift on macOS
+  body: |
+    `OcrStatusFile::default_path` in the `testanyware-ocr-client` Rust crate resolves to
+    `~/Library/Application Support/com.linkuistics.testanyware/ocr-status.json` on macOS via the
+    `directories` crate. The Swift CLI uses `~/Library/Application Support/testanyware/ocr-status.json`
+    (no reverse-domain prefix).
+
+    The file is internal to the CLI and not user-facing, so the divergence is benign for current usage.
+    However, any future tooling (scripts, diagnostics, external observers) that reads the status file
+    must use the new Rust path when invoked via the Rust CLI. If the Swift CLI is removed after the Rust
+    port reaches parity, the old path becomes dead. Do not rely on both paths pointing to the same file.
