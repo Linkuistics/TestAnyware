@@ -442,15 +442,15 @@ entries:
 - id: cli-contract-rs-is-the-rust-cli-contract-test-skeleton
   title: cli-contract.rs is the Rust CLI contract test skeleton
   body: |
-    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` contains per-subcommand contract assertions keyed to §1–§11 of `docs/architecture/cli-design-contract.md`. Three tests are active (`binary_exists_and_top_level_help_succeeds`, `version_flag_succeeds`, `each_present_subcommand_help_succeeds`); 13 are `#[ignore = "§N"]` with `todo!("filled in by <task>")`, surfacing remaining port gaps via `cargo test -- --ignored` without blocking CI. Uses `env!("CARGO_BIN_EXE_testanyware")` for binary path; schema path helpers use `CARGO_MANIFEST_DIR` to resolve `docs/reference/cli-schemas/` (same pattern as protocol crate fixture tests).
+    `cli-rs/crates/testanyware-cli/tests/cli-contract.rs` contains per-subcommand contract assertions keyed to §1–§11 of `docs/architecture/cli-design-contract.md`. Four tests are active (`binary_exists_and_top_level_help_succeeds`, `version_flag_succeeds`, `each_present_subcommand_help_succeeds`, `every_schema_id_has_a_schema_file`); 12 are `#[ignore = "§N"]` with `todo!("filled in by <task>")`, surfacing remaining port gaps via `cargo test -- --ignored` without blocking CI. Uses `env!("CARGO_BIN_EXE_testanyware")` for binary path; schema path helpers use `CARGO_MANIFEST_DIR` to resolve `docs/reference/cli-schemas/` (same pattern as protocol crate fixture tests).
 - id: canonical-commands-table-encodes-39-noun-first-commands
   title: CANONICAL_COMMANDS table encodes 39 noun-first commands
   body: |
     `CANONICAL_COMMANDS` (39 entries) in `cli-contract.rs` encodes the noun-first target surface with `mutating`, `data_producing`, and `schema_id` fields. Two alias tables cover verb-first and synonym aliases. Reusable by all §3, §6, and §9 gate tests in the contract file. See `cli-design-contract-is-at-docs-architecture-cli-design-contract-md`.
 - id: docs-reference-cli-schemas-stubs-needed-to-unblock-contract-test
-  title: docs/reference/cli-schemas/ stubs needed to unblock contract test
+  title: every_schema_id_has_a_schema_file is enabled; schema stubs need real content
   body: |
-    `every_schema_id_has_a_schema_file` in `cli-contract.rs` is `#[ignore]`; it checks each distinct `schema_id` from `CANONICAL_COMMANDS` against `docs/reference/cli-schemas/<schema-id>.json`. Scaffold one stub JSON file per distinct `schema_id` to bring this test off `#[ignore]`.
+    `every_schema_id_has_a_schema_file` in `cli-contract.rs` is now active (no longer `#[ignore]`). Twenty distinct stub files exist under `docs/reference/cli-schemas/<schema-id>.json`, each containing `{"schema_version": "1.0", "$comment": "TODO"}`. The test deduplicates `schema_id` values via `BTreeSet`, asserts file existence and valid JSON parse, and accumulates all failures before asserting. Evolve stubs to real JSON Schema documents as commands are ported.
 - id: first-port-task-should-adopt-7-help-template-as-reference
   title: First port task should adopt §7 help template as reference
   body: |
