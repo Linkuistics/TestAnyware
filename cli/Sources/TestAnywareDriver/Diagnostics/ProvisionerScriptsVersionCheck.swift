@@ -171,16 +171,25 @@ public enum ProvisionerScriptsVersionCheck {
         return floors
     }
 
-    /// Runtime entry point. Resolves the Homebrew prefix, scans every
-    /// `.sh` file under `<brewPrefix>/share/testanyware/scripts/` for
-    /// sentinels, and compares aggregated floors against the host
-    /// versions reported by `ToolAvailabilityCheck`.
+    /// Runtime entry point. Scans every `.sh` file under
+    /// `<brewPrefix>/share/testanyware/scripts/` for sentinels, plus the
+    /// source-tree's `scripts/release-build.sh` when the running binary
+    /// is located inside a dev source tree (see
+    /// `locateReleaseBuildScript(near:)`). Compares aggregated floors
+    /// against the host versions reported by `ToolAvailabilityCheck`.
     public static func run() -> CheckResult {
-        guard let brewPrefix = BrewPrefixResolver.resolve() else {
-            return skippedResult()
+        var scripts: [String] = []
+        if let brewPrefix = BrewPrefixResolver.resolve() {
+            let bundledDir = "\(brewPrefix)/share/testanyware/scripts"
+            if let bundled = listShellScripts(in: bundledDir) {
+                scripts.append(contentsOf: bundled)
+            }
         }
-        let scriptDir = "\(brewPrefix)/share/testanyware/scripts"
-        guard let scripts = listShellScripts(in: scriptDir), !scripts.isEmpty else {
+        if let binaryPath = runningBinaryPath(),
+           let releaseBuild = locateReleaseBuildScript(near: binaryPath) {
+            scripts.append(releaseBuild)
+        }
+        if scripts.isEmpty {
             return skippedResult()
         }
         var floors: [DeclaredFloor] = []
@@ -190,6 +199,33 @@ public enum ProvisionerScriptsVersionCheck {
         }
         let hostVersions = collectHostVersions()
         return classify(floors: floors, hostVersions: hostVersions)
+    }
+
+    /// Walks up from `binaryPath`'s containing directory, looking for a
+    /// parent that contains `scripts/release-build.sh`. Returns the
+    /// absolute path of the first hit, or `nil` if none is found before
+    /// the filesystem root.
+    ///
+    /// Brew installs naturally return `nil`: the bundled binary at
+    /// `<brewPrefix>/bin/testanyware` has no `scripts/release-build.sh`
+    /// above it. Dev builds (e.g. binaries under `<repo>/cli/.build/`)
+    /// resolve to `<repo>/scripts/release-build.sh`.
+    public static func locateReleaseBuildScript(near binaryPath: String) -> String? {
+        let target = "scripts/release-build.sh"
+        let fm = FileManager.default
+        var dir = URL(fileURLWithPath: binaryPath)
+            .resolvingSymlinksInPath()
+            .deletingLastPathComponent()
+        while dir.path != "/" && !dir.path.isEmpty {
+            let candidate = dir.appendingPathComponent(target).path
+            if fm.fileExists(atPath: candidate) {
+                return candidate
+            }
+            let parent = dir.deletingLastPathComponent()
+            if parent.path == dir.path { break }
+            dir = parent
+        }
+        return nil
     }
 
     // MARK: - Helpers
@@ -244,6 +280,17 @@ public enum ProvisionerScriptsVersionCheck {
             }
         }
         return hostVersions
+    }
+
+    /// Returns the path of the currently-running executable, preferring
+    /// `Bundle.main.executablePath` (Foundation-resolved) and falling
+    /// back to `CommandLine.arguments.first`. Used by `run()` to locate
+    /// the source tree above a dev-built binary.
+    private static func runningBinaryPath() -> String? {
+        if let bundlePath = Bundle.main.executablePath, !bundlePath.isEmpty {
+            return bundlePath
+        }
+        return CommandLine.arguments.first
     }
 
     private static func listShellScripts(in directory: String) -> [String]? {

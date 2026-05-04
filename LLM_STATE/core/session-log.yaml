@@ -547,3 +547,14 @@ sessions:
     What didn't: none — the migration was clean.
 
     What this suggests next: the four newly-active contract tests form a regression guard for the entire CLI surface. Future port tasks (implementing actual behaviour behind stubs) should not need to touch the surface contract tests again unless adding new commands.
+- id: session-27
+  timestamp: 2026-05-04T02:26:29Z
+  phase: work
+  body: |
+    ### Session 27 (2026-05-04T02:26:29Z) — Add release-build.sh tool-floor sentinels and source-tree detection
+
+    - **Attempted:** Add `# testanyware-min-tool:` sentinel comments to `scripts/release-build.sh` for swift (≥6.0) and dotnet (≥9.0), and extend `ProvisionerScriptsVersionCheck` to locate and scan `release-build.sh` when running from a dev source tree.
+    - **What worked:** All three changes landed cleanly. The sentinel scanner was extended to compose its script list from two sources: the brew-bundled `<brewPrefix>/share/testanyware/scripts/` (existing) plus the source-tree `scripts/release-build.sh` located by walking up from the running binary (new). Three new tests cover the locator's happy path, absent-script path, and root-walk bound. `testanyware doctor` from the repo root now reports advisory `hostVersionUnknown` verdicts for swift and dotnet floors. Full diagnostics suite: 73 tests pass.
+    - **What didn't:** Host probing for swift and dotnet was deliberately scoped out. `swift --version` begins with `swift-driver version: 1.95 Apple Swift version 6.1.2 ...` and the existing `parseVersion` greedy-matches the first dotted token (`1.95`), which would falsely flag swift as below the 6.0 floor. A per-tool parser hook is needed before the floor can produce `ok`/`belowFloor` verdicts. Current `hostVersionUnknown` verdict is honest about the limitation.
+    - **What this suggests next:** Extend `ToolAvailabilityCheck` (or `ProvisionerScriptsVersionCheck`) with per-tool version-probe customisation (custom command + custom parser) so swift's `Apple Swift version X.Y.Z` and dotnet's `X.Y.Z` are both correctly resolved. This unlocks `ok`/`belowFloor` verdicts on dev machines and enables sentinels for other non-first-token tools (gh, python3, etc.).
+    - **Key learnings:** Source-tree detection (walk up from binary) cleanly separates dev-only from end-user doctor surfaces: brew installs naturally return nil since there is no `scripts/release-build.sh` above `<brewPrefix>/bin/testanyware`. `/tmp` ↔ `/private/tmp` symlink variance on macOS requires `resolvingSymlinksInPath()` on both sides of path comparisons in tests.

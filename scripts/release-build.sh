@@ -16,6 +16,12 @@
 #   testanyware.rb
 #
 # After this completes, inspect target/dist/ and run release-publish.sh.
+#
+# Tool floors picked up by `testanyware doctor` (when the doctor can
+# locate this script — i.e. running from a dev build inside the source
+# tree). Floors track the toolchain versions actually invoked below.
+# testanyware-min-tool: swift 6.0
+# testanyware-min-tool: dotnet 9.0
 
 set -euo pipefail
 IFS=$'\n\t'

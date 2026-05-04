@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import TestAnywareDriver
 
@@ -240,5 +241,63 @@ struct ProvisionerScriptsVersionCheckTests {
         #expect(!Check.isDottedVersion("latest"))
         #expect(!Check.isDottedVersion(""))
         #expect(!Check.isDottedVersion(".5.0"))
+    }
+
+    // MARK: - locateReleaseBuildScript
+
+    /// Build a disposable directory tree mirroring a dev source tree:
+    ///   <root>/scripts/release-build.sh
+    ///   <root>/cli/.build/release/testanyware
+    /// Returns (root, binaryPath, scriptPath). Caller is responsible
+    /// for cleaning up `root` via `try? FileManager.default.removeItem(at: root)`.
+    private func makeFakeSourceTree() throws -> (root: URL, binary: URL, script: URL) {
+        let fm = FileManager.default
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("provisioner-scripts-version-check-\(UUID().uuidString)")
+        let scriptsDir = root.appendingPathComponent("scripts")
+        let binDir = root.appendingPathComponent("cli/.build/release")
+        try fm.createDirectory(at: scriptsDir, withIntermediateDirectories: true)
+        try fm.createDirectory(at: binDir, withIntermediateDirectories: true)
+        let script = scriptsDir.appendingPathComponent("release-build.sh")
+        try "# stub".write(to: script, atomically: true, encoding: .utf8)
+        let binary = binDir.appendingPathComponent("testanyware")
+        try Data().write(to: binary)
+        return (root, binary, script)
+    }
+
+    @Test func locateReleaseBuildScriptFindsItAboveBinary() throws {
+        let tree = try makeFakeSourceTree()
+        defer { try? FileManager.default.removeItem(at: tree.root) }
+
+        let resolved = Check.locateReleaseBuildScript(near: tree.binary.path)
+        // Compare via standardized URL paths so /var vs /private/var
+        // symlinks on macOS don't false-positive a mismatch.
+        let expected = tree.script.resolvingSymlinksInPath().path
+        let actual = resolved.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
+        #expect(actual == expected)
+    }
+
+    @Test func locateReleaseBuildScriptReturnsNilWhenAbsent() throws {
+        let fm = FileManager.default
+        let root = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("provisioner-scripts-version-check-empty-\(UUID().uuidString)")
+        try fm.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+        let binary = root.appendingPathComponent("testanyware")
+        try Data().write(to: binary)
+
+        // No `scripts/release-build.sh` exists above this binary.
+        // Without the bound, the walk would otherwise climb out of the
+        // tmpdir into /private/tmp → /private → / and could pick up an
+        // unrelated file outside the tmpdir.
+        let resolved = Check.locateReleaseBuildScript(near: binary.path)
+        #expect(resolved == nil)
+    }
+
+    @Test func locateReleaseBuildScriptStopsAtFilesystemRoot() {
+        // Root-adjacent path with no script anywhere above must not
+        // hang or return a stale value.
+        let resolved = Check.locateReleaseBuildScript(near: "/nonexistent/testanyware")
+        #expect(resolved == nil)
     }
 }

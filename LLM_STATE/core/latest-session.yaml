@@ -1,19 +1,11 @@
-id: session-26
-timestamp: 2026-05-04T02:02:14Z
+id: session-27
+timestamp: 2026-05-04T02:26:29Z
 phase: work
 body: |
-  ### Session 26 (2026-05-04T02:02:14Z) — Migrate Rust CLI to noun-first command structure
+  ### Session 27 (2026-05-04T02:26:29Z) — Add release-build.sh tool-floor sentinels and source-tree detection
 
-  - Restructured the clap command tree in `cli-rs/crates/testanyware-cli/src/main.rs` from a flat verb-first surface to noun-first groups matching the CLI design contract §1 `CANONICAL_COMMANDS` table.
-  - Added `Screen` (capture, record, size, find-text), `File` (upload, download, exec) top-level noun groups; expanded `Agent` subcommands (wait, set-value, focus, show-menu, window-focus/resize/move/close/minimize); added `Capabilities`, `Schema`, `LlmInstructions` top-level commands.
-  - Retained all original verb-first names (`screenshot`, `record`, `screen-size`, `find-text`, `upload`, `download`, `exec`) as clap enum variants with §7.2-style alias announcements in their doc comments.
-  - Added synonym aliases: `vm list` → `ls`, `vm delete` → `rm`/`remove`, `agent inspect` → `show`.
-  - Extracted shared `Args` structs (`ConnectionArgs`, `ScreenCaptureArgs`, `ScreenRecordArgs`, etc.) to avoid duplicating field definitions between canonical and alias variants.
-  - Updated `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`: removed `#[ignore]` from four contract tests (`every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`, `each_canonical_command_help_succeeds`) and replaced the `todo!()` stubs with real assertion loops.
-  - All four contract tests pass against the migrated surface.
-
-  What worked: clap's `aliases` attribute on `#[command]` cleanly threads synonym aliases through to the canonical's help body, satisfying the synonym-help-equality check in the contract test. Verb-first variants as separate enum members with custom doc comments satisfies §7.2's alias-announcement requirement without special macro machinery.
-
-  What didn't: none — the migration was clean.
-
-  What this suggests next: the four newly-active contract tests form a regression guard for the entire CLI surface. Future port tasks (implementing actual behaviour behind stubs) should not need to touch the surface contract tests again unless adding new commands.
+  - **Attempted:** Add `# testanyware-min-tool:` sentinel comments to `scripts/release-build.sh` for swift (≥6.0) and dotnet (≥9.0), and extend `ProvisionerScriptsVersionCheck` to locate and scan `release-build.sh` when running from a dev source tree.
+  - **What worked:** All three changes landed cleanly. The sentinel scanner was extended to compose its script list from two sources: the brew-bundled `<brewPrefix>/share/testanyware/scripts/` (existing) plus the source-tree `scripts/release-build.sh` located by walking up from the running binary (new). Three new tests cover the locator's happy path, absent-script path, and root-walk bound. `testanyware doctor` from the repo root now reports advisory `hostVersionUnknown` verdicts for swift and dotnet floors. Full diagnostics suite: 73 tests pass.
+  - **What didn't:** Host probing for swift and dotnet was deliberately scoped out. `swift --version` begins with `swift-driver version: 1.95 Apple Swift version 6.1.2 ...` and the existing `parseVersion` greedy-matches the first dotted token (`1.95`), which would falsely flag swift as below the 6.0 floor. A per-tool parser hook is needed before the floor can produce `ok`/`belowFloor` verdicts. Current `hostVersionUnknown` verdict is honest about the limitation.
+  - **What this suggests next:** Extend `ToolAvailabilityCheck` (or `ProvisionerScriptsVersionCheck`) with per-tool version-probe customisation (custom command + custom parser) so swift's `Apple Swift version X.Y.Z` and dotnet's `X.Y.Z` are both correctly resolved. This unlocks `ok`/`belowFloor` verdicts on dev machines and enables sentinels for other non-first-token tools (gh, python3, etc.).
+  - **Key learnings:** Source-tree detection (walk up from binary) cleanly separates dev-only from end-user doctor surfaces: brew installs naturally return nil since there is no `scripts/release-build.sh` above `<brewPrefix>/bin/testanyware`. `/tmp` ↔ `/private/tmp` symlink variance on macOS requires `resolvingSymlinksInPath()` on both sides of path comparisons in tests.
