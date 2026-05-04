@@ -285,43 +285,104 @@ fn top_level_subcommands_from_help() -> Vec<String> {
 // port task.
 
 /// Contract §1: every canonical command listed in `CANONICAL_COMMANDS`
-/// is reachable via the binary's help tree. Until the surface migration
-/// to noun-first is complete (most current top-level verbs like
-/// `screenshot`, `exec`, `upload` need to move under their nouns), this
-/// test will fail for any unmigrated command.
+/// is reachable via the binary's help tree.
 #[test]
-#[ignore = "contract §1: enabled when noun-first surface migration completes"]
 fn every_canonical_command_is_present() {
-    todo!(
-        "for each spec in CANONICAL_COMMANDS, run `<spec.path...> --help` \
-         and assert success; filled in alongside the per-group port tasks \
-         that move commands under `screen`, `file`, `agent` window-*, etc."
+    let mut failures: Vec<(Vec<&'static str>, String)> = Vec::new();
+    for spec in CANONICAL_COMMANDS {
+        let mut argv: Vec<&str> = spec.path.to_vec();
+        argv.push("--help");
+        let out = run(&argv);
+        if !out.status.success() {
+            failures.push((
+                spec.path.to_vec(),
+                format!(
+                    "exit {:?}, stderr: {}",
+                    out.status,
+                    String::from_utf8_lossy(&out.stderr),
+                ),
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "canonical commands missing from clap tree:\n{failures:#?}",
     );
 }
 
-/// Contract §1: every verb-first alias in `VERB_FIRST_ALIASES` produces
-/// the same `--help` and exit code as its canonical, and its help body
-/// announces itself as an alias per §7.2.
+/// Contract §1 + §7.2: every verb-first alias in `VERB_FIRST_ALIASES`
+/// has working `--help`, and its help body announces itself as
+/// "Alias of `testanyware <canonical>`" rather than re-documenting the
+/// canonical command.
 #[test]
-#[ignore = "contract §1: enabled when aliases are wired up"]
 fn verb_first_aliases_match_canonical() {
-    todo!(
-        "for each (alias, canonical) in VERB_FIRST_ALIASES, assert \
-         `testanyware <alias> --help` succeeds and contains \
-         \"Alias of `testanyware <canonical>`\"; filled in by the alias-\
-         wiring port task that follows the noun-first migration."
+    let mut failures: Vec<String> = Vec::new();
+    for (alias, canonical) in VERB_FIRST_ALIASES {
+        let out = run(&[alias, "--help"]);
+        if !out.status.success() {
+            failures.push(format!(
+                "`testanyware {alias} --help` exited non-zero: stderr: {}",
+                String::from_utf8_lossy(&out.stderr),
+            ));
+            continue;
+        }
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        let needle = format!("Alias of `testanyware {}`", canonical.join(" "));
+        if !stdout.contains(&needle) {
+            failures.push(format!(
+                "`testanyware {alias} --help` missing announcement {needle:?}; got:\n{stdout}",
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "verb-first alias announcement failures:\n{}",
+        failures.join("\n---\n"),
     );
 }
 
-/// Contract §1: synonym aliases (`ls`, `rm`, `remove`, `show`) accept the
-/// same arguments as their canonical and exit identically on help.
+/// Contract §1: synonym aliases (`ls`, `rm`, `remove`, `show`) produce
+/// the same help output as their canonical (clap dispatches them through
+/// to the canonical's help body).
 #[test]
-#[ignore = "contract §1: enabled when synonym aliases are wired up"]
 fn synonym_aliases_match_canonical() {
-    todo!(
-        "for each (canonical, alias) in SYNONYM_ALIASES, assert both \
-         forms produce the same help output; filled in alongside the \
-         alias-wiring port task."
+    let mut failures: Vec<String> = Vec::new();
+    for (canonical, alias) in SYNONYM_ALIASES {
+        let mut canonical_argv: Vec<&str> = canonical.to_vec();
+        canonical_argv.push("--help");
+        let canonical_out = run(&canonical_argv);
+        let mut alias_argv: Vec<&str> = alias.to_vec();
+        alias_argv.push("--help");
+        let alias_out = run(&alias_argv);
+
+        if !canonical_out.status.success() {
+            failures.push(format!(
+                "canonical {canonical:?} --help failed: {}",
+                String::from_utf8_lossy(&canonical_out.stderr),
+            ));
+            continue;
+        }
+        if !alias_out.status.success() {
+            failures.push(format!(
+                "alias {alias:?} --help failed: {}",
+                String::from_utf8_lossy(&alias_out.stderr),
+            ));
+            continue;
+        }
+        if canonical_out.stdout != alias_out.stdout {
+            failures.push(format!(
+                "alias {alias:?} produced different help than canonical {canonical:?}:\n\
+                 --- canonical ---\n{}\n\
+                 --- alias ---\n{}",
+                String::from_utf8_lossy(&canonical_out.stdout),
+                String::from_utf8_lossy(&alias_out.stdout),
+            ));
+        }
+    }
+    assert!(
+        failures.is_empty(),
+        "synonym alias failures:\n{}",
+        failures.join("\n---\n"),
     );
 }
 

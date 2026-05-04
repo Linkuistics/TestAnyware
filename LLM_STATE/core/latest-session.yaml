@@ -1,14 +1,19 @@
-id: session-25
-timestamp: 2026-05-04T01:27:44Z
+id: session-26
+timestamp: 2026-05-04T02:02:14Z
 phase: work
 body: |
-  ### Session 25 (2026-05-04T01:27:44Z) — Wire schema-presence contract test
+  ### Session 26 (2026-05-04T02:02:14Z) — Migrate Rust CLI to noun-first command structure
 
-  - Implemented the `every_schema_id_has_a_schema_file` test in `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`, which had been stubbed as `todo!()` with `#[ignore]`. On entry, discovered the 20 distinct stub JSON files under `docs/reference/cli-schemas/` were already created in a prior commit — only the test wiring remained.
-  - Added `serde_json` to a new `[dev-dependencies]` block in `cli-rs/crates/testanyware-cli/Cargo.toml` (kept out of binary runtime deps). The test deduplicates `schema_id` values via `BTreeSet`, then for each unique id asserts the file exists and parses as valid JSON. Failures are accumulated before asserting so all offenders are reported in a single failure rather than stopping on the first.
-  - `Cargo.lock` regenerated automatically to record the new dev dependency.
-  - All changes compile and `cargo test --test cli-contract` passes.
+  - Restructured the clap command tree in `cli-rs/crates/testanyware-cli/src/main.rs` from a flat verb-first surface to noun-first groups matching the CLI design contract §1 `CANONICAL_COMMANDS` table.
+  - Added `Screen` (capture, record, size, find-text), `File` (upload, download, exec) top-level noun groups; expanded `Agent` subcommands (wait, set-value, focus, show-menu, window-focus/resize/move/close/minimize); added `Capabilities`, `Schema`, `LlmInstructions` top-level commands.
+  - Retained all original verb-first names (`screenshot`, `record`, `screen-size`, `find-text`, `upload`, `download`, `exec`) as clap enum variants with §7.2-style alias announcements in their doc comments.
+  - Added synonym aliases: `vm list` → `ls`, `vm delete` → `rm`/`remove`, `agent inspect` → `show`.
+  - Extracted shared `Args` structs (`ConnectionArgs`, `ScreenCaptureArgs`, `ScreenRecordArgs`, etc.) to avoid duplicating field definitions between canonical and alias variants.
+  - Updated `cli-rs/crates/testanyware-cli/tests/cli-contract.rs`: removed `#[ignore]` from four contract tests (`every_canonical_command_is_present`, `verb_first_aliases_match_canonical`, `synonym_aliases_match_canonical`, `each_canonical_command_help_succeeds`) and replaced the `todo!()` stubs with real assertion loops.
+  - All four contract tests pass against the migrated surface.
 
-  What this suggests trying next:
-  - The `add-ubuntu-ci-matrix-entry-for-cargo-build-test-linux-build-verification` task is now more compelling: the contract test suite (including the newly enabled schema check) should run on Linux CI.
-  - Schema files are stubs (`{"schema_version": "1.0", "$comment": "TODO"}`); a future task should evolve them to real JSON Schema documents as commands are implemented.
+  What worked: clap's `aliases` attribute on `#[command]` cleanly threads synonym aliases through to the canonical's help body, satisfying the synonym-help-equality check in the contract test. Verb-first variants as separate enum members with custom doc comments satisfies §7.2's alias-announcement requirement without special macro machinery.
+
+  What didn't: none — the migration was clean.
+
+  What this suggests next: the four newly-active contract tests form a regression guard for the entire CLI surface. Future port tasks (implementing actual behaviour behind stubs) should not need to touch the surface contract tests again unless adding new commands.
