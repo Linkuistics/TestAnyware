@@ -1,199 +1,4 @@
 tasks:
-- id: add-ubuntu-ci-matrix-entry-for-cargo-build-test-linux-build-verification
-  title: Add Ubuntu CI matrix entry for cargo build/test (Linux build verification)
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    Add Ubuntu CI matrix entry for cargo build/test (Linux build verification)
-
-    **Background:** The Rust workspace at `cli-rs/` was bootstrapped on macOS arm64 only. The workspace uses only cross-platform crates (tokio, reqwest/rustls, clap, serde, directories, anyhow/thiserror) so Linux compilation should succeed — but this is unverified. The bootstrap task results explicitly flag: "Linux build verification… I do not have a Linux host on hand. Recommend running `cargo build --workspace` on linuxbrew or a dev VM in the next session as cheap insurance."
-
-    **Scope**
-    - Add a GitHub Actions workflow job (or extend an existing CI matrix) that runs:
-      - `cargo build --workspace` on Ubuntu x86_64
-      - `cargo test --workspace` on Ubuntu x86_64
-      - `cargo clippy --workspace --all-targets -- -D warnings` on Ubuntu x86_64
-    - Place the workflow in `.github/workflows/ci.yml` (create if absent) or extend the existing one.
-    - Ubuntu arm64 runner is optional (GitHub-hosted arm64 Ubuntu runners are available but billed). x86_64 is sufficient for early drift detection.
-
-    **Acceptance criteria**
-    - The CI job runs on every push and pull_request to the relevant branches.
-    - `cargo build --workspace` and `cargo test --workspace` pass green on Ubuntu x86_64.
-    - Any Linux-specific compilation error (missing crate feature, cfg gate issue, path-handling bug) is surfaced immediately.
-    - The cross-language contract tests (14 JSON fixtures) pass on Ubuntu — this is the first Linux validation of the Swift↔Rust protocol compatibility.
-
-    **Notes**
-    - This is cheap insurance: catches Linux drift before any of the Linux-primary port tasks (agent commands, QEMU runner, doctor) begin in earnest.
-    - Does NOT require a live VM or QEMU; just `cargo test --workspace` (unit + contract tests).
-    - Extracted from `bootstrap-rust-workspace-and-shared-protocol-crate` results — "Suggestions for next session" item 2.
-  results: |
-    ## What was done
-
-    Created `.github/workflows/ci.yml` with a single Ubuntu x86_64 job (`rust-linux`) that runs on push to `main` and on every pull request. The job runs the three commands the task specified, in order, against the `cli-rs/` workspace:
-
-    - `cargo build --workspace --locked`
-    - `cargo test --workspace --locked`
-    - `cargo clippy --workspace --all-targets --locked -- -D warnings`
-
-    Workflow design choices:
-
-    - **`working-directory: cli-rs`** at the job level — workspace lives there, not at repo root.
-    - **`--locked`** on all three commands — `Cargo.lock` is committed (intentionally per `.gitignore`'s comment) and `--locked` makes CI fail if the lockfile is out of date with `Cargo.toml`. Reproducible-build hygiene.
-    - **`dtolnay/rust-toolchain@stable` with `components: clippy, rustfmt`** — mirrors `cli-rs/rust-toolchain.toml`. The action installs stable; rustup later picks up the `rust-toolchain.toml` override silently.
-    - **`Swatinem/rust-cache@v2`** with `workspaces: cli-rs -> target` — caches the registry and the workspace's target directory, keyed on `Cargo.lock`.
-    - **`concurrency.cancel-in-progress: true`** — cancels older runs when a new commit lands on the same ref. Standard pattern; saves runner minutes.
-    - **`permissions: contents: read`** — least-privilege explicit.
-
-    ## What worked
-
-    Local verification on macOS arm64 (the host) of the exact CI commands:
-
-    - `cargo build --workspace --locked` → success, no output (incremental, prebuilt)
-    - `cargo test --workspace --locked` → all 14 cross-language contract tests pass; total `test result: ok. 14 passed; 0 failed; 0 ignored`
-    - `cargo clippy --workspace --all-targets --locked -- -D warnings` → clean, zero warnings
-
-    Cross-platform readiness check: `grep -rE 'cfg\(target_os|cfg\(unix|cfg\(windows|use std::os' cli-rs/{crates,tests}` returned **zero matches**. The workspace today has no platform-gated code, which is the empirical (not just heuristic) basis for expecting Linux green on first push.
-
-    YAML validity: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` parsed without error.
-
-    ## What did not / what is still untested
-
-    True Linux green on `ubuntu-latest` is unverifiable from a macOS dev box. The only verification path that closes the loop is the first push that triggers the workflow — that happens in the next analyse-work commit. If the run fails, the failure surface narrows to:
-
-    - Some transitive crate having Linux-only build problems (none expected — see Cargo.toml: anyhow, thiserror, serde, tokio, reqwest+rustls, clap, directories — all cross-platform with no system deps),
-    - Cargo.lock drift since the workspace was bootstrapped (low risk; nothing has changed Cargo.toml since bootstrap),
-    - A Linux-specific test failure in the contract suite (very unlikely; tests are pure JSON parsing).
-
-    ## Suggestions for next session
-
-    1. **Watch the first CI run** of this workflow on the next push. If it goes green, the Rust workspace is empirically Linux-clean and downstream Linux-primary tasks (port-agent-only, port-qemu-runner, port-ocr-client) can proceed with high confidence.
-    2. **Add `cargo fmt --check`** as a fourth step when convenient. Out of scope for this task (which named only build/test/clippy), but cheap follow-on once a fmt convention is settled.
-    3. **Add a macOS arm64 matrix entry** (later, when the Rust workspace also touches macOS-only code via `#[cfg(target_os = "macos")]` for the tart runner port — task `port-tart-runner-for-macos-host-macos-guest-path-cfg-target-os-macos`). Premature today; the workspace is fully cross-platform.
-    4. **Consider path filters** (`paths: cli-rs/**`, `.github/workflows/ci.yml`) if Rust CI runs become noisy on PRs that touch only agents/, vision/, or scripts/. Skipped today to match the task's "every push and pull_request" wording literally.
-    5. **Branch protection**: once green is observed, the maintainer can mark `rust / ubuntu-x86_64` as a required check on the `main` branch in repo settings. That converts CI from advisory to gate.
-
-    ## Files touched
-
-    - `.github/workflows/ci.yml` (new, 36 lines)
-
-    No other files modified. `.gitignore` did not need changes (workflow files are tracked; no new generated artifacts).
-- id: investigate-video-codec-licensing-for-embedded-libav-static-linking
-  title: Investigate video codec licensing for embedded libav static linking
-  category: chore
-  status: not_started
-  dependencies: []
-  description: |
-    Investigate video codec licensing for embedded libav static linking in the Rust CLI.
-
-    **Background:** `port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess` requires statically linking libavcodec to keep the Rust binary self-contained. The canonical H.264 encoder (libx264) is GPL-licensed. Statically linking GPL code into a project that isn't fully GPL is legally contentious and may block distribution via Homebrew bottles.
-
-    **Decision needed (runs independently of all code tasks):**
-    - Determine whether static linking libx264 into the `testanyware` binary is compatible with the project's distribution model (Homebrew formula, linuxbrew, Windows zip).
-    - Assess the LGPL-only alternative: libopenh264 (Cisco's OpenH264). LGPL permits static linking with non-GPL projects; bitrate and quality may differ.
-    - Assess vendored x264 with a separate GPL-licensed Linux build variant (would require Homebrew to bottle separate GPL and non-GPL variants).
-    - If neither is acceptable, assess HEVC-only (libx265 is LGPL for the main library).
-
-    **Deliverable:**
-    Write `docs/architecture/video-codec-licensing.md` documenting:
-    1. Chosen codec set and rationale.
-    2. Licensing implications for the distribution model.
-    3. Any platform-specific differences (e.g. hardware encoder fallbacks on macOS/Linux).
-
-    **Acceptance criteria:**
-    - `docs/architecture/video-codec-licensing.md` exists and names a specific codec decision.
-    - The decision is referenced from the recording task description's "Constraints" section.
-
-    **Why extracted:** This is a legal/licensing research spike buried inside the recording implementation task. It requires no code, has no dependencies, and can run in parallel with any task in the Rust port arc. Starting the recording task without this decision risks a mid-implementation pivot on codec choice.
-- id: add-pyproject-toml-and-ruff-pytest-config-to-agents-linux-for-ci-lint-and-test-coverage
-  title: Add pyproject.toml and ruff/pytest config to agents/linux/ for CI lint and test coverage
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    Add pyproject.toml and ruff/pytest config to agents/linux/ for CI lint and test coverage
-
-    **Background:** The Linux agent at `agents/linux/` uses system Python with no venv (by design), but currently has no `pyproject.toml` or static analysis configuration. Changes like the error string realignment have no automated quality gate in CI — correctness was verified by manual `grep` and `py_compile` only.
-
-    **Scope:**
-    - Add `pyproject.toml` under `agents/linux/` with:
-      - `ruff` configuration for linting (rules appropriate for a small production Python service).
-      - `pytest` as the test runner.
-    - Add at least minimal pytest tests verifying that canonical error tokens are emitted correctly — specifically the 17 sites changed in the realignment (the `not_found`, `ambiguous`, `window_not_found`, `download_failed` paths in `accessibility.py` and `system_endpoints.py`).
-    - Extend the existing CI workflow (`.github/workflows/`) to run `ruff check` and `pytest` on `agents/linux/` on every push and pull request.
-
-    **Acceptance criteria:**
-    - `ruff check agents/linux/` passes in CI.
-    - `pytest agents/linux/` runs at least the token-emission tests and passes.
-    - The existing "no venv: uses system Python" deployment model is unchanged — `pyproject.toml` is a development tooling file only.
-    - A future error string change that introduces a non-canonical token causes a test failure rather than a silent regression.
-
-    **Notes:**
-    - Extracted from `realign-linux-agent-error-strings-to-cli-design-contract-4-5` results — "Suggestions for next session" item 2.
-    - Keep test scope narrow: the agent's HTTP server doesn't need to be spun up — unit tests mocking the AT-SPI2 layer or driving response-construction functions directly are sufficient to cover the token emission paths.
-  results: |
-    ## What was done
-
-    Added `agents/linux/pyproject.toml` (development tooling only — not installable as a wheel; the Linux golden continues to run the agent via `python3 -m testanyware_agent` against the system Python so that apt-installed `python3-pyatspi` is on the import path), with two tool blocks:
-
-    - **`[tool.ruff]`**: line-length 100, target `py312`, lint rules `E, F, W, I, UP, B`. Per-file ignore for `tests/**` drops bugbear (its broad-exception checks are noisy in test code).
-    - **`[tool.pytest.ini_options]`**: `testpaths = ["tests"]`, `pythonpath = ["."]` so `from testanyware_agent.system_endpoints import handle_download` resolves with no install step.
-
-    Added a token-emission test suite at `agents/linux/tests/test_error_tokens.py` (with a sibling empty `__init__.py`). Six tests, three categories:
-
-    1. **Realigned-token presence** (parametrized × 4): each of `not_found`, `ambiguous`, `window_not_found`, `download_failed` must appear in source. Catches the regression mode "someone 'fixed' a wire token to camelCase".
-    2. **No unknown non-canonical tokens** (1 test): the union of §4.5 canonical tokens and a `KNOWN_NON_CANONICAL_EXCEPTIONS` allowlist must cover every `"error": "<token>"` literal in source. The single allowlist entry today is `"Invalid JSON in request body"` from `server.py`, with a comment naming it as a candidate for a future `invalid_json` canonical token.
-    3. **Real behavioural test** (1 test): `handle_download({"path": missing})` must return `(400, {"error": "download_failed", "details": ...})`. Pure stdlib, no AT-SPI2 mocking.
-
-    Extended `.github/workflows/ci.yml` with a sibling `python-linux-agent` job: `actions/setup-python@v5` (Python 3.12, matching `requires-python` and the Ubuntu 24.04 golden), `pip install ruff pytest`, then `ruff check .` and `pytest`.
-
-    ## Source modifications outside the literal task scope
-
-    Enabling `ruff check` produced 26 baseline violations on existing source. To make CI green without compromising the lint surface, the following changes were applied to existing source files. None changes runtime behavior:
-
-    - **Auto-fix `I` (isort)** — 5 import sorts: `__main__.py`, `server.py`, `models.py`, `tree_walker.py`, `accessibility.py`. The `tree_walker.py` reorder preserves the load-order invariant (`gi.require_version("Atspi", "2.0")` still runs before any `from gi.repository import Atspi`); only the relative order of `pyatspi` and `gi.repository.Atspi` shifts, both of which depend on the same precondition.
-    - **Auto-fix `UP` (pyupgrade)** — 12 changes in `models.py`: `Optional[X]` → `X | None`. With `from __future__ import annotations` already present, this is purely syntactic.
-    - **Auto-fix `F401`** — removed the now-unused `from typing import Optional` in `models.py`.
-    - **Manual `E501` (8 line-wraps in `accessibility.py`)** — split single-line `return 200, {"success": False, "message": ...}` literals across multi-line dict syntax. Pattern matches similar dicts already in the file (e.g. lines 622–625).
-    - **Manual `B904` (1 raise-from-None in `accessibility.py`)** — `raise RuntimeError("Element does not support focus") from None`. Suppresses the chained `NotImplementedError` traceback that would otherwise be misleading: `NotImplementedError` is the *expected fallback path* (queryComponent → queryAction), not the cause of "no focus action available".
-
-    ## What worked
-
-    Local mirror of both CI jobs (macOS arm64; ruff 0.15.12, pytest 9.0.3, Python 3.14):
-
-    - `ruff check .` → "All checks passed!" across `testanyware_agent/` and `tests/`.
-    - `pytest` → 6 passed, 0 failed.
-    - `cargo build/test/clippy --workspace --locked` (the rust-linux job from the previous task) → still green; no spillover.
-
-    YAML validity: `python3 -c "import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))"` — parses, jobs are `['rust-linux', 'python-linux-agent']`.
-
-    ## What did not / what is still untested
-
-    True Linux green for the new job is unverifiable on macOS. The first CI run will exercise it. Risks:
-
-    - `gi.require_version` import shuffle in `tree_walker.py` — the load-order invariant is preserved, but Linux is the only host where `gi`/`pyatspi` actually load. Smoke risk: low (precondition satisfied), but worth watching the first golden-image agent restart after this change merges.
-    - Python 3.12 vs Python 3.14: I ran tests under 3.14 locally; CI runs 3.12. The test code uses only stdlib + pytest-9 features that exist in both.
-
-    ## Suggestions for next session
-
-    1. **Watch the first CI run** — both `rust-linux` and `python-linux-agent` should appear and pass on the next push. If `python-linux-agent` fails on Linux only, the most likely culprit is an `import pyatspi`-time failure that happens during `pytest` collection (the test module itself doesn't import accessibility.py, but pytest's test-discovery may) — collect logs and decide between (a) excluding accessibility.py from collection or (b) installing `python3-gi` + `python3-pyatspi` apt packages in the CI job.
-    2. **Add a `dependencies` group** to `pyproject.toml` for `ruff`/`pytest` (currently installed via `pip install` in CI) once the agent's dependency story is more formally tracked. Out of scope here — `pip install` in CI is fine.
-    3. **Tighten `KNOWN_NON_CANONICAL_EXCEPTIONS`** by either (a) adding `invalid_json` to §4.5 of the design contract and updating `server.py` to emit it, or (b) leaving it as-is. Either way, the test now makes the gap visible to whichever future task closes it.
-    4. **Consider extending the tokenization tests** to the macOS and Windows agents once those are also realigned. The test pattern (regex over source, fixed CANONICAL/EXCEPTION sets) is language-agnostic; a Swift/C# variant would be straightforward.
-
-    ## Files touched
-
-    - `agents/linux/pyproject.toml` (new, ~35 lines)
-    - `agents/linux/tests/__init__.py` (new, empty)
-    - `agents/linux/tests/test_error_tokens.py` (new, ~95 lines)
-    - `.github/workflows/ci.yml` (extended with `python-linux-agent` job)
-    - `agents/linux/testanyware_agent/__main__.py` (PEP 8 spacing, auto-fix)
-    - `agents/linux/testanyware_agent/accessibility.py` (auto-fix imports + 8 line-wraps + 1 `from None`)
-    - `agents/linux/testanyware_agent/models.py` (`Optional[X]` → `X | None`, dropped unused import)
-    - `agents/linux/testanyware_agent/server.py` (auto-fix imports)
-    - `agents/linux/testanyware_agent/tree_walker.py` (auto-fix import sort within block; load-order invariant preserved)
-
-    `.gitignore` review: no changes needed. `.ruff_cache/`, `.pytest_cache/`, `__pycache__/` all already covered by existing patterns.
 - id: port-agent-only-cli-commands-exec-upload-download-agent-to-rust
   title: Port agent-only CLI commands (exec, upload, download, agent *) to Rust
   category: feature
@@ -226,6 +31,33 @@ tasks:
     - This task is the first concrete validation that Linux-host headless work is viable. Run the test suite from a Linux box against a QEMU Linux guest before declaring done.
     - Reuse `testanyware-agent-client` crate from task 1.
     - The Swift CLI's JSON output shapes are the de-facto schema; lock them down in `docs/reference/cli-schemas/` per task 2.
+- id: investigate-video-codec-licensing-for-embedded-libav-static-linking
+  title: Investigate video codec licensing for embedded libav static linking
+  category: chore
+  status: not_started
+  dependencies: []
+  description: |
+    Investigate video codec licensing for embedded libav static linking in the Rust CLI.
+
+    **Background:** `port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess` requires statically linking libavcodec to keep the Rust binary self-contained. The canonical H.264 encoder (libx264) is GPL-licensed. Statically linking GPL code into a project that isn't fully GPL is legally contentious and may block distribution via Homebrew bottles.
+
+    **Decision needed (runs independently of all code tasks):**
+    - Determine whether static linking libx264 into the `testanyware` binary is compatible with the project's distribution model (Homebrew formula, linuxbrew, Windows zip).
+    - Assess the LGPL-only alternative: libopenh264 (Cisco's OpenH264). LGPL permits static linking with non-GPL projects; bitrate and quality may differ.
+    - Assess vendored x264 with a separate GPL-licensed Linux build variant (would require Homebrew to bottle separate GPL and non-GPL variants).
+    - If neither is acceptable, assess HEVC-only (libx265 is LGPL for the main library).
+
+    **Deliverable:**
+    Write `docs/architecture/video-codec-licensing.md` documenting:
+    1. Chosen codec set and rationale.
+    2. Licensing implications for the distribution model.
+    3. Any platform-specific differences (e.g. hardware encoder fallbacks on macOS/Linux).
+
+    **Acceptance criteria:**
+    - `docs/architecture/video-codec-licensing.md` exists and names a specific codec decision.
+    - The decision is referenced from the recording task description's "Constraints" section.
+
+    **Why extracted:** This is a legal/licensing research spike buried inside the recording implementation task. It requires no code, has no dependencies, and can run in parallel with any task in the Rust port arc. Starting the recording task without this decision risks a mid-implementation pivot on codec choice.
 - id: implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
   title: Implement RFB client crate with handshake, Raw, CopyRect; port screenshot and screen-size
   category: feature

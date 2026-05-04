@@ -535,3 +535,21 @@ entries:
   title: pytest may import accessibility.py at collection without gi
   body: |
     If pytest discovers `agents/linux/` and imports `accessibility.py` at collection time, it will fail on CI without apt-installed `python3-gi`/`pyatspi`. Mitigation: exclude `accessibility.py` from pytest collection in `pyproject.toml`, or install `python3-gi` in the `python-linux-agent` CI job. Not yet confirmed — first CI run will reveal whether collection triggers the import.
+- id: invalid-json-gap-in-4-5-cli-design-contract
+  title: invalid_json gap in §4.5 CLI design contract
+  body: |
+    The Linux agent's `server.py` emits `"error": "Invalid JSON in request body"` — a free-form string literal, not a canonical snake_case token. The `KNOWN_NON_CANONICAL_EXCEPTIONS` allowlist in `agents/linux/tests/test_error_tokens.py` captures this gap.
+
+    **Design decision pending:** either add `invalid_json` to §4.5 of the CLI design contract and update `server.py` to emit it, or leave it as-is. The test makes the gap visible; it does not enforce a direction.
+
+    **Why this matters for the Rust CLI:** The `implement-cli-side-agent-error-code-mapper` task maps §4.5 canonical tokens to structured CLI error codes. If `invalid_json` is added to §4.5, the Rust mapper must also handle `invalid_json → AGENT_INVALID_JSON`. If not, the mapper's `AGENT_ERROR_UNKNOWN` fallback fires for this path, which is acceptable but not ideal.
+- id: extend-error-token-tests-to-macos-and-windows-agents
+  title: Extend error-token tests to macOS and Windows agents
+  body: |
+    The error-token test pattern in `agents/linux/tests/test_error_tokens.py` is language-agnostic and should be extended to the macOS and Windows agents once those agents are realigned to emit canonical §4.5 wire tokens.
+
+    **Pattern:** regex over source for `"error": "<token>"` literals; check against a CANONICAL set + KNOWN_NON_CANONICAL_EXCEPTIONS allowlist; one real behavioral test per changed code path.
+
+    **Sequencing:** This work is gated on macOS and Windows agent realignment (analogous to `realign-linux-agent-error-strings-to-cli-design-contract-4-5`). A Swift variant for `agents/macos/` and a C# variant for `agents/windows/` would use the same approach.
+
+    **Note:** The macOS agent realignment is not yet tracked as a backlog task. Add a realignment task for each remaining agent before adding the test-extension task.
