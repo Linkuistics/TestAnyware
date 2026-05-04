@@ -37,117 +37,39 @@ tasks:
     - The existing memory entries on Darwin pipe EOF and Foundation `Process` not calling `setsid` **do not apply** to Rust — most of those workarounds drop away. Re-validate the process-tree-kill sequence in Rust rather than porting the workaround verbatim.
     - KVM access on Linux: `/dev/kvm` must be readable+writable. If missing, fail with `code: KVM_PERMISSION_DENIED` and a remediation message naming `usermod -aG kvm $USER` (per CLI design contract §Errors).
     - swtpm is required for Windows guests. If missing, fail with `code: SWTPM_MISSING` and remediation `apt install swtpm swtpm-tools` on Linux / `brew install swtpm` on macOS.
-- id: investigate-video-codec-licensing-for-embedded-libav-static-linking
-  title: Investigate video codec licensing for embedded libav static linking
+- id: resolve-cli-rs-licence-inconsistency-mit-vs-apache-2-0
+  title: Resolve CLI-rs licence inconsistency (MIT vs Apache-2.0)
   category: chore
-  status: done
+  status: not_started
   dependencies: []
   description: |
-    Investigate video codec licensing for embedded libav static linking in the Rust CLI.
+    Resolve the licence inconsistency between `cli-rs/Cargo.toml` (declares `license = "MIT"`)
+    and the top-level `LICENSE` file (Apache-2.0). The inconsistency was noted during the video
+    codec licensing investigation as a project-hygiene issue and a pre-release blocker for any
+    Homebrew formula reviewer.
 
-    **Background:** `port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess` requires statically linking libavcodec to keep the Rust binary self-contained. The canonical H.264 encoder (libx264) is GPL-licensed. Statically linking GPL code into a project that isn't fully GPL is legally contentious and may block distribution via Homebrew bottles.
+    **Scope**
+    - Decide the canonical licence: Apache-2.0 (aligned with top-level `LICENSE`) is the
+      recommended choice — it matches the intent of the existing file and is what Homebrew
+      formula reviewers will verify.
+    - Update `cli-rs/Cargo.toml` to `license = "Apache-2.0"`.
+    - Update any other `Cargo.toml` files in `cli-rs/crates/` that declare `license = "MIT"`.
+    - Verify `cargo metadata` reports a consistent licence across the workspace.
+    - Update `docs/architecture/video-codec-licensing.md` §Licences section if it references
+      the old inconsistency as an open question.
 
-    **Decision needed (runs independently of all code tasks):**
-    - Determine whether static linking libx264 into the `testanyware` binary is compatible with the project's distribution model (Homebrew formula, linuxbrew, Windows zip).
-    - Assess the LGPL-only alternative: libopenh264 (Cisco's OpenH264). LGPL permits static linking with non-GPL projects; bitrate and quality may differ.
-    - Assess vendored x264 with a separate GPL-licensed Linux build variant (would require Homebrew to bottle separate GPL and non-GPL variants).
-    - If neither is acceptable, assess HEVC-only (libx265 is LGPL for the main library).
+    **Acceptance criteria**
+    - `grep -r 'license' cli-rs/Cargo.toml cli-rs/crates/*/Cargo.toml` shows a single
+      consistent value across all workspace members.
+    - `cargo metadata --format-version 1 | jq '[.packages[] | select(.name | startswith("testanyware")) | .license] | unique'` returns a single-element array.
+    - `docs/architecture/video-codec-licensing.md` no longer lists this as an open question.
+    - CI (clippy, tests) stays green after the change.
 
-    **Deliverable:**
-    Write `docs/architecture/video-codec-licensing.md` documenting:
-    1. Chosen codec set and rationale.
-    2. Licensing implications for the distribution model.
-    3. Any platform-specific differences (e.g. hardware encoder fallbacks on macOS/Linux).
-
-    **Acceptance criteria:**
-    - `docs/architecture/video-codec-licensing.md` exists and names a specific codec decision.
-    - The decision is referenced from the recording task description's "Constraints" section.
-
-    **Why extracted:** This is a legal/licensing research spike buried inside the recording implementation task. It requires no code, has no dependencies, and can run in parallel with any task in the Rust port arc. Starting the recording task without this decision risks a mid-implementation pivot on codec choice.
-  results: |
-    ## Outcome
-
-    `docs/architecture/video-codec-licensing.md` exists and names a binding
-    codec decision: a two-tier strategy of hardware-accelerated H.264 via
-    libavcodec wrappers (Tier 1) with software AV1 via rav1e/libaom as the
-    universal fallback (Tier 2). Both `libx264` and `libx265` are
-    deliberately out of scope to preserve the project's permissive
-    licensing. The recording task's description has been rewritten to cite
-    the doc and reflect the chosen codec set.
-
-    ## Files changed
-
-    - `docs/architecture/video-codec-licensing.md` (new): the decision
-      document. Layout: constraints → codec/licence matrix → decision →
-      build configuration → platform notes → patent expiry watch → open
-      questions for project ownership → cross-references.
-    - `LLM_STATE/core/backlog.yaml` (description rewrite for
-      `port-testanyware-record-to-embedded-libav-ffmpeg-next-instead-of-subprocess`):
-      Tier-1 hw H.264 + Tier-2 sw AV1 replaces the original "libx264 +
-      libx265" scope. `--codec hevc` deferred. New CI gate added: assert
-      no GPL shared library is linked into the binary.
-
-    ## Why this codec set
-
-    The project is licensed permissively (Apache-2.0 top-level / MIT in
-    Cargo.toml — flagged in the doc as a separate hygiene issue).
-    Statically linking libx264 or libx265 would force the entire binary
-    to GPL, an outsized licensing change for a single feature.
-
-    The cleanest answer: **let OS / hardware vendors handle the patent
-    royalties**. `h264_videotoolbox` (macOS), `h264_vaapi` / `h264_nvenc`
-    / `h264_qsv` (Linux), `h264_mf` (Windows) all delegate to encoders the
-    user has already paid for via their OS / hardware licence. macOS
-    output should be effectively bit-identical to the existing AVAssetWriter
-    recordings — same VideoToolbox encoder under the hood.
-
-    For the no-hardware-encoder fallback, AV1 (royalty-free, BSD-2) is
-    the only software encoder option that's both licence-clean and
-    patent-clean. Slower than real-time, but test recordings can buffer
-    behind the wall clock.
-
-    ## What worked
-
-    - Grounding the analysis in the actual repository: `cli-rs/Cargo.toml`
-      declares MIT, top-level LICENSE is Apache-2.0. That fact alone
-      determined the GPL question — no point analysing libx264 trade-offs
-      when the project's licence forecloses the option.
-    - The existing Swift `StreamingCapture.swift` already uses VideoToolbox
-      via AVAssetWriter, so the Tier-1 macOS path is "literally the same
-      encoder, different binding library" — the lowest-risk parity story
-      for the recording-task acceptance criterion ("same ballpark as
-      AVAssetWriter output").
-
-    ## What didn't work / what to verify
-
-    - The licence inconsistency between top-level LICENSE (Apache-2.0)
-      and cli-rs/Cargo.toml (MIT) is a project-hygiene issue I called out
-      but didn't fix (out of scope for this task). Worth a separate
-      triage decision before the first release.
-    - Patent-expiry timing for AVC (~Feb 2027 in the US) is approximate;
-      the doc flags this as a watch item. If the recording task ships
-      later than that, software OpenH264 source build becomes worth
-      re-evaluating.
-    - The doc explicitly disclaims that this is engineering analysis,
-      not legal advice. A real lawyer should review before tagging the
-      first release that ships any encoder.
-
-    ## What this suggests next
-
-    - The licence-inconsistency open question (MIT vs Apache-2.0) is
-      worth raising in triage as a small backlog item — it's a pre-release
-      blocker for any homebrew-formula reviewer.
-    - When the recording task is picked up, the implementer should start
-      by configuring `ffmpeg-next` (or the chosen libavcodec build) with
-      `--disable-gpl --disable-nonfree` and the runtime-probe table from
-      this doc, then validate the macOS Tier-1 path before writing
-      fallback logic. Doing the AV1 fallback first risks chasing
-      optimisations that don't matter if the Tier-1 path covers the
-      common case.
-    - The CI "no GPL shared library" gate added to the recording task
-      acceptance is the single best safeguard against silent licence
-      regressions later — explicitly enforced via `ldd` / `otool -L` /
-      `dumpbin /imports`.
+    **Notes**
+    - This is a pre-release blocker for the Homebrew distribution task. Homebrew formula
+      reviewers check `license` fields against the actual licence file; a mismatch causes
+      formula rejection.
+    - The change has no runtime impact — `license` is metadata only.
 - id: implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
   title: Implement RFB client crate with handshake, Raw, CopyRect; port screenshot and screen-size
   category: feature
@@ -515,7 +437,6 @@ tasks:
   status: not_started
   dependencies:
   - implement-rfb-client-crate-with-handshake-raw-copyrect-port-screenshot-and-screen-size
-  - investigate-video-codec-licensing-for-embedded-libav-static-linking
   description: |
     Replace `AVAssetWriter`-based `StreamingCapture.swift` with libav-backed encoding via the `ffmpeg-next` crate. **Embedded library, not subprocess** — explicit user decision in the design conversation.
 
@@ -669,113 +590,3 @@ tasks:
 
     **Notes**
     - The Swift CLI may still be useful for one or two months post-cutover if the Rust version has any quality issues — keep the pre-cutover commit tagged for easy revert.
-- id: add-invalid-json-as-4-5-canonical-agent-error-token
-  title: Add invalid_json as §4.5 canonical agent error token
-  category: chore
-  status: done
-  dependencies: []
-  description: |
-    Add `invalid_json` as a §4.5 canonical error token in the agent contract.
-
-    **Background:** The Linux agent's `server.py` emits `"error": "Invalid JSON in request body"` — a
-    free-form string, not a canonical snake_case token. The `implement-cli-side-agent-error-code-mapper`
-    task landed §4.5 friendly messages; the only path that still surfaces raw text to users is this gap.
-    The memory entry `invalid-json-gap-in-4-5-cli-design-contract` records the decision as pending.
-    This task resolves it.
-
-    **Scope:**
-    - Update `agents/linux/server.py:26` to emit `"error": "invalid_json"` (snake_case token).
-    - Remove `"Invalid JSON in request body"` from `KNOWN_NON_CANONICAL_EXCEPTIONS` in
-      `agents/linux/tests/test_error_tokens.py`.
-    - Add `"invalid_json"` to the §4.5 canonical set in `test_error_tokens.py`.
-    - Extend `map_wire_error` in `cli-rs/crates/testanyware-agent-client/src/lib.rs` to map
-      `invalid_json → AGENT_INVALID_JSON`.
-    - Add a curated friendly message for `AGENT_INVALID_JSON` in
-      `cli-rs/crates/testanyware-cli/src/commands/mod.rs` (`friendly_message_for`).
-    - Update `docs/architecture/cli-design-contract.md` §4.5 to include `invalid_json`.
-    - Add a unit test in `testanyware-cli` for the new friendly message, mirroring the existing
-      `friendly_message_translates_every_canonical_4_5_token` pattern.
-
-    **Acceptance criteria:**
-    - A malformed JSON body sent to the Linux agent returns `{"error": "invalid_json", "details": "..."}`.
-    - The Rust CLI maps `invalid_json` to `AGENT_INVALID_JSON` and displays a friendly message.
-    - `cargo test --workspace` green; `pytest agents/linux/` green.
-
-    **Notes:**
-    - Small task; no cross-platform impact (macOS and Windows agents don't have this code path).
-    - The `KNOWN_NON_CANONICAL_EXCEPTIONS` entry for this token was previously a workaround; it becomes
-      a test failure if not removed alongside the fix.
-  results: |
-    ## Outcome
-
-    `invalid_json` is now a §4.5 canonical wire token. The Linux agent emits it,
-    the Rust CLI maps it to `AGENT_INVALID_JSON`, the friendly-message generator
-    has a curated string, the design contract documents it, and the `KNOWN_NON_CANONICAL_EXCEPTIONS`
-    holding pen for the Linux-agent contract test is now empty.
-
-    ## Files changed
-
-    - `agents/linux/testanyware_agent/server.py` — `_read_body()` now returns
-      `(dict | None, str)` so the parse error message rides along into the
-      response body's `details` field. Bad-JSON 400 response carries
-      `{"error": "invalid_json", "details": "<json.JSONDecodeError str>"}`.
-    - `agents/linux/tests/test_error_tokens.py` — added `invalid_json` to
-      `CANONICAL_TOKENS` and `REALIGNED_TOKENS`; emptied
-      `KNOWN_NON_CANONICAL_EXCEPTIONS` (the only entry it held was the
-      string this task replaces).
-    - `cli-rs/crates/testanyware-agent-client/src/lib.rs` — added
-      `"invalid_json" => "AGENT_INVALID_JSON"` to `map_wire_error`; added
-      the assertion to `wire_error_mapping_table`.
-    - `cli-rs/crates/testanyware-cli/src/commands/mod.rs` — added a curated
-      friendly message for `AGENT_INVALID_JSON` ("Agent rejected the request
-      body as malformed JSON (this indicates a CLI bug — please report it)");
-      added the case to `friendly_message_translates_every_canonical_4_5_token`;
-      rewrote the comment + example token in
-      `friendly_message_for_unknown_wire_token_includes_raw_token` (the old
-      comment named `invalid_json` as a hypothetical future token, and the
-      test used "Invalid JSON in request body" as its fallback example —
-      both became misleading once this token landed).
-    - `docs/architecture/cli-design-contract.md` — appended the
-      `invalid_json | AGENT_INVALID_JSON | …` row to the §4.5 table with a
-      framing note that it indicates a CLI bug rather than user-visible
-      misuse.
-
-    ## Verification
-
-    - `python3 -m pytest agents/linux/tests/ -v` — 7 passed including the
-      new `invalid_json` realigned-token assertion.
-    - `cargo test --workspace` — full workspace green; explicit re-run of
-      `friendly_message*` (5 tests) and `wire_error_mapping_table` (1 test)
-      green.
-
-    ## What worked
-
-    - The two contract tests (`test_no_unknown_non_canonical_tokens` on the
-      Python side, `friendly_message_translates_every_canonical_4_5_token`
-      on the Rust side) caught both halves of the change with no extra
-      setup. Test-first by emptying `KNOWN_NON_CANONICAL_EXCEPTIONS`
-      produced an immediate "make me green" arrow at the source-side change.
-    - The friendly-message test was already exhaustive over the §4.5 table
-      via a single tuple list, so adding a row was mechanical.
-
-    ## What didn't work
-
-    - The task description named `agents/linux/server.py:26` but the actual
-      path is `agents/linux/testanyware_agent/server.py:26`. Five-second
-      detour; flagging it in case the planning-phase task writer wants to
-      fix that pointer.
-
-    ## Exit-code bucket choice
-
-    Did NOT add `AGENT_INVALID_JSON` to `output.rs::exit_code_for`. It falls
-    through to exit 1 (generic). Reasoning: §5 reserves exit 2 for *clap-level*
-    USAGE_ERROR. A malformed-JSON envelope from the CLI to the agent can only
-    be a CLI bug — exit 1 is consistent with how `AGENT_ERROR_UNKNOWN` is
-    handled and matches the friendly message's "this indicates a CLI bug"
-    framing.
-
-    ## What this suggests next
-
-    - The `invalid-json-gap-in-4-5-cli-design-contract` memory entry is now
-      resolved; analyse-work / reflect should mark it obsolete.
-    - No follow-up scope for this task.
