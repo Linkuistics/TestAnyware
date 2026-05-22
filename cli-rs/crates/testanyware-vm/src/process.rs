@@ -123,9 +123,12 @@ mod tests {
 
     #[test]
     fn pgrep_first_finds_a_running_process() {
-        let pid = spawn_sleep(30);
-        // `sleep 30` is matchable by its argument.
-        let found = pgrep_first("sleep 30");
+        // A deliberately odd duration: `pgrep -f` matches process-wide, so
+        // the pattern must not collide with other tests' `sleep` children
+        // (which use `sleep 30`) or any ambient `sleep`. The child is
+        // terminated immediately, so the long duration never elapses.
+        let pid = spawn_sleep(28_931);
+        let found = pgrep_first("sleep 28931");
         terminate(pid, Duration::from_millis(100), 10);
         assert_eq!(found, Some(pid), "pgrep should locate the sleep child");
     }
