@@ -7,6 +7,11 @@ struct TestAnywareCLI: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
         commandName: "testanyware",
         abstract: "VNC + agent driver for virtual machine automation",
+        discussion: """
+            AI agents: run `testanyware llm-instructions` for the full LLM \
+            usage guide — command surface, connection model, end-to-end \
+            workflows, and common mistakes.
+            """,
         version: BuildInfo.full,
         subcommands: [
             ScreenshotCommand.self,
@@ -21,6 +26,7 @@ struct TestAnywareCLI: AsyncParsableCommand {
             AgentCommand.self,
             VMCommand.self,
             DoctorCommand.self,
+            LlmInstructionsCommand.self,
         ]
     )
 }

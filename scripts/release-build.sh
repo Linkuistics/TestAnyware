@@ -64,6 +64,7 @@ build_cli() {
   local stage_bin="$1"
   echo "release-build: building CLI (testanyware)" >&2
   bash "$REPO_ROOT/cli/scripts/generate-version.sh" >&2
+  bash "$REPO_ROOT/cli/scripts/generate-llm-instructions.sh" >&2
   swift build --package-path "$REPO_ROOT/cli" -c release >&2
   local bin_path
   bin_path="$(swift build --package-path "$REPO_ROOT/cli" -c release --show-bin-path)"
