@@ -1,12 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/vm-stop.json",
-  "title": "vm-stop (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "vm-stop",
+  "description": "Mutation receipt for `testanyware vm stop`.",
   "type": "object",
-  "required": ["schema_version", "ok"],
+  "required": ["schema_version", "ok", "id", "stopped"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "dry_run": { "type": "boolean", "description": "Present and true when --dry-run was set." },
+    "id": { "type": "string", "pattern": "^testanyware-[0-9a-f]{8}$" },
+    "stopped": { "type": "boolean", "description": "True once QEMU + swtpm are terminated and the sidecars removed." }
   }
 }

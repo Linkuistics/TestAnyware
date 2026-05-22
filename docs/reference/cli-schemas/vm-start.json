@@ -1,12 +1,34 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/vm-start.json",
-  "title": "vm-start (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "vm-start",
+  "description": "Receipt for `testanyware vm start`. Identifies the started VM and its endpoints.",
   "type": "object",
-  "required": ["schema_version", "ok"],
+  "required": ["schema_version", "ok", "id", "platform", "vnc"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "dry_run": { "type": "boolean", "description": "Present and true when --dry-run was set." },
+    "id": { "type": "string", "pattern": "^testanyware-[0-9a-f]{8}$" },
+    "platform": { "type": "string", "enum": ["linux", "windows", "macos"] },
+    "base": { "type": "string", "description": "Golden image cloned for this VM." },
+    "vnc": {
+      "type": "object",
+      "required": ["host", "port"],
+      "properties": {
+        "host": { "type": "string" },
+        "port": { "type": "integer" }
+      }
+    },
+    "agent": {
+      "type": ["object", "null"],
+      "description": "Agent endpoint, or null if the agent did not reach health within the boot window.",
+      "properties": {
+        "host": { "type": "string" },
+        "port": { "type": "integer" }
+      }
+    },
+    "spec_path": { "type": "string" },
+    "meta_path": { "type": "string" }
   }
 }

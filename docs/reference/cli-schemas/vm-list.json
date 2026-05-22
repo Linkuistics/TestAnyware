@@ -1,12 +1,31 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/vm-list.json",
-  "title": "vm-list (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "vm-list",
+  "description": "Golden images and running clones. Envelope follows contract §3.5 (returned/total/truncated).",
   "type": "object",
-  "required": ["schema_version", "ok"],
+  "required": ["schema_version", "ok", "items", "returned", "total", "truncated"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "name", "platform", "backend"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["golden", "running"] },
+          "name": { "type": "string", "description": "Golden image name, or VM id for running clones." },
+          "platform": { "type": "string" },
+          "backend": { "type": "string", "enum": ["qemu", "tart"] },
+          "pid": { "type": ["integer", "null"] },
+          "vnc": { "type": ["string", "null"] },
+          "agent": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "returned": { "type": "integer" },
+    "total": { "type": "integer" },
+    "truncated": { "type": "boolean" }
   }
 }
