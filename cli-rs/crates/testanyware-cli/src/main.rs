@@ -13,6 +13,7 @@ use clap::{Args, Parser, Subcommand};
 
 use testanyware_cli::commands::{
     agent as agent_cmds, file as file_cmds, input as input_cmds, screen as screen_cmds,
+    vm as vm_cmds,
 };
 use testanyware_cli::discoverability::{run_capabilities, run_llm_instructions, run_schema};
 use testanyware_cli::output::OutputMode;
@@ -286,6 +287,114 @@ EXAMPLES:
 
 SEE ALSO:
     testanyware file upload, testanyware file exec
+";
+
+const VM_START_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (the VM id on one line), --json (schema: vm-start).
+
+EXIT CODES:
+    0  success
+    1  QEMU_FAILED, SWTPM_MISSING, VM_BACKEND_UNSUPPORTED, SPAWN_FAILED
+    2  USAGE_ERROR / INVALID_PLATFORM
+    3  GOLDEN_NOT_FOUND / UEFI_NOT_FOUND
+    4  KVM_PERMISSION_DENIED
+
+IDEMPOTENCY:
+    Not idempotent — each call without --id clones a fresh VM. Retry-safe:
+    a failed start tears its own partial clone down.
+
+EXAMPLES:
+    # Start a Windows guest at 1080p
+    testanyware vm start --platform windows --display 1920x1080
+
+    # Start a Linux guest, capture the id as JSON
+    testanyware vm start --platform linux --json
+
+    # Plan a start without performing it
+    testanyware vm start --platform windows --dry-run
+
+SEE ALSO:
+    testanyware vm stop, testanyware vm list, testanyware doctor
+";
+
+const VM_STOP_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`stopped <id>`), --json (schema: vm-stop).
+
+EXIT CODES:
+    0  success
+    1  VM_STOP_FAILED, VM_BACKEND_UNSUPPORTED
+    2  USAGE_ERROR (no id and TESTANYWARE_VM_ID unset)
+    3  VM_NOT_FOUND
+
+IDEMPOTENCY:
+    Idempotent — stopping an already-stopped VM is a VM_NOT_FOUND, not a
+    crash. Retry-safe.
+
+EXAMPLES:
+    # Stop a VM by id
+    testanyware vm stop testanyware-deadbeef
+
+    # Stop the VM named by $TESTANYWARE_VM_ID
+    testanyware vm stop
+
+    # Plan the stop as JSON
+    testanyware vm stop testanyware-deadbeef --dry-run --json
+
+SEE ALSO:
+    testanyware vm start, testanyware vm list
+";
+
+const VM_LIST_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: --json (schema: vm-list; envelope carries
+    returned/total/truncated per contract §3.5). Text is a two-section
+    summary and is not a parsing target.
+
+EXIT CODES:
+    0  success
+
+EXAMPLES:
+    # List golden images and running clones
+    testanyware vm list
+
+    # JSON for scripting, unbounded
+    testanyware vm list --json --all
+
+    # Only Windows entries
+    testanyware vm list --filter platform=windows
+
+SEE ALSO:
+    testanyware vm start, testanyware vm delete
+";
+
+const VM_DELETE_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`deleted <name>`), --json (schema: vm-delete).
+
+EXIT CODES:
+    0  success
+    1  generic failure
+    3  GOLDEN_NOT_FOUND
+    5  GOLDEN_IN_USE (running clones depend on the image; use --force)
+
+IDEMPOTENCY:
+    Idempotent in the deleted state. --force overrides the running-clones
+    safety check.
+
+EXAMPLES:
+    # Delete a golden image
+    testanyware vm delete testanyware-golden-linux-24.04
+
+    # Delete even though clones depend on it
+    testanyware vm delete testanyware-golden-windows-11 --force
+
+    # Plan the delete as JSON
+    testanyware vm delete testanyware-golden-linux-24.04 --dry-run --json
+
+SEE ALSO:
+    testanyware vm list, testanyware vm start
 ";
 
 // Root-level help banners — make the LLM usage guide impossible to miss
@@ -845,25 +954,75 @@ enum AgentAction {
 #[derive(Subcommand, Debug)]
 enum VmAction {
     /// Start a clone of a golden image
+    #[command(after_long_help = VM_START_AFTER_HELP)]
     Start {
-        #[arg(long, default_value = "macos")]
+        /// Target platform: linux or windows. (macos uses the tart
+        /// backend, which is not yet ported to the Rust CLI.)
+        #[arg(long, value_name = "PLATFORM")]
         platform: String,
-        #[arg(long)]
+        /// Golden image to clone [default: the platform's golden].
+        #[arg(long, value_name = "NAME")]
+        base: Option<String>,
+        /// VM instance id [default: testanyware-<hex8>].
+        #[arg(long, value_name = "ID")]
+        id: Option<String>,
+        /// Display resolution, e.g. 1920x1080.
+        #[arg(long, value_name = "WxH")]
         display: Option<String>,
+        /// Open a VNC viewer after boot (not yet ported — backlog task 8).
         #[arg(long)]
         viewer: bool,
+        /// Emit JSON envelope on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Plan the start but do not perform it.
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Stop a running VM by id
-    Stop { id: String },
+    #[command(after_long_help = VM_STOP_AFTER_HELP)]
+    Stop {
+        /// VM instance id (falls back to TESTANYWARE_VM_ID).
+        #[arg(value_name = "ID", env = "TESTANYWARE_VM_ID")]
+        id: Option<String>,
+        /// Emit JSON envelope on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Plan the stop but do not perform it.
+        #[arg(long)]
+        dry_run: bool,
+    },
     /// List running clones and golden images
-    #[command(aliases = ["ls"])]
-    List,
+    #[command(aliases = ["ls"], after_long_help = VM_LIST_AFTER_HELP)]
+    List {
+        /// Emit JSON envelope on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Maximum rows to show.
+        #[arg(long, value_name = "N", default_value_t = 100)]
+        limit: usize,
+        /// Show all rows (overrides --limit).
+        #[arg(long, conflicts_with = "limit")]
+        all: bool,
+        /// Comma-separated field=value filters (fields: kind, platform,
+        /// backend, name).
+        #[arg(long, value_name = "EXPR")]
+        filter: Option<String>,
+    },
     /// Delete a golden image by name
-    #[command(aliases = ["rm", "remove"])]
+    #[command(aliases = ["rm", "remove"], after_long_help = VM_DELETE_AFTER_HELP)]
     Delete {
+        /// Golden image name (run `testanyware vm list` to see images).
         name: String,
+        /// Delete even if running clones appear to depend on the image.
         #[arg(long)]
         force: bool,
+        /// Emit JSON envelope on stdout.
+        #[arg(long)]
+        json: bool,
+        /// Plan the delete but do not perform it.
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
@@ -1099,10 +1258,22 @@ async fn main() {
             AgentAction::WindowMinimize(_) => unimplemented("agent window-minimize"),
         },
         Command::Vm { action } => match action {
-            VmAction::Start { .. } => unimplemented("vm start"),
-            VmAction::Stop { .. } => unimplemented("vm stop"),
-            VmAction::List => unimplemented("vm list"),
-            VmAction::Delete { .. } => unimplemented("vm delete"),
+            VmAction::Start { platform, base, id, display, viewer, json, dry_run } => {
+                vm_cmds::run_vm_start(
+                    platform, base, id, display, viewer,
+                    OutputMode::from_flags(json), dry_run,
+                )
+                .await
+            }
+            VmAction::Stop { id, json, dry_run } => {
+                vm_cmds::run_vm_stop(id, OutputMode::from_flags(json), dry_run).await
+            }
+            VmAction::List { json, limit, all, filter } => {
+                vm_cmds::run_vm_list(OutputMode::from_flags(json), limit, all, filter).await
+            }
+            VmAction::Delete { name, force, json, dry_run } => {
+                vm_cmds::run_vm_delete(name, force, OutputMode::from_flags(json), dry_run).await
+            }
         },
         Command::Doctor => unimplemented("doctor"),
         Command::Capabilities { json: _ } => run_capabilities(),
