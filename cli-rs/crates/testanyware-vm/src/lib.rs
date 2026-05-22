@@ -7,6 +7,7 @@ pub mod id;
 pub mod meta;
 pub mod monitor;
 pub mod paths;
+pub mod process;
 pub mod spec;
 
 pub use error::VmError;
