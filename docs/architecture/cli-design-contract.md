@@ -498,26 +498,31 @@ command is unknown or has no declared schema.
 
 ### 8.3 `testanyware llm-instructions`
 
-**Required, capped at ~3000 tokens.** A focused supplementary manual
-covering only what doesn't fit in `--help`:
+**Required.** The full LLM usage guide for the binary, emitted as plain
+text on stdout. This command is the single source of truth: it embeds
+the repo-root `LLM_INSTRUCTIONS.md` at build time (`include_str!`), so an
+LLM agent that has only the installed binary — e.g. a Homebrew install
+with no source checkout — can read or prepend the complete reference.
+
+It covers:
 
 - One-paragraph "what this tool is and isn't."
 - Mental model: noun-first command tree, verb-first aliases, the
   resolution chain (`--connect` → `--vm` → ...).
-- Two or three full workflow recipes:
-  1. Start a VM, take a screenshot, stop the VM.
-  2. Drive a UI: `agent snapshot` → `agent press` → `screen find-text`.
-  3. Record a session and exec inside the VM.
+- Command reference for `vm`, `agent`, `input`, `screen`, `file`.
+- End-to-end workflow recipes (discover-then-act, visual verification).
 - Common mistakes:
-  - "Don't grep `vm list` text output; use `--json | jq`."
-  - "Don't pipe `find-text` output through `awk`; use `--json` and parse
-    detections directly."
+  - "Don't parse text output; use `--json`."
+  - "Don't click stale pixel coordinates; re-snapshot or filter by window."
   - "Don't poll `agent windows` in a tight loop; use `agent wait`."
 - Authentication and state assumptions.
-- Pointers to `--json`, exit codes, idempotency conventions.
+- JSON output, exit codes, and idempotency conventions.
 
-If it grows past ~3000 tokens, add `--topic <name>` and `--section
-<name>` flags rather than introducing subcommands.
+Every instruction MUST be runnable with only the installed binary — no
+source checkout, no repo-relative paths. Keep the guide lean enough to
+prepend as LLM context (well under 3000 tokens); if it must grow
+substantially, add `--topic <name>` / `--section <name>` flags rather
+than introducing subcommands.
 
 ---
 

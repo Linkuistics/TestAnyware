@@ -102,6 +102,9 @@ pub fn print_error(
             if let Some(r) = remediation {
                 eprintln!("  hint: {r}");
             }
+            // Aggressive discoverability: every text-mode failure points
+            // an LLM agent at the full usage guide.
+            eprintln!("  → run `testanyware llm-instructions` for the full usage guide");
         }
     }
     std::process::exit(exit_code);

@@ -288,13 +288,28 @@ SEE ALSO:
     testanyware file upload, testanyware file exec
 ";
 
+// Root-level help banners — make the LLM usage guide impossible to miss
+// for an agent that runs bare `testanyware` or `testanyware --help`.
+const ROOT_BEFORE_HELP: &str =
+    ">> AI AGENTS: run `testanyware llm-instructions` for the full LLM usage guide. <<";
+
+const ROOT_AFTER_HELP: &str = "\
+AI AGENTS / LLMs:
+    Run `testanyware llm-instructions` first. It prints a complete usage
+    guide written for you — mental model, command reference, end-to-end
+    workflows, JSON output, exit codes, and common mistakes — runnable
+    with only this binary.
+";
+
 #[derive(Parser, Debug)]
 #[command(
     name = "testanyware",
     about = "VNC + agent driver for virtual machine automation",
     version,
     propagate_version = true,
-    arg_required_else_help = true
+    arg_required_else_help = true,
+    before_help = ROOT_BEFORE_HELP,
+    after_help = ROOT_AFTER_HELP,
 )]
 struct Cli {
     #[command(subcommand)]
@@ -412,14 +427,17 @@ enum Command {
         command: Vec<String>,
     },
 
-    /// Emit a focused LLM-oriented manual
+    /// Print the full LLM usage guide for this tool (LLM agents: read this first)
     #[command(
-        long_about = "Emit a focused LLM-oriented manual for the binary.\n\n\
-                      Plain-text manual covering the mental model (noun-first \
-                      commands, verb-first aliases, connection resolution chain), \
-                      two or three end-to-end workflows, common mistakes, and \
-                      pointers to --json / exit codes / per-command schemas. Capped \
-                      at ~3000 tokens so an LLM can prepend it as context.",
+        long_about = "Print the full LLM usage guide for this tool.\n\n\
+                      Emits LLM_INSTRUCTIONS.md as plain text on stdout — the \
+                      complete reference for driving TestAnyware: the noun-first \
+                      command tree and verb-first aliases, the connection \
+                      resolution chain, the agent/input/screen/file command \
+                      reference, end-to-end workflows, JSON output and exit \
+                      codes, and common mistakes. Embedded in the binary at \
+                      build time, so it is runnable with only the installed \
+                      CLI — an LLM agent can read it or prepend it as context.",
         after_long_help = LLM_INSTRUCTIONS_AFTER_HELP,
     )]
     LlmInstructions,
@@ -857,7 +875,28 @@ fn unimplemented(name: &str) -> ! {
 
 #[tokio::main]
 async fn main() {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(err) => {
+            // `--help` / `--version` arrive here as "errors" too; print
+            // those untouched. Genuine usage errors get an LLM pointer so
+            // an agent that mis-invokes the CLI is steered to the guide.
+            let is_help_or_version = matches!(
+                err.kind(),
+                clap::error::ErrorKind::DisplayHelp
+                    | clap::error::ErrorKind::DisplayHelpOnMissingArgumentOrSubcommand
+                    | clap::error::ErrorKind::DisplayVersion
+            );
+            if is_help_or_version {
+                err.exit();
+            }
+            let _ = err.print();
+            eprintln!(
+                "\nLLM agents: run `testanyware llm-instructions` for the full usage guide."
+            );
+            std::process::exit(err.exit_code());
+        }
+    };
     match cli.command {
         Command::Screen { action } => match action {
             ScreenAction::Capture(args) => run_screen_capture(args).await,

@@ -598,8 +598,9 @@ fn schema_command_emits_json_schema_for_each_command() {
     assert!(failures.is_empty(), "schema command failures:\n{}", failures.join("\n---\n"));
 }
 
-/// Contract §8.3: `testanyware llm-instructions` emits a focused manual
-/// (~3000 tokens cap, English-only).
+/// Contract §8.3: `testanyware llm-instructions` emits the full LLM
+/// usage guide — kept lean enough to prepend as LLM context (byte
+/// ceiling asserted below).
 #[test]
 fn llm_instructions_command_emits_manual() {
     let out = run(&["llm-instructions"]);
@@ -614,11 +615,12 @@ fn llm_instructions_command_emits_manual() {
         !body.trim().is_empty(),
         "`testanyware llm-instructions` produced empty stdout",
     );
-    // §8.3 cap is "~3000 tokens"; assert a generous byte-length ceiling.
-    // 4 chars/token × 3000 tokens × 1.5x slack ≈ 18000 bytes.
+    // §8.3 keeps the guide lean enough to prepend as LLM context.
+    // Assert a generous byte ceiling so it cannot bloat unbounded:
+    // ~4 chars/token × 3000 tokens × 1.5x slack ≈ 18000 bytes.
     assert!(
         body.len() < 18_000,
-        "llm-instructions output is {} bytes — well above the §8.3 ~3000-token cap",
+        "llm-instructions output is {} bytes — too large to prepend as LLM context (§8.3)",
         body.len(),
     );
 }

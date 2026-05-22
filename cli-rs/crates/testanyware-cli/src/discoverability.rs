@@ -151,8 +151,11 @@ fn emit_schema_not_found(tokens: &[String], reason: &str) -> ! {
 // llm-instructions
 // -------------------------------------------------------------------------
 
-/// Embedded LLM-oriented manual. Cap ~3000 tokens per §8.3.
-const LLM_INSTRUCTIONS: &str = include_str!("llm_instructions.md");
+/// The full LLM usage guide, embedded at build time from the repo-root
+/// `LLM_INSTRUCTIONS.md` — the single source of truth (§8.3). The
+/// `../../../../` path climbs src → testanyware-cli → crates → cli-rs →
+/// repo root, matching the schema includes above.
+const LLM_INSTRUCTIONS: &str = include_str!("../../../../LLM_INSTRUCTIONS.md");
 
 /// Run `testanyware llm-instructions`. Plain text on stdout.
 pub fn run_llm_instructions() -> ! {
