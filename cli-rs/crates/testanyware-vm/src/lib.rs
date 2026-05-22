@@ -2,6 +2,7 @@
 //!
 //! Port of `cli/Sources/TestAnywareDriver/VM/*.swift`.
 
+pub mod detached;
 pub mod error;
 pub mod id;
 pub mod meta;
@@ -10,6 +11,7 @@ pub mod paths;
 pub mod process;
 pub mod spec;
 
+pub use detached::spawn_detached;
 pub use error::VmError;
 pub use id::generate_id;
 pub use meta::{VmMeta, VmTool};
