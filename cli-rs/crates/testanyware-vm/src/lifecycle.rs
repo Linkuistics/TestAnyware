@@ -198,20 +198,28 @@ impl VmLifecycle {
             return Err(VmError::VmNotFound { id: id.to_string() });
         }
         let meta = VmMeta::load(&meta_path)?;
-        match meta.tool {
+        // A corrupt qemu meta (no clone_dir) leaves nothing to tear down,
+        // but the sidecars must still be removed so `vm stop` is
+        // self-healing — mirrors Swift `VMLifecycle.stop`, which sets
+        // `ok = false`, removes both sidecars, then throws `stopFailed`.
+        let stop_error = match meta.tool {
             VmTool::Tart => {
                 return Err(VmError::BackendUnsupported { platform: "macos (tart)".into() });
             }
-            VmTool::Qemu => {
-                let clone_dir = meta.clone_dir.clone().ok_or_else(|| VmError::VmStopFailed {
-                    id: id.to_string(),
-                })?;
-                QemuRunner::stop(meta.pid, std::path::Path::new(&clone_dir), paths);
-            }
-        }
+            VmTool::Qemu => match meta.clone_dir.as_deref().filter(|d| !d.is_empty()) {
+                Some(clone_dir) => {
+                    QemuRunner::stop(meta.pid, std::path::Path::new(clone_dir), paths);
+                    None
+                }
+                None => Some(VmError::VmStopFailed { id: id.to_string() }),
+            },
+        };
         let _ = std::fs::remove_file(&spec_path);
         let _ = std::fs::remove_file(&meta_path);
-        Ok(())
+        match stop_error {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
     }
 
     /// Delete a QEMU golden image by name. Refuses when running clones
@@ -357,6 +365,32 @@ mod tests {
         std::fs::create_dir_all(paths.vms_dir()).unwrap();
         let err = VmLifecycle::stop("testanyware-ghost", &paths).unwrap_err();
         assert!(matches!(err, VmError::VmNotFound { .. }));
+    }
+
+    #[test]
+    fn stop_removes_sidecars_even_when_clone_dir_is_missing() {
+        // A corrupt qemu meta with no clone_dir: `stop` must surface
+        // VmStopFailed AND still remove the sidecars, so a retry is not
+        // permanently stuck (matches Swift `VMLifecycle.stop`).
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths_in(dir.path());
+        std::fs::create_dir_all(paths.vms_dir()).unwrap();
+        let id = "testanyware-abcd1234";
+        let meta = VmMeta {
+            id: id.into(),
+            tool: VmTool::Qemu,
+            pid: 0,
+            clone_dir: None,
+            viewer_window_id: None,
+        };
+        meta.write_atomic(&paths.meta_path(id)).unwrap();
+
+        let err = VmLifecycle::stop(id, &paths).unwrap_err();
+        assert!(matches!(err, VmError::VmStopFailed { .. }));
+        assert!(
+            !paths.meta_path(id).is_file(),
+            "stop must remove the meta sidecar even on a corrupt-meta failure",
+        );
     }
 
     #[test]
