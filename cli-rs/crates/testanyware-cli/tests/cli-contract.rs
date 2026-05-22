@@ -624,3 +624,136 @@ fn llm_instructions_command_emits_manual() {
         body.len(),
     );
 }
+
+// ---------------------------------------------------------------------------
+// vm commands — port-task slice (port-qemu-runner-and-vm-lifecycle-to-rust)
+// ---------------------------------------------------------------------------
+
+/// Run the binary with extra environment variables.
+fn run_env(args: &[&str], envs: &[(&str, &str)]) -> Output {
+    let mut cmd = Command::new(BIN);
+    cmd.args(args);
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    cmd.output()
+        .unwrap_or_else(|e| panic!("failed to invoke `{BIN} {}`: {e}", args.join(" ")))
+}
+
+/// §7: each vm subcommand's `--help` carries the required sections and
+/// at least two concrete example invocations.
+#[test]
+fn vm_commands_help_follows_template() {
+    for sub in ["start", "stop", "list", "delete"] {
+        let out = run(&["vm", sub, "--help"]);
+        assert!(out.status.success(), "`vm {sub} --help` exited non-zero");
+        let help = String::from_utf8_lossy(&out.stdout);
+        for section in ["EXIT CODES:", "EXAMPLES:", "SEE ALSO:"] {
+            assert!(
+                help.contains(section),
+                "`vm {sub} --help` missing {section:?}; got:\n{help}",
+            );
+        }
+        let examples = help.matches("testanyware vm ").count();
+        assert!(
+            examples >= 2,
+            "`vm {sub} --help` needs ≥2 example invocations, found {examples}",
+        );
+    }
+}
+
+/// §3.1 + §3.5: `vm list --json` emits the truncation envelope.
+#[test]
+fn vm_list_json_emits_truncation_envelope() {
+    let dir = tempfile::tempdir().unwrap();
+    let out = run_env(
+        &["vm", "list", "--json"],
+        &[
+            ("XDG_STATE_HOME", dir.path().to_str().unwrap()),
+            ("XDG_DATA_HOME", dir.path().to_str().unwrap()),
+        ],
+    );
+    assert!(out.status.success(), "`vm list --json` exited non-zero");
+    let body: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("vm list --json must parse");
+    assert_eq!(body["ok"], true);
+    assert!(body["schema_version"].is_string());
+    for key in ["items", "returned", "total", "truncated"] {
+        assert!(body.get(key).is_some(), "vm-list envelope missing {key}; got: {body:#?}");
+    }
+    assert!(body["items"].is_array());
+}
+
+/// §4 + §5: vm error paths carry a stable code and the correct exit code.
+#[test]
+fn vm_commands_carry_stable_error_codes() {
+    // vm stop on a missing VM → VM_NOT_FOUND, exit 3.
+    let dir = tempfile::tempdir().unwrap();
+    let out = run_env(
+        &["vm", "stop", "testanyware-deadbeef", "--json"],
+        &[("XDG_STATE_HOME", dir.path().to_str().unwrap())],
+    );
+    assert_eq!(out.status.code(), Some(3), "vm stop miss must exit 3");
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["code"], "VM_NOT_FOUND");
+
+    // vm start with a bad platform → INVALID_PLATFORM, exit 2.
+    let out = run(&["vm", "start", "--platform", "bsd", "--json"]);
+    assert_eq!(out.status.code(), Some(2), "bad platform must exit 2");
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["code"], "INVALID_PLATFORM");
+
+    // vm delete of an absent golden → GOLDEN_NOT_FOUND, exit 3.
+    let dir2 = tempfile::tempdir().unwrap();
+    let out = run_env(
+        &["vm", "delete", "testanyware-golden-ghost", "--json"],
+        &[("XDG_DATA_HOME", dir2.path().to_str().unwrap())],
+    );
+    assert_eq!(out.status.code(), Some(3), "vm delete miss must exit 3");
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["code"], "GOLDEN_NOT_FOUND");
+}
+
+/// §9.3: vm stop / vm delete accept `--dry-run`, exit 0, and set
+/// `dry_run: true` without performing the mutation.
+#[test]
+fn vm_mutating_commands_support_dry_run() {
+    // vm stop --dry-run against a synthetic meta sidecar.
+    let dir = tempfile::tempdir().unwrap();
+    let vms = dir.path().join("testanyware").join("vms");
+    std::fs::create_dir_all(&vms).unwrap();
+    let id = "testanyware-abcd1234";
+    std::fs::write(
+        vms.join(format!("{id}.meta.json")),
+        serde_json::to_vec(&serde_json::json!({
+            "id": id, "tool": "qemu", "pid": 999999,
+            "clone_dir": dir.path().join("clone").display().to_string()
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let out = run_env(
+        &["vm", "stop", id, "--dry-run", "--json"],
+        &[("XDG_STATE_HOME", dir.path().to_str().unwrap())],
+    );
+    assert_eq!(out.status.code(), Some(0), "vm stop --dry-run must exit 0");
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["dry_run"], true);
+    // The meta sidecar must still exist — dry-run performed no mutation.
+    assert!(vms.join(format!("{id}.meta.json")).is_file(), "dry-run must not delete the sidecar");
+
+    // vm delete --dry-run against a synthetic golden qcow2.
+    let dir2 = tempfile::tempdir().unwrap();
+    let golden = dir2.path().join("testanyware").join("golden");
+    std::fs::create_dir_all(&golden).unwrap();
+    let name = "testanyware-golden-linux-24.04";
+    std::fs::write(golden.join(format!("{name}.qcow2")), b"disk").unwrap();
+    let out = run_env(
+        &["vm", "delete", name, "--dry-run", "--json"],
+        &[("XDG_DATA_HOME", dir2.path().to_str().unwrap())],
+    );
+    assert_eq!(out.status.code(), Some(0), "vm delete --dry-run must exit 0");
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["dry_run"], true);
+    assert!(golden.join(format!("{name}.qcow2")).is_file(), "dry-run must not delete the qcow2");
+}
