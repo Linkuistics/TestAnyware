@@ -4031,3 +4031,82 @@ Plan complete and saved to `docs/superpowers/plans/2026-05-22-port-qemu-runner-a
 
 Tasks 1–17 are ordered by dependency and each ends green and committed. Task 18 is whole-workspace verification. Task 19 is the live acceptance gate and needs the on-host Windows golden.
 
+---
+
+## Execution status (handoff — 2026-05-22)
+
+Execution is in progress on branch `worktree-port-qemu-vm-lifecycle`
+(worktree at `.claude/worktrees/port-qemu-vm-lifecycle/`), subagent-driven
+(implementer + spec review + code-quality review per task).
+
+### Done: Tasks 1–10 — the entire `testanyware-vm` crate
+
+All ten tasks landed green (each: tests pass, `cargo clippy -p testanyware-vm
+--all-targets -- -D warnings` clean) and committed. The crate's full suite is
+**50 tests passing**. Modules complete: `error`, `id`, `paths`, `spec`,
+`meta`, `monitor`, `process`, `detached`, `qemu_profile`, `preflight`, `qemu`.
+
+Latest commits (most recent last): `581887c` scaffold · `980c792` VmError ·
+`e544aed` id+paths · `6e83d16` spec+meta · `9e436be` monitor · `b17acf2`
+process · `3de3eb6` detached · `16b5381` pgrep test fix · `d33af90`
+qemu_profile · `e53edf1` preflight · `b6d1c52` qemu runner.
+
+### Remaining: Tasks 11–19
+
+Task 11 (health waiter) · 12 (lifecycle orchestrator) · 13 (error-code
+catalogue + contract amendment) · 14 (JSON schemas) · 15 (`commands/vm.rs`) ·
+16 (`main.rs` wiring) · 17 (cli-contract assertions) · 18 (workspace
+verification) · 19 (live Windows smoke).
+
+### Deviations from the plan as written (apply during review of later tasks)
+
+These were made during Tasks 1–10 and accepted after review. **None changes a
+public signature that Tasks 11–19 depend on** — the later tasks' plan code is
+still valid as written.
+
+- **Task 2:** `error.rs` has 3 extra `details()` tests and a doc comment on
+  the `Io` variant explaining the deliberate absent `details.path` (§3.4/§4.6).
+- **Task 5:** `monitor.rs` — the `parse_agent_port_handles_crlf_collapsed_response`
+  test comment was corrected (it verifies CRLF `\r\n` parsing; the "collapsed"
+  framing was a Swift-ism).
+- **Task 6:** `process.rs::terminate` adds best-effort `waitpid(WNOHANG)` to
+  reap owned-child zombies (so `process_alive` doesn't report a killed child as
+  alive); the plan's dead `Instant::now()`/`let _ = deadline` lines were
+  removed; the `pgrep_first` test uses a unique `sleep 28931` to avoid a
+  cross-test pattern collision.
+- **Task 7:** `detached.rs` keeps `tokio::process::Command` (per the backlog
+  constraint); the tests are `#[tokio::test] async fn` (the plan's sync
+  `#[test]` could not host `tokio::process`), and the session-leader check uses
+  `nix::unistd::getsid` (the plan's `ps -o sess=` returns 0 on macOS).
+- **Task 8:** the `host_profile_is_internally_consistent` test is gated
+  `#[cfg(any(target_os = "macos", target_os = "linux"))]` — the `not(any(...))`
+  fallback profile has an empty UEFI candidate list by design.
+- **Task 9:** `check_swtpm` delegates to a pure `swtpm_result(bool)` helper so
+  the negative branch is deterministically testable; the plan's PATH-mutation
+  test could not work (macOS `which` also searches `/opt/homebrew/bin`).
+- **Task 10:** the post-`spawn_detached` liveness-check failure passes
+  `teardown(pid, …)` (not `teardown(0, …)`) for consistency.
+
+### Known gap noted for Task 19
+
+`QemuRunner::teardown` deletes the clone dir, which contains `qemu.log`. If the
+live smoke's `vm start` fails because QEMU did not stay alive, the log is gone.
+When running Task 19, if `vm start` fails, capture
+`~/.local/share/testanyware/clones/<id>/qemu.log` *before* re-running, or
+temporarily short-circuit `teardown` to inspect it. (A proper fix — capturing
+the log tail into the `QemuFailed` error — is a worthwhile follow-up but is out
+of this plan's scope.)
+
+### Resume instructions for a fresh session
+
+1. Re-enter the worktree: `EnterWorktree` with `path:
+   .claude/worktrees/port-qemu-vm-lifecycle` (it already exists on branch
+   `worktree-port-qemu-vm-lifecycle`).
+2. Continue subagent-driven from **Task 11**. Each task: dispatch an
+   implementer subagent with the task section + scene-setting, then a spec
+   reviewer, then a code-quality reviewer; fix review findings; commit.
+3. Tasks 11–17 are code; Task 18 is `cargo test --workspace` + clippy + a
+   help/JSON smoke; Task 19 is the live Windows smoke (on-host golden present).
+4. On completion, run a final whole-implementation review and use
+   `superpowers:finishing-a-development-branch`.
+
