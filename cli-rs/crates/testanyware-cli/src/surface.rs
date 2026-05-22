@@ -136,6 +136,8 @@ pub const ERROR_CODES: &[&str] = &[
     "GOLDEN_IN_USE",
     "TART_FAILED",
     "QEMU_FAILED",
+    "KVM_PERMISSION_DENIED",
+    "SWTPM_MISSING",
     "UEFI_NOT_FOUND",
     "SPAWN_FAILED",
     // §4.3

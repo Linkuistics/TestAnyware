@@ -451,8 +451,10 @@ fn expand_tilde(path: &str, env: &EnvProvider) -> PathBuf {
 
 /// Indirection over `std::env::var` so the resolution chain can be tested
 /// with a synthetic environment.
+type EnvLookup = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
+
 pub struct EnvProvider {
-    inner: Box<dyn Fn(&str) -> Option<String> + Send + Sync>,
+    inner: EnvLookup,
 }
 
 impl EnvProvider {

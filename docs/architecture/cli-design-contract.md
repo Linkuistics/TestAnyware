@@ -242,8 +242,16 @@ version bump.
 | `GOLDEN_IN_USE` | `vm delete` refused: running clones depend on the image. Use `--force`. |
 | `TART_FAILED` | tart subprocess returned non-zero. `details.tart_error` carries its stderr. |
 | `QEMU_FAILED` | QEMU subprocess failed (start, monitor, or QMP). |
+| `KVM_PERMISSION_DENIED` | `/dev/kvm` is missing or not readable+writable (Linux host). `details.path` carries `/dev/kvm`. |
+| `SWTPM_MISSING` | swtpm is not installed; required for Windows guests (TPM 2.0 socket). |
 | `UEFI_NOT_FOUND` | UEFI firmware path missing for the requested QEMU configuration. |
 | `SPAWN_FAILED` | `posix_spawn` (or platform equivalent) returned an error. |
+
+> **Amendment 2026-05-22** (`port-qemu-runner-and-vm-lifecycle-to-rust`):
+> `KVM_PERMISSION_DENIED` and `SWTPM_MISSING` added to support the QEMU
+> runner's host preflight. `KVM_PERMISSION_DENIED` maps to exit code `4`
+> (permission family, §5); `SWTPM_MISSING` maps to exit code `1` (generic
+> — a missing optional dependency, recoverable by installing it).
 
 ### 4.3 VNC capture
 
@@ -327,7 +335,7 @@ catalogue grows by one entry; agents can poll for additions.
 | `1` | Generic failure (no more specific bucket fits). |
 | `2` | Usage error (`USAGE_ERROR` family — bad flags, missing args, invalid combinations). |
 | `3` | Not found (`*_NOT_FOUND` family: `VM_NOT_FOUND`, `WINDOW_NOT_FOUND`, `ELEMENT_NOT_FOUND`, `GOLDEN_NOT_FOUND`, `UEFI_NOT_FOUND`, `SCHEMA_NOT_FOUND`). |
-| `4` | Auth/permission required (`AUTH_REQUIRED`). |
+| `4` | Auth/permission required (`AUTH_REQUIRED`, `KVM_PERMISSION_DENIED`). |
 | `5` | Conflict / precondition failed (`GOLDEN_IN_USE`, `RECORD_ALREADY_ACTIVE`, `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED`). |
 | `6` | Rate limited / try again later (reserved; not currently used). |
 | `7` | Boot/startup timeout (`VM_BOOT_TIMEOUT`, `CONNECTION_TIMEOUT`, `OCR_TIMEOUT`, recording-related timeouts). |
