@@ -160,11 +160,18 @@ pub fn build_qemu_args(profile: &QemuProfile, spec: &QemuLaunchSpec) -> Vec<Stri
 }
 
 /// Run `program` with `args` synchronously, inheriting the parent's
-/// stderr. Errors on a non-zero exit. Ports `QEMURunner.runAndCheck`.
+/// stderr but discarding child stdout. Errors on a non-zero exit. Ports
+/// `QEMURunner.runAndCheck`.
+///
+/// Child stdout is sent to `/dev/null`: helpers like `qemu-img create`
+/// print a `Formatting '...'` banner to stdout, and inheriting it would
+/// corrupt the CLI's own stdout (a `--json` envelope must be the only
+/// thing on stdout — contract §3). Diagnostics still reach the inherited
+/// stderr on failure.
 async fn run_and_check(program: &str, args: &[String]) -> Result<(), VmError> {
     let status = tokio::process::Command::new(program)
         .args(args)
-        .stdout(std::process::Stdio::inherit())
+        .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::inherit())
         .status()
         .await

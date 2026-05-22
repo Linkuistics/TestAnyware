@@ -270,9 +270,17 @@ fn enrich_running(clone: &RunningClone, paths: &VmPaths) -> RunningEntry {
         .as_ref()
         .and_then(|s| s.agent.as_ref())
         .map(|a| format!("{}:{}", a.host, a.port));
+    // The spec is authoritative for `platform`. A clone id is random hex
+    // (`testanyware-<hex8>`) with no platform substring, so the
+    // name-derived `clone.platform` is always "unknown" for clones — fall
+    // back to it only when the spec sidecar is missing or unreadable.
+    let platform = spec
+        .as_ref()
+        .map(|s| s.platform.clone())
+        .unwrap_or_else(|| clone.platform.clone());
     RunningEntry {
         id: clone.id.clone(),
-        platform: clone.platform.clone(),
+        platform,
         backend: clone.backend,
         pid,
         vnc,
@@ -360,5 +368,36 @@ mod tests {
         let listing = VmLifecycle::list(&paths);
         assert_eq!(listing.goldens.len(), 1);
         assert_eq!(listing.running.len(), 0);
+    }
+
+    #[test]
+    fn list_running_clone_reports_platform_from_its_spec() {
+        // A clone id is random hex (`testanyware-<hex8>`) and carries no
+        // platform substring, so name-derived detection yields "unknown".
+        // `list` must read the authoritative `platform` from the spec
+        // sidecar — regression guard for the Task 19 live-smoke finding.
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths_in(dir.path());
+        let id = "testanyware-abcd1234";
+        // A running clone = a clone dir plus a monitor.sock under the
+        // session dir (this is how `scan_clones_dir` detects liveness).
+        std::fs::create_dir_all(paths.clone_dir(id)).unwrap();
+        std::fs::create_dir_all(paths.session_dir(id)).unwrap();
+        std::fs::write(paths.session_dir(id).join("monitor.sock"), b"").unwrap();
+        // The spec sidecar carries the real platform.
+        std::fs::create_dir_all(paths.vms_dir()).unwrap();
+        let spec = VmSpec {
+            vnc: VncEndpoint { host: "localhost".into(), port: 5900, password: None },
+            agent: None,
+            platform: "windows".into(),
+        };
+        spec.write_atomic(&paths.spec_path(id)).unwrap();
+
+        let listing = VmLifecycle::list(&paths);
+        assert_eq!(listing.running.len(), 1, "the clone should be detected as running");
+        assert_eq!(
+            listing.running[0].platform, "windows",
+            "platform must come from the spec, not the name-derived guess",
+        );
     }
 }
