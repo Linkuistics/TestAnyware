@@ -253,4 +253,53 @@ sockets, `vm list` showed it as running, `screenshot` produced a
 non-zero PNG, `vm-stop.sh` cleared the session dir, and no qemu/swtpm
 orphans were left behind.
 
+---
+
+## 2026-05-22 — Rust port: native per-platform facilities via conditional compilation
+
+**Decision:** The Rust port (`cli-rs/`) should use the best *native*
+facility on each platform, selected with `#[cfg(target_os = ...)]`, rather
+than a single lowest-common-denominator engine everywhere. Platform
+priority: macOS and Linux are both first-class (Linux is the migration's
+priority-1 target); Windows host support is priority 2.
+
+**Concretely — OCR:** use Apple's Vision framework on macOS and the
+EasyOCR daemon on Linux/Windows, behind a `cfg`. This **supersedes** the
+module comment in `cli-rs/crates/testanyware-ocr-client/src/lib.rs`, which
+currently states the Vision path was "intentionally not ported" in favour
+of EasyOCR-on-every-platform. Update that comment when the OCR command is
+wired under the new approach.
+
+**Why this changes course:** the earlier rationale was "one cross-platform
+engine beats fast-native-plus-fallback, for maintainability." The owner's
+call is the opposite — per-platform-best is worth the extra `cfg` branch,
+and it also means the Rust port carries *no feature regression* versus the
+macOS-only Swift CLI (which uses Vision / AVFoundation directly).
+
+**How to apply:** `cfg`-gate platform facilities; keep the cross-platform
+implementation as the Linux/Windows branch, not as the only path. The
+tart-runner backlog task already follows this pattern
+(`port-tart-runner-...-cfg-target-os-macos`); apply the same to OCR and
+anywhere a native macOS framework is materially better than a portable
+alternative.
+
+---
+
+## 2026-05-22 — Golden image creation moves into the CLI
+
+**Decision:** Golden-image creation becomes a `testanyware` subcommand
+(`vm create-golden --platform <p>`), replacing the external
+`vm-create-golden-{macos,linux,windows}.sh` scripts. Tracked by the
+backlog item `build-golden-image-creation-into-the-cli`.
+
+**Why:** removes the "bundled shell script" indirection — users and LLM
+agents get golden creation through the same command surface as the rest
+of VM lifecycle, with `--help`, `--json`, and stable error codes.
+
+**How to apply:** This resolves the open P5 question in
+`0-docs/plans/HomebrewDistribution.plan.md` in favour of its candidate A.
+The scripts may stay initially as the implementation the subcommand shells
+out to, then be absorbed; the deliverable is that no external script
+invocation is required of the user.
+
 

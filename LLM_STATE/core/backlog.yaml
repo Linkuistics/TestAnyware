@@ -561,3 +561,28 @@ tasks:
 
     **Notes**
     - The Swift CLI may still be useful for one or two months post-cutover if the Rust version has any quality issues — keep the pre-cutover commit tagged for easy revert.
+- id: build-golden-image-creation-into-the-cli
+  title: Build golden image creation into the CLI as a subcommand
+  category: feature
+  status: not_started
+  dependencies:
+  - port-qemu-runner-and-vm-lifecycle-to-rust
+  description: |
+    Replace the external `vm-create-golden-{macos,linux,windows}.sh` scripts with a first-class CLI subcommand, so users and LLM agents never invoke a bundled shell script directly. Resolves the open P5 question in `0-docs/plans/HomebrewDistribution.plan.md` (candidate A). See decision log entry 2026-05-22 "Golden image creation moves into the CLI".
+
+    **Command**
+    - `testanyware vm create-golden --platform {macos|linux|windows} [--iso <path>]` — build a golden image for the platform. `--iso` is required for Windows.
+
+    **Scope**
+    - Port the logic of `provisioner/scripts/vm-create-golden-{macos,linux,windows}.sh` into the Rust CLI under the `vm` command group, alongside `start`/`stop`/`list`/`delete`.
+    - The scripts may initially be shelled out to as the implementation, then absorbed step by step; the deliverable is that no external script invocation is required of the user.
+    - Platform-specific build steps are `#[cfg]`/runtime-platform gated, consistent with the 2026-05-22 per-platform-facilities decision.
+    - Reuse the QEMU runner (Linux/Windows guests) and tart runner (macOS guest) work rather than duplicating process management.
+
+    **Acceptance criteria**
+    - `testanyware vm create-golden --platform linux` produces a usable Linux golden with the agent installed and reaching health; same for `macos` and `windows --iso <path>`.
+    - The command satisfies the CLI design contract: examples in `--help`, `--json` output, stable error codes.
+    - The bundled `vm-create-golden-*.sh` scripts are no longer the documented user entry point; `LLM_INSTRUCTIONS.md` and `README.md` reference the subcommand.
+
+    **Sequencing**
+    - Depends on the QEMU runner / VM lifecycle port. Per-platform: a platform's create-golden can land once that platform's runner is ready.
