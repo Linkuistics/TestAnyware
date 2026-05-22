@@ -9,6 +9,7 @@ pub mod meta;
 pub mod monitor;
 pub mod paths;
 pub mod process;
+pub mod qemu_profile;
 pub mod spec;
 
 pub use detached::spawn_detached;
