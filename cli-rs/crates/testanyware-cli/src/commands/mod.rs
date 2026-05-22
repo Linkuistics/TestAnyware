@@ -13,6 +13,7 @@ pub mod agent;
 pub mod file;
 pub mod input;
 pub mod screen;
+pub mod vm;
 pub mod window;
 
 use testanyware_agent_client::{AgentClient, AgentConfig, AgentError};
