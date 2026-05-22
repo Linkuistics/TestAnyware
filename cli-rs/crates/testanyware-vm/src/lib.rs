@@ -4,6 +4,7 @@
 
 pub mod detached;
 pub mod error;
+pub mod health;
 pub mod id;
 pub mod meta;
 pub mod monitor;
@@ -16,6 +17,7 @@ pub mod spec;
 
 pub use detached::spawn_detached;
 pub use error::VmError;
+pub use health::wait_for_agent;
 pub use id::generate_id;
 pub use meta::{VmMeta, VmTool};
 pub use monitor::QemuMonitorClient;
