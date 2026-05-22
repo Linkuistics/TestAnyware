@@ -10,6 +10,7 @@ pub mod monitor;
 pub mod paths;
 pub mod preflight;
 pub mod process;
+pub mod qemu;
 pub mod qemu_profile;
 pub mod spec;
 
