@@ -223,6 +223,44 @@ async fn upload_streams_raw_octet_stream_body_with_path_query() {
     assert_eq!(sent, payload.len() as u64);
 }
 
+/// Regression for the Linux/`http.server` agent: the upload body MUST be
+/// framed with a `Content-Length` (not `Transfer-Encoding: chunked`). Python's
+/// `http.server` reads only `Content-Length` and silently writes a 0-byte file
+/// for a chunked body — so a streamed upload with no length advertised loses
+/// all data against that agent. The client knows the file size, so it must
+/// advertise it. (Discovered by leaf 070 e2e against a real Linux VM.)
+#[tokio::test]
+async fn upload_frames_body_with_content_length_not_chunked() {
+    let server = MockServer::start().await;
+    let payload = vec![0xABu8; 4096];
+    let len = payload.len();
+
+    Mock::given(method("POST"))
+        .and(path("/upload"))
+        .and(header("content-length", len.to_string().as_str()))
+        .and(|req: &Request| {
+            // A chunked body would carry no Content-Length and instead a
+            // `Transfer-Encoding: chunked` header — assert that is absent.
+            req.headers
+                .get("transfer-encoding")
+                .map(|v| !v.to_str().unwrap_or("").contains("chunked"))
+                .unwrap_or(true)
+        })
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "success": true })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let src = tempfile::NamedTempFile::new().expect("temp src");
+    std::fs::write(src.path(), &payload).expect("write src");
+
+    let client = client_for(&server).await;
+    client
+        .upload("/tmp/x.bin", src.path())
+        .await
+        .expect("upload succeeds with Content-Length framing");
+}
+
 #[tokio::test]
 async fn upload_failure_surfaces_as_wire_error() {
     let server = MockServer::start().await;

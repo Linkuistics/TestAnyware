@@ -75,7 +75,10 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
     def _handle_upload(self, query: str) -> None:
         path = self._query_path(query)
         content_length = int(self.headers.get("Content-Length", 0))
-        status, body = system_endpoints.handle_upload(path, self.rfile, content_length)
+        chunked = "chunked" in self.headers.get("Transfer-Encoding", "").lower()
+        status, body = system_endpoints.handle_upload(
+            path, self.rfile, content_length, chunked=chunked
+        )
         self._send_json(status, body)
 
     def _handle_download(self, query: str) -> None:

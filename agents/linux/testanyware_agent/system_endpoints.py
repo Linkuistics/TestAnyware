@@ -55,16 +55,29 @@ def handle_exec(body: dict) -> tuple[int, dict]:
         }
 
 
-def handle_upload(path: str, rfile: BinaryIO, content_length: int) -> tuple[int, dict]:
+def handle_upload(
+    path: str, rfile: BinaryIO, content_length: int, chunked: bool = False
+) -> tuple[int, dict]:
     """Stream `content_length` bytes from `rfile` into `path` (ADR-0001).
 
     The body is written to a temp file in the destination's own directory,
     then atomically renamed into place; any error unlinks the temp so the
     destination is never left truncated. Returns an ``ActionResponse`` on
     success or an ``ErrorResponse`` (``upload_failed``) on failure.
+
+    `http.server` cannot decode a chunked request body and reads only
+    `Content-Length`, so a chunked upload would silently write a 0-byte file.
+    Reject it loudly (411 Length Required) instead — clients must advertise
+    the length, as the host CLI does.
     """
     if not path:
         return 400, {"error": "upload_failed", "details": "missing path query parameter"}
+
+    if chunked:
+        return 411, {
+            "error": "upload_failed",
+            "details": "chunked transfer-encoding unsupported; send Content-Length",
+        }
 
     parent = os.path.dirname(path) or "."
     try:

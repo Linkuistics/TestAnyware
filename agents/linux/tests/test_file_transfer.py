@@ -70,6 +70,24 @@ def test_upload_missing_path_fails(tmp_path) -> None:
     assert body["error"] == "upload_failed"
 
 
+def test_upload_rejects_chunked_transfer_encoding(tmp_path) -> None:
+    """http.server cannot decode a chunked request body, so an upload that
+    arrives chunked (no usable Content-Length) must fail loudly with
+    ``upload_failed`` rather than silently writing a 0-byte file. The
+    destination must not be created."""
+    dest = tmp_path / "payload.bin"
+
+    status, body = system_endpoints.handle_upload(
+        str(dest), io.BytesIO(b"ignored"), content_length=0, chunked=True
+    )
+
+    assert status == 411  # Length Required
+    assert body["error"] == "upload_failed"
+    assert "chunked" in body["details"].lower()
+    assert not dest.exists()  # nothing written
+    assert list(tmp_path.iterdir()) == []  # not even a temp file
+
+
 # ---------------------------------------------------------------------------
 # Download unit tests
 # ---------------------------------------------------------------------------

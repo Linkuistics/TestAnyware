@@ -272,6 +272,12 @@ impl AgentClient {
             .http
             .post(self.file_url("/upload", remote))
             .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            // Advertise the length explicitly. Without it, a streamed body is
+            // sent `Transfer-Encoding: chunked`, which Hummingbird and Kestrel
+            // decode but Python's `http.server` (the Linux agent) does not — it
+            // reads only `Content-Length` and would silently write a 0-byte
+            // file. We know the size, so frame the request with it (ADR-0001).
+            .header(reqwest::header::CONTENT_LENGTH, len)
             .body(body)
             .send()
             .await?;

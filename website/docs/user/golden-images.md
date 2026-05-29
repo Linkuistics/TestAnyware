@@ -84,6 +84,23 @@ The ISO is cached after first use — subsequent runs don't need `--iso`.
 The Windows installation is fully automated via `autounattend.xml`
 (typical time: 20-40 minutes).
 
+## Rebuilding after an agent change
+
+The golden images bake the in-VM agent, so a **breaking agent-protocol
+change requires rebuilding every golden** — a clone of a stale golden runs
+the old agent and will fail against a matching new host CLI (there is no
+version negotiation; see ADR-0001, the streaming `/upload`/`/download`
+cutover).
+
+The create scripts need no edits for this: each bakes the agent from
+*current* source — the macOS script SCPs the built `testanyware-agent`
+binary (point it at a contributor build with
+`TESTANYWARE_AGENT_BIN_OVERRIDE=…`), and the Linux script copies the
+`agents/linux` Python source. So a rebuild is just: build the new agents,
+then re-run the create script for each platform. The Windows golden must be
+rebuilt on a Windows host (the create flow needs the `net9.0-windows` +
+FlaUI agent, which cannot run on Apple Silicon).
+
 ## Where they live
 
 - **macOS / Linux goldens:** tart-managed, under `~/.tart/vms/`.
