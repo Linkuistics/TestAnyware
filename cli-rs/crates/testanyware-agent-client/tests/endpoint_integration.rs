@@ -6,13 +6,11 @@
 //! Rust client and the in-VM agent (Swift / Python / C#) share — drift on
 //! either side surfaces here.
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
 use serde_json::json;
 use testanyware_agent_client::{AgentClient, AgentConfig, AgentError};
 use testanyware_protocol::{ElementQuery, ExecRequest, SnapshotRequest};
-use wiremock::matchers::{body_json, method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
+use wiremock::matchers::{body_bytes, body_json, header, method, path, query_param};
+use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
 async fn client_for(server: &MockServer) -> AgentClient {
     // server.uri() is `http://<host>:<port>`; split off the scheme and
@@ -195,14 +193,17 @@ async fn exec_returns_full_result() {
 }
 
 #[tokio::test]
-async fn upload_round_trips_base64_content() {
+async fn upload_streams_raw_octet_stream_body_with_path_query() {
     let server = MockServer::start().await;
     let payload = b"binary\x00\x01\x02".to_vec();
-    let encoded = BASE64_STANDARD.encode(&payload);
 
+    // ADR-0001 wire form: raw octet-stream body, path in the `?path=` query.
+    // A space in the path must encode as %20 (not +) for cross-agent parity.
     Mock::given(method("POST"))
         .and(path("/upload"))
-        .and(body_json(json!({ "path": "/tmp/x.bin", "content": encoded })))
+        .and(query_param("path", "/tmp/my docs/x.bin"))
+        .and(header("content-type", "application/octet-stream"))
+        .and(body_bytes(payload.clone()))
         .respond_with(ResponseTemplate::new(200).set_body_json(json!({
             "success": true,
             "message": "Uploaded"
@@ -211,11 +212,15 @@ async fn upload_round_trips_base64_content() {
         .mount(&server)
         .await;
 
+    let src = tempfile::NamedTempFile::new().expect("temp src");
+    std::fs::write(src.path(), &payload).expect("write src");
+
     let client = client_for(&server).await;
-    client
-        .upload("/tmp/x.bin", &payload)
+    let sent = client
+        .upload("/tmp/my docs/x.bin", src.path())
         .await
         .expect("upload succeeds");
+    assert_eq!(sent, payload.len() as u64);
 }
 
 #[tokio::test]
@@ -223,62 +228,117 @@ async fn upload_failure_surfaces_as_wire_error() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/upload"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "success": false,
-            "message": "Upload failed: permission denied"
+        .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+            "error": "upload_failed",
+            "details": "permission denied"
         })))
         .mount(&server)
         .await;
 
+    let src = tempfile::NamedTempFile::new().expect("temp src");
+    std::fs::write(src.path(), b"hi").expect("write src");
+
     let client = client_for(&server).await;
     let err = client
-        .upload("/forbidden", b"hi")
+        .upload("/forbidden", src.path())
         .await
         .expect_err("upload should fail");
     assert_eq!(err.code(), "UPLOAD_FAILED");
 }
 
 #[tokio::test]
-async fn download_decodes_base64_content() {
+async fn upload_missing_local_file_is_io_error() {
+    // No HTTP call should be needed — the local open fails first.
     let server = MockServer::start().await;
-    let payload = b"hello world\n";
-    let encoded = BASE64_STANDARD.encode(payload);
-
-    Mock::given(method("POST"))
-        .and(path("/download"))
-        .and(body_json(json!({ "path": "/tmp/x.bin" })))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "content": encoded })))
-        .mount(&server)
-        .await;
-
     let client = client_for(&server).await;
-    let bytes = client
-        .download("/tmp/x.bin")
+    let err = client
+        .upload("/tmp/x.bin", std::path::Path::new("/no/such/local/file"))
         .await
-        .expect("download succeeds");
-    assert_eq!(bytes, payload);
+        .expect_err("upload should fail on missing source");
+    assert_eq!(err.code(), "IO_ERROR");
 }
 
 #[tokio::test]
-async fn download_error_envelope_maps_to_wire_error() {
-    // Some agent versions return HTTP 200 with an `{error, details}`
-    // envelope instead of an HTTP 500. The client must recognise both.
+async fn download_streams_octet_stream_body_to_local_file() {
+    let server = MockServer::start().await;
+    let payload = b"hello world\n".to_vec();
+
+    Mock::given(method("POST"))
+        .and(path("/download"))
+        .and(query_param("path", "/tmp/x.bin"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "application/octet-stream")
+                .set_body_bytes(payload.clone()),
+        )
+        .mount(&server)
+        .await;
+
+    let dir = tempfile::tempdir().expect("temp dir");
+    let dest = dir.path().join("out.bin");
+
+    let client = client_for(&server).await;
+    let written = client
+        .download("/tmp/x.bin", &dest)
+        .await
+        .expect("download succeeds");
+    assert_eq!(written, payload.len() as u64);
+    assert_eq!(std::fs::read(&dest).expect("read dest"), payload);
+    // No temp files should remain in the destination directory.
+    let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".tmp"))
+        .collect();
+    assert!(leftovers.is_empty(), "temp files left behind: {leftovers:?}");
+}
+
+#[tokio::test]
+async fn download_error_envelope_maps_to_wire_error_and_leaves_no_file() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/download"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({
             "error": "download_failed",
             "details": "ENOENT"
         })))
         .mount(&server)
         .await;
 
+    let dir = tempfile::tempdir().expect("temp dir");
+    let dest = dir.path().join("out.bin");
+
     let client = client_for(&server).await;
     let err = client
-        .download("/missing")
+        .download("/missing", &dest)
         .await
         .expect_err("download should fail");
     assert_eq!(err.code(), "DOWNLOAD_FAILED");
+    // A failed download must not create the destination at all.
+    assert!(!dest.exists(), "destination should not exist after failure");
+}
+
+/// Belt-and-braces: assert no `+` ever appears in the encoded query for a
+/// path with spaces, by capturing the raw request URL.
+#[tokio::test]
+async fn upload_query_uses_percent20_not_plus() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/upload"))
+        .and(|req: &Request| !req.url.query().unwrap_or_default().contains('+'))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "success": true })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let src = tempfile::NamedTempFile::new().expect("temp src");
+    std::fs::write(src.path(), b"x").expect("write src");
+
+    let client = client_for(&server).await;
+    client
+        .upload("/a b/c d.bin", src.path())
+        .await
+        .expect("upload succeeds");
 }
 
 #[tokio::test]

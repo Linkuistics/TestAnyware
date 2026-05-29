@@ -69,6 +69,7 @@ pub fn exit_agent_error(err: AgentError, mode: OutputMode) -> ! {
             "http_status": status.as_u16(),
             "body": body,
         }),
+        AgentError::LocalIo { path, .. } => serde_json::json!({ "path": path }),
         _ => serde_json::Value::Null,
     };
     print_error(
@@ -169,6 +170,7 @@ fn remediation_for(code: &str) -> Option<&'static str> {
         "WINDOW_NOT_FOUND" => Some(
             "Run `testanyware agent windows` to see available windows.",
         ),
+        "IO_ERROR" => Some("Check the local path and permissions."),
         _ => None,
     }
 }
