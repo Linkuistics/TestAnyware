@@ -4,7 +4,9 @@ Uses Python's built-in http.server — zero pip dependencies.
 """
 
 import json
+import os
 from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import parse_qs, urlsplit
 
 from testanyware_agent import accessibility, system_endpoints
 
@@ -21,6 +23,18 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
             self._send_json(404, {"error": f"Not found: {self.path}"})
 
     def do_POST(self) -> None:
+        parsed = urlsplit(self.path)
+        route = parsed.path
+
+        # /upload and /download stream raw octet-stream bodies (ADR-0001):
+        # branch *before* _read_body() consumes self.rfile as JSON.
+        if route == "/upload":
+            self._handle_upload(parsed.query)
+            return
+        if route == "/download":
+            self._handle_download(parsed.query)
+            return
+
         body, parse_error = self._read_body()
         if body is None:
             self._send_json(400, {"error": "invalid_json", "details": parse_error})
@@ -41,12 +55,10 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
             "/window-minimize": lambda: accessibility.handle_window_action(body, "window-minimize"),
             "/wait": lambda: accessibility.handle_wait(body),
             "/exec": lambda: system_endpoints.handle_exec(body),
-            "/upload": lambda: system_endpoints.handle_upload(body),
-            "/download": lambda: system_endpoints.handle_download(body),
             "/shutdown": lambda: system_endpoints.handle_shutdown(),
         }
 
-        handler = routes.get(self.path)
+        handler = routes.get(route)
         if handler is None:
             self._send_json(404, {"error": f"Not found: {self.path}"})
             return
@@ -56,6 +68,30 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
             self._send_json(status, response_body)
         except Exception as e:
             self._send_json(500, {"error": str(e)})
+
+    def _query_path(self, query: str) -> str:
+        return parse_qs(query).get("path", [""])[0]
+
+    def _handle_upload(self, query: str) -> None:
+        path = self._query_path(query)
+        content_length = int(self.headers.get("Content-Length", 0))
+        status, body = system_endpoints.handle_upload(path, self.rfile, content_length)
+        self._send_json(status, body)
+
+    def _handle_download(self, query: str) -> None:
+        path = self._query_path(query)
+        status, error, fileobj = system_endpoints.handle_download(path)
+        if fileobj is None:
+            self._send_json(status, error)
+            return
+        with fileobj:
+            size = os.fstat(fileobj.fileno()).st_size
+            self.send_response(status)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Length", str(size))
+            self.end_headers()
+            while chunk := fileobj.read(system_endpoints.CHUNK_SIZE):
+                self.wfile.write(chunk)
 
     def _read_body(self) -> tuple[dict | None, str]:
         content_length = int(self.headers.get("Content-Length", 0))

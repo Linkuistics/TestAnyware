@@ -44,6 +44,7 @@ REALIGNED_TOKENS: frozenset[str] = frozenset({
     "not_found",
     "ambiguous",
     "window_not_found",
+    "upload_failed",
     "download_failed",
     "invalid_json",
 })
@@ -92,8 +93,9 @@ def test_handle_download_emits_download_failed_for_missing_file(tmp_path) -> Non
     from testanyware_agent.system_endpoints import handle_download
 
     missing = tmp_path / "does-not-exist"
-    status, body = handle_download({"path": str(missing)})
+    status, error, fileobj = handle_download(str(missing))
 
     assert status == 400
-    assert body["error"] == "download_failed"
-    assert "details" in body, "download_failed must carry details for diagnostics"
+    assert error["error"] == "download_failed"
+    assert "details" in error, "download_failed must carry details for diagnostics"
+    assert fileobj is None
