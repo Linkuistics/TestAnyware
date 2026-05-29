@@ -62,14 +62,10 @@ struct ExecRequest: Decodable {
     let detach: Bool?
 }
 
-struct UploadRequest: Decodable {
-    let path: String
-    let content: String
-}
-
-struct DownloadRequest: Decodable {
-    let path: String
-}
+// File transfer (`/upload`, `/download`) carries no JSON body: the path rides
+// in the `path` query parameter and the file bytes stream raw over
+// `application/octet-stream` (see docs/architecture/agent-protocol.md and
+// ADR-0001). There are deliberately no UploadRequest/DownloadRequest types.
 
 
 // MARK: - Router
@@ -92,8 +88,8 @@ func buildAgentRouter() -> Router<BasicRequestContext> {
     router.post("/window-minimize") { req, _ in try await handleWindowMinimize(req) }
     router.post("/wait") { req, _ in try await handleWait(req) }
     router.post("/exec") { req, _ in try await handleExec(req) }
-    router.post("/upload") { req, _ in try await handleUpload(req) }
-    router.post("/download") { req, _ in try await handleDownload(req) }
+    router.post("/upload") { req, ctx in try await handleUpload(req, context: ctx) }
+    router.post("/download") { req, ctx in try await handleDownload(req, context: ctx) }
     router.post("/shutdown") { _, _ in handleShutdown() }
     router.post("/debug/ax") { _, _ in handleDebugAX() }
 
@@ -461,29 +457,65 @@ private func handleExec(_ request: Request) async throws -> Response {
 
 // MARK: - System: upload/download
 
-private func handleUpload(_ request: Request) async throws -> Response {
-    let req: UploadRequest = try await decode(request)
-    guard let data = Data(base64Encoded: req.content) else {
-        return jsonOK(ActionResponse(success: false, message: "Upload failed: invalid base64 content"))
+/// Streams the raw request body to `?path=...`, never buffering the whole
+/// file. The bytes land in a sibling temp file in the destination's own
+/// directory and are atomically `rename(2)`d into place only after a complete
+/// transfer; any failure unlinks the temp, so the destination is never left
+/// truncated. See ADR-0001.
+private func handleUpload(_ request: Request, context: some RequestContext) async throws -> Response {
+    guard let path = request.uri.queryParameters["path"].map(String.init), !path.isEmpty else {
+        return jsonError("upload_failed", details: "missing or empty 'path' query parameter")
     }
+    let destURL = URL(fileURLWithPath: path)
+    let dir = destURL.deletingLastPathComponent()
+    let tempURL = dir.appendingPathComponent(".testanyware-upload-\(UUID().uuidString).tmp")
+    let fileIO = FileIO()
     do {
-        let url = URL(fileURLWithPath: req.path)
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url)
-        return jsonOK(ActionResponse(success: true, message: "Uploaded to \(req.path)"))
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try await fileIO.writeFile(contents: request.body, path: tempURL.path, context: context)
+        // Atomic, replace-existing rename. Both paths are siblings, so this
+        // stays on one filesystem (a precondition for atomic rename).
+        guard rename(tempURL.path, destURL.path) == 0 else {
+            let reason = String(cString: strerror(errno))
+            throw UploadError.renameFailed(reason)
+        }
+        return jsonOK(ActionResponse(success: true, message: "Uploaded to \(path)"))
     } catch {
-        return jsonOK(ActionResponse(success: false, message: "Upload failed: \(error)"))
+        try? FileManager.default.removeItem(at: tempURL)
+        return jsonError("upload_failed", details: "\(error)", status: .internalServerError)
     }
 }
 
-private func handleDownload(_ request: Request) async throws -> Response {
-    struct DownloadResponse: Encodable { let content: String }
-    let req: DownloadRequest = try await decode(request)
+private enum UploadError: Error, CustomStringConvertible {
+    case renameFailed(String)
+    var description: String {
+        switch self {
+        case .renameFailed(let reason): return "rename into place failed: \(reason)"
+        }
+    }
+}
+
+/// Streams the file at `?path=...` back as `application/octet-stream`, chunked
+/// straight off disk via `FileIO` (no whole-file buffering). A missing/unreadable
+/// file surfaces as an `ErrorResponse` (`download_failed`) before any body bytes
+/// are sent. See ADR-0001.
+private func handleDownload(_ request: Request, context: some RequestContext) async throws -> Response {
+    guard let path = request.uri.queryParameters["path"].map(String.init), !path.isEmpty else {
+        return jsonError("download_failed", details: "missing or empty 'path' query parameter")
+    }
+    var isDir: ObjCBool = false
+    guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue else {
+        return jsonError("download_failed", details: "no such file: \(path)", status: .notFound)
+    }
     do {
-        let data = try Data(contentsOf: URL(fileURLWithPath: req.path))
-        return jsonOK(DownloadResponse(content: data.base64EncodedString()))
+        let body = try await FileIO().loadFile(path: path, context: context)
+        return Response(
+            status: .ok,
+            headers: [.contentType: "application/octet-stream"],
+            body: body
+        )
     } catch {
-        return jsonError("download_failed", details: error.localizedDescription)
+        return jsonError("download_failed", details: "\(error)", status: .internalServerError)
     }
 }
 

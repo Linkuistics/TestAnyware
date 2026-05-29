@@ -8,7 +8,7 @@ use serde_json::json;
 use testanyware_protocol::ExecRequest;
 
 use crate::commands::{build_agent_client, exit_agent_error};
-use crate::output::{print_error, print_success, OutputMode};
+use crate::output::{print_success, OutputMode};
 use crate::resolve::ConnectionOptions;
 
 pub struct ExecArgs {
@@ -90,7 +90,6 @@ pub async fn run_upload(
     mode: OutputMode,
     dry_run: bool,
 ) {
-    let local_path = Path::new(&local);
     if dry_run {
         match mode {
             OutputMode::Json => print_success(json!({
@@ -102,26 +101,16 @@ pub async fn run_upload(
         }
         return;
     }
-    let bytes = match std::fs::read(local_path) {
-        Ok(b) => b,
-        Err(source) => {
-            print_error(
-                mode,
-                "IO_ERROR",
-                &format!("failed to read {local}: {source}"),
-                Some("check the local path and permissions"),
-                json!({ "path": local }),
-                crate::output::exit_code_for("IO_ERROR"),
-            );
-        }
-    };
+    // The client streams the file straight from disk to the agent's raw
+    // `application/octet-stream` body — no whole-file buffer here (ADR-0001).
+    // `bytes` for the receipt is the streamed size the client reports.
     let client = build_agent_client(&opts, mode);
-    match client.upload(&remote, &bytes).await {
-        Ok(()) => match mode {
+    match client.upload(&remote, Path::new(&local)).await {
+        Ok(bytes) => match mode {
             OutputMode::Json => print_success(json!({
                 "local": local,
                 "remote": remote,
-                "bytes": bytes.len(),
+                "bytes": bytes,
             })),
             OutputMode::Text => println!("Uploaded {local} → {remote}"),
         },
@@ -147,27 +136,19 @@ pub async fn run_download(
         }
         return;
     }
+    // The client streams the agent's response body into a sibling temp file
+    // and atomically renames it into place — bounded memory, and `local` is
+    // never left truncated on a failed transfer (ADR-0001).
     let client = build_agent_client(&opts, mode);
-    let bytes = match client.download(&remote).await {
-        Ok(b) => b,
+    match client.download(&remote, Path::new(&local)).await {
+        Ok(bytes) => match mode {
+            OutputMode::Json => print_success(json!({
+                "remote": remote,
+                "local": local,
+                "bytes": bytes,
+            })),
+            OutputMode::Text => println!("Downloaded {remote} → {local}"),
+        },
         Err(err) => exit_agent_error(err, mode),
-    };
-    if let Err(source) = std::fs::write(&local, &bytes) {
-        print_error(
-            mode,
-            "IO_ERROR",
-            &format!("failed to write {local}: {source}"),
-            Some("check the local path and permissions"),
-            json!({ "path": local }),
-            crate::output::exit_code_for("IO_ERROR"),
-        );
-    }
-    match mode {
-        OutputMode::Json => print_success(json!({
-            "remote": remote,
-            "local": local,
-            "bytes": bytes.len(),
-        })),
-        OutputMode::Text => println!("Downloaded {remote} → {local}"),
     }
 }

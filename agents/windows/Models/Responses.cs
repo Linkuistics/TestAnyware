@@ -49,11 +49,8 @@ public sealed class ExecResult
     public string Stderr { get; set; } = "";
 }
 
-public sealed class DownloadResponse
-{
-    [JsonPropertyName("content")]
-    public string Content { get; set; } = "";
-}
+// DownloadResponse removed (ADR-0001): /download streams raw
+// application/octet-stream bytes instead of a base64 JSON content field.
 
 public sealed class InspectResponse
 {

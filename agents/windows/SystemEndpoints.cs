@@ -76,40 +76,59 @@ public static class SystemEndpoints
             });
         });
 
-        app.MapPost("/upload", (UploadRequest req) =>
+        // ADR-0001: /upload and /download stream raw application/octet-stream
+        // bytes. The path rides in a percent-encoded query parameter (ASP.NET
+        // percent-decodes Request.Query), and neither end buffers the file.
+        app.MapPost("/upload", async (HttpRequest request) =>
         {
+            var path = request.Query["path"].ToString();
+            string? tempPath = null;
             try
             {
-                var data = Convert.FromBase64String(req.Content);
-                var dir = Path.GetDirectoryName(req.Path);
+                var dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir))
                     Directory.CreateDirectory(dir);
-                File.WriteAllBytes(req.Path, data);
+
+                // Temp file in the destination's own directory keeps the
+                // rename on one volume so File.Move is atomic on NTFS.
+                tempPath = Path.Combine(
+                    string.IsNullOrEmpty(dir) ? "." : dir,
+                    $".{Path.GetFileName(path)}.{Path.GetRandomFileName()}.tmp");
+
+                await using (var temp = File.Create(tempPath))
+                    await request.Body.CopyToAsync(temp);
+
+                File.Move(tempPath, path, overwrite: true);
+                tempPath = null;
                 return Results.Json(new ActionResponse
                 {
                     Success = true,
-                    Message = $"Uploaded to {req.Path}",
+                    Message = $"Uploaded to {path}",
                 });
             }
             catch (Exception ex)
             {
-                return Results.Json(new ActionResponse
+                // A truncated/failed transfer must never leave the temp behind
+                // or clobber the destination — it was renamed only on success.
+                if (tempPath is not null)
+                    try { File.Delete(tempPath); } catch { }
+                return Results.Json(new ErrorResponse
                 {
-                    Success = false,
-                    Message = $"Upload failed: {ex.Message}",
-                });
+                    Error = "upload_failed",
+                    Details = ex.Message,
+                }, statusCode: 400);
             }
         });
 
-        app.MapPost("/download", (DownloadRequest req) =>
+        app.MapPost("/download", (HttpRequest request) =>
         {
+            var path = request.Query["path"].ToString();
             try
             {
-                var data = File.ReadAllBytes(req.Path);
-                return Results.Json(new DownloadResponse
-                {
-                    Content = Convert.ToBase64String(data),
-                });
+                // Open eagerly so a missing/unreadable file surfaces as a JSON
+                // ErrorResponse before any body bytes are streamed.
+                var stream = File.OpenRead(path);
+                return Results.Stream(stream, "application/octet-stream");
             }
             catch (Exception ex)
             {

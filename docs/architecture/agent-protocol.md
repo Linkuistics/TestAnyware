@@ -21,8 +21,10 @@ Authoritative sources (the JSON keys and optionality rules must match):
 
 ## Transport
 
-- HTTP/1.1 with JSON request and response bodies. Content-Type
-  `application/json`.
+- HTTP/1.1 with JSON request and response bodies (Content-Type
+  `application/json`) for every endpoint **except file transfer**:
+  `/upload` and `/download` stream raw bytes as
+  `application/octet-stream` (see those endpoints below).
 - Default bind: `0.0.0.0:8648` on the VM. The host connects via the
   VM's LAN IP (tart: `192.168.64.<n>`; QEMU: reachable over virtio-net).
 - Every endpoint is **POST** except `GET /health`.
@@ -37,8 +39,8 @@ Authoritative sources (the JSON keys and optionality rules must match):
 |--------|------|---------|
 | GET | `/health` | Liveness + "accessibility is ready" check. Returns 200 with no required body once agent + AX are ready. |
 | POST | `/exec` | Execute a command. Always 200; exit code is in the response body. |
-| POST | `/upload` | Write a file to the VM filesystem. |
-| POST | `/download` | Read a file from the VM filesystem. |
+| POST | `/upload?path=<percent-encoded>` | Stream a file to the VM filesystem (raw `application/octet-stream` body). |
+| POST | `/download?path=<percent-encoded>` | Stream a file from the VM filesystem (raw `application/octet-stream` response). |
 | POST | `/shutdown` | Ask the agent to terminate (used by test harnesses). |
 | POST | `/debug/ax` | macOS only. Dump internal AX state for debugging. |
 
@@ -128,22 +130,33 @@ Extends `ElementQuery` with a required `value`:
 { "command": "uname -a", "timeout": 60, "detach": false }
 ```
 
-### `UploadRequest` — `/upload`
+### File transfer — `/upload`, `/download`
 
-`content` is base64-encoded bytes.
+`/upload` and `/download` do **not** take a JSON body. The
+destination/source path travels as a single percent-encoded `path`
+query parameter, and the file bytes stream raw over
+`application/octet-stream`. There is no `UploadRequest` /
+`DownloadRequest` type and no base64 — the payload is the file itself.
 
-```json
-{ "path": "/tmp/file.bin", "content": "<base64>" }
-```
+**`POST /upload?path=<percent-encoded>`** — the request body is the raw
+file bytes (`Content-Type: application/octet-stream`). The agent streams
+the body into a temp file **in the destination's own directory**, then
+atomically renames it into place once the transfer completes; any error
+unlinks the temp file, so the destination path is never left holding a
+truncated file. Success returns `ActionResponse` (see below); failure
+returns `ErrorResponse` (`upload_failed`) with a 4xx/5xx status.
 
-### `DownloadRequest` — `/download`
+**`POST /download?path=<percent-encoded>`** — on success the response
+body is the raw file bytes (`Content-Type: application/octet-stream`);
+on failure the response is an `ErrorResponse` (`download_failed`) JSON
+body, distinguished from a successful transfer by its non-2xx HTTP
+status.
 
-```json
-{ "path": "/tmp/file.bin" }
-```
-
-Response for `/download` carries the file as base64 in the response
-body.
+`path` is percent-encoded per the standard URI query-component rules so
+that Unicode and special characters in guest paths survive uniformly
+across all three agent stacks. Neither end buffers the whole file:
+memory use is bounded by a fixed streaming buffer regardless of file
+size, in a single request.
 
 ## Response shapes
 
@@ -174,7 +187,7 @@ Encodes `CGRect` as flat keys (`boundsX`, `boundsY`, `boundsWidth`,
 }
 ```
 
-### `ActionResponse` — `/press`, `/set-value`, `/focus`, `/show-menu`, `/window-*`, `/wait`, `/shutdown`
+### `ActionResponse` — `/press`, `/set-value`, `/focus`, `/show-menu`, `/window-*`, `/wait`, `/shutdown`, `/upload`
 
 ```json
 { "success": true, "message": "optional detail" }

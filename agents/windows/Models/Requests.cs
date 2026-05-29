@@ -62,13 +62,6 @@ public sealed class ExecRequest
     [JsonPropertyName("detach")] public bool? Detach { get; set; }
 }
 
-public sealed class UploadRequest
-{
-    [JsonPropertyName("path")] public string Path { get; set; } = "";
-    [JsonPropertyName("content")] public string Content { get; set; } = "";
-}
-
-public sealed class DownloadRequest
-{
-    [JsonPropertyName("path")] public string Path { get; set; } = "";
-}
+// UploadRequest / DownloadRequest removed (ADR-0001): /upload and /download
+// no longer take a JSON body — the path rides in the query string and the
+// file streams raw over application/octet-stream.

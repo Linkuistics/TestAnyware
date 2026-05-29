@@ -3,20 +3,26 @@
 //! Mirrors the Swift `AgentTCPClient` in
 //! `cli/Sources/TestAnywareDriver/Agent/AgentTCPClient.swift`. Endpoints
 //! transmit JSON over HTTP/1.1 on the loopback or VM-host bridge.
-//! Binary file transfers (`/upload`, `/download`) wrap content as base64
-//! inside the JSON body — a quirk of the agent's minimal HTTP parser.
+//! Binary file transfers (`/upload`, `/download`) stream raw bytes as
+//! `application/octet-stream` with the path in a percent-encoded `?path=`
+//! query parameter (ADR-0001) — no base64, no whole-file buffering on
+//! either end.
 
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD as BASE64_STANDARD;
+use futures_util::StreamExt;
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use reqwest::StatusCode;
 use serde::Serialize;
 use thiserror::Error;
+use tokio::io::AsyncWriteExt;
+use tokio_util::io::ReaderStream;
 
 use testanyware_protocol::{
-    ActionResponse, DownloadRequest, DownloadResponse, ElementQuery, ErrorResponse, ExecRequest,
-    ExecResult, HealthResponse, InspectResponse, SnapshotRequest, SnapshotResponse, UploadRequest,
+    ActionResponse, ElementQuery, ErrorResponse, ExecRequest, ExecResult, HealthResponse,
+    InspectResponse, SnapshotRequest, SnapshotResponse,
 };
 
 /// Connection parameters for the in-VM agent.
@@ -71,6 +77,13 @@ pub enum AgentError {
     #[error("decode failure: {0}")]
     Decode(String),
 
+    /// A local filesystem operation failed: reading the upload source, or
+    /// creating/writing/renaming the download destination. Distinct from
+    /// agent-side failures — surfaces as the CLI `IO_ERROR` code. `path` is
+    /// the local path involved so callers can attach it to `--json` details.
+    #[error("{reason}")]
+    LocalIo { path: String, reason: String },
+
     /// The agent returned a structured error envelope. `wire_error` is the
     /// raw `error` field as emitted by the agent; the §4.5 mapping table
     /// turns common values into stable §4 codes (`ELEMENT_NOT_FOUND`,
@@ -105,6 +118,7 @@ impl AgentError {
             }
             AgentError::HttpStatus { .. } => "AGENT_ERROR_UNKNOWN",
             AgentError::Decode(_) => "INTERNAL",
+            AgentError::LocalIo { .. } => "IO_ERROR",
             AgentError::Wire { wire_error, .. } => map_wire_error(wire_error),
             AgentError::Internal(_) => "INTERNAL",
         }
@@ -170,6 +184,18 @@ impl AgentClient {
         format!("{}{}", self.config.base_url(), path)
     }
 
+    /// Build a file-transfer URL with the guest path in a percent-encoded
+    /// `?path=` query parameter. We encode every non-alphanumeric byte as
+    /// `%XX` (space → `%20`, never `+`) so the single wire form decodes
+    /// identically across all three agent stacks — Hummingbird and ASP.NET
+    /// parse the query per RFC 3986, while Python's `parse_qs` would read a
+    /// literal `+` as a space. `reqwest`'s own `.query()` (form-encoding)
+    /// would emit `+` for spaces and break that parity.
+    fn file_url(&self, endpoint: &str, guest_path: &str) -> String {
+        let encoded = utf8_percent_encode(guest_path, NON_ALPHANUMERIC);
+        format!("{}{}?path={}", self.config.base_url(), endpoint, encoded)
+    }
+
     // -----------------------------------------------------------------
     // Health
     // -----------------------------------------------------------------
@@ -227,14 +253,41 @@ impl AgentClient {
         decode_body(&bytes)
     }
 
-    pub async fn upload(&self, path: &str, content: &[u8]) -> Result<(), AgentError> {
-        let body = UploadRequest {
-            path: path.to_string(),
-            content: BASE64_STANDARD.encode(content),
-        };
-        let action: ActionResponse = self.post_json("/upload", &body).await?;
+    /// Stream `local` to the agent's `remote` path (ADR-0001). The file is
+    /// sent as a raw `application/octet-stream` body with the destination in
+    /// a percent-encoded `?path=` query parameter; nothing buffers the whole
+    /// file. Returns the number of bytes sent (the local file's size).
+    pub async fn upload(&self, remote: &str, local: &Path) -> Result<u64, AgentError> {
+        let file = tokio::fs::File::open(local)
+            .await
+            .map_err(|e| local_io(local, format!("failed to read {}: {e}", local.display())))?;
+        let len = file
+            .metadata()
+            .await
+            .map_err(|e| local_io(local, format!("failed to stat {}: {e}", local.display())))?
+            .len();
+
+        let body = reqwest::Body::wrap_stream(ReaderStream::new(file));
+        let response = self
+            .http
+            .post(self.file_url("/upload", remote))
+            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
+            // Advertise the length explicitly. Without it, a streamed body is
+            // sent `Transfer-Encoding: chunked`, which Hummingbird and Kestrel
+            // decode but Python's `http.server` (the Linux agent) does not — it
+            // reads only `Content-Length` and would silently write a 0-byte
+            // file. We know the size, so frame the request with it (ADR-0001).
+            .header(reqwest::header::CONTENT_LENGTH, len)
+            .body(body)
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(error_from_response(response).await);
+        }
+        let bytes = response.bytes().await?;
+        let action: ActionResponse = decode_body(&bytes)?;
         if action.success {
-            Ok(())
+            Ok(len)
         } else {
             Err(AgentError::Wire {
                 wire_error: "upload_failed".into(),
@@ -243,14 +296,41 @@ impl AgentClient {
         }
     }
 
-    pub async fn download(&self, path: &str) -> Result<Vec<u8>, AgentError> {
-        let body = DownloadRequest {
-            path: path.to_string(),
-        };
-        let response: DownloadResponse = self.post_json("/download", &body).await?;
-        BASE64_STANDARD
-            .decode(response.content.as_bytes())
-            .map_err(|e| AgentError::Decode(format!("invalid base64 from /download: {e}")))
+    /// Stream the agent's `remote` path into `local` (ADR-0001). The response
+    /// body is consumed chunk-by-chunk into a sibling temp file, which is
+    /// atomically renamed into place only on a complete transfer; any error
+    /// unlinks the temp file, so `local` is never left truncated. Returns the
+    /// number of bytes written.
+    pub async fn download(&self, remote: &str, local: &Path) -> Result<u64, AgentError> {
+        let response = self
+            .http
+            .post(self.file_url("/download", remote))
+            .send()
+            .await?;
+        if !response.status().is_success() {
+            return Err(error_from_response(response).await);
+        }
+
+        let (temp_path, mut temp_file) = create_temp_sibling(local).await?;
+        let outcome = stream_to_file(response, &mut temp_file, &temp_path).await;
+        // Drop the handle before rename/unlink so all bytes are flushed and,
+        // on Windows, the file is not still open during the rename.
+        drop(temp_file);
+        match outcome {
+            Ok(written) => {
+                tokio::fs::rename(&temp_path, local).await.map_err(|e| {
+                    local_io(
+                        local,
+                        format!("failed to finalize {}: {e}", local.display()),
+                    )
+                })?;
+                Ok(written)
+            }
+            Err(err) => {
+                let _ = tokio::fs::remove_file(&temp_path).await;
+                Err(err)
+            }
+        }
     }
 
     // -----------------------------------------------------------------
@@ -288,6 +368,91 @@ fn check_status(response: &reqwest::Response) -> Result<(), AgentError> {
             body: String::new(),
         })
     }
+}
+
+/// Consume a non-2xx response into an `AgentError`. A structured
+/// `{error, details}` envelope (how the agents report `upload_failed` /
+/// `download_failed`) is preferred; otherwise the raw body is attached to an
+/// `HttpStatus` for diagnostics.
+async fn error_from_response(response: reqwest::Response) -> AgentError {
+    let status = response.status();
+    let bytes = match response.bytes().await {
+        Ok(b) => b,
+        Err(e) => return AgentError::from(e),
+    };
+    match serde_json::from_slice::<ErrorResponse>(&bytes) {
+        Ok(err) => AgentError::Wire {
+            wire_error: err.error,
+            details: err.details,
+        },
+        Err(_) => AgentError::HttpStatus {
+            status,
+            body: String::from_utf8_lossy(&bytes).into_owned(),
+        },
+    }
+}
+
+/// Construct a `LocalIo` error for `path` with a human-readable `reason`.
+fn local_io(path: &Path, reason: String) -> AgentError {
+    AgentError::LocalIo {
+        path: path.display().to_string(),
+        reason,
+    }
+}
+
+/// Create a uniquely-named temp file in the destination's own directory, so
+/// the later rename stays on one filesystem and is atomic. The leading dot
+/// keeps it out of casual `ls`; pid + a process-local counter avoid
+/// collisions between concurrent downloads.
+async fn create_temp_sibling(dest: &Path) -> Result<(PathBuf, tokio::fs::File), AgentError> {
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let dir = dest.parent().filter(|p| !p.as_os_str().is_empty());
+    let name = dest
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "download".to_string());
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+    let temp_name = format!(".{name}.testanyware-{}.{seq}.tmp", std::process::id());
+    let temp_path = match dir {
+        Some(d) => d.join(temp_name),
+        None => PathBuf::from(temp_name),
+    };
+    let file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
+        local_io(
+            &temp_path,
+            format!("failed to create temp file {}: {e}", temp_path.display()),
+        )
+    })?;
+    Ok((temp_path, file))
+}
+
+/// Drain the response body into `file`, returning the byte count. HTTP/stream
+/// errors map to transport `AgentError`s; local write failures map to
+/// `LocalIo` against `temp_path`.
+async fn stream_to_file(
+    response: reqwest::Response,
+    file: &mut tokio::fs::File,
+    temp_path: &Path,
+) -> Result<u64, AgentError> {
+    let mut written: u64 = 0;
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        file.write_all(&chunk).await.map_err(|e| {
+            local_io(
+                temp_path,
+                format!("failed to write {}: {e}", temp_path.display()),
+            )
+        })?;
+        written += chunk.len() as u64;
+    }
+    file.flush().await.map_err(|e| {
+        local_io(
+            temp_path,
+            format!("failed to flush {}: {e}", temp_path.display()),
+        )
+    })?;
+    Ok(written)
 }
 
 fn decode_body<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, AgentError> {
@@ -366,7 +531,7 @@ mod tests {
         // If the payload is shaped like `{error, details}`, we prefer the
         // `Wire` variant over a generic `Decode` failure.
         let bytes = br#"{"error":"download_failed","details":"file not found"}"#;
-        let result: Result<DownloadResponse, AgentError> = decode_body(bytes);
+        let result: Result<ActionResponse, AgentError> = decode_body(bytes);
         match result {
             Err(AgentError::Wire { wire_error, details }) => {
                 assert_eq!(wire_error, "download_failed");
@@ -374,5 +539,19 @@ mod tests {
             }
             other => panic!("expected Wire error, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn file_url_percent_encodes_path_with_pct20_not_plus() {
+        let cfg = AgentConfig::new("10.0.0.5", 8648);
+        let client = AgentClient::new(cfg).expect("client builds");
+        // Space → %20 (never +), and a literal + → %2B, so the single wire
+        // form decodes identically across Hummingbird / ASP.NET / parse_qs.
+        let url = client.file_url("/upload", "/tmp/my docs/a+b.bin");
+        assert_eq!(
+            url,
+            "http://10.0.0.5:8648/upload?path=%2Ftmp%2Fmy%20docs%2Fa%2Bb%2Ebin"
+        );
+        assert!(!url.contains('+'));
     }
 }

@@ -82,25 +82,13 @@ pub struct HealthResponse {
     pub platform: String,
 }
 
-/// `POST /upload` request body. Content is base64-encoded; the agent
-/// writes the decoded bytes to `path`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UploadRequest {
-    pub path: String,
-    pub content: String,
-}
-
-/// `POST /download` request body.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DownloadRequest {
-    pub path: String,
-}
-
-/// `POST /download` response body. Content is base64-encoded.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct DownloadResponse {
-    pub content: String,
-}
+// File transfer (`/upload`, `/download`) carries no JSON request/response
+// body: per ADR-0001 the path rides in a percent-encoded `?path=` query
+// parameter and the file bytes stream raw over `application/octet-stream`.
+// There are deliberately no `UploadRequest` / `DownloadRequest` /
+// `DownloadResponse` types — the payload is the file itself. `/upload`
+// still answers with `ActionResponse`; `/download` answers with the raw
+// bytes on success or `ErrorResponse` on failure.
 
 #[cfg(test)]
 mod tests {
@@ -177,16 +165,5 @@ mod tests {
         let json = serde_json::to_string(&h).unwrap();
         let back: HealthResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(back, h);
-    }
-
-    #[test]
-    fn upload_request_round_trip() {
-        let r = UploadRequest {
-            path: "/tmp/x".into(),
-            content: "aGVsbG8=".into(),
-        };
-        let json = serde_json::to_string(&r).unwrap();
-        let back: UploadRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, r);
     }
 }
