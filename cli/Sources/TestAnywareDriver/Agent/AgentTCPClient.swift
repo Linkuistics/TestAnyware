@@ -177,29 +177,125 @@ public struct AgentTCPClient: Sendable {
         return try decode(ExecResult.self, from: data)
     }
 
-    public func upload(path: String, content: Data) async throws {
-        struct Req: Encodable { let path: String; let content: String }
-        let body = Req(path: path, content: content.base64EncodedString())
-        let data = try await postJSON("/upload", body: body)
+    /// Stream `localPath` to the agent's `remotePath` (ADR-0001). The file is
+    /// sent as a raw `application/octet-stream` body with the destination in a
+    /// percent-encoded `?path=` query parameter; `URLSession` streams the body
+    /// from disk, so nothing buffers the whole file. Success returns an
+    /// `ActionResponse`; any failure throws.
+    public func upload(localPath: String, remotePath: String) async throws {
+        let url = fileTransferURL("/upload", path: remotePath)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = fileTransferTimeout
+
+        let (data, response): (Data, URLResponse)
+        do {
+            (data, response) = try await URLSession.shared.upload(
+                for: request,
+                fromFile: URL(fileURLWithPath: localPath)
+            )
+        } catch {
+            throw AgentTCPClientError.connectionFailed(error.localizedDescription)
+        }
+
+        if let httpResponse = response as? HTTPURLResponse,
+           !(200...299).contains(httpResponse.statusCode) {
+            let message = parseErrorMessage(from: data) ?? "HTTP \(httpResponse.statusCode)"
+            throw AgentTCPClientError.httpError(httpResponse.statusCode, message)
+        }
+
         let result = try decode(ActionResponse.self, from: data)
         guard result.success else {
             throw AgentTCPClientError.httpError(500, result.message ?? "upload failed")
         }
     }
 
-    public func download(path: String) async throws -> Data {
-        struct Req: Encodable { let path: String }
-        struct Resp: Decodable { let content: String }
-        let data = try await postJSON("/download", body: Req(path: path))
-        let resp = try decode(Resp.self, from: data)
-        guard let decoded = Data(base64Encoded: resp.content) else {
-            throw AgentTCPClientError.decodingFailed("invalid base64 content")
+    /// Stream the agent's `remotePath` into `localPath` (ADR-0001). The response
+    /// body is streamed to a temp file (bounded memory), moved into a sibling
+    /// temp in the destination's directory, then atomically renamed into place;
+    /// any error unlinks the temp, so `localPath` is never left truncated.
+    public func download(remotePath: String, localPath: String) async throws {
+        let url = fileTransferURL("/download", path: remotePath)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = fileTransferTimeout
+
+        let (downloadedURL, response): (URL, URLResponse)
+        do {
+            (downloadedURL, response) = try await URLSession.shared.download(for: request)
+        } catch {
+            throw AgentTCPClientError.connectionFailed(error.localizedDescription)
         }
-        return decoded
+
+        if let httpResponse = response as? HTTPURLResponse,
+           !(200...299).contains(httpResponse.statusCode) {
+            let body = (try? Data(contentsOf: downloadedURL)) ?? Data()
+            try? FileManager.default.removeItem(at: downloadedURL)
+            let message = parseErrorMessage(from: body) ?? "HTTP \(httpResponse.statusCode)"
+            throw AgentTCPClientError.httpError(httpResponse.statusCode, message)
+        }
+
+        let destination = URL(fileURLWithPath: localPath)
+        let sibling = destination
+            .deletingLastPathComponent()
+            .appendingPathComponent(".testanyware-download-\(UUID().uuidString).tmp")
+        do {
+            // Move off the system temp volume into the destination's directory
+            // first, so the final replace is a same-filesystem atomic rename.
+            try? FileManager.default.removeItem(at: sibling)
+            try FileManager.default.moveItem(at: downloadedURL, to: sibling)
+            try atomicRename(from: sibling, to: destination)
+        } catch {
+            try? FileManager.default.removeItem(at: sibling)
+            try? FileManager.default.removeItem(at: downloadedURL)
+            throw AgentTCPClientError.connectionFailed(
+                "failed to finalize \(localPath): \(error.localizedDescription)"
+            )
+        }
     }
 
     public func shutdown() async throws {
         _ = try await postJSON("/shutdown", body: EmptyBody())
+    }
+
+    // MARK: - File transfer transport
+
+    /// Generous idle timeout for streamed transfers of large files.
+    private var fileTransferTimeout: TimeInterval { 600 }
+
+    /// Only ASCII letters and digits are "safe"; every other byte — including
+    /// the UTF-8 bytes of any non-ASCII path character — is percent-encoded as
+    /// `%XX`. This matches the Rust client's `NON_ALPHANUMERIC` set exactly, so
+    /// `+` → `%2B` and space → `%20` (RFC 3986 query encoding, NOT
+    /// `application/x-www-form-urlencoded`). Built by hand rather than via
+    /// `URLComponents`, whose query setter leaves `+` unencoded.
+    private static let pathQueryAllowed = CharacterSet(
+        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
+    )
+
+    /// `POST <endpoint>?path=<percent-encoded>` for streaming file transfer.
+    /// `internal` (not `private`) so the encoding-parity test can reach it.
+    func fileTransferURL(_ endpoint: String, path: String) -> URL {
+        let encoded = path.addingPercentEncoding(
+            withAllowedCharacters: Self.pathQueryAllowed
+        ) ?? path
+        return URL(string: "\(baseURL.absoluteString)\(endpoint)?path=\(encoded)")!
+    }
+
+    /// Atomically replace `to` with `from` within one directory via POSIX
+    /// `rename(2)` — mirrors the Rust client's `tokio::fs::rename`.
+    private func atomicRename(from: URL, to: URL) throws {
+        let rc = from.withUnsafeFileSystemRepresentation { src -> Int32 in
+            to.withUnsafeFileSystemRepresentation { dst -> Int32 in
+                rename(src, dst)
+            }
+        }
+        if rc != 0 {
+            throw AgentTCPClientError.connectionFailed(
+                "rename failed: \(String(cString: strerror(errno)))"
+            )
+        }
     }
 
     // MARK: - Transport

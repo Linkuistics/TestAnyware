@@ -37,8 +37,7 @@ struct UploadCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let agent = try connection.resolveAgent()
-        let data = try Data(contentsOf: URL(fileURLWithPath: localPath))
-        try await agent.upload(path: remotePath, content: data)
+        try await agent.upload(localPath: localPath, remotePath: remotePath)
         print("Uploaded \(localPath) → \(remotePath)")
     }
 }
@@ -56,8 +55,7 @@ struct DownloadCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         let agent = try connection.resolveAgent()
-        let data = try await agent.download(path: remotePath)
-        try data.write(to: URL(fileURLWithPath: localPath))
+        try await agent.download(remotePath: remotePath, localPath: localPath)
         print("Downloaded \(remotePath) → \(localPath)")
     }
 }
