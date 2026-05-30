@@ -170,6 +170,8 @@ pub const ERROR_CODES: &[&str] = &[
     "UNKNOWN_KEY",
     "UNKNOWN_BUTTON",
     "INTERNAL",
+    // §4.7 (discoverability / not-found)
+    "TEXT_NOT_FOUND",
     // §8.2
     "SCHEMA_NOT_FOUND",
 ];

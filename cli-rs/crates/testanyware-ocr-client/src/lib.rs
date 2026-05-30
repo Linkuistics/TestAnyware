@@ -12,13 +12,16 @@
 //! reader is loaded; the bridge waits for that line before declaring the
 //! child usable.
 //!
-//! The Apple Vision OCR fallback is intentionally *not* ported — it was
-//! a 51-line macOS-only fallback, and the Linux primary host target
-//! cannot use it. EasyOCR is the canonical engine on every platform.
+//! Engine selection is per-platform, not one-engine-everywhere (ADR-0002,
+//! reversing the earlier "EasyOCR everywhere" call): macOS uses in-process
+//! Apple Vision, Linux/Windows use this daemon. See [`engine`] for the
+//! `#[cfg]` dispatch seam — the macOS Vision engine itself lands in a
+//! follow-up leaf, so today every platform routes through the daemon.
 //!
 //! Crate layout:
 //!
 //! - `bridge`: long-lived child-process actor (`OCRChildBridge`).
+//! - `engine`: per-platform `OcrEngine` selection + interpreter resolution.
 //! - `detection`: the `OcrDetection` value type and `OcrResponse`
 //!   envelope, wire-compatible with the Swift `OCRDetection` /
 //!   `OCRResponse` JSON shape.
@@ -30,10 +33,12 @@
 
 pub mod bridge;
 pub mod detection;
+pub mod engine;
 pub mod find;
 pub mod status;
 
 pub use bridge::{OcrBridgeError, OcrChildBridge, OcrChildBridgeConfig};
 pub use detection::{OcrDetection, OcrResponse};
+pub use engine::{resolve_interpreter, OcrEngine};
 pub use find::{find_text, FindOutcome};
 pub use status::{OcrStatus, OcrStatusFile};

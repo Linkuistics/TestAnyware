@@ -127,7 +127,8 @@ pub fn exit_code_for(code: &str) -> i32 {
         | "ELEMENT_NOT_FOUND"
         | "GOLDEN_NOT_FOUND"
         | "UEFI_NOT_FOUND"
-        | "SCHEMA_NOT_FOUND" => 3,
+        | "SCHEMA_NOT_FOUND"
+        | "TEXT_NOT_FOUND" => 3,
 
         "AUTH_REQUIRED" | "KVM_PERMISSION_DENIED" => 4,
 
@@ -180,6 +181,7 @@ mod tests {
         assert_eq!(exit_code_for("USAGE_ERROR"), 2);
         assert_eq!(exit_code_for("VM_NOT_FOUND"), 3);
         assert_eq!(exit_code_for("ELEMENT_NOT_FOUND"), 3);
+        assert_eq!(exit_code_for("TEXT_NOT_FOUND"), 3);
         assert_eq!(exit_code_for("AUTH_REQUIRED"), 4);
         assert_eq!(exit_code_for("KVM_PERMISSION_DENIED"), 4);
         assert_eq!(exit_code_for("SWTPM_MISSING"), 1);

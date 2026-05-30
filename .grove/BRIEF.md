@@ -62,8 +62,9 @@ First wave (materialized now):
 **Command-parity gaps** (currently `unimplemented()` stubs):
 - [ ] `agent` HTTP actions: `set-value`, `focus`, `wait`,
       `window-{focus,resize,move,close,minimize}` → **010** (pure HTTP, no VNC).
-- [ ] `doctor` → **020**.
-- [ ] `screen find-text` (OCR) → **030**.
+- [x] `doctor` → **020**.
+- [x] `screen find-text` (OCR) → **030** (daemon path; per-platform `OcrEngine`
+      seam + ADR-0002; native macOS Vision deferred to **040**).
 - [ ] `agent show-menu` — blocked on the VNC-input layer (opens menu items via
       VNC click); pairs with the VNC work, not with 010.
 - [ ] `screen record` — needs embedded libav (`ffmpeg-next`), not a subprocess.
@@ -72,6 +73,8 @@ First wave (materialized now):
       residue — keep it).
 
 **Platform / facilities** (not started; materialize as leaves later):
+- [ ] Native macOS **Apple Vision** OCR engine at the `OcrEngine` seam → **040**
+      (ADR-0002; FFI strategy — objc2 vs Swift shim — decided in that leaf).
 - [ ] VNC viewer with `egui` to replace the AppleScript launcher (`--viewer`).
 - [ ] ZRLE + Tight encodings for the RFB client crate.
 - [ ] tart runner for the macOS-host-macOS-guest path (`#[cfg(target_os=macos)]`).

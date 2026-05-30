@@ -318,6 +318,11 @@ strings surface as `code: AGENT_ERROR_UNKNOWN` with the wire string in
 | Code | When |
 |---|---|
 | `SCHEMA_NOT_FOUND` | `testanyware schema <command>` invoked with an unknown command, or with a command that has no declared schema. Exit code `3` (per §5). |
+| `TEXT_NOT_FOUND` | `screen find-text <query> --require-match` completed (including any `--timeout` poll) without the query appearing on screen. Exit code `3` (per §5). Only emitted under `--require-match`; the default is exit `0` with an empty result (see §10.1). |
+
+> **Amendment 2026-05-30** (`030-screen-find-text`): `TEXT_NOT_FOUND` added
+> to catalogue the `--require-match` failure mode §10.1 already referenced.
+> It joins the `*_NOT_FOUND` family at exit code `3` (§5).
 
 ### 4.8 Catalogue exposure
 
@@ -334,7 +339,7 @@ catalogue grows by one entry; agents can poll for additions.
 | `0` | Success. |
 | `1` | Generic failure (no more specific bucket fits). |
 | `2` | Usage error (`USAGE_ERROR` family — bad flags, missing args, invalid combinations). |
-| `3` | Not found (`*_NOT_FOUND` family: `VM_NOT_FOUND`, `WINDOW_NOT_FOUND`, `ELEMENT_NOT_FOUND`, `GOLDEN_NOT_FOUND`, `UEFI_NOT_FOUND`, `SCHEMA_NOT_FOUND`). |
+| `3` | Not found (`*_NOT_FOUND` family: `VM_NOT_FOUND`, `WINDOW_NOT_FOUND`, `ELEMENT_NOT_FOUND`, `GOLDEN_NOT_FOUND`, `UEFI_NOT_FOUND`, `SCHEMA_NOT_FOUND`, `TEXT_NOT_FOUND`). |
 | `4` | Auth/permission required (`AUTH_REQUIRED`, `KVM_PERMISSION_DENIED`). |
 | `5` | Conflict / precondition failed (`GOLDEN_IN_USE`, `RECORD_ALREADY_ACTIVE`, `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED`). |
 | `6` | Rate limited / try again later (reserved; not currently used). |

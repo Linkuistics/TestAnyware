@@ -613,6 +613,40 @@ SEE ALSO:
     testanyware capabilities, testanyware vm list, testanyware --help
 ";
 
+const SCREEN_FIND_TEXT_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: --json (schema: screen-find-text) — an object with
+    `query`, `engine`, `detections` (text + pixel bbox + confidence, in the
+    same coordinate space as `screen capture`), and `returned`/`total`/
+    `truncated`. Text output is one detection per line and is not a parsing
+    target. OCR runs host-side: Apple Vision on macOS, the EasyOCR daemon on
+    Linux/Windows (see `testanyware llm-instructions`).
+
+EXIT CODES:
+    0  success — including a no-match result unless --require-match is set
+    1  generic failure (e.g. PNG encode)
+    2  usage error
+    3  VM_NOT_FOUND; TEXT_NOT_FOUND (only with --require-match)
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT, OCR_TIMEOUT
+
+EXAMPLES:
+    # Find a button label on a running VM
+    testanyware screen find-text \"Save\" --vm \"$TESTANYWARE_VM_ID\"
+
+    # Wait up to 30s for text to appear, as a JSON receipt
+    testanyware screen find-text \"Loading complete\" --timeout 30 --json --vm \"$TESTANYWARE_VM_ID\"
+
+    # Dump everything OCR sees (capped at 100; --all for the full set)
+    testanyware screen find-text --json --vm \"$TESTANYWARE_VM_ID\"
+
+    # Gate a script on the text being present
+    testanyware screen find-text \"Ready\" --require-match --timeout 10 --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware screen capture, testanyware screen size, testanyware agent wait
+";
+
 // Root-level help banners — make the LLM usage guide impossible to miss
 // for an agent that runs bare `testanyware` or `testanyware --help`.
 const ROOT_BEFORE_HELP: &str =
@@ -840,9 +874,22 @@ struct ScreenRecordArgs {
 struct ScreenFindTextArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
+    /// Text to find (case-insensitive substring). Omit to dump all recognized text.
     text: Option<String>,
-    #[arg(long)]
+    /// Poll up to N seconds for the text to appear (re-capture every 500ms).
+    #[arg(long, value_name = "SECONDS")]
     timeout: Option<u32>,
+    /// Exit 3 (TEXT_NOT_FOUND) if the query is not found, instead of exit 0 with an empty result.
+    #[arg(long)]
+    require_match: bool,
+    /// Max detections to return in no-query dump mode [default: 100].
+    #[arg(long, value_name = "N")]
+    limit: Option<usize>,
+    /// Return all detections (no limit) in no-query dump mode.
+    #[arg(long)]
+    all: bool,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -899,6 +946,7 @@ enum ScreenAction {
     /// Print VNC display dimensions ("WxH")
     Size(ConnectionArgs),
     /// OCR the screen and find text
+    #[command(after_long_help = SCREEN_FIND_TEXT_AFTER_HELP)]
     FindText(ScreenFindTextArgs),
 }
 
@@ -1329,7 +1377,7 @@ async fn main() {
             ScreenAction::Capture(args) => run_screen_capture(args).await,
             ScreenAction::Record(_) => unimplemented("screen record"),
             ScreenAction::Size(args) => run_screen_size(args).await,
-            ScreenAction::FindText(_) => unimplemented("screen find-text"),
+            ScreenAction::FindText(args) => run_screen_find_text(args).await,
         },
         Command::File { action } => match action {
             FileAction::Upload(args) => run_upload(args).await,
@@ -1635,7 +1683,7 @@ async fn main() {
         Command::Screenshot(args) => run_screen_capture(args).await,
         Command::Record(_) => unimplemented("screen record"),
         Command::ScreenSize(args) => run_screen_size(args).await,
-        Command::FindText(_) => unimplemented("screen find-text"),
+        Command::FindText(args) => run_screen_find_text(args).await,
         Command::Upload(args) => run_upload(args).await,
         Command::Download(args) => run_download(args).await,
         Command::Exec(args) => run_exec(args).await,
@@ -1660,6 +1708,20 @@ async fn run_screen_size(args: ConnectionArgs) {
 async fn run_screen_capture(args: ScreenCaptureArgs) {
     let mode = OutputMode::from_flags(args.json);
     screen_cmds::run_screen_capture(args.conn.into(), args.output, args.region, mode).await
+}
+
+async fn run_screen_find_text(args: ScreenFindTextArgs) {
+    let mode = OutputMode::from_flags(args.json);
+    screen_cmds::run_screen_find_text(
+        args.conn.into(),
+        args.text,
+        args.timeout,
+        args.require_match,
+        args.limit,
+        args.all,
+        mode,
+    )
+    .await
 }
 
 async fn run_upload(args: FileUploadArgs) {

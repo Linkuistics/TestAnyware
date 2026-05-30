@@ -820,3 +820,62 @@ fn doctor_does_not_advertise_dry_run() {
     let bad = run(&["doctor", "--dry-run"]);
     assert_eq!(bad.status.code(), Some(2), "unknown --dry-run flag must be a usage error");
 }
+
+// ---------------------------------------------------------------------------
+// screen find-text — port-task slice (030-screen-find-text)
+//
+// The `--json` happy path captures a framebuffer and runs OCR, so it needs a
+// live VM + OCR daemon; that behaviour is covered by the live-VM gate, not
+// here (mirrors the `#[ignore]`d generic §3.1 check). These checks verify the
+// command's offline surface: the §7 help template, read-only status (§9.3),
+// and the §3.4 error envelope on a connection-resolution failure.
+// ---------------------------------------------------------------------------
+
+/// §7: `screen find-text --help` carries the required sections and ≥2
+/// example invocations; the verb-first alias points back to the canonical.
+#[test]
+fn screen_find_text_help_follows_template() {
+    let out = run(&["screen", "find-text", "--help"]);
+    assert!(out.status.success(), "`screen find-text --help` exited non-zero");
+    let help = String::from_utf8_lossy(&out.stdout);
+    for section in ["OUTPUT:", "EXIT CODES:", "EXAMPLES:", "SEE ALSO:"] {
+        assert!(help.contains(section), "find-text help missing {section:?}; got:\n{help}");
+    }
+    let examples = help.matches("testanyware screen find-text").count();
+    assert!(examples >= 2, "find-text help needs ≥2 example invocations, found {examples}");
+
+    let alias = run(&["find-text", "--help"]);
+    assert!(alias.status.success(), "`find-text --help` (alias) exited non-zero");
+    assert!(
+        String::from_utf8_lossy(&alias.stdout)
+            .contains("Alias of `testanyware screen find-text`"),
+        "alias help must point at the canonical command",
+    );
+}
+
+/// §9.3: `screen find-text` is read-only and MUST NOT advertise `--dry-run`.
+#[test]
+fn screen_find_text_is_read_only() {
+    let out = run(&["screen", "find-text", "--help"]);
+    let help = String::from_utf8_lossy(&out.stdout);
+    assert!(!help.contains("--dry-run"), "find-text is read-only; must not advertise --dry-run");
+    let bad = run(&["screen", "find-text", "x", "--dry-run"]);
+    assert_eq!(bad.status.code(), Some(2), "unknown --dry-run flag must be a usage error");
+}
+
+/// §3.4 + §4 + §5: a connection-resolution failure emits a single JSON error
+/// object with a stable `code` and the §5 exit code. `--connect` is the
+/// highest-precedence target form, so pointing it at a missing file fails
+/// deterministically (IO_ERROR, exit 1) regardless of any `TESTANYWARE_*`
+/// env the test inherits — exercising the find-text handler's own error path
+/// without a live VM.
+#[test]
+fn screen_find_text_connection_error_envelope() {
+    let out = run(&["screen", "find-text", "x", "--connect", "/no/such/spec.json", "--json"]);
+    assert_eq!(out.status.code(), Some(1), "missing --connect spec must exit 1 (IO_ERROR)");
+    let body: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("error output must be JSON");
+    assert_eq!(body["ok"], false);
+    assert_eq!(body["code"], "IO_ERROR");
+    assert!(body["schema_version"].is_string());
+}

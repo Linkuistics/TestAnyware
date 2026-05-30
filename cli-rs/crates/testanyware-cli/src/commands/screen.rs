@@ -1,15 +1,18 @@
-//! `screen size` and `screen capture` command handlers.
+//! `screen size`, `screen capture`, and `screen find-text` handlers.
 //!
-//! Both commands open one RFB connection, run the handshake, request
-//! one framebuffer update, then disconnect — they are one-shots, not
-//! long-lived sessions.
+//! `size`/`capture` open one RFB connection, run the handshake, request a
+//! framebuffer update, then disconnect — one-shots. `find-text` adds an
+//! OCR pass over the captured frame and, with `--timeout`, polls by
+//! re-requesting frames on the same connection until a match appears.
 
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use serde_json::json;
+use testanyware_ocr_client::{find_text, FindOutcome, OcrDetection, OcrEngine};
 use testanyware_rfb::{RfbConnection, ServerEvent};
 
-use crate::output::{print_error, print_success, OutputMode};
+use crate::output::{exit_code_for, print_error, print_success, OutputMode};
 use crate::resolve::{resolve_vnc, ConnectionOptions, ResolveError};
 
 /// `testanyware screen size` — print the framebuffer dimensions.
@@ -128,6 +131,172 @@ pub async fn run_screen_capture(
     }
 }
 
+/// `testanyware screen find-text` — capture the framebuffer, OCR it, and
+/// report matches for `query` (case-insensitive substring), or every
+/// recognized detection when `query` is `None`. With `timeout_secs`,
+/// re-capture every 500ms until a match appears or the deadline expires.
+///
+/// Contract: default text mode (one detection per line); `--json` opt-in.
+/// An empty result is exit 0 — except with `require_match`, which exits 3
+/// (`TEXT_NOT_FOUND`). No-query dump mode caps at `limit` unless `all`.
+pub async fn run_screen_find_text(
+    opts: ConnectionOptions,
+    query: Option<String>,
+    timeout_secs: Option<u32>,
+    require_match: bool,
+    limit: Option<usize>,
+    all: bool,
+    mode: OutputMode,
+) {
+    let endpoint = match resolve_vnc(&opts) {
+        Ok(e) => e,
+        Err(err) => exit_resolve_error(err, mode),
+    };
+    let mut conn = match RfbConnection::connect(
+        &endpoint.host,
+        endpoint.port,
+        endpoint.password.as_deref().map(str::as_bytes),
+    )
+    .await
+    {
+        Ok(c) => c,
+        Err(err) => exit_rfb_error(err, mode),
+    };
+    let (fb_w, fb_h) = conn.framebuffer_size();
+
+    let engine = OcrEngine::detect();
+    let engine_name = engine.engine_name();
+    let effective_limit = if all { usize::MAX } else { limit.unwrap_or(100) };
+    let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(u64::from(s)));
+
+    loop {
+        // Request a fresh full-frame update on the live connection.
+        if let Err(err) = conn
+            .request_framebuffer_update(false, 0, 0, fb_w as u16, fb_h as u16)
+            .await
+        {
+            engine.shutdown().await;
+            exit_rfb_error(err, mode);
+        }
+        loop {
+            match conn.next_message().await {
+                Ok(ServerEvent::FramebufferUpdated { rectangles }) if rectangles > 0 => break,
+                Ok(_) => continue,
+                Err(err) => {
+                    engine.shutdown().await;
+                    exit_rfb_error(err, mode);
+                }
+            }
+        }
+
+        let fb = conn.framebuffer().clone();
+        let png = match encode_png(&fb, (0, 0, fb_w, fb_h)) {
+            Ok(b) => b,
+            Err(err) => {
+                engine.shutdown().await;
+                print_error(
+                    mode,
+                    "INTERNAL",
+                    &format!("PNG encode failed: {err}"),
+                    None,
+                    json!({}),
+                    1,
+                );
+            }
+        };
+
+        let detections = match engine.recognize(&png).await {
+            Ok(d) => d,
+            Err(err) => {
+                let code = err.code();
+                engine.shutdown().await;
+                print_error(
+                    mode,
+                    code,
+                    &err.to_string(),
+                    Some(ocr_remediation(code)),
+                    json!({}),
+                    exit_code_for(code),
+                );
+            }
+        };
+
+        let matched = match find_text(query.as_deref().unwrap_or(""), &detections) {
+            FindOutcome::Found { matches, .. } => matches,
+            FindOutcome::NotFound { .. } => Vec::new(),
+        };
+        let have_match = !matched.is_empty();
+
+        // A no-query dump is "complete" on the first capture (it returns
+        // whatever is on screen). A query keeps polling until a match or
+        // the deadline; with no deadline it is a single shot.
+        let timed_out = match deadline {
+            Some(d) => Instant::now() >= d,
+            None => true,
+        };
+        let done = have_match || query.is_none() || timed_out;
+
+        if done {
+            engine.shutdown().await;
+            if query.is_some() && !have_match && require_match {
+                print_error(
+                    mode,
+                    "TEXT_NOT_FOUND",
+                    &format!("text {:?} not found on screen", query.as_deref().unwrap_or("")),
+                    Some("Increase --timeout, or inspect the screen with `testanyware screen capture`."),
+                    json!({ "query": query }),
+                    3,
+                );
+            }
+            emit_find_text(mode, query.as_deref(), engine_name, matched, effective_limit);
+            return;
+        }
+
+        tokio::time::sleep(Duration::from_millis(500)).await;
+    }
+}
+
+/// Emit a find-text result: structured envelope in JSON mode, one
+/// detection per line (text output is not a parsing target) otherwise.
+fn emit_find_text(
+    mode: OutputMode,
+    query: Option<&str>,
+    engine: &str,
+    detections: Vec<OcrDetection>,
+    limit: usize,
+) {
+    match mode {
+        OutputMode::Json => {
+            print_success(find_text_envelope(query, engine, detections, limit));
+        }
+        OutputMode::Text => {
+            let total = detections.len();
+            for d in detections.iter().take(limit) {
+                println!(
+                    "{}\t({:.0},{:.0} {:.0}x{:.0}) conf={:.2}",
+                    d.text, d.x, d.y, d.width, d.height, d.confidence
+                );
+            }
+            if total > limit {
+                println!("Showing {limit} of {total}. Use --limit N or --all to see more.");
+            }
+        }
+    }
+}
+
+/// Remediation hint for the OCR error codes (§4.6).
+fn ocr_remediation(code: &str) -> &'static str {
+    match code {
+        "OCR_UNAVAILABLE" => {
+            "Ensure the EasyOCR daemon is installed (pipeline venv) and \
+             set TESTANYWARE_OCR_PYTHON if the interpreter is elsewhere."
+        }
+        "OCR_CHILD_CRASHED" => "Re-run; if it persists, check the EasyOCR daemon logs.",
+        "OCR_TIMEOUT" => "Increase the OCR deadline or reduce screen complexity, then retry.",
+        _ => "See `testanyware llm-instructions`.",
+    }
+}
+
 fn parse_region(value: &str) -> Result<(u32, u32, u32, u32), String> {
     let parts: Vec<&str> = value.split(',').collect();
     if parts.len() != 4 {
@@ -170,6 +339,33 @@ fn encode_png(
     let mut out = Vec::new();
     img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)?;
     Ok(out)
+}
+
+/// Build the `screen find-text --json` success payload — the fields
+/// merged onto `{schema_version, ok:true}` by `print_success`.
+///
+/// `limit` caps the detection list and matters only in no-query dump mode
+/// (§9.4); when a query is supplied the caller passes `usize::MAX`, so all
+/// matches are returned and `truncated` stays `false`.
+fn find_text_envelope(
+    query: Option<&str>,
+    engine: &str,
+    mut detections: Vec<OcrDetection>,
+    limit: usize,
+) -> serde_json::Value {
+    let total = detections.len();
+    let truncated = total > limit;
+    if truncated {
+        detections.truncate(limit);
+    }
+    json!({
+        "query": query,
+        "engine": engine,
+        "detections": detections,
+        "returned": detections.len(),
+        "total": total,
+        "truncated": truncated,
+    })
 }
 
 fn exit_resolve_error(err: ResolveError, mode: OutputMode) -> ! {
@@ -221,5 +417,43 @@ mod tests {
     fn parse_region_rejects_non_integer() {
         assert!(parse_region("a,b,c,d").is_err());
         assert!(parse_region("0,0,-10,10").is_err());
+    }
+
+    fn det(text: &str) -> OcrDetection {
+        OcrDetection::new(text, 1.0, 2.0, 3.0, 4.0, 0.9)
+    }
+
+    #[test]
+    fn find_text_envelope_with_query_returns_all_matches_untruncated() {
+        let dets = vec![det("Save"), det("Save All")];
+        let env = find_text_envelope(Some("save"), "easyocr_daemon", dets, usize::MAX);
+        assert_eq!(env["query"], "save");
+        assert_eq!(env["engine"], "easyocr_daemon");
+        assert_eq!(env["detections"].as_array().unwrap().len(), 2);
+        assert_eq!(env["returned"], 2);
+        assert_eq!(env["total"], 2);
+        assert_eq!(env["truncated"], false);
+    }
+
+    #[test]
+    fn find_text_envelope_no_query_truncates_to_limit_and_flags_it() {
+        let dets = vec![det("a"), det("b"), det("c")];
+        let env = find_text_envelope(None, "easyocr_daemon", dets, 2);
+        assert!(env["query"].is_null());
+        assert_eq!(env["detections"].as_array().unwrap().len(), 2);
+        assert_eq!(env["returned"], 2);
+        assert_eq!(env["total"], 3);
+        assert_eq!(env["truncated"], true);
+    }
+
+    #[test]
+    fn find_text_envelope_detection_carries_bbox_and_confidence() {
+        let env = find_text_envelope(Some("x"), "easyocr_daemon", vec![det("x")], usize::MAX);
+        let d = &env["detections"][0];
+        assert_eq!(d["text"], "x");
+        assert_eq!(d["x"], 1.0);
+        assert_eq!(d["width"], 3.0);
+        // confidence is f32; compare within epsilon after the f64 widening.
+        assert!((d["confidence"].as_f64().unwrap() - 0.9).abs() < 1e-6);
     }
 }
