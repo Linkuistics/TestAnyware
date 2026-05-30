@@ -70,6 +70,22 @@ Sessions are launched by the `grove` CLI (installed via `brew install Linkuistic
 
 If a session was started without the helpers and the session name doesn't already match `<repo>: <name> grove`, suggest `/rename <repo-basename>: <name> grove` once per session and move on. The skill already knows both names: `<name>` from the worktree's branch (`git rev-parse --abbrev-ref HEAD`), `<repo-basename>` from `git rev-parse --show-toplevel`'s parent (the worktree's path is `<repo>/.grove-worktrees/<name>/`).
 
+**Starting a new grove.** `grove do <name>` on a brand-new grove creates the
+worktree and branch but no `.grove/` tree yet — and every step below assumes
+`.grove/` already exists. Resolve that chicken-and-egg first: a rootless grove
+has nothing for `grove-llm pick` to walk (it errors `grove root not found`), and
+the tree-growing verbs (`leaf-add` and friends) all need a root too. Run
+**`grove-llm root-init [<slug>]`** (default slug `plan`) once: it creates
+`.grove/`, the root `BRIEF.md` stub, and a first **planning** leaf
+`010-<slug>.md` — working-tree only, no commit (the first session's commit folds
+it in), refusing to clobber an existing `.grove/`. Creating the first leaf, not
+just the brief, is load-bearing: `pick` skips every `BRIEF.md`, so a brief-only
+`.grove/` reports `no live leaves; this grove is done` and would mis-trigger the
+Complete finish cycle — a newborn grove indistinguishable from a finished one
+(ADR-0011). After `root-init`, `pick` returns the planning leaf and you enter the
+normal loop below at **Bootstrap**; the launcher's `start.md` prompt names this
+as step one.
+
 **Pick.** Run `grove-llm pick` — it walks `.grove/` depth-first in
 numeric-prefix order, skipping `done/`, and prints the absolute path of the
 next live `.md` leaf. Empty stdout (and a diagnostic on stderr) means the
@@ -147,7 +163,7 @@ upward?) with no stable input/output shape that would justify a verb.
 `grove-llm pick` exits 0 with empty stdout and "no live leaves; this grove is
 done" on stderr. The **complete finish cycle** is driven in-session by the LLM
 (no Rust automation): the session **proposes** it and **waits for explicit human
-confirmation before any teardown** — never run steps 2–5 unprompted, so a
+confirmation before any teardown** — never run steps 2–6 unprompted, so a
 headless run with no human present simply reports the plan and stops. On
 confirmation, run:
 
@@ -158,22 +174,34 @@ confirmation, run:
 3. **Merge** into the default branch: `git -C <repo> merge <name>` —
    fast-forwards when the default has not advanced, makes a merge commit when it
    has. (Stop and resolve if it conflicts.)
-4. **Remove the worktree**: `git -C <repo> worktree remove <worktree>`.
-5. **Delete the branch**: `git -C <repo> branch -d <name>` — safe delete,
+4. **Clean up the inbox** (ADR-0012). Re-drain any observations that arrived
+   since this session's bootstrap (`grove-llm inbox-drain --for=<name>`, then
+   triage — at finish the dispositions narrow to **re-seed elsewhere** or
+   **reject**, since there is no later leaf to defer to — and finalize). Then
+   `grove-llm inbox-remove --for=<name>` removes `inboxes/<name>/` so the
+   finished grove stops showing as a **Seed** in `grove status` / the TUI. The
+   verb **refuses** while any observation is still pending — a stray un-triaged
+   one stops the cycle rather than being silently deleted — and is a no-op when
+   the grove was never seeded.
+5. **Remove the worktree**: `git -C <repo> worktree remove <worktree>`.
+6. **Delete the branch**: `git -C <repo> branch -d <name>` — safe delete,
    succeeds only because step 3 merged it.
 
-Steps 3–5 run `git -C <repo>` against the **main repo**, not the worktree (the
-session's cwd is inside the worktree it removes); worktree-remove precedes
-branch-delete because git refuses to delete a branch checked out in a live
-worktree. The default branch never carries any grove's local state; the history
-of completed groves lives in git's commit graph, not in retained directories.
+Steps 3, 5 and 6 run `git -C <repo>` against the **main repo**, not the worktree
+(the session's cwd is inside the worktree it removes); step 4 writes to the
+`grove-meta` worktree via `grove-llm` and so must run **before** step 5 while cwd
+is still valid. Worktree-remove precedes branch-delete because git refuses to
+delete a branch checked out in a live worktree. The default branch never carries
+any grove's local state; the history of completed groves lives in git's commit
+graph, not in retained directories.
 
 **Resume is state-checked, never a marker file** (constraint 1). `grove do` into
 a half-finished grove resumes from the first incomplete step: if `.grove/` is
 already gone (`grove-llm pick` errors with "grove root not found") skip 1–2; if
-`git -C <repo> merge-base --is-ancestor <name> <default>` passes skip 3; if the
-worktree is gone skip 4; if the branch is gone skip 5; if all are done, report
-"already finished" and stop.
+`git -C <repo> merge-base --is-ancestor <name> <default>` passes skip 3; if
+`inboxes/<name>/` is already gone skip 4 (the verb is idempotent, so re-running
+it is also safe); if the worktree is gone skip 5; if the branch is gone skip 6;
+if all are done, report "already finished" and stop.
 
 ## Artifacts
 
