@@ -10,6 +10,7 @@
 //! focused; the dispatcher in `main.rs` calls into these helpers.
 
 pub mod agent;
+pub mod doctor;
 pub mod file;
 pub mod input;
 pub mod screen;

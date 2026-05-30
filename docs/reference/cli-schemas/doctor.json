@@ -1,12 +1,109 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/doctor.json",
-  "title": "doctor (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "doctor",
+  "description": "Host preflight report emitted by `testanyware doctor --json`. Five check groups; `ok` reflects the blocking checks (install_path, bundled_agents, bundled_scripts). host_tools and script_tool_floors are advisory and never flip `ok`.",
   "type": "object",
-  "required": ["schema_version", "ok"],
+  "required": ["schema_version", "ok", "checks"],
+  "additionalProperties": false,
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "checks": {
+      "type": "object",
+      "required": ["install_path", "bundled_agents", "bundled_scripts", "host_tools", "script_tool_floors"],
+      "additionalProperties": false,
+      "properties": {
+        "install_path": {
+          "type": "object",
+          "required": ["status", "verdict", "running_binary"],
+          "properties": {
+            "status": { "type": "string", "enum": ["pass", "fail"] },
+            "verdict": { "type": "string", "enum": ["homebrew_install", "shadowed", "no_homebrew", "not_on_path"] },
+            "running_binary": { "type": "string" },
+            "path": { "type": ["string", "null"] },
+            "brew_prefix": { "type": ["string", "null"] }
+          }
+        },
+        "bundled_agents": { "$ref": "#/$defs/bundle_check" },
+        "bundled_scripts": { "$ref": "#/$defs/bundle_check" },
+        "host_tools": {
+          "type": "object",
+          "required": ["status", "tools"],
+          "properties": {
+            "status": { "type": "string", "enum": ["pass", "warn"] },
+            "tools": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "purpose", "path", "version"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "purpose": { "type": "string" },
+                  "install_hint": { "type": "string" },
+                  "path": { "type": ["string", "null"] },
+                  "version": {
+                    "type": "object",
+                    "required": ["verdict"],
+                    "properties": {
+                      "verdict": { "type": "string", "enum": ["ok", "below_floor", "unparseable", "probe_failed"] },
+                      "detected": { "type": ["string", "null"] },
+                      "minimum": { "type": "string" },
+                      "raw": { "type": "string" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "script_tool_floors": {
+          "type": "object",
+          "required": ["status", "floors"],
+          "properties": {
+            "status": { "type": "string", "enum": ["pass", "warn", "skip"] },
+            "reason": { "type": "string" },
+            "floors": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["verdict", "tool"],
+                "properties": {
+                  "verdict": { "type": "string", "enum": ["ok", "below_floor", "host_version_unknown", "unparseable"] },
+                  "tool": { "type": "string" },
+                  "host_version": { "type": "string" },
+                  "declared_minimum": { "type": "string" },
+                  "raw_value": { "type": "string" },
+                  "source": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "bundle_check": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "type": "string", "enum": ["pass", "fail", "skip"] },
+        "brew_prefix": { "type": "string" },
+        "reason": { "type": "string" },
+        "issues": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["slot", "issue", "path"],
+            "properties": {
+              "slot": { "type": "string" },
+              "issue": { "type": "string", "enum": ["missing", "not_executable"] },
+              "path": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
   }
 }

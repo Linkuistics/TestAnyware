@@ -12,8 +12,8 @@
 use clap::{Args, Parser, Subcommand};
 
 use testanyware_cli::commands::{
-    agent as agent_cmds, file as file_cmds, input as input_cmds, screen as screen_cmds,
-    vm as vm_cmds,
+    agent as agent_cmds, doctor as doctor_cmds, file as file_cmds, input as input_cmds,
+    screen as screen_cmds, vm as vm_cmds,
 };
 use testanyware_cli::discoverability::{run_capabilities, run_llm_instructions, run_schema};
 use testanyware_cli::output::OutputMode;
@@ -588,6 +588,31 @@ SEE ALSO:
     testanyware vm list, testanyware vm start
 ";
 
+const DOCTOR_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: --json (schema: doctor). Text output is a readable
+    per-check report (pass ✓ / warn ! / fail ✗) and is not a parsing target.
+
+EXIT CODES:
+    0  healthy — every blocking check passed
+    1  unhealthy — a blocking check failed (install path, bundled agents,
+       or bundled scripts). Host-tool and script-floor checks are advisory
+       and never flip the exit code.
+
+EXAMPLES:
+    # Human-readable diagnosis of the local install
+    testanyware doctor
+
+    # Machine-readable report for scripting / CI gating
+    testanyware doctor --json | jq '.ok'
+
+    # Show only the checks that did not pass
+    testanyware doctor --json | jq '.checks | map_values(select(.status != \"pass\"))'
+
+SEE ALSO:
+    testanyware capabilities, testanyware vm list, testanyware --help
+";
+
 // Root-level help banners — make the LLM usage guide impossible to miss
 // for an agent that runs bare `testanyware` or `testanyware --help`.
 const ROOT_BEFORE_HELP: &str =
@@ -692,7 +717,12 @@ enum Command {
     },
 
     /// Diagnose the local install
-    Doctor,
+    #[command(after_long_help = DOCTOR_AFTER_HELP)]
+    Doctor {
+        /// Emit JSON envelope on stdout.
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Print stable JSON describing the binary's surface
     #[command(
@@ -1596,7 +1626,7 @@ async fn main() {
                 vm_cmds::run_vm_delete(name, force, OutputMode::from_flags(json), dry_run).await
             }
         },
-        Command::Doctor => unimplemented("doctor"),
+        Command::Doctor { json } => doctor_cmds::run_doctor(OutputMode::from_flags(json)),
         Command::Capabilities { json: _ } => run_capabilities(),
         Command::Schema { command } => run_schema(&command),
         Command::LlmInstructions => run_llm_instructions(),

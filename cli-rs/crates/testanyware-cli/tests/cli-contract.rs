@@ -757,3 +757,66 @@ fn vm_mutating_commands_support_dry_run() {
     assert_eq!(body["dry_run"], true);
     assert!(golden.join(format!("{name}.qcow2")).is_file(), "dry-run must not delete the qcow2");
 }
+
+// ---------------------------------------------------------------------------
+// doctor — port-task slice (020-port-doctor)
+// ---------------------------------------------------------------------------
+
+/// §7: `doctor --help` carries the required sections and ≥2 example
+/// invocations.
+#[test]
+fn doctor_help_follows_template() {
+    let out = run(&["doctor", "--help"]);
+    assert!(out.status.success(), "`doctor --help` exited non-zero");
+    let help = String::from_utf8_lossy(&out.stdout);
+    for section in ["OUTPUT:", "EXIT CODES:", "EXAMPLES:", "SEE ALSO:"] {
+        assert!(help.contains(section), "`doctor --help` missing {section:?}; got:\n{help}");
+    }
+    let examples = help.matches("testanyware doctor").count();
+    assert!(examples >= 2, "`doctor --help` needs ≥2 example invocations, found {examples}");
+}
+
+/// §3.1 + §10.1: `doctor --json` emits a single report envelope with
+/// `schema_version`, a boolean `ok`, and the five structured check groups.
+/// doctor is read-only and safe to run; it exits 0 when healthy or 1 when a
+/// blocking check fails — both are valid here, so we assert the shape, not the
+/// host's health.
+#[test]
+fn doctor_json_emits_report_envelope() {
+    let out = run(&["doctor", "--json"]);
+    assert!(
+        matches!(out.status.code(), Some(0) | Some(1)),
+        "`doctor --json` must exit 0 (healthy) or 1 (unhealthy); got {:?}, stderr: {}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr),
+    );
+    let body: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("doctor --json must parse as JSON");
+    assert!(body["schema_version"].is_string(), "missing schema_version; got: {body:#?}");
+    assert!(body["ok"].is_boolean(), "ok must be a boolean; got: {body:#?}");
+    let checks = body["checks"].as_object().expect("checks must be an object");
+    for group in [
+        "install_path",
+        "bundled_agents",
+        "bundled_scripts",
+        "host_tools",
+        "script_tool_floors",
+    ] {
+        assert!(checks.contains_key(group), "checks missing {group:?}; got: {body:#?}");
+        assert!(
+            checks[group]["status"].is_string(),
+            "check {group:?} missing string status; got: {body:#?}",
+        );
+    }
+}
+
+/// §9.3: doctor is read-only and MUST NOT advertise `--dry-run`.
+#[test]
+fn doctor_does_not_advertise_dry_run() {
+    let out = run(&["doctor", "--help"]);
+    let help = String::from_utf8_lossy(&out.stdout);
+    assert!(!help.contains("--dry-run"), "doctor is read-only; must not advertise --dry-run");
+    // And passing it is a usage error (clap exit 2).
+    let bad = run(&["doctor", "--dry-run"]);
+    assert_eq!(bad.status.code(), Some(2), "unknown --dry-run flag must be a usage error");
+}
