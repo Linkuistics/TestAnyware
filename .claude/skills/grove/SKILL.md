@@ -66,7 +66,7 @@ These seven rules are non-negotiable; everything below is subordinate to them.
 
 One task is one session. All sessions of one grove run in the **same git worktree** at `<repo>/.grove-worktrees/<name>/` on branch `<name>` — new worktrees are for separating *concurrent groves*, not for separating tasks within a grove. The grove's task tree lives at `.grove/` inside that worktree.
 
-Sessions are launched by the `grove` CLI (installed via `brew install Linkuistics/taps/grove`): `grove start <name>` for a new grove (creates the worktree, branches off the default branch, opens a bootstrap session) and `grove continue <name>` to resume. Both pre-name the harness session, so the rename ritual is unnecessary in the common case.
+Sessions are launched by the `grove` CLI (installed via `brew install Linkuistics/taps/grove`): `grove do <name>` is the **sole lifecycle entry verb** — for a brand-new grove it creates the worktree, branches off the default branch, and opens a bootstrap session; for an existing grove it resumes (re-attaching the worktree first if the branch is present but the worktree is gone). It pre-names the harness session, so the rename ritual is unnecessary in the common case.
 
 If a session was started without the helpers and the session name doesn't already match `<repo>: <name> grove`, suggest `/rename <repo-basename>: <name> grove` once per session and move on. The skill already knows both names: `<name>` from the worktree's branch (`git rev-parse --abbrev-ref HEAD`), `<repo-basename>` from `git rev-parse --show-toplevel`'s parent (the worktree's path is `<repo>/.grove-worktrees/<name>/`).
 
@@ -93,7 +93,7 @@ observation. Read each, triage as **incorporate** (use it in this task),
 Finalize with `grove-llm inbox-drain --for=<name>
 --incorporated=<path>... --deferred=<path>... --rejected=<path>...`: the CLI deletes the triaged
 files in one commit named with the disposition counts and pushes when
-configured. Drain runs at every `grove start` and `grove continue`; the
+configured. Drain runs at every `grove do`; the
 LLM never touches the inbox branch directly. That assembled context —
 read material plus drained inbox — is the session's entire mandate; read
 nothing else by reflex.
@@ -143,12 +143,37 @@ grove is live. The cascade walk and the brief-promotion-upward stay prose
 deliberately: both are judgement steps (does this node retire? what survives
 upward?) with no stable input/output shape that would justify a verb.
 
-**Finish.** When the whole grove is done — every leaf retired into `done/` —
-promote anything from the briefs that should outlive the grove (ADRs, docs,
-glossary entries), then **delete `.grove/` in one focused commit** before
-merging the branch to the default branch. The default branch never carries
-any grove's local state; its history of completed groves lives in git's
-commit graph, not in retained directories.
+**Finish.** A grove is ready to finish when it has no live leaves —
+`grove-llm pick` exits 0 with empty stdout and "no live leaves; this grove is
+done" on stderr. The **complete finish cycle** is driven in-session by the LLM
+(no Rust automation): the session **proposes** it and **waits for explicit human
+confirmation before any teardown** — never run steps 2–5 unprompted, so a
+headless run with no human present simply reports the plan and stops. On
+confirmation, run:
+
+1. **Promote** anything from the briefs that should outlive the grove — ADRs,
+   docs, glossary entries. Reviewable working-tree edits; often a near no-op
+   when decisions landed inline as they were made.
+2. **Delete `.grove/` in one focused commit** on the grove branch.
+3. **Merge** into the default branch: `git -C <repo> merge <name>` —
+   fast-forwards when the default has not advanced, makes a merge commit when it
+   has. (Stop and resolve if it conflicts.)
+4. **Remove the worktree**: `git -C <repo> worktree remove <worktree>`.
+5. **Delete the branch**: `git -C <repo> branch -d <name>` — safe delete,
+   succeeds only because step 3 merged it.
+
+Steps 3–5 run `git -C <repo>` against the **main repo**, not the worktree (the
+session's cwd is inside the worktree it removes); worktree-remove precedes
+branch-delete because git refuses to delete a branch checked out in a live
+worktree. The default branch never carries any grove's local state; the history
+of completed groves lives in git's commit graph, not in retained directories.
+
+**Resume is state-checked, never a marker file** (constraint 1). `grove do` into
+a half-finished grove resumes from the first incomplete step: if `.grove/` is
+already gone (`grove-llm pick` errors with "grove root not found") skip 1–2; if
+`git -C <repo> merge-base --is-ancestor <name> <default>` passes skip 3; if the
+worktree is gone skip 4; if the branch is gone skip 5; if all are done, report
+"already finished" and stop.
 
 ## Artifacts
 
@@ -161,7 +186,7 @@ standard artifact that outlives grove (constraint 6).
 | ADRs | `docs/adr/NNNN-*.md` | atomic decisions: hard to reverse, surprising, or a real trade-off |
 | PRDs | `docs/prd/` | human-facing agreement checkpoints; committed, never retired |
 | Design specs | `docs/specs/*-design.md` | workstream-level technical design |
-| Task tree | `.grove/` (inside the grove's worktree) | the process: the self-extending decomposition of work; deleted at `grove finish` before merging |
+| Task tree | `.grove/` (inside the grove's worktree) | the process: the self-extending decomposition of work; deleted at the in-session Finish step before merging |
 | `grove-meta` branch | `<repo>/.grove-meta/inboxes/<name>/<entry>.md` | cross-grove inbox files; capture observations to another grove via `grove-llm inbox-add --to=<name>`, drained on every bootstrap (ADRs `0002-grove-meta-branch-and-inbox-model.md`, `0003-cross-repo-inbox-handoff.md`, `0004-inbox-as-directory-of-observation-files.md`, `0005-grove-meta-sync-semantics.md`, `0006-grove-llm-binary-separation.md`). Materialised by `grove install`; for repos that pre-date the feature, or whose worktree was removed, run `grove meta init`. |
 
 **The glossary is load-bearing.** The acute failure mode of multi-session work
@@ -204,6 +229,6 @@ PRDs live in `docs/prd/`, are committed, and are never retired.
 - `ADR-FORMAT.md` — the ADR format (bundled from `mattpocock/skills`).
 - `grilling.md` — the grilling procedure for planning tasks (bundled).
 - `driving.md` — field guide for driving grove sessions well: when to commission prior-art research, how to write a research-leaf brief, grilling moves (WDYT, pushback, running log), and when research findings retire into ADRs.
-- `prompts/` — the launcher prompts read by the `grove` CLI at exec time (`start.md`, `continue.md`, `takeover.md`, `retire.md`, `finish.md`).
+- `prompts/` — the launcher prompts read by the `grove` CLI at exec time (`start.md`, `continue.md`, `takeover.md`, `retire.md`). There is no `finish.md`: finishing is an in-session step of the loop, not a launched verb.
 - `VERSION.md` — which grove version this is and how to update it (present only
   in a materialised copy; written by the materialise script).
