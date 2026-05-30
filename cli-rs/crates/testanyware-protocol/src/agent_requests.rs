@@ -82,6 +82,51 @@ pub struct HealthResponse {
     pub platform: String,
 }
 
+/// `POST /set-value` request body. Mirrors Swift's inline
+/// `{role,label,window,id,index,value}` — the element query fields are
+/// flattened alongside the literal `value` so the wire shape matches the
+/// other element-targeting endpoints (`/inspect`, `/press`, `/focus`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetValueRequest {
+    #[serde(flatten)]
+    pub query: ElementQuery,
+    pub value: String,
+}
+
+/// `POST /wait` request body: poll the agent until accessibility is ready
+/// (optionally scoped to `window`), bounded by `timeout` seconds. Both
+/// fields are omitted when unset, mirroring Swift's `{window?, timeout?}`.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct WaitRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<String>,
+
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout: Option<i64>,
+}
+
+/// `POST /window-{focus,close,minimize}` request body — a bare window target.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowTarget {
+    pub window: String,
+}
+
+/// `POST /window-resize` request body.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowResizeRequest {
+    pub window: String,
+    pub width: i64,
+    pub height: i64,
+}
+
+/// `POST /window-move` request body.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WindowMoveRequest {
+    pub window: String,
+    pub x: i64,
+    pub y: i64,
+}
+
 // File transfer (`/upload`, `/download`) carries no JSON request/response
 // body: per ADR-0001 the path rides in a percent-encoded `?path=` query
 // parameter and the file bytes stream raw over `application/octet-stream`.
@@ -165,5 +210,99 @@ mod tests {
         let json = serde_json::to_string(&h).unwrap();
         let back: HealthResponse = serde_json::from_str(&json).unwrap();
         assert_eq!(back, h);
+    }
+
+    // ----- agent action parity (port leaf 010) -----
+
+    #[test]
+    fn set_value_request_flattens_query_and_includes_value() {
+        // Mirrors Swift's inline `{role,label,window,id,index,value}` body:
+        // the element query is flattened alongside the literal `value`, with
+        // unset query fields omitted (Swift's synthesized Codable uses
+        // `encodeIfPresent`).
+        let req = SetValueRequest {
+            query: ElementQuery {
+                role: Some("textfield".into()),
+                label: Some("Email".into()),
+                ..Default::default()
+            },
+            value: "a@b.com".into(),
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({ "role": "textfield", "label": "Email", "value": "a@b.com" })
+        );
+    }
+
+    #[test]
+    fn set_value_request_round_trip() {
+        let req = SetValueRequest {
+            query: ElementQuery {
+                id: Some("field-1".into()),
+                index: Some(2),
+                ..Default::default()
+            },
+            value: "hello".into(),
+        };
+        let back: SetValueRequest =
+            serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
+        assert_eq!(back, req);
+    }
+
+    #[test]
+    fn wait_request_omits_unset_fields() {
+        let req = WaitRequest::default();
+        assert_eq!(serde_json::to_string(&req).unwrap(), "{}");
+    }
+
+    #[test]
+    fn wait_request_round_trip() {
+        let req = WaitRequest {
+            window: Some("Safari".into()),
+            timeout: Some(10),
+        };
+        let back: WaitRequest =
+            serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
+        assert_eq!(back, req);
+    }
+
+    #[test]
+    fn window_target_serializes_single_field() {
+        let req = WindowTarget {
+            window: "Safari".into(),
+        };
+        assert_eq!(serde_json::to_string(&req).unwrap(), r#"{"window":"Safari"}"#);
+    }
+
+    #[test]
+    fn window_resize_request_serializes_all_fields() {
+        let req = WindowResizeRequest {
+            window: "Safari".into(),
+            width: 800,
+            height: 600,
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({ "window": "Safari", "width": 800, "height": 600 })
+        );
+    }
+
+    #[test]
+    fn window_move_request_serializes_all_fields() {
+        let req = WindowMoveRequest {
+            window: "Safari".into(),
+            x: 100,
+            y: 200,
+        };
+        let v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
+        assert_eq!(
+            v,
+            serde_json::json!({ "window": "Safari", "x": 100, "y": 200 })
+        );
     }
 }

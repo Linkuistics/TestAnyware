@@ -2,10 +2,10 @@
 
 use serde_json::json;
 
-use testanyware_agent_client::AgentClient;
 use testanyware_protocol::{
-    ActionResponse, AgentFormatter, ElementQuery, HealthResponse, InspectResponse, SnapshotRequest,
-    SnapshotResponse,
+    ActionResponse, AgentFormatter, ElementQuery, HealthResponse, InspectResponse, SetValueRequest,
+    SnapshotRequest, SnapshotResponse, WaitRequest, WindowMoveRequest, WindowResizeRequest,
+    WindowTarget,
 };
 
 use crate::commands::{build_agent_client, exit_agent_error};
@@ -204,8 +204,193 @@ fn emit_dry_run_action(query: &ElementQuery, action: &str, mode: OutputMode) {
     }
 }
 
-#[allow(dead_code)]
-fn _client_kept_for_future_methods(client: &AgentClient) {
-    // Reserved for the next port task that adds set-value, focus, etc.
-    let _ = client;
+// -------------------------------------------------------------------------
+// Agent action parity (port leaf 010): focus, set-value, wait, window-*.
+// Each mirrors the Swift `agent` subcommand: dispatch one HTTP call and emit
+// the shared action receipt (`agent-action` / `agent-window-action` schema).
+// -------------------------------------------------------------------------
+
+pub async fn run_focus(
+    opts: ConnectionOptions,
+    args: ElementQueryArgs,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    let query: ElementQuery = args.into();
+    if dry_run {
+        emit_dry_run_action(&query, "focus", mode);
+        return;
+    }
+    let client = build_agent_client(&opts, mode);
+    match client.focus(&query).await {
+        Ok(response) => emit_action(&response, "focus", mode),
+        Err(err) => exit_agent_error(err, mode),
+    }
+}
+
+pub struct SetValueCmdArgs {
+    pub query: ElementQueryArgs,
+    pub value: String,
+}
+
+pub async fn run_set_value(
+    opts: ConnectionOptions,
+    args: SetValueCmdArgs,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    let query: ElementQuery = args.query.into();
+    let value = args.value;
+    if dry_run {
+        match mode {
+            OutputMode::Json => print_success(json!({
+                "action": "set-value",
+                "dry_run": true,
+                "query": query,
+                "value": value,
+            })),
+            OutputMode::Text => println!("DRY-RUN: would set-value on {query:?} = {value:?}"),
+        }
+        return;
+    }
+    let client = build_agent_client(&opts, mode);
+    let request = SetValueRequest { query, value };
+    match client.set_value(&request).await {
+        Ok(response) => emit_action(&response, "set-value", mode),
+        Err(err) => exit_agent_error(err, mode),
+    }
+}
+
+pub struct WaitCmdArgs {
+    pub window: Option<String>,
+    pub timeout: Option<i64>,
+}
+
+/// `agent wait` is read-only (it polls until accessibility is ready), so it
+/// has no `--dry-run` per contract §9.3.
+pub async fn run_wait(opts: ConnectionOptions, args: WaitCmdArgs, mode: OutputMode) {
+    let client = build_agent_client(&opts, mode);
+    let request = WaitRequest {
+        window: args.window,
+        timeout: args.timeout,
+    };
+    match client.wait(&request).await {
+        Ok(response) => emit_action(&response, "wait", mode),
+        Err(err) => exit_agent_error(err, mode),
+    }
+}
+
+pub async fn run_window_focus(
+    opts: ConnectionOptions,
+    window: String,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    if dry_run {
+        emit_window_dry_run("window-focus", json!({ "window": window }), mode);
+        return;
+    }
+    let client = build_agent_client(&opts, mode);
+    match client.window_focus(&WindowTarget { window }).await {
+        Ok(response) => emit_action(&response, "window-focus", mode),
+        Err(err) => exit_agent_error(err, mode),
+    }
+}
+
+pub async fn run_window_close(
+    opts: ConnectionOptions,
+    window: String,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    if dry_run {
+        emit_window_dry_run("window-close", json!({ "window": window }), mode);
+        return;
+    }
+    let client = build_agent_client(&opts, mode);
+    match client.window_close(&WindowTarget { window }).await {
+        Ok(response) => emit_action(&response, "window-close", mode),
+        Err(err) => exit_agent_error(err, mode),
+    }
+}
+
+pub async fn run_window_minimize(
+    opts: ConnectionOptions,
+    window: String,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    if dry_run {
+        emit_window_dry_run("window-minimize", json!({ "window": window }), mode);
+        return;
+    }
+    let client = build_agent_client(&opts, mode);
+    match client.window_minimize(&WindowTarget { window }).await {
+        Ok(response) => emit_action(&response, "window-minimize", mode),
+        Err(err) => exit_agent_error(err, mode),
+    }
+}
+
+pub async fn run_window_resize(
+    opts: ConnectionOptions,
+    window: String,
+    width: i64,
+    height: i64,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    if dry_run {
+        emit_window_dry_run(
+            "window-resize",
+            json!({ "window": window, "width": width, "height": height }),
+            mode,
+        );
+        return;
+    }
+    let client = build_agent_client(&opts, mode);
+    match client
+        .window_resize(&WindowResizeRequest {
+            window,
+            width,
+            height,
+        })
+        .await
+    {
+        Ok(response) => emit_action(&response, "window-resize", mode),
+        Err(err) => exit_agent_error(err, mode),
+    }
+}
+
+pub async fn run_window_move(
+    opts: ConnectionOptions,
+    window: String,
+    x: i64,
+    y: i64,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    if dry_run {
+        emit_window_dry_run("window-move", json!({ "window": window, "x": x, "y": y }), mode);
+        return;
+    }
+    let client = build_agent_client(&opts, mode);
+    match client.window_move(&WindowMoveRequest { window, x, y }).await {
+        Ok(response) => emit_action(&response, "window-move", mode),
+        Err(err) => exit_agent_error(err, mode),
+    }
+}
+
+fn emit_window_dry_run(action: &str, target: serde_json::Value, mode: OutputMode) {
+    match mode {
+        OutputMode::Json => {
+            print_success(json!({
+                "action": action,
+                "dry_run": true,
+                "target": target,
+            }));
+        }
+        OutputMode::Text => {
+            println!("DRY-RUN: would {action} {target}");
+        }
+    }
 }

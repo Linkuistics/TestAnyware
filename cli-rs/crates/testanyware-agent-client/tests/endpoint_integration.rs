@@ -8,7 +8,10 @@
 
 use serde_json::json;
 use testanyware_agent_client::{AgentClient, AgentConfig, AgentError};
-use testanyware_protocol::{ElementQuery, ExecRequest, SnapshotRequest};
+use testanyware_protocol::{
+    ElementQuery, ExecRequest, SetValueRequest, SnapshotRequest, WaitRequest, WindowMoveRequest,
+    WindowResizeRequest, WindowTarget,
+};
 use wiremock::matchers::{body_bytes, body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
 
@@ -394,4 +397,217 @@ async fn http_500_surfaces_as_http_status() {
         .await
         .expect_err("press should fail");
     assert!(matches!(err, AgentError::HttpStatus { .. }));
+}
+
+// ---------------------------------------------------------------------------
+// agent action parity (port leaf 010): set-value, focus, wait, window-*
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn set_value_posts_flattened_body_and_decodes_action() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/set-value"))
+        .and(body_json(
+            json!({ "role": "textfield", "label": "Email", "value": "a@b.com" }),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "success": true,
+            "message": "Set value"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let req = SetValueRequest {
+        query: ElementQuery {
+            role: Some("textfield".into()),
+            label: Some("Email".into()),
+            ..Default::default()
+        },
+        value: "a@b.com".into(),
+    };
+    let response = client.set_value(&req).await.expect("set-value succeeds");
+    assert!(response.success);
+    assert_eq!(response.message.as_deref(), Some("Set value"));
+}
+
+#[tokio::test]
+async fn focus_posts_element_query_and_decodes_action() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/focus"))
+        .and(body_json(json!({ "role": "button", "label": "OK" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "success": true })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let query = ElementQuery {
+        role: Some("button".into()),
+        label: Some("OK".into()),
+        ..Default::default()
+    };
+    let response = client.focus(&query).await.expect("focus succeeds");
+    assert!(response.success);
+}
+
+#[tokio::test]
+async fn wait_posts_window_and_timeout_and_decodes_action() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/wait"))
+        .and(body_json(json!({ "window": "Safari", "timeout": 10 })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "success": true,
+            "message": "ready"
+        })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let req = WaitRequest {
+        window: Some("Safari".into()),
+        timeout: Some(10),
+    };
+    let response = client.wait(&req).await.expect("wait succeeds");
+    assert!(response.success);
+}
+
+#[tokio::test]
+async fn window_focus_posts_window_target() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/window-focus"))
+        .and(body_json(json!({ "window": "Safari" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "success": true })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let response = client
+        .window_focus(&WindowTarget {
+            window: "Safari".into(),
+        })
+        .await
+        .expect("window-focus succeeds");
+    assert!(response.success);
+}
+
+#[tokio::test]
+async fn window_resize_posts_dimensions() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/window-resize"))
+        .and(body_json(
+            json!({ "window": "Safari", "width": 800, "height": 600 }),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "success": true })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let response = client
+        .window_resize(&WindowResizeRequest {
+            window: "Safari".into(),
+            width: 800,
+            height: 600,
+        })
+        .await
+        .expect("window-resize succeeds");
+    assert!(response.success);
+}
+
+#[tokio::test]
+async fn window_move_posts_position() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/window-move"))
+        .and(body_json(json!({ "window": "Safari", "x": 100, "y": 200 })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "success": true })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let response = client
+        .window_move(&WindowMoveRequest {
+            window: "Safari".into(),
+            x: 100,
+            y: 200,
+        })
+        .await
+        .expect("window-move succeeds");
+    assert!(response.success);
+}
+
+#[tokio::test]
+async fn window_close_posts_window_target() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/window-close"))
+        .and(body_json(json!({ "window": "Safari" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "success": true })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let response = client
+        .window_close(&WindowTarget {
+            window: "Safari".into(),
+        })
+        .await
+        .expect("window-close succeeds");
+    assert!(response.success);
+}
+
+#[tokio::test]
+async fn window_minimize_posts_window_target() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/window-minimize"))
+        .and(body_json(json!({ "window": "Safari" })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({ "success": true })))
+        .expect(1)
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let response = client
+        .window_minimize(&WindowTarget {
+            window: "Safari".into(),
+        })
+        .await
+        .expect("window-minimize succeeds");
+    assert!(response.success);
+}
+
+/// A logical agent failure is reported as a `{error, details}` envelope;
+/// `decode_body` maps the wire token to the §4.5 code (here WINDOW_NOT_FOUND).
+#[tokio::test]
+async fn window_action_error_envelope_maps_to_window_not_found() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/window-focus"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "error": "window_not_found",
+            "details": "no window titled Safari"
+        })))
+        .mount(&server)
+        .await;
+
+    let client = client_for(&server).await;
+    let err = client
+        .window_focus(&WindowTarget {
+            window: "Safari".into(),
+        })
+        .await
+        .expect_err("window-focus should surface the wire error");
+    assert_eq!(err.code(), "WINDOW_NOT_FOUND");
 }

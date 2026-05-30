@@ -1,12 +1,30 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/agent-window-action.json",
-  "title": "agent-window-action (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "agent-window-action",
+  "description": "Output of `testanyware agent window-{focus,resize,move,close,minimize} --json`. A receipt for a window-management action.",
   "type": "object",
-  "required": ["schema_version", "ok"],
+  "required": ["schema_version", "ok", "action"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "type": "boolean" },
+    "action": {
+      "type": "string",
+      "enum": ["window-focus", "window-resize", "window-move", "window-close", "window-minimize"]
+    },
+    "success": { "type": "boolean" },
+    "message": { "type": ["string", "null"] },
+    "dry_run": { "type": "boolean" },
+    "target": {
+      "type": "object",
+      "required": ["window"],
+      "properties": {
+        "window": { "type": "string" },
+        "width": { "type": "integer" },
+        "height": { "type": "integer" },
+        "x": { "type": "integer" },
+        "y": { "type": "integer" }
+      }
+    }
   }
 }

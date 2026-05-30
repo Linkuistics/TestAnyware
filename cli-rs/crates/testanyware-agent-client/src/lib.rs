@@ -22,7 +22,8 @@ use tokio_util::io::ReaderStream;
 
 use testanyware_protocol::{
     ActionResponse, ElementQuery, ErrorResponse, ExecRequest, ExecResult, HealthResponse,
-    InspectResponse, SnapshotRequest, SnapshotResponse,
+    InspectResponse, SetValueRequest, SnapshotRequest, SnapshotResponse, WaitRequest,
+    WindowMoveRequest, WindowResizeRequest, WindowTarget,
 };
 
 /// Connection parameters for the in-VM agent.
@@ -230,6 +231,69 @@ impl AgentClient {
 
     pub async fn press(&self, query: &ElementQuery) -> Result<ActionResponse, AgentError> {
         self.post_json("/press", query).await
+    }
+
+    // -----------------------------------------------------------------
+    // Accessibility actions (pure HTTP — no VNC). Parity with the Swift
+    // `AgentTCPClient` action methods; each posts a small JSON body and
+    // decodes the shared `ActionResponse`.
+    // -----------------------------------------------------------------
+
+    pub async fn set_value(
+        &self,
+        request: &SetValueRequest,
+    ) -> Result<ActionResponse, AgentError> {
+        self.post_json("/set-value", request).await
+    }
+
+    pub async fn focus(&self, query: &ElementQuery) -> Result<ActionResponse, AgentError> {
+        self.post_json("/focus", query).await
+    }
+
+    /// Poll the agent until accessibility is ready (optionally scoped to a
+    /// window), bounded by the request's `timeout`. Mirrors Swift's
+    /// `agent wait`.
+    pub async fn wait(&self, request: &WaitRequest) -> Result<ActionResponse, AgentError> {
+        self.post_json("/wait", request).await
+    }
+
+    // -----------------------------------------------------------------
+    // Window management actions (pure HTTP — no VNC).
+    // -----------------------------------------------------------------
+
+    pub async fn window_focus(
+        &self,
+        request: &WindowTarget,
+    ) -> Result<ActionResponse, AgentError> {
+        self.post_json("/window-focus", request).await
+    }
+
+    pub async fn window_resize(
+        &self,
+        request: &WindowResizeRequest,
+    ) -> Result<ActionResponse, AgentError> {
+        self.post_json("/window-resize", request).await
+    }
+
+    pub async fn window_move(
+        &self,
+        request: &WindowMoveRequest,
+    ) -> Result<ActionResponse, AgentError> {
+        self.post_json("/window-move", request).await
+    }
+
+    pub async fn window_close(
+        &self,
+        request: &WindowTarget,
+    ) -> Result<ActionResponse, AgentError> {
+        self.post_json("/window-close", request).await
+    }
+
+    pub async fn window_minimize(
+        &self,
+        request: &WindowTarget,
+    ) -> Result<ActionResponse, AgentError> {
+        self.post_json("/window-minimize", request).await
     }
 
     // -----------------------------------------------------------------

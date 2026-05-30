@@ -205,6 +205,197 @@ SEE ALSO:
     testanyware agent inspect, testanyware agent set-value
 ";
 
+const AGENT_SET_VALUE_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`OK` / `FAILED: <message>`), --json (schema:
+    agent-action).
+
+EXIT CODES:
+    0  success
+    3  ELEMENT_NOT_FOUND / WINDOW_NOT_FOUND
+    5  ELEMENT_AMBIGUOUS / ACTION_UNSUPPORTED
+
+IDEMPOTENCY:
+    Not idempotent — setting twice replaces the value twice. Retry only when
+    the previous attempt's outcome is unknown.
+
+EXAMPLES:
+    # Set the value of a text field
+    testanyware agent set-value --vm \"$TESTANYWARE_VM_ID\" --role textfield --label \"Email\" --value me@example.com
+
+    # Plan only — emit the request without performing it
+    testanyware agent set-value --vm \"$TESTANYWARE_VM_ID\" --role textfield --label \"Email\" --value x --dry-run --json
+
+SEE ALSO:
+    testanyware agent inspect, testanyware agent focus
+";
+
+const AGENT_FOCUS_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`OK` / `FAILED: <message>`), --json (schema:
+    agent-action).
+
+EXIT CODES:
+    0  success
+    3  ELEMENT_NOT_FOUND / WINDOW_NOT_FOUND
+    5  ELEMENT_AMBIGUOUS / ACTION_UNSUPPORTED
+
+IDEMPOTENCY:
+    Idempotent in the focused state. Retry-safe.
+
+EXAMPLES:
+    # Focus a text field before typing into it
+    testanyware agent focus --vm \"$TESTANYWARE_VM_ID\" --role textfield --label \"Search\"
+
+    # Plan only
+    testanyware agent focus --vm \"$TESTANYWARE_VM_ID\" --role textfield --label \"Search\" --dry-run --json
+
+SEE ALSO:
+    testanyware agent set-value, testanyware input type
+";
+
+const AGENT_WAIT_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`OK` / `FAILED: <message>`), --json (schema:
+    agent-action). Read-only: no --dry-run.
+
+EXIT CODES:
+    0  success (accessibility became ready)
+    3  WINDOW_NOT_FOUND
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+EXAMPLES:
+    # Wait for the agent's accessibility tree to be ready
+    testanyware agent wait --vm \"$TESTANYWARE_VM_ID\"
+
+    # Wait, scoped to a window, with an explicit timeout
+    testanyware agent wait --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\" --timeout 30 --json
+
+SEE ALSO:
+    testanyware agent health, testanyware agent windows
+";
+
+const AGENT_WINDOW_FOCUS_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`OK` / `FAILED: <message>`), --json (schema:
+    agent-window-action).
+
+EXIT CODES:
+    0  success
+    3  WINDOW_NOT_FOUND
+    4  AUTH_REQUIRED
+
+IDEMPOTENCY:
+    Idempotent in the focused state. Retry-safe.
+
+EXAMPLES:
+    # Bring a window to the front
+    testanyware agent window-focus --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\"
+
+    # Plan only
+    testanyware agent window-focus --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\" --dry-run --json
+
+SEE ALSO:
+    testanyware agent windows, testanyware agent window-minimize
+";
+
+const AGENT_WINDOW_RESIZE_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`OK` / `FAILED: <message>`), --json (schema:
+    agent-window-action).
+
+EXIT CODES:
+    0  success
+    3  WINDOW_NOT_FOUND
+    4  AUTH_REQUIRED
+
+IDEMPOTENCY:
+    Idempotent in the target size. Retry-safe.
+
+EXAMPLES:
+    # Resize a window to 1280x800
+    testanyware agent window-resize --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\" --width 1280 --height 800
+
+    # Plan only
+    testanyware agent window-resize --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\" --width 1280 --height 800 --dry-run --json
+
+SEE ALSO:
+    testanyware agent window-move, testanyware agent windows
+";
+
+const AGENT_WINDOW_MOVE_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`OK` / `FAILED: <message>`), --json (schema:
+    agent-window-action).
+
+EXIT CODES:
+    0  success
+    3  WINDOW_NOT_FOUND
+    4  AUTH_REQUIRED
+
+IDEMPOTENCY:
+    Idempotent in the target position. Retry-safe.
+
+EXAMPLES:
+    # Move a window to (100, 80)
+    testanyware agent window-move --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\" --x 100 --y 80
+
+    # Plan only
+    testanyware agent window-move --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\" --x 100 --y 80 --dry-run --json
+
+SEE ALSO:
+    testanyware agent window-resize, testanyware agent windows
+";
+
+const AGENT_WINDOW_CLOSE_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`OK` / `FAILED: <message>`), --json (schema:
+    agent-window-action).
+
+EXIT CODES:
+    0  success
+    3  WINDOW_NOT_FOUND
+    4  AUTH_REQUIRED
+
+IDEMPOTENCY:
+    Idempotent in the closed state. Retry-safe.
+
+EXAMPLES:
+    # Close a window
+    testanyware agent window-close --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\"
+
+    # Plan only
+    testanyware agent window-close --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\" --dry-run --json
+
+SEE ALSO:
+    testanyware agent window-minimize, testanyware agent windows
+";
+
+const AGENT_WINDOW_MINIMIZE_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`OK` / `FAILED: <message>`), --json (schema:
+    agent-window-action).
+
+EXIT CODES:
+    0  success
+    3  WINDOW_NOT_FOUND
+    4  AUTH_REQUIRED
+
+IDEMPOTENCY:
+    Idempotent in the minimized state. Retry-safe.
+
+EXAMPLES:
+    # Minimize a window
+    testanyware agent window-minimize --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\"
+
+    # Plan only
+    testanyware agent window-minimize --vm \"$TESTANYWARE_VM_ID\" --window \"Settings\" --dry-run --json
+
+SEE ALSO:
+    testanyware agent window-focus, testanyware agent windows
+";
+
 const FILE_EXEC_AFTER_HELP: &str = "\
 OUTPUT:
     Stable formats: stdout/stderr passthrough in text mode (Swift
@@ -834,11 +1025,12 @@ struct AgentElementArgs {
     json: bool,
 }
 
+/// Element-targeting action with `--dry-run` (shared by `press` and `focus`).
 #[derive(Args, Debug, Clone)]
-struct AgentPressArgs {
+struct AgentActionArgs {
     #[command(flatten)]
     common: AgentElementArgs,
-    #[arg(long, help = "Plan the press but do not perform it")]
+    #[arg(long, help = "Plan the action but do not perform it")]
     dry_run: bool,
 }
 
@@ -851,7 +1043,29 @@ struct AgentSetValueArgs {
     #[arg(long)]
     label: Option<String>,
     #[arg(long)]
+    window: Option<String>,
+    #[arg(long)]
+    id: Option<String>,
+    #[arg(long)]
+    index: Option<i64>,
+    #[arg(long)]
     value: String,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
+    #[arg(long, help = "Plan the action but do not perform it")]
+    dry_run: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+struct AgentWaitArgs {
+    #[command(flatten)]
+    conn: ConnectionOptions,
+    #[arg(long)]
+    window: Option<String>,
+    #[arg(long)]
+    timeout: Option<i64>,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -860,6 +1074,10 @@ struct AgentWindowArgs {
     conn: ConnectionOptions,
     #[arg(long)]
     window: String,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
+    #[arg(long, help = "Plan the action but do not perform it")]
+    dry_run: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -868,8 +1086,14 @@ struct AgentWindowMoveArgs {
     conn: ConnectionOptions,
     #[arg(long)]
     window: String,
-    x: i32,
-    y: i32,
+    #[arg(long)]
+    x: i64,
+    #[arg(long)]
+    y: i64,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
+    #[arg(long, help = "Plan the action but do not perform it")]
+    dry_run: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -878,8 +1102,14 @@ struct AgentWindowResizeArgs {
     conn: ConnectionOptions,
     #[arg(long)]
     window: String,
-    width: u32,
-    height: u32,
+    #[arg(long)]
+    width: i64,
+    #[arg(long)]
+    height: i64,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
+    #[arg(long, help = "Plan the action but do not perform it")]
+    dry_run: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -923,15 +1153,18 @@ enum AgentAction {
     /// Inspect a single element
     #[command(aliases = ["show"], after_long_help = AGENT_INSPECT_AFTER_HELP)]
     Inspect(AgentElementArgs),
-    /// Wait for an element to become available
-    Wait(AgentElementArgs),
+    /// Wait for the agent's accessibility tree to be ready
+    #[command(after_long_help = AGENT_WAIT_AFTER_HELP)]
+    Wait(AgentWaitArgs),
     /// Press an element by role and label
     #[command(after_long_help = AGENT_PRESS_AFTER_HELP)]
-    Press(AgentPressArgs),
+    Press(AgentActionArgs),
     /// Set the value of an element
+    #[command(after_long_help = AGENT_SET_VALUE_AFTER_HELP)]
     SetValue(AgentSetValueArgs),
     /// Focus an element
-    Focus(AgentElementArgs),
+    #[command(after_long_help = AGENT_FOCUS_AFTER_HELP)]
+    Focus(AgentActionArgs),
     /// Show a menu (open menu, then snapshot)
     ShowMenu {
         #[command(flatten)]
@@ -940,14 +1173,19 @@ enum AgentAction {
         menu: String,
     },
     /// Focus a window
+    #[command(after_long_help = AGENT_WINDOW_FOCUS_AFTER_HELP)]
     WindowFocus(AgentWindowArgs),
     /// Resize a window
+    #[command(after_long_help = AGENT_WINDOW_RESIZE_AFTER_HELP)]
     WindowResize(AgentWindowResizeArgs),
     /// Move a window
+    #[command(after_long_help = AGENT_WINDOW_MOVE_AFTER_HELP)]
     WindowMove(AgentWindowMoveArgs),
     /// Close a window
+    #[command(after_long_help = AGENT_WINDOW_CLOSE_AFTER_HELP)]
     WindowClose(AgentWindowArgs),
     /// Minimize a window
+    #[command(after_long_help = AGENT_WINDOW_MINIMIZE_AFTER_HELP)]
     WindowMinimize(AgentWindowArgs),
 }
 
@@ -1236,7 +1474,17 @@ async fn main() {
                 )
                 .await
             }
-            AgentAction::Wait(_) => unimplemented("agent wait"),
+            AgentAction::Wait(args) => {
+                agent_cmds::run_wait(
+                    args.conn.into(),
+                    agent_cmds::WaitCmdArgs {
+                        window: args.window,
+                        timeout: args.timeout,
+                    },
+                    OutputMode::from_flags(args.json),
+                )
+                .await
+            }
             AgentAction::Press(args) => {
                 let mode = OutputMode::from_flags(args.common.json);
                 let dry_run = args.dry_run;
@@ -1248,14 +1496,87 @@ async fn main() {
                 )
                 .await
             }
-            AgentAction::SetValue(_) => unimplemented("agent set-value"),
-            AgentAction::Focus(_) => unimplemented("agent focus"),
+            AgentAction::SetValue(args) => {
+                let mode = OutputMode::from_flags(args.json);
+                let dry_run = args.dry_run;
+                agent_cmds::run_set_value(
+                    args.conn.into(),
+                    agent_cmds::SetValueCmdArgs {
+                        query: agent_cmds::ElementQueryArgs {
+                            role: args.role,
+                            label: args.label,
+                            window: args.window,
+                            id: args.id,
+                            index: args.index,
+                        },
+                        value: args.value,
+                    },
+                    mode,
+                    dry_run,
+                )
+                .await
+            }
+            AgentAction::Focus(args) => {
+                let mode = OutputMode::from_flags(args.common.json);
+                let dry_run = args.dry_run;
+                agent_cmds::run_focus(
+                    args.common.conn.clone().into(),
+                    element_args_to_query(args.common),
+                    mode,
+                    dry_run,
+                )
+                .await
+            }
             AgentAction::ShowMenu { .. } => unimplemented("agent show-menu"),
-            AgentAction::WindowFocus(_) => unimplemented("agent window-focus"),
-            AgentAction::WindowResize(_) => unimplemented("agent window-resize"),
-            AgentAction::WindowMove(_) => unimplemented("agent window-move"),
-            AgentAction::WindowClose(_) => unimplemented("agent window-close"),
-            AgentAction::WindowMinimize(_) => unimplemented("agent window-minimize"),
+            AgentAction::WindowFocus(args) => {
+                agent_cmds::run_window_focus(
+                    args.conn.into(),
+                    args.window,
+                    OutputMode::from_flags(args.json),
+                    args.dry_run,
+                )
+                .await
+            }
+            AgentAction::WindowResize(args) => {
+                agent_cmds::run_window_resize(
+                    args.conn.into(),
+                    args.window,
+                    args.width,
+                    args.height,
+                    OutputMode::from_flags(args.json),
+                    args.dry_run,
+                )
+                .await
+            }
+            AgentAction::WindowMove(args) => {
+                agent_cmds::run_window_move(
+                    args.conn.into(),
+                    args.window,
+                    args.x,
+                    args.y,
+                    OutputMode::from_flags(args.json),
+                    args.dry_run,
+                )
+                .await
+            }
+            AgentAction::WindowClose(args) => {
+                agent_cmds::run_window_close(
+                    args.conn.into(),
+                    args.window,
+                    OutputMode::from_flags(args.json),
+                    args.dry_run,
+                )
+                .await
+            }
+            AgentAction::WindowMinimize(args) => {
+                agent_cmds::run_window_minimize(
+                    args.conn.into(),
+                    args.window,
+                    OutputMode::from_flags(args.json),
+                    args.dry_run,
+                )
+                .await
+            }
         },
         Command::Vm { action } => match action {
             VmAction::Start { platform, base, id, display, viewer, json, dry_run } => {
