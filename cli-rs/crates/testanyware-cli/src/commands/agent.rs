@@ -1,15 +1,20 @@
 //! `agent {health|windows|snapshot|inspect|press}` handlers.
 
+use std::time::Duration;
+
 use serde_json::json;
 
+use testanyware_agent_client::AgentClient;
 use testanyware_protocol::{
     ActionResponse, AgentFormatter, ElementQuery, HealthResponse, InspectResponse, SetValueRequest,
     SnapshotRequest, SnapshotResponse, WaitRequest, WindowMoveRequest, WindowResizeRequest,
     WindowTarget,
 };
 
+use crate::commands::input::{connect_or_exit, exit_input_error};
+use crate::commands::menu_bar;
 use crate::commands::{build_agent_client, exit_agent_error};
-use crate::output::{print_error, print_success, OutputMode};
+use crate::output::{exit_code_for, print_error, print_success, OutputMode};
 use crate::resolve::ConnectionOptions;
 
 pub async fn run_health(opts: ConnectionOptions, mode: OutputMode) {
@@ -63,21 +68,14 @@ pub struct SnapshotArgs {
 }
 
 pub async fn run_snapshot(opts: ConnectionOptions, args: SnapshotArgs, mode: OutputMode) {
-    if args.open_menu.is_some() {
-        // `--open-menu` requires VNC mouse clicks (see Swift's
-        // `openMenuBarPath` in AgentCommand.swift). Until the RFB client
-        // crate lands, the Rust port can't satisfy this flag. Surface a
-        // clear error rather than silently ignoring it.
-        print_error(
-            mode,
-            "ACTION_UNSUPPORTED",
-            "--open-menu requires VNC support, which is not yet ported to the Rust CLI",
-            Some("Use the Swift CLI for `--open-menu` for now, or use the canonical noun-first command tree once the RFB port lands."),
-            json!({ "missing_capability": "vnc" }),
-            crate::output::exit_code_for("ACTION_UNSUPPORTED"),
-        );
-    }
     let client = build_agent_client(&opts, mode);
+
+    // Open any requested menu-bar path via VNC clicks before the final
+    // snapshot, so the emitted tree captures the now-open menu.
+    if let Some(path) = &args.open_menu {
+        open_menu_path(&opts, &client, mode, path).await;
+    }
+
     let request = SnapshotRequest {
         mode: args.mode_arg,
         window: args.window,
@@ -88,6 +86,88 @@ pub async fn run_snapshot(opts: ConnectionOptions, args: SnapshotArgs, mode: Out
     match client.snapshot(&request).await {
         Ok(response) => emit_snapshot(&response, mode, false),
         Err(err) => exit_agent_error(err, mode),
+    }
+}
+
+/// Walk a comma-separated `--open-menu` path, clicking each segment over VNC and
+/// re-snapshotting between segments so a freshly-opened submenu's items are
+/// present when the next segment is located. Ports the Swift
+/// `AgentSnapshotCmd.openMenuBarPath` orchestration over the existing RFB
+/// `click()` (via `input::connect_or_exit`) and the agent snapshot client.
+///
+/// Every failure path diverges (prints a typed error envelope and exits),
+/// matching the other handlers; on success it returns and the caller emits the
+/// final snapshot.
+async fn open_menu_path(
+    opts: &ConnectionOptions,
+    client: &AgentClient,
+    mode: OutputMode,
+    raw_path: &str,
+) {
+    let Some(segments) = menu_bar::parse_path(raw_path) else {
+        print_error(
+            mode,
+            "USAGE_ERROR",
+            "--open-menu path must be non-empty and contain no blank segments",
+            Some("Pass a label like \"File\" or a comma-separated path like \"File,Open Recent\"."),
+            json!({ "value": raw_path }),
+            2,
+        );
+    };
+
+    // One short-lived RFB connection serves every click in the path.
+    let mut conn = connect_or_exit(opts, mode).await;
+
+    for (index, segment) in segments.iter().enumerate() {
+        // macOS submenus are lazy in the AX tree — they populate only once the
+        // parent menu is open. Grow snapshot depth with each segment so the
+        // just-opened submenu's items are visible (matches Swift).
+        let depth = std::cmp::max(3, 2 * (index as i64 + 1) + 1);
+        let request = SnapshotRequest {
+            mode: None,
+            window: Some("Menu Bar".to_string()),
+            role: None,
+            label: None,
+            depth: Some(depth),
+        };
+        let response = match client.snapshot(&request).await {
+            Ok(r) => r,
+            Err(err) => exit_agent_error(err, mode),
+        };
+        let element = match menu_bar::find_element_by_label(segment, &response.windows) {
+            Some(el) => el,
+            None => print_error(
+                mode,
+                "ELEMENT_NOT_FOUND",
+                &format!("No menu item matching '{segment}' in --open-menu path '{raw_path}'"),
+                Some("Run `testanyware agent snapshot --window \"Menu Bar\"` to see the menu tree."),
+                json!({ "segment": segment, "path": raw_path }),
+                exit_code_for("ELEMENT_NOT_FOUND"),
+            ),
+        };
+        let (cx, cy) = match menu_bar::center_point(element) {
+            Some(point) => point,
+            None => print_error(
+                mode,
+                "ELEMENT_NOT_FOUND",
+                &format!("Menu item '{segment}' has no position/size; cannot derive a click target"),
+                None,
+                json!({ "segment": segment }),
+                exit_code_for("ELEMENT_NOT_FOUND"),
+            ),
+        };
+        // Menu-bar frames are screen-absolute and the framebuffer shares the
+        // screen origin, so the center maps directly to VNC coordinates with no
+        // window offset (unlike `input click`). Saturate to the framebuffer's
+        // u16 address space; a valid on-screen menu item always fits.
+        let x = cx.clamp(0, i32::from(u16::MAX)) as u16;
+        let y = cy.clamp(0, i32::from(u16::MAX)) as u16;
+        if let Err(err) = conn.click(x, y, "left", 1).await {
+            exit_input_error(err, mode);
+        }
+        // Brief settle for the menu-open animation so AppKit populates the AX
+        // tree before the next segment's snapshot (matches Swift's 400 ms).
+        tokio::time::sleep(Duration::from_millis(400)).await;
     }
 }
 

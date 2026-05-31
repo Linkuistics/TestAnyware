@@ -13,6 +13,7 @@ pub mod agent;
 pub mod doctor;
 pub mod file;
 pub mod input;
+pub mod menu_bar;
 pub mod screen;
 pub mod vm;
 pub mod window;

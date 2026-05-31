@@ -16,7 +16,7 @@ use crate::resolve::{
 };
 
 /// Connect to the resolved VNC endpoint, or print a typed error and exit.
-async fn connect_or_exit(
+pub(crate) async fn connect_or_exit(
     opts: &ConnectionOptions,
     mode: OutputMode,
 ) -> RfbConnection<tokio::io::BufReader<tokio::net::TcpStream>> {
@@ -345,7 +345,7 @@ fn exit_rfb_error(err: RfbError, mode: OutputMode) -> ! {
     print_error(mode, code, &err.to_string(), None, json!({}), exit_code);
 }
 
-fn exit_input_error(err: InputError, mode: OutputMode) -> ! {
+pub(crate) fn exit_input_error(err: InputError, mode: OutputMode) -> ! {
     match err {
         InputError::Keymap(KeymapError::UnknownKey(name)) => print_error(
             mode,

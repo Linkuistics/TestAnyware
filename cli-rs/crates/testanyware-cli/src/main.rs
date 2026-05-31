@@ -1599,7 +1599,25 @@ async fn main() {
                 )
                 .await
             }
-            AgentAction::ShowMenu { .. } => unimplemented("agent show-menu"),
+            AgentAction::ShowMenu { conn, menu } => {
+                // `show-menu` is the menu-bar opener: open the `--menu` path via
+                // VNC, then emit the resulting snapshot. Equivalent to
+                // `agent snapshot --open-menu <menu>` with default filters and
+                // text output.
+                agent_cmds::run_snapshot(
+                    conn.into(),
+                    agent_cmds::SnapshotArgs {
+                        mode_arg: Some("interact".to_string()),
+                        window: None,
+                        role: None,
+                        label: None,
+                        depth: None,
+                        open_menu: Some(menu),
+                    },
+                    OutputMode::from_flags(false),
+                )
+                .await
+            }
             AgentAction::WindowFocus(args) => {
                 agent_cmds::run_window_focus(
                     args.conn.into(),
