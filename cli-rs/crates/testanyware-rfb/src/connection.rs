@@ -13,6 +13,7 @@ use crate::framebuffer::Framebuffer;
 use crate::proto::{
     client_msg, encoding, sec_type, server_msg, PixelFormat, PROTOCOL_VERSION_3_8,
 };
+use crate::zrle::ZrleDecoder;
 
 /// Outcome of `next_message`.
 #[derive(Debug)]
@@ -37,6 +38,9 @@ pub struct RfbConnection<T: AsyncRead + AsyncWrite + Unpin> {
     transport: T,
     framebuffer: Framebuffer,
     pixel_format: PixelFormat,
+    /// Persistent ZRLE zlib stream; lives for the whole connection
+    /// because ZRLE's stream is never reset between rectangles.
+    zrle: ZrleDecoder,
 }
 
 impl RfbConnection<BufReader<TcpStream>> {
@@ -145,15 +149,19 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
             transport,
             framebuffer,
             pixel_format: server_pf,
+            zrle: ZrleDecoder::new(),
         };
 
         // 7. SetPixelFormat — request our preferred RGBA32-LE layout.
         conn.set_pixel_format(PixelFormat::rgba32_le()).await?;
 
-        // 8. SetEncodings — Raw + CopyRect, plus the DesktopSize and
-        // LastRect pseudo-encodings to be future-friendly. Most servers
-        // negotiate down to Raw if Tight isn't offered.
+        // 8. SetEncodings — preference order, most-preferred first.
+        // ZRLE leads so servers that support it compress the framebuffer
+        // (cutting bandwidth); Raw is the universal fallback. CopyRect is
+        // orthogonal (moved regions) and the two pseudo-encodings keep
+        // SetEncodings future-friendly.
         conn.set_encodings(&[
+            encoding::ZRLE,
             encoding::COPY_RECT,
             encoding::RAW,
             encoding::PSEUDO_DESKTOP_SIZE,
@@ -320,6 +328,20 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
                     let src_x = u16::from_be_bytes([src[0], src[1]]) as u32;
                     let src_y = u16::from_be_bytes([src[2], src[3]]) as u32;
                     self.framebuffer.copy_rect(x, y, src_x, src_y, w, h)?;
+                    applied += 1;
+                }
+                encoding::ZRLE => {
+                    // 4-byte big-endian length prefix, then that many
+                    // bytes of zlib data for the persistent stream.
+                    let mut len_buf = [0u8; 4];
+                    self.transport.read_exact(&mut len_buf).await?;
+                    let len = u32::from_be_bytes(len_buf) as usize;
+                    let mut compressed = vec![0u8; len];
+                    self.transport.read_exact(&mut compressed).await?;
+                    // Decode into a Raw-format BGRX buffer and reuse the
+                    // Raw write path so output is pixel-identical.
+                    let bgrx = self.zrle.decode_rect(self.pixel_format, w, h, &compressed)?;
+                    self.framebuffer.raw_rect(x, y, w, h, &bgrx)?;
                     applied += 1;
                 }
                 encoding::PSEUDO_DESKTOP_SIZE => {

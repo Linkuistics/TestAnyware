@@ -35,6 +35,9 @@ pub mod sec_type {
 pub mod encoding {
     pub const RAW: i32 = 0;
     pub const COPY_RECT: i32 = 1;
+    /// ZRLE (§7.7.6): zlib-compressed, 64×64-tiled, per-tile
+    /// sub-encodings. One zlib stream persists across the connection.
+    pub const ZRLE: i32 = 16;
     // Pseudo-encodings (negotiated via SetEncodings, but represent
     // capabilities rather than rectangle data). Not decoded by this
     // foundation but included for completeness so SetEncodings is

@@ -125,7 +125,10 @@ async fn client_writes_protocol_version_then_chosen_security_then_setpf_setencod
     // Next: SetEncodings (1 tag + 1 pad + 2 count + N*4).
     assert_eq!(writes[34], 2, "SetEncodings tag");
     let n = u16::from_be_bytes([writes[36], writes[37]]);
-    assert_eq!(n, 4, "Raw + CopyRect + DesktopSize + LastRect");
+    assert_eq!(n, 5, "ZRLE + CopyRect + Raw + DesktopSize + LastRect");
+    // ZRLE (16) must be advertised first so servers prefer it.
+    let first = i32::from_be_bytes([writes[38], writes[39], writes[40], writes[41]]);
+    assert_eq!(first, 16, "ZRLE advertised ahead of Raw");
 }
 
 #[tokio::test]
