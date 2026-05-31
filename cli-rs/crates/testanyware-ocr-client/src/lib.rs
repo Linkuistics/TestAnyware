@@ -14,14 +14,14 @@
 //!
 //! Engine selection is per-platform, not one-engine-everywhere (ADR-0002,
 //! reversing the earlier "EasyOCR everywhere" call): macOS uses in-process
-//! Apple Vision, Linux/Windows use this daemon. See [`engine`] for the
-//! `#[cfg]` dispatch seam — the macOS Vision engine itself lands in a
-//! follow-up leaf, so today every platform routes through the daemon.
+//! Apple Vision (`vision`, ADR-0003), Linux/Windows use this daemon. See
+//! [`engine`] for the `#[cfg]` dispatch seam.
 //!
 //! Crate layout:
 //!
 //! - `bridge`: long-lived child-process actor (`OCRChildBridge`).
 //! - `engine`: per-platform `OcrEngine` selection + interpreter resolution.
+//! - `vision`: in-process Apple Vision engine via `objc2` (macOS only).
 //! - `detection`: the `OcrDetection` value type and `OcrResponse`
 //!   envelope, wire-compatible with the Swift `OCRDetection` /
 //!   `OCRResponse` JSON shape.
@@ -36,6 +36,8 @@ pub mod detection;
 pub mod engine;
 pub mod find;
 pub mod status;
+#[cfg(target_os = "macos")]
+mod vision;
 
 pub use bridge::{OcrBridgeError, OcrChildBridge, OcrChildBridgeConfig};
 pub use detection::{OcrDetection, OcrResponse};

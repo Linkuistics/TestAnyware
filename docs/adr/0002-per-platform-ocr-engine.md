@@ -61,8 +61,11 @@ OCR, consistent with `TESTANYWARE_OCR_FALLBACK` semantics.
   daemon engine and the wider vision pipeline; it is not deleted.
 - A follow-up leaf owns the macOS Vision FFI. Its biggest open choice —
   pure-Rust `objc2`/`objc2-vision` bindings vs. compiling the existing
-  `VisionOCREngine.swift` via `build.rs` — is deferred to that leaf, where
-  the FFI/toolchain trade-off can be made with the code in front of us.
-- The macOS-default-Vision behaviour documented in `env-vars.md` is not yet
-  literally true (macOS currently uses the daemon). The follow-up leaf
-  closes that gap; this ADR is the bridging record.
+  `VisionOCREngine.swift` via `build.rs` — was deferred to that leaf.
+  **Resolved in ADR-0003: pure-Rust `objc2`.**
+- The macOS-default-Vision behaviour documented in `env-vars.md` was not
+  literally true when this ADR was written (macOS used the daemon).
+  **Resolved by leaf `040-macos-vision-ocr`:** `OcrEngine::detect()` now
+  returns the in-process `OcrEngine::Vision` on macOS unless
+  `TESTANYWARE_OCR_FALLBACK=1`, so `env-vars.md` is accurate and this
+  caveat is closed.
