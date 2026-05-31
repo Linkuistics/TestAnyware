@@ -120,14 +120,24 @@ pub struct VmListing {
 pub struct VmLifecycle;
 
 impl VmLifecycle {
-    /// Start a VM end-to-end. QEMU backend only — `macos` (tart) returns
-    /// `BackendUnsupported`. Ports `VMLifecycle.start` / `startQEMU`.
+    /// Start a VM end-to-end, routing to the backend that serves the
+    /// requested platform + golden on this host. macOS guests, and Linux
+    /// guests whose base is a tart golden, use the tart backend (macOS
+    /// host only); Linux-on-qcow2 and Windows use QEMU. Ports
+    /// `VMLifecycle.start` (backend dispatch) + `startQEMU` / `startTart`.
     pub async fn start(opts: &VmStartOptions, paths: &VmPaths) -> Result<VmStartResult, VmError> {
+        std::fs::create_dir_all(paths.vms_dir())
+            .map_err(|e| VmError::Io(format!("create {}: {e}", paths.vms_dir().display())))?;
+
+        #[cfg(target_os = "macos")]
+        if wants_tart(opts.platform, &opts.base, paths) {
+            return Self::start_tart(opts, paths).await;
+        }
+
+        // No tart backend reachable here: a macOS guest cannot be served.
         if opts.platform == Platform::Macos {
             return Err(VmError::BackendUnsupported { platform: "macos".into() });
         }
-        std::fs::create_dir_all(paths.vms_dir())
-            .map_err(|e| VmError::Io(format!("create {}: {e}", paths.vms_dir().display())))?;
 
         let qopts = QemuStartOptions {
             id: opts.id.clone(),
@@ -189,6 +199,74 @@ impl VmLifecycle {
         })
     }
 
+    /// Start a tart-backed VM end-to-end. macOS host only. Mirrors the
+    /// QEMU arm above: the runner clones+starts and hands back the VNC
+    /// endpoint + guest IP; this method waits for the agent (over the
+    /// guest IP, not a localhost forward) and writes the sidecars. Ports
+    /// `VMLifecycle.startTart`.
+    #[cfg(target_os = "macos")]
+    async fn start_tart(opts: &VmStartOptions, paths: &VmPaths) -> Result<VmStartResult, VmError> {
+        use crate::tart::{TartRunner, TartStartOptions};
+
+        let topts = TartStartOptions {
+            id: opts.id.clone(),
+            base: opts.base.clone(),
+            display: opts.display.clone(),
+        };
+        let artifacts = TartRunner::start(&topts, paths).await?;
+
+        // The agent listens on the guest IP (port 8648), not a localhost
+        // forward as with QEMU. No IP => agent unreachable, spec `agent: null`.
+        let mut agent_endpoint = None;
+        let mut agent_unreachable = true;
+        if let Some(ip) = &artifacts.ip {
+            if wait_for_agent(ip, 8648, 60, Duration::from_secs(2)).await {
+                agent_endpoint = Some(AgentEndpoint { host: ip.clone(), port: 8648 });
+                agent_unreachable = false;
+            }
+        }
+
+        let spec = VmSpec {
+            vnc: VncEndpoint {
+                host: artifacts.vnc.host.clone(),
+                port: artifacts.vnc.port,
+                password: artifacts.vnc.password.clone(),
+            },
+            agent: agent_endpoint,
+            platform: opts.platform.as_str().to_string(),
+        };
+        let spec_path = paths.spec_path(&opts.id);
+        let meta_path = paths.meta_path(&opts.id);
+        // tart is now running; a sidecar-write failure must tear it down
+        // so it cannot survive untracked.
+        spec.write_atomic(&spec_path).inspect_err(|_| {
+            TartRunner::stop(&opts.id, artifacts.pid);
+        })?;
+
+        // tart manages its own storage, so the meta carries no clone_dir;
+        // `pid` is the detached `tart run` process tracked for `stop`.
+        let meta = VmMeta {
+            id: opts.id.clone(),
+            tool: VmTool::Tart,
+            pid: artifacts.pid,
+            clone_dir: None,
+            viewer_window_id: None,
+        };
+        meta.write_atomic(&meta_path).inspect_err(|_| {
+            TartRunner::stop(&opts.id, artifacts.pid);
+            let _ = std::fs::remove_file(&spec_path);
+        })?;
+
+        Ok(VmStartResult {
+            id: opts.id.clone(),
+            platform: opts.platform,
+            spec,
+            spec_path,
+            meta_path,
+            agent_unreachable,
+        })
+    }
+
     /// Stop a VM and remove its sidecars. Ports `VMLifecycle.stop`
     /// (QEMU branch). A `tart` meta returns `BackendUnsupported`.
     pub fn stop(id: &str, paths: &VmPaths) -> Result<(), VmError> {
@@ -203,9 +281,21 @@ impl VmLifecycle {
         // self-healing — mirrors Swift `VMLifecycle.stop`, which sets
         // `ok = false`, removes both sidecars, then throws `stopFailed`.
         let stop_error = match meta.tool {
+            #[cfg(target_os = "macos")]
             VmTool::Tart => {
-                return Err(VmError::BackendUnsupported { platform: "macos (tart)".into() });
+                // `tart stop` + `tart delete` the clone, SIGTERM the
+                // detached `tart run` pid. A VM that no longer exists is a
+                // stop failure (mirrors Swift `stop`'s `ok = false`).
+                if crate::tart::TartRunner::stop(id, meta.pid) {
+                    None
+                } else {
+                    Some(VmError::VmStopFailed { id: id.to_string() })
+                }
             }
+            // A tart meta on a non-macOS host is unreachable in practice
+            // (tart never ran here) but must still compile.
+            #[cfg(not(target_os = "macos"))]
+            VmTool::Tart => Some(VmError::BackendUnsupported { platform: "macos (tart)".into() }),
             VmTool::Qemu => match meta.clone_dir.as_deref().filter(|d| !d.is_empty()) {
                 Some(clone_dir) => {
                     QemuRunner::stop(meta.pid, std::path::Path::new(clone_dir), paths);
@@ -228,6 +318,25 @@ impl VmLifecycle {
     pub fn delete(name: &str, force: bool, paths: &VmPaths) -> Result<(), VmError> {
         let golden_dir = paths.golden_dir();
         let qcow2 = golden_dir.join(format!("{name}.qcow2"));
+
+        // A tart golden (macOS) takes precedence only when no qcow2 of the
+        // same name exists — QEMU stays authoritative for its own images.
+        #[cfg(target_os = "macos")]
+        if !qcow2.is_file() && crate::tart::golden_exists(name) {
+            if !force {
+                let running = crate::tart::list_running_ids();
+                if !running.is_empty() {
+                    // tart cannot cheaply prove which clones back this
+                    // image; warn via the in-use error (no pids) unless forced.
+                    return Err(VmError::GoldenInUse { name: name.to_string(), clone_pids: vec![] });
+                }
+            }
+            if !crate::tart::delete_golden(name) {
+                return Err(VmError::TartFailed { detail: format!("tart delete {name} failed") });
+            }
+            return Ok(());
+        }
+
         if !qcow2.is_file() {
             return Err(VmError::GoldenNotFound { name: name.to_string() });
         }
@@ -241,17 +350,93 @@ impl VmLifecycle {
         Ok(())
     }
 
+    /// Validate a `vm start --dry-run` without side effects: confirm the
+    /// golden exists in whichever backend `start` would route to, and run
+    /// the host preflight for the QEMU path. Returns the backend name so
+    /// the caller can report it. Keeps the per-platform routing (and the
+    /// macOS-only tart lookups) inside the crate, off the command layer.
+    pub fn dry_run_validate_start(opts: &VmStartOptions, paths: &VmPaths) -> Result<&'static str, VmError> {
+        #[cfg(target_os = "macos")]
+        if wants_tart(opts.platform, &opts.base, paths) {
+            if !crate::tart::golden_exists(&opts.base) {
+                return Err(VmError::GoldenNotFound { name: opts.base.clone() });
+            }
+            return Ok("tart");
+        }
+
+        if opts.platform == Platform::Macos {
+            return Err(VmError::BackendUnsupported { platform: "macos".into() });
+        }
+        let qcow2 = paths.golden_dir().join(format!("{}.qcow2", opts.base));
+        if !qcow2.is_file() {
+            return Err(VmError::GoldenNotFound { name: opts.base.clone() });
+        }
+        crate::preflight::check_kvm()?;
+        if opts.platform == Platform::Windows {
+            crate::preflight::check_swtpm()?;
+        }
+        Ok("qemu")
+    }
+
+    /// Validate a `vm delete --dry-run`: the golden must exist as a QEMU
+    /// qcow2 or (macOS) a tart golden. Mirrors the backend detection in
+    /// `delete`.
+    pub fn dry_run_validate_delete(name: &str, paths: &VmPaths) -> Result<(), VmError> {
+        if paths.golden_dir().join(format!("{name}.qcow2")).is_file() {
+            return Ok(());
+        }
+        #[cfg(target_os = "macos")]
+        if crate::tart::golden_exists(name) {
+            return Ok(());
+        }
+        Err(VmError::GoldenNotFound { name: name.to_string() })
+    }
+
     /// List goldens and running clones. Ports `VMCommand.List` (QEMU
     /// entries only). Running clones are enriched from their sidecars.
     pub fn list(paths: &VmPaths) -> VmListing {
         let goldens = scan_golden_dir(&paths.golden_dir());
         let raw: Vec<RunningClone> =
             scan_clones_dir(&paths.clones_dir(), &session_root(paths));
-        let running = raw
+        let running: Vec<RunningEntry> = raw
             .into_iter()
             .map(|clone| enrich_running(&clone, paths))
             .collect();
+
+        // tart goldens + running clones (macOS host only). A running tart
+        // clone is enriched from its sidecars exactly like a QEMU clone —
+        // the spec carries vnc/agent/platform, the meta carries the pid.
+        // Shadowed inside the cfg so the non-macOS build needs no `mut`.
+        #[cfg(target_os = "macos")]
+        let (goldens, running) = {
+            let mut goldens = goldens;
+            let mut running = running;
+            goldens.extend(crate::tart::list_goldens());
+            for id in crate::tart::list_running_ids() {
+                let clone = RunningClone { id, platform: "unknown".into(), backend: "tart" };
+                running.push(enrich_running(&clone, paths));
+            }
+            (goldens, running)
+        };
+
         VmListing { goldens, running }
+    }
+}
+
+/// Whether to route this start to the tart backend (macOS host only).
+/// macOS guests always use tart. A Linux guest uses tart only as a
+/// fallback: a same-named QEMU qcow2 wins, otherwise a tart golden of
+/// that name is used (the kept-built `testanyware-golden-linux-24.04` is
+/// a tart VM). Windows always uses QEMU.
+#[cfg(target_os = "macos")]
+fn wants_tart(platform: Platform, base: &str, paths: &VmPaths) -> bool {
+    match platform {
+        Platform::Macos => true,
+        Platform::Windows => false,
+        Platform::Linux => {
+            let qcow2 = paths.golden_dir().join(format!("{base}.qcow2"));
+            !qcow2.is_file() && crate::tart::vm_exists(base)
+        }
     }
 }
 
@@ -341,6 +526,12 @@ mod tests {
         assert_eq!(explicit.display.as_deref(), Some("800x600"));
     }
 
+    // On a macOS host the tart backend serves macOS guests, so this
+    // rejection only holds where tart is unreachable (non-macOS). The
+    // macOS tart `start` path is covered by the leaf's manual
+    // `vm start --platform macos` verification, not a unit test (it
+    // shells out to a real `tart`).
+    #[cfg(not(target_os = "macos"))]
     #[tokio::test]
     async fn start_rejects_the_macos_platform_as_unsupported() {
         let dir = tempfile::tempdir().unwrap();
@@ -400,8 +591,12 @@ mod tests {
         std::fs::create_dir_all(paths.golden_dir()).unwrap();
         std::fs::write(paths.golden_dir().join("testanyware-golden-linux-24.04.qcow2"), b"x").unwrap();
         let listing = VmLifecycle::list(&paths);
-        assert_eq!(listing.goldens.len(), 1);
-        assert_eq!(listing.running.len(), 0);
+        // Filter to QEMU: on a macOS host `list` also merges the real tart
+        // catalog, so an exact total would depend on the dev machine.
+        let qemu_goldens: Vec<_> = listing.goldens.iter().filter(|g| g.backend == "qemu").collect();
+        assert_eq!(qemu_goldens.len(), 1);
+        assert_eq!(qemu_goldens[0].name, "testanyware-golden-linux-24.04");
+        assert!(listing.running.iter().all(|r| r.backend != "qemu"), "no qemu clones started");
     }
 
     #[test]
@@ -428,9 +623,15 @@ mod tests {
         spec.write_atomic(&paths.spec_path(id)).unwrap();
 
         let listing = VmLifecycle::list(&paths);
-        assert_eq!(listing.running.len(), 1, "the clone should be detected as running");
+        // Locate this fixture's clone by id — `list` may also surface
+        // ambient tart clones on a macOS host.
+        let clone = listing
+            .running
+            .iter()
+            .find(|r| r.id == id)
+            .expect("the clone should be detected as running");
         assert_eq!(
-            listing.running[0].platform, "windows",
+            clone.platform, "windows",
             "platform must come from the spec, not the name-derived guess",
         );
     }

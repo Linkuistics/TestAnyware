@@ -18,6 +18,12 @@ pub enum VmError {
     #[error("QEMU failed: {detail}")]
     QemuFailed { detail: String },
 
+    #[error("tart failed: {detail}")]
+    TartFailed { detail: String },
+
+    #[error("VM '{id}' did not become reachable within the boot window")]
+    VmBootTimeout { id: String },
+
     #[error("could not discover the agent port via the QEMU monitor")]
     MonitorDiscoveryFailed,
 
@@ -61,6 +67,8 @@ impl VmError {
             VmError::SwtpmMissing => "SWTPM_MISSING",
             VmError::UefiNotFound { .. } => "UEFI_NOT_FOUND",
             VmError::QemuFailed { .. } | VmError::MonitorDiscoveryFailed => "QEMU_FAILED",
+            VmError::TartFailed { .. } => "TART_FAILED",
+            VmError::VmBootTimeout { .. } => "VM_BOOT_TIMEOUT",
             VmError::SpawnFailed { .. } => "SPAWN_FAILED",
             VmError::GoldenNotFound { .. } => "GOLDEN_NOT_FOUND",
             VmError::GoldenInUse { .. } => "GOLDEN_IN_USE",
@@ -81,6 +89,8 @@ impl VmError {
             | VmError::VmNotFound { .. } => 3,
             VmError::GoldenInUse { .. } => 5,
             VmError::InvalidPlatform { .. } => 2,
+            // §5: boot/startup-timeout family.
+            VmError::VmBootTimeout { .. } => 7,
             _ => 1,
         }
     }
@@ -126,7 +136,10 @@ impl VmError {
             VmError::GoldenInUse { name, clone_pids } => {
                 json!({ "golden_name": name, "clone_pids": clone_pids })
             }
-            VmError::VmNotFound { id } | VmError::VmStopFailed { id } => json!({ "vm_id": id }),
+            VmError::VmNotFound { id }
+            | VmError::VmStopFailed { id }
+            | VmError::VmBootTimeout { id } => json!({ "vm_id": id }),
+            VmError::TartFailed { detail } => json!({ "tart_error": detail }),
             VmError::BackendUnsupported { platform } | VmError::InvalidPlatform { value: platform } => {
                 json!({ "platform": platform })
             }
@@ -206,5 +219,24 @@ mod tests {
     fn details_carry_platform_for_backend_and_invalid_platform() {
         assert_eq!(VmError::BackendUnsupported { platform: "macos".into() }.details()["platform"], "macos");
         assert_eq!(VmError::InvalidPlatform { value: "bsd".into() }.details()["platform"], "bsd");
+    }
+
+    #[test]
+    fn tart_failed_maps_to_its_contract_code_exit_and_detail() {
+        let err = VmError::TartFailed { detail: "tart clone: image not found".into() };
+        // §4.2: TART_FAILED, generic failure (§5 → exit 1).
+        assert_eq!(err.code(), "TART_FAILED");
+        assert_eq!(err.exit_code(), 1);
+        // §4.2: `details.tart_error` carries the subprocess stderr.
+        assert_eq!(err.details()["tart_error"], "tart clone: image not found");
+    }
+
+    #[test]
+    fn vm_boot_timeout_maps_to_its_contract_code_and_exit_7() {
+        let err = VmError::VmBootTimeout { id: "testanyware-abcd1234".into() };
+        // §4.2 code + §5 boot-timeout family → exit 7.
+        assert_eq!(err.code(), "VM_BOOT_TIMEOUT");
+        assert_eq!(err.exit_code(), 7);
+        assert_eq!(err.details()["vm_id"], "testanyware-abcd1234");
     }
 }

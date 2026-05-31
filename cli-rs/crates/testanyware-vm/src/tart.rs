@@ -1,0 +1,450 @@
+//! tart VM orchestration (macOS host only). Port of `TartRunner.swift`.
+//!
+//! tart wraps Apple's Virtualization.framework, so this backend is
+//! reachable only on a macOS host — the module is `#[cfg(target_os =
+//! "macos")]`-gated at the crate root and never referenced in a Linux or
+//! Windows build (consistent with ADR-0003's per-target gating).
+//!
+//! Pure parsers (`parse_vnc_url`, `parse_goldens`, `parse_running_ids`,
+//! `poll_vnc_url`) are unit-tested without invoking `tart`. The
+//! `tart`-invoking operations (`clone`, `run_detached`, `start`, …) are
+//! exercised by the manual `vm start --platform macos` verification the
+//! `010-tart-runner` leaf calls for, not by unit tests.
+
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use serde::Deserialize;
+
+use crate::error::VmError;
+use crate::qemu::{platform_from_name, GoldenImage};
+use crate::qemu_profile::which;
+
+/// One `tart list --format json` row. tart capitalizes its keys.
+#[derive(Debug, Deserialize)]
+struct TartVm {
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "State")]
+    state: Option<String>,
+}
+
+/// Decode `tart list --format json`, returning `[]` on malformed input —
+/// the boundary to an externally-owned tool absorbs schema drift so a
+/// tart upgrade cannot break `vm list`. Ports the leniency shared by
+/// `parseList` / `parseAllVMNames` / `parseAllVMs`.
+fn decode_list(tart_json: &str) -> Vec<TartVm> {
+    if tart_json.is_empty() {
+        return Vec::new();
+    }
+    serde_json::from_str(tart_json).unwrap_or_default()
+}
+
+/// A parsed `vnc://[:password@]host:port` URL emitted by `tart run
+/// --vnc-experimental`. Ports `TartRunner.VNCURL`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VncUrl {
+    pub host: String,
+    pub port: u16,
+    pub password: Option<String>,
+}
+
+/// Parse a `vnc://[:password@]host:port[...]` URL.
+///
+/// tart appends a trailing `...` progress marker; strip it first. The
+/// password-only credential form (`:pw@host`) is hand-parsed because URL
+/// libraries do not reliably handle it. Ports `TartRunner.parseVNCURL`.
+pub fn parse_vnc_url(raw: &str) -> Result<VncUrl, VmError> {
+    let malformed = || VmError::TartFailed { detail: format!("malformed VNC URL from tart: {raw}") };
+    let mut s = raw.trim();
+    s = s.trim_end_matches('.');
+    let rest = s.strip_prefix("vnc://").ok_or_else(malformed)?;
+    // Optional `[:]password@` credential, hand-split: URL parsers mishandle
+    // the password-only (`:pw@host`) form tart emits.
+    let (password, host_port) = match rest.split_once('@') {
+        Some((cred, after)) => {
+            let cred = cred.strip_prefix(':').unwrap_or(cred);
+            let pw = if cred.is_empty() { None } else { Some(cred.to_string()) };
+            (pw, after)
+        }
+        None => (None, rest),
+    };
+    let (host, port) = host_port.rsplit_once(':').ok_or_else(malformed)?;
+    let port: u16 = port.parse().map_err(|_| malformed())?;
+    if host.is_empty() {
+        return Err(malformed());
+    }
+    Ok(VncUrl { host: host.to_string(), port, password })
+}
+
+/// Golden images from `tart list --format json`: every entry whose name
+/// starts with `testanyware-golden-`, regardless of run state. Ports the
+/// `.golden` arm of `TartRunner.parseList`. Malformed JSON yields `[]` —
+/// a tart upgrade must not break `vm list` (boundary leniency).
+pub fn parse_goldens(tart_json: &str) -> Vec<GoldenImage> {
+    decode_list(tart_json)
+        .into_iter()
+        .filter(|vm| vm.name.starts_with("testanyware-golden-"))
+        .map(|vm| GoldenImage {
+            platform: platform_from_name(&vm.name),
+            name: vm.name,
+            backend: "tart",
+        })
+        .collect()
+}
+
+/// Running-clone ids from `tart list --format json`: entries with
+/// `state == "running"` whose name starts with `testanyware-` but not
+/// `testanyware-golden-`. Ports the `.running` arm of
+/// `TartRunner.parseList`. Malformed JSON yields `[]`.
+pub fn parse_running_ids(tart_json: &str) -> Vec<String> {
+    decode_list(tart_json)
+        .into_iter()
+        .filter(|vm| {
+            vm.state.as_deref() == Some("running")
+                && vm.name.starts_with("testanyware-")
+                && !vm.name.starts_with("testanyware-golden-")
+        })
+        .map(|vm| vm.name)
+        .collect()
+}
+
+/// Every VM name in the catalog, regardless of state or prefix. Used by
+/// lifecycle paths (collision detection, existence checks) that address
+/// user-supplied `--id`s not following the `testanyware-` convention.
+/// Ports `TartRunner.parseAllVMNames`. Malformed JSON yields `[]`.
+pub fn parse_all_names(tart_json: &str) -> Vec<String> {
+    decode_list(tart_json).into_iter().map(|vm| vm.name).collect()
+}
+
+/// Poll `log_path` for the first `vnc://…` URL, up to `attempts` times
+/// spaced by `interval`. A missing log file is "not yet"; the loop keeps
+/// polling until the deadline. Returns `None` on timeout. Ports
+/// `TartRunner.pollVNCURL`.
+pub fn poll_vnc_url(log_path: &Path, attempts: u32, interval: Duration) -> Option<VncUrl> {
+    for attempt in 0..attempts {
+        if let Ok(text) = std::fs::read_to_string(log_path) {
+            if let Some(url) = text.split_whitespace().find(|t| t.starts_with("vnc://")) {
+                if let Ok(parsed) = parse_vnc_url(url) {
+                    return Some(parsed);
+                }
+            }
+        }
+        if attempt + 1 < attempts {
+            std::thread::sleep(interval);
+        }
+    }
+    None
+}
+
+// ---- live `tart`-invoking operations -----------------------------------
+//
+// These shell out to the `tart` binary, so they are not unit-tested; the
+// `010-tart-runner` leaf verifies them with a manual `vm start
+// --platform macos` against the real golden (clone+start is cheap —
+// `vm-costs`).
+
+/// Outcome of a synchronous `tart` invocation.
+struct TartResult {
+    exit_code: i32,
+    stdout: String,
+    stderr: String,
+}
+
+/// Run `tart <args>` synchronously, capturing stdout/stderr. A missing
+/// binary yields `exit_code: -1`. Ports `TartRunner.runTart`.
+fn run_tart(args: &[&str]) -> TartResult {
+    let Some(tart) = which("tart") else {
+        return TartResult { exit_code: -1, stdout: String::new(), stderr: "tart not found on PATH".into() };
+    };
+    match std::process::Command::new(tart).args(args).output() {
+        Ok(out) => TartResult {
+            exit_code: out.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        },
+        Err(e) => TartResult { exit_code: -1, stdout: String::new(), stderr: e.to_string() },
+    }
+}
+
+/// `tart list --format json` stdout, or `None` when tart is absent or the
+/// invocation fails. Ports `TartRunner.tartListJSON`.
+fn tart_list_json() -> Option<String> {
+    let r = run_tart(&["list", "--format", "json"]);
+    (r.exit_code == 0).then_some(r.stdout)
+}
+
+/// tart goldens currently in the catalog. `[]` when tart is absent.
+pub fn list_goldens() -> Vec<GoldenImage> {
+    tart_list_json().map(|j| parse_goldens(&j)).unwrap_or_default()
+}
+
+/// Ids of running tart clones. `[]` when tart is absent.
+pub fn list_running_ids() -> Vec<String> {
+    tart_list_json().map(|j| parse_running_ids(&j)).unwrap_or_default()
+}
+
+/// Whether a tart VM with `name` exists in any state. `false` when tart
+/// is absent. Ports `TartRunner.vmExists`.
+pub fn vm_exists(name: &str) -> bool {
+    tart_list_json().map(|j| parse_all_names(&j).iter().any(|n| n == name)).unwrap_or(false)
+}
+
+/// Whether `name` is a tart golden image. Ports the tart arm of
+/// `VMLifecycle.delete`'s backend detection.
+pub fn golden_exists(name: &str) -> bool {
+    list_goldens().iter().any(|g| g.name == name)
+}
+
+/// `tart clone <base> <id>`. Ports `TartRunner.clone`.
+pub fn clone(base: &str, id: &str) -> Result<(), VmError> {
+    let r = run_tart(&["clone", base, id]);
+    if r.exit_code == 0 {
+        Ok(())
+    } else {
+        Err(VmError::TartFailed { detail: format!("tart clone {base} {id}: {}", r.stderr.trim()) })
+    }
+}
+
+/// `tart set <id> --display <WxH>`. Ports `TartRunner.setDisplay`.
+pub fn set_display(id: &str, display: &str) -> Result<(), VmError> {
+    let r = run_tart(&["set", id, "--display", display]);
+    if r.exit_code == 0 {
+        Ok(())
+    } else {
+        Err(VmError::TartFailed { detail: format!("tart set {id} --display {display}: {}", r.stderr.trim()) })
+    }
+}
+
+/// Best-effort `tart stop` then `tart delete` — both no-ops on an absent
+/// VM, so non-zero exits are ignored. Ports `TartRunner.removeExisting`.
+pub fn remove_existing(id: &str) {
+    let _ = run_tart(&["stop", id]);
+    let _ = run_tart(&["delete", id]);
+}
+
+/// `tart delete <name>` for a golden. `true` on success. Ports
+/// `TartRunner.deleteGolden`.
+pub fn delete_golden(name: &str) -> bool {
+    run_tart(&["delete", name]).exit_code == 0
+}
+
+/// Spawn `tart run <id> --no-graphics --vnc-experimental` detached, with
+/// stdout+stderr appended to `<log_dir>/<id>.tart.log`. Returns the
+/// detached pid and the log path so the caller can poll for the VNC URL.
+/// Ports `TartRunner.runDetached`.
+pub fn run_detached(id: &str, log_dir: &Path) -> Result<(i32, PathBuf), VmError> {
+    std::fs::create_dir_all(log_dir)
+        .map_err(|e| VmError::Io(format!("create {}: {e}", log_dir.display())))?;
+    let tart = which("tart")
+        .ok_or_else(|| VmError::TartFailed { detail: "tart not found on PATH".into() })?;
+    let log_path = log_dir.join(format!("{id}.tart.log"));
+    let args = vec![
+        "run".to_string(),
+        id.to_string(),
+        "--no-graphics".to_string(),
+        "--vnc-experimental".to_string(),
+    ];
+    let pid = crate::detached::spawn_detached(&tart.display().to_string(), &args, &log_path)?;
+    Ok((pid, log_path))
+}
+
+/// Poll for the guest IP, gating on the `tart list` **state** column
+/// rather than on `tart ip` directly: `tart ip` returns a cached/stale
+/// address (`tart-ip-lies` memory), so the IP is trusted only once the
+/// guest reports `running`. Returns `None` on timeout — the caller treats
+/// IP-unavailable as a benign degradation (the agent endpoint is left
+/// unset). Ports `TartRunner.pollIP`, hardened with the state gate.
+pub fn poll_ip(id: &str, attempts: u32, interval: Duration) -> Option<String> {
+    for attempt in 0..attempts {
+        let running = tart_list_json()
+            .map(|j| decode_list(&j).iter().any(|vm| vm.name == id && vm.state.as_deref() == Some("running")))
+            .unwrap_or(false);
+        if running {
+            let r = run_tart(&["ip", id]);
+            if r.exit_code == 0 {
+                let ip = r.stdout.trim();
+                if !ip.is_empty() {
+                    return Some(ip.to_string());
+                }
+            }
+        }
+        if attempt + 1 < attempts {
+            std::thread::sleep(interval);
+        }
+    }
+    None
+}
+
+/// Inputs for `TartRunner::start`.
+#[derive(Debug, Clone)]
+pub struct TartStartOptions {
+    pub id: String,
+    pub base: String,
+    pub display: Option<String>,
+}
+
+/// Result of a successful `TartRunner::start`: the detached `tart run`
+/// pid, the VNC endpoint tart handed back, and the (best-effort) guest IP.
+#[derive(Debug, Clone)]
+pub struct TartStartArtifacts {
+    pub pid: i32,
+    pub vnc: VncUrl,
+    pub ip: Option<String>,
+}
+
+/// tart lifecycle entry points, mirroring `QemuRunner`.
+pub struct TartRunner;
+
+impl TartRunner {
+    /// Clone the golden, start `tart run` detached, and discover the VNC
+    /// endpoint (from the run log) and guest IP (state-gated). Ports the
+    /// pre-sidecar half of `VMLifecycle.startTart`.
+    pub async fn start(opts: &TartStartOptions, paths: &crate::paths::VmPaths) -> Result<TartStartArtifacts, VmError> {
+        // Reclaim a same-id VM left over from a prior run.
+        if vm_exists(&opts.id) {
+            remove_existing(&opts.id);
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        }
+
+        clone(&opts.base, &opts.id)?;
+        if let Some(display) = &opts.display {
+            set_display(&opts.id, display)?;
+        }
+
+        let (pid, log_path) = run_detached(&opts.id, &paths.vms_dir())?;
+
+        // VNC URL is the readiness signal: tart prints it once the guest's
+        // framebuffer is up. No URL within the window => boot timeout.
+        let Some(vnc) = poll_vnc_url(&log_path, 60, Duration::from_secs(1)) else {
+            crate::process::terminate(pid, Duration::from_millis(200), 10);
+            remove_existing(&opts.id);
+            return Err(VmError::VmBootTimeout { id: opts.id.clone() });
+        };
+
+        let ip = poll_ip(&opts.id, 30, Duration::from_secs(2));
+        Ok(TartStartArtifacts { pid, vnc, ip })
+    }
+
+    /// Tear down a tart clone: `tart stop` + `tart delete`, then SIGTERM
+    /// the detached `tart run` pid. Returns `true` when the VM existed and
+    /// is now gone. Ports the tart arm of `VMLifecycle.stop`.
+    pub fn stop(id: &str, pid: i32) -> bool {
+        let existed = vm_exists(id);
+        if existed {
+            remove_existing(id);
+        }
+        if pid > 0 {
+            crate::process::terminate(pid, Duration::from_millis(200), 10);
+        }
+        existed && !vm_exists(id)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_vnc_url_extracts_host_port_password() {
+        let parsed = parse_vnc_url("vnc://:syrup-rotate@127.0.0.1:63530").unwrap();
+        assert_eq!(parsed.host, "127.0.0.1");
+        assert_eq!(parsed.port, 63530);
+        assert_eq!(parsed.password.as_deref(), Some("syrup-rotate"));
+    }
+
+    #[test]
+    fn parse_vnc_url_strips_trailing_ellipsis() {
+        let parsed = parse_vnc_url("vnc://:abc@127.0.0.1:5900...").unwrap();
+        assert_eq!(parsed.port, 5900);
+        assert_eq!(parsed.password.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn parse_vnc_url_without_password_is_none() {
+        let parsed = parse_vnc_url("vnc://127.0.0.1:5900").unwrap();
+        assert_eq!(parsed.host, "127.0.0.1");
+        assert_eq!(parsed.port, 5900);
+        assert_eq!(parsed.password, None);
+    }
+
+    #[test]
+    fn parse_vnc_url_rejects_non_vnc_scheme_and_missing_port() {
+        assert!(parse_vnc_url("http://example.com").is_err());
+        assert!(parse_vnc_url("vnc://no-port").is_err());
+    }
+
+    #[test]
+    fn parse_goldens_keeps_only_golden_prefixed_names() {
+        let json = r#"[
+          {"Name": "testanyware-golden-macos-tahoe", "State": "stopped", "Disk": 50},
+          {"Name": "testanyware-golden-linux-24.04", "State": "stopped", "Disk": 20},
+          {"Name": "some-other-vm", "State": "stopped", "Disk": 10},
+          {"Name": "testanyware-a1b2c3d4", "State": "running", "Disk": 50}
+        ]"#;
+        let mut names: Vec<String> = parse_goldens(json).into_iter().map(|g| g.name).collect();
+        names.sort();
+        assert_eq!(names, vec![
+            "testanyware-golden-linux-24.04",
+            "testanyware-golden-macos-tahoe",
+        ]);
+        let macos = parse_goldens(json).into_iter().find(|g| g.name.contains("macos")).unwrap();
+        assert_eq!(macos.platform, "macos");
+        assert_eq!(macos.backend, "tart");
+    }
+
+    #[test]
+    fn parse_running_ids_skips_goldens_and_stopped() {
+        let json = r#"[
+          {"Name": "testanyware-golden-macos-tahoe", "State": "running"},
+          {"Name": "testanyware-a1b2c3d4", "State": "running"},
+          {"Name": "testanyware-b5c6d7e8", "State": "stopped"}
+        ]"#;
+        assert_eq!(parse_running_ids(json), vec!["testanyware-a1b2c3d4"]);
+    }
+
+    #[test]
+    fn parse_all_names_returns_every_name() {
+        let json = r#"[
+          {"Name": "testanyware-golden-macos-tahoe", "State": "stopped"},
+          {"Name": "testanyware-a1b2c3d4", "State": "running"},
+          {"Name": "my-custom-vm", "State": "running"}
+        ]"#;
+        let mut names = parse_all_names(json);
+        names.sort();
+        assert_eq!(names, vec![
+            "my-custom-vm",
+            "testanyware-a1b2c3d4",
+            "testanyware-golden-macos-tahoe",
+        ]);
+    }
+
+    #[test]
+    fn parsers_are_lenient_on_malformed_or_empty_json() {
+        for bad in ["", "not json", "{}"] {
+            assert!(parse_goldens(bad).is_empty(), "goldens lenient on {bad:?}");
+            assert!(parse_running_ids(bad).is_empty(), "running lenient on {bad:?}");
+            assert!(parse_all_names(bad).is_empty(), "names lenient on {bad:?}");
+        }
+    }
+
+    #[test]
+    fn poll_vnc_url_finds_url_in_a_log_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("tart.log");
+        std::fs::write(&log, "tart starting...\nVNC: vnc://:abc@127.0.0.1:54321\nready.\n").unwrap();
+        let parsed = poll_vnc_url(&log, 3, Duration::from_millis(5)).unwrap();
+        assert_eq!(parsed.host, "127.0.0.1");
+        assert_eq!(parsed.port, 54321);
+        assert_eq!(parsed.password.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn poll_vnc_url_returns_none_when_log_has_no_url_or_is_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("tart.log");
+        std::fs::write(&log, "no url here\n").unwrap();
+        assert!(poll_vnc_url(&log, 2, Duration::from_millis(5)).is_none());
+        assert!(poll_vnc_url(&dir.path().join("missing.log"), 2, Duration::from_millis(5)).is_none());
+    }
+}

@@ -15,6 +15,10 @@ pub mod process;
 pub mod qemu;
 pub mod qemu_profile;
 pub mod spec;
+/// tart wraps Apple's Virtualization.framework — macOS-host only (ADR-0003
+/// per-target gating). Absent from Linux/Windows builds.
+#[cfg(target_os = "macos")]
+pub mod tart;
 
 pub use detached::spawn_detached;
 pub use error::VmError;

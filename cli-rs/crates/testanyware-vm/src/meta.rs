@@ -82,6 +82,31 @@ mod tests {
     fn tool_serializes_lowercase() {
         let json = serde_json::to_string(&VmTool::Qemu).unwrap();
         assert_eq!(json, "\"qemu\"");
+        assert_eq!(serde_json::to_string(&VmTool::Tart).unwrap(), "\"tart\"");
+    }
+
+    #[test]
+    fn tart_meta_round_trips_without_a_clone_dir() {
+        // tart manages its own storage under ~/.tart, so a tart meta
+        // carries no `clone_dir` — `vm start --platform macos` writes this
+        // shape and `vm stop` must read it back. (Regression guard for the
+        // 010-tart-runner leaf, which makes `tool: "tart"` writable.)
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v.meta.json");
+        let meta = VmMeta {
+            id: "testanyware-abcd1234".into(),
+            tool: VmTool::Tart,
+            pid: 5151,
+            clone_dir: None,
+            viewer_window_id: None,
+        };
+        meta.write_atomic(&path).unwrap();
+        let loaded = VmMeta::load(&path).unwrap();
+        assert_eq!(loaded, meta);
+        assert_eq!(loaded.tool, VmTool::Tart);
+        // An absent clone_dir must not serialize (skip_serializing_if).
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(!json.contains("clone_dir"), "tart meta must omit clone_dir: {json}");
     }
 
     #[test]

@@ -7,7 +7,6 @@
 use serde_json::{json, Value};
 
 use testanyware_vm::lifecycle::{Platform, VmLifecycle, VmListing, VmStartOptions};
-use testanyware_vm::preflight::{check_kvm, check_swtpm};
 use testanyware_vm::{VmError, VmMeta, VmPaths};
 
 use crate::output::{print_error, print_success, OutputMode};
@@ -49,18 +48,11 @@ pub async fn run_vm_start(
     let paths = VmPaths::from_process_env();
 
     if dry_run {
-        // Validate without side effects: golden present + host preflight.
-        let golden = paths.golden_dir().join(format!("{}.qcow2", opts.base));
-        if !golden.is_file() {
-            exit_vm_error(VmError::GoldenNotFound { name: opts.base.clone() }, mode);
-        }
-        if let Err(err) = check_kvm() {
+        // Validate without side effects: the golden must exist in the
+        // backend `start` would route to (tart on macOS, else QEMU), plus
+        // the QEMU host preflight. Routing lives in the vm crate.
+        if let Err(err) = VmLifecycle::dry_run_validate_start(&opts, &paths) {
             exit_vm_error(err, mode);
-        }
-        if parsed == Platform::Windows {
-            if let Err(err) = check_swtpm() {
-                exit_vm_error(err, mode);
-            }
         }
         emit_start_plan(&opts, mode);
         return;
@@ -202,9 +194,8 @@ pub async fn run_vm_delete(name: String, force: bool, mode: OutputMode, dry_run:
     let paths = VmPaths::from_process_env();
 
     if dry_run {
-        let qcow2 = paths.golden_dir().join(format!("{name}.qcow2"));
-        if !qcow2.is_file() {
-            exit_vm_error(VmError::GoldenNotFound { name }, mode);
+        if let Err(err) = VmLifecycle::dry_run_validate_delete(&name, &paths) {
+            exit_vm_error(err, mode);
         }
         match mode {
             OutputMode::Text => println!("dry-run: would delete golden {name}"),
