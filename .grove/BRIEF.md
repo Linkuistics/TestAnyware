@@ -83,6 +83,8 @@ First wave (materialized now):
 - [x] ZRLE + Tight encodings for the RFB client crate (node 040; live
       verification rolls up into leaf 050).
 - [ ] tart runner for the macOS-host-macOS-guest path (`#[cfg(target_os=macos)]`).
+      **Pulled into the `050-live-vm-gate` node** as leaf `010-tart-runner` — the
+      gate needs it to reach the cheap kept-built tart goldens. Owned there now.
 - [ ] Windows-host support (cross-platform pass).
 - [ ] Live-VM verification gate for the RFB client + input layer.
 
