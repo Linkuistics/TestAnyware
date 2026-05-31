@@ -47,6 +47,25 @@ grove — separate workstreams.
 A pre-built per-platform VM disk image (`testanyware-golden-<platform>-...`)
 that `vm start` clones to spawn a fresh instance.
 
+**Shared-VNC server**:
+The Swift `_server` process — a long-lived host-side daemon that holds **one
+VNC connection** open on a unix socket (with a PID file and idle timeout) and
+multiplexes it across CLI invocations. The Rust CLI **deliberately drops** it:
+every command opens its own short-lived RFB connection instead. Do not confuse
+with the *OCR daemon* — structurally unrelated (one multiplexes VNC, the other
+hosts a Python OCR process); the Swift CLI merely solved both with similar
+helper plumbing. The retirement is owned by ADR-0004.
+_Avoid_: "the server" (ambiguous — agents and the OCR daemon are also servers),
+conflating it with `OcrChildBridge`.
+
+**OCR daemon**:
+The long-lived Python child process (`OcrChildBridge` in
+`testanyware-ocr-client`) that hosts EasyOCR for the Linux/Windows OCR path,
+kept warm because cold-start is multi-second. **Retained** scaffold for the
+wider vision pipeline (ADR-0002), distinct from the retired *Shared-VNC
+server*.
+_Avoid_: calling it "the server".
+
 ## Example dialogue
 
 > **Dev:** I broke something — `testanyware vm start` is timing out on

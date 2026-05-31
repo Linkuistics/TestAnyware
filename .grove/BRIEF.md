@@ -65,12 +65,16 @@ First wave (materialized now):
 - [x] `doctor` → **020**.
 - [x] `screen find-text` (OCR) → **030** (daemon path; per-platform `OcrEngine`
       seam + ADR-0002; native macOS Vision deferred to **040**).
-- [ ] `agent show-menu` — blocked on the VNC-input layer (opens menu items via
-      VNC click); pairs with the VNC work, not with 010.
+- [ ] `agent show-menu` → **030**. NOT blocked on a missing VNC-input layer
+      (that layer already exists: `testanyware-rfb::input` powers `input *`).
+      Real work is porting Swift's `MenuBarLocator` orchestration over the
+      existing RFB `click()` + agent snapshot.
 - [ ] `screen record` — needs embedded libav (`ffmpeg-next`), not a subprocess.
-- [ ] `server` — the hidden `_server` internal command (OCR bridge; the
-      `OcrChildBridge` daemon pattern is scaffold for the vision pipeline, not
-      residue — keep it).
+- [ ] `server` → **020 (retire, not port)**. The `server` stub is the Rust
+      shadow of the Swift `_server` **Shared-VNC server** (a persistent VNC
+      multiplexer), which the Rust CLI deliberately drops — NOT the OCR daemon.
+      Earlier framing conflated the two; they are structurally distinct (see
+      CONTEXT.md *Shared-VNC server* vs *OCR daemon*). `OcrChildBridge` stays.
 
 **Platform / facilities** (not started; materialize as leaves later):
 - [ ] Native macOS **Apple Vision** OCR engine at the `OcrEngine` seam → **040**
