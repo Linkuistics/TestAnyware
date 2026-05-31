@@ -7,14 +7,12 @@
 //! - security types `None` and `VNC Authentication` (DES with the
 //!   RFB-quirky bit-reversed key),
 //! - 32 bpp little-endian RGBA-32 pixel format negotiation,
-//! - `Raw`, `CopyRect` and `ZRLE` encodings,
+//! - `Raw`, `CopyRect`, `ZRLE` and `Tight` encodings,
 //! - `DesktopSize` and `LastRect` pseudo-encodings.
 //!
-//! `Tight` is the one remaining encoding still out of scope; it lands in
-//! a follow-up task. Servers that offer neither ZRLE nor Tight negotiate
-//! down to Raw, so the client drives `screen size`, `screen capture`,
-//! the embedded viewer and the input-message extension across all of
-//! them.
+//! Servers that offer no compressed encoding negotiate down to Raw, so
+//! the client drives `screen size`, `screen capture`, the embedded
+//! viewer and the input-message extension across all of them.
 
 pub mod auth;
 pub mod connection;
@@ -23,6 +21,7 @@ pub mod framebuffer;
 pub mod input;
 pub mod keymap;
 pub mod proto;
+pub mod tight;
 pub mod zrle;
 
 pub use connection::{RfbConnection, ServerEvent};

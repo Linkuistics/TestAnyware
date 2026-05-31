@@ -13,6 +13,7 @@ use crate::framebuffer::Framebuffer;
 use crate::proto::{
     client_msg, encoding, sec_type, server_msg, PixelFormat, PROTOCOL_VERSION_3_8,
 };
+use crate::tight::TightDecoder;
 use crate::zrle::ZrleDecoder;
 
 /// Outcome of `next_message`.
@@ -41,6 +42,10 @@ pub struct RfbConnection<T: AsyncRead + AsyncWrite + Unpin> {
     /// Persistent ZRLE zlib stream; lives for the whole connection
     /// because ZRLE's stream is never reset between rectangles.
     zrle: ZrleDecoder,
+    /// Persistent Tight zlib streams (up to four); like ZRLE they
+    /// outlive any single rectangle and are flushed only when the
+    /// server sets a reset bit.
+    tight: TightDecoder,
 }
 
 impl RfbConnection<BufReader<TcpStream>> {
@@ -150,18 +155,24 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
             framebuffer,
             pixel_format: server_pf,
             zrle: ZrleDecoder::new(),
+            tight: TightDecoder::new(),
         };
 
         // 7. SetPixelFormat — request our preferred RGBA32-LE layout.
         conn.set_pixel_format(PixelFormat::rgba32_le()).await?;
 
         // 8. SetEncodings — preference order, most-preferred first.
-        // ZRLE leads so servers that support it compress the framebuffer
-        // (cutting bandwidth); Raw is the universal fallback. CopyRect is
-        // orthogonal (moved regions) and the two pseudo-encodings keep
-        // SetEncodings future-friendly.
+        // ZRLE leads because it is always *lossless*: a server supporting
+        // both ZRLE and Tight then picks ZRLE, keeping `screen capture`
+        // pixel-exact for OCR while still cutting bandwidth. Tight follows
+        // so servers that lack ZRLE (some only speak Tight) still
+        // compress — at the cost of Tight's optional lossy JPEG path. Raw
+        // is the universal fallback; CopyRect is orthogonal (moved
+        // regions) and the two pseudo-encodings keep SetEncodings
+        // future-friendly.
         conn.set_encodings(&[
             encoding::ZRLE,
+            encoding::TIGHT,
             encoding::COPY_RECT,
             encoding::RAW,
             encoding::PSEUDO_DESKTOP_SIZE,
@@ -341,6 +352,18 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
                     // Decode into a Raw-format BGRX buffer and reuse the
                     // Raw write path so output is pixel-identical.
                     let bgrx = self.zrle.decode_rect(self.pixel_format, w, h, &compressed)?;
+                    self.framebuffer.raw_rect(x, y, w, h, &bgrx)?;
+                    applied += 1;
+                }
+                encoding::TIGHT => {
+                    // Tight has no overall length prefix: the decoder
+                    // reads its control byte and variable-length fields
+                    // straight off the transport (disjoint mutable
+                    // borrows of `tight` and `transport` are fine).
+                    let bgrx = self
+                        .tight
+                        .decode_rect(&mut self.transport, self.pixel_format, w, h)
+                        .await?;
                     self.framebuffer.raw_rect(x, y, w, h, &bgrx)?;
                     applied += 1;
                 }

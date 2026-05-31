@@ -82,12 +82,12 @@ fn server_no_auth_script(width: u16, height: u16, name: &[u8]) -> Vec<u8> {
 
 /// Number of bytes the client writes during the no-auth handshake:
 /// 12 (proto greeting), 1 (chosen security type), 1 (ClientInit shared),
-/// 20 (SetPixelFormat), and SetEncodings (4-byte header plus 5 codes of
-/// 4 bytes each = 24). The 5 codes are ZRLE, CopyRect, Raw, DesktopSize,
-/// LastRect.
+/// 20 (SetPixelFormat), and SetEncodings (4-byte header plus 6 codes of
+/// 4 bytes each = 28). The 6 codes are ZRLE, Tight, CopyRect, Raw,
+/// DesktopSize, LastRect.
 ///
 /// Verify by reading the actual code in `connection.rs`.
-const HANDSHAKE_WRITE_LEN: usize = 12 + 1 + 1 + 20 + 4 + 5 * 4;
+const HANDSHAKE_WRITE_LEN: usize = 12 + 1 + 1 + 20 + 4 + 6 * 4;
 
 #[tokio::test]
 async fn key_event_press_then_release_lays_out_bytes() {

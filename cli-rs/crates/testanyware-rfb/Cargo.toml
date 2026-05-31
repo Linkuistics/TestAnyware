@@ -12,6 +12,10 @@ thiserror = { workspace = true }
 des = "0.8"
 cipher = "0.4"
 flate2 = { workspace = true }
+jpeg-decoder = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# Pure-Rust JPEG encoder, used only to synthesise Tight-JPEG test
+# rectangles (jpeg-decoder decodes but cannot encode).
+jpeg-encoder = "0.6"

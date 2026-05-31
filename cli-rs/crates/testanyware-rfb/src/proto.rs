@@ -35,6 +35,10 @@ pub mod sec_type {
 pub mod encoding {
     pub const RAW: i32 = 0;
     pub const COPY_RECT: i32 = 1;
+    /// Tight (§7.7.5): per-rectangle compression-control byte selecting
+    /// fill / JPEG / basic (zlib-compressed, optionally filtered)
+    /// compression, over up to four persistent zlib streams.
+    pub const TIGHT: i32 = 7;
     /// ZRLE (§7.7.6): zlib-compressed, 64×64-tiled, per-tile
     /// sub-encodings. One zlib stream persists across the connection.
     pub const ZRLE: i32 = 16;

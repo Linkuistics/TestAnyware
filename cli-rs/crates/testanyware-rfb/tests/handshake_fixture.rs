@@ -125,10 +125,13 @@ async fn client_writes_protocol_version_then_chosen_security_then_setpf_setencod
     // Next: SetEncodings (1 tag + 1 pad + 2 count + N*4).
     assert_eq!(writes[34], 2, "SetEncodings tag");
     let n = u16::from_be_bytes([writes[36], writes[37]]);
-    assert_eq!(n, 5, "ZRLE + CopyRect + Raw + DesktopSize + LastRect");
-    // ZRLE (16) must be advertised first so servers prefer it.
+    assert_eq!(n, 6, "ZRLE + Tight + CopyRect + Raw + DesktopSize + LastRect");
+    // ZRLE (16) must be advertised first (lossless, preferred for OCR),
+    // with Tight (7) second.
     let first = i32::from_be_bytes([writes[38], writes[39], writes[40], writes[41]]);
-    assert_eq!(first, 16, "ZRLE advertised ahead of Raw");
+    assert_eq!(first, 16, "ZRLE advertised first");
+    let second = i32::from_be_bytes([writes[42], writes[43], writes[44], writes[45]]);
+    assert_eq!(second, 7, "Tight advertised second");
 }
 
 #[tokio::test]
@@ -196,4 +199,38 @@ async fn full_update_decoded_into_framebuffer() {
     let rgba = conn.framebuffer().rgba();
     assert_eq!(&rgba[0..4], &[255, 0, 0, 0xFF], "pixel 0 RGBA = red");
     assert_eq!(&rgba[4..8], &[0, 255, 0, 0xFF], "pixel 1 RGBA = green");
+}
+
+#[tokio::test]
+async fn tight_fill_rect_decoded_through_connection_path() {
+    // Exercise the Tight arm end-to-end: a 2x2 framebuffer filled by a
+    // single Tight "fill" rectangle (control 0x80 + one TPIXEL), proving
+    // the connection reads Tight's variable-length payload straight off
+    // the transport and lands it in the framebuffer.
+    let mut script = server_no_auth_script(2, 2, b"vm");
+    script.push(0); // FramebufferUpdate tag
+    script.push(0); // pad
+    script.extend_from_slice(&1u16.to_be_bytes()); // num_rects
+    script.extend_from_slice(&0u16.to_be_bytes()); // x
+    script.extend_from_slice(&0u16.to_be_bytes()); // y
+    script.extend_from_slice(&2u16.to_be_bytes()); // w
+    script.extend_from_slice(&2u16.to_be_bytes()); // h
+    script.extend_from_slice(&7i32.to_be_bytes()); // encoding = Tight
+    script.push(0x80); // control byte: fill, no resets
+    // TPIXEL for our rgba32_le format: 3 significant LE bytes [B, G, R].
+    // Blue colour (R=0, G=0, B=255) => [255, 0, 0].
+    script.extend_from_slice(&[255, 0, 0]);
+
+    let transport = ScriptedTransport::new(script);
+    let mut conn = RfbConnection::handshake(transport, None).await.unwrap();
+    let event = conn.next_message().await.unwrap();
+    match event {
+        ServerEvent::FramebufferUpdated { rectangles } => assert_eq!(rectangles, 1),
+        other => panic!("expected FramebufferUpdated, got {other:?}"),
+    }
+    // All four pixels are blue: RGBA = [0, 0, 255, 0xFF].
+    let rgba = conn.framebuffer().rgba();
+    for px in rgba.chunks_exact(4) {
+        assert_eq!(px, &[0, 0, 255, 0xFF]);
+    }
 }
