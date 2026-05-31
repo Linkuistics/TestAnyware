@@ -170,15 +170,13 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
         // is the universal fallback; CopyRect is orthogonal (moved
         // regions) and the two pseudo-encodings keep SetEncodings
         // future-friendly.
-        conn.set_encodings(&[
-            encoding::ZRLE,
-            encoding::TIGHT,
-            encoding::COPY_RECT,
-            encoding::RAW,
-            encoding::PSEUDO_DESKTOP_SIZE,
-            encoding::PSEUDO_LAST_RECT,
-        ])
-        .await?;
+        //
+        // The TESTANYWARE_RFB_ENCODING diagnostic override (internal /
+        // test-only) can force a single primary so the live-VM gate makes
+        // a real server exercise each decoder in isolation — see
+        // `encoding_preferences`.
+        let forced = forced_encoding_from_env()?;
+        conn.set_encodings(&encoding_preferences(forced)).await?;
 
         Ok(conn)
     }
@@ -402,6 +400,87 @@ fn pick_security_type(offered: &[u8], have_password: bool) -> Result<u8, RfbErro
     Err(RfbError::NoMutualSecurityType(offered.to_vec()))
 }
 
+/// The diagnostic env var that forces a single primary RFB encoding.
+///
+/// **Internal / test-only seam** — not part of the stable CLI contract.
+/// It exists so the live-VM gate can make a real VNC server send each of
+/// ZRLE, Tight and Raw in isolation and assert the decoded framebuffers
+/// match. Per the CLI design contract §9.5 it is still registered in
+/// `docs/reference/env-vars.md` and surfaced in `capabilities --json`
+/// `env_vars` (marked internal).
+pub const ENCODING_OVERRIDE_ENV: &str = "TESTANYWARE_RFB_ENCODING";
+
+/// A forced primary encoding parsed from [`ENCODING_OVERRIDE_ENV`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ForcedEncoding {
+    Zrle,
+    Tight,
+    Raw,
+}
+
+impl ForcedEncoding {
+    /// The wire encoding code this forces as the single primary.
+    fn primary_code(self) -> i32 {
+        match self {
+            ForcedEncoding::Zrle => encoding::ZRLE,
+            ForcedEncoding::Tight => encoding::TIGHT,
+            ForcedEncoding::Raw => encoding::RAW,
+        }
+    }
+
+    /// Parse the override value (case-insensitive, trimmed). An
+    /// unrecognised value is a hard error, never silently ignored.
+    fn parse(value: &str) -> Result<Self, RfbError> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "zrle" => Ok(ForcedEncoding::Zrle),
+            "tight" => Ok(ForcedEncoding::Tight),
+            "raw" => Ok(ForcedEncoding::Raw),
+            _ => Err(RfbError::InvalidEncodingOverride {
+                value: value.to_string(),
+            }),
+        }
+    }
+}
+
+/// Read the encoding override from the environment. `Ok(None)` when the
+/// var is absent or blank; `Err` when it holds an unrecognised value.
+fn forced_encoding_from_env() -> Result<Option<ForcedEncoding>, RfbError> {
+    match std::env::var(ENCODING_OVERRIDE_ENV) {
+        Ok(v) if v.trim().is_empty() => Ok(None),
+        Ok(v) => ForcedEncoding::parse(&v).map(Some),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(std::env::VarError::NotUnicode(_)) => Err(RfbError::InvalidEncodingOverride {
+            value: "<non-unicode>".to_string(),
+        }),
+    }
+}
+
+/// Build the `SetEncodings` preference list.
+///
+/// With `forced = None`, the default order is ZRLE, then Tight, CopyRect,
+/// and Raw, plus the pseudo-encodings. With a forced primary, advertise
+/// only that primary as a real pixel encoding — but keep CopyRect
+/// (orthogonal moved-region updates) and the pseudo-encodings so a resize
+/// or a copyrect-bearing update doesn't drop the connection.
+fn encoding_preferences(forced: Option<ForcedEncoding>) -> Vec<i32> {
+    let mut list = Vec::new();
+    match forced {
+        None => list.extend_from_slice(&[
+            encoding::ZRLE,
+            encoding::TIGHT,
+            encoding::COPY_RECT,
+            encoding::RAW,
+        ]),
+        Some(f) => {
+            list.push(f.primary_code());
+            list.push(encoding::COPY_RECT);
+        }
+    }
+    list.push(encoding::PSEUDO_DESKTOP_SIZE);
+    list.push(encoding::PSEUDO_LAST_RECT);
+    list
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -435,5 +514,78 @@ mod tests {
             pick_security_type(&[42], false),
             Err(RfbError::NoMutualSecurityType(_))
         ));
+    }
+
+    #[test]
+    fn default_preferences_lead_with_zrle() {
+        assert_eq!(
+            encoding_preferences(None),
+            vec![
+                encoding::ZRLE,
+                encoding::TIGHT,
+                encoding::COPY_RECT,
+                encoding::RAW,
+                encoding::PSEUDO_DESKTOP_SIZE,
+                encoding::PSEUDO_LAST_RECT,
+            ]
+        );
+    }
+
+    #[test]
+    fn forced_primary_advertises_only_that_plus_copyrect_and_pseudos() {
+        for (forced, code) in [
+            (ForcedEncoding::Zrle, encoding::ZRLE),
+            (ForcedEncoding::Tight, encoding::TIGHT),
+            (ForcedEncoding::Raw, encoding::RAW),
+        ] {
+            assert_eq!(
+                encoding_preferences(Some(forced)),
+                vec![
+                    code,
+                    encoding::COPY_RECT,
+                    encoding::PSEUDO_DESKTOP_SIZE,
+                    encoding::PSEUDO_LAST_RECT,
+                ],
+                "forced {forced:?} should advertise only its primary + copyrect + pseudos"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_override_is_case_insensitive_and_trims() {
+        assert_eq!(ForcedEncoding::parse("zrle").unwrap(), ForcedEncoding::Zrle);
+        assert_eq!(
+            ForcedEncoding::parse("  Tight ").unwrap(),
+            ForcedEncoding::Tight
+        );
+        assert_eq!(ForcedEncoding::parse("RAW").unwrap(), ForcedEncoding::Raw);
+    }
+
+    #[test]
+    fn parse_override_rejects_unknown_value() {
+        assert!(matches!(
+            ForcedEncoding::parse("h264"),
+            Err(RfbError::InvalidEncodingOverride { .. })
+        ));
+    }
+
+    #[test]
+    fn from_env_reads_absent_present_and_invalid() {
+        // This test owns ENCODING_OVERRIDE_ENV; no sibling unit test in
+        // this binary touches it or runs the handshake, so the global env
+        // mutation is race-free here.
+        std::env::remove_var(ENCODING_OVERRIDE_ENV);
+        assert_eq!(forced_encoding_from_env().unwrap(), None);
+
+        std::env::set_var(ENCODING_OVERRIDE_ENV, "tight");
+        assert_eq!(
+            forced_encoding_from_env().unwrap(),
+            Some(ForcedEncoding::Tight)
+        );
+
+        std::env::set_var(ENCODING_OVERRIDE_ENV, "bogus");
+        assert!(forced_encoding_from_env().is_err());
+
+        std::env::remove_var(ENCODING_OVERRIDE_ENV);
     }
 }

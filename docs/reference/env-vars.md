@@ -17,6 +17,7 @@ parent shell before calling `testanyware` or a script under
 | `TESTANYWARE_OCR_PYTHON` | Override the Python interpreter used for the EasyOCR daemon | `python3` on PATH | `TestAnywareServer` OCR bridge |
 | `TESTANYWARE_VNC_DEBUG` | Set to `1` to emit verbose RFB/VNC protocol logging to stderr | `0` | `VNCCapture` |
 | `TESTANYWARE_VNC_ARD_REMAP` | Set to `1` to force Apple Remote Desktop keycode remapping (usually auto-detected) | `0` | `VNCInput` |
+| `TESTANYWARE_RFB_ENCODING` | **Internal / test-only.** Force the RFB client to advertise a single primary encoding — `zrle`, `tight`, or `raw` (plus CopyRect and the desktop-size/last-rect pseudo-encodings) — so the live-VM gate can make a real server exercise each decoder in isolation. Unrecognised value fails with `USAGE_ERROR` (exit 2). | unset (full `zrle`>`tight`>`copyrect`>`raw` preference) | `testanyware-rfb` (`RfbConnection::handshake`) |
 | `TESTANYWARE_SKIP_INTEGRATION` | Set to `1` to skip all integration tests in `cli/Tests/IntegrationTests/` | `0` | `VNCIntegrationTests`, `VMLifecycleTests` |
 | `TESTANYWARE_SKIP_VIEWER_TEST` | Set to `1` to opt out of the viewer open/close integration test | `0` | `VMLifecycleTests` |
 | `TESTANYWARE_SERVER_URL` | Base URL for the collect-training-data helper against a running local server | `http://localhost:9100` | `vision/stages/icon-classification/training/collect-training-data.sh` |

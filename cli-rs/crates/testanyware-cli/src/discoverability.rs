@@ -94,6 +94,22 @@ pub fn run_capabilities() -> ! {
             "guest": ["macos", "linux", "windows"],
         },
         "error_codes": ERROR_CODES,
+        // §9.5 (hidden state): behaviour-influencing env vars are surfaced
+        // here and documented in docs/reference/env-vars.md. `internal:
+        // true` marks diagnostic/test-only seams that are NOT part of the
+        // stable contract surface.
+        "env_vars": [
+            { "name": "TESTANYWARE_VM_ID",  "internal": false,
+              "description": "VM instance id; resolves the per-VM connection spec." },
+            { "name": "TESTANYWARE_VNC",     "internal": false,
+              "description": "VNC endpoint host[:port] (ad-hoc, no spec file)." },
+            { "name": "TESTANYWARE_AGENT",   "internal": false,
+              "description": "Agent HTTP endpoint host[:port]." },
+            { "name": "TESTANYWARE_PLATFORM", "internal": false,
+              "description": "Target platform: macos, linux, windows." },
+            { "name": "TESTANYWARE_RFB_ENCODING", "internal": true,
+              "description": "Force a single primary RFB encoding (zrle|tight|raw) so the live-VM gate can exercise each decoder; not part of the stable contract." },
+        ],
     });
 
     println!("{}", serde_json::to_string_pretty(&body).expect("serialize capabilities"));

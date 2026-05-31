@@ -387,8 +387,16 @@ fn exit_rfb_error(err: testanyware_rfb::RfbError, mode: OutputMode) -> ! {
         RfbError::UnexpectedMessageType(_) => ("INTERNAL", 1),
         RfbError::UnsupportedEncoding(_) => ("INTERNAL", 1),
         RfbError::Protocol(_) => ("INTERNAL", 1),
+        RfbError::InvalidEncodingOverride { .. } => ("USAGE_ERROR", 2),
     };
-    print_error(mode, code, &err.to_string(), None, json!({}), exit_code);
+    // §9.5: name the offending env var in remediation.
+    let remediation = match &err {
+        RfbError::InvalidEncodingOverride { .. } => {
+            Some("Set TESTANYWARE_RFB_ENCODING to one of zrle, tight, raw, or unset it.")
+        }
+        _ => None,
+    };
+    print_error(mode, code, &err.to_string(), remediation, json!({}), exit_code);
 }
 
 #[cfg(test)]

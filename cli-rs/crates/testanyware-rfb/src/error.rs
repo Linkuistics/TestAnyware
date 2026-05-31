@@ -34,4 +34,10 @@ pub enum RfbError {
 
     #[error("protocol violation: {0}")]
     Protocol(String),
+
+    #[error(
+        "invalid encoding override {value:?} in TESTANYWARE_RFB_ENCODING; \
+         expected one of: zrle, tight, raw"
+    )]
+    InvalidEncodingOverride { value: String },
 }
