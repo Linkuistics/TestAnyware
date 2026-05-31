@@ -80,7 +80,8 @@ First wave (materialized now):
 - [ ] Native macOS **Apple Vision** OCR engine at the `OcrEngine` seam → **040**
       (ADR-0002; FFI strategy — objc2 vs Swift shim — decided in that leaf).
 - [ ] VNC viewer with `egui` to replace the AppleScript launcher (`--viewer`).
-- [ ] ZRLE + Tight encodings for the RFB client crate.
+- [x] ZRLE + Tight encodings for the RFB client crate (node 040; live
+      verification rolls up into leaf 050).
 - [ ] tart runner for the macOS-host-macOS-guest path (`#[cfg(target_os=macos)]`).
 - [ ] Windows-host support (cross-platform pass).
 - [ ] Live-VM verification gate for the RFB client + input layer.
