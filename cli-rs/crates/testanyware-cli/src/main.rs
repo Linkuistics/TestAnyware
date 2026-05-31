@@ -806,12 +806,6 @@ enum Command {
     )]
     LlmInstructions,
 
-    /// Run as an agent server (development helper)
-    Server {
-        #[arg(long, default_value_t = 8648)]
-        port: u16,
-    },
-
     // ---- Verb-first aliases (§1, §7.2) ----------------------------------
 
     /// Alias of `testanyware screen capture`. Run that for full help.
@@ -1678,7 +1672,6 @@ async fn main() {
         Command::Capabilities { json: _ } => run_capabilities(),
         Command::Schema { command } => run_schema(&command),
         Command::LlmInstructions => run_llm_instructions(),
-        Command::Server { .. } => unimplemented("server"),
         // Verb-first aliases dispatch to the same handler as the canonical.
         Command::Screenshot(args) => run_screen_capture(args).await,
         Command::Record(_) => unimplemented("screen record"),
