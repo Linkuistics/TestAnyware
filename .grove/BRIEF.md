@@ -80,6 +80,8 @@ First wave (materialized now):
 - [ ] Native macOS **Apple Vision** OCR engine at the `OcrEngine` seam → **040**
       (ADR-0002; FFI strategy — objc2 vs Swift shim — decided in that leaf).
 - [ ] VNC viewer with `egui` to replace the AppleScript launcher (`--viewer`).
+      **Planned + decomposed → node `060-egui-viewer`** (ADR-0005): leaves
+      `010-render-loop`, `020-input-forwarding`, `030-reconnect-and-start-sugar`.
 - [x] ZRLE + Tight encodings for the RFB client crate (node 040; live
       verification rolls up into leaf 050).
 - [ ] tart runner for the macOS-host-macOS-guest path (`#[cfg(target_os=macos)]`).

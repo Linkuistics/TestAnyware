@@ -66,6 +66,19 @@ wider vision pipeline (ADR-0002), distinct from the retired *Shared-VNC
 server*.
 _Avoid_: calling it "the server".
 
+**Embedded viewer**:
+The Rust CLI's `testanyware viewer` command (and the `vm start --viewer`
+sugar) — an in-process `eframe`/`wgpu` window that renders a live RFB
+`FramebufferUpdate` stream and forwards input to the guest. It is the **only
+long-lived RFB consumer** (every other command opens a short-lived
+per-invocation connection — ADR-0004) and the first continuous driver of the
+`testanyware-rfb` client. Architecture in ADR-0005: dedicated RFB thread +
+isolated runtime, eframe on the main thread. Contrast the Swift `--viewer`,
+which launched an *external* VNC app via AppleScript.
+_Avoid_: "the VNC server" (it is a *client*/display surface, not a server);
+conflating it with the retired *Shared-VNC server* (a multiplexer other
+invocations attached to — the viewer is a single standalone display).
+
 ## Example dialogue
 
 > **Dev:** I broke something — `testanyware vm start` is timing out on
