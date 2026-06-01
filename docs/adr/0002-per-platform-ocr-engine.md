@@ -69,3 +69,10 @@ OCR, consistent with `TESTANYWARE_OCR_FALLBACK` semantics.
   returns the in-process `OcrEngine::Vision` on macOS unless
   `TESTANYWARE_OCR_FALLBACK=1`, so `env-vars.md` is accurate and this
   caveat is closed.
+- **Live Vision-OCR verification is closed** by the live-VM gate
+  (`cli-rs/crates/testanyware-cli/tests/live-vm-gate.rs`, grove node
+  `050-live-vm-gate`). Against a freshly-booted macOS golden, `screen
+  find-text File --json` reports `engine == "vision"` and finds the menu-bar
+  text with a plausible bounding box; the gate also best-effort-exercises the
+  `TESTANYWARE_OCR_FALLBACK=1` daemon path for parity. This was the live check
+  `040-macos-vision-ocr` deferred to the gate.

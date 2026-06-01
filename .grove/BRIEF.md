@@ -86,7 +86,9 @@ First wave (materialized now):
       **Pulled into the `050-live-vm-gate` node** as leaf `010-tart-runner` — the
       gate needs it to reach the cheap kept-built tart goldens. Owned there now.
 - [ ] Windows-host support (cross-platform pass).
-- [ ] Live-VM verification gate for the RFB client + input layer.
+- [x] Live-VM verification gate for the RFB client + input layer (node
+      `050-live-vm-gate`: `tests/live-vm-gate.rs` — input landing, show-menu,
+      ZRLE/Tight/Raw capture, live Vision OCR; macOS golden, env+`#[ignore]`d).
 
 **Distribution / finish**:
 - [ ] Golden-image creation as a `vm create-golden --platform <p>` subcommand,
