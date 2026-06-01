@@ -13,7 +13,7 @@ use clap::{Args, Parser, Subcommand};
 
 use testanyware_cli::commands::{
     agent as agent_cmds, doctor as doctor_cmds, file as file_cmds, input as input_cmds,
-    screen as screen_cmds, vm as vm_cmds,
+    screen as screen_cmds, viewer as viewer_cmds, vm as vm_cmds,
 };
 use testanyware_cli::discoverability::{run_capabilities, run_llm_instructions, run_schema};
 use testanyware_cli::output::OutputMode;
@@ -647,6 +647,31 @@ SEE ALSO:
     testanyware screen capture, testanyware screen size, testanyware agent wait
 ";
 
+const VIEWER_AFTER_HELP: &str = "\
+OUTPUT:
+    None — this is a long-lived interactive command. It opens a window
+    that renders the guest's live VNC framebuffer and forwards input to
+    the guest, blocking until the window is closed. No data envelope, so
+    --json and --dry-run are not offered (contract: interactive command).
+
+EXIT CODES:
+    0  the window opened and was closed cleanly (including after a
+       connection drop, which is shown as an in-window overlay)
+    1  the window failed to open
+    2  NO_CONNECTION_SPECIFIED / usage error
+    3  VM_NOT_FOUND
+
+EXAMPLES:
+    # View a running VM by id
+    testanyware viewer --vm \"$TESTANYWARE_VM_ID\"
+
+    # View an explicit VNC endpoint
+    testanyware viewer --vnc 127.0.0.1:5900
+
+SEE ALSO:
+    testanyware vm start, testanyware screen capture, testanyware input click
+";
+
 // Root-level help banners — make the LLM usage guide impossible to miss
 // for an agent that runs bare `testanyware` or `testanyware --help`.
 const ROOT_BEFORE_HELP: &str =
@@ -748,6 +773,13 @@ enum Command {
     Vm {
         #[command(subcommand)]
         action: VmAction,
+    },
+
+    /// Open an interactive viewer window for a VM's VNC framebuffer
+    #[command(after_long_help = VIEWER_AFTER_HELP)]
+    Viewer {
+        #[command(flatten)]
+        conn: ConnectionOptions,
     },
 
     /// Diagnose the local install
@@ -1686,6 +1718,9 @@ async fn main() {
                 vm_cmds::run_vm_delete(name, force, OutputMode::from_flags(json), dry_run).await
             }
         },
+        // Synchronous on purpose: eframe::run_native must own the main
+        // thread, and `block_on` keeps this arm on it (ADR-0005). No await.
+        Command::Viewer { conn } => viewer_cmds::run_viewer(conn.into()),
         Command::Doctor { json } => doctor_cmds::run_doctor(OutputMode::from_flags(json)),
         Command::Capabilities { json: _ } => run_capabilities(),
         Command::Schema { command } => run_schema(&command),

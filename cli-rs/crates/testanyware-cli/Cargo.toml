@@ -18,13 +18,20 @@ testanyware-rfb = { path = "../testanyware-rfb" }
 testanyware-vm = { path = "../testanyware-vm" }
 testanyware-ocr-client = { path = "../testanyware-ocr-client" }
 clap = { workspace = true }
-tokio = { workspace = true }
+# `sync` adds the async mpsc/watch channels the viewer's dedicated RFB
+# thread uses to hand frames to / take input + shutdown from the UI.
+tokio = { workspace = true, features = ["sync"] }
 anyhow = { workspace = true }
 directories = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png"] }
+# Embedded viewer (ADR-0005): eframe with the wgpu backend. wgpu over glow
+# for HiDPI/Retina and a future-proof Metal/DX12/Vulkan backend set; the
+# binary-size / cross-compile cost is revisited in the distribution leaves.
+# x11 + wayland keep the Linux build green (verification rides a later leaf).
+eframe = { version = "0.34", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -73,6 +73,10 @@ pub const CANONICAL_COMMANDS: &[CommandSpec] = &[
     CommandSpec { path: &["file", "download"], mutating: true, data_producing: true, schema_id: Some("file-download") },
     CommandSpec { path: &["file", "exec"],     mutating: true, data_producing: true, schema_id: Some("file-exec") },
 
+    // viewer (ADR-0005): long-lived + interactive embedded viewer. Neither
+    // mutating nor data-producing — exempt from --json/--dry-run, no schema.
+    CommandSpec { path: &["viewer"], mutating: false, data_producing: false, schema_id: None },
+
     // top-level utilities
     CommandSpec { path: &["doctor"],           mutating: false, data_producing: true, schema_id: Some("doctor") },
     CommandSpec { path: &["capabilities"],     mutating: false, data_producing: true, schema_id: Some("capabilities") },
@@ -88,6 +92,7 @@ pub const TOP_LEVEL_GROUPS: &[&str] = &[
     "input",
     "screen",
     "file",
+    "viewer",
     "doctor",
     "capabilities",
     "schema",

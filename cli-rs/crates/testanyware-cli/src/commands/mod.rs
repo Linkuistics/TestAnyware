@@ -15,6 +15,7 @@ pub mod file;
 pub mod input;
 pub mod menu_bar;
 pub mod screen;
+pub mod viewer;
 pub mod vm;
 pub mod window;
 
