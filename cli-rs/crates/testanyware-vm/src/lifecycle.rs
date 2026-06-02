@@ -176,7 +176,9 @@ impl VmLifecycle {
             QemuRunner::stop(artifacts.pid, &artifacts.clone_dir, paths);
         })?;
 
-        // Viewer wiring is backlog task 8; `viewer_window_id` stays null.
+        // `viewer_window_id` tracked the Swift CLI's *external* AppleScript
+        // viewer window; the Rust embedded viewer (ADR-0005) owns its window
+        // in-process, so this Swift-compat field is permanently null.
         let meta = VmMeta {
             id: opts.id.clone(),
             tool: VmTool::Qemu,

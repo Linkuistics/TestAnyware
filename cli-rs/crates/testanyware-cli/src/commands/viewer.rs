@@ -1,9 +1,11 @@
 //! `testanyware viewer` — the embedded `eframe`/`wgpu` viewer (ADR-0005).
 //!
-//! Leaf 060/010 built the **read-only render skeleton**; leaf 060/020 (this
-//! work) makes it **interactive**: egui pointer/keyboard input is forwarded
-//! to the guest over RFB. Auto-reconnect + `vm start --viewer` sugar (leaf
-//! 030) build on this.
+//! Leaf 060/010 built the **read-only render skeleton**; leaf 060/020 made it
+//! **interactive** (egui pointer/keyboard forwarded to the guest over RFB);
+//! leaf 060/030 (this work) adds **lifecycle polish**: the RFB thread
+//! **auto-reconnects** with bounded backoff so the window survives guest
+//! reboots / transient drops, and `vm start --viewer` opens the viewer inline
+//! (the sugar lives in `commands/vm.rs`, reusing [`run_viewer`]).
 //!
 //! ## Architecture (ADR-0005)
 //!
@@ -57,7 +59,6 @@ use testanyware_rfb::{RfbConnection, ServerEvent};
 use crate::output::{print_error, OutputMode};
 use crate::resolve::{
     resolve_platform_with_env, resolve_vnc, ConnectionOptions, EnvProvider, ResolveError,
-    ResolvedVnc,
 };
 
 /// Trackpad/wheel `Point`-unit delta treated as one wheel line. egui emits
@@ -75,13 +76,26 @@ const MAX_WHEEL_PULSES: u32 = 16;
 /// answers only when something changed, so an idle desktop is cheap.
 const INCREMENTAL_POLL_INTERVAL: Duration = Duration::from_millis(33);
 
+/// First reconnect delay after a drop, and the floor the backoff resets to
+/// once a session has genuinely streamed (a guest reboot reconnects quickly).
+const INITIAL_BACKOFF: Duration = Duration::from_millis(500);
+/// Ceiling on the exponential backoff — the viewer is a dev tool, not a
+/// service, so keep retries snappy and modest (ADR-0005 / leaf 030 notes).
+const MAX_BACKOFF: Duration = Duration::from_secs(5);
+/// Consecutive *unproductive* connect attempts (never delivered a frame)
+/// before the RFB thread gives up and paints a terminal overlay. A drop
+/// after a working session resets this, so bouncing a VM never exhausts it.
+const MAX_CONNECT_ATTEMPTS: u32 = 12;
+
 /// Latest framebuffer state shared from the RFB thread to the UI.
 ///
 /// The RFB thread overwrites `rgba`/`width`/`height` and sets `dirty` on
 /// each applied update; the UI consumes it (clearing `dirty`) and uploads
-/// to a texture. On a connection drop the RFB thread sets `disconnected`
-/// and `status` so the UI can paint the overlay (leaf A: overlay then
-/// clean exit, no auto-reconnect — that is leaf 030).
+/// to a texture. On a connection drop the RFB thread sets `disconnected` +
+/// `status` so the UI paints an overlay over the last frame; while the
+/// thread retries it updates `status` to "Reconnecting…", and on success it
+/// clears `disconnected`. After the give-up ceiling it sets `gave_up` so
+/// [`run_viewer`] can exit non-zero once the window is closed (leaf 030).
 #[derive(Default)]
 struct FrameSlot {
     rgba: Vec<u8>,
@@ -89,10 +103,13 @@ struct FrameSlot {
     height: u32,
     /// A new frame is waiting for the UI to upload.
     dirty: bool,
-    /// The RFB connection dropped or failed; show the overlay.
+    /// The RFB connection dropped or is reconnecting; show the overlay.
     disconnected: bool,
     /// Human-readable reason for the overlay text.
     status: Option<String>,
+    /// Reconnection exhausted its budget; the overlay is terminal and the
+    /// process should exit non-zero when the window closes.
+    gave_up: bool,
 }
 
 /// UI → RFB input event. Produced by [`ViewerApp`] from egui input and
@@ -109,13 +126,15 @@ enum ViewerInput {
 /// `testanyware viewer` entry point. Synchronous on purpose — see the
 /// module docs: it must run on the main thread so eframe can own it.
 pub fn run_viewer(opts: ConnectionOptions) {
-    // Resolve the endpoint up front (synchronous). A resolution failure is
+    // Validate the endpoint up front (synchronous). A resolution failure is
     // a real usage/config error, so it exits non-zero *before* any window
     // opens — unlike a live connection drop, which surfaces as the overlay.
-    let endpoint = match resolve_vnc(&opts) {
-        Ok(e) => e,
-        Err(err) => exit_resolve_error(err),
-    };
+    // The resolved value is discarded: the RFB thread re-resolves on every
+    // (re)connect from `opts`, so a spec rewritten between attempts (e.g. a
+    // new VNC port after `vm start`) is picked up automatically (leaf 030).
+    if let Err(err) = resolve_vnc(&opts) {
+        exit_resolve_error(err);
+    }
     // Keysym mapping is keyed on the *guest* platform (matching the `input`
     // command), not the host. A bad/absent value falls back to macOS rather
     // than aborting the window — the viewer is interactive, not a one-shot.
@@ -131,6 +150,7 @@ pub fn run_viewer(opts: ConnectionOptions) {
     // creator closure; the thread blocks on `recv()` until the window is up.
     let (ctx_tx, ctx_rx) = std::sync::mpsc::channel::<egui::Context>();
     let rfb_frame = Arc::clone(&frame);
+    let rfb_opts = opts; // moved into the thread for re-resolution on reconnect
     let rfb_thread = std::thread::Builder::new()
         .name("rfb-viewer".to_string())
         .spawn(move || {
@@ -141,7 +161,7 @@ pub fn run_viewer(opts: ConnectionOptions) {
                 .enable_all()
                 .build()
                 .expect("build viewer RFB runtime");
-            rt.block_on(rfb_loop(endpoint, rfb_frame, input_rx, shutdown_rx, ctx));
+            rt.block_on(rfb_loop(rfb_opts, rfb_frame, input_rx, shutdown_rx, ctx));
         })
         .expect("spawn viewer RFB thread");
 
@@ -176,37 +196,161 @@ pub fn run_viewer(opts: ConnectionOptions) {
         eprintln!("testanyware viewer: failed to open window: {err}");
         std::process::exit(1);
     }
+
+    // If reconnection exhausted its budget, the window stayed up showing a
+    // terminal overlay; report the give-up as a non-zero exit now that the
+    // user has closed it (a poisoned lock is treated as "did not give up").
+    if frame.lock().map(|s| s.gave_up).unwrap_or(false) {
+        eprintln!("testanyware viewer: connection lost and reconnection gave up");
+        std::process::exit(1);
+    }
 }
 
-/// The dedicated-thread RFB loop. Owns the connection for its whole life;
-/// copies each applied frame into the shared slot and wakes the UI.
+/// Why a `connect_and_stream` attempt ended.
+enum StreamOutcome {
+    /// The window closed; the thread should exit without reconnecting.
+    Shutdown,
+    /// The connection failed or dropped. `productive` is true if the session
+    /// delivered at least one framebuffer — the signal that distinguishes a
+    /// real session ending (guest reboot → reconnect indefinitely) from a
+    /// dead endpoint (never streamed → count toward the give-up ceiling).
+    Lost { reason: String, productive: bool },
+}
+
+/// Exponential-backoff + give-up policy for the reconnect loop. Pure data so
+/// the escalation/reset/ceiling behaviour is unit-tested without a socket.
+struct Backoff {
+    /// Consecutive *unproductive* failures since the last productive drop.
+    failures: u32,
+    /// Delay before the next reconnect attempt.
+    delay: Duration,
+}
+
+impl Backoff {
+    fn new() -> Self {
+        Self { failures: 0, delay: INITIAL_BACKOFF }
+    }
+
+    /// A session that streamed ended (e.g. guest reboot): clear the failure
+    /// budget and reset the delay so the reconnect is prompt.
+    fn note_productive_drop(&mut self) {
+        self.failures = 0;
+        self.delay = INITIAL_BACKOFF;
+    }
+
+    /// An unproductive attempt (never streamed) ended. Escalates the delay
+    /// and returns `true` once the give-up ceiling is reached.
+    fn note_failure(&mut self) -> bool {
+        self.failures += 1;
+        if self.failures >= MAX_CONNECT_ATTEMPTS {
+            return true;
+        }
+        self.delay = (self.delay * 2).min(MAX_BACKOFF);
+        false
+    }
+
+    fn delay(&self) -> Duration {
+        self.delay
+    }
+
+    fn failures(&self) -> u32 {
+        self.failures
+    }
+}
+
+/// The dedicated-thread RFB driver: an **auto-reconnect loop** (leaf 030)
+/// around [`connect_and_stream`]. It re-resolves the endpoint from `opts` on
+/// every attempt, paints a "Reconnecting…" overlay between attempts, and
+/// gives up (terminal overlay + `gave_up`) after [`MAX_CONNECT_ATTEMPTS`]
+/// consecutive unproductive failures. A productive session ending resets the
+/// budget, so bouncing a VM reconnects forever.
 async fn rfb_loop(
-    endpoint: ResolvedVnc,
+    opts: ConnectionOptions,
     frame: Arc<Mutex<FrameSlot>>,
     mut input_rx: tokio::sync::mpsc::Receiver<ViewerInput>,
     mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
     ctx: egui::Context,
 ) {
-    let mut conn = match RfbConnection::connect(
+    let mut backoff = Backoff::new();
+    loop {
+        // Cheap pre-attempt check: the window may have closed during backoff.
+        // `borrow()` does not mark the change seen, so a pending shutdown is
+        // still caught by the `changed()` selects below.
+        if *shutdown_rx.borrow() {
+            return;
+        }
+        match connect_and_stream(&opts, &frame, &mut input_rx, &mut shutdown_rx, &ctx).await {
+            StreamOutcome::Shutdown => return,
+            StreamOutcome::Lost { reason, productive } => {
+                if productive {
+                    backoff.note_productive_drop();
+                } else if backoff.note_failure() {
+                    mark_gave_up(&frame, &ctx, &reason, backoff.failures());
+                    return;
+                }
+                mark_reconnecting(&frame, &ctx, &reason, backoff.failures());
+                // Wait out the backoff, but wake immediately if the window
+                // closes so closing the viewer never hangs on the delay.
+                tokio::select! {
+                    _ = tokio::time::sleep(backoff.delay()) => {}
+                    _ = shutdown_rx.changed() => return,
+                }
+            }
+        }
+    }
+}
+
+/// One connect → stream attempt. Owns the connection for the attempt's life,
+/// copying each applied frame into the shared slot and waking the UI. Returns
+/// the [`StreamOutcome`] describing how it ended; the caller decides whether
+/// to reconnect. Re-resolves the endpoint each call so a rewritten spec is
+/// honoured on reconnect.
+async fn connect_and_stream(
+    opts: &ConnectionOptions,
+    frame: &Arc<Mutex<FrameSlot>>,
+    input_rx: &mut tokio::sync::mpsc::Receiver<ViewerInput>,
+    shutdown_rx: &mut tokio::sync::watch::Receiver<bool>,
+    ctx: &egui::Context,
+) -> StreamOutcome {
+    let endpoint = match resolve_vnc(opts) {
+        Ok(e) => e,
+        Err(err) => {
+            return StreamOutcome::Lost {
+                reason: format!("Cannot resolve endpoint: {err}"),
+                productive: false,
+            }
+        }
+    };
+
+    let connect = RfbConnection::connect(
         &endpoint.host,
         endpoint.port,
         endpoint.password.as_deref().map(str::as_bytes),
-    )
-    .await
-    {
-        Ok(c) => c,
-        Err(err) => {
-            mark_disconnected(&frame, &ctx, format!("Failed to connect: {err}"));
-            return;
-        }
+    );
+    let mut conn = tokio::select! {
+        result = connect => match result {
+            Ok(c) => c,
+            Err(err) => {
+                return StreamOutcome::Lost {
+                    reason: format!("Failed to connect: {err}"),
+                    productive: false,
+                }
+            }
+        },
+        // The connect may block on a dead host; let a window close abort it.
+        _ = shutdown_rx.changed() => return StreamOutcome::Shutdown,
     };
+
+    // Connected: clear any overlay so the live frame shows again.
+    mark_connected(frame, ctx);
+    // True once a framebuffer arrives — see `StreamOutcome::Lost::productive`.
+    let mut productive = false;
 
     // Kick off the stream with one full (non-incremental) update; the
     // interval below then requests incremental updates to keep it flowing.
     let (w, h) = conn.framebuffer_size();
     if let Err(err) = conn.request_framebuffer_update(false, 0, 0, w as u16, h as u16).await {
-        mark_disconnected(&frame, &ctx, format!("Connection lost: {err}"));
-        return;
+        return StreamOutcome::Lost { reason: format!("Connection lost: {err}"), productive };
     }
 
     let mut poll = tokio::time::interval(INCREMENTAL_POLL_INTERVAL);
@@ -217,17 +361,19 @@ async fn rfb_loop(
             msg = conn.next_message() => match msg {
                 Ok(ServerEvent::FramebufferUpdated { rectangles }) if rectangles > 0 => {
                     let fb = conn.framebuffer();
-                    update_slot(&frame, fb.width(), fb.height(), fb.rgba());
+                    update_slot(frame, fb.width(), fb.height(), fb.rgba());
+                    productive = true;
                     ctx.request_repaint();
                 }
                 Ok(_) => {} // no-op update / bell / cut-text: ignore
                 Err(err) => {
-                    mark_disconnected(&frame, &ctx, format!("Connection lost: {err}"));
-                    break;
+                    return StreamOutcome::Lost {
+                        reason: format!("Connection lost: {err}"),
+                        productive,
+                    };
                 }
             },
             Some(input) = input_rx.recv() => {
-                // Producer arrives in leaf 020; the handler is ready.
                 let result = match input {
                     ViewerInput::Key { keysym, down } => conn.key_event(keysym, down).await,
                     ViewerInput::Pointer { button_mask, x, y } => {
@@ -235,18 +381,22 @@ async fn rfb_loop(
                     }
                 };
                 if let Err(err) = result {
-                    mark_disconnected(&frame, &ctx, format!("Connection lost: {err}"));
-                    break;
+                    return StreamOutcome::Lost {
+                        reason: format!("Connection lost: {err}"),
+                        productive,
+                    };
                 }
             }
-            _ = shutdown_rx.changed() => break, // window closed
+            _ = shutdown_rx.changed() => return StreamOutcome::Shutdown, // window closed
             _ = poll.tick() => {
                 let (w, h) = conn.framebuffer_size();
                 if let Err(err) =
                     conn.request_framebuffer_update(true, 0, 0, w as u16, h as u16).await
                 {
-                    mark_disconnected(&frame, &ctx, format!("Connection lost: {err}"));
-                    break;
+                    return StreamOutcome::Lost {
+                        reason: format!("Connection lost: {err}"),
+                        productive,
+                    };
                 }
             }
         }
@@ -263,12 +413,54 @@ fn update_slot(frame: &Arc<Mutex<FrameSlot>>, width: u32, height: u32, rgba: &[u
     slot.dirty = true;
 }
 
-/// Record a disconnect so the UI paints the overlay, and wake it once more.
-fn mark_disconnected(frame: &Arc<Mutex<FrameSlot>>, ctx: &egui::Context, reason: String) {
+/// Clear the overlay on a (re)connect so the UI resumes showing live frames.
+fn mark_connected(frame: &Arc<Mutex<FrameSlot>>, ctx: &egui::Context) {
+    {
+        let mut slot = frame.lock().expect("frame slot poisoned");
+        slot.disconnected = false;
+        slot.status = None;
+    }
+    ctx.request_repaint();
+}
+
+/// Paint a "Reconnecting…" overlay (over the frozen last frame) while the
+/// thread waits to retry. `failures == 0` means a session that streamed just
+/// dropped (a reboot); otherwise it is the consecutive-failure count.
+fn mark_reconnecting(
+    frame: &Arc<Mutex<FrameSlot>>,
+    ctx: &egui::Context,
+    reason: &str,
+    failures: u32,
+) {
+    let status = if failures == 0 {
+        format!("Reconnecting… ({reason})")
+    } else {
+        format!("Reconnecting… (attempt {failures}): {reason}")
+    };
     {
         let mut slot = frame.lock().expect("frame slot poisoned");
         slot.disconnected = true;
-        slot.status = Some(reason);
+        slot.status = Some(status);
+    }
+    ctx.request_repaint();
+}
+
+/// Paint the terminal overlay after the reconnect budget is exhausted and
+/// flag `gave_up` so the process exits non-zero once the window is closed.
+fn mark_gave_up(
+    frame: &Arc<Mutex<FrameSlot>>,
+    ctx: &egui::Context,
+    reason: &str,
+    attempts: u32,
+) {
+    {
+        let mut slot = frame.lock().expect("frame slot poisoned");
+        slot.disconnected = true;
+        slot.gave_up = true;
+        slot.status = Some(format!(
+            "Disconnected: {reason} — gave up after {attempts} attempts. \
+             Close the window to exit."
+        ));
     }
     ctx.request_repaint();
 }
@@ -1008,5 +1200,52 @@ mod tests {
         // Another 30 points → 60 total ≥ 40 → exactly one line, 20 carried.
         let (_, dy) = app.accumulate_wheel(&[(egui::MouseWheelUnit::Point, egui::vec2(0.0, 30.0))]);
         assert_eq!(dy, 1);
+    }
+
+    // ---- reconnect backoff (leaf 030) -----------------------------------
+
+    #[test]
+    fn backoff_escalates_then_gives_up_after_the_ceiling() {
+        let mut b = Backoff::new();
+        assert_eq!(b.delay(), INITIAL_BACKOFF);
+        // The first MAX-1 failures escalate without giving up.
+        for n in 1..MAX_CONNECT_ATTEMPTS {
+            assert!(!b.note_failure(), "attempt {n} must not give up yet");
+            assert_eq!(b.failures(), n);
+        }
+        // The MAX-th consecutive failure gives up.
+        assert!(b.note_failure(), "the ceiling attempt must give up");
+        assert_eq!(b.failures(), MAX_CONNECT_ATTEMPTS);
+    }
+
+    #[test]
+    fn backoff_delay_doubles_and_caps_at_max() {
+        let mut b = Backoff::new();
+        b.note_failure(); // 500ms → 1s
+        assert_eq!(b.delay(), Duration::from_secs(1));
+        b.note_failure(); // → 2s
+        assert_eq!(b.delay(), Duration::from_secs(2));
+        b.note_failure(); // → 4s
+        assert_eq!(b.delay(), Duration::from_secs(4));
+        b.note_failure(); // 8s clamped to the 5s ceiling
+        assert_eq!(b.delay(), MAX_BACKOFF);
+        b.note_failure(); // stays clamped
+        assert_eq!(b.delay(), MAX_BACKOFF);
+    }
+
+    #[test]
+    fn backoff_productive_drop_resets_failures_and_delay() {
+        let mut b = Backoff::new();
+        b.note_failure();
+        b.note_failure();
+        assert!(b.failures() > 0);
+        assert!(b.delay() > INITIAL_BACKOFF);
+        // A session that actually streamed ended (guest reboot): full reset,
+        // so a VM bounced repeatedly never exhausts the give-up budget.
+        b.note_productive_drop();
+        assert_eq!(b.failures(), 0);
+        assert_eq!(b.delay(), INITIAL_BACKOFF);
+        // And the budget is whole again afterwards.
+        assert!(!b.note_failure());
     }
 }

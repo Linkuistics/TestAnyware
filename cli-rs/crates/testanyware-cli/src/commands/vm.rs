@@ -10,6 +10,7 @@ use testanyware_vm::lifecycle::{Platform, VmLifecycle, VmListing, VmStartOptions
 use testanyware_vm::{VmError, VmMeta, VmPaths};
 
 use crate::output::{print_error, print_success, OutputMode};
+use crate::resolve::ConnectionOptions;
 
 /// A flattened `vm list` row, ready for JSON or text rendering.
 pub struct ListItem {
@@ -38,12 +39,6 @@ pub async fn run_vm_start(
         Ok(p) => p,
         Err(err) => exit_vm_error(err, mode),
     };
-    if viewer {
-        eprintln!(
-            "note: --viewer is not yet ported to the Rust CLI (backlog task 8); \
-             starting the VM without a viewer window."
-        );
-    }
     let opts = VmStartOptions::new(parsed, base, id, display, viewer);
     let paths = VmPaths::from_process_env();
 
@@ -66,6 +61,10 @@ pub async fn run_vm_start(
                      agent commands will fail until it comes up"
                 );
             }
+            // Capture the viewer endpoint before the envelope arm moves any
+            // `result` fields. The viewer resolves through `--connect` against
+            // the spec file `start` just wrote — the same chain `--vm` uses.
+            let viewer_connect = viewer.then(|| result.spec_path.display().to_string());
             match mode {
                 OutputMode::Text => println!("{}", result.id),
                 OutputMode::Json => {
@@ -85,6 +84,14 @@ pub async fn run_vm_start(
                         "meta_path": result.meta_path.display().to_string(),
                     }));
                 }
+            }
+            // Sugar (ADR-0005 Q2): the start envelope is already emitted, so
+            // an `--json` consumer has its data before this window blocks.
+            // Opening it inline (blocking-until-close) is acceptable for an
+            // explicit window request. Dry-run returns earlier, never here.
+            if let Some(connect) = viewer_connect {
+                let conn = ConnectionOptions { connect: Some(connect), ..Default::default() };
+                crate::commands::viewer::run_viewer(conn);
             }
         }
         Err(err) => exit_vm_error(err, mode),

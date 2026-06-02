@@ -505,8 +505,11 @@ EXAMPLES:
     # Plan a start without performing it
     testanyware vm start --platform windows --dry-run
 
+    # Start a guest and open the embedded viewer (blocks until closed)
+    testanyware vm start --platform linux --viewer
+
 SEE ALSO:
-    testanyware vm stop, testanyware vm list, testanyware doctor
+    testanyware vm stop, testanyware vm list, testanyware doctor, testanyware viewer
 ";
 
 const VM_STOP_AFTER_HELP: &str = "\
@@ -1311,7 +1314,7 @@ enum VmAction {
         /// Display resolution, e.g. 1920x1080.
         #[arg(long, value_name = "WxH")]
         display: Option<String>,
-        /// Open a VNC viewer after boot (not yet ported — backlog task 8).
+        /// Open the embedded viewer window after boot (blocks until closed).
         #[arg(long)]
         viewer: bool,
         /// Emit JSON envelope on stdout.
