@@ -140,6 +140,18 @@ inherits whatever is negotiated with no viewer-side work; Raw/CopyRect is a fine
 correctness baseline and the compressed encodings are a free bandwidth win. Not
 a prerequisite, not a leaf.
 
+## Verification log
+
+- **Leaf 020 (input forwarding) live-verified 2026-06-02** on the macOS
+  primary host against a fresh `testanyware-golden-macos-tahoe` clone via
+  `testanyware viewer --vm <id>`. Click (Spotlight opened from a menu-bar
+  click), typing (`agent snapshot` read the Spotlight field back as the exact
+  typed string, incl. digits + `-`), pointer-move (hover tooltip), and scroll
+  (correct direction, not inverted) all land in the guest. The read-only
+  render half (leaf 010) is confirmed live by the same run. So the node's
+  macOS done-when is met for 010+020; only leaf 030 (reconnect + start sugar)
+  remains before the node can retire.
+
 ## Notes
 
 `egui`/`eframe` is a new top-level dependency — weigh it against the
