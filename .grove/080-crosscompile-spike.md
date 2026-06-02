@@ -13,7 +13,10 @@ blockers documented.
 
 Distribution decision (070, Q4) is **cross-compile via `zig cc`** because the
 user wants to prove it out (memory [[reference_linux_crosscheck_zig]]) rather
-than build-on-target. This spike de-risks it.
+than build-on-target. This spike de-risks it. **Doubly load-bearing:** the
+cross-compiled binaries are also what the Tier-2 **self-hosted verification**
+runs (run up Linux/Windows host-VMs with TestAnyware, install the binary, test
+it) — so a green spike unblocks both distribution *and* Tier-2 host verification.
 
 - Run on **current HEAD**, which already links the two hardest native deps:
   `wgpu` (the embedded viewer — ADR-0005, Metal/Vulkan/DX12 backends) and

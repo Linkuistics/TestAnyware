@@ -42,9 +42,15 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
   `110-vm-create-golden-macos`, `120-macos-distribution`,
   `130-macos-parity-and-delete-cli`. Reaching these + `cli-contract.rs` passing
   on macOS *is* the parity bar; `cli/` is deleted here, mid-grove.
-- **Tier 2 — Linux/Windows additive (beyond-parity, unverifiable in this env):**
-  Windows-host pass, `ffmpeg-next` encoders, linux/win golden, cross-compile
-  distribution. Re-grilled & decomposed lazily by `140-tier2-plan` after Tier 1.
+- **Tier 2 — Linux-host + Windows-host additive (beyond-parity, but
+  self-verifiable):** **Linux-host pass**, **Windows-host pass**, `ffmpeg-next`
+  encoders, linux/win golden, cross-compile distribution. Beyond macOS parity
+  (Swift was macOS-only), but **TestAnyware tests its own host CLI by running up
+  Linux/Windows host-VMs** — the cross-compiled binary runs inside a guest and
+  drives a VM's agent/RFB endpoint over the network (no nested virt for the
+  non-`vm-start` surface). Cross-compiled **locally via `zig cc`** (the `080`
+  spike produces these very binaries). Re-grilled & decomposed lazily by
+  `140-tier2-plan` after Tier 1.
 - **Cross-cutting:** `080-crosscompile-spike` (front-loaded fail-fast for the
   zig-cc cross-build path) and `090-viewer-live-verify` (carried-over follow-up).
 
@@ -110,12 +116,25 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
 - [ ] tart runner for the macOS-host-macOS-guest path (`#[cfg(target_os=macos)]`).
       **Pulled into the `050-live-vm-gate` node** as leaf `010-tart-runner` — the
       gate needs it to reach the cheap kept-built tart goldens. Owned there now.
+- [ ] **Linux-host support** (cross-platform pass). **Decision (070+): IN SCOPE,
+      Tier 2.** Net-new beyond parity (Swift was macOS-only), but **lighter than
+      Windows-host** — `process.rs`/`qemu_profile.rs` already carry the *Unix*
+      path; Linux mainly needs paths + `#[cfg]` facility wiring + the EasyOCR /
+      ffmpeg-next / wgpu-on-Vulkan facilities (already anticipated by
+      ADR-0002/0005/0006). **Verified** by running up a Linux host-VM with
+      TestAnyware and smoke-testing the cross-compiled binary (see below).
 - [ ] Windows-host support (cross-platform pass). **Decision (070): IN SCOPE,
-      Tier 2.** Reframing for the record — the Swift CLI is **macOS-host-only**
-      (`cli/Package.swift`: `platforms: [.macOS(.v14)]`), so this is **net-new
-      capability beyond parity** and **unverifiable in this env** (no Windows
-      host, no kept-built Windows goldens). "Done" here = compiles cross-platform
-      + best-effort smoke; live Windows-host verification is a recorded known gap.
+      Tier 2.** The Swift CLI is **macOS-host-only** (`cli/Package.swift`:
+      `platforms: [.macOS(.v14)]`), so this is **net-new beyond parity**
+      ("backlog task 14" stubs in `qemu_profile.rs`/`process.rs`). **Verified**
+      by running up a Windows host-VM with TestAnyware (not "unverifiable" — that
+      earlier framing is superseded).
+- [ ] **Self-hosted host verification harness** (Tier 2): use TestAnyware to run
+      up Linux/Windows guests, install the **locally cross-compiled** (`zig cc`)
+      host binary, and smoke-test the non-`vm-start` surface (agent HTTP,
+      input/screen via RFB to an endpoint, OCR, capabilities, schema) by driving
+      a VM endpoint over the network. `vm start`/lifecycle inside a guest needs
+      nested virt — out of scope unless cheap. Designed in `140-tier2-plan`.
 - [x] Live-VM verification gate for the RFB client + input layer (node
       `050-live-vm-gate`: `tests/live-vm-gate.rs` — input landing, show-menu,
       ZRLE/Tight/Raw capture, live Vision OCR; macOS golden, env+`#[ignore]`d).
