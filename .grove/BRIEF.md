@@ -34,6 +34,20 @@ First wave (materialized now):
 - `020-port-doctor` — `testanyware doctor` preflight checks.
 - `030-screen-find-text` — OCR-backed `screen find-text`.
 
+Second (final) wave — planned by `070-next-wave`, materialized as `080`–`140`.
+**Two-tier structure** (key insight: `cli/` is macOS-only Swift, so deleting it
+needs only **macOS parity**, not the Linux/Windows additive capability):
+
+- **Tier 1 — macOS parity → delete `cli/`:** `100-screen-record-encoder-macos`,
+  `110-vm-create-golden-macos`, `120-macos-distribution`,
+  `130-macos-parity-and-delete-cli`. Reaching these + `cli-contract.rs` passing
+  on macOS *is* the parity bar; `cli/` is deleted here, mid-grove.
+- **Tier 2 — Linux/Windows additive (beyond-parity, unverifiable in this env):**
+  Windows-host pass, `ffmpeg-next` encoders, linux/win golden, cross-compile
+  distribution. Re-grilled & decomposed lazily by `140-tier2-plan` after Tier 1.
+- **Cross-cutting:** `080-crosscompile-spike` (front-loaded fail-fast for the
+  zig-cc cross-build path) and `090-viewer-live-verify` (carried-over follow-up).
+
 ## Pointers
 
 - ADRs a session here must read: `docs/adr/0001-streaming-file-transfer.md`.
@@ -69,7 +83,12 @@ First wave (materialized now):
       (that layer already exists: `testanyware-rfb::input` powers `input *`).
       Real work is porting Swift's `MenuBarLocator` orchestration over the
       existing RFB `click()` + agent snapshot.
-- [ ] `screen record` — needs embedded libav (`ffmpeg-next`), not a subprocess.
+- [ ] `screen record` — **per-platform `VideoEncoder` seam (ADR-0006):** native
+      AVFoundation/VideoToolbox via objc2 on macOS (parity; macOS first →
+      `100`), `ffmpeg-next` on Linux/Windows (Tier 2). Becomes the **second
+      long-lived RFB consumer** (reuses ADR-0005's pattern, bounded by
+      `--duration`, non-interactive). Revises the root "embedded libav
+      everywhere" line.
 - [ ] `server` → **020 (retire, not port)**. The `server` stub is the Rust
       shadow of the Swift `_server` **Shared-VNC server** (a persistent VNC
       multiplexer), which the Rust CLI deliberately drops — NOT the OCR daemon.
@@ -91,17 +110,34 @@ First wave (materialized now):
 - [ ] tart runner for the macOS-host-macOS-guest path (`#[cfg(target_os=macos)]`).
       **Pulled into the `050-live-vm-gate` node** as leaf `010-tart-runner` — the
       gate needs it to reach the cheap kept-built tart goldens. Owned there now.
-- [ ] Windows-host support (cross-platform pass).
+- [ ] Windows-host support (cross-platform pass). **Decision (070): IN SCOPE,
+      Tier 2.** Reframing for the record — the Swift CLI is **macOS-host-only**
+      (`cli/Package.swift`: `platforms: [.macOS(.v14)]`), so this is **net-new
+      capability beyond parity** and **unverifiable in this env** (no Windows
+      host, no kept-built Windows goldens). "Done" here = compiles cross-platform
+      + best-effort smoke; live Windows-host verification is a recorded known gap.
 - [x] Live-VM verification gate for the RFB client + input layer (node
       `050-live-vm-gate`: `tests/live-vm-gate.rs` — input landing, show-menu,
       ZRLE/Tight/Raw capture, live Vision OCR; macOS golden, env+`#[ignore]`d).
 
 **Distribution / finish**:
 - [ ] Golden-image creation as a `vm create-golden --platform <p>` subcommand,
-      retiring the external `vm-create-golden-*.sh` scripts.
+      retiring the external `vm-create-golden-*.sh` scripts. **Decision (070):
+      FULL RUST PORT** (not a façade over the scripts — user override; scripts
+      deleted). Builds on existing `testanyware-vm` (`tart.rs`, `qemu.rs`,
+      `lifecycle.rs`); net-new = ssh provisioning + multi-boot/recovery + (macOS)
+      SIP cycle & TCC grants. macOS first (`110`, verifiable); linux/win Tier 2.
+      The `vm-create-golden` schema is **not yet** in `surface.rs` — add it.
 - [ ] Distribute Rust `testanyware` via Homebrew (macOS + Linux) and Windows zip.
-      Releases run locally from `scripts/` on an arm64 Mac — no CI.
+      Releases run locally from `scripts/` on an arm64 Mac — no CI. **Decision
+      (070): CROSS-COMPILE via `zig cc`**, proven by an early **feasibility spike**
+      (`080`, runs on current HEAD: wgpu+ring → linux+windows). Fallback if the
+      spike fails: **build-on-target via VMs**. macOS Homebrew arm64 is native &
+      ships in Tier 1 (`120`); linux/win distribution is Tier 2.
 - [ ] Final parity verification → **delete `cli/`** and de-transition `CONTEXT.md`.
+      **Decision (070): after macOS PARITY (mid-grove, `130`)** — `cli/` is
+      macOS-only, so Tier-1 completion is the parity bar; Tier-2 additive work
+      then proceeds on the clean tree.
 
 ## Notes
 
