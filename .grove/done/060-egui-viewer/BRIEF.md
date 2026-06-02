@@ -152,6 +152,17 @@ a prerequisite, not a leaf.
   macOS done-when is met for 010+020; only leaf 030 (reconnect + start sugar)
   remains before the node can retire.
 
+- **Leaf 030 (reconnect + start sugar) built & committed 2026-06-02**
+  (commit `42f8f1f`). Machine-verified: build + clippy clean; 19 viewer unit
+  tests incl. 3 new `Backoff` policy tests (escalate→give-up, delay cap,
+  productive-drop reset); 20 contract tests; CLI smoke — `vm start --viewer
+  --dry-run` reports the plan and exits 0 with no window, standalone `viewer`
+  fail-fast (no connection → exit 2; bad `--vm` → exit 3, no window).
+  **Live macOS-host GUI verification still pending** (manual): open the
+  window, bounce the VM (stop/start) and confirm auto-reconnect, and confirm
+  `vm start --viewer` opens a working window. Node retired ahead of that
+  manual step, mirroring leaf 020's retire-then-record-verify flow.
+
 ## Notes
 
 `egui`/`eframe` is a new top-level dependency — weigh it against the
