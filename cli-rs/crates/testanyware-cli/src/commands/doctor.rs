@@ -272,15 +272,12 @@ impl ScriptSlot {
 /// executable bit.
 pub const SCRIPT_FILENAMES: &[&str] = &[
     "_testanyware-paths.sh",
-    // The macOS golden is now the in-process `vm create-golden --platform macos`
-    // command (grove `110`, ADR-0007/0008); its script is deleted, so it is no
-    // longer bundled. The linux/windows golden scripts remain (Tier 2).
+    // Only the not-yet-ported Tier-2 golden scripts ship. The macOS golden is
+    // the in-process `vm create-golden --platform macos` command (grove `110`,
+    // ADR-0007/0008), and `vm start/stop/list/delete` are ported into the
+    // binary — those five scripts are no longer bundled (grove `120`).
     "vm-create-golden-linux.sh",
     "vm-create-golden-windows.sh",
-    "vm-delete.sh",
-    "vm-list.sh",
-    "vm-start.sh",
-    "vm-stop.sh",
 ];
 
 /// Filenames staged into `share/testanyware/helpers/`. Presence-only —
@@ -1357,7 +1354,7 @@ mod tests {
         let prefix = "/opt/homebrew";
         let probes = vec![FileProbe {
             slot: ScriptSlot::Scripts,
-            path: format!("{prefix}/share/testanyware/scripts/vm-start.sh"),
+            path: format!("{prefix}/share/testanyware/scripts/vm-create-golden-linux.sh"),
             exists: true,
             is_executable: false,
             requires_executable: true,

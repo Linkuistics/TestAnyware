@@ -47,17 +47,6 @@ lto = "thin"
 codegen-units = 1
 strip = "symbols"
 
-# cargo-dist metadata. The full release pipeline is wired up in the
-# "Distribute Rust testanyware" task; this stub establishes the metadata
-# block and target list so later configuration is additive, not new.
-[workspace.metadata.dist]
-cargo-dist-version = "0.22.1"
-ci = "github"
-installers = ["shell"]
-targets = [
-    "aarch64-apple-darwin",
-    "x86_64-apple-darwin",
-    "x86_64-unknown-linux-gnu",
-    "aarch64-unknown-linux-gnu",
-]
-pr-run-mode = "plan"
+# Releases run locally from `scripts/` on an arm64 Mac (macOS Homebrew, grove
+# `120`; linux/win cross-compile via `zig cc` is Tier 2 / grove `140`). There
+# is deliberately no cargo-dist / GitHub Actions release path.

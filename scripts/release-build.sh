@@ -4,11 +4,12 @@
 # Homebrew formula from scripts/templates/testanyware.rb.tmpl.
 #
 # The bundle includes:
-#   - testanyware (host CLI, Swift, arm64-apple-darwin)
+#   - testanyware (host CLI, Rust, aarch64-apple-darwin, single static binary)
 #   - testanyware-agent (macOS in-VM agent, Swift, arm64-apple-darwin)
 #   - testanyware-agent.exe (Windows in-VM agent, .NET 9 self-contained, win-arm64)
 #   - testanyware_agent (Linux in-VM agent, Python source)
-#   - vm-{create-golden-{macos,linux,windows},start,stop,list,delete}.sh
+#   - vm-create-golden-{linux,windows}.sh (Tier 2 goldens; macOS golden and
+#     vm start/stop/list/delete are in the binary now)
 #   - helpers/* (autounattend.xml, plist, set-wallpaper.swift, etc.)
 #
 # Output: target/dist/
@@ -19,7 +20,9 @@
 #
 # Tool floors picked up by `testanyware doctor` (when the doctor can
 # locate this script — i.e. running from a dev build inside the source
-# tree). Floors track the toolchain versions actually invoked below.
+# tree). Floors track the toolchain versions actually invoked below:
+# cargo builds the host CLI; swift + dotnet still build the in-VM agents.
+# testanyware-min-tool: cargo 1.81
 # testanyware-min-tool: swift 6.0
 # testanyware-min-tool: dotnet 9.0
 
@@ -30,20 +33,24 @@ readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly DIST_DIR="$REPO_ROOT/target/dist"
 readonly TEMPLATE="$REPO_ROOT/scripts/templates/testanyware.rb.tmpl"
 readonly TARGET="aarch64-apple-darwin"
-readonly VERSION_SWIFT_REL="cli/Sources/testanyware/Version.swift"
+readonly CLI_RS="$REPO_ROOT/cli-rs"
+readonly CARGO_TOML="$CLI_RS/Cargo.toml"
 
 die() {
   echo "release-build: $*" >&2
   exit 1
 }
 
-# build_cli regenerates Version.swift from git so the released binary's
-# --version reflects the tag. Always revert on exit (including failure)
-# so the working tree returns to the committed dev stub.
-restore_version_swift() {
-  git -C "$REPO_ROOT" checkout -- "$VERSION_SWIFT_REL" 2>/dev/null || true
+# build_cli temporarily rewrites the [workspace.package] version in
+# cli-rs/Cargo.toml so the released binary's CARGO_PKG_VERSION (hence
+# --version and `capabilities`.version) reflects the tag — the Rust
+# equivalent of the old Version.swift regenerate-then-revert dance.
+# Always revert Cargo.toml + Cargo.lock on exit (including failure) so the
+# working tree returns to the committed dev version.
+restore_cli_version() {
+  git -C "$REPO_ROOT" checkout -- "$CARGO_TOML" "$CLI_RS/Cargo.lock" 2>/dev/null || true
 }
-trap restore_version_swift EXIT
+trap restore_cli_version EXIT
 
 require_clean_tagged_tree() {
   [[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]] \
@@ -60,20 +67,33 @@ read_version() {
 # progress output to stderr — otherwise the caller's command substitution
 # splices informational text into the returned path. assemble_bundle and
 # package_bundle below are the captured callers.
+# Rewrite the [workspace.package] version in cli-rs/Cargo.toml to $1, in
+# place. Section-scoped so the cargo-dist / dependency `version = …` keys
+# elsewhere in the file are untouched. Reverted by restore_cli_version.
+set_cli_version() {
+  local version="$1"
+  awk -v ver="$version" '
+    /^\[/ { in_pkg = ($0 == "[workspace.package]") }
+    in_pkg && /^version = / { print "version = \"" ver "\""; next }
+    { print }
+  ' "$CARGO_TOML" > "$CARGO_TOML.tmp" && mv "$CARGO_TOML.tmp" "$CARGO_TOML"
+}
+
 build_cli() {
-  local stage_bin="$1"
-  echo "release-build: building CLI (testanyware)" >&2
-  bash "$REPO_ROOT/cli/scripts/generate-version.sh" >&2
-  bash "$REPO_ROOT/cli/scripts/generate-llm-instructions.sh" >&2
-  swift build --package-path "$REPO_ROOT/cli" -c release >&2
-  local bin_path
-  bin_path="$(swift build --package-path "$REPO_ROOT/cli" -c release --show-bin-path)"
-  [[ -f "$bin_path/testanyware" ]] || die "CLI build did not produce $bin_path/testanyware"
-  cp "$bin_path/testanyware" "$stage_bin/testanyware"
+  local stage_bin="$1" version="$2"
+  echo "release-build: building CLI (testanyware, Rust)" >&2
+  local git_describe
+  git_describe="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo unknown)"
+  # CARGO_PKG_VERSION comes from Cargo.toml (set_cli_version); the version
+  # bump invalidates the cli crate's fingerprint so option_env! re-reads
+  # TESTANYWARE_GIT_REVISION on this build. Both reverted by trap.
+  set_cli_version "$version"
+  TESTANYWARE_GIT_REVISION="$git_describe" \
+    cargo build --manifest-path "$CARGO_TOML" -p testanyware-cli --release >&2
+  local bin_path="$CLI_RS/target/release/testanyware"
+  [[ -f "$bin_path" ]] || die "CLI build did not produce $bin_path"
+  cp "$bin_path" "$stage_bin/testanyware"
   chmod +x "$stage_bin/testanyware"
-  local dylib="$bin_path/libRoyalVNCKit.dylib"
-  [[ -f "$dylib" ]] || die "expected RoyalVNCKit dylib at $dylib"
-  cp "$dylib" "$stage_bin/libRoyalVNCKit.dylib"
 }
 
 build_macos_agent() {
@@ -117,7 +137,11 @@ stage_scripts() {
   echo "release-build: staging provisioner scripts" >&2
   mkdir -p "$stage_scripts"
   cp "$REPO_ROOT/provisioner/scripts/"_testanyware-paths.sh "$stage_scripts/"
-  cp "$REPO_ROOT/provisioner/scripts/"vm-*.sh "$stage_scripts/"
+  # vm start/stop/list/delete are ported into the binary and the macOS golden
+  # is `vm create-golden --platform macos`; only the not-yet-ported Tier-2
+  # linux/windows golden scripts still ship (they source _testanyware-paths.sh).
+  cp "$REPO_ROOT/provisioner/scripts/"vm-create-golden-linux.sh "$stage_scripts/"
+  cp "$REPO_ROOT/provisioner/scripts/"vm-create-golden-windows.sh "$stage_scripts/"
   chmod +x "$stage_scripts/"*.sh
 }
 
@@ -137,7 +161,7 @@ assemble_bundle() {
            "$bundle_root/share/testanyware/scripts" \
            "$bundle_root/share/testanyware/helpers"
 
-  build_cli "$bundle_root/bin"
+  build_cli "$bundle_root/bin" "$version"
   build_macos_agent "$bundle_root/share/testanyware/agents"
   build_windows_agent "$bundle_root/share/testanyware/agents"
   stage_linux_agent "$bundle_root/share/testanyware/agents"

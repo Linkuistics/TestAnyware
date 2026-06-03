@@ -28,6 +28,17 @@ remediation() {
   echo "      remediation: $*"
 }
 
+check_cargo() {
+  if ! command -v cargo >/dev/null 2>&1; then
+    mark_fail "cargo: not on PATH"
+    remediation "install Rust: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+    return
+  fi
+  local version
+  version="$(cargo --version 2>/dev/null || echo unknown)"
+  mark_pass "cargo: $version"
+}
+
 check_swift() {
   if ! command -v swift >/dev/null 2>&1; then
     mark_fail "swift: not on PATH"
@@ -105,6 +116,7 @@ main() {
   echo
 
   check_arch
+  check_cargo
   check_swift
   check_dotnet
   check_python3

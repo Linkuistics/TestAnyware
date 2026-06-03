@@ -87,6 +87,11 @@ busy-poll at 60 fps waiting for frames.
   cross-compile cost must be revisited in the distribution leaves** (Homebrew +
   Windows zip; releases built locally from `scripts/`, no CI). This ADR does not
   resolve that cost — it flags it.
+  - **Binary-size resolved (grove `120`, 2026-06-03):** the release-profile
+    `testanyware` (thin-LTO, `strip = "symbols"`, aarch64-apple-darwin, wgpu→Metal)
+    is **~15 MB** uncompressed — well within normal Homebrew range and far smaller
+    in the xz tarball. wgpu is **kept**; no `glow` fallback needed. The
+    cross-compile half stays open for Tier 2 (`zig cc`, grove `140`).
 - `Mutex<FrameSlot>` is the default handoff; a triple-buffer / `tokio::sync::
   watch` is a known escape hatch if lock contention ever surfaces (unlikely at
   VNC update rates).
