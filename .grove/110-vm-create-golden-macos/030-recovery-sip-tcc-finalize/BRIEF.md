@@ -94,6 +94,29 @@ this log is the conversation trail.
 - Memory: [[vm-costs]] (live verification is cheap), [[tart-ip-lies]] (use
   `tart list` state, not `tart ip`).
 
+## Findings from `010` (carry into `020`)
+
+- **Graceful stop never takes effect headless.** `osascript … System Events
+  shut down` over SSH did **not** shut the setup VM down in either `010` live
+  run; both fell through to the `tart stop` force-stop after the pid-exit wait
+  (~120s). `recovery_boot_csrutil` tolerates this (the `halt` reboot path then
+  works), but `020` runs **4** such stops across the full disable→TCC→enable
+  pipeline — that is ~8 min of dead waiting. `020` should either shorten the
+  graceful-stop wait, find a stop that works headless (e.g. `shutdown` variant,
+  or `tart stop` directly), or verify whether `setup.pid` actually tracks the
+  `tart run` process (a wrong pid would also explain the always-force-stop).
+- **macOS menu bars open on a click, not a held drag** (recovery desktop). The
+  script's press-hold-drag worked only because its separate-connection
+  mouse-down released on disconnect (= a click). `open_terminal_via_menu` now
+  clicks. The modal app-picker does **not** block menu-bar clicks.
+- **Static-screen capture needs an I/O timeout.** A `FramebufferUpdateRequest`
+  on an idle recovery screen can yield no further server message, hanging a bare
+  `next_message().await` forever. `capture::capture_frame` now bounds each read
+  (`CAPTURE_MSG_TIMEOUT`) and returns the last-known frame — fixed a real hang.
+- **Observed csrutil prompts (Tahoe):** confirm `… ? [y/n]:`, username
+  `Authorized user:`, password `Password:`; the proceed prompt and result both
+  carry "System Integrity Protection". Anchors live in `recovery.rs` constants.
+
 ## Notes
 
 - A failed recovery automation leaves the setup VM in a known state

@@ -223,6 +223,15 @@ pub fn remove_existing(id: &str) {
     let _ = run_tart(&["delete", id]);
 }
 
+/// Best-effort `tart stop <id>` that **stops without deleting** (unlike
+/// [`remove_existing`]). Used by the recovery cycle ([`crate::recovery`]),
+/// which must stop the setup VM, boot it into recovery, then boot it back to
+/// normal — all on the same clone, so a force-stop must not destroy it. Ports
+/// the script's `_stop_vm_graceful` force path (`tart stop`, line 345).
+pub fn stop(id: &str) {
+    let _ = run_tart(&["stop", id]);
+}
+
 /// `tart delete <name>` for a golden. `true` on success. Ports
 /// `TartRunner.deleteGolden`.
 pub fn delete_golden(name: &str) -> bool {
@@ -255,17 +264,31 @@ fn fresh_log_path(log_dir: &Path, id: &str) -> PathBuf {
 /// (see `fresh_log_path`). Returns the detached pid and the log path so the
 /// caller can poll for the VNC URL. Ports `TartRunner.runDetached`.
 pub fn run_detached(id: &str, log_dir: &Path) -> Result<(i32, PathBuf), VmError> {
+    run_detached_with(id, log_dir, &[])
+}
+
+/// Like [`run_detached`] but boots into **macOS Recovery**
+/// (`tart run … --recovery --no-graphics --vnc-experimental`). The recovery
+/// driver ([`crate::recovery`], ADR-0008) drives the resulting VNC framebuffer
+/// to toggle SIP; recovery has no SSH, so this is the one boot that cannot go
+/// over the provisioning layer. Ports the `--recovery` `tart run` in the
+/// script's `_recovery_boot_csrutil` (line 408).
+pub fn run_detached_recovery(id: &str, log_dir: &Path) -> Result<(i32, PathBuf), VmError> {
+    run_detached_with(id, log_dir, &["--recovery"])
+}
+
+/// Shared body for the detached `tart run` variants. `extra` flags are
+/// inserted before the always-on `--no-graphics --vnc-experimental` pair.
+fn run_detached_with(id: &str, log_dir: &Path, extra: &[&str]) -> Result<(i32, PathBuf), VmError> {
     std::fs::create_dir_all(log_dir)
         .map_err(|e| VmError::Io(format!("create {}: {e}", log_dir.display())))?;
     let tart = which("tart")
         .ok_or_else(|| VmError::TartFailed { detail: "tart not found on PATH".into() })?;
     let log_path = fresh_log_path(log_dir, id);
-    let args = vec![
-        "run".to_string(),
-        id.to_string(),
-        "--no-graphics".to_string(),
-        "--vnc-experimental".to_string(),
-    ];
+    let mut args = vec!["run".to_string(), id.to_string()];
+    args.extend(extra.iter().map(|s| s.to_string()));
+    args.push("--no-graphics".to_string());
+    args.push("--vnc-experimental".to_string());
     let pid = crate::detached::spawn_detached(&tart.display().to_string(), &args, &log_path)?;
     Ok((pid, log_path))
 }

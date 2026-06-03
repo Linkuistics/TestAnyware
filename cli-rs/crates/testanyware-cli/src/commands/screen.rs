@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use testanyware_ocr_client::{find_text, FindOutcome, OcrDetection, OcrEngine};
-use testanyware_rfb::{RfbConnection, ServerEvent};
+use testanyware_rfb::RfbConnection;
+use testanyware_vm::capture::{capture_frame, capture_frame_png, encode_png, CaptureError};
 
 use crate::output::{exit_code_for, print_error, print_success, OutputMode};
 use crate::resolve::{resolve_vnc, ConnectionOptions, ResolveError};
@@ -74,24 +75,12 @@ pub async fn run_screen_capture(
     };
 
     let (fb_w, fb_h) = conn.framebuffer_size();
-    if let Err(err) = conn
-        .request_framebuffer_update(false, 0, 0, fb_w as u16, fb_h as u16)
-        .await
-    {
-        exit_rfb_error(err, mode);
-    }
-
-    // Drain server messages until at least one FramebufferUpdated arrives
-    // with a rectangle. Some servers send no-op updates first.
-    loop {
-        match conn.next_message().await {
-            Ok(ServerEvent::FramebufferUpdated { rectangles }) if rectangles > 0 => break,
-            Ok(_) => continue,
-            Err(err) => exit_rfb_error(err, mode),
-        }
-    }
-
-    let fb = conn.framebuffer().clone();
+    // Shared capture pipeline (request full-frame → drain until a non-empty
+    // update applies). `screen capture` then crops post-decode.
+    let fb = match capture_frame(&mut conn).await {
+        Ok(fb) => fb,
+        Err(err) => exit_rfb_error(err, mode),
+    };
     let crop = region.unwrap_or((0, 0, fb_w, fb_h));
     let png_bytes = match encode_png(&fb, crop) {
         Ok(b) => b,
@@ -162,7 +151,6 @@ pub async fn run_screen_find_text(
         Ok(c) => c,
         Err(err) => exit_rfb_error(err, mode),
     };
-    let (fb_w, fb_h) = conn.framebuffer_size();
 
     let engine = OcrEngine::detect();
     let engine_name = engine.engine_name();
@@ -170,29 +158,15 @@ pub async fn run_screen_find_text(
     let deadline = timeout_secs.map(|s| Instant::now() + Duration::from_secs(u64::from(s)));
 
     loop {
-        // Request a fresh full-frame update on the live connection.
-        if let Err(err) = conn
-            .request_framebuffer_update(false, 0, 0, fb_w as u16, fb_h as u16)
-            .await
-        {
-            engine.shutdown().await;
-            exit_rfb_error(err, mode);
-        }
-        loop {
-            match conn.next_message().await {
-                Ok(ServerEvent::FramebufferUpdated { rectangles }) if rectangles > 0 => break,
-                Ok(_) => continue,
-                Err(err) => {
-                    engine.shutdown().await;
-                    exit_rfb_error(err, mode);
-                }
-            }
-        }
-
-        let fb = conn.framebuffer().clone();
-        let png = match encode_png(&fb, (0, 0, fb_w, fb_h)) {
+        // Shared capture pipeline: request a fresh full frame, drain until it
+        // applies, and PNG-encode it for OCR.
+        let png = match capture_frame_png(&mut conn).await {
             Ok(b) => b,
-            Err(err) => {
+            Err(CaptureError::Rfb(err)) => {
+                engine.shutdown().await;
+                exit_rfb_error(err, mode);
+            }
+            Err(CaptureError::Encode(err)) => {
                 engine.shutdown().await;
                 print_error(
                     mode,
@@ -314,31 +288,6 @@ pub(crate) fn parse_region(value: &str) -> Result<(u32, u32, u32, u32), String> 
         return Err("width and height must be positive".into());
     }
     Ok((x, y, w, h))
-}
-
-fn encode_png(
-    fb: &testanyware_rfb::Framebuffer,
-    region: (u32, u32, u32, u32),
-) -> Result<Vec<u8>, image::ImageError> {
-    let (x, y, w, h) = region;
-    if x + w > fb.width() || y + h > fb.height() {
-        return Err(image::ImageError::Parameter(
-            image::error::ParameterError::from_kind(
-                image::error::ParameterErrorKind::DimensionMismatch,
-            ),
-        ));
-    }
-    let stride = fb.width() as usize * 4;
-    let mut cropped = Vec::with_capacity((w as usize) * (h as usize) * 4);
-    for row in 0..h as usize {
-        let src_off = (y as usize + row) * stride + (x as usize) * 4;
-        cropped.extend_from_slice(&fb.rgba()[src_off..src_off + (w as usize) * 4]);
-    }
-    let img =
-        image::RgbaImage::from_raw(w, h, cropped).expect("buffer length matches w*h*4");
-    let mut out = Vec::new();
-    img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)?;
-    Ok(out)
 }
 
 /// Build the `screen find-text --json` success payload — the fields

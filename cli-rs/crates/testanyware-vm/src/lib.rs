@@ -2,6 +2,10 @@
 //!
 //! Port of `cli/Sources/TestAnywareDriver/VM/*.swift`.
 
+/// Shared RFB frame-capture + PNG encode (ADR-0008). Platform-neutral: the
+/// CLI's `screen find-text` and the macOS recovery driver share it. **Not**
+/// macOS-gated.
+pub mod capture;
 pub mod detached;
 pub mod error;
 pub mod health;
@@ -27,6 +31,10 @@ pub mod tart;
 /// seam). macOS-host only, like `tart` — grove node `110-vm-create-golden`.
 #[cfg(target_os = "macos")]
 pub mod golden;
+/// In-process macOS Recovery automation: SIP toggle over RFB + OCR (ADR-0008,
+/// grove leaf `110/030/010`). macOS-host only, like `tart`/`golden`.
+#[cfg(target_os = "macos")]
+pub mod recovery;
 
 pub use detached::spawn_detached;
 pub use error::VmError;

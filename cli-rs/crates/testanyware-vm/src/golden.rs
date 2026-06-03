@@ -47,8 +47,8 @@ use crate::ssh::SshSession;
 /// The vanilla image's first-contact credentials (Cirrus Labs `admin/admin`,
 /// password-only until the host pubkey is installed). Ports `_VANILLA_USER`
 /// / `_VANILLA_PASS`.
-const VANILLA_USER: &str = "admin";
-const VANILLA_PASS: &str = "admin";
+pub(crate) const VANILLA_USER: &str = "admin";
+pub(crate) const VANILLA_PASS: &str = "admin";
 
 /// The macOS agent LaunchAgent plist, embedded so the command does not
 /// depend on a `provisioner/` tree beside the binary (`030` deletes it).

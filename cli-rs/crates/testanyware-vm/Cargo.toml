@@ -9,6 +9,14 @@ description = "QEMU-backed VM lifecycle for the TestAnyware host CLI."
 
 [dependencies]
 testanyware-agent-client = { path = "../testanyware-agent-client" }
+# The RFB client + OCR engine power the shared frame-capture helper
+# (`capture.rs`, used by `screen find-text`) and the macOS recovery driver
+# (`recovery.rs`, ADR-0008). `image` encodes captured framebuffers to PNG for
+# the OCR engine. All three are platform-neutral here; only `recovery.rs` is
+# macOS-gated.
+testanyware-rfb = { path = "../testanyware-rfb" }
+testanyware-ocr-client = { path = "../testanyware-ocr-client" }
+image = { version = "0.25", default-features = false, features = ["png"] }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
