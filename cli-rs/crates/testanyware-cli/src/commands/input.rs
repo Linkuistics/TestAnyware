@@ -65,7 +65,12 @@ pub async fn run_key(
     key: String,
     modifiers: Vec<String>,
     mode: OutputMode,
+    dry_run: bool,
 ) {
+    if dry_run {
+        emit_input_dry_run("key", json!({ "key": key, "modifiers": modifiers }), mode);
+        return;
+    }
     let platform = resolve_target_platform(&opts, mode);
     let mut conn = connect_or_exit(&opts, mode).await;
     let mod_refs: Vec<&str> = modifiers.iter().map(String::as_str).collect();
@@ -85,7 +90,11 @@ pub async fn run_key(
     );
 }
 
-pub async fn run_key_down(opts: ConnectionOptions, key: String, mode: OutputMode) {
+pub async fn run_key_down(opts: ConnectionOptions, key: String, mode: OutputMode, dry_run: bool) {
+    if dry_run {
+        emit_input_dry_run("key-down", json!({ "key": key }), mode);
+        return;
+    }
     let mut conn = connect_or_exit(&opts, mode).await;
     if let Err(err) = conn.key_down_named(&key).await {
         exit_input_error(err, mode);
@@ -93,7 +102,11 @@ pub async fn run_key_down(opts: ConnectionOptions, key: String, mode: OutputMode
     emit_text_or_json(mode, || println!("Key down: {key}"), json!({ "key": key }));
 }
 
-pub async fn run_key_up(opts: ConnectionOptions, key: String, mode: OutputMode) {
+pub async fn run_key_up(opts: ConnectionOptions, key: String, mode: OutputMode, dry_run: bool) {
+    if dry_run {
+        emit_input_dry_run("key-up", json!({ "key": key }), mode);
+        return;
+    }
     let mut conn = connect_or_exit(&opts, mode).await;
     if let Err(err) = conn.key_up_named(&key).await {
         exit_input_error(err, mode);
@@ -101,7 +114,15 @@ pub async fn run_key_up(opts: ConnectionOptions, key: String, mode: OutputMode) 
     emit_text_or_json(mode, || println!("Key up: {key}"), json!({ "key": key }));
 }
 
-pub async fn run_type(opts: ConnectionOptions, text: String, mode: OutputMode) {
+pub async fn run_type(opts: ConnectionOptions, text: String, mode: OutputMode, dry_run: bool) {
+    if dry_run {
+        emit_input_dry_run(
+            "type",
+            json!({ "text": text, "chars": text.chars().count() }),
+            mode,
+        );
+        return;
+    }
     let mut conn = connect_or_exit(&opts, mode).await;
     if let Err(err) = conn.type_text(&text).await {
         exit_input_error(err, mode);
@@ -115,6 +136,7 @@ pub async fn run_type(opts: ConnectionOptions, text: String, mode: OutputMode) {
 
 // ---- Mouse -----------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_click(
     opts: ConnectionOptions,
     x: i32,
@@ -123,7 +145,16 @@ pub async fn run_click(
     count: u32,
     window: Option<String>,
     mode: OutputMode,
+    dry_run: bool,
 ) {
+    if dry_run {
+        emit_input_dry_run(
+            "click",
+            json!({ "x": x, "y": y, "button": button, "count": count, "window": window }),
+            mode,
+        );
+        return;
+    }
     let (x, y) = apply_window_offset(&opts, x, y, window.as_deref(), mode).await;
     let (x, y) = match clamp_coords(x, y, mode) {
         Some(p) => p,
@@ -147,7 +178,16 @@ pub async fn run_mouse_down(
     button: String,
     window: Option<String>,
     mode: OutputMode,
+    dry_run: bool,
 ) {
+    if dry_run {
+        emit_input_dry_run(
+            "mouse-down",
+            json!({ "x": x, "y": y, "button": button, "window": window }),
+            mode,
+        );
+        return;
+    }
     let (x, y) = apply_window_offset(&opts, x, y, window.as_deref(), mode).await;
     let (x, y) = match clamp_coords(x, y, mode) {
         Some(p) => p,
@@ -171,7 +211,16 @@ pub async fn run_mouse_up(
     button: String,
     window: Option<String>,
     mode: OutputMode,
+    dry_run: bool,
 ) {
+    if dry_run {
+        emit_input_dry_run(
+            "mouse-up",
+            json!({ "x": x, "y": y, "button": button, "window": window }),
+            mode,
+        );
+        return;
+    }
     let (x, y) = apply_window_offset(&opts, x, y, window.as_deref(), mode).await;
     let (x, y) = match clamp_coords(x, y, mode) {
         Some(p) => p,
@@ -194,7 +243,12 @@ pub async fn run_move(
     y: i32,
     window: Option<String>,
     mode: OutputMode,
+    dry_run: bool,
 ) {
+    if dry_run {
+        emit_input_dry_run("move", json!({ "x": x, "y": y, "window": window }), mode);
+        return;
+    }
     let (x, y) = apply_window_offset(&opts, x, y, window.as_deref(), mode).await;
     let (x, y) = match clamp_coords(x, y, mode) {
         Some(p) => p,
@@ -211,6 +265,7 @@ pub async fn run_move(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_scroll(
     opts: ConnectionOptions,
     x: i32,
@@ -219,7 +274,16 @@ pub async fn run_scroll(
     dy: i32,
     window: Option<String>,
     mode: OutputMode,
+    dry_run: bool,
 ) {
+    if dry_run {
+        emit_input_dry_run(
+            "scroll",
+            json!({ "x": x, "y": y, "dx": dx, "dy": dy, "window": window }),
+            mode,
+        );
+        return;
+    }
     let (x, y) = apply_window_offset(&opts, x, y, window.as_deref(), mode).await;
     let (x, y) = match clamp_coords(x, y, mode) {
         Some(p) => p,
@@ -247,7 +311,22 @@ pub async fn run_drag(
     steps: u32,
     window: Option<String>,
     mode: OutputMode,
+    dry_run: bool,
 ) {
+    if dry_run {
+        emit_input_dry_run(
+            "drag",
+            json!({
+                "from": { "x": from_x, "y": from_y },
+                "to":   { "x": to_x,   "y": to_y },
+                "button": button,
+                "steps": steps,
+                "window": window,
+            }),
+            mode,
+        );
+        return;
+    }
     // The Swift helper resolves the window once and applies the same
     // offset to both endpoints — drag start and end are both relative
     // to the same window origin.
@@ -320,6 +399,22 @@ fn emit_text_or_json(mode: OutputMode, on_text: impl FnOnce(), json_payload: ser
     match mode {
         OutputMode::Text => on_text(),
         OutputMode::Json => print_success(json_payload),
+    }
+}
+
+/// `--dry-run` receipt for an `input *` command (§9.3). Reports the planned
+/// event (schema: input-action) and exits 0 without sending it. Like the
+/// agent dry-run path, this short-circuits before any connection — so it is
+/// network-free and reports the coordinates as supplied (a `--window` origin
+/// is resolved agent-side only on a real send, which dry-run skips).
+fn emit_input_dry_run(action: &str, event: serde_json::Value, mode: OutputMode) {
+    match mode {
+        OutputMode::Text => println!("DRY-RUN: would {action} {event}"),
+        OutputMode::Json => print_success(json!({
+            "action": action,
+            "dry_run": true,
+            "event": event,
+        })),
     }
 }
 

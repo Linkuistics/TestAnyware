@@ -269,6 +269,23 @@ fn emit_action(response: &ActionResponse, action: &str, mode: OutputMode) {
     }
 }
 
+/// `--dry-run` receipt for `agent show-menu` (§9.3). Reports the planned
+/// menu open under the `agent-action` shape without opening anything.
+pub fn emit_show_menu_dry_run(menu: &str, mode: OutputMode) {
+    match mode {
+        OutputMode::Json => {
+            print_success(json!({
+                "action": "show-menu",
+                "dry_run": true,
+                "menu": menu,
+            }));
+        }
+        OutputMode::Text => {
+            println!("DRY-RUN: would show-menu {menu:?}");
+        }
+    }
+}
+
 fn emit_dry_run_action(query: &ElementQuery, action: &str, mode: OutputMode) {
     match mode {
         OutputMode::Json => {

@@ -710,6 +710,384 @@ SEE ALSO:
     testanyware vm start, testanyware screen capture, testanyware input click
 ";
 
+// ---- input (§7) ---------------------------------------------------------
+//
+// All 10 `input *` commands are mutating (§9.3): each carries `--dry-run`,
+// which validates inputs and reports the planned event without sending it.
+
+const INPUT_KEY_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`Key pressed: <key>`), --json (schema:
+    input-action).
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR / UNKNOWN_KEY / NO_CONNECTION_SPECIFIED
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — pressing twice is two presses. Not retry-safe.
+
+EXAMPLES:
+    # Press Return
+    testanyware input key Return --vm \"$TESTANYWARE_VM_ID\"
+
+    # Press Cmd+S
+    testanyware input key s --modifiers cmd --vm \"$TESTANYWARE_VM_ID\"
+
+    # Plan only — report the event without sending it
+    testanyware input key Return --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware input type, testanyware input key-down, testanyware input key-up
+";
+
+const INPUT_KEY_DOWN_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`Key down: <key>`), --json (schema: input-action).
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR / UNKNOWN_KEY / NO_CONNECTION_SPECIFIED
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — leaves the key held. Pair with `input key-up`.
+
+EXAMPLES:
+    # Hold Shift down
+    testanyware input key-down Shift --vm \"$TESTANYWARE_VM_ID\"
+
+    # Plan only
+    testanyware input key-down Shift --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware input key-up, testanyware input key, testanyware input type
+";
+
+const INPUT_KEY_UP_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`Key up: <key>`), --json (schema: input-action).
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR / UNKNOWN_KEY / NO_CONNECTION_SPECIFIED
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — releases a held key. Pair with `input key-down`.
+
+EXAMPLES:
+    # Release Shift
+    testanyware input key-up Shift --vm \"$TESTANYWARE_VM_ID\"
+
+    # Plan only
+    testanyware input key-up Shift --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware input key-down, testanyware input key, testanyware input type
+";
+
+const INPUT_TYPE_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`Typed: <text>`), --json (schema: input-action).
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — types the string each call. Not retry-safe.
+
+EXAMPLES:
+    # Type into the focused field
+    testanyware input type \"hello world\" --vm \"$TESTANYWARE_VM_ID\"
+
+    # Plan only
+    testanyware input type \"hello\" --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware input key, testanyware agent set-value, testanyware agent focus
+";
+
+const INPUT_CLICK_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`Clicked at (x, y) …`), --json (schema:
+    input-action). Coordinates are framebuffer pixels (0..=65535); pass
+    --window to make them relative to a named window's origin.
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR / UNKNOWN_BUTTON / NO_CONNECTION_SPECIFIED
+    3  WINDOW_NOT_FOUND (with --window)
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — clicking twice is two clicks. Not retry-safe.
+
+EXAMPLES:
+    # Left-click at absolute coordinates
+    testanyware input click 400 300 --vm \"$TESTANYWARE_VM_ID\"
+
+    # Double-click relative to a window
+    testanyware input click 40 20 --count 2 --window Settings --vm \"$TESTANYWARE_VM_ID\"
+
+    # Plan only
+    testanyware input click 400 300 --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware input move, testanyware input drag, testanyware input mouse-down
+";
+
+const INPUT_MOUSE_DOWN_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`Mouse down at (x, y) …`), --json (schema:
+    input-action). Pass --window for window-relative coordinates.
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR / UNKNOWN_BUTTON / NO_CONNECTION_SPECIFIED
+    3  WINDOW_NOT_FOUND (with --window)
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — leaves the button held. Pair with `input mouse-up`.
+
+EXAMPLES:
+    # Press the left button at a point
+    testanyware input mouse-down 400 300 --vm \"$TESTANYWARE_VM_ID\"
+
+    # Plan only
+    testanyware input mouse-down 400 300 --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware input mouse-up, testanyware input click, testanyware input drag
+";
+
+const INPUT_MOUSE_UP_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`Mouse up at (x, y) …`), --json (schema:
+    input-action). Pass --window for window-relative coordinates.
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR / UNKNOWN_BUTTON / NO_CONNECTION_SPECIFIED
+    3  WINDOW_NOT_FOUND (with --window)
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — releases a held button. Pair with `input mouse-down`.
+
+EXAMPLES:
+    # Release the left button at a point
+    testanyware input mouse-up 400 300 --vm \"$TESTANYWARE_VM_ID\"
+
+    # Plan only
+    testanyware input mouse-up 400 300 --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware input mouse-down, testanyware input click, testanyware input drag
+";
+
+const INPUT_MOVE_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`Mouse moved to (x, y)`), --json (schema:
+    input-action). Pass --window for window-relative coordinates.
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  WINDOW_NOT_FOUND (with --window)
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Idempotent in the resulting cursor position. Retry-safe.
+
+EXAMPLES:
+    # Move the cursor to a point
+    testanyware input move 400 300 --vm \"$TESTANYWARE_VM_ID\"
+
+    # Plan only
+    testanyware input move 400 300 --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware input click, testanyware input scroll, testanyware input drag
+";
+
+const INPUT_SCROLL_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`Scrolled at (x, y) …`), --json (schema:
+    input-action). Pass --window for window-relative coordinates.
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  WINDOW_NOT_FOUND (with --window)
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — each call scrolls by the given delta. Not retry-safe.
+
+EXAMPLES:
+    # Scroll down at a point
+    testanyware input scroll 400 300 --dy -5 --vm \"$TESTANYWARE_VM_ID\"
+
+    # Plan only
+    testanyware input scroll 400 300 --dy -5 --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware input move, testanyware input click, testanyware input drag
+";
+
+const INPUT_DRAG_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`Dragged from (x,y) to (x,y)`), --json (schema:
+    input-action). Both endpoints share one --window origin when given.
+
+EXIT CODES:
+    0  success
+    2  USAGE_ERROR / UNKNOWN_BUTTON / NO_CONNECTION_SPECIFIED
+    3  WINDOW_NOT_FOUND (with --window)
+    4  AUTH_REQUIRED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — each call performs the drag. Not retry-safe.
+
+EXAMPLES:
+    # Drag from one point to another
+    testanyware input drag 100 100 400 300 --vm \"$TESTANYWARE_VM_ID\"
+
+    # Plan only
+    testanyware input drag 100 100 400 300 --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware input click, testanyware input move, testanyware input scroll
+";
+
+// ---- screen (§7) --------------------------------------------------------
+
+const SCREEN_CAPTURE_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: --json (schema: screen-capture) — an object with the
+    output path, byte count, and region. Text output is a one-line
+    confirmation and is not a parsing target. The PNG is written to --out.
+
+EXIT CODES:
+    0  success
+    1  generic failure (e.g. VNC_CAPTURE_FAILED, VNC_ENCODING_FAILED)
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND / WINDOW_NOT_FOUND
+    4  AUTH_REQUIRED (accessibility needed for --window)
+    7  CONNECTION_TIMEOUT
+
+EXAMPLES:
+    # Capture the full screen of a running VM
+    testanyware screen capture --vm \"$TESTANYWARE_VM_ID\" -o screen.png
+
+    # Crop to a region, JSON receipt for scripting
+    testanyware screen capture --vm \"$TESTANYWARE_VM_ID\" --region 0,0,800,600 -o crop.png --json
+
+SEE ALSO:
+    testanyware screen size, testanyware screen record, testanyware screen find-text
+";
+
+const SCREEN_RECORD_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: --json (schema: screen-record) — an object with the
+    output path, fps, region, duration, and frame count. Text output is a
+    status line and is not a parsing target. The MP4 is written to --out.
+
+EXIT CODES:
+    0  success (including --dry-run)
+    1  generic failure (e.g. VNC_ENCODING_FAILED, RECORD_BUFFER_CREATE_FAILED)
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND
+    5  RECORD_ALREADY_ACTIVE
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — each call creates a fresh recording. Concurrent
+    recordings against the same VM produce RECORD_ALREADY_ACTIVE.
+
+EXAMPLES:
+    # Record 10 seconds at 30fps
+    testanyware screen record --vm \"$TESTANYWARE_VM_ID\" --duration 10 -o out.mp4
+
+    # Plan only — report the recording parameters without recording
+    testanyware screen record --vm \"$TESTANYWARE_VM_ID\" --duration 10 --dry-run --json
+
+SEE ALSO:
+    testanyware screen capture, testanyware screen size, testanyware viewer
+";
+
+const SCREEN_SIZE_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (`WxH`, e.g. `1920x1080`), --json (schema:
+    screen-size) — an object with `width` and `height`.
+
+EXIT CODES:
+    0  success
+    1  generic failure (e.g. VNC_DIMENSIONS_ZERO)
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND
+    7  CONNECTION_TIMEOUT
+
+EXAMPLES:
+    # Print the display dimensions
+    testanyware screen size --vm \"$TESTANYWARE_VM_ID\"
+
+    # JSON for scripting
+    testanyware screen size --vm \"$TESTANYWARE_VM_ID\" --json | jq '.width'
+
+SEE ALSO:
+    testanyware screen capture, testanyware screen record, testanyware screen find-text
+";
+
+// ---- agent show-menu (§3.1 + §7 + §9.3) ---------------------------------
+
+const AGENT_SHOW_MENU_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (the opened menu's accessibility snapshot), --json
+    (schema: agent-action) — the menu snapshot under an action receipt.
+    Opening a menu is an intent-level UI action, so this command is mutating.
+
+EXIT CODES:
+    0  success (including --dry-run)
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND / WINDOW_NOT_FOUND
+    4  AUTH_REQUIRED
+    5  ACTION_UNSUPPORTED
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Not idempotent — re-opening a menu has app-defined effect. Retry only
+    when the previous attempt's outcome is unknown.
+
+EXAMPLES:
+    # Open the File menu and snapshot it
+    testanyware agent show-menu --menu File --vm \"$TESTANYWARE_VM_ID\"
+
+    # JSON receipt for scripting
+    testanyware agent show-menu --menu File --vm \"$TESTANYWARE_VM_ID\" --json
+
+    # Plan only — report the planned open without performing it
+    testanyware agent show-menu --menu File --dry-run --json --vm \"$TESTANYWARE_VM_ID\"
+
+SEE ALSO:
+    testanyware agent snapshot, testanyware agent windows, testanyware input click
+";
+
 // Root-level help banners — make the LLM usage guide impossible to miss
 // for an agent that runs bare `testanyware` or `testanyware --help`.
 const ROOT_BEFORE_HELP: &str =
@@ -1013,10 +1391,13 @@ struct FileExecArgs {
 #[derive(Subcommand, Debug)]
 enum ScreenAction {
     /// Capture a screenshot via VNC
+    #[command(after_long_help = SCREEN_CAPTURE_AFTER_HELP)]
     Capture(ScreenCaptureArgs),
     /// Record VNC framebuffer to MP4
+    #[command(after_long_help = SCREEN_RECORD_AFTER_HELP)]
     Record(ScreenRecordArgs),
     /// Print VNC display dimensions ("WxH")
+    #[command(after_long_help = SCREEN_SIZE_AFTER_HELP)]
     Size(ConnectionArgs),
     /// OCR the screen and find text
     #[command(after_long_help = SCREEN_FIND_TEXT_AFTER_HELP)]
@@ -1039,6 +1420,7 @@ enum FileAction {
 #[derive(Subcommand, Debug)]
 enum InputAction {
     /// Press and release a key
+    #[command(after_long_help = INPUT_KEY_AFTER_HELP)]
     Key {
         #[command(flatten)]
         conn: ConnectionOptions,
@@ -1047,32 +1429,44 @@ enum InputAction {
         modifiers: Vec<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
+        #[arg(long, help = "Plan the event but do not send it")]
+        dry_run: bool,
     },
     /// Press a key (no release)
+    #[command(after_long_help = INPUT_KEY_DOWN_AFTER_HELP)]
     KeyDown {
         #[command(flatten)]
         conn: ConnectionOptions,
         key: String,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
+        #[arg(long, help = "Plan the event but do not send it")]
+        dry_run: bool,
     },
     /// Release a key
+    #[command(after_long_help = INPUT_KEY_UP_AFTER_HELP)]
     KeyUp {
         #[command(flatten)]
         conn: ConnectionOptions,
         key: String,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
+        #[arg(long, help = "Plan the event but do not send it")]
+        dry_run: bool,
     },
     /// Type a string
+    #[command(after_long_help = INPUT_TYPE_AFTER_HELP)]
     Type {
         #[command(flatten)]
         conn: ConnectionOptions,
         text: String,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
+        #[arg(long, help = "Plan the event but do not send it")]
+        dry_run: bool,
     },
     /// Click at a point
+    #[command(after_long_help = INPUT_CLICK_AFTER_HELP)]
     Click {
         #[command(flatten)]
         conn: ConnectionOptions,
@@ -1086,8 +1480,11 @@ enum InputAction {
         window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
+        #[arg(long, help = "Plan the event but do not send it")]
+        dry_run: bool,
     },
     /// Press a mouse button (no release)
+    #[command(after_long_help = INPUT_MOUSE_DOWN_AFTER_HELP)]
     MouseDown {
         #[command(flatten)]
         conn: ConnectionOptions,
@@ -1099,8 +1496,11 @@ enum InputAction {
         window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
+        #[arg(long, help = "Plan the event but do not send it")]
+        dry_run: bool,
     },
     /// Release a mouse button
+    #[command(after_long_help = INPUT_MOUSE_UP_AFTER_HELP)]
     MouseUp {
         #[command(flatten)]
         conn: ConnectionOptions,
@@ -1112,8 +1512,11 @@ enum InputAction {
         window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
+        #[arg(long, help = "Plan the event but do not send it")]
+        dry_run: bool,
     },
     /// Move the mouse cursor
+    #[command(after_long_help = INPUT_MOVE_AFTER_HELP)]
     Move {
         #[command(flatten)]
         conn: ConnectionOptions,
@@ -1123,8 +1526,11 @@ enum InputAction {
         window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
+        #[arg(long, help = "Plan the event but do not send it")]
+        dry_run: bool,
     },
     /// Scroll at a point
+    #[command(after_long_help = INPUT_SCROLL_AFTER_HELP)]
     Scroll {
         #[command(flatten)]
         conn: ConnectionOptions,
@@ -1138,8 +1544,11 @@ enum InputAction {
         window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
+        #[arg(long, help = "Plan the event but do not send it")]
+        dry_run: bool,
     },
     /// Drag from one point to another
+    #[command(after_long_help = INPUT_DRAG_AFTER_HELP)]
     Drag {
         #[command(flatten)]
         conn: ConnectionOptions,
@@ -1155,6 +1564,8 @@ enum InputAction {
         window: Option<String>,
         #[arg(long, help = "Emit JSON envelope on stdout")]
         json: bool,
+        #[arg(long, help = "Plan the event but do not send it")]
+        dry_run: bool,
     },
 }
 
@@ -1317,11 +1728,16 @@ enum AgentAction {
     #[command(after_long_help = AGENT_FOCUS_AFTER_HELP)]
     Focus(AgentActionArgs),
     /// Show a menu (open menu, then snapshot)
+    #[command(after_long_help = AGENT_SHOW_MENU_AFTER_HELP)]
     ShowMenu {
         #[command(flatten)]
         conn: ConnectionOptions,
         #[arg(long)]
         menu: String,
+        #[arg(long, help = "Emit JSON envelope on stdout")]
+        json: bool,
+        #[arg(long, help = "Plan the open but do not perform it")]
+        dry_run: bool,
     },
     /// Focus a window
     #[command(after_long_help = AGENT_WINDOW_FOCUS_AFTER_HELP)]
@@ -1483,18 +1899,28 @@ async fn main() {
                 key,
                 modifiers,
                 json,
+                dry_run,
             } => {
-                input_cmds::run_key(conn.into(), key, modifiers, OutputMode::from_flags(json))
+                input_cmds::run_key(
+                    conn.into(),
+                    key,
+                    modifiers,
+                    OutputMode::from_flags(json),
+                    dry_run,
+                )
+                .await
+            }
+            InputAction::KeyDown { conn, key, json, dry_run } => {
+                input_cmds::run_key_down(conn.into(), key, OutputMode::from_flags(json), dry_run)
                     .await
             }
-            InputAction::KeyDown { conn, key, json } => {
-                input_cmds::run_key_down(conn.into(), key, OutputMode::from_flags(json)).await
+            InputAction::KeyUp { conn, key, json, dry_run } => {
+                input_cmds::run_key_up(conn.into(), key, OutputMode::from_flags(json), dry_run)
+                    .await
             }
-            InputAction::KeyUp { conn, key, json } => {
-                input_cmds::run_key_up(conn.into(), key, OutputMode::from_flags(json)).await
-            }
-            InputAction::Type { conn, text, json } => {
-                input_cmds::run_type(conn.into(), text, OutputMode::from_flags(json)).await
+            InputAction::Type { conn, text, json, dry_run } => {
+                input_cmds::run_type(conn.into(), text, OutputMode::from_flags(json), dry_run)
+                    .await
             }
             InputAction::Click {
                 conn,
@@ -1504,6 +1930,7 @@ async fn main() {
                 count,
                 window,
                 json,
+                dry_run,
             } => {
                 input_cmds::run_click(
                     conn.into(),
@@ -1513,6 +1940,7 @@ async fn main() {
                     count,
                     window,
                     OutputMode::from_flags(json),
+                    dry_run,
                 )
                 .await
             }
@@ -1523,6 +1951,7 @@ async fn main() {
                 button,
                 window,
                 json,
+                dry_run,
             } => {
                 input_cmds::run_mouse_down(
                     conn.into(),
@@ -1531,6 +1960,7 @@ async fn main() {
                     button,
                     window,
                     OutputMode::from_flags(json),
+                    dry_run,
                 )
                 .await
             }
@@ -1541,6 +1971,7 @@ async fn main() {
                 button,
                 window,
                 json,
+                dry_run,
             } => {
                 input_cmds::run_mouse_up(
                     conn.into(),
@@ -1549,6 +1980,7 @@ async fn main() {
                     button,
                     window,
                     OutputMode::from_flags(json),
+                    dry_run,
                 )
                 .await
             }
@@ -1558,8 +1990,17 @@ async fn main() {
                 y,
                 window,
                 json,
+                dry_run,
             } => {
-                input_cmds::run_move(conn.into(), x, y, window, OutputMode::from_flags(json)).await
+                input_cmds::run_move(
+                    conn.into(),
+                    x,
+                    y,
+                    window,
+                    OutputMode::from_flags(json),
+                    dry_run,
+                )
+                .await
             }
             InputAction::Scroll {
                 conn,
@@ -1569,6 +2010,7 @@ async fn main() {
                 dy,
                 window,
                 json,
+                dry_run,
             } => {
                 input_cmds::run_scroll(
                     conn.into(),
@@ -1578,6 +2020,7 @@ async fn main() {
                     dy.unwrap_or(0),
                     window,
                     OutputMode::from_flags(json),
+                    dry_run,
                 )
                 .await
             }
@@ -1591,6 +2034,7 @@ async fn main() {
                 steps,
                 window,
                 json,
+                dry_run,
             } => {
                 input_cmds::run_drag(
                     conn.into(),
@@ -1602,6 +2046,7 @@ async fn main() {
                     steps,
                     window,
                     OutputMode::from_flags(json),
+                    dry_run,
                 )
                 .await
             }
@@ -1698,24 +2143,31 @@ async fn main() {
                 )
                 .await
             }
-            AgentAction::ShowMenu { conn, menu } => {
+            AgentAction::ShowMenu { conn, menu, json, dry_run } => {
+                let mode = OutputMode::from_flags(json);
                 // `show-menu` is the menu-bar opener: open the `--menu` path via
                 // VNC, then emit the resulting snapshot. Equivalent to
-                // `agent snapshot --open-menu <menu>` with default filters and
-                // text output.
-                agent_cmds::run_snapshot(
-                    conn.into(),
-                    agent_cmds::SnapshotArgs {
-                        mode_arg: Some("interact".to_string()),
-                        window: None,
-                        role: None,
-                        label: None,
-                        depth: None,
-                        open_menu: Some(menu),
-                    },
-                    OutputMode::from_flags(false),
-                )
-                .await
+                // `agent snapshot --open-menu <menu>` with default filters.
+                // Opening a menu is a UI mutation, so `--dry-run` reports the
+                // planned open (schema: agent-action) without performing it,
+                // short-circuiting before any connection (§9.3).
+                if dry_run {
+                    agent_cmds::emit_show_menu_dry_run(&menu, mode);
+                } else {
+                    agent_cmds::run_snapshot(
+                        conn.into(),
+                        agent_cmds::SnapshotArgs {
+                            mode_arg: Some("interact".to_string()),
+                            window: None,
+                            role: None,
+                            label: None,
+                            depth: None,
+                            open_menu: Some(menu),
+                        },
+                        mode,
+                    )
+                    .await
+                }
             }
             AgentAction::WindowFocus(args) => {
                 agent_cmds::run_window_focus(
