@@ -1,4 +1,4 @@
-# 150-tart-restart-stale-vnc
+# 105-tart-restart-stale-vnc
 
 **Kind:** work (bug fix — correctness regression)
 
@@ -78,11 +78,14 @@ because each id gets a fresh log.
 
 ## Notes
 
-- Sequencing: normal fresh-id usage is unaffected, so this does **not** block the
-  Tier-1 happy path. But consider pulling it ahead of `110-vm-create-golden`
-  **iff** that leaf restarts a VM under a fixed id (guest-internal reboots that
+- Sequencing: **placed at `105`, ahead of `110-vm-create-golden`** (operator
+  call, 2026-06-03) — golden creation is the VM-lifecycle-heavy leaf most likely
+  to restart a VM under a fixed id, so clear this correctness bug first.
+  `100-screen-record` (unrelated RFB work) stays the immediate frontier; this
+  leaf is picked next after it. Normal fresh-id usage is unaffected, so it does
+  **not** block the Tier-1 happy path either way. (Guest-internal reboots that
   keep the same `tart run` process / VNC port are *not* affected; only a real
-  `vm stop`→`vm start` cycle is). Operator's call when next driving the grove.
+  `vm stop`→`vm start` cycle is.)
 - VM cost is just clone+start (memory [[vm-costs]]); reproduce with a throwaway
   clone. Use `tart list` state column, not `tart ip`, for running/stopped
   (memory [[tart-ip-lies]]).
