@@ -42,6 +42,27 @@ Tier-2 items to decompose:
 - **linux/windows `vm create-golden`** (full Rust port, per Q3).
 - **linux/windows distribution** (Homebrew Linux + Windows zip), shaped by `080`.
 
+## Decisions carried in (pre-grilling)
+
+- **2026-06-03 (user):** linux + windows `vm create-golden` are a **full Rust
+  port + live-verify**, mirroring node `110` — not a façade over the scripts.
+  `vm-create-golden-linux.sh` / `vm-create-golden-windows.sh` are **deleted**
+  once ported. Verified by **actually creating each golden on the macOS host**
+  (cheap — [[vm-costs]]), as `110` was. So the grilling for this item starts from
+  *how* to port (reuse of `110`'s `golden`/`finalize`/recovery layers, the
+  QEMU+swtpm Windows path, the ssh-vs-other provisioning channel per guest), not
+  *whether* to port. Sequencing held **after Tier 1** (this leaf stays after
+  `120`/`130`).
+- **Host-side vs host-support — keep these two axes distinct.** Golden
+  *production* for linux/windows guests is **macOS-host work** (tart clones the
+  Ubuntu image; QEMU+swtpm drives the Windows 11 ARM64 installer) — it runs on
+  the Mac, like the `110` macOS golden. That is **separate** from **Linux-host /
+  Windows-host support** (running the `testanyware` CLI *on* a Linux/Windows
+  host). The two Tier-2-items bullets below ("Linux/Windows-host support" vs
+  "linux/windows `vm create-golden`") are therefore genuinely different work; the
+  golden port needs **no** cross-compiled host binary and **no** non-macOS host —
+  it can be built and verified entirely on this Mac today.
+
 ## Done when
 
 - Tier-2 leaves/nodes materialized with clear briefs (via
