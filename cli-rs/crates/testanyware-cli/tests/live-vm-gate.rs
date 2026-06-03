@@ -47,6 +47,11 @@
 //!    uses the in-process Vision engine; assert `engine == "vision"` and that
 //!    the query is found with a plausible bounding box. **This closes the live
 //!    Vision-OCR check deferred by `040-macos-vision-ocr` (ADR-0002 / 0003).**
+//! 5. **Live screen record** — `screen record --duration 2 --fps 10 --json`
+//!    drives the bounded long-lived RFB→AVFoundation encode path end to end
+//!    against the live guest, asserting a readable MP4 with frames written.
+//!    **This is the live verification for `100-screen-record-encoder-macos`
+//!    (ADR-0006), complementing the synthetic-frame encoder smoke test.**
 //!    Best-effort: also exercises the `TESTANYWARE_OCR_FALLBACK=1` daemon path
 //!    for parity, skipped (not failed) when the EasyOCR daemon is unavailable.
 //!
@@ -465,6 +470,60 @@ fn check_vision_ocr(vm: &str) -> Result<String, String> {
     ))
 }
 
+/// Check 5 — live screen record: drive the bounded RFB→AVFoundation encode
+/// path against the live guest and assert a readable MP4 with frames written.
+/// The live counterpart to the synthetic-frame encoder smoke test (ADR-0006).
+fn check_record(vm: &str) -> Result<String, String> {
+    dismiss_menus(vm);
+    let dir = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
+    let path = dir.path().join("gate-rec.mp4");
+    let path_str = path.to_str().unwrap();
+    let (fps, secs) = (10u32, 2u32);
+
+    let out = run(&[
+        "screen", "record", "--vm", vm, "--fps", "10", "--duration", "2", "-o", path_str,
+        "--json",
+    ]);
+    if !out.status.success() {
+        return Err(format!(
+            "screen record exited {:?}: {}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr),
+        ));
+    }
+    let body: Value = serde_json::from_slice(&out.stdout)
+        .map_err(|e| format!("record stdout not JSON: {e}"))?;
+
+    let frames = body.get("frames").and_then(Value::as_u64).unwrap_or(0);
+    if frames == 0 {
+        return Err(format!("record reported zero frames written: {body}"));
+    }
+    // Backpressure may drop some frames, but a healthy 2s @ 10fps stream
+    // should land at least ~1s worth.
+    if frames < u64::from(fps) {
+        return Err(format!(
+            "record wrote only {frames} frames for {secs}s @ {fps}fps — stream looks stalled"
+        ));
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| format!("read recorded mp4: {e}"))?;
+    if bytes.len() < 1000 || bytes.get(4..8) != Some(b"ftyp") {
+        return Err(format!(
+            "recorded file is not a plausible MP4 ({} bytes, magic {:?})",
+            bytes.len(),
+            bytes.get(4..8)
+        ));
+    }
+    let (w, h) = (
+        body.get("width").and_then(Value::as_u64).unwrap_or(0),
+        body.get("height").and_then(Value::as_u64).unwrap_or(0),
+    );
+    Ok(format!(
+        "recorded {w}x{h} {frames}-frame MP4 ({} bytes) in {secs}s @ {fps}fps",
+        bytes.len()
+    ))
+}
+
 // ---------------------------------------------------------------------------
 // The gate
 // ---------------------------------------------------------------------------
@@ -507,6 +566,7 @@ fn live_vm_gate() {
     let results: Vec<(&str, Result<String, String>)> = vec![
         ("vision-ocr", check_vision_ocr(&id)),
         ("encoding", check_encoding(&id)),
+        ("record", check_record(&id)),
         ("input-landing", check_input_landing(&id, file_center)),
         ("show-menu", check_show_menu(&id)),
     ];

@@ -1,12 +1,57 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/screen-record.json",
-  "title": "screen-record (stub)",
-  "$comment": "TODO: replace with the real schema when the Rust port lands this command. See cli-design-contract.md §3.1.",
+  "title": "screen-record",
+  "description": "Success envelope for `testanyware screen record` (and the `record` alias). Records the live guest framebuffer over RFB to an MP4 via the per-platform video encoder (ADR-0006).",
   "type": "object",
-  "required": ["schema_version", "ok"],
+  "required": ["schema_version", "ok", "output", "fps", "duration", "codec", "dry_run"],
   "properties": {
     "schema_version": { "type": "string" },
-    "ok":             { "type": "boolean" }
+    "ok": { "const": true },
+    "output": {
+      "type": "string",
+      "description": "Path the recording was (or, under --dry-run, would be) written to."
+    },
+    "fps": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Frames per second of the recording."
+    },
+    "duration": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Effective recording length in seconds (0 maps to the 300s maximum)."
+    },
+    "codec": {
+      "type": "string",
+      "enum": ["h264"],
+      "description": "Video codec used."
+    },
+    "region": {
+      "type": ["array", "null"],
+      "items": { "type": "integer", "minimum": 0 },
+      "minItems": 4,
+      "maxItems": 4,
+      "description": "Crop region [x, y, width, height], or null for the full screen."
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Recorded frame width in pixels. Absent in a --dry-run with no region (the guest size is unknown without connecting)."
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Recorded frame height in pixels. Absent in a --dry-run with no region."
+    },
+    "frames": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Number of frames written. Present only on a real (non-dry-run) recording."
+    },
+    "dry_run": {
+      "type": "boolean",
+      "description": "True when --dry-run reported the plan without recording."
+    }
   }
 }

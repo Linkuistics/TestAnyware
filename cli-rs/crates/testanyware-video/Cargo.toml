@@ -1,0 +1,33 @@
+[package]
+name = "testanyware-video"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Per-platform video encoder seam for `testanyware screen record` (ADR-0006)."
+
+[dependencies]
+thiserror = { workspace = true }
+
+# macOS-only: in-process AVFoundation / VideoToolbox encoder (ADR-0006),
+# the same pure-Rust objc2 FFI strategy ADR-0003 chose for Apple Vision —
+# no Swift toolchain at build time. Non-macOS builds never see these crates
+# (the ffmpeg-next encoder is the Tier-2 sibling behind the same seam).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = [
+    "NSString", "NSDictionary", "NSValue", "NSArray", "NSURL", "NSObject", "NSError",
+] }
+objc2-av-foundation = { version = "0.3", features = [
+    "AVAssetWriter", "AVAssetWriterInput", "AVMediaFormat", "AVVideoSettings",
+    "objc2-core-media", "objc2-core-video",
+] }
+objc2-core-media = { version = "0.3", features = ["CMTime"] }
+objc2-core-video = { version = "0.3", features = [
+    "CVBase", "CVReturn", "CVBuffer", "CVImageBuffer", "CVPixelBuffer", "CVPixelBufferPool",
+] }
+objc2-core-foundation = { version = "0.3", features = ["CFBase", "CFString"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }

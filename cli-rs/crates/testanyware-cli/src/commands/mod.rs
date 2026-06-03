@@ -14,6 +14,7 @@ pub mod doctor;
 pub mod file;
 pub mod input;
 pub mod menu_bar;
+pub mod record;
 pub mod screen;
 pub mod viewer;
 pub mod vm;

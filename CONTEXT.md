@@ -69,12 +69,15 @@ _Avoid_: calling it "the server".
 **Embedded viewer**:
 The Rust CLI's `testanyware viewer` command (and the `vm start --viewer`
 sugar) — an in-process `eframe`/`wgpu` window that renders a live RFB
-`FramebufferUpdate` stream and forwards input to the guest. It is the **only
-long-lived RFB consumer** (every other command opens a short-lived
-per-invocation connection — ADR-0004) and the first continuous driver of the
-`testanyware-rfb` client. Architecture in ADR-0005: dedicated RFB thread +
-isolated runtime, eframe on the main thread. Contrast the Swift `--viewer`,
-which launched an *external* VNC app via AppleScript.
+`FramebufferUpdate` stream and forwards input to the guest. It was the first
+**long-lived RFB consumer** — every other command opens a short-lived
+per-invocation connection (ADR-0004) — and the first continuous driver of the
+`testanyware-rfb` client. `screen record` is now the **second** long-lived
+consumer (ADR-0006): a *bounded, non-interactive* one that samples the stream
+into a video encoder for `--duration` seconds, so the viewer is no longer the
+*only* one. Architecture in ADR-0005: dedicated RFB thread + isolated runtime,
+eframe on the main thread. Contrast the Swift `--viewer`, which launched an
+*external* VNC app via AppleScript.
 _Avoid_: "the VNC server" (it is a *client*/display surface, not a server);
 conflating it with the retired *Shared-VNC server* (a multiplexer other
 invocations attached to — the viewer is a single standalone display).

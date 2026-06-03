@@ -13,7 +13,7 @@ use clap::{Args, Parser, Subcommand};
 
 use testanyware_cli::commands::{
     agent as agent_cmds, doctor as doctor_cmds, file as file_cmds, input as input_cmds,
-    screen as screen_cmds, viewer as viewer_cmds, vm as vm_cmds,
+    record as record_cmds, screen as screen_cmds, viewer as viewer_cmds, vm as vm_cmds,
 };
 use testanyware_cli::discoverability::{run_capabilities, run_llm_instructions, run_schema};
 use testanyware_cli::output::OutputMode;
@@ -891,12 +891,21 @@ struct ScreenCaptureArgs {
 struct ScreenRecordArgs {
     #[command(flatten)]
     conn: ConnectionOptions,
-    #[arg(short = 'o', value_name = "FILE")]
+    #[arg(short = 'o', value_name = "FILE", default_value = "recording.mp4")]
     output: String,
+    /// Frames per second [default: 30].
     #[arg(long)]
     fps: Option<u32>,
+    /// Seconds to record (0 = the 300s maximum) [default: 0].
     #[arg(long)]
     duration: Option<u32>,
+    /// Crop region as X,Y,W,H (default: the whole screen).
+    #[arg(long, value_name = "X,Y,W,H")]
+    region: Option<String>,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
+    #[arg(long, help = "Validate inputs and report the plan without recording")]
+    dry_run: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -1371,11 +1380,6 @@ enum VmAction {
     },
 }
 
-fn unimplemented(name: &str) -> ! {
-    eprintln!("testanyware {name}: not yet implemented in the Rust port");
-    eprintln!("This subcommand is still served by the Swift CLI under cli/.");
-    std::process::exit(2);
-}
 
 #[tokio::main]
 async fn main() {
@@ -1404,7 +1408,7 @@ async fn main() {
     match cli.command {
         Command::Screen { action } => match action {
             ScreenAction::Capture(args) => run_screen_capture(args).await,
-            ScreenAction::Record(_) => unimplemented("screen record"),
+            ScreenAction::Record(args) => run_screen_record(args).await,
             ScreenAction::Size(args) => run_screen_size(args).await,
             ScreenAction::FindText(args) => run_screen_find_text(args).await,
         },
@@ -1730,7 +1734,7 @@ async fn main() {
         Command::LlmInstructions => run_llm_instructions(),
         // Verb-first aliases dispatch to the same handler as the canonical.
         Command::Screenshot(args) => run_screen_capture(args).await,
-        Command::Record(_) => unimplemented("screen record"),
+        Command::Record(args) => run_screen_record(args).await,
         Command::ScreenSize(args) => run_screen_size(args).await,
         Command::FindText(args) => run_screen_find_text(args).await,
         Command::Upload(args) => run_upload(args).await,
@@ -1757,6 +1761,20 @@ async fn run_screen_size(args: ConnectionArgs) {
 async fn run_screen_capture(args: ScreenCaptureArgs) {
     let mode = OutputMode::from_flags(args.json);
     screen_cmds::run_screen_capture(args.conn.into(), args.output, args.region, mode).await
+}
+
+async fn run_screen_record(args: ScreenRecordArgs) {
+    let mode = OutputMode::from_flags(args.json);
+    record_cmds::run_screen_record(
+        args.conn.into(),
+        args.output,
+        args.fps,
+        args.duration,
+        args.region,
+        mode,
+        args.dry_run,
+    )
+    .await
 }
 
 async fn run_screen_find_text(args: ScreenFindTextArgs) {

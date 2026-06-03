@@ -297,7 +297,7 @@ fn ocr_remediation(code: &str) -> &'static str {
     }
 }
 
-fn parse_region(value: &str) -> Result<(u32, u32, u32, u32), String> {
+pub(crate) fn parse_region(value: &str) -> Result<(u32, u32, u32, u32), String> {
     let parts: Vec<&str> = value.split(',').collect();
     if parts.len() != 4 {
         return Err(format!("expected 4 comma-separated integers, got {}", parts.len()));
@@ -374,7 +374,7 @@ fn exit_resolve_error(err: ResolveError, mode: OutputMode) -> ! {
     print_error(mode, code, &message, None, err.details(), err.exit_code());
 }
 
-fn exit_rfb_error(err: testanyware_rfb::RfbError, mode: OutputMode) -> ! {
+pub(crate) fn exit_rfb_error(err: testanyware_rfb::RfbError, mode: OutputMode) -> ! {
     use testanyware_rfb::RfbError;
     let (code, exit_code) = match &err {
         RfbError::Io(_) => ("CONNECTION_REFUSED", 1),
