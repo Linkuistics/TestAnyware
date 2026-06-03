@@ -35,6 +35,11 @@ pub mod golden;
 /// grove leaf `110/030/010`). macOS-host only, like `tart`/`golden`.
 #[cfg(target_os = "macos")]
 pub mod recovery;
+/// Top-level macOS golden creation: the SIP/TCC cycle + finalize + clone, wiring
+/// `golden` (boot-1) and `recovery` together (grove leaf `110/030/020`). macOS-
+/// host only, like `tart`/`golden`/`recovery`.
+#[cfg(target_os = "macos")]
+pub mod finalize;
 
 pub use detached::spawn_detached;
 pub use error::VmError;

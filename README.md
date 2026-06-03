@@ -234,10 +234,11 @@ Python source) and the golden-image scripts under
 artifacts from that location automatically — there is nothing to build
 on the host.
 
-To create a golden image, invoke the bundled scripts directly:
+To create a golden image — macOS is built in to the CLI; the Linux/Windows
+builders are still bundled scripts:
 
 ```bash
-bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-macos.sh"
+testanyware vm create-golden --platform macos
 bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-linux.sh"
 bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-windows.sh" --iso ~/Downloads/Win11_ARM64.iso
 ```
@@ -327,7 +328,7 @@ agent pre-installed.
 Create golden images (one-time, ~10 minutes each):
 
 ```bash
-provisioner/scripts/vm-create-golden-macos.sh     # macOS (tart)
+testanyware vm create-golden --platform macos     # macOS (tart)
 provisioner/scripts/vm-create-golden-linux.sh     # Linux (tart)
 ```
 
@@ -369,7 +370,7 @@ form; the CLI is the source of truth.
 
 | Script | How to run | What it does |
 |--------|-----------|--------------|
-| `provisioner/scripts/vm-create-golden-macos.sh` | `./provisioner/scripts/vm-create-golden-macos.sh` | Create macOS golden VM image (tart) with agent + Xcode + Homebrew |
+| _(built into the CLI)_ | `testanyware vm create-golden --platform macos` | Create macOS golden VM image (tart) with agent + Xcode + Homebrew |
 | `provisioner/scripts/vm-create-golden-linux.sh` | `./provisioner/scripts/vm-create-golden-linux.sh` | Create Linux golden VM image (tart) with agent + dev tools |
 | `provisioner/scripts/vm-create-golden-windows.sh` | `./provisioner/scripts/vm-create-golden-windows.sh --iso <path>` | Create Windows golden VM image (QEMU) with agent + Chocolatey; requires downloaded ISO on first run |
 | `provisioner/scripts/vm-start.sh` | `vmid=$(provisioner/scripts/vm-start.sh)` | Start VM, print instance id on stdout, write `$XDG_STATE_HOME/testanyware/vms/<id>.json` |

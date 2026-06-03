@@ -64,11 +64,12 @@ rm .testanyware-vmid
 `vm start` boots a **clone of a pre-built golden image** (clean desktop,
 agent pre-installed, accessibility enabled, agent on port 8648). Run
 `testanyware vm list` to see which golden images are available. If none
-exist, create one with the golden-image scripts bundled alongside the CLI
-(installed under `share/testanyware/scripts/`):
+exist, create one — macOS is a built-in CLI command; the Linux/Windows
+builders are scripts bundled alongside the CLI (under
+`share/testanyware/scripts/`):
 
 ```bash
-bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-macos.sh"
+testanyware vm create-golden --platform macos
 bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-linux.sh"
 bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-windows.sh" --iso ~/Downloads/Win11_ARM64.iso
 ```

@@ -14,7 +14,7 @@ vmid=$(./provisioner/scripts/vm-start.sh)
 ./provisioner/scripts/vm-stop.sh "$vmid"
 
 # Golden-image builds (long-running, destructive)
-./provisioner/scripts/vm-create-golden-macos.sh
+testanyware vm create-golden --platform macos   # macOS is built into the CLI
 ./provisioner/scripts/vm-create-golden-linux.sh
 ./provisioner/scripts/vm-create-golden-windows.sh --iso ~/Downloads/Win11_ARM64.iso
 ```

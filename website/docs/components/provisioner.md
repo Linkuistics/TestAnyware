@@ -18,7 +18,6 @@ provisioner/
 │   ├── vm-stop.sh                        # wrapper around `testanyware vm stop`
 │   ├── vm-list.sh                        # wrapper around `testanyware vm list`
 │   ├── vm-delete.sh                      # wrapper around `testanyware vm delete`
-│   ├── vm-create-golden-macos.sh         # build macOS golden (tart, ~10 min)
 │   ├── vm-create-golden-linux.sh         # build Linux golden (tart, ~10 min)
 │   └── vm-create-golden-windows.sh       # build Windows golden (QEMU+swtpm, 20-40 min)
 └── autounattend/                         # Windows unattended-install XML + payload
@@ -30,7 +29,7 @@ provisioner/
 |------|------|
 | `scripts/vm-start.sh`, `vm-stop.sh`, `vm-list.sh`, `vm-delete.sh` | Thin `exec testanyware vm …` wrappers. Retained so existing callers (docs, CI, tests) keep working; the CLI is canonical. |
 | `scripts/_testanyware-paths.sh` | Shell-side mirror of `VMPaths.swift`. Must stay in sync. |
-| `scripts/vm-create-golden-macos.sh` | Builds `testanyware-golden-macos-tahoe`. Downloads vanilla macOS Tahoe from Cirrus Labs; disables/re-enables SIP to install the TCC grant for the agent. |
+| `testanyware vm create-golden --platform macos` | Builds `testanyware-golden-macos-tahoe`. In-process CLI command (no script): downloads vanilla macOS Tahoe from Cirrus Labs; disables/re-enables SIP to install the TCC grant for the agent. |
 | `scripts/vm-create-golden-linux.sh` | Builds `testanyware-golden-linux-24.04`. Installs `ubuntu-desktop-minimal`, AT-SPI2, the agent, and a systemd user service. |
 | `scripts/vm-create-golden-windows.sh` | Builds `testanyware-golden-windows-11` under `$XDG_DATA_HOME/testanyware/golden/`. Orchestrates QEMU + swtpm through the Windows 11 ARM64 installer; requires the ISO on first run. |
 | `autounattend/` | Windows unattended-install XML + payload. The agent's `publish` dir and a Task Scheduler xml are injected here. |
@@ -51,7 +50,7 @@ vmid=$(./provisioner/scripts/vm-start.sh)
 Golden-image creation is long and destructive; don't run it casually.
 
 ```bash
-./provisioner/scripts/vm-create-golden-macos.sh
+testanyware vm create-golden --platform macos
 ./provisioner/scripts/vm-create-golden-linux.sh
 ./provisioner/scripts/vm-create-golden-windows.sh --iso ~/Downloads/Win11_ARM64.iso
 ```

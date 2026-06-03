@@ -222,19 +222,17 @@ pub async fn run_vm_delete(name: String, force: bool, mode: OutputMode, dry_run:
     }
 }
 
-/// `testanyware vm create-golden` (ADR-0007; grove node
+/// `testanyware vm create-golden` (ADR-0007/0008; grove node
 /// `110-vm-create-golden-macos`).
 ///
 /// `--dry-run` validates and prints the 5-boot plan, mutating nothing (both
-/// text and `--json`). A real invocation drives the provisioning. As of leaf
-/// `020`, **boot-1 normal-mode provisioning** is wired: clone+boot the
-/// vanilla setup VM and provision it over the SSH layer (pubkey, defaults,
-/// wallpaper, CLT, Homebrew, agent + plist). The setup VM is then left
-/// **running** at the handoff point — the SIP/TCC recovery cycle + final
-/// `tart clone` to golden are grove leaf `030`, not yet wired, so the
-/// command reports boot-1 completion via `GOLDEN_CREATE_FAILED` rather than
-/// claiming a golden it has not produced. Mirrors the `run_vm_start`
-/// dry-run-validate → emit-plan shape.
+/// text and `--json`). A real invocation drives the full pipeline end-to-end
+/// ([`testanyware_vm::finalize::create_golden`]): boot-1 normal-mode
+/// provisioning (pubkey, defaults, wallpaper, CLT, Homebrew, agent + plist) →
+/// the SIP/TCC cycle (disable SIP via Recovery, grant TCC, re-enable SIP) →
+/// the agent-health gate, clean shutdown, and `tart clone` to the golden. On
+/// success it reports the created golden's name; the throwaway setup VM is
+/// consumed. Mirrors the `run_vm_start` dry-run-validate → emit-plan shape.
 pub async fn run_vm_create_golden(
     platform: String,
     version: String,
@@ -271,27 +269,25 @@ pub async fn run_vm_create_golden(
 
     #[cfg(target_os = "macos")]
     {
-        use testanyware_vm::golden::{provision_boot1, GoldenOptions};
+        use testanyware_vm::finalize::create_golden;
+        use testanyware_vm::golden::GoldenOptions;
         use testanyware_vm::VmPaths;
 
         let opts = GoldenOptions { version: version.clone(), name: name.clone() };
         let paths = VmPaths::from_process_env();
-        match provision_boot1(&opts, &paths).await {
-            // Boot-1 succeeded, but the golden is not yet produced — the
-            // SIP/TCC recovery cycle + finalize is grove leaf `030`. Report
-            // the handoff honestly (GOLDEN_CREATE_FAILED, exit 1) rather than
-            // exit 0 as if a golden exists. The setup VM is left running.
-            Ok(setup) => exit_vm_error(
-                VmError::GoldenCreateFailed {
-                    detail: format!(
-                        "boot-1 provisioning complete: setup VM '{}' is running at {} (pid {}). \
-                         The SIP/TCC recovery cycle + clone to golden '{}' is grove leaf \
-                         030-recovery-sip-tcc-finalize — not yet wired.",
-                        setup.id, setup.ip, setup.pid, name
-                    ),
-                },
-                mode,
-            ),
+        match create_golden(&opts, &paths).await {
+            Ok(golden) => match mode {
+                OutputMode::Text => {
+                    println!("Golden image '{golden}' created successfully.");
+                    println!("Use it with: testanyware vm start --platform macos --base {golden}");
+                }
+                OutputMode::Json => print_success(json!({
+                    "platform": "macos",
+                    "version": version,
+                    "name": golden,
+                    "created": true,
+                })),
+            },
             Err(err) => exit_vm_error(err, mode),
         }
     }

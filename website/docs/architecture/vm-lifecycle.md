@@ -78,11 +78,12 @@ queries both backends and presents a unified view.
 ## Golden images
 
 Golden images are built once, then every `vm start` clones from a
-golden. Build scripts live at `provisioner/scripts/`:
+golden. macOS is an in-process CLI command; the Linux/Windows builders
+live at `provisioner/scripts/`:
 
-| Script | Produces |
-|--------|----------|
-| `vm-create-golden-macos.sh` | `testanyware-golden-macos-tahoe` (tart) |
+| Builder | Produces |
+|---------|----------|
+| `testanyware vm create-golden --platform macos` | `testanyware-golden-macos-tahoe` (tart) |
 | `vm-create-golden-linux.sh` | `testanyware-golden-linux-24.04` (tart) |
 | `vm-create-golden-windows.sh` | `testanyware-golden-windows-11` (QEMU, under `$XDG_DATA_HOME/testanyware/golden/`) |
 
@@ -90,10 +91,11 @@ Clone semantics: tart uses copy-on-write clones (`tart clone` is fast
 and cheap). QEMU uses file-level copy of the backing qcow2 image — one
 clone dir per running VM, removed on stop.
 
-The macOS golden creation script temporarily disables SIP (via a
+The macOS golden creation command temporarily disables SIP (via a
 Recovery-boot csrutil cycle) to install a TCC grant for the agent
 with code-signing attached; SIP is re-enabled before the image is
-finalised. See `provisioner/scripts/vm-create-golden-macos.sh`.
+finalised. See `testanyware vm create-golden --platform macos`
+(ADR-0007/0008).
 
 ## Multiple concurrent VMs
 

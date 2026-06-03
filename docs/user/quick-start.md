@@ -29,10 +29,10 @@ ln -sf "$PWD/.build/release/testanyware" /usr/local/bin/testanyware
 ## 2. Create the macOS golden image (one-time, ~10 minutes)
 
 ```bash
-./provisioner/scripts/vm-create-golden-macos.sh
+testanyware vm create-golden --platform macos
 ```
 
-The script downloads a vanilla macOS Tahoe image, installs the
+The command downloads a vanilla macOS Tahoe image, installs the
 TestAnyware agent, grants accessibility, and finalises the golden. You
 only need to do this once per host.
 

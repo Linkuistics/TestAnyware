@@ -64,7 +64,7 @@ All golden images share these properties:
 ## Creating the golden images
 
 ```bash
-./provisioner/scripts/vm-create-golden-macos.sh
+testanyware vm create-golden --platform macos
 ./provisioner/scripts/vm-create-golden-linux.sh
 ```
 

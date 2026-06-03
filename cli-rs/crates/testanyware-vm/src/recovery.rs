@@ -91,9 +91,19 @@ const NAV_PAUSE: Duration = Duration::from_millis(300);
 const CSRUTIL_ATTEMPTS: u32 = 2;
 
 /// How long to wait for the recovery `tart` process to exit after `halt`
-/// before forcing a `tart stop` (script lines 573–586: 60 × 2s).
+/// before forcing a `tart stop` (script lines 573–586: 60 × 2s). The recovery
+/// Terminal's `halt` is a real root shutdown, so this wait usually completes.
 const HALT_WAIT_ATTEMPTS: u32 = 60;
 const HALT_WAIT_INTERVAL: Duration = Duration::from_secs(2);
+
+/// How long [`stop_vm_graceful`] waits for the normal-boot VM's `tart` process
+/// to exit before forcing a `tart stop`. The script waits 60 × 2s; we bound it
+/// to 20 × 2s = 40s because the `010` live runs showed the System-Events
+/// shutdown never takes effect headless — it always falls through to the
+/// force-stop, so a longer wait is pure dead time. Force-stopping a recovery
+/// *intermediate* VM is harmless (the next step reboots it anyway).
+const GRACEFUL_STOP_ATTEMPTS: u32 = 20;
+const GRACEFUL_STOP_INTERVAL: Duration = Duration::from_secs(2);
 
 // ---- OCR queries --------------------------------------------------------
 //
@@ -548,7 +558,7 @@ async fn stop_vm_graceful(setup: &SetupVm) {
             .exec("osascript -e 'tell application \"System Events\" to shut down'")
             .await;
     }
-    if wait_for_pid_exit(setup.pid, 60, Duration::from_secs(2)) {
+    if wait_for_pid_exit(setup.pid, GRACEFUL_STOP_ATTEMPTS, GRACEFUL_STOP_INTERVAL) {
         eprintln!(" done.");
     } else {
         eprintln!(" forcing stop.");
@@ -561,8 +571,9 @@ async fn stop_vm_graceful(setup: &SetupVm) {
 
 /// Poll until `pid` is no longer alive, up to `attempts` spaced by `interval`.
 /// Returns `true` if it exited within the window. A non-positive pid is
-/// treated as already gone.
-fn wait_for_pid_exit(pid: i32, attempts: u32, interval: Duration) -> bool {
+/// treated as already gone. Shared with [`crate::finalize`] for the final
+/// clean-shutdown wait.
+pub(crate) fn wait_for_pid_exit(pid: i32, attempts: u32, interval: Duration) -> bool {
     for attempt in 0..attempts {
         if !crate::process::process_alive(pid) {
             return true;

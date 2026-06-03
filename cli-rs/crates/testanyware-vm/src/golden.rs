@@ -281,8 +281,9 @@ async fn exec_tolerant(session: &SshSession, command: &str, what: &str) {
 /// Best-effort teardown of the setup VM on a boot-1 failure — `tart stop` +
 /// `tart delete`, then SIGTERM the detached pid. Ports the script's
 /// `trap cleanup EXIT`. The deliberate *handoff* (success) does **not** call
-/// this: `030` takes over the running VM.
-fn cleanup_setup_vm(id: &str, pid: i32) {
+/// this: `030` takes over the running VM. Shared with [`crate::finalize`],
+/// which extends the same guard across the SIP/TCC + finalize pipeline.
+pub(crate) fn cleanup_setup_vm(id: &str, pid: i32) {
     crate::tart::remove_existing(id);
     if pid > 0 {
         crate::process::terminate(pid, Duration::from_millis(200), 10);
