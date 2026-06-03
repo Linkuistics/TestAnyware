@@ -155,10 +155,14 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       (`080`, runs on current HEAD: wgpu+ring → linux+windows). Fallback if the
       spike fails: **build-on-target via VMs**. macOS Homebrew arm64 is native &
       ships in Tier 1 (`120`); linux/win distribution is Tier 2.
-- [ ] Final parity verification → **delete `cli/`** and de-transition `CONTEXT.md`.
-      **Decision (070): after macOS PARITY (mid-grove, `130`)** — `cli/` is
-      macOS-only, so Tier-1 completion is the parity bar; Tier-2 additive work
-      then proceeds on the clean tree.
+- [x] Final parity verification → **delete `cli/`** and de-transition `CONTEXT.md`.
+      **DONE 2026-06-03 (node `130`).** macOS parity proven — `cli-contract.rs`
+      green on the full offline surface (22 passed / 0 failed; the 4 remaining
+      ignores are correctly live-VM-gated, not unfinished ports). `cli/` deleted
+      (106 files, incl. the Swift `_server` tree — ADR-0004). `CONTEXT.md`
+      de-transitioned; Swift-referencing docs (README, docs/, website/,
+      provisioner, cli-design-contract §10) rewritten or re-framed as historical.
+      Tier-2 additive work (`140`) now proceeds on the clean tree.
 
 ## Notes
 
