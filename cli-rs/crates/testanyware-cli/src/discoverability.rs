@@ -35,6 +35,7 @@ const EMBEDDED_SCHEMAS: &[(&str, &str)] = &[
     ("screen-find-text",    include_str!("../../../../docs/reference/cli-schemas/screen-find-text.json")),
     ("screen-record",       include_str!("../../../../docs/reference/cli-schemas/screen-record.json")),
     ("screen-size",         include_str!("../../../../docs/reference/cli-schemas/screen-size.json")),
+    ("vm-create-golden",    include_str!("../../../../docs/reference/cli-schemas/vm-create-golden.json")),
     ("vm-delete",           include_str!("../../../../docs/reference/cli-schemas/vm-delete.json")),
     ("vm-list",             include_str!("../../../../docs/reference/cli-schemas/vm-list.json")),
     ("vm-start",            include_str!("../../../../docs/reference/cli-schemas/vm-start.json")),

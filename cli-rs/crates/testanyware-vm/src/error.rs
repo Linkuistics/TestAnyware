@@ -48,6 +48,12 @@ pub enum VmError {
     #[error("unknown platform '{value}' (expected macos, linux, or windows)")]
     InvalidPlatform { value: String },
 
+    #[error("SSH error: {detail}")]
+    SshConnectFailed { detail: String },
+
+    #[error("golden image creation failed: {detail}")]
+    GoldenCreateFailed { detail: String },
+
     /// A local filesystem error. The offending path (when there is a
     /// single one) is embedded in the message string rather than carried
     /// in `details.path`: many I/O failure sites here — serialization,
@@ -76,6 +82,8 @@ impl VmError {
             VmError::VmStopFailed { .. } => "VM_STOP_FAILED",
             VmError::BackendUnsupported { .. } => "VM_BACKEND_UNSUPPORTED",
             VmError::InvalidPlatform { .. } => "INVALID_PLATFORM",
+            VmError::SshConnectFailed { .. } => "SSH_CONNECT_FAILED",
+            VmError::GoldenCreateFailed { .. } => "GOLDEN_CREATE_FAILED",
             VmError::Io(_) => "IO_ERROR",
         }
     }
@@ -140,6 +148,9 @@ impl VmError {
             | VmError::VmStopFailed { id }
             | VmError::VmBootTimeout { id } => json!({ "vm_id": id }),
             VmError::TartFailed { detail } => json!({ "tart_error": detail }),
+            VmError::SshConnectFailed { detail } | VmError::GoldenCreateFailed { detail } => {
+                json!({ "detail": detail })
+            }
             VmError::BackendUnsupported { platform } | VmError::InvalidPlatform { value: platform } => {
                 json!({ "platform": platform })
             }
@@ -166,7 +177,22 @@ mod tests {
         assert_eq!(VmError::VmStopFailed { id: "v".into() }.code(), "VM_STOP_FAILED");
         assert_eq!(VmError::BackendUnsupported { platform: "macos".into() }.code(), "VM_BACKEND_UNSUPPORTED");
         assert_eq!(VmError::InvalidPlatform { value: "bsd".into() }.code(), "INVALID_PLATFORM");
+        assert_eq!(VmError::SshConnectFailed { detail: "x".into() }.code(), "SSH_CONNECT_FAILED");
+        assert_eq!(VmError::GoldenCreateFailed { detail: "x".into() }.code(), "GOLDEN_CREATE_FAILED");
         assert_eq!(VmError::Io("disk full".into()).code(), "IO_ERROR");
+    }
+
+    #[test]
+    fn golden_provisioning_errors_are_generic_exit_1_with_detail() {
+        // SSH_CONNECT_FAILED / GOLDEN_CREATE_FAILED are §4.1/§4.2 additions
+        // for `vm create-golden` (ADR-0007); both are generic failures (exit
+        // 1) and carry their cause in `details.detail`.
+        let ssh = VmError::SshConnectFailed { detail: "connect 1.2.3.4:22: refused".into() };
+        assert_eq!(ssh.exit_code(), 1);
+        assert_eq!(ssh.details()["detail"], "connect 1.2.3.4:22: refused");
+        let golden = VmError::GoldenCreateFailed { detail: "health gate failed".into() };
+        assert_eq!(golden.exit_code(), 1);
+        assert_eq!(golden.details()["detail"], "health gate failed");
     }
 
     #[test]

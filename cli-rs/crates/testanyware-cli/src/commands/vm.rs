@@ -222,6 +222,110 @@ pub async fn run_vm_delete(name: String, force: bool, mode: OutputMode, dry_run:
     }
 }
 
+/// `testanyware vm create-golden` (ADR-0007; grove node
+/// `110-vm-create-golden-macos`).
+///
+/// This leaf (`010`) lands the command's **surface + dry-run plan + SSH
+/// provisioning seam**; the real boot orchestration that consumes
+/// `testanyware_vm::SshSession` is `020`/`030`'s job. So the contract is:
+/// `--dry-run` validates and prints the 5-boot plan, mutating nothing
+/// (both text and `--json`); a non-dry-run invocation reports that
+/// execution is not yet wired (macOS) or that the command is macOS-only
+/// (other hosts), rather than silently doing nothing. Mirrors the
+/// `run_vm_start` dry-run-validate → emit-plan shape.
+pub async fn run_vm_create_golden(
+    platform: String,
+    version: String,
+    name: Option<String>,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    // This node only ports the macOS golden (linux/win are Tier 2). An
+    // unknown platform is a usage error (INVALID_PLATFORM, exit 2); a known
+    // but unsupported one is VM_BACKEND_UNSUPPORTED.
+    match Platform::parse(&platform) {
+        Ok(Platform::Macos) => {}
+        Ok(_) => exit_vm_error(VmError::BackendUnsupported { platform }, mode),
+        Err(err) => exit_vm_error(err, mode),
+    }
+    let name = name.unwrap_or_else(|| format!("testanyware-golden-macos-{version}"));
+
+    if dry_run {
+        emit_golden_plan(&version, &name, mode);
+        return;
+    }
+
+    // Execution is not implemented in this leaf. The orchestration that
+    // clones the vanilla image, drives the 5 boots over the SSH layer, and
+    // clones to the golden lands in `020`/`030`. On a non-macOS host the
+    // command is unsupportable at all (tart is macOS-only).
+    #[cfg(target_os = "macos")]
+    exit_vm_error(
+        VmError::GoldenCreateFailed {
+            detail: "boot orchestration is not yet wired — it lands in grove leaf \
+                     020-normal-boot-provisioning (run with --dry-run to see the plan)"
+                .into(),
+        },
+        mode,
+    );
+    #[cfg(not(target_os = "macos"))]
+    exit_vm_error(
+        VmError::BackendUnsupported {
+            platform: "macos (vm create-golden requires a macOS host)".into(),
+        },
+        mode,
+    );
+}
+
+/// The 5-boot provisioning sequence (3 normal + 2 recovery) that golden
+/// creation drives, as `(step, mode, actions)`. Parity with the boot
+/// sequence in `provisioner/scripts/vm-create-golden-macos.sh`. Pure, so
+/// the plan is unit-tested and shared by the text and JSON renderers.
+fn golden_boot_plan() -> [(u32, &'static str, &'static str); 5] {
+    [
+        (1, "normal",
+         "SSH pubkey install, macOS defaults, solid wallpaper, hide widgets, \
+          Xcode CLT, Homebrew, agent binary + LaunchAgent plist"),
+        (2, "recovery", "disable SIP (csrutil disable)"),
+        (3, "normal",
+         "grant TCC: kTCCServiceAccessibility + kTCCServiceSystemPolicyAllFiles"),
+        (4, "recovery", "re-enable SIP (csrutil enable)"),
+        (5, "normal",
+         "verify agent health on port 8648, disable Remote Login, clean shutdown, \
+          clone to golden"),
+    ]
+}
+
+fn emit_golden_plan(version: &str, name: &str, mode: OutputMode) {
+    let plan = golden_boot_plan();
+    match mode {
+        OutputMode::Text => {
+            println!(
+                "dry-run: would create golden {name} (platform macos, version {version})"
+            );
+            println!("boot plan (3 normal + 2 recovery = 5 boots):");
+            for (step, boot_mode, actions) in plan {
+                println!("  {step}. [{boot_mode}] {actions}");
+            }
+        }
+        OutputMode::Json => {
+            let steps: Vec<Value> = plan
+                .iter()
+                .map(|(step, boot_mode, actions)| {
+                    json!({ "step": step, "mode": boot_mode, "actions": actions })
+                })
+                .collect();
+            print_success(json!({
+                "dry_run": true,
+                "platform": "macos",
+                "version": version,
+                "name": name,
+                "boot_plan": steps,
+            }));
+        }
+    }
+}
+
 // ---- pure helpers (unit-tested) -----------------------------------------
 
 /// Flatten a `VmListing` into the unified row form.
@@ -343,6 +447,25 @@ fn exit_vm_error(err: VmError, mode: OutputMode) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn golden_boot_plan_is_three_normal_two_recovery() {
+        let plan = golden_boot_plan();
+        assert_eq!(plan.len(), 5);
+        let normal = plan.iter().filter(|(_, m, _)| *m == "normal").count();
+        let recovery = plan.iter().filter(|(_, m, _)| *m == "recovery").count();
+        assert_eq!(normal, 3, "script parity: 3 normal boots");
+        assert_eq!(recovery, 2, "script parity: 2 recovery boots");
+        // Steps are 1-based and contiguous.
+        for (i, (step, _, _)) in plan.iter().enumerate() {
+            assert_eq!(*step as usize, i + 1);
+        }
+        // The SIP cycle brackets the TCC grant: disable (2) → grant (3) →
+        // enable (4), matching the script's ordering.
+        assert!(plan[1].2.contains("disable SIP"));
+        assert!(plan[2].2.contains("TCC"));
+        assert!(plan[3].2.contains("re-enable SIP"));
+    }
 
     #[test]
     fn parse_filter_reads_comma_separated_pairs() {

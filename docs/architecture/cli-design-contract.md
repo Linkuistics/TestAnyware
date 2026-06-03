@@ -229,6 +229,7 @@ version bump.
 | `INVALID_ENDPOINT` | `--vnc`/`--agent` value parsed empty or out-of-range. |
 | `NO_CONNECTION_SPECIFIED` | None of `--connect`, `--vm`, `--vnc`, `TESTANYWARE_VM_ID`, `TESTANYWARE_VNC` resolved. |
 | `INVALID_PLATFORM` | `--platform` not in `{macos, linux, windows}`. |
+| `SSH_CONNECT_FAILED` | SSH connect or auth to a provisioning target (the throwaway setup VM) failed. `details.detail` carries the cause. `vm create-golden` only. |
 
 ### 4.2 VM lifecycle
 
@@ -240,6 +241,7 @@ version bump.
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform on this host. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
 | `GOLDEN_IN_USE` | `vm delete` refused: running clones depend on the image. Use `--force`. |
+| `GOLDEN_CREATE_FAILED` | `vm create-golden` could not produce the golden image (a provisioning boot, TCC/SIP step, or the final health gate failed). `details.detail` carries the cause. |
 | `TART_FAILED` | tart subprocess returned non-zero. `details.tart_error` carries its stderr. |
 | `QEMU_FAILED` | QEMU subprocess failed (start, monitor, or QMP). |
 | `KVM_PERMISSION_DENIED` | `/dev/kvm` is missing or not readable+writable (Linux host). `details.path` carries `/dev/kvm`. |
@@ -252,6 +254,11 @@ version bump.
 > runner's host preflight. `KVM_PERMISSION_DENIED` maps to exit code `4`
 > (permission family, §5); `SWTPM_MISSING` maps to exit code `1` (generic
 > — a missing optional dependency, recoverable by installing it).
+
+> **Amendment 2026-06-03** (`110-vm-create-golden-macos`, ADR-0007):
+> `SSH_CONNECT_FAILED` (§4.1) and `GOLDEN_CREATE_FAILED` (§4.2) added for the
+> `vm create-golden` golden-provisioning command. Both are generic failures
+> mapping to exit code `1` (§5) and carry their cause in `details.detail`.
 
 ### 4.3 VNC capture
 

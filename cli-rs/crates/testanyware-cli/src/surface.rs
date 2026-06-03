@@ -29,6 +29,7 @@ pub const CANONICAL_COMMANDS: &[CommandSpec] = &[
     CommandSpec { path: &["vm", "stop"],    mutating: true,  data_producing: true, schema_id: Some("vm-stop") },
     CommandSpec { path: &["vm", "list"],    mutating: false, data_producing: true, schema_id: Some("vm-list") },
     CommandSpec { path: &["vm", "delete"],  mutating: true,  data_producing: true, schema_id: Some("vm-delete") },
+    CommandSpec { path: &["vm", "create-golden"], mutating: true, data_producing: true, schema_id: Some("vm-create-golden") },
 
     // agent — query
     CommandSpec { path: &["agent", "health"],   mutating: false, data_producing: true, schema_id: Some("agent-health") },
@@ -132,6 +133,7 @@ pub const ERROR_CODES: &[&str] = &[
     "INVALID_ENDPOINT",
     "NO_CONNECTION_SPECIFIED",
     "INVALID_PLATFORM",
+    "SSH_CONNECT_FAILED",
     // §4.2
     "VM_NOT_FOUND",
     "VM_BOOT_TIMEOUT",
@@ -139,6 +141,7 @@ pub const ERROR_CODES: &[&str] = &[
     "VM_BACKEND_UNSUPPORTED",
     "GOLDEN_NOT_FOUND",
     "GOLDEN_IN_USE",
+    "GOLDEN_CREATE_FAILED",
     "TART_FAILED",
     "QEMU_FAILED",
     "KVM_PERMISSION_DENIED",

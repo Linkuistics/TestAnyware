@@ -36,6 +36,10 @@ nix = { version = "0.29", features = ["signal", "process"] }
 getrandom = "0.2"
 flate2 = "1.0"
 jpeg-decoder = "0.3"
+# Pure-Rust async SSH for golden-image provisioning (ADR-0007). No C
+# dependency — keeps the `zig cc` cross-compile path clean.
+russh = "0.61"
+russh-sftp = "2.3"
 
 # Workspace-wide release profile
 [profile.release]
