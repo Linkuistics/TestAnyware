@@ -140,13 +140,15 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       ZRLE/Tight/Raw capture, live Vision OCR; macOS golden, env+`#[ignore]`d).
 
 **Distribution / finish**:
-- [ ] Golden-image creation as a `vm create-golden --platform <p>` subcommand,
-      retiring the external `vm-create-golden-*.sh` scripts. **Decision (070):
-      FULL RUST PORT** (not a façade over the scripts — user override; scripts
-      deleted). Builds on existing `testanyware-vm` (`tart.rs`, `qemu.rs`,
-      `lifecycle.rs`); net-new = ssh provisioning + multi-boot/recovery + (macOS)
-      SIP cycle & TCC grants. macOS first (`110`, verifiable); linux/win Tier 2.
-      The `vm-create-golden` schema is **not yet** in `surface.rs` — add it.
+- [x] **macOS** golden-image creation as `vm create-golden --platform macos`
+      (node `110`, ADR-0007 ssh-via-russh + ADR-0008 recovery-over-RFB/OCR).
+      FULL RUST PORT (user override) — boot-1 SSH provisioning, the SIP/TCC
+      recovery cycle, agent-health gate, clean shutdown + `tart clone`. The
+      `vm-create-golden` schema is in `surface.rs`; the external
+      `vm-create-golden-macos.sh` is **deleted**. **Live-verified 2026-06-03**
+      (golden produced first-try; fresh clone reachable + accessibility granted).
+      **linux/win golden remains Tier 2** (`140-tier2-plan`), built on this same
+      `testanyware-vm` foundation.
 - [ ] Distribute Rust `testanyware` via Homebrew (macOS + Linux) and Windows zip.
       Releases run locally from `scripts/` on an arm64 Mac — no CI. **Decision
       (070): CROSS-COMPILE via `zig cc`**, proven by an early **feasibility spike**
