@@ -23,6 +23,10 @@ pub mod ssh;
 /// per-target gating). Absent from Linux/Windows builds.
 #[cfg(target_os = "macos")]
 pub mod tart;
+/// Golden-image creation (boot-1 normal-mode provisioning over the `ssh`
+/// seam). macOS-host only, like `tart` — grove node `110-vm-create-golden`.
+#[cfg(target_os = "macos")]
+pub mod golden;
 
 pub use detached::spawn_detached;
 pub use error::VmError;

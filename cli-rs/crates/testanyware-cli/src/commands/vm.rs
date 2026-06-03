@@ -225,14 +225,16 @@ pub async fn run_vm_delete(name: String, force: bool, mode: OutputMode, dry_run:
 /// `testanyware vm create-golden` (ADR-0007; grove node
 /// `110-vm-create-golden-macos`).
 ///
-/// This leaf (`010`) lands the command's **surface + dry-run plan + SSH
-/// provisioning seam**; the real boot orchestration that consumes
-/// `testanyware_vm::SshSession` is `020`/`030`'s job. So the contract is:
-/// `--dry-run` validates and prints the 5-boot plan, mutating nothing
-/// (both text and `--json`); a non-dry-run invocation reports that
-/// execution is not yet wired (macOS) or that the command is macOS-only
-/// (other hosts), rather than silently doing nothing. Mirrors the
-/// `run_vm_start` dry-run-validate → emit-plan shape.
+/// `--dry-run` validates and prints the 5-boot plan, mutating nothing (both
+/// text and `--json`). A real invocation drives the provisioning. As of leaf
+/// `020`, **boot-1 normal-mode provisioning** is wired: clone+boot the
+/// vanilla setup VM and provision it over the SSH layer (pubkey, defaults,
+/// wallpaper, CLT, Homebrew, agent + plist). The setup VM is then left
+/// **running** at the handoff point — the SIP/TCC recovery cycle + final
+/// `tart clone` to golden are grove leaf `030`, not yet wired, so the
+/// command reports boot-1 completion via `GOLDEN_CREATE_FAILED` rather than
+/// claiming a golden it has not produced. Mirrors the `run_vm_start`
+/// dry-run-validate → emit-plan shape.
 pub async fn run_vm_create_golden(
     platform: String,
     version: String,
@@ -255,26 +257,44 @@ pub async fn run_vm_create_golden(
         return;
     }
 
-    // Execution is not implemented in this leaf. The orchestration that
-    // clones the vanilla image, drives the 5 boots over the SSH layer, and
-    // clones to the golden lands in `020`/`030`. On a non-macOS host the
-    // command is unsupportable at all (tart is macOS-only).
-    #[cfg(target_os = "macos")]
-    exit_vm_error(
-        VmError::GoldenCreateFailed {
-            detail: "boot orchestration is not yet wired — it lands in grove leaf \
-                     020-normal-boot-provisioning (run with --dry-run to see the plan)"
-                .into(),
-        },
-        mode,
-    );
+    // tart is macOS-only, so a non-macOS host cannot serve the command.
     #[cfg(not(target_os = "macos"))]
-    exit_vm_error(
-        VmError::BackendUnsupported {
-            platform: "macos (vm create-golden requires a macOS host)".into(),
-        },
-        mode,
-    );
+    {
+        let _ = &version;
+        exit_vm_error(
+            VmError::BackendUnsupported {
+                platform: "macos (vm create-golden requires a macOS host)".into(),
+            },
+            mode,
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use testanyware_vm::golden::{provision_boot1, GoldenOptions};
+        use testanyware_vm::VmPaths;
+
+        let opts = GoldenOptions { version: version.clone(), name: name.clone() };
+        let paths = VmPaths::from_process_env();
+        match provision_boot1(&opts, &paths).await {
+            // Boot-1 succeeded, but the golden is not yet produced — the
+            // SIP/TCC recovery cycle + finalize is grove leaf `030`. Report
+            // the handoff honestly (GOLDEN_CREATE_FAILED, exit 1) rather than
+            // exit 0 as if a golden exists. The setup VM is left running.
+            Ok(setup) => exit_vm_error(
+                VmError::GoldenCreateFailed {
+                    detail: format!(
+                        "boot-1 provisioning complete: setup VM '{}' is running at {} (pid {}). \
+                         The SIP/TCC recovery cycle + clone to golden '{}' is grove leaf \
+                         030-recovery-sip-tcc-finalize — not yet wired.",
+                        setup.id, setup.ip, setup.pid, name
+                    ),
+                },
+                mode,
+            ),
+            Err(err) => exit_vm_error(err, mode),
+        }
+    }
 }
 
 /// The 5-boot provisioning sequence (3 normal + 2 recovery) that golden

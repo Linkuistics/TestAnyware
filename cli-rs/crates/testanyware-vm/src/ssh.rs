@@ -27,7 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use russh::client::{self, Handle};
-use russh::keys::{load_secret_key, PrivateKeyWithHashAlg};
+use russh::keys::{load_secret_key, HashAlg, PrivateKeyWithHashAlg};
 use russh::ChannelMsg;
 use russh_sftp::client::SftpSession;
 use russh_sftp::protocol::OpenFlags;
@@ -142,8 +142,20 @@ impl SshSession {
         let mut handle = client::connect(client_config(), (host, port), ClientHandler)
             .await
             .map_err(|e| ssh_err(format!("connect {host}:{port}: {e}")))?;
+        // RSA hash negotiation. `PrivateKeyWithHashAlg::new(.., None)` would
+        // offer an RSA key as legacy `ssh-rsa` (SHA-1), which modern OpenSSH
+        // — including the macOS guest sshd — rejects by default (discovered
+        // in the `020` live round-trip; the `010` pure tests can't surface a
+        // wire-protocol mismatch). `best_supported_rsa_hash` reads the
+        // server's `server-sig-algs` (RFC 8308) advertisement; default to
+        // SHA-512 when the server doesn't send it. The value is **ignored**
+        // for non-RSA keys (ed25519/ecdsa), so this is a no-op for them.
+        let rsa_hash = match handle.best_supported_rsa_hash().await {
+            Ok(Some(alg)) => alg,
+            Ok(None) | Err(_) => Some(HashAlg::Sha512),
+        };
         let auth = handle
-            .authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), None))
+            .authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), rsa_hash))
             .await
             .map_err(|e| ssh_err(format!("pubkey auth as {user}: {e}")))?;
         if !auth.success() {
@@ -200,7 +212,7 @@ impl SshSession {
                 ChannelMsg::Data { ref data } => stdout.extend_from_slice(data),
                 // ext == 1 is the SSH stderr stream; other extended-data
                 // codes are not used by a shell command.
-                ChannelMsg::ExtendedData { ref data, ext } if ext == 1 => {
+                ChannelMsg::ExtendedData { ref data, ext: 1 } => {
                     stderr.extend_from_slice(data)
                 }
                 ChannelMsg::ExitStatus { exit_status: code } => exit_status = Some(code),
