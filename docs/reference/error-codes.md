@@ -1,142 +1,116 @@
 # Error Codes & Shapes
 
-Catalogue of every error type the CLI or driver can surface, their
-cases, and when they are thrown. Swift errors surface as non-zero exit
-codes with a human-readable stderr message via `LocalizedError`; agent
-errors surface as HTTP non-2xx with an `ErrorResponse` JSON body.
+The Host CLI surfaces errors as **stable string codes** carried in the `--json`
+error envelope and mapped to process exit codes. The codes are part of the
+public surface — `capabilities` lists them and `schema` references them.
 
-## Host CLI / Driver errors
+- **Live catalogue:** `cli-rs/crates/testanyware-cli/src/surface.rs` —
+  `pub const ERROR_CODES: &[&str]` is the single source of truth.
+- **Spec:** `docs/architecture/cli-design-contract.md` §4 (codes) and §3.4 /
+  the exit-code table (how codes map to exit status). The
+  `cli-contract.rs::errors_carry_stable_code_and_correct_exit` test gates this.
 
-Source files all live under `cli/Sources/TestAnywareDriver/`.
+## Host CLI error codes
 
-### `ConnectionSpecError` (`Connection/ConnectionSpec.swift`)
+Grouped as in the contract (§4.1–§8.2). This table is a convenience copy; if it
+disagrees with `surface.rs`, `surface.rs` wins.
 
-| Case | When thrown |
-|------|-------------|
-| `invalidPlatform(String)` | `--platform` value is not `macos`, `windows`, or `linux`, or the env var / spec file contains an unknown value. |
-| `emptyHost` | `--vnc` or `--agent` endpoint parsed to an empty host. |
-| `invalidPort(String)` | Port segment of an endpoint isn't a number in `1..=65535`. |
+### §4.1 — Connection
 
-### `VNCCaptureError` (`VNC/VNCCaptureError.swift`)
+| Code | When |
+|------|------|
+| `AUTH_REQUIRED` | Agent rejected the request: TCC / accessibility permission not granted. |
+| `CONNECTION_REFUSED` | TCP/RFB connect refused by the endpoint. |
+| `CONNECTION_TIMEOUT` | Endpoint did not accept a connection within the window. |
+| `CONNECTION_DROPPED` | Peer dropped mid-request. |
+| `INVALID_ENDPOINT` | Malformed `--connect` / `--vnc` / `--agent` endpoint. |
+| `NO_CONNECTION_SPECIFIED` | No connection given via flag, env, or spec file. |
+| `INVALID_PLATFORM` | `--platform` value is not `macos`, `windows`, or `linux`. |
+| `SSH_CONNECT_FAILED` | SSH to the guest failed (golden provisioning paths). |
 
-| Case | When thrown |
-|------|-------------|
-| `notConfigured` | `VNCCapture` used before `connect()` succeeded. |
-| `connectionFailed(String)` | Socket / RFB handshake failure; message carries detail. |
-| `disconnected` | Peer dropped during a request. |
-| `framebufferNotReady` | Screenshot requested before a full framebuffer update was received. |
-| `captureFailed` | VNC-side capture routine failed (e.g. encoding rejected). |
-| `encodingFailed` | PNG/HEVC encoding step failed. |
-| `timeout` | Generic operation timeout. |
+### §4.2 — VM lifecycle
 
-### `FramebufferConverterError` (`VNC/FramebufferConverter.swift`)
+| Code | When |
+|------|------|
+| `VM_NOT_FOUND` | No VM with the given id. |
+| `VM_BOOT_TIMEOUT` | VNC/agent did not become reachable within the boot window. |
+| `VM_STOP_FAILED` | `vm stop` could not terminate the VM cleanly. |
+| `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform. |
+| `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
+| `GOLDEN_IN_USE` | `vm delete` refused — clones of the golden are running (use `--force`). |
+| `GOLDEN_CREATE_FAILED` | `vm create-golden` aborted. |
+| `TART_FAILED` | A `tart` subprocess exited non-zero. |
+| `QEMU_FAILED` | `qemu-system-*` failed to launch or a QMP command errored. |
+| `KVM_PERMISSION_DENIED` | `/dev/kvm` not accessible (Linux host). |
+| `SWTPM_MISSING` | `swtpm` binary not found (TPM-backed guests). |
+| `UEFI_NOT_FOUND` | UEFI firmware path missing. |
+| `SPAWN_FAILED` | Process spawn failed for a backend executable. |
 
-| Case | When thrown |
-|------|-------------|
-| `zeroDimensions` | Framebuffer has zero width or height. |
-| `pixelCountMismatch(expected:got:)` | Received byte count doesn't match the advertised size. |
-| `pngEncodingFailed` | CoreGraphics PNG encode returned nil. |
-| `cgImageCreationFailed` | `CGImage` construction from the pixel buffer failed. |
+### §4.3 — VNC / framebuffer
 
-### `AgentTCPClientError` (`Agent/AgentTCPClient.swift`)
+| Code | When |
+|------|------|
+| `VNC_NOT_CONFIGURED` | RFB used before a connection succeeded. |
+| `VNC_FRAMEBUFFER_NOT_READY` | Capture requested before a full framebuffer update arrived. |
+| `VNC_CAPTURE_FAILED` | VNC-side capture routine failed. |
+| `VNC_ENCODING_FAILED` | PNG/image encoding step failed. |
+| `VNC_PIXEL_MISMATCH` | Received byte count doesn't match the advertised size. |
+| `VNC_DIMENSIONS_ZERO` | Framebuffer reported zero width or height. |
 
-| Case | When thrown |
-|------|-------------|
-| `connectionFailed(String)` | TCP connect to the agent failed. |
-| `httpError(Int, String)` | Agent returned a non-2xx status. String is the parsed `ErrorResponse.error` field (or raw body if it doesn't decode). |
-| `decodingFailed(String)` | Agent response body didn't decode to the expected type. |
+### §4.4 — Screen record
 
-### `VMLifecycleError` (`VM/VMLifecycle.swift`)
+| Code | When |
+|------|------|
+| `RECORD_ALREADY_ACTIVE` | Recording start requested while already recording. |
+| `RECORD_NOT_ACTIVE` | Frame/stop requested while idle. |
+| `RECORD_BUFFER_UNAVAILABLE` | Encoder pixel-buffer pool not ready. |
+| `RECORD_BUFFER_CREATE_FAILED` | Pixel-buffer creation returned non-success. |
 
-| Case | When thrown |
-|------|-------------|
-| `vncTimeout` | VNC did not become reachable within the boot window. |
-| `unsupportedBackend(String)` | Neither tart nor QEMU can serve the requested platform. |
-| `stopFailed(id:)` | `testanyware vm stop` couldn't terminate the VM cleanly. |
-| `goldenNotFound(String)` | Requested golden image name doesn't exist. |
-| `runningClonesPresent(name:pids:)` | `testanyware vm delete` refused because clones of the golden are running; use `--force` to override. |
-| `tartDeleteFailed(String)` | tart CLI returned an error during golden deletion. |
+### §4.5 — Agent actions
 
-### `TartRunnerError` (`VM/TartRunner.swift`)
+| Code | When |
+|------|------|
+| `ELEMENT_NOT_FOUND` | Element query matched zero elements. |
+| `ELEMENT_AMBIGUOUS` | Query matched multiple elements; narrow it or pass `--index`. |
+| `WINDOW_NOT_FOUND` | No window matched the `--window` filter. |
+| `ACTION_UNSUPPORTED` | Element matched but does not support the requested action. |
+| `EXEC_FAILED` | Process failed to spawn (exec itself). |
+| `UPLOAD_FAILED` / `DOWNLOAD_FAILED` | File I/O error on the VM. |
+| `AGENT_ERROR_UNKNOWN` | Agent returned an error string the host doesn't map. |
 
-| Case | When thrown |
-|------|-------------|
-| `vncURLMalformed(String)` | `tart ip` / `tart vnc` returned an unexpected URL format. |
-| `commandFailed(String)` | A `tart` subprocess exited non-zero. |
+### §4.6 — General
 
-### `QEMURunnerError` (`VM/QEMURunner.swift`)
+| Code | When |
+|------|------|
+| `USAGE_ERROR` | Invalid arguments / flag combination. |
+| `IO_ERROR` | Local I/O failure. |
+| `OCR_UNAVAILABLE` | OCR engine cannot be reached/recovered (e.g. EasyOCR bridge down). |
+| `OCR_CHILD_CRASHED` | The OCR daemon subprocess exited unexpectedly. |
+| `OCR_TIMEOUT` | OCR daemon didn't respond within the timeout. |
+| `UNKNOWN_KEY` | Key name not in the supported set (see [key-names.md](key-names.md)). |
+| `UNKNOWN_BUTTON` | Mouse button name not in `{left, right, middle, center}`. |
+| `INTERNAL` | Unclassified internal error. |
 
-| Case | When thrown |
-|------|-------------|
-| `uefiNotFound(String)` | UEFI firmware path (`QEMU_EFI.fd`) missing at expected location. |
-| `qemuFailedToStart` | `qemu-system-aarch64` failed to launch or exited immediately. |
-| `monitorDiscoveryFailed` | QEMU monitor socket didn't come up in time. |
-| `commandFailed(String)` | A QMP command returned an error. |
+### §4.7 / §8.2 — Discoverability
 
-### `DetachedProcessError` (`VM/DetachedProcess.swift`)
-
-| Case | When thrown |
-|------|-------------|
-| `spawnFailed(errno:executable:)` | `posix_spawn` failed for the given executable. |
-
-### `StreamingCaptureError` (`Capture/StreamingCapture.swift`)
-
-| Case | When thrown |
-|------|-------------|
-| `alreadyRecording` | `start()` called while state is already `recording`. |
-| `notRecording` | `appendFrame()` or `stop()` called while state is `idle`. |
-| `pixelBufferPoolUnavailable` | `AVAssetWriterInputPixelBufferAdaptor` pool not ready (usually means the writer never started). |
-| `pixelBufferCreationFailed` | `CVPixelBufferCreate` returned non-success. |
-
-### `OCRBridgeError` (`OCR/OCRChildBridge.swift`)
-
-| Case | When thrown |
-|------|-------------|
-| `permanentlyUnavailable(reason:)` | EasyOCR bridge cannot be recovered (e.g. Python interpreter missing). CLI hard-fails unless `TESTANYWARE_OCR_FALLBACK=1`. |
-| `childCrashed` | The EasyOCR daemon subprocess exited unexpectedly. |
-| `responseTimeout` | Daemon didn't respond within the timeout. |
-
-### `PlatformKeymapError` (`Input/PlatformKeymap.swift`)
-
-| Case | When thrown |
-|------|-------------|
-| `unknownKey(String)` | Key name not in the supported set (see [key-names.md](key-names.md)). |
-| `unknownButton(String)` | Mouse button name not in `{left, right, middle, center}`. |
-
-### `ServerClientError` (`Server/ServerClient.swift`)
-
-| Case | When thrown |
-|------|-------------|
-| `socketCreateFailed(Int32)` | UNIX-domain socket creation failed (carries `errno`). |
-| `connectFailed(Int32)` | Connect to the internal `_server` socket failed. |
-| `serverStartTimeout` | `_server` didn't print its `ready` line within the timeout. |
-| `serverStartFailed(String)` | `_server` aborted startup (carries its stderr message). |
-| `httpError(Int, String)` | Internal `_server` returned non-2xx. |
-
-`WireParseError` (private to `ServerClient`) — internal HTTP framing
-parse failures (`missingHeaderBlock`, `malformedStatusLine`,
-`bodyIncomplete`). These should only ever surface if the `_server`
-process is corrupt.
+| Code | When |
+|------|------|
+| `TEXT_NOT_FOUND` | `screen find-text` matched no text. |
+| `SCHEMA_NOT_FOUND` | `schema <command>` requested an unknown command. |
 
 ## Agent HTTP error shape
 
-All three agents (macOS Swift, Linux Python, Windows C#) return errors
-as HTTP non-2xx with a JSON body of shape:
+The in-VM agents (macOS, Linux, Windows) return errors as HTTP non-2xx with a
+JSON body of shape:
 
 ```json
 { "error": "<short machine-parsable key>", "details": "<optional human detail>" }
 ```
 
-Source (host side): `cli/Sources/TestAnywareAgentProtocol/AgentResponses.swift` —
-```swift
-public struct ErrorResponse: Codable, Sendable, Equatable {
-    public var error: String
-    public var details: String?
-}
-```
-
-When `AgentTCPClient` sees a non-2xx response it decodes `ErrorResponse`
-and wraps it as `AgentTCPClientError.httpError(status, error.error)`.
+The agent-client crate (`testanyware-agent-client`) decodes that body and maps
+the `error` key to the stable host codes above (e.g. `accessibility_unavailable`
+→ `AUTH_REQUIRED`, `element_not_found` → `ELEMENT_NOT_FOUND`). The
+contract's §4.5 mapping table is authoritative for the translation.
 
 ### Common error strings produced by the agents
 
@@ -147,14 +121,13 @@ and wraps it as `AgentTCPClientError.httpError(status, error.error)`.
 | `window_not_found` | `/window-*` endpoints | No window matched the `--window` filter. |
 | `action_unsupported` | `/press`, `/set-value`, etc. | Element matched but does not support the requested action. |
 | `accessibility_unavailable` | `/health`, `/snapshot`, `/wait` | OS-level accessibility disabled or not yet granted. |
-| `exec_failed` | `/exec` | Process failed to spawn (exec itself; exit codes are returned inside `ActionResponse`). |
+| `exec_failed` | `/exec` | Process failed to spawn (exit codes are returned inside the response, not as an error). |
 | `upload_failed` / `download_failed` | `/upload`, `/download` | File I/O error on the VM. |
 
-The agents don't currently agree on a single canonical set of error
-strings — the host-side wrapper compares by `status` first, then by
-`error` string as a best-effort diagnostic. Clients should tolerate
-unknown error strings.
+The agents don't all agree on a single canonical set of error strings — the
+host-side mapping compares by HTTP status first, then by `error` string as a
+best-effort diagnostic. Clients should tolerate unknown error strings.
 
 Exec output (`/exec`) is **not** an error: it always returns 2xx with
-`{success, message, stdout, stderr, exitCode}` so the caller can
-inspect the exit code independent of the transport result.
+`{success, message, stdout, stderr, exitCode}` so the caller can inspect the
+exit code independent of the transport result.

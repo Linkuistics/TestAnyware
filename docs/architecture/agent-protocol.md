@@ -11,9 +11,9 @@ breaks.
 
 Authoritative sources (the JSON keys and optionality rules must match):
 
-- Host-side Swift types: `cli/Sources/TestAnywareAgentProtocol/`
-  (`AgentResponses.swift`, `ElementInfo.swift`, `WindowInfo.swift`,
-  `UnifiedRole.swift`).
+- Host-side Rust types: `cli-rs/crates/testanyware-protocol/`
+  (`agent_requests.rs`, `element_info.rs`, `window_info.rs`,
+  `unified_role.rs`).
 - macOS agent's vendored copy of the same module:
   `agents/macos/Sources/TestAnywareAgentProtocol/`.
 - Linux agent models: `agents/linux/testanyware_agent/models.py`.
@@ -268,7 +268,7 @@ Common `error` keys: `not_found`, `element_not_found`, `ambiguous`,
 Cross-platform role vocabulary: agents map their native roles
 (AXButton, UIA Button, ATK push button) onto this enum so the host can
 write one set of selectors. Full list in
-`cli/Sources/TestAnywareAgentProtocol/UnifiedRole.swift` — it covers
+`cli-rs/crates/testanyware-protocol/src/unified_role.rs` — it covers
 interactive widgets (`button`, `checkbox`, `textfield`, `slider`, ...),
 menus (`menu`, `menu-item`, ...), containers (`window`, `dialog`,
 `toolbar`, ...), content (`heading`, `text`, ...), transient surfaces

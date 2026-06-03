@@ -63,9 +63,9 @@ channels.
 
 | Component | Path | Language | Runs on |
 |-----------|------|----------|---------|
-| CLI binary | `cli/Sources/testanyware/` | Swift | Host |
-| Driver library (VNC + agent client + VM lifecycle) | `cli/Sources/TestAnywareDriver/` | Swift | Host |
-| Wire-format types (host copy) | `cli/Sources/TestAnywareAgentProtocol/` | Swift | Host |
+| CLI binary | `cli-rs/crates/testanyware-cli/` | Rust | Host |
+| Libraries (RFB + agent client + VM lifecycle) | `cli-rs/crates/testanyware-{rfb,agent-client,vm}/` | Rust | Host |
+| Wire-format types (host copy) | `cli-rs/crates/testanyware-protocol/` | Rust | Host |
 | macOS agent | `agents/macos/` | Swift | In-VM |
 | Linux agent | `agents/linux/testanyware_agent/` | Python | In-VM |
 | Windows agent | `agents/windows/` | C# | In-VM |

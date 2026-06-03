@@ -1,11 +1,11 @@
 #!/bin/bash
 # Thin wrapper around `testanyware vm stop`. Retained so existing callers
-# (docs, cron jobs, integration tests) keep working after the Swift port.
+# (docs, cron jobs, integration tests) keep working across the Rust port.
 # See `testanyware vm stop --help` for options.
 set -euo pipefail
 
 command -v testanyware >/dev/null 2>&1 || {
-    echo "testanyware not found on PATH — build cli/ first (swift build --package-path cli/)" >&2
+    echo "testanyware not found on PATH — build it first (cargo build --release --manifest-path cli-rs/Cargo.toml)" >&2
     exit 1
 }
 

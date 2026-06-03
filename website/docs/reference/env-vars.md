@@ -41,7 +41,7 @@ under `$XDG_DATA_HOME/testanyware/golden/`.
 
 ## Connection resolution order
 
-`ConnectionOptions.resolve()` in `cli/Sources/testanyware/TestAnywareCLI.swift`
+The host CLI's connection resolution (`cli-rs/crates/testanyware-cli/src/resolve.rs`)
 tries, in order:
 
 1. `--connect <path>` — explicit spec file

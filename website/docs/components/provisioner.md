@@ -70,7 +70,7 @@ testanyware vm create-golden --platform macos
   agent's entire `publish/` dir plus VirtIO drivers. If you add
   large binaries, the ISO may exceed the media-drive size QEMU is
   configured to present to the installer.
-- **Shell helpers mirror Swift helpers.** `_testanyware-paths.sh`
-  must match `VMPaths.swift` because the golden-image scripts run
-  before the Swift CLI exists and still need to know where clones
-  and caches live.
+- **Shell helpers mirror the CLI's path logic.** `_testanyware-paths.sh`
+  must match `cli-rs/crates/testanyware-vm/src/paths.rs` because the
+  golden-image scripts run before the host CLI is on `PATH` and still need
+  to know where clones and caches live.

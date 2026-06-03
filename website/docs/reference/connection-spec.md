@@ -10,9 +10,9 @@ removes it. The CLI resolves `--vm <id>` and `TESTANYWARE_VM_ID` by loading
 this file. Downstream tooling that reads it directly can rely on the schema
 below.
 
-Source of truth: `cli/Sources/TestAnywareDriver/VM/VMSpec.swift`, which
-reuses the `VNCSpec`, `AgentSpec`, and `Platform` types from
-`cli/Sources/TestAnywareDriver/Connection/ConnectionSpec.swift`.
+Source of truth: `cli-rs/crates/testanyware-vm/src/spec.rs` (the on-disk
+`<id>.json` writer/reader), which carries the VNC, agent, and platform
+fields the host CLI resolves.
 
 ## Schema
 

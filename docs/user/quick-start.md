@@ -15,15 +15,15 @@ VMs additionally need `qemu`, `swtpm`, and .NET 9 — see the
 ## 1. Build the CLI
 
 ```bash
-cd cli
-swift build -c release
+cd cli-rs
+cargo build --workspace --release
 ```
 
-Binary appears at `cli/.build/release/testanyware`. For convenience,
+Binary appears at `cli-rs/target/release/testanyware`. For convenience,
 symlink into your `PATH`:
 
 ```bash
-ln -sf "$PWD/.build/release/testanyware" /usr/local/bin/testanyware
+ln -sf "$PWD/target/release/testanyware" /usr/local/bin/testanyware
 ```
 
 ## 2. Create the macOS golden image (one-time, ~10 minutes)

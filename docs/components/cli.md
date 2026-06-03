@@ -1,96 +1,83 @@
-# Component: `cli/` — Host CLI and driver library
+# Component: `cli-rs/` — Host CLI
 
-Swift package on the macOS host. Produces the `testanyware` executable
-and the `TestAnywareDriver` library that embedded Swift callers can
-link against.
+Rust Cargo workspace that produces the `testanyware` host-CLI binary. It
+orchestrates VM lifecycle and exposes a stable, scriptable surface over the
+in-VM agents (HTTP) and the VNC framebuffer (RFB). This is *the* Host CLI; the
+original macOS-only Swift implementation under `cli/` was retired 2026-06-03
+(recoverable from git history).
 
 ## Layout
 
 ```
-cli/
-├── Package.swift
-├── Sources/
-│   ├── testanyware/                      # CLI entry (swift-argument-parser)
-│   │   ├── TestAnywareCLI.swift          # Top-level command + ConnectionOptions
-│   │   ├── ScreenshotCommand.swift
-│   │   ├── ScreenSizeCommand.swift
-│   │   ├── InputCommand.swift            # input key/type/click/...
-│   │   ├── ExecCommand.swift
-│   │   ├── FindTextCommand.swift         # OCR via Server subprocess
-│   │   ├── RecordCommand.swift
-│   │   ├── AgentCommand.swift            # agent health/snapshot/press/...
-│   │   ├── VMCommand.swift               # vm start/stop/list/delete
-│   │   └── ServerCommand.swift           # internal _server (hidden)
-│   ├── TestAnywareDriver/                # Library (reusable from Swift apps)
-│   │   ├── Connection/                   #   ConnectionSpec, Platform parser
-│   │   ├── VNC/                          #   VNCCapture, framebuffer converter
-│   │   ├── Input/                        #   VNCInput, PlatformKeymap
-│   │   ├── Capture/                      #   StreamingCapture (AVAssetWriter)
-│   │   ├── Agent/                        #   AgentTCPClient (HTTP to in-VM agent)
-│   │   ├── OCR/                          #   Apple Vision + EasyOCR bridge
-│   │   ├── Server/                       #   Internal long-running _server + client
-│   │   └── VM/                           #   Tart, QEMU+swtpm, lifecycle, paths
-│   └── TestAnywareAgentProtocol/         # Wire-format types (host copy)
-└── Tests/
-    ├── IntegrationTests/                 # Need a live VM; honour TESTANYWARE_SKIP_INTEGRATION
-    ├── TestAnywareAgentProtocolTests/    # Wire-shape round-trip tests
-    ├── TestAnywareDriverTests/           # Unit tests for the library
-    └── Resources/
+cli-rs/
+├── Cargo.toml                       # workspace manifest
+├── crates/
+│   ├── testanyware-protocol/        # serde wire types + formatters (no I/O)
+│   ├── testanyware-agent-client/    # HTTP client for the in-VM agents (reqwest)
+│   ├── testanyware-rfb/             # pure-Rust RFB/VNC client: capture + input
+│   ├── testanyware-ocr-client/      # OcrEngine seam; EasyOCR daemon bridge (ADR-0002)
+│   ├── testanyware-video/           # VideoEncoder seam; screen record (ADR-0006)
+│   ├── testanyware-vm/              # VM lifecycle: QEMU/tart, golden images, paths
+│   └── testanyware-cli/             # clap binary `testanyware` + command surface
+└── tests/
+    ├── cli-contract.rs              # offline full-surface contract gate
+    ├── live-vm-gate.rs              # live-VM-gated checks (env + #[ignore])
+    └── fixtures/protocol/           # cross-language wire-format fixtures
 ```
 
 ## Key files
 
 | File | Role |
 |------|------|
-| `cli/Sources/testanyware/TestAnywareCLI.swift` | Top-level `AsyncParsableCommand`. Defines `ConnectionOptions` and the shared resolution chain. |
-| `cli/Sources/TestAnywareDriver/Connection/ConnectionSpec.swift` | JSON schema + env-var parsing for connection specs. |
-| `cli/Sources/TestAnywareDriver/VNC/VNCCapture.swift` | The single class that wraps the RFB protocol (via vendored RoyalVNCKit). All screenshot, framebuffer, and input code flows through it. |
-| `cli/Sources/TestAnywareDriver/VM/VMLifecycle.swift` | `vm start` / `stop` / `list` / `delete` entry points. |
-| `cli/Sources/TestAnywareDriver/VM/VMPaths.swift` | XDG path helpers; the authoritative source for on-disk locations. |
-| `cli/Sources/TestAnywareDriver/VM/VMSpec.swift` | `<id>.json` writer/reader. Mirrors `ConnectionSpec` + adds `ssh`. |
-| `cli/Sources/TestAnywareDriver/Agent/AgentTCPClient.swift` | HTTP/1.1 client for the in-VM agents. |
-| `cli/Sources/TestAnywareDriver/Server/TestAnywareServer.swift` | The internal `_server` process that hosts long-running VNC + OCR contexts across multiple CLI invocations. |
+| `crates/testanyware-cli/src/surface.rs` | The canonical command surface (`CANONICAL_COMMANDS`) and the stable `ERROR_CODES` catalogue. The authoritative list both `capabilities` and `schema` derive from. |
+| `crates/testanyware-cli/src/commands/` | One module per command group (`vm`, `input`, `screen`, `agent`, `file`, `doctor`, `menu_bar`, `window`, …). |
+| `crates/testanyware-cli/src/discoverability.rs` | `--json` envelope shape, help-text template enforcement, schema discovery. |
+| `crates/testanyware-vm/src/lifecycle.rs` | `vm start` / `stop` / `list` / `delete` / `create-golden` entry points. |
+| `crates/testanyware-rfb/src/input.rs`, `keymap.rs` | RFB input events + per-platform keymap (powers all `input *`). |
+| `crates/testanyware-protocol/src/lib.rs` | serde wire types — third copy of the agent protocol (alongside `agents/macos/`); kept in sync by the fixtures contract test. |
 
 ## Build / test
 
 ```bash
-cd cli
+cd cli-rs
 
 # Build
-swift build                              # debug
-swift build -c release                   # release — binary at .build/release/testanyware
+cargo build --workspace                  # debug
+cargo build --workspace --release        # release — binary at target/release/testanyware
 
-# Unit tests (no VM required)
-swift test
+# Offline tests (no VM required) — includes the full-surface contract gate
+cargo test  --workspace
+cargo test  --test cli-contract          # the CLI design contract gate specifically
 
-# Integration tests (require a running VM — see README integration section)
-vmid=$(testanyware vm start)
-export TESTANYWARE_VM_ID=$vmid
-swift test --filter IntegrationTests
-testanyware vm stop "$vmid"
-
-# Skip integration tests explicitly
-TESTANYWARE_SKIP_INTEGRATION=1 swift test --filter IntegrationTests
+# Live-VM-gated checks (require a running golden — opt in via env)
+# See tests/live-vm-gate.rs for the #[ignore] reasons and env switches.
 ```
+
+## Per-platform facilities
+
+Native capability is selected per host via `#[cfg(target_os = ...)]` rather than
+a lowest-common-denominator everywhere:
+
+- **OCR** (`screen find-text`): Apple Vision on macOS; EasyOCR daemon
+  (`OcrChildBridge`) on Linux/Windows — the `OcrEngine` seam (ADR-0002).
+- **Video** (`screen record`): AVFoundation/VideoToolbox via `objc2` on macOS;
+  `ffmpeg-next` on Linux/Windows — the `VideoEncoder` seam (ADR-0006).
 
 ## Common pitfalls
 
-- **The `cli/` package is flat.** There is no `cli/macos/` subdir.
-  Downstream callers that used to build at `cli/macos/` must update
-  to `cli/`.
-- **Rust port pending.** Linux host support is blocked on a planned
-  Rust port of the driver. Until then, TestAnyware only runs on a
-  macOS host. Rationale is captured in
-  `LLM_STATE/core/decisions.md`.
-- **`TestAnywareAgentProtocol` has two source copies** — one here,
-  one under `agents/macos/`. They must stay in sync by hand. A
-  round-trip test in `cli/Tests/TestAnywareAgentProtocolTests/`
+- **No persistent VNC server.** Unlike the retired Swift `_server`, every
+  command opens its own short-lived RFB connection (ADR-0004). The two
+  long-lived RFB consumers are the embedded viewer (`viewer` / `vm start
+  --viewer`, ADR-0005) and the bounded `screen record` sampler.
+- **The contract is the gate.** Every command must satisfy
+  `docs/architecture/cli-design-contract.md` (stable error codes, `--json` for
+  data commands, `--dry-run` for mutating commands, the §7 help template,
+  schema discovery). `cargo test --test cli-contract` enforces the offline
+  surface; happy-path checks that need a running VM live in `live-vm-gate.rs`.
+- **`testanyware-protocol` has sibling copies** — one here, one under
+  `agents/macos/`. They must stay in sync by hand; the fixtures contract test
   catches wire-shape drift.
-- **`testanyware _server` is internal**, hidden from help output.
-  Never call it directly — the CLI starts it on demand over a UNIX
-  socket to reuse the VNC connection across invocations.
-- **First-run AppleScript permission:** `testanyware vm start --viewer`
-  and `vm stop` need Automation permission on System Events. macOS
-  binds the grant to the binary's path — install `testanyware` at a
-  stable path (e.g. `/usr/local/bin/testanyware`) if you want to
-  rebuild without re-granting.
+- **First-run macOS Automation permission** still applies to
+  `vm start --viewer` and `vm stop` paths that drive System Events. macOS binds
+  the grant to the binary's path — install `testanyware` at a stable path
+  (e.g. `/usr/local/bin/testanyware`) to rebuild without re-granting.

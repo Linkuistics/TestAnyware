@@ -31,8 +31,9 @@ Plus the standard connection flags (`--vm`, `--vnc`, `--agent`,
 
 ## What it does under the hood
 
-`StreamingCapture` in `cli/Sources/TestAnywareDriver/Capture/StreamingCapture.swift`
-wraps `AVAssetWriter` with an `AVAssetWriterInputPixelBufferAdaptor`.
+The recorder in `cli-rs/crates/testanyware-video/` drives a per-platform
+`VideoEncoder` — AVFoundation (`AVAssetWriter` + pixel-buffer adaptor) on
+macOS, `ffmpeg-next` on Linux/Windows.
 For each frame:
 
 1. A VNC framebuffer update is requested.

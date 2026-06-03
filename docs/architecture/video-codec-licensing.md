@@ -124,7 +124,7 @@ internally. Replacing it with `h264_videotoolbox` via `ffmpeg-next`
 uses **the same underlying encoder** — output should be effectively
 indistinguishable bit-for-bit at matched settings. This is the lowest-
 risk replacement path for macOS hosts and produces the strongest
-parity with the Swift CLI's recordings.
+parity with the macOS host's AVFoundation recordings.
 
 ### Linux
 

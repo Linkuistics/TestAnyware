@@ -189,11 +189,11 @@ accessibility APIs:
   coordinate bugs)
 - Windows: C#/ASP.NET, uses UI Automation (UIA) via FlaUI
 
-**Host side (Swift):** `TestAnywareDriver` wraps the RFB protocol and agent
-HTTP client. `TestAnywareAgentProtocol` defines the shared wire-format types
-used by both the CLI and the macOS agent (note: each side currently ships
-its own self-contained copy of this module — see §Key Directories). CLI is
-built on swift-argument-parser.
+**Host side (Rust):** the `cli-rs/` workspace — `testanyware-rfb` wraps the RFB
+protocol, `testanyware-agent-client` the agent HTTP client, and
+`testanyware-protocol` defines the wire-format types (the macOS agent ships its
+own self-contained copy of the same module — see §Key Directories). The CLI is
+built on `clap`.
 
 **Vision pipeline (Python):** A `uv` workspace at `vision/` decomposes
 screenshots into structured UI data through sequential stages (window
@@ -205,7 +205,7 @@ duplicate-module collisions across the workspace members.
 
 | Component | Language | Why | Platform |
 |---|---|---|---|
-| CLI / host library | Swift 6 | Native performance, async/await, AVAssetWriter for MP4 | macOS 14+ host only |
+| Host CLI / libraries | Rust | Cross-platform host, pure-Rust RFB, per-platform native facilities via `#[cfg]` | macOS / Linux / Windows host |
 | macOS agent | Swift | Native AX APIs, Hummingbird for HTTP | In-VM only |
 | Linux agent | Python 3.12+ | AT-SPI2 bindings, http.server minimal footprint | In-VM only |
 | Windows agent | C# 9 | UIA/FlaUI, ASP.NET Core, ships as standalone .NET 9 app | In-VM only |
@@ -262,17 +262,16 @@ vars consumed by the golden scripts:
 If neither is set, the scripts resolve `command -v testanyware` and
 `brew --prefix testanyware`/`share/testanyware/agents/<platform>/...`.
 
-**CLI (Swift, macOS host):**
+**Host CLI (Rust, cross-platform):**
 
 ```bash
-cd cli
-swift build                                # build executable
-swift build -c release                     # release binary
+cd cli-rs
+cargo build --workspace                    # debug executable
+cargo build --workspace --release          # release binary (target/release/testanyware)
 ```
 
-The `cli/` package is currently flat (no `cli/macos/` subdirectory). A
-cross-platform Rust port is planned; until then the Swift package lives
-directly at `cli/`.
+The host CLI is the `cli-rs/` Cargo workspace. (The original macOS-only Swift
+CLI under `cli/` was retired 2026-06-03 — see `docs/components/cli.md`.)
 
 **macOS agent:**
 
@@ -283,9 +282,9 @@ swift build -c release
 ```
 
 The macOS agent is self-contained: it carries its own copy of
-`TestAnywareAgentProtocol` under `agents/macos/Sources/`. The CLI has an
-independent copy at `cli/Sources/TestAnywareAgentProtocol/`. The two
-copies must be kept in sync by hand until the shared package is unified.
+`TestAnywareAgentProtocol` under `agents/macos/Sources/`. The host CLI has an
+independent copy at `cli-rs/crates/testanyware-protocol/`. The two copies must
+be kept in sync by hand (a fixtures contract test catches wire-shape drift).
 
 **Windows agent (built on macOS host, cross-compiled for Windows ARM64):**
 
@@ -554,14 +553,14 @@ cases have moved to [`docs/user/troubleshooting.md`](docs/user/troubleshooting.m
 ## Key Directories
 
 ```
-/cli                         # Host CLI + library (Swift, macOS host)
-  /Sources/testanyware/             #   CLI commands & entry point
-  /Sources/TestAnywareDriver/       #   VNC/Agent client logic
-  /Sources/TestAnywareAgentProtocol/#   Shared HTTP schema (cli-side copy)
-  /Tests/                           #   Unit + integration tests
-
-  NOTE: cli/ is flat (no cli/macos/). A cross-platform Rust port is
-  pending; until then the Swift package lives directly at cli/.
+/cli-rs                      # Host CLI + libraries (Rust, cross-platform)
+  /crates/testanyware-cli/          #   clap binary `testanyware` + surface.rs
+  /crates/testanyware-rfb/          #   pure-Rust RFB/VNC client
+  /crates/testanyware-agent-client/ #   agent HTTP client
+  /crates/testanyware-protocol/     #   wire-format types (host copy)
+  /crates/testanyware-vm/           #   VM lifecycle (QEMU/tart, golden images)
+  /crates/{testanyware-ocr-client,testanyware-video}/  # OCR + record seams
+  /tests/                           #   cli-contract + live-vm-gate
 
 /agents                      # Platform-specific agents (HTTP servers on port 8648)
   /macos                     #   Swift + Hummingbird; self-contained

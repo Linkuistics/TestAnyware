@@ -9,25 +9,28 @@ scriptable surface over the in-VM agents and the VNC framebuffer.
 
 **Host CLI**:
 The user-facing `testanyware` binary that runs on the developer's machine
-and orchestrates VMs + agents. Currently in transition: a legacy Swift
-implementation in `cli/` is being retired in favour of a Rust port in
-`cli-rs/`.
+and orchestrates VMs + agents. Implemented in Rust under `cli-rs/` (the
+**Rust CLI**); the legacy Swift implementation was retired 2026-06-03.
 _Avoid_: bare "CLI" — in-VM components also have CLIs.
 
-**Swift CLI**:
-The legacy host-CLI implementation under `cli/Sources/testanyware/`. The
-retirement target of the `rust-cli-port` grove.
-_Avoid_: "the old CLI", "cli/" (use the term, not the path).
+**Swift CLI** (historical):
+The original host-CLI implementation, macOS-only, that lived under
+`cli/Sources/testanyware/`. **Retired 2026-06-03** when the `rust-cli-port`
+grove reached macOS parity and deleted `cli/`; recoverable from git history.
+The term survives only because ADRs and docs reference it as the
+retirement target.
+_Avoid_: present-tense framing — it no longer exists in the tree.
 
 **Rust CLI**:
 The Rust implementation of the host CLI under `cli-rs/`, structured as a
-Cargo workspace (`testanyware-cli` binary + supporting crates). The
-in-progress replacement for the Swift CLI.
+Cargo workspace (`testanyware-cli` binary + supporting crates). Since
+2026-06-03 it *is* the host CLI — no longer a replacement-in-progress.
 
 **Command surface**:
-The set of user-visible `testanyware <command>` invocations, plus
-hidden/internal subcommands (e.g. `_server`). The canonical list lives in
-`cli-rs/crates/testanyware-cli/src/surface.rs`.
+The set of user-visible `testanyware <command>` invocations, plus any
+hidden/internal subcommands. The canonical list lives in
+`cli-rs/crates/testanyware-cli/src/surface.rs`. (The Swift CLI's hidden
+`_server` subcommand was dropped with the Shared-VNC server — ADR-0004.)
 
 **CLI design contract**:
 `docs/architecture/cli-design-contract.md` — the cross-command spec the
@@ -47,11 +50,12 @@ grove — separate workstreams.
 A pre-built per-platform VM disk image (`testanyware-golden-<platform>-...`)
 that `vm start` clones to spawn a fresh instance.
 
-**Shared-VNC server**:
-The Swift `_server` process — a long-lived host-side daemon that holds **one
+**Shared-VNC server** (historical):
+The Swift `_server` process — a long-lived host-side daemon that held **one
 VNC connection** open on a unix socket (with a PID file and idle timeout) and
-multiplexes it across CLI invocations. The Rust CLI **deliberately drops** it:
-every command opens its own short-lived RFB connection instead. Do not confuse
+multiplexed it across CLI invocations. The Rust CLI **deliberately dropped** it
+(ADR-0004): every command opens its own short-lived RFB connection instead. The
+Swift `_server` tree was deleted with `cli/` on 2026-06-03. Do not confuse
 with the *OCR daemon* — structurally unrelated (one multiplexes VNC, the other
 hosts a Python OCR process); the Swift CLI merely solved both with similar
 helper plumbing. The retirement is owned by ADR-0004.
@@ -99,8 +103,8 @@ invocations attached to — the viewer is a single standalone display).
 > just to clone the Golden image and wait; the CLI design contract says
 > it warns and proceeds with `agent: null`.
 >
-> **Dev:** Should the Swift CLI behave the same way?
+> **Dev:** Where is that behavior pinned down now that the Swift CLI is gone?
 >
-> **Maintainer:** Yes — strict parity until `cli/` retires. Whatever
-> behavior the contract pins down, both Swift CLI and Rust CLI must
-> match.
+> **Maintainer:** The CLI design contract is the single source of truth, and
+> the Rust CLI — now *the* Host CLI — is built to satisfy it. The
+> `cli-contract.rs` integration test is the gate.

@@ -33,7 +33,7 @@ window id — internal only, not for client consumption.
 
 ## XDG paths
 
-Resolved by `VMPaths` in `cli/Sources/TestAnywareDriver/VM/VMPaths.swift`.
+Resolved by the path helpers in `cli-rs/crates/testanyware-vm/src/paths.rs`.
 Defaults follow the XDG Base Directory spec.
 
 | Content | Path | Purpose |

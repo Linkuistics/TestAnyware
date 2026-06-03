@@ -80,6 +80,6 @@ the macOS golden and launched by a LaunchAgent with label
   `NSStackView` containers on Tahoe may not appear via
   `kAXChildrenAttribute`. Workaround in troubleshooting.md.
 - **Keep the protocol copy in sync.** If you change wire shapes, apply
-  the same change in `cli/Sources/TestAnywareAgentProtocol/`. The
-  round-trip test in
-  `cli/Tests/TestAnywareAgentProtocolTests/` is the safety net.
+  the same change in `cli-rs/crates/testanyware-protocol/`. The fixtures
+  contract test in `cli-rs/crates/testanyware-protocol/tests/fixtures.rs`
+  (and its agent-side counterpart) is the safety net.

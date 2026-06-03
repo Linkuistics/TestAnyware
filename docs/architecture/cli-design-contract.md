@@ -1,19 +1,18 @@
-# CLI Design Contract (Rust port)
+# CLI Design Contract
 
-**Status:** Authoritative for the Rust port of `testanyware`. The Swift CLI
-(`cli/Sources/testanyware/`) is being retired and is **not** being
-refactored to meet this contract; everything below describes the target
-shape that all Rust command ports must satisfy before merge.
+**Status:** Authoritative for the `testanyware` host CLI (`cli-rs/`). Every
+command must satisfy the shape described below; the `cli-contract.rs`
+integration test is the gate. (The original macOS-only Swift CLI was retired
+2026-06-03; §10 records the audit that drove the port.)
 
 **Authority:** This document is referenced by name from the acceptance
-criteria of every downstream Rust-port backlog task. Any deviation must
-be raised as a contract amendment first.
+criteria of every command's work. Any deviation must be raised as a contract
+amendment first.
 
 **Source guidance:** Distilled from
 `/Users/antony/Development/Ravel-Lite/defaults/fixed-memory/cli-tool-design.md`
-("CLI Design Guidelines for LLM Agents") plus the existing TestAnyware
-surface in `cli/Sources/testanyware/` and
-`docs/reference/error-codes.md`.
+("CLI Design Guidelines for LLM Agents") plus the original TestAnyware
+surface (the now-retired Swift CLI) and `docs/reference/error-codes.md`.
 
 ---
 
@@ -619,12 +618,13 @@ that env var in `remediation`.
 
 ---
 
-## 10. Gap report — Swift CLI vs. this contract
+## 10. Gap report — Swift CLI vs. this contract (historical)
 
-This is the audit deliverable. Each row lists what the Rust port must
-do differently from the Swift original. The Swift CLI is being
-retired, so these are not bugs to fix in `cli/` — they are
-specifications for the Rust port.
+This was the audit deliverable that drove the port. Each row recorded what the
+Rust port had to do differently from the now-retired Swift original — these
+were never bugs to fix in `cli/`, but specifications the Rust port has since
+satisfied. Retained as a design record of *why* each command is shaped as it
+is.
 
 ### 10.1 Output
 
