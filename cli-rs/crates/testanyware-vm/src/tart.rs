@@ -229,16 +229,37 @@ pub fn delete_golden(name: &str) -> bool {
     run_tart(&["delete", name]).exit_code == 0
 }
 
+/// The per-run log path for `id`, with any prior run's log of the **same
+/// id** cleared first.
+///
+/// `spawn_detached` opens this log in **append** mode (it is shared with
+/// the QEMU path, where append is correct), every same-id `tart run` points
+/// at the *same* `<id>.tart.log`, and `vm stop` removes the spec/meta
+/// sidecars but **not** this log. So without clearing it, a same-id
+/// `stop`→`start` bounce appends the new run's `vnc://` line *after* the
+/// prior run's — and `poll_vnc_url` returns the *first* match, resolving the
+/// prior run's now-dead port + password. Clearing the log here (rather than
+/// truncating in shared `spawn_detached`, which would alter QEMU, or
+/// removing on `stop`, which a crash/kill skips) makes `start` idempotent
+/// regardless of how the prior run ended. The current run's log is fully
+/// preserved — only the prior, now-deleted clone's log is discarded.
+fn fresh_log_path(log_dir: &Path, id: &str) -> PathBuf {
+    let log_path = log_dir.join(format!("{id}.tart.log"));
+    // Best-effort: a missing log is the normal fresh-id case.
+    let _ = std::fs::remove_file(&log_path);
+    log_path
+}
+
 /// Spawn `tart run <id> --no-graphics --vnc-experimental` detached, with
-/// stdout+stderr appended to `<log_dir>/<id>.tart.log`. Returns the
-/// detached pid and the log path so the caller can poll for the VNC URL.
-/// Ports `TartRunner.runDetached`.
+/// stdout+stderr appended to a freshly-cleared `<log_dir>/<id>.tart.log`
+/// (see `fresh_log_path`). Returns the detached pid and the log path so the
+/// caller can poll for the VNC URL. Ports `TartRunner.runDetached`.
 pub fn run_detached(id: &str, log_dir: &Path) -> Result<(i32, PathBuf), VmError> {
     std::fs::create_dir_all(log_dir)
         .map_err(|e| VmError::Io(format!("create {}: {e}", log_dir.display())))?;
     let tart = which("tart")
         .ok_or_else(|| VmError::TartFailed { detail: "tart not found on PATH".into() })?;
-    let log_path = log_dir.join(format!("{id}.tart.log"));
+    let log_path = fresh_log_path(log_dir, id);
     let args = vec![
         "run".to_string(),
         id.to_string(),
@@ -437,6 +458,35 @@ mod tests {
         assert_eq!(parsed.host, "127.0.0.1");
         assert_eq!(parsed.port, 54321);
         assert_eq!(parsed.password.as_deref(), Some("abc"));
+    }
+
+    #[test]
+    fn fresh_log_path_clears_a_prior_runs_stale_log() {
+        // Regression for 105-tart-restart-stale-vnc: a same-id `stop`→`start`
+        // bounce must resolve the *current* run's endpoint, not the prior
+        // run's dead port left in the append-only log.
+        let dir = tempfile::tempdir().unwrap();
+        let id = "viewer-verify";
+        let stale = dir.path().join(format!("{id}.tart.log"));
+        std::fs::write(&stale, "run 1\nvnc://:old-pw@127.0.0.1:58372\n").unwrap();
+
+        let log_path = fresh_log_path(dir.path(), id);
+        assert_eq!(log_path, stale);
+        assert!(!stale.exists(), "prior run's log must be cleared before the new run");
+
+        // The new run appends its own (different) endpoint to the fresh log;
+        // `poll_vnc_url` now resolves it, not the prior run's dead 58372.
+        std::fs::write(&log_path, "run 2\nvnc://:new-pw@127.0.0.1:58373\n").unwrap();
+        let parsed = poll_vnc_url(&log_path, 2, Duration::from_millis(5)).unwrap();
+        assert_eq!(parsed.port, 58373);
+        assert_eq!(parsed.password.as_deref(), Some("new-pw"));
+    }
+
+    #[test]
+    fn fresh_log_path_is_a_noop_for_a_fresh_id() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = fresh_log_path(dir.path(), "testanyware-fresh");
+        assert!(!log_path.exists(), "a never-run id has no log to clear");
     }
 
     #[test]
