@@ -22,6 +22,28 @@ The design is settled — the two child leaves are work tasks.
 - `provisioner/scripts/vm-create-golden-macos.sh` **deleted**; any release
   bundling reference updated.
 
+## Verification (live golden creation, 2026-06-03)
+
+Both leaves complete and live-verified. `vm create-golden --platform macos
+--name testanyware-golden-macos-rustport` ran end-to-end on the **first
+attempt**, no warnings / no force-stops:
+
+- disable-SIP Recovery boot → `csrutil status` over SSH: **disabled**.
+- TCC grants: Accessibility + Full Disk Access both `auth_value=2`, csreq 40 B.
+- enable-SIP Recovery boot → `csrutil status` over SSH: **enabled**; both TCC
+  rows survived.
+- agent-health gate (curl inside guest on 8648): healthy.
+- clean System-Events shutdown completed within the shortened 40s window (the
+  `010` headless-shutdown concern did not bite); `tart clone` → golden,
+  setup VM deleted.
+- **Consumability:** a fresh clone of the golden reported `reachable: true` and
+  `accessibility_status: "granted"` — the TCC pipeline took effect across the
+  clone. Recorded in ADR-0008 Consequences.
+
+Both Recovery OCR cycles read their csrutil result lines cleanly (OCR-primary
+path; the settle fallback was not needed). The `…-rustport` golden is a
+verification artifact left on the host alongside the untouched `…-tahoe`.
+
 ## Decomposition
 
 - `010-recovery-driver` (work, high-risk) — the `RecoverySession` primitives +

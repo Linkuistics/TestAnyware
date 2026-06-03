@@ -108,5 +108,13 @@ verification if OCR proves flaky on small recovery-Terminal monospace.
   `RecoverySession` + `recovery_boot_csrutil`, fail-fast-verified by running
   `csrutil disable` and confirming `csrutil status` over SSH) and
   `030/020-tcc-and-finalize` (TCC grants, health gate, clean shutdown, clone).
+  **Verified end-to-end on 2026-06-03:** `vm create-golden --platform macos`
+  produced a golden on the first attempt with no warnings or force-stops — both
+  Recovery OCR cycles read their csrutil result lines cleanly, SIP toggled
+  off→on (confirmed over SSH), both TCC grants landed `auth_value=2` (csreq 40
+  bytes) and survived the SIP re-enable, and the agent passed the health gate.
+  A fresh clone of the produced golden then reported `reachable: true` and
+  `accessibility_status: "granted"` — the launchd-started agent's
+  `kTCCServiceAccessibility` grant took effect across the clone.
 - VNC keysym quirks (memory `cmd-key-tahoe`: Command = `XK_Alt_L`) apply on this
   RFB path, as they do for `input *`.
