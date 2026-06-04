@@ -72,9 +72,11 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
     gets a 2nd impl** (ssh → in-VM agent `file upload`/`exec`, since Windows
     ships no sshd) plus a Windows HUT image. **linux/win distribution**
     (`cargo-zigbuild` per triple, Homebrew Linux + Windows zip — `080` sketched
-    `scripts/`; **Linux distribution is now UNBLOCKED** — Linux host-pass +
-    harness are green; must bundle the `ocr_analyzer` daemon venv into
-    `<prefix>/libexec/venv`, the EasyOCR-on-Linux/Windows OCR path), **linux/win
+    `scripts/`; **Linux distribution DONE (`210`, 2026-06-04)** — `cargo-zigbuild`
+    both triples + a Homebrew formula bundling the ffmpeg-8 `.so`s (RUNPATH
+    `$ORIGIN/../lib`) and building the `ocr_analyzer` EasyOCR venv at
+    `<prefix>/libexec/venv`; aarch64 runtime-verified, x86_64 build-only. The
+    **Windows distribution** (`220/050`) reuses this machinery), **linux/win
     `vm create-golden`** (full Rust port reusing `110`'s russh layer; macOS-host
     work, no cross binary needed). **Planning leaf `200` decomposes this wave.**
 - **Cross-cutting:** `080-crosscompile-spike` (front-loaded fail-fast for the
@@ -191,12 +193,20 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       (golden produced first-try; fresh clone reachable + accessibility granted).
       **linux/win golden remains Tier 2** (`140-tier2-plan`), built on this same
       `testanyware-vm` foundation.
-- [ ] Distribute Rust `testanyware` via Homebrew (macOS + Linux) and Windows zip.
+- [~] Distribute Rust `testanyware` via Homebrew (macOS + Linux) and Windows zip.
       Releases run locally from `scripts/` on an arm64 Mac — no CI. **Decision
-      (070): CROSS-COMPILE via `zig cc`**, proven by an early **feasibility spike**
-      (`080`, runs on current HEAD: wgpu+ring → linux+windows). Fallback if the
-      spike fails: **build-on-target via VMs**. macOS Homebrew arm64 is native &
-      ships in Tier 1 (`120`); linux/win distribution is Tier 2.
+      (070): CROSS-COMPILE via `cargo-zigbuild`** (supersedes hand-rolled `zcc`),
+      proven by `080`/`160`/`170`. **macOS** Homebrew arm64 ships in Tier 1 (`120`).
+      **Linux DONE (`210`, 2026-06-04):** `cargo-zigbuild` both `*-unknown-linux-gnu`
+      triples; the Homebrew formula installs the BtbN ffmpeg-8 `.so` bundle into the
+      keg `lib/` (binary linked RUNPATH=`$ORIGIN/../lib` + all five sonames forced
+      *direct* NEEDED, so it self-locates with no `LD_LIBRARY_PATH`) and builds the
+      `ocr_analyzer` EasyOCR venv (pinned `easyocr` resource) at
+      `<prefix>/libexec/venv`. **aarch64-linux runtime-verified** — install-layout
+      `screen find-text` green with no env crutches (`linux_dist_install_layout`
+      harness test); **x86_64-linux build/link-verified ONLY** (no native guest,
+      ADR-0009 no-silent-caps). **Windows** zip remains Tier 2 (`220/050`, reuses
+      this machinery).
 - [x] Final parity verification → **delete `cli/`** and de-transition `CONTEXT.md`.
       **DONE 2026-06-03 (node `130`).** macOS parity proven — `cli-contract.rs`
       green on the full offline surface (22 passed / 0 failed; the 4 remaining

@@ -1416,6 +1416,277 @@ async fn linux_host_harness() {
     );
 }
 
+// ===========================================================================
+// 210 — distribution install-layout verification (grove 210-linux-distribution)
+// ===========================================================================
+//
+// The bands above prove the cross binary *runs*, but with two test-shaped
+// crutches a shipped install does not have: `LD_LIBRARY_PATH` points the loader
+// at the ffmpeg `.so`s, and `TESTANYWARE_OCR_PYTHON` + `PYTHONPATH` point the
+// OCR bridge at a hand-placed venv + module. This test reproduces the **Homebrew
+// formula's keg layout** in the HUT and runs the binary with NONE of that env:
+//
+//   <prefix>/bin/testanyware          (linked RUNPATH=$ORIGIN/../lib)
+//   <prefix>/lib/libav*.so* …         (the five ffmpeg-8 sonames)
+//   <prefix>/libexec/venv/bin/python  (resolve_interpreter() finds this)
+//
+// It thereby proves the two distribution-specific deltas `190` could not:
+//   1. **RUNPATH self-location** — `--version` execs with no `LD_LIBRARY_PATH`.
+//   2. **install-layout OCR** — `screen find-text` resolves the venv via
+//      `resolve_interpreter()` (no `TESTANYWARE_OCR_PYTHON`) and imports
+//      `ocr_analyzer` from the venv's own site-packages (no `PYTHONPATH`),
+//      exactly as `scripts/templates/testanyware.rb.tmpl` installs it.
+//
+// Same gating + teardown as `linux_host_harness`; reuses its HUT, golden,
+// forward, and OCR-warm machinery — only the *layout* and the *absent env* differ.
+
+/// Install-prefix root in the HUT (stands in for the Homebrew keg prefix).
+const DIST_PREFIX: &str = "/home/admin/taw-dist";
+
+/// Pinned easyocr version — mirrors the formula's pinned `resource "easyocr"`.
+const EASYOCR_PIN: &str = "easyocr==1.7.2";
+
+/// Build the in-guest invocation for an *installed* binary: crucially **no
+/// `LD_LIBRARY_PATH`** (the binary's RUNPATH self-locates its libs), with the
+/// binary addressed at `<prefix>/bin/testanyware`.
+fn dist_invocation(envs: &[(&str, &str)], args: &[&str]) -> String {
+    let mut prefix = String::new();
+    for (k, v) in envs {
+        prefix.push_str(k);
+        prefix.push('=');
+        prefix.push_str(v);
+        prefix.push(' ');
+    }
+    format!("{prefix}{DIST_PREFIX}/bin/testanyware {}", args.join(" "))
+}
+
+/// Stage the binary + ffmpeg libs into the install-layout prefix (`bin/`, `lib/`
+/// siblings). Unlike [`stage_binary`], the libs go in a sibling `lib/` reached
+/// by the binary's RUNPATH, never `LD_LIBRARY_PATH`.
+async fn stage_dist_binary(ch: &impl ProvisionChannel) -> Result<(), String> {
+    let bin = linux_bin_path();
+    if !bin.is_file() {
+        return Err(format!(
+            "cross binary not found at {} — cross-build it first (see the module docs)",
+            bin.display(),
+        ));
+    }
+    let lib_dir = ffmpeg_lib_dir();
+    exec_ok(ch, &format!("mkdir -p {DIST_PREFIX}/bin {DIST_PREFIX}/lib")).await?;
+    ch.upload(&bin, &format!("{DIST_PREFIX}/bin/testanyware")).await?;
+    exec_ok(ch, &format!("chmod +x {DIST_PREFIX}/bin/testanyware")).await?;
+    for soname in REQUIRED_SONAMES {
+        let local = lib_dir.join(soname);
+        if !local.exists() {
+            return Err(format!(
+                "ffmpeg runtime lib {} missing — stage the BtbN linuxarm64-gpl-shared bundle",
+                local.display(),
+            ));
+        }
+        ch.upload(&local, &format!("{DIST_PREFIX}/lib/{soname}")).await?;
+    }
+    eprintln!(
+        "[dist] staged binary + {} ffmpeg libs into install prefix {DIST_PREFIX} (bin/ + lib/)",
+        REQUIRED_SONAMES.len()
+    );
+    Ok(())
+}
+
+/// Build the EasyOCR venv at `<prefix>/libexec/venv` exactly as the Homebrew
+/// formula's `install do` does: `python -m venv`, `pip install` the pinned
+/// easyocr (resolving torch et al.), then `pip install --no-deps` the uploaded
+/// `ocr_analyzer` project so `python -m ocr_analyzer` resolves from the venv's
+/// own site-packages with no `PYTHONPATH`. Pre-warms the EasyOCR models so the
+/// daemon's first recognize lands inside the bridge's 15s deadline.
+async fn provision_dist_venv(ch: &impl ProvisionChannel) -> Result<(), String> {
+    let venv = format!("{DIST_PREFIX}/libexec/venv");
+    let py = format!("{venv}/bin/python");
+    let pip = format!("{venv}/bin/pip");
+
+    // venv tooling (stock Ubuntu 24.04 ships python3 but not the venv module).
+    eprintln!("[dist] apt: installing python3-venv …");
+    exec_ok(ch, "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq").await?;
+    exec_ok(
+        ch,
+        "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-venv",
+    )
+    .await?;
+
+    // 1. venv + pinned easyocr (the slow step — torch download).
+    exec_ok(ch, &format!("mkdir -p {DIST_PREFIX}/libexec")).await?;
+    exec_ok(ch, &format!("python3 -m venv {venv}")).await?;
+    exec_ok(ch, &format!("{pip} install --quiet --upgrade pip")).await?;
+    eprintln!("[dist] pip install {EASYOCR_PIN} (pulls torch; minutes) …");
+    let p = ch.exec(&format!("{pip} install --quiet {EASYOCR_PIN}")).await?;
+    if p.exit_code != 0 {
+        return Err(format!(
+            "pip install {EASYOCR_PIN} exited {} — aarch64-linux CPU torch wheels exist on PyPI, \
+             so suspect network/disk. stderr tail:\n{}",
+            p.exit_code,
+            tail(&p.stderr),
+        ));
+    }
+
+    // 2. upload the ocr_analyzer project (pyproject + src) and `pip install
+    //    --no-deps` it — mirrors the formula's `pip install --no-deps pkgshare/ocr`.
+    let mod_dir = ocr_module_dir(); // .../vision/stages/text-ocr/src/ocr_analyzer
+    let proj = mod_dir
+        .parent()
+        .and_then(Path::parent)
+        .ok_or("could not derive the text-ocr project dir from the module path")?;
+    let staged = format!("{DIST_PREFIX}/ocrsrc");
+    exec_ok(ch, &format!("mkdir -p {staged}/src/ocr_analyzer")).await?;
+    ch.upload(&proj.join("pyproject.toml"), &format!("{staged}/pyproject.toml")).await?;
+    for f in OCR_MODULE_FILES {
+        ch.upload(&mod_dir.join(f), &format!("{staged}/src/ocr_analyzer/{f}")).await?;
+    }
+    let m = ch.exec(&format!("{pip} install --quiet --no-deps {staged}")).await?;
+    if m.exit_code != 0 {
+        return Err(format!(
+            "pip install --no-deps ocr_analyzer exited {} (the formula's module install step):\n{}",
+            m.exit_code,
+            tail(&m.stderr),
+        ));
+    }
+
+    // 3. pre-download the EasyOCR models (off the daemon's hot path).
+    eprintln!("[dist] pre-downloading EasyOCR models …");
+    let warm = ch
+        .exec(&format!("{py} -c \"import easyocr; easyocr.Reader(['en'], gpu=False)\""))
+        .await?;
+    if warm.exit_code != 0 {
+        return Err(format!(
+            "EasyOCR model pre-download exited {}:\n{}",
+            warm.exit_code,
+            tail(&warm.stderr),
+        ));
+    }
+    eprintln!("[dist] install-layout venv ready at {venv}");
+    Ok(())
+}
+
+/// `screen find-text File` through the *installed* binary with ONLY the VNC
+/// password in env — no `TESTANYWARE_OCR_PYTHON`, no `PYTHONPATH`, no
+/// `LD_LIBRARY_PATH`. Proves the shipped layout self-resolves the OCR venv.
+async fn check_dist_find_text(
+    ch: &impl ProvisionChannel,
+    vnc_ep: &str,
+    vnc_password: &str,
+) -> Result<String, String> {
+    let envs = [("TESTANYWARE_VNC_PASSWORD", vnc_password)];
+    let args = ["screen", "find-text", "File", "--vnc", vnc_ep, "--timeout", "20", "--json"];
+    let cmd = dist_invocation(&envs, &args);
+    let out = ch.exec(&cmd).await?;
+    let body = expect_ok_envelope(&out).map_err(|e| {
+        format!(
+            "{e}\n  ↑ install-layout OCR failed: resolve_interpreter() must find \
+             {DIST_PREFIX}/libexec/venv/bin/python relative to the binary, and `ocr_analyzer` \
+             must be in that venv's site-packages (no PYTHONPATH). Check the formula install steps."
+        )
+    })?;
+    find_text_hit(&body)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "live VM: TESTANYWARE_LINUX_HARNESS=1 cargo test --test linux-host-harness -- --ignored linux_dist_install_layout"]
+async fn linux_dist_install_layout() {
+    if !gate_enabled() {
+        eprintln!(
+            "linux_dist_install_layout: skipped — set TESTANYWARE_LINUX_HARNESS=1 to verify the \
+             shipped Homebrew keg layout (RUNPATH self-location + resolve_interpreter venv) on a HUT."
+        );
+        return;
+    }
+
+    let hut = Hut::launch().unwrap_or_else(|e| panic!("HUT launch failed: {e}"));
+    let _guard = &hut;
+    let (channel, _keydir) = provision_ssh(&hut.ip)
+        .await
+        .unwrap_or_else(|e| panic!("provisioning failed: {e}"));
+
+    stage_dist_binary(&channel)
+        .await
+        .unwrap_or_else(|e| panic!("staging the install layout failed: {e}"));
+
+    // ---- Delta 1: RUNPATH self-location ------------------------------------
+    // `--version` must exec with NO LD_LIBRARY_PATH: the loader has to find the
+    // ffmpeg `.so`s in <prefix>/lib via the binary's RUNPATH=$ORIGIN/../lib.
+    let version = channel
+        .exec(&dist_invocation(&[], &["--version"]))
+        .await
+        .unwrap_or_else(|e| panic!("install-layout --version: channel exec failed: {e}"));
+    if version.exit_code != 0 {
+        let hint = if looks_like_missing_shared_object(&version.stderr) {
+            "\n  ↑ RUNPATH self-location FAILED: the binary could not find its ffmpeg .so's in \
+             <prefix>/lib via RUNPATH=$ORIGIN/../lib. Check build_cli_cross_linux's link flags \
+             (the --no-as-needed -lswresample direct-NEEDED trick + the rpath arg)."
+        } else {
+            ""
+        };
+        panic!(
+            "install-layout --version failed (exit {}) with no LD_LIBRARY_PATH.\n  stderr: {}{hint}",
+            version.exit_code,
+            version.stderr.trim(),
+        );
+    }
+    eprintln!(
+        "[dist] ✓ delta 1 — RUNPATH self-location: --version execs with no LD_LIBRARY_PATH: {}",
+        version.stdout.trim()
+    );
+
+    // Build the formula-style venv (slow torch download) before the golden, so
+    // the macOS VM is not left idle through it.
+    eprintln!("\nlinux_dist_install_layout: provisioning the install-layout EasyOCR venv …");
+    let venv = provision_dist_venv(&channel).await;
+    if let Err(e) = &venv {
+        eprintln!("[dist] venv provisioning FAILED (find-text will report it): {e}");
+    }
+
+    // ---- Golden + VNC forward (020 machinery, VNC only — OCR needs no agent) -
+    eprintln!(
+        "\nlinux_dist_install_layout: bringing up the {} golden + VNC forward …",
+        golden_platform()
+    );
+    let golden_id = start_golden_vm().await;
+    let _golden_guard = GoldenGuard { id: golden_id.clone() };
+    wait_for_golden_ready(&golden_id, Duration::from_secs(120))
+        .await
+        .unwrap_or_else(|e| panic!("golden readiness wait failed: {e}"));
+    let endpoints = golden_endpoints(&golden_id)
+        .await
+        .unwrap_or_else(|e| panic!("reading the golden endpoints failed: {e}"));
+    let gateway = discover_gateway(&channel)
+        .await
+        .unwrap_or_else(|e| panic!("host-gateway discovery failed: {e}"));
+    let vnc_fwd = PortForward::spawn("vnc", endpoints.vnc)
+        .await
+        .unwrap_or_else(|e| panic!("vnc forward setup failed: {e}"));
+    let vnc_ep = format!("{gateway}:{}", vnc_fwd.local_port);
+    let vnc_pw = endpoints.vnc_password.clone().unwrap_or_default();
+
+    // ---- Delta 2: install-layout OCR ---------------------------------------
+    let find_text = match &venv {
+        Ok(()) => check_dist_find_text(&channel, &vnc_ep, &vnc_pw).await,
+        Err(e) => Err(format!("venv provisioning failed: {e}")),
+    };
+    drop(vnc_fwd);
+
+    eprintln!("\nlinux_dist_install_layout — distribution deltas:");
+    eprintln!("  ✓ runpath-self-location: --version exec'd with no LD_LIBRARY_PATH");
+    match &find_text {
+        Ok(note) => eprintln!("  ✓ install-layout-ocr: {note}"),
+        Err(reason) => eprintln!("  ✗ install-layout-ocr: {reason}"),
+    }
+    find_text.unwrap_or_else(|e| panic!("install-layout find-text failed: {e}"));
+
+    eprintln!(
+        "\nlinux_dist_install_layout: GREEN — the shipped aarch64-linux bundle self-locates its \
+         ffmpeg libs (RUNPATH) and its EasyOCR venv (resolve_interpreter), with no \
+         LD_LIBRARY_PATH / TESTANYWARE_OCR_PYTHON / PYTHONPATH. The Homebrew formula's keg layout \
+         is runtime-verified."
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Offline unit tests for the pure helpers (run in a plain `cargo test` on the
 // macOS host; no VM). These pin the contracts the live harness depends on.
@@ -1518,6 +1789,25 @@ mod helper_tests {
                 case.name,
             );
         }
+    }
+
+    #[test]
+    fn dist_invocation_omits_ld_library_path() {
+        // The defining property of the install layout: NO LD_LIBRARY_PATH (the
+        // binary's RUNPATH self-locates), binary addressed under the prefix.
+        assert_eq!(
+            dist_invocation(&[], &["--version"]),
+            "/home/admin/taw-dist/bin/testanyware --version"
+        );
+        let cmd = dist_invocation(
+            &[("TESTANYWARE_VNC_PASSWORD", "pw")],
+            &["screen", "find-text", "File", "--json"],
+        );
+        assert!(!cmd.contains("LD_LIBRARY_PATH"), "install layout must not set LD_LIBRARY_PATH: {cmd}");
+        assert_eq!(
+            cmd,
+            "TESTANYWARE_VNC_PASSWORD=pw /home/admin/taw-dist/bin/testanyware screen find-text File --json"
+        );
     }
 
     #[test]
