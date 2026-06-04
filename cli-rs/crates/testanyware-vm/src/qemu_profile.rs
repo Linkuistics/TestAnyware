@@ -6,7 +6,10 @@
 //! architecture follows the host: goldens are built per-host by
 //! `vm-create-golden-*.sh`, and KVM/HVF only accelerate same-arch guests.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+// `Path` is only used by the macOS UEFI-candidate resolver below.
+#[cfg(target_os = "macos")]
+use std::path::Path;
 
 /// Host-resolved QEMU launch parameters.
 #[derive(Debug, Clone)]
@@ -110,6 +113,9 @@ pub fn resolve_uefi_code(candidates: &[PathBuf]) -> Option<PathBuf> {
 /// `/opt/homebrew/bin` and `/usr/local/bin` are appended so the qemu
 /// toolchain resolves even when the CLI runs from a scrubbed environment.
 pub fn which(name: &str) -> Option<PathBuf> {
+    // `mut` is consumed only by the macOS Homebrew-dir push below; on other
+    // hosts the `PATH` list is used as-is.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
     let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();

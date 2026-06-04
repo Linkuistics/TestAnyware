@@ -1,10 +1,12 @@
 //! Integration tests for `OcrChildBridge` against the fake daemon
-//! shell script `cli/Tests/Resources/fake-ocr-daemon.sh`.
+//! shell script `tests/fake-ocr-daemon.sh`.
 //!
-//! Reusing the *same* fake from the Swift test suite ensures both
-//! ports talk to a single canonical fixture — drift between Swift and
-//! Rust behaviour is caught immediately, since regressions would
-//! require touching the shared shell script.
+//! The fixture originated in the Swift test suite (`cli/Tests/Resources/`)
+//! and moved into this crate when the Swift `cli/` tree was retired
+//! (grove node `130`). It is the canonical fake EasyOCR daemon for the
+//! Linux/Windows OCR path (`OcrEngine::Daemon`, ADR-0002): selecting a
+//! `FAKE_OCR_BEHAVIOR` exercises each bridge failure mode (ready/echo,
+//! die, malformed, hang, import-error) without a real Python interpreter.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -12,17 +14,14 @@ use std::time::Duration;
 use testanyware_ocr_client::{OcrBridgeError, OcrChildBridge, OcrChildBridgeConfig};
 
 fn fake_daemon_script() -> PathBuf {
-    // `CARGO_MANIFEST_DIR` is the OCR client crate root; the fake is
-    // four `..` levels up at the repo root. Mirrors the Swift side's
-    // `#filePath` traversal in `OCRChildBridgeTests.swift`.
+    // `CARGO_MANIFEST_DIR` is the OCR client crate root; the fixture lives
+    // alongside this test under `tests/` (it moved here from the deleted
+    // Swift `cli/Tests/Resources/` with grove node `130`).
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir
-        .join("..") // crates/
-        .join("..") // cli-rs/
-        .join("..") // repo root
-        .join("cli/Tests/Resources/fake-ocr-daemon.sh")
+        .join("tests/fake-ocr-daemon.sh")
         .canonicalize()
-        .expect("fake-ocr-daemon.sh must exist relative to crate root")
+        .expect("fake-ocr-daemon.sh must exist under the crate's tests/ dir")
 }
 
 fn make_bridge(behavior: &str) -> OcrChildBridge {

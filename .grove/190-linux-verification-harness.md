@@ -64,3 +64,38 @@ pattern (`tests/live-vm-gate.rs`: env-gated + `#[ignore]`d so it's opt-in).
   VMs and must not run in a plain `cargo test`.
 - Don't bake test tooling into images ([[minimal-images]]); provision the binary
   at run time.
+
+## Handoff from `180` (source pass green, 2026-06-04)
+
+The Linux source pass is complete and verified: `testanyware` cross-builds clean
+for **both** `aarch64-` and `x86_64-unknown-linux-gnu` (full binary — no
+`monitor.rs` gap on the Unix path), all facility `#[cfg]` arms select correctly
+(OCR→daemon, encoder→ffmpeg-next, QEMU→KVM per-arch, paths→XDG), and the macOS
+suite stays green. Two **provisioning prerequisites** the smoke bands depend on —
+each will *silently fail its band* if the HUT lacks it, so wire them when
+provisioning the guest:
+
+- **`screen record` (endpoint-driven band) needs ffmpeg 8 at runtime.** The
+  binary binds `libavcodec.so.62 / libavformat.so.62 / libavutil.so.60 /
+  libswscale.so.9` (ffmpeg **8.1** sonames). **Stock Ubuntu 24.04 ships ffmpeg
+  6.1** (`libav*.so.60`) — a soname mismatch, so `screen record` will fail to
+  load libav unless you provision the **BtbN ffmpeg-8 `gpl-shared` `.so`s**
+  beside the binary (rpath `$ORIGIN`, or `LD_LIBRARY_PATH`). Recipe + the three
+  bundle/static/distro options: `docs/research/170-ffmpeg-cross-link.md`
+  ("Runtime ABI"). This gates **only** `record`; the rest of the CLI has no
+  ffmpeg dependency, so the other bands run without it.
+- **`screen find-text` (OCR, endpoint-driven band) needs a Python venv with
+  `easyocr`.** Linux routes through the EasyOCR daemon (`OcrChildBridge`);
+  `resolve_interpreter()` looks for `$TESTANYWARE_OCR_PYTHON`, then
+  `<prefix>/libexec/venv/bin/python`, then a `pipeline/.venv`. Provision that
+  venv (or set `TESTANYWARE_OCR_PYTHON`), else `find-text` latches
+  permanently-unavailable.
+
+Not in scope for `180` or `190`'s bands: the **wgpu/Vulkan viewer** opening on a
+Linux host (llvmpipe or a real GPU) — it cross-links (`eframe`/`egui-wgpu`
+compiled; Vulkan is `dlopen`-ed per `080`) but its *runtime* on Linux stays
+unverified after `190`. Flag as a possible follow-up if a Linux GUI path matters.
+
+When `190` runs the bands green, record the Linux runtime green back into the
+root brief's Tier-2 checklist (the `180` leaf will already be retired into
+`done/`).
