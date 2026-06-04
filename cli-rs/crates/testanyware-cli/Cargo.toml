@@ -36,3 +36,10 @@ eframe = { version = "0.34", default-features = false, features = ["wgpu", "defa
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# The Linux verification harness (tests/linux-host-harness.rs, ADR-0009) is
+# an async test: it drives the `russh` `SshSession` for provisioning (and, in
+# `020`, the in-process host→golden forward). The normal `tokio` dep above
+# enables only `sync`; the harness needs the runtime + net + fs. dev-deps
+# feature-unify only for test builds, so the `testanyware` bin build is
+# unaffected.
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "time", "io-util", "fs"] }
