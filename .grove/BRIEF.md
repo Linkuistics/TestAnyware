@@ -56,17 +56,27 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
   working Windows in-VM agent, since Windows ships no SSH). Distribution per OS
   **trails that OS's host-pass + harness** — never ship a binary the harness has
   not run green.
-  - **First wave (materialized):** `160-crossbuild-matrix-spike` (fail-fast all
-    4 triples + `ffmpeg-next` link risk), `170-ffmpeg-video-encoder` (the
+  - **First wave (DONE, all retired):** `160-crossbuild-matrix-spike` (fail-fast
+    all 4 triples + `ffmpeg-next` link risk), `170-ffmpeg-video-encoder` (the
     non-macOS `VideoEncoder` arm, ADR-0006), `180-linux-host-pass` (cfg/paths/
-    facility wiring), `190-linux-verification-harness` (ADR-0009, Linux-first).
+    facility wiring), `190-linux-verification-harness` (ADR-0009, Linux-first) —
+    **Linux aarch64 host CLI is now runtime-GREEN** (all three bands, incl.
+    EasyOCR `screen find-text`; see the Tier-2 checklist line below).
   - **Deferred (materialize when their turn comes):** Windows-host pass
     (`monitor.rs` AF_UNIX→named-pipe/TCP + the already-`#[cfg]`-paired
-    `process/spec/detached/doctor`), Windows verification harness (reuses `190`'s
-    machinery, provisioning channel ssh→agent), **linux/win distribution**
+    `process/spec/detached/doctor`), Windows verification harness — **reuses
+    `190`'s machinery verbatim**: the in-process host→golden TCP forward,
+    host-gateway discovery, the band-agnostic `run_band` driver, the
+    `--agent`/`--vnc` endpoint targeting, *and* the `ocr_analyzer` EasyOCR daemon
+    + venv recipe (`vision/stages/text-ocr`); **only the `ProvisionChannel` trait
+    gets a 2nd impl** (ssh → in-VM agent `file upload`/`exec`, since Windows
+    ships no sshd) plus a Windows HUT image. **linux/win distribution**
     (`cargo-zigbuild` per triple, Homebrew Linux + Windows zip — `080` sketched
-    `scripts/`), **linux/win `vm create-golden`** (full Rust port reusing `110`'s
-    russh layer; macOS-host work, no cross binary needed).
+    `scripts/`; **Linux distribution is now UNBLOCKED** — Linux host-pass +
+    harness are green; must bundle the `ocr_analyzer` daemon venv into
+    `<prefix>/libexec/venv`, the EasyOCR-on-Linux/Windows OCR path), **linux/win
+    `vm create-golden`** (full Rust port reusing `110`'s russh layer; macOS-host
+    work, no cross binary needed). **Planning leaf `200` decomposes this wave.**
 - **Cross-cutting:** `080-crosscompile-spike` (front-loaded fail-fast for the
   zig-cc cross-build path) and `090-viewer-live-verify` (carried-over follow-up).
 
@@ -156,12 +166,17 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       **host-side-framebuffer invariant** (ADR-0010, new [[CONTEXT.md]] term),
       the criterion future candidates (VMware Fusion, UTM) are judged against.
       Findings: `docs/research/parallels-backend-feasibility.md`.
-- [ ] **Self-hosted host verification harness** (Tier 2): use TestAnyware to run
-      up Linux/Windows guests, install the **locally cross-compiled** (`zig cc`)
-      host binary, and smoke-test the non-`vm-start` surface (agent HTTP,
-      input/screen via RFB to an endpoint, OCR, capabilities, schema) by driving
-      a VM endpoint over the network. `vm start`/lifecycle inside a guest needs
-      nested virt — out of scope unless cheap. Designed in `140-tier2-plan`.
+- [x] **Self-hosted host verification harness — Linux aarch64 GREEN** (Tier 2,
+      node `190`, ADR-0009). `cli-rs/.../tests/linux-host-harness.rs` clones a
+      stock Ubuntu ARM64 HUT, ssh-provisions the cross-compiled binary, forwards
+      a real macOS golden's agent+VNC through the host, and runs all three bands
+      green: endpoint-free (caps/schema/doctor/…), endpoint-driven (agent HTTP,
+      `input *`, `screen capture`/`size`/`record`→mp4 — ffmpeg-8 libx264 runtime-
+      proven), and **OCR** (`screen find-text` via the EasyOCR daemon,
+      `engine=easyocr_daemon`). **x86_64-linux is BUILD-verified only** (no native
+      x86_64 guest on this Mac; gap logged in the harness doc-comment, ADR-0009
+      no-silent-caps). **Windows harness is deferred** (reuses 190's machinery;
+      swaps ssh→agent — see the Tier-2 "Deferred" list above, planning leaf `200`).
 - [x] Live-VM verification gate for the RFB client + input layer (node
       `050-live-vm-gate`: `tests/live-vm-gate.rs` — input landing, show-menu,
       ZRLE/Tight/Raw capture, live Vision OCR; macOS golden, env+`#[ignore]`d).
