@@ -1,0 +1,19 @@
+[project]
+name = "text-ocr"
+version = "0.1.0"
+description = "EasyOCR daemon backing the host CLI's `screen find-text` on Linux/Windows (ADR-0002)"
+requires-python = ">=3.11"
+# easyocr pulls torch (CPU aarch64-linux wheels exist on PyPI) + opencv +
+# pillow + numpy transitively. It is the only runtime dependency; the daemon
+# itself is stdlib-only (json/threading) so the pure helpers unit-test without
+# it. See README.md for the in-guest venv recipe the harness provisions.
+dependencies = [
+    "easyocr>=1.7",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ocr_analyzer"]

@@ -9,11 +9,14 @@
 //! CLI with the product."
 //!
 //! Leaf `010` landed the reusable skeleton + the **endpoint-free band** (no
-//! golden, no forward, no OCR). Leaf `020` (this) bolts on the **macOS golden +
-//! the in-process host→golden TCP forward** and runs the **endpoint-driven band
-//! minus OCR**: `agent` HTTP actions, `input *`, `screen capture`/`size`, and
-//! `screen record`→mp4 — the runtime proof of the `170` ffmpeg-8 encoder on
-//! aarch64-linux. Leaf `030` adds `screen find-text` (OCR) on the same machinery.
+//! golden, no forward, no OCR). Leaf `020` bolted on the **macOS golden + the
+//! in-process host→golden TCP forward** and the **endpoint-driven band minus
+//! OCR**: `agent` HTTP actions, `input *`, `screen capture`/`size`, and `screen
+//! record`→mp4 — the runtime proof of the `170` ffmpeg-8 encoder. Leaf `030`
+//! (this) closes the suite with the **OCR band**: it provisions an EasyOCR
+//! daemon (the `vision/stages/text-ocr` `ocr_analyzer` module, written for this
+//! leaf) into the HUT and proves `screen find-text` resolves through it on
+//! aarch64-linux. All three bands now run green in one invocation.
 //!
 //! ## How to run
 //!
@@ -1062,6 +1065,179 @@ async fn check_record(
     ))
 }
 
+// ===========================================================================
+// 030 — the OCR band: provision the EasyOCR daemon, then `screen find-text`
+// ===========================================================================
+//
+// On non-macOS the host CLI routes OCR through the EasyOCR Python daemon
+// (`OcrChildBridge`, ADR-0002): `screen find-text` spawns
+// `python -m ocr_analyzer --daemon` and speaks a one-JSON-line-per-message
+// protocol to it. The module is `vision/stages/text-ocr/src/ocr_analyzer`
+// (written for this leaf — the Swift CLI shelled out to an *external*
+// `ocr_analyzer` that was never vendored here). This band provisions a working
+// daemon into the HUT and proves `find-text` resolves through it on
+// aarch64-linux. See vision/stages/text-ocr/README.md for the recipe.
+
+/// In-guest venv layout for the EasyOCR daemon: the venv sits beside the binary
+/// under [`RUN_DIR`]; the `ocr_analyzer` package goes directly under [`RUN_DIR`]
+/// so `PYTHONPATH=<RUN_DIR>` makes `python -m ocr_analyzer` importable.
+const OCR_VENV_DIR: &str = "/home/admin/taw/venv";
+const OCR_VENV_PYTHON: &str = "/home/admin/taw/venv/bin/python";
+
+/// The `ocr_analyzer` package's Python sources (the channel does single-file
+/// uploads and the package is three small files). `__main__` is the `-m` entry.
+const OCR_MODULE_FILES: &[&str] = &["__init__.py", "daemon.py", "__main__.py"];
+
+/// Path to the `ocr_analyzer` package in the repo working tree.
+fn ocr_module_dir() -> PathBuf {
+    // CARGO_MANIFEST_DIR = <repo>/cli-rs/crates/testanyware-cli → repo is ../../..
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../vision/stages/text-ocr/src/ocr_analyzer")
+}
+
+/// Last ~600 chars of a stream, char-safe — for surfacing a failing command's
+/// tail without dumping a multi-thousand-line pip/apt log.
+fn tail(s: &str) -> String {
+    let chars: Vec<char> = s.trim().chars().collect();
+    let start = chars.len().saturating_sub(600);
+    chars[start..].iter().collect()
+}
+
+/// Provision a working EasyOCR daemon in the throwaway HUT and return the venv
+/// interpreter for `TESTANYWARE_OCR_PYTHON`. Steps: install venv tooling, build
+/// a venv with `easyocr` (pulls torch — minutes on first run, aarch64-linux CPU
+/// wheels exist on PyPI), upload the `ocr_analyzer` package, and **pre-download
+/// the EasyOCR models** so the daemon's first `readtext` lands inside the
+/// bridge's 15s first-call deadline rather than racing a model download.
+///
+/// Built into a throwaway clone at run time, never baked into an image
+/// ([[minimal-images]]); the same recipe + module back the deferred Windows
+/// harness (only [`ProvisionChannel`] differs). No host-side venv cache: the
+/// channel is intentionally exec+upload only (the reuse seam), so caching would
+/// mean a `download` op the Windows agent impl must also carry — deferred.
+async fn provision_ocr(ch: &impl ProvisionChannel) -> Result<String, String> {
+    // 1. venv tooling. Stock Ubuntu 24.04 ships python3 but not the venv module.
+    //    `sudo -n` fails fast if the image lacks passwordless sudo (Cirrus cloud
+    //    images grant it) instead of hanging on a password prompt.
+    eprintln!("[ocr] apt: installing python3-venv …");
+    exec_ok(ch, "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq").await?;
+    exec_ok(
+        ch,
+        "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq python3-venv",
+    )
+    .await?;
+
+    // 2. build the venv + install easyocr (the slow step — torch download).
+    eprintln!("[ocr] creating venv + pip install easyocr (pulls torch; minutes) …");
+    exec_ok(ch, &format!("python3 -m venv {OCR_VENV_DIR}")).await?;
+    exec_ok(ch, &format!("{OCR_VENV_PYTHON} -m pip install --quiet --upgrade pip")).await?;
+    let pip = ch
+        .exec(&format!("{OCR_VENV_PYTHON} -m pip install --quiet easyocr"))
+        .await?;
+    if pip.exit_code != 0 {
+        return Err(format!(
+            "pip install easyocr exited {} — aarch64-linux CPU torch wheels exist on PyPI, \
+             so suspect network/disk. stderr tail:\n{}",
+            pip.exit_code,
+            tail(&pip.stderr),
+        ));
+    }
+
+    // 3. upload the ocr_analyzer package, file by file.
+    let mod_dir = ocr_module_dir();
+    exec_ok(ch, &format!("mkdir -p {RUN_DIR}/ocr_analyzer")).await?;
+    for f in OCR_MODULE_FILES {
+        let local = mod_dir.join(f);
+        if !local.is_file() {
+            return Err(format!(
+                "ocr_analyzer source {} missing — expected the text-ocr package in the tree",
+                local.display(),
+            ));
+        }
+        ch.upload(&local, &format!("{RUN_DIR}/ocr_analyzer/{f}")).await?;
+    }
+
+    // 4. pre-download the EasyOCR models (Reader() fetches the CRAFT detector +
+    //    recognizer on first construction). Off the daemon's hot path.
+    eprintln!("[ocr] pre-downloading EasyOCR models …");
+    let warm = ch
+        .exec(&format!(
+            "{OCR_VENV_PYTHON} -c \"import easyocr; easyocr.Reader(['en'], gpu=False)\""
+        ))
+        .await?;
+    if warm.exit_code != 0 {
+        return Err(format!(
+            "EasyOCR model pre-download exited {}:\n{}",
+            warm.exit_code,
+            tail(&warm.stderr),
+        ));
+    }
+    eprintln!("[ocr] daemon provisioned at {OCR_VENV_PYTHON}");
+    Ok(OCR_VENV_PYTHON.to_string())
+}
+
+/// Assert a `screen find-text File` envelope used the EasyOCR daemon and found
+/// the query with a plausible box. Pure over the parsed body so it unit-tests
+/// offline (mirrors `live-vm-gate.rs::check_vision_ocr`, swapping the engine).
+fn find_text_hit(body: &Value) -> Result<String, String> {
+    let engine = body.get("engine").and_then(Value::as_str).unwrap_or("");
+    if engine != "easyocr_daemon" {
+        return Err(format!("expected engine easyocr_daemon, got {engine:?}"));
+    }
+    let detections = body
+        .get("detections")
+        .and_then(Value::as_array)
+        .ok_or("find-text envelope has no detections array")?;
+    let hit = detections
+        .iter()
+        .find(|d| {
+            d.get("text")
+                .and_then(Value::as_str)
+                .is_some_and(|t| t.to_lowercase().contains("file"))
+        })
+        .ok_or_else(|| format!("EasyOCR did not find 'File'; detections: {detections:?}"))?;
+    let w = hit.get("width").and_then(Value::as_f64).unwrap_or(0.0);
+    let h = hit.get("height").and_then(Value::as_f64).unwrap_or(0.0);
+    if w <= 0.0 || h <= 0.0 {
+        return Err(format!("EasyOCR 'File' hit has an implausible box: {hit}"));
+    }
+    Ok(format!(
+        "engine=easyocr_daemon found 'File' at {w:.0}x{h:.0} px on aarch64-linux"
+    ))
+}
+
+/// `screen find-text File` over the forward, routed through the provisioned
+/// EasyOCR daemon. `TESTANYWARE_OCR_PYTHON` points at the venv; `PYTHONPATH`
+/// makes `ocr_analyzer` importable. No `--region` (the command captures the full
+/// frame); the menu-bar `File` is the same deterministic fixture `live-vm-gate`
+/// and the `020` capture use. A generous `--timeout` lets it re-OCR if the first
+/// frame hasn't rendered, but the daemon's *first* recognize is the real risk —
+/// it must finish within the bridge's 15s first-call deadline (hence the
+/// pre-warmed models + background-thread Reader load in `ocr_analyzer`).
+async fn check_find_text(
+    ch: &impl ProvisionChannel,
+    run_dir: &str,
+    vnc_ep: &str,
+    vnc_password: &str,
+    venv_python: &str,
+) -> Result<String, String> {
+    let envs = [
+        ("TESTANYWARE_VNC_PASSWORD", vnc_password),
+        ("TESTANYWARE_OCR_PYTHON", venv_python),
+        ("PYTHONPATH", run_dir),
+    ];
+    let args = ["screen", "find-text", "File", "--vnc", vnc_ep, "--timeout", "20", "--json"];
+    let cmd = build_invocation(run_dir, &envs, &args);
+    let out = ch.exec(&cmd).await?;
+    let body = expect_ok_envelope(&out).map_err(|e| {
+        format!(
+            "{e}\n  ↑ an OCR_* error means the daemon mis-launched: check the venv at \
+             {venv_python} and that PYTHONPATH={run_dir} exposes `ocr_analyzer`."
+        )
+    })?;
+    find_text_hit(&body)
+}
+
 // ---------------------------------------------------------------------------
 // The harness
 // ---------------------------------------------------------------------------
@@ -1144,6 +1320,19 @@ async fn linux_host_harness() {
     );
     eprintln!("\nlinux_host_harness: all {} endpoint-free checks passed.", results.len());
 
+    // ---- OCR provisioning (030): build the EasyOCR daemon in the HUT ------
+    //
+    // Done *before* the golden comes up so the multi-minute torch download
+    // doesn't run a macOS VM idle. A provisioning failure is captured (not a
+    // panic) and surfaced as the `screen-find-text` band result below, so it
+    // reads as a failed OCR check rather than masking the driven band.
+    eprintln!("\nlinux_host_harness: provisioning the EasyOCR daemon (030)…");
+    let ocr_python = provision_ocr(&channel).await;
+    match &ocr_python {
+        Ok(py) => eprintln!("[ocr] ready: {py}"),
+        Err(e) => eprintln!("[ocr] provisioning FAILED (find-text will report it): {e}"),
+    }
+
     // ---- Endpoint-driven band (020): golden + in-process forward ----------
     //
     // Bring up the macOS golden, forward its agent + VNC through the host, and
@@ -1187,6 +1376,12 @@ async fn linux_host_harness() {
     );
     driven.push(("screen-capture", check_capture(&channel, RUN_DIR, &vnc_ep, &vnc_pw).await));
     driven.push(("screen-record", check_record(&channel, RUN_DIR, &vnc_ep, &vnc_pw).await));
+    // OCR band (030): read-only, so it runs before the mutating input family.
+    let find_text = match &ocr_python {
+        Ok(py) => check_find_text(&channel, RUN_DIR, &vnc_ep, &vnc_pw, py).await,
+        Err(e) => Err(format!("OCR daemon provisioning failed: {e}")),
+    };
+    driven.push(("screen-find-text", find_text));
     driven.extend(run_band(&channel, RUN_DIR, &endpoint_driven_input_cases(&vnc_ep, &vnc_pw)).await);
 
     // Forwards have served their purpose; tear them down before asserting so a
@@ -1215,7 +1410,8 @@ async fn linux_host_harness() {
     );
     eprintln!(
         "\nlinux_host_harness: all {} endpoint-driven checks passed — incl. screen record \
-         (ffmpeg-8 libx264 runtime-proven on aarch64-linux).",
+         (ffmpeg-8 libx264 runtime-proven) and screen find-text (EasyOCR daemon runtime-proven) \
+         on aarch64-linux. All three bands green.",
         driven.len()
     );
 }
@@ -1366,6 +1562,50 @@ mod helper_tests {
         let mp4 = parse_od_hex("00 00 00 20 66 74 79 70");
         assert_eq!(&mp4[4..8], b"ftyp");
         assert!(parse_od_hex("").is_empty());
+    }
+
+    #[test]
+    fn find_text_hit_accepts_easyocr_daemon_with_a_file_box() {
+        let body = serde_json::json!({
+            "engine": "easyocr_daemon",
+            "detections": [
+                { "text": "Finder", "x": 40, "y": 2, "width": 48, "height": 16, "confidence": 0.9 },
+                { "text": "File",   "x": 96, "y": 2, "width": 24, "height": 16, "confidence": 0.95 }
+            ]
+        });
+        let note = find_text_hit(&body).expect("a daemon File hit");
+        assert!(note.contains("easyocr_daemon"), "note names the engine: {note}");
+    }
+
+    #[test]
+    fn find_text_hit_rejects_wrong_engine_missing_hit_and_degenerate_box() {
+        // Wrong engine (e.g. the macOS Vision token) must fail this Linux band.
+        let vision = serde_json::json!({
+            "engine": "vision",
+            "detections": [{ "text": "File", "x": 0, "y": 0, "width": 24, "height": 16, "confidence": 1 }]
+        });
+        assert!(find_text_hit(&vision).is_err(), "wrong engine");
+
+        // Daemon engine but no detection containing 'File'.
+        let no_hit = serde_json::json!({
+            "engine": "easyocr_daemon",
+            "detections": [{ "text": "Edit", "x": 0, "y": 0, "width": 24, "height": 16, "confidence": 1 }]
+        });
+        assert!(find_text_hit(&no_hit).is_err(), "no File hit");
+
+        // A 'File' hit with a zero-area box is implausible.
+        let flat = serde_json::json!({
+            "engine": "easyocr_daemon",
+            "detections": [{ "text": "File", "x": 0, "y": 0, "width": 0, "height": 16, "confidence": 1 }]
+        });
+        assert!(find_text_hit(&flat).is_err(), "degenerate box");
+
+        // Case-insensitive substring: 'profile' contains 'file'.
+        let substr = serde_json::json!({
+            "engine": "easyocr_daemon",
+            "detections": [{ "text": "Profile", "x": 0, "y": 0, "width": 50, "height": 16, "confidence": 1 }]
+        });
+        assert!(find_text_hit(&substr).is_ok(), "case-insensitive substring match");
     }
 
     #[test]
