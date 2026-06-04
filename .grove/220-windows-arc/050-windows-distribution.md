@@ -38,3 +38,22 @@ Ship the **Windows** `testanyware` distribution: a **zip** per Windows triple
 - This is the **last** Windows-arc leaf; landing it (with `040` green) lets the
   `220` node retire.
 - Acceptance gate: **CLI design contract**.
+
+## Pre-publish gate (deferred-in from `210` inbox, 2026-06-04)
+
+`210` proved the Linux bundle's RUNPATH self-location, the EasyOCR venv recipe,
+and `resolve_interpreter` on a real aarch64-linux HUT via the
+`linux_dist_install_layout` harness test — but **never ran the formula's literal
+`brew install`**. The wheel-only `easyocr` pin uses
+`resource("easyocr").cached_download` (standard but unexercised), and Homebrew's
+keg symlink / RUNPATH relocation of the binary is untested. **Before the first
+Linux `gh release` + tap push**, do one real `brew install` of a `file://`-URL
+rendering of `testanyware.rb` in a Linuxbrew aarch64 HUT and run `testanyware
+screen find-text` green.
+
+**This same gate applies to the Windows zip** — but the Windows delivery is a
+**zip, not Homebrew**, so the keg-relocation half doesn't transfer; what *does*
+transfer is "exercise the actual published artifact (unzip + run from a clean
+prefix), not just the in-tree layout test." Land that real-artifact smoke as
+part of this leaf's `Done when`, and (separately) close the open **Linux**
+`brew install` gate before publishing the Linux release.

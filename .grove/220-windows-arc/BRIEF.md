@@ -82,6 +82,35 @@ BRIEF.md` "Reuse seam".
 - Acceptance gate for the host-pass + distribution work stays the **CLI design
   contract**.
 
+## `010-windows-readiness-spike` disposition — **GREEN** (2026-06-04)
+
+The whole arc's hardest external dependency is **confirmed real**. Findings:
+
+- **The Windows golden already exists** (`$XDG_DATA_HOME/testanyware/golden/
+  testanyware-golden-windows-11.qcow2`, built 2026-05-29 via the existing
+  `vm-create-golden-windows.sh`; ISO + virtio-win cached). The spike did not need
+  to rebuild it — it cloned and booted it ([[vm-costs]]: per-task cost is just
+  clone+boot).
+- **A fresh clone boots green and the in-VM agent is reachable fast.** Booting a
+  *finalized* golden (autologin + the `TestAnywareAgent` Task Scheduler logon
+  task) reaches `agent health` → `reachable:true, accessibility_status:granted`
+  within ~15s — not the 20-40 min the *install* takes. swtpm TPM + COW clone via
+  the Rust path, single QEMU process confirmed.
+- **The `/upload`→`/exec`→`/download` round-trip works** (the `040`
+  `ProvisionChannel` operations): uploaded a token, PowerShell uppercased it
+  in-guest (`exit_code:0`), downloaded the transformed result back, byte-verified.
+- **Bonus finding for `020`/`040`:** the Windows VM *runtime* lifecycle is
+  **already ported to Rust** — `testanyware vm start --platform windows`
+  (`QemuRunner`/`lifecycle.rs`: `Platform::Windows`, `needs_tpm`, QEMU+swtpm,
+  `hostfwd tcp::0-:8648`) + `agent health` + `file upload/exec/download` all ran
+  green against the golden with the release binary, **no Rust written**. So `020`'s
+  remaining gap is the **golden *creation*** port (the shell script), not the
+  start/agent-channel runtime, which already exists; and `040`'s endpoint
+  machinery has a proven agent channel to build its `ProvisionChannel` 2nd impl on.
+
+**Arc proceeds to `020`/`030`.** No agent/golden gap to file against the agents
+workstream — the channel is intact.
+
 ## On retire (promote upward, then the node retires)
 
 - Record **Windows aarch64 runtime green** into the root BRIEF's Tier-2 checklist
