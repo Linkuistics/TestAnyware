@@ -43,20 +43,37 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
   `130-macos-parity-and-delete-cli`. Reaching these + `cli-contract.rs` passing
   on macOS *is* the parity bar; `cli/` is deleted here, mid-grove.
 - **Tier 2 — Linux-host + Windows-host additive (beyond-parity, but
-  self-verifiable):** **Linux-host pass**, **Windows-host pass**, `ffmpeg-next`
-  encoders, linux/win golden, cross-compile distribution. Beyond macOS parity
-  (Swift was macOS-only), but **TestAnyware tests its own host CLI by running up
-  Linux/Windows host-VMs** — the cross-compiled binary runs inside a guest and
-  drives a VM's agent/RFB endpoint over the network (no nested virt for the
-  non-`vm-start` surface). Cross-compiled **locally via `zig cc`** (the `080`
-  spike produces these very binaries). Re-grilled & decomposed lazily by
-  `140-tier2-plan` after Tier 1.
+  self-verifiable):** **decomposed by `140-tier2-plan` (2026-06-04, ADR-0009).**
+  **TestAnyware tests its own host CLI by running it inside native-arch
+  (aarch64) host-VMs** that drive a real tart macOS golden's agent/RFB endpoint
+  through a **host port-forward** (guest→host-gateway is the reliable NAT edge).
+  Cross-compiled locally via **`cargo-zigbuild`** (supersedes the hand-rolled
+  `zcc`; `080` proved it). **Matrix = four triples** — `x86_64`/`aarch64` ×
+  `linux-gnu`/`windows-{gnu,gnullvm}`; **aarch64 is first-class** (the only arch
+  the harness natively verifies on this Mac), x86_64 is build/link-verified with
+  the runtime gap logged. Sequencing: **Linux leads** (self-contained: stock
+  Ubuntu ARM64 + ssh), **Windows trails** (depends on the Windows golden + a
+  working Windows in-VM agent, since Windows ships no SSH). Distribution per OS
+  **trails that OS's host-pass + harness** — never ship a binary the harness has
+  not run green.
+  - **First wave (materialized):** `160-crossbuild-matrix-spike` (fail-fast all
+    4 triples + `ffmpeg-next` link risk), `170-ffmpeg-video-encoder` (the
+    non-macOS `VideoEncoder` arm, ADR-0006), `180-linux-host-pass` (cfg/paths/
+    facility wiring), `190-linux-verification-harness` (ADR-0009, Linux-first).
+  - **Deferred (materialize when their turn comes):** Windows-host pass
+    (`monitor.rs` AF_UNIX→named-pipe/TCP + the already-`#[cfg]`-paired
+    `process/spec/detached/doctor`), Windows verification harness (reuses `190`'s
+    machinery, provisioning channel ssh→agent), **linux/win distribution**
+    (`cargo-zigbuild` per triple, Homebrew Linux + Windows zip — `080` sketched
+    `scripts/`), **linux/win `vm create-golden`** (full Rust port reusing `110`'s
+    russh layer; macOS-host work, no cross binary needed).
 - **Cross-cutting:** `080-crosscompile-spike` (front-loaded fail-fast for the
   zig-cc cross-build path) and `090-viewer-live-verify` (carried-over follow-up).
 
 ## Pointers
 
-- ADRs a session here must read: `docs/adr/0001-streaming-file-transfer.md`.
+- ADRs a session here must read: `docs/adr/0001-streaming-file-transfer.md`;
+  for Tier-2, `docs/adr/0009-self-hosted-host-cli-verification-harness.md`.
 - Contract: `docs/architecture/cli-design-contract.md` (the "CLI design contract"
   glossary term) — the acceptance gate for every command leaf.
 - Canonical surface: `cli-rs/crates/testanyware-cli/src/surface.rs`.

@@ -86,6 +86,29 @@ _Avoid_: "the VNC server" (it is a *client*/display surface, not a server);
 conflating it with the retired *Shared-VNC server* (a multiplexer other
 invocations attached to — the viewer is a single standalone display).
 
+**Self-hosted verification harness**:
+The Tier-2 mechanism (ADR-0009) that proves the *cross-compiled* Host CLI
+actually runs on Linux/Windows: it runs the binary **inside a native-arch
+(aarch64) guest** and has it drive a real tart macOS Golden image's agent +
+VNC endpoint through a **macOS-host port-forward** (the guest only ever talks
+to the host gateway — the one reliable NAT edge). Verifies **aarch64** builds
+natively on the Apple-Silicon Mac; **x86_64** builds are build/link-verified
+only (no native x86_64 guest here), with the gap logged. Reuses the ADR-0007
+`russh` provisioning on Linux; on Windows, the in-VM agent's `file`/`exec`
+surface (no SSH on Windows).
+_Avoid_: conflating with the live-VM gate (`tests/live-vm-gate.rs`), which runs
+the *macOS* CLI against a macOS golden — the harness is about *non-macOS* host
+binaries.
+
+**Host-under-test (HUT) VM**:
+The guest VM that *runs* the cross-compiled Host CLI in the self-hosted
+verification harness — it is the **host** being tested, not a driven target, so
+it needs **no in-VM agent** (the CLI drives a *separate* forwarded endpoint).
+Linux HUT = stock tart Ubuntu ARM64 (ssh-provisioned); Windows HUT = the
+Windows agent-golden (agent-provisioned, since Windows lacks SSH).
+_Avoid_: confusing the HUT (runs the CLI) with the forwarded Golden image
+(provides the agent/VNC the CLI drives).
+
 ## Example dialogue
 
 > **Dev:** I broke something — `testanyware vm start` is timing out on
