@@ -29,5 +29,16 @@ objc2-core-video = { version = "0.3", features = [
 ] }
 objc2-core-foundation = { version = "0.3", features = ["CFBase", "CFString"] }
 
+# Linux / Windows: embedded libav via ffmpeg-next (ADR-0006), behind the same
+# seam. Only the features a *video* encoder needs are enabled — `codec`
+# (avcodec), `format` (avformat muxing), `software-scaling` (swscale for the
+# RGBA→YUV420P conversion); avutil is always linked. Dropping the audio/device/
+# filter defaults shrinks both the binary and the per-triple ffmpeg sysroot the
+# cross-build links against (see docs/research/170-ffmpeg-cross-link.md).
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+ffmpeg-next = { version = "8.1", default-features = false, features = [
+    "codec", "format", "software-scaling",
+] }
+
 [dev-dependencies]
 tempfile = { workspace = true }

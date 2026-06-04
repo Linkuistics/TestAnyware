@@ -9,9 +9,9 @@
 //!     `objc2` ([`crate::avfoundation`]); hardware-accelerated, no ffmpeg in
 //!     the primary bundle. True parity with the Swift `AVAssetWriter`
 //!     recorder.
-//!   - **Linux / Windows** → **`ffmpeg-next`** (embedded libav). Tier-2 work
-//!     that plugs into this same seam without reshaping it; until it lands,
-//!     [`new_encoder`] returns [`VideoEncoderError::Unsupported`].
+//!   - **Linux / Windows** → **`ffmpeg-next`** (embedded libav,
+//!     [`crate::ffmpeg`]) behind the same seam: libx264/libx265 muxed into an
+//!     `.mp4`, with `swscale` converting each RGBA frame to YUV420P.
 //!
 //! Frames are **RGBA, top-left origin** — the byte layout `Framebuffer::rgba`
 //! produces and `screen capture` already writes as PNG, so the recorder feeds
@@ -111,12 +111,7 @@ pub fn new_encoder(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = config;
-        Err(VideoEncoderError::Unsupported(
-            "the ffmpeg-next encoder for Linux/Windows is Tier-2 work and is \
-             not yet built (ADR-0006)"
-                .to_string(),
-        ))
+        Ok(Box::new(crate::ffmpeg::FfmpegEncoder::new(config)?))
     }
 }
 

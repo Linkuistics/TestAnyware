@@ -60,3 +60,20 @@ proof** (run `cargo-zigbuild` for the four triples after wiring the dep).
   macOS path; this leaf only swaps the encoder behind the seam.
 - ffmpeg can be picky about even width/height for some pixel formats — surface a
   `--region`/odd-dimension guard if it bites.
+
+## Outcome (2026-06-04)
+
+- `FfmpegEncoder` (`testanyware-video/src/ffmpeg.rs`) fills the non-macOS arm:
+  libx264/libx265 → `.mp4`, swscale RGBA→YUV420P, PTS `frame_index/fps`, same
+  `Setup`/`Append`/`Finish` mapping as the AVFoundation arm. `ffmpeg-next = 8.1`,
+  `default-features = false` + `["codec","format","software-scaling"]` (4 libs).
+  Even-dimension guard added.
+- **Cross-link CONFIRMED on all four triples** via `cargo-zigbuild` + BtbN
+  prebuilt ffmpeg dev libs — incl. `aarch64-windows` (160's "weakest link").
+  Linux = full `testanyware` bin; windows = `testanyware-video` test bin (full
+  windows bin still blocked only at the deferred `monitor.rs` gap, not ffmpeg).
+  Recipe + per-triple evidence + runtime-ABI options:
+  `docs/research/170-ffmpeg-cross-link.md`.
+- Unit coverage: `codec_id` mapping + odd-dim guard (in-module); the encode
+  round-trip + frame-size guard live in `tests/ffmpeg_smoke.rs` (runs on Linux —
+  link-checked here via `cargo zigbuild --tests`; real recording is **190**'s).
