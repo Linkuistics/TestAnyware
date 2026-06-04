@@ -65,6 +65,96 @@ Four chunks, with real ordering constraints — the grilling settles the order:
 - Does `vm create-golden` for linux/win need its own ADR (reusing ADR-0007/0008
   russh+recovery), or is it a straight port?
 
+## Feasibility probe (2026-06-04, this session)
+
+- **Windows agent control surface exists in code:** `agents/windows/SystemEndpoints.cs`
+  exposes `/exec`, `/upload`, `/download` — the `ProvisionChannel` the harness's
+  2nd impl needs. Agent cross-builds from this Mac (`dotnet -r win-arm64
+  --no-self-contained`), installed via `provisioner/autounattend/` into a Win11
+  ARM64 golden. Harness reuse assumption holds *in code*; agent *runtime*-green is
+  the separate workstream.
+- **No Windows golden kept-built** (`tart list`: only `testanyware-golden-linux-24.04`
+  + `testanyware-golden-macos-tahoe`; Windows = QEMU+swtpm, not tart). Both
+  `provisioner/scripts/vm-create-golden-{linux,windows}.sh` still exist — exactly
+  what chunk 4 ports.
+- **Distribution sketch present:** `scripts/release-{build,doctor,publish}.sh` +
+  `scripts/templates` (the `080` sketch).
+- **Dependency insight:** the Windows harness HUT *is* the Windows agent-golden
+  (ADR-0009 / 140-Q4), so **`vm create-golden --platform windows` gates the Windows
+  harness** — chunk 4(win) precedes chunk 3, not parallel. The **Linux** harness
+  uses a *stock* Ubuntu image (ADR-0009), so the **linux golden has no downstream
+  gate in this wave** — independent, low-urgency macOS-host work.
+
+## Decisions (running log — 200 grilling, 2026-06-04)
+
+- **Q1 — top-level sequencing: Linux-distribution first, then the Windows arc.**
+  Linux distribution is fully unblocked (Linux host-pass + harness green, `scripts/`
+  sketch exists) and is the cheapest win; doing it first also de-risks the **shared
+  distribution machinery** (cargo-zigbuild per triple, OCR-venv bundling into
+  `libexec/venv`, the Homebrew formula) that Windows distribution later reuses. Then
+  open the Windows critical path (golden → host-pass → harness → win-dist), with
+  `vm create-golden` slotted by dependency. Rejected: Windows-arc-first (front-loads
+  the longest pole but risks stalling on external agent/golden readiness with no
+  shipped value); fully-parallel Linux-dist + Windows-golden (throughput vs focus —
+  one-task-per-session makes the split costly, and golden isn't on Linux's path).
+
+- **Q2 — `vm create-golden` slotting: split by dependency.** The Windows golden is
+  the harness HUT (ADR-0009), so it gates chunk 3; the Linux golden gates nothing in
+  this wave (Linux harness uses a stock Ubuntu image, 140-Q4). So the **Windows golden
+  port is a leaf inside the Windows arc** (HUT prerequisite), and the **Linux golden
+  port is a standalone low-urgency leaf** (`230`) with loose timing — land it any time
+  before grove-finish. Both reuse node-110's russh/recovery/finalize/qemu machinery;
+  the *whether/how-verified* is already settled (140 carried-in: full Rust port mirroring
+  110, live-verified by creating each golden on this Mac). Rejected: one unified golden
+  node before the arc (couples independent linux-golden timing to the windows critical
+  path); linux-golden-explicitly-last (no benefit over "loose").
+
+- **Q3 — Windows readiness: front-load a cheap fail-fast spike (arc leaf `010`).**
+  Before any Rust port, run the *existing* `provisioner/scripts/vm-create-golden-windows.sh`
+  to create a Win11 ARM64 golden, boot it, and confirm the agent reaches health and
+  `/exec`/`/upload`/`/download` respond — the channel the harness's 2nd `ProvisionChannel`
+  impl needs. Zero Rust; mirrors the `160` fail-fast spike. If the agent/golden is broken,
+  the whole Windows arc is blocked on the (out-of-scope) agents workstream and we learn it
+  for ~1 cheap session ([[vm-costs]]) instead of after porting golden + host-pass. Rejected:
+  fold readiness into the golden-port leaf (discovers a broken agent only after investing in
+  the Rust port); defer to the harness leaf (latest discovery, highest rework risk).
+
+- **Q4 — `vm create-golden` ADR: no new ADR up front.** Linux golden is a tart-based
+  straight port under ADR-0007 (ssh-via-russh) + ADR-0008 (recovery-over-RFB/OCR). The
+  Windows golden diverges (no SSH → autounattend unattended-install + the agent's
+  `/exec`/`/upload` channel; QEMU+swtpm not tart), but that approach is already
+  established in `provisioner/scripts/vm-create-golden-windows.sh` + `provisioner/
+  autounattend/` — porting *documents* it, not decides it. The windows-golden leaf
+  captures the agent/autounattend provisioning model inline (CONTEXT.md/brief) and raises
+  an ADR only if a genuinely new trade-off surfaces (grove constraint 4 — lazy ADRs).
+  Rejected: pre-committing a Windows-golden ADR (premature — no open decision yet).
+
+- **Carried-in defaults (root BRIEF + ADR-0009, not re-grilled — re-asking would be
+  theatre):** distribution matrix = **four triples** (`x86_64`/`aarch64` ×
+  `linux-gnu`/`windows-{gnu,gnullvm}`); **aarch64 first-class** (harness-green),
+  **x86_64 ships build-verified-only with the runtime gap logged** (no native x86_64
+  guest on this Mac — no-silent-caps); **Linux = Homebrew formula, Windows = zip**.
+  These shape the leaf briefs as defaults; a work leaf may revisit if something surfaces.
+
+## Materialized tree (this session)
+
+```
+210-linux-distribution.md          leaf  — UNBLOCKED NOW (cheapest win; builds the
+                                            shared dist machinery Windows reuses)
+220-windows-arc/                    node  — the Windows critical path
+  010-windows-readiness-spike.md    leaf  — fail-fast: existing .sh golden + agent smoke
+  020-vm-create-golden-windows.md   leaf  — Rust port (HUT prerequisite for the harness)
+  030-windows-host-pass.md          leaf  — #[cfg] facility wiring (monitor.rs etc.)
+  040-windows-harness.md            leaf  — reuse 190 machinery + 2nd ProvisionChannel
+  050-windows-distribution.md       leaf  — trails the Windows harness (zip)
+230-vm-create-golden-linux.md       leaf  — standalone, loose (no gate; before finish)
+```
+
+Ordering rationale: `210` first (unblocked, de-risks shared machinery). Within `220`:
+`010` gates the whole arc; `020` (golden) and `030` (host-pass) are independent but both
+precede `040` (harness needs the windows binary *and* the windows golden HUT); `050`
+trails `040` (never ship un-green). `230` is dependency-free, land any time before finish.
+
 ## Pointers
 
 - Root BRIEF Tier-2 section (decomposition + the "Deferred" list this plans).
