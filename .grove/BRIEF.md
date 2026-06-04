@@ -146,6 +146,16 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       ("backlog task 14" stubs in `qemu_profile.rs`/`process.rs`). **Verified**
       by running up a Windows host-VM with TestAnyware (not "unverifiable" — that
       earlier framing is superseded).
+- [x] **Parallels Desktop backend** — **investigated, not adopted** (`150`,
+      2026-06-04, ADR-0010). Rejected on the gating question: Parallels Desktop
+      for Mac exposes **no host-side framebuffer** (its `--vnc-*` flags are
+      Cloud Server / Virtuozzo, a different product), so it cannot serve the
+      pre-boot/recovery RFB the stack and golden creation (ADR-0008) depend on.
+      Lifecycle/golden mechanics mapped cleanly and Windows-on-ARM is a real
+      win, but both are moot without a framebuffer. Durable output is the
+      **host-side-framebuffer invariant** (ADR-0010, new [[CONTEXT.md]] term),
+      the criterion future candidates (VMware Fusion, UTM) are judged against.
+      Findings: `docs/research/parallels-backend-feasibility.md`.
 - [ ] **Self-hosted host verification harness** (Tier 2): use TestAnyware to run
       up Linux/Windows guests, install the **locally cross-compiled** (`zig cc`)
       host binary, and smoke-test the non-`vm-start` surface (agent HTTP,

@@ -84,3 +84,30 @@ grow the tree (decompose into implementation leaves) and/or raise the ADR.
 - Out of scope to resolve here: the in-VM agent for any guest OS (agents are a
   separate workstream per [[CONTEXT.md]]). This leaf is purely about the
   host-side VM backend.
+
+## Outcome (2026-06-04)
+
+**Disposition: investigated, not adopted.** Parked; ADR-0010 raised.
+
+Research-led; no local Parallels install, so doc-research with primary-source
+citations (`docs/research/parallels-backend-feasibility.md`). The gating
+question (Q2, VNC/framebuffer) **failed**: Parallels Desktop for Mac on Apple
+Silicon exposes **no host-side VNC/RFB server** — the `--vnc-*` flags belong to
+Parallels Cloud Server / Virtuozzo, a different Linux-host product. The only RFB
+path is a guest-side VNC server, which cannot serve the pre-boot/login/recovery
+framebuffer, so it kills driver #2 (golden creation, ADR-0008) outright and
+leaves driver #1 (meet Parallels users) needing out-of-scope guest software.
+
+Everything else mapped favorably but moot: lifecycle CLI maps cleanly
+(`prlctl clone/start/stop/delete`, native `prlctl list --json`), the golden
+model maps (templates, `--linked` clones, `register`/`unregister`),
+Windows-on-ARM is a real Microsoft-authorized win. One lifecycle divergence
+logged for any future reopen: Parallels has no per-run PID (dispatcher daemon
+owns the VM) — stop is name-addressed `prlctl stop`, not SIGTERM-the-tracked-pid.
+
+The durable output is the **invariant**, not the rejection: a VM backend must
+expose a host-side framebuffer reachable headless and pre-boot — the criterion
+any future candidate (VMware Fusion, UTM, cloud) is judged against first.
+Crystallized in **ADR-0010** (rationale cites the research doc's Q2); new
+glossary term *Host-side framebuffer* in [[CONTEXT.md]]. Scope decision
+confirmed by operator 2026-06-04: *Park + raise ADR-0010*. No tree growth.

@@ -109,6 +109,20 @@ Windows agent-golden (agent-provisioned, since Windows lacks SSH).
 _Avoid_: confusing the HUT (runs the CLI) with the forwarded Golden image
 (provides the agent/VNC the CLI drives).
 
+**Host-side framebuffer**:
+A VNC/RFB endpoint served by the **hypervisor on the host**, not by software
+inside the guest — so it is reachable headless and **before the guest OS
+boots** (boot screen, login window, recovery). Both supported backends provide
+it: tart via `tart run --vnc-experimental`'s `vnc://` URL, QEMU via a `-vnc`
+endpoint backed by its monitor socket. It is the **first gate** any new VM
+backend is evaluated against (ADR-0010): the whole `testanyware-rfb` stack, and
+golden creation's pre-boot recovery cycle (ADR-0008), depend on it. **Parallels
+Desktop was rejected** precisely because it offers no host-side framebuffer —
+only a guest-side VNC server, which cannot reach the pre-boot framebuffer.
+_Avoid_: conflating with a *guest-side* VNC server (runs inside a booted guest,
+can't serve boot/login/recovery) or with the [[Embedded viewer]] (a *client*
+that consumes a framebuffer, not a server that provides one).
+
 ## Example dialogue
 
 > **Dev:** I broke something — `testanyware vm start` is timing out on
