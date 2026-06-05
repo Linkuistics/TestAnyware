@@ -50,6 +50,28 @@ grove — separate workstreams.
 A pre-built per-platform VM disk image (`testanyware-golden-<platform>-...`)
 that `vm start` clones to spawn a fresh instance.
 
+**Autounattend provisioning** (Windows golden creation):
+How the **Windows** Golden image is built — structurally unlike the macOS one.
+macOS *clones a pre-built vanilla image* and provisions a running system over
+SSH (ADR-0007 `russh`); Windows instead boots a **blank disk from a Microsoft
+evaluation ISO** alongside an **autounattend USB** and lets Windows Setup run a
+fully **unattended install** (`autounattend.xml`: partitions, bypasses
+TPM/SecureBoot/RAM checks, creates `admin`/autologin, installs VirtIO drivers,
+registers the *In-VM agent* as a Task Scheduler logon task + Chocolatey).
+Post-install provisioning then runs over the **in-VM agent's HTTP surface**
+(`/health`, `/exec`) — **Windows ships no sshd**, so the agent is the only
+in-guest control channel. The answer file + post-install scripts
+(`SetupComplete.cmd`, `desktop-setup.ps1`) are `include_str!`-embedded in the
+binary; the agent `.exe` and the VirtIO ARM64 drivers are staged into the
+throwaway USB at run time (nothing test-specific is baked into the image). A
+**macOS-host** operation: the
+FAT32 media is built with `hdiutil`, QEMU+swtpm runs the install. The port lives
+in `vm create-golden --platform windows` (grove `220/020`, ADR-0009); it
+*documents* this model rather than deciding it (the model predates the port in
+`provisioner/helpers/autounattend.xml`).
+_Avoid_: assuming the macOS clone-and-SSH model applies to Windows; calling the
+autounattend USB a "golden" (it is throwaway install media).
+
 **Shared-VNC server** (historical):
 The Swift `_server` process — a long-lived host-side daemon that held **one
 VNC connection** open on a unix socket (with a PID file and idle timeout) and

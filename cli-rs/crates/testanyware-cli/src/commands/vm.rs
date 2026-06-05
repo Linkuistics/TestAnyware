@@ -235,21 +235,41 @@ pub async fn run_vm_delete(name: String, force: bool, mode: OutputMode, dry_run:
 /// consumed. Mirrors the `run_vm_start` dry-run-validate → emit-plan shape.
 pub async fn run_vm_create_golden(
     platform: String,
-    version: String,
+    version: Option<String>,
     name: Option<String>,
+    iso: Option<String>,
     mode: OutputMode,
     dry_run: bool,
 ) {
-    // This node only ports the macOS golden (linux/win are Tier 2). An
-    // unknown platform is a usage error (INVALID_PLATFORM, exit 2); a known
-    // but unsupported one is VM_BACKEND_UNSUPPORTED.
-    match Platform::parse(&platform) {
-        Ok(Platform::Macos) => {}
+    // macOS and Windows goldens are both supported (both macOS-host work).
+    // linux is Tier 2 (a separate standalone leaf). An unknown platform is a
+    // usage error (INVALID_PLATFORM, exit 2); a known but unsupported one is
+    // VM_BACKEND_UNSUPPORTED.
+    let parsed = match Platform::parse(&platform) {
+        Ok(p @ (Platform::Macos | Platform::Windows)) => p,
         Ok(_) => exit_vm_error(VmError::BackendUnsupported { platform }, mode),
         Err(err) => exit_vm_error(err, mode),
-    }
-    let name = name.unwrap_or_else(|| format!("testanyware-golden-macos-{version}"));
+    };
+    // Per-platform default version (macOS: tahoe; Windows: 11).
+    let version = version.unwrap_or_else(|| match parsed {
+        Platform::Windows => "11".into(),
+        _ => "tahoe".into(),
+    });
+    let name = name.unwrap_or_else(|| format!("testanyware-golden-{}-{version}", parsed.as_str()));
 
+    match parsed {
+        Platform::Windows => run_vm_create_golden_windows(version, name, iso, mode, dry_run).await,
+        _ => run_vm_create_golden_macos(version, name, mode, dry_run).await,
+    }
+}
+
+/// macOS golden: the 5-boot SIP/TCC pipeline (node `110`, ADR-0007/0008).
+async fn run_vm_create_golden_macos(
+    version: String,
+    name: String,
+    mode: OutputMode,
+    dry_run: bool,
+) {
     if dry_run {
         emit_golden_plan(&version, &name, mode);
         return;
@@ -258,7 +278,7 @@ pub async fn run_vm_create_golden(
     // tart is macOS-only, so a non-macOS host cannot serve the command.
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = &version;
+        let _ = (&version, &name);
         exit_vm_error(
             VmError::BackendUnsupported {
                 platform: "macos (vm create-golden requires a macOS host)".into(),
@@ -283,6 +303,59 @@ pub async fn run_vm_create_golden(
                 }
                 OutputMode::Json => print_success(json!({
                     "platform": "macos",
+                    "version": version,
+                    "name": golden,
+                    "created": true,
+                })),
+            },
+            Err(err) => exit_vm_error(err, mode),
+        }
+    }
+}
+
+/// Windows golden: unattended ISO install + agent provisioning (leaf `220/020`,
+/// ADR-0009). macOS-host work (FAT32 media built with `hdiutil`).
+async fn run_vm_create_golden_windows(
+    version: String,
+    name: String,
+    iso: Option<String>,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    if dry_run {
+        emit_windows_golden_plan(&version, &name, iso.as_deref(), mode);
+        return;
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (&version, &name, &iso);
+        exit_vm_error(
+            VmError::BackendUnsupported {
+                platform: "macos (vm create-golden --platform windows requires a macOS host)".into(),
+            },
+            mode,
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use std::path::Path;
+        use testanyware_vm::golden::GoldenOptions;
+        use testanyware_vm::golden_windows::create_golden_windows;
+        use testanyware_vm::VmPaths;
+
+        let opts = GoldenOptions { version: version.clone(), name: name.clone() };
+        let paths = VmPaths::from_process_env();
+        let iso_path = iso.as_deref().map(Path::new);
+        match create_golden_windows(&opts, iso_path, &paths).await {
+            Ok(golden) => match mode {
+                OutputMode::Text => {
+                    println!("Golden image '{golden}' created successfully.");
+                    println!("Use it with: testanyware vm start --platform windows --base {golden}");
+                }
+                OutputMode::Json => print_success(json!({
+                    "platform": "windows",
                     "version": version,
                     "name": golden,
                     "created": true,
@@ -337,6 +410,59 @@ fn emit_golden_plan(version: &str, name: &str, mode: OutputMode) {
                 "version": version,
                 "name": name,
                 "boot_plan": steps,
+            }));
+        }
+    }
+}
+
+/// The Windows golden phases (single-boot unattended install + agent
+/// provisioning), as `(step, phase, actions)`. Parity with the boot sequence
+/// in `provisioner/scripts/vm-create-golden-windows.sh`. Pure, so the plan is
+/// unit-tested and shared by the text and JSON renderers.
+fn windows_install_plan() -> [(u32, &'static str, &'static str); 4] {
+    [
+        (1, "media",
+         "build autounattend USB (answer file + agent + VirtIO ARM64 drivers), \
+          blank 64GB NVMe disk, blank UEFI vars, swtpm TPM 2.0"),
+        (2, "install",
+         "boot from ISO + USB; unattended Setup partitions, installs Windows, \
+          creates admin/autologin, installs agent logon task + Chocolatey (20–40 min)"),
+        (3, "provision",
+         "wait for the in-VM agent on :8648, run desktop-setup, reboot to finalize, \
+          settle, clean the desktop"),
+        (4, "finalize",
+         "agent shutdown, then move the setup disk/efivars/tpm into the golden"),
+    ]
+}
+
+fn emit_windows_golden_plan(version: &str, name: &str, iso: Option<&str>, mode: OutputMode) {
+    let plan = windows_install_plan();
+    match mode {
+        OutputMode::Text => {
+            println!("dry-run: would create golden {name} (platform windows, version {version})");
+            match iso {
+                Some(p) => println!("  install ISO: {p}"),
+                None => println!("  install ISO: cached (pass --iso <path> on first run)"),
+            }
+            println!("plan (single-boot unattended install + agent provisioning):");
+            for (step, phase, actions) in plan {
+                println!("  {step}. [{phase}] {actions}");
+            }
+        }
+        OutputMode::Json => {
+            let steps: Vec<Value> = plan
+                .iter()
+                .map(|(step, phase, actions)| {
+                    json!({ "step": step, "phase": phase, "actions": actions })
+                })
+                .collect();
+            print_success(json!({
+                "dry_run": true,
+                "platform": "windows",
+                "version": version,
+                "name": name,
+                "iso": iso,
+                "plan": steps,
             }));
         }
     }

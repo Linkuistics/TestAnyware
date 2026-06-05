@@ -2,20 +2,21 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/vm-create-golden.json",
   "title": "vm-create-golden",
-  "description": "Receipt for `testanyware vm create-golden`. Under --dry-run it carries the boot plan without mutating; on execution it identifies the created golden image.",
+  "description": "Receipt for `testanyware vm create-golden`. Under --dry-run it carries the plan without mutating; on execution it identifies the created golden image. Both macOS and Windows goldens require a macOS host.",
   "type": "object",
   "required": ["schema_version", "ok", "platform", "version", "name"],
   "properties": {
     "schema_version": { "type": "string" },
     "ok": { "type": "boolean" },
-    "dry_run": { "type": "boolean", "description": "Present and true when --dry-run was set; the boot plan is described but nothing is mutated." },
-    "platform": { "type": "string", "enum": ["macos"], "description": "Target platform. Only macos is supported today; linux/windows goldens are Tier 2." },
-    "version": { "type": "string", "description": "OS version to provision (e.g. tahoe, sequoia, sonoma). Defaults to tahoe." },
-    "name": { "type": "string", "description": "Golden image name. Defaults to testanyware-golden-macos-<version>." },
+    "dry_run": { "type": "boolean", "description": "Present and true when --dry-run was set; the plan is described but nothing is mutated." },
+    "platform": { "type": "string", "enum": ["macos", "windows"], "description": "Target platform. macos and windows are supported (both macOS-host work); linux goldens are Tier 2." },
+    "version": { "type": "string", "description": "OS version to provision. macOS: tahoe, sequoia, sonoma (default tahoe). windows: the release number (default 11)." },
+    "name": { "type": "string", "description": "Golden image name. Defaults to testanyware-golden-<platform>-<version>." },
+    "iso": { "type": ["string", "null"], "description": "windows only: path to the Windows ARM64 evaluation ISO (null when relying on the cached ISO)." },
     "created": { "type": "boolean", "description": "Present and true on a successful (non-dry-run) golden creation." },
     "boot_plan": {
       "type": "array",
-      "description": "Ordered boot sequence (3 normal + 2 recovery = 5 boots) that golden creation drives.",
+      "description": "macOS only: ordered boot sequence (3 normal + 2 recovery = 5 boots) that golden creation drives.",
       "items": {
         "type": "object",
         "required": ["step", "mode", "actions"],
@@ -23,6 +24,19 @@
           "step": { "type": "integer", "description": "1-based boot index." },
           "mode": { "type": "string", "enum": ["normal", "recovery"], "description": "Whether the boot is a normal boot or a macOS Recovery boot." },
           "actions": { "type": "string", "description": "Human-readable summary of what this boot performs." }
+        }
+      }
+    },
+    "plan": {
+      "type": "array",
+      "description": "windows only: ordered phases (single-boot unattended install + agent provisioning) that golden creation drives.",
+      "items": {
+        "type": "object",
+        "required": ["step", "phase", "actions"],
+        "properties": {
+          "step": { "type": "integer", "description": "1-based phase index." },
+          "phase": { "type": "string", "enum": ["media", "install", "provision", "finalize"], "description": "Which phase of the unattended build this is." },
+          "actions": { "type": "string", "description": "Human-readable summary of what this phase performs." }
         }
       }
     }

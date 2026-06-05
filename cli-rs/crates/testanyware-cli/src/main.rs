@@ -593,20 +593,23 @@ SEE ALSO:
 
 const VM_CREATE_GOLDEN_AFTER_HELP: &str = "\
 OUTPUT:
-    Stable formats: text (a human-readable boot plan under --dry-run),
+    Stable formats: text (a human-readable plan under --dry-run),
     --json (schema: vm-create-golden). Under --dry-run the JSON envelope
-    sets `dry_run: true` and carries the `boot_plan` array; nothing is
-    mutated.
+    sets `dry_run: true` and carries the plan array (`boot_plan` for macOS,
+    `plan` for windows); nothing is mutated.
 
 EXIT CODES:
     0  success (including --dry-run)
-    1  GOLDEN_CREATE_FAILED, SSH_CONNECT_FAILED, TART_FAILED
+    1  GOLDEN_CREATE_FAILED, SSH_CONNECT_FAILED, TART_FAILED, QEMU_FAILED
     2  USAGE_ERROR / INVALID_PLATFORM
     3  GOLDEN_NOT_FOUND
 
 PLATFORM:
-    Requires a macOS host (clones a Cirrus Labs vanilla image via tart and
-    drives a 5-boot SIP/TCC cycle). linux/windows goldens are Tier 2.
+    Requires a macOS host. macOS clones a Cirrus Labs vanilla image via tart
+    and drives a 5-boot SIP/TCC cycle. windows boots an unattended install
+    from a Microsoft evaluation ISO under QEMU+swtpm and provisions over the
+    in-VM agent (no SSH); pass --iso on first run (cached afterwards). linux
+    goldens are Tier 2.
 
 IDEMPOTENCY:
     Re-running replaces any existing golden of the same name. The build
@@ -621,6 +624,9 @@ EXAMPLES:
 
     # Create the default Tahoe golden (macOS host)
     testanyware vm create-golden --platform macos
+
+    # Create the Windows 11 ARM64 golden (first run needs --iso)
+    testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.iso
 
 SEE ALSO:
     testanyware vm start, testanyware vm list, testanyware doctor
@@ -1822,16 +1828,20 @@ enum VmAction {
     // so `--version tahoe` is our OS selector.
     #[command(after_long_help = VM_CREATE_GOLDEN_AFTER_HELP, disable_version_flag = true)]
     CreateGolden {
-        /// Target platform. Only `macos` is supported today; linux/windows
-        /// goldens are Tier 2.
+        /// Target platform: `macos` or `windows` (both require a macOS host).
         #[arg(long, value_name = "PLATFORM")]
         platform: String,
-        /// OS version to provision: tahoe, sequoia, sonoma [default: tahoe].
-        #[arg(long, value_name = "VERSION", default_value = "tahoe")]
-        version: String,
-        /// Golden image name [default: testanyware-golden-macos-<version>].
+        /// OS version to provision. macOS: tahoe, sequoia, sonoma [default:
+        /// tahoe]. windows: the release number [default: 11].
+        #[arg(long, value_name = "VERSION")]
+        version: Option<String>,
+        /// Golden image name [default: testanyware-golden-<platform>-<version>].
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
+        /// Windows only: path to a Windows 11 ARM64 evaluation ISO. Required on
+        /// first run; cached for subsequent runs.
+        #[arg(long, value_name = "PATH")]
+        iso: Option<String>,
         /// Emit JSON envelope on stdout.
         #[arg(long)]
         json: bool,
@@ -2233,9 +2243,9 @@ async fn main() {
             VmAction::List { json, limit, all, filter } => {
                 vm_cmds::run_vm_list(OutputMode::from_flags(json), limit, all, filter).await
             }
-            VmAction::CreateGolden { platform, version, name, json, dry_run } => {
+            VmAction::CreateGolden { platform, version, name, iso, json, dry_run } => {
                 vm_cmds::run_vm_create_golden(
-                    platform, version, name,
+                    platform, version, name, iso,
                     OutputMode::from_flags(json), dry_run,
                 )
                 .await

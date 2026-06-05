@@ -272,12 +272,12 @@ impl ScriptSlot {
 /// executable bit.
 pub const SCRIPT_FILENAMES: &[&str] = &[
     "_testanyware-paths.sh",
-    // Only the not-yet-ported Tier-2 golden scripts ship. The macOS golden is
-    // the in-process `vm create-golden --platform macos` command (grove `110`,
-    // ADR-0007/0008), and `vm start/stop/list/delete` are ported into the
-    // binary — those five scripts are no longer bundled (grove `120`).
+    // Only the not-yet-ported Tier-2 Linux golden script ships. The macOS golden
+    // (grove `110`, ADR-0007/0008) and the Windows golden (grove `220/020`,
+    // ADR-0009) are both in-process `vm create-golden` subcommands now, and
+    // `vm start/stop/list/delete` are ported into the binary — those scripts are
+    // no longer bundled (groves `120`, `220`).
     "vm-create-golden-linux.sh",
-    "vm-create-golden-windows.sh",
 ];
 
 /// Filenames staged into `share/testanyware/helpers/`. Presence-only —

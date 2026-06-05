@@ -46,6 +46,10 @@ impl VmPaths {
     pub fn vms_dir(&self) -> PathBuf { self.state_dir.join("vms") }
     pub fn golden_dir(&self) -> PathBuf { self.data_dir.join("golden") }
     pub fn clones_dir(&self) -> PathBuf { self.data_dir.join("clones") }
+    /// Persistent cache: install ISOs, virtio-win drivers, and the throwaway
+    /// setup-VM disk during golden creation. Ports the script's
+    /// `$_DATA_DIR/cache`.
+    pub fn cache_dir(&self) -> PathBuf { self.data_dir.join("cache") }
 
     pub fn spec_path(&self, id: &str) -> PathBuf { self.vms_dir().join(format!("{id}.json")) }
     pub fn meta_path(&self, id: &str) -> PathBuf { self.vms_dir().join(format!("{id}.meta.json")) }

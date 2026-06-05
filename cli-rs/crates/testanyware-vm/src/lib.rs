@@ -31,6 +31,11 @@ pub mod tart;
 /// seam). macOS-host only, like `tart` — grove node `110-vm-create-golden`.
 #[cfg(target_os = "macos")]
 pub mod golden;
+/// Windows golden-image creation: unattended ISO install + provisioning over
+/// the in-VM agent's HTTP surface (no sshd on Windows). macOS-host only (FAT32
+/// media built with `hdiutil`) — grove leaf `220/020`.
+#[cfg(target_os = "macos")]
+pub mod golden_windows;
 /// In-process macOS Recovery automation: SIP toggle over RFB + OCR (ADR-0008,
 /// grove leaf `110/030/010`). macOS-host only, like `tart`/`golden`.
 #[cfg(target_os = "macos")]

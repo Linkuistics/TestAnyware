@@ -9,6 +9,9 @@ description = "QEMU-backed VM lifecycle for the TestAnyware host CLI."
 
 [dependencies]
 testanyware-agent-client = { path = "../testanyware-agent-client" }
+# Windows golden creation provisions over the in-VM agent's HTTP surface (no
+# sshd on Windows), constructing `ExecRequest` bodies directly (`golden_windows.rs`).
+testanyware-protocol = { path = "../testanyware-protocol" }
 # The RFB client + OCR engine power the shared frame-capture helper
 # (`capture.rs`, used by `screen find-text`) and the macOS recovery driver
 # (`recovery.rs`, ADR-0008). `image` encodes captured framebuffers to PNG for
