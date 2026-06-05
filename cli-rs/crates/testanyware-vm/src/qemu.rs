@@ -205,7 +205,11 @@ impl QemuRunner {
     /// Clone the golden, start swtpm + QEMU detached, and discover the
     /// dynamic VNC/agent ports. Ports `QEMURunner.start`.
     pub async fn start(opts: &QemuStartOptions, paths: &VmPaths) -> Result<StartArtifacts, VmError> {
-        // --- Preflight (constraint: KVM + swtpm) -------------------------
+        // --- Preflight (host + KVM + swtpm) ------------------------------
+        // Fail fast and loud on a Windows host: the local-QEMU launch below
+        // (AF_UNIX monitor, Unix process/detach) is build-verified only
+        // there (ADR-0009). Linux/macOS pass straight through.
+        crate::preflight::check_host_supports_local_qemu()?;
         check_kvm()?;
         if opts.needs_tpm {
             check_swtpm()?;

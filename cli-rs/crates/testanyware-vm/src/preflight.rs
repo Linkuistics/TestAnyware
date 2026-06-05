@@ -24,6 +24,32 @@ pub fn check_kvm() -> Result<(), VmError> {
     Ok(())
 }
 
+/// Gate the local-QEMU VM-host path to hosts that can actually run it.
+/// macOS (HVF) and Linux (KVM) are supported and runtime-verified; a
+/// **Windows host** cannot launch local QEMU — the AF_UNIX monitor
+/// (`monitor.rs`) and the Unix process/detach helpers have no Windows
+/// runtime path, and the Windows binary is build/link-verified only
+/// (ADR-0009 no-silent-caps). Calling this first in the `vm start` /
+/// dry-run-validate path makes that boundary fail **fast and loud** with
+/// `VM_HOST_UNSUPPORTED`, instead of failing cryptically deep in the
+/// launch (a missing `qemu-img`, a dead monitor socket). It is a normal
+/// `Result`-returning function (not a `#[cfg]`'d early `return`) so the
+/// QEMU body below it stays warning-clean on every target.
+#[cfg(target_os = "windows")]
+pub fn check_host_supports_local_qemu() -> Result<(), VmError> {
+    Err(VmError::HostUnsupported {
+        detail: "Windows host: `vm start` launches a local QEMU VM, which is \
+                 build/link-verified only here (no AF_UNIX monitor, no Unix \
+                 process control). Drive VMs from a Linux or macOS host."
+            .into(),
+    })
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn check_host_supports_local_qemu() -> Result<(), VmError> {
+    Ok(())
+}
+
 /// Verify swtpm is installed. Required for Windows guests (TPM 2.0
 /// socket). The remediation names the package on both Linux and macOS.
 pub fn check_swtpm() -> Result<(), VmError> {
@@ -61,6 +87,21 @@ mod tests {
         // whether this host has swtpm installed.
         assert!(matches!(swtpm_result(false), Err(VmError::SwtpmMissing)));
         assert!(swtpm_result(true).is_ok());
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn check_host_rejects_local_qemu_on_windows() {
+        let err = check_host_supports_local_qemu().expect_err("windows host must be gated");
+        assert!(matches!(err, VmError::HostUnsupported { .. }));
+        assert_eq!(err.code(), "VM_HOST_UNSUPPORTED");
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn check_host_allows_local_qemu_off_windows() {
+        // macOS (HVF) and Linux (KVM) hosts run local QEMU and are verified.
+        assert!(check_host_supports_local_qemu().is_ok());
     }
 
     #[test]

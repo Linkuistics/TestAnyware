@@ -45,6 +45,16 @@ pub enum VmError {
     #[error("no backend can serve platform '{platform}' (tart support is a later task)")]
     BackendUnsupported { platform: String },
 
+    /// The host OS cannot launch local QEMU VMs. A Windows-host `vm start`
+    /// would reach the AF_UNIX QEMU monitor (`monitor.rs`) and the Unix
+    /// process/detach helpers, none of which have a runtime path on
+    /// Windows. The Windows host binary is **build/link-verified only**
+    /// (ADR-0009 no-silent-caps), so this surfaces the gap loudly at the
+    /// `vm start` entry instead of failing cryptically deep in the QEMU
+    /// launch. Linux and macOS hosts never produce it.
+    #[error("local QEMU VM-host is not supported on this host: {detail}")]
+    HostUnsupported { detail: String },
+
     #[error("unknown platform '{value}' (expected macos, linux, or windows)")]
     InvalidPlatform { value: String },
 
@@ -81,6 +91,7 @@ impl VmError {
             VmError::VmNotFound { .. } => "VM_NOT_FOUND",
             VmError::VmStopFailed { .. } => "VM_STOP_FAILED",
             VmError::BackendUnsupported { .. } => "VM_BACKEND_UNSUPPORTED",
+            VmError::HostUnsupported { .. } => "VM_HOST_UNSUPPORTED",
             VmError::InvalidPlatform { .. } => "INVALID_PLATFORM",
             VmError::SshConnectFailed { .. } => "SSH_CONNECT_FAILED",
             VmError::GoldenCreateFailed { .. } => "GOLDEN_CREATE_FAILED",
@@ -130,6 +141,13 @@ impl VmError {
                  backend, which is not yet ported to the Rust CLI."
                     .into(),
             ),
+            VmError::HostUnsupported { .. } => Some(
+                "Launch VMs from a Linux or macOS host. The Windows host binary is \
+                 build/link-verified only — it has no local-QEMU runtime path \
+                 (the AF_UNIX monitor and Unix process control are macOS/Linux-only). \
+                 See docs/adr/0009-self-hosted-host-cli-verification-harness.md."
+                    .into(),
+            ),
             _ => None,
         }
     }
@@ -148,7 +166,9 @@ impl VmError {
             | VmError::VmStopFailed { id }
             | VmError::VmBootTimeout { id } => json!({ "vm_id": id }),
             VmError::TartFailed { detail } => json!({ "tart_error": detail }),
-            VmError::SshConnectFailed { detail } | VmError::GoldenCreateFailed { detail } => {
+            VmError::SshConnectFailed { detail }
+            | VmError::GoldenCreateFailed { detail }
+            | VmError::HostUnsupported { detail } => {
                 json!({ "detail": detail })
             }
             VmError::BackendUnsupported { platform } | VmError::InvalidPlatform { value: platform } => {
@@ -176,6 +196,7 @@ mod tests {
         assert_eq!(VmError::VmNotFound { id: "v".into() }.code(), "VM_NOT_FOUND");
         assert_eq!(VmError::VmStopFailed { id: "v".into() }.code(), "VM_STOP_FAILED");
         assert_eq!(VmError::BackendUnsupported { platform: "macos".into() }.code(), "VM_BACKEND_UNSUPPORTED");
+        assert_eq!(VmError::HostUnsupported { detail: "x".into() }.code(), "VM_HOST_UNSUPPORTED");
         assert_eq!(VmError::InvalidPlatform { value: "bsd".into() }.code(), "INVALID_PLATFORM");
         assert_eq!(VmError::SshConnectFailed { detail: "x".into() }.code(), "SSH_CONNECT_FAILED");
         assert_eq!(VmError::GoldenCreateFailed { detail: "x".into() }.code(), "GOLDEN_CREATE_FAILED");
@@ -245,6 +266,20 @@ mod tests {
     fn details_carry_platform_for_backend_and_invalid_platform() {
         assert_eq!(VmError::BackendUnsupported { platform: "macos".into() }.details()["platform"], "macos");
         assert_eq!(VmError::InvalidPlatform { value: "bsd".into() }.details()["platform"], "bsd");
+    }
+
+    #[test]
+    fn host_unsupported_is_generic_exit_1_with_detail_and_remediation() {
+        // The Windows-host local-QEMU boundary (ADR-0009): a generic
+        // failure (§5 → exit 1) that carries its cause in `details.detail`
+        // and points the operator at a Linux/macOS host.
+        let err = VmError::HostUnsupported {
+            detail: "Windows host: local QEMU launch (vm start) is build-verified only".into(),
+        };
+        assert_eq!(err.code(), "VM_HOST_UNSUPPORTED");
+        assert_eq!(err.exit_code(), 1);
+        assert!(err.details()["detail"].as_str().unwrap().contains("build-verified only"));
+        assert!(err.remediation().unwrap().contains("Linux or macOS host"));
     }
 
     #[test]

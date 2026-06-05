@@ -430,6 +430,13 @@ fn state_dir(env: &EnvProvider) -> Result<PathBuf, ResolveError> {
                 return Ok(PathBuf::from(value));
             }
         }
+        // Windows has no `$HOME`; `%USERPROFILE%` is the per-user root.
+        // Mirror the XDG layout under it so the spec path is stable.
+        if let Some(profile) = env.get("USERPROFILE") {
+            if !profile.is_empty() {
+                return Ok(PathBuf::from(profile).join(".local").join("state"));
+            }
+        }
     }
     let home = env.get("HOME").ok_or(ResolveError::NoHome)?;
     Ok(PathBuf::from(home).join(".local").join("state"))

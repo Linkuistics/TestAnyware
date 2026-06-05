@@ -4,11 +4,23 @@
 //! talks to the socket directly via `tokio::net::UnixStream` — the
 //! `nc -U` subprocess was a Foundation-`Process` workaround that does
 //! not apply to Rust.
+//!
+//! **Windows host (`#[cfg(not(unix))]`):** `tokio::net::UnixStream` does
+//! not exist on Windows, so the connecting `send` body is `#[cfg(unix)]`
+//! and the Windows arm returns `ErrorKind::Unsupported`. This is
+//! unreachable in practice — `vm start` is gated off the Windows host one
+//! layer up by `preflight::check_host_supports_local_qemu` (the
+//! local-QEMU VM-host is build-verified only on Windows; ADR-0009
+//! no-silent-caps) — but the module must still *compile* for the Windows
+//! cross-build, and the honest error keeps the gap loud if it is ever
+//! reached. The pure HMP parsers below are platform-independent.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+#[cfg(unix)]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 
 /// HMP client bound to one monitor socket path.
@@ -24,6 +36,7 @@ impl QemuMonitorClient {
     /// Send `command` over the monitor socket and return whatever the
     /// monitor writes within `drain`. HMP is line-oriented; the monitor
     /// keeps the connection open, so we read until `drain` elapses.
+    #[cfg(unix)]
     pub async fn send(&self, command: &str, drain: Duration) -> std::io::Result<String> {
         let mut stream = UnixStream::connect(&self.socket_path).await?;
         stream.write_all(command.as_bytes()).await?;
@@ -45,6 +58,21 @@ impl QemuMonitorClient {
         })
         .await;
         Ok(String::from_utf8_lossy(&buf).into_owned())
+    }
+
+    /// Windows arm: the AF_UNIX QEMU monitor has no Windows equivalent and
+    /// the local-QEMU VM-host is build-verified only here, so this returns
+    /// an honest `Unsupported` error rather than silently appearing to
+    /// work. Unreachable in practice — `vm start` is gated off the Windows
+    /// host upstream (`preflight::check_host_supports_local_qemu`) — but
+    /// keeps the gap loud if a future caller bypasses that gate.
+    #[cfg(not(unix))]
+    pub async fn send(&self, _command: &str, _drain: Duration) -> std::io::Result<String> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "QEMU monitor over AF_UNIX is unavailable on this host; the local-QEMU \
+             VM-host is not supported on Windows (build-verified only, ADR-0009)",
+        ))
     }
 
     /// Poll `info usernet` until the guest→host forward port appears.

@@ -369,6 +369,10 @@ impl VmLifecycle {
         if opts.platform == Platform::Macos {
             return Err(VmError::BackendUnsupported { platform: "macos".into() });
         }
+        // Same host boundary as the real `start`: a Windows host cannot run
+        // the local-QEMU path, so `--dry-run` reports it too (build-verified
+        // only, ADR-0009) rather than validating a launch that cannot run.
+        crate::preflight::check_host_supports_local_qemu()?;
         let qcow2 = paths.golden_dir().join(format!("{}.qcow2", opts.base));
         if !qcow2.is_file() {
             return Err(VmError::GoldenNotFound { name: opts.base.clone() });
