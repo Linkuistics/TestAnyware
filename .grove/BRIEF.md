@@ -177,8 +177,22 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       proven), and **OCR** (`screen find-text` via the EasyOCR daemon,
       `engine=easyocr_daemon`). **x86_64-linux is BUILD-verified only** (no native
       x86_64 guest on this Mac; gap logged in the harness doc-comment, ADR-0009
-      no-silent-caps). **Windows harness is deferred** (reuses 190's machinery;
-      swaps ssh→agent — see the Tier-2 "Deferred" list above, planning leaf `200`).
+      no-silent-caps).
+- [x] **Self-hosted host verification harness — Windows aarch64 2/3 bands GREEN**
+      (Tier 2, node `220/040`, 2026-06-05). `cli-rs/.../tests/windows-host-harness.rs`
+      (standalone; **duplicated** 190's machinery, not extracted) boots the Windows
+      agent-golden as a QEMU+swtpm HUT, agent-provisions the cross binary + ffmpeg
+      DLLs (the `ProvisionChannel` 2nd impl: in-VM agent `/exec`+`/upload`+`/download`,
+      no sshd), forwards a macOS golden's agent+VNC via the slirp gateway (10.0.2.2),
+      and runs **endpoint-free (6/6) + endpoint-driven (10/10, incl. `screen record`
+      → ffmpeg-8 libx264 MP4)** GREEN on aarch64-windows. **x86_64-windows
+      build/link-verified only** (gap logged). **OCR band deferred** — EasyOCR is
+      uninstallable on win-arm64 (opencv-python-headless has no `win_arm64` wheel),
+      the low-regret kill signal that **hoisted `240` (docker host unification)**:
+      Windows OCR is solved structurally by running the host CLI as a Linux binary,
+      so `240` is now picked **before** `220/050` (windows distribution), which is
+      **gated on `240`'s outcome**. If `240` rejects docker, revisit Windows OCR
+      (native `Windows.Media.Ocr` engine, ADR-0002 seam, or accept the gap).
 - [x] Live-VM verification gate for the RFB client + input layer (node
       `050-live-vm-gate`: `tests/live-vm-gate.rs` — input landing, show-menu,
       ZRLE/Tight/Raw capture, live Vision OCR; macOS golden, env+`#[ignore]`d).

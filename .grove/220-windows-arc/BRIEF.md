@@ -111,6 +111,48 @@ The whole arc's hardest external dependency is **confirmed real**. Findings:
 **Arc proceeds to `020`/`030`.** No agent/golden gap to file against the agents
 workstream — the channel is intact.
 
+## `040-windows-harness` disposition — **2/3 bands live-GREEN, OCR deferred** (2026-06-05)
+
+`tests/windows-host-harness.rs` (standalone, self-contained — **duplicated** `190`'s
+machinery rather than extracting a shared module, per the node's "standalone"
+decision). Live-verified on aarch64-windows (Windows agent-golden QEMU HUT +
+macOS golden, all VMs torn down):
+
+- **endpoint-free band GREEN (6/6)** — `--help`, `capabilities`, `schema`,
+  `llm-instructions`, `doctor`, dry-run. The cross binary execs; ffmpeg-8 DLLs load.
+- **endpoint-driven band GREEN (10/10)** — agent HTTP (health/snapshot/windows/
+  wait), RFB `screen size`/`capture`, **`screen record` → ffmpeg-8 libx264 MP4**
+  (the Windows DLL runtime proof, analogue of Linux's "libx264 runtime-proven"),
+  `input key/type/click` — all through the in-process host→golden forward.
+- **x86_64-windows: build/link-verified only**, gap logged (no-silent-caps).
+- **OCR band: deferred LOGGED GAP** (see below).
+
+**Reuse-seam refinements** (the brief asked to note these back): the
+`ProvisionChannel` 2nd impl is the in-VM agent's `/exec` (`cmd.exe /c`) +
+`/upload` + `/download`. Genuinely Windows-specific vs `190`'s ssh path:
+(1) HUT lifecycle is `vm start --platform windows` (CLI-managed QEMU+swtpm),
+like the macOS golden, not a manual tart clone; (2) the guest reaches the host
+at the **fixed slirp gateway `10.0.2.2`** (no `ip route` discovery); (3) ffmpeg
+DLLs **co-located beside the .exe** (image-dir DLL search), no `LD_LIBRARY_PATH`;
+(4) `cmd.exe` invocations lead with `call`/`set` to dodge the `cmd /c`
+quote-strip quirk (a line starting with `"` and holding >2 quotes gets its outer
+pair stripped); (5) artifacts are read back via the agent's native `/download`
+(simpler than `190`'s `od`-over-ssh); (6) the golden-readiness window is 300s
+(vs `190`'s 120s) because the heavy concurrent Windows QEMU HUT slows the macOS
+golden's render.
+
+**Windows-OCR finding (drives `240`).** EasyOCR is **uninstallable on
+aarch64-windows**: `opencv-python-headless` (a hard dep) has **no `win_arm64`
+wheel** on PyPI, conda-forge, or cgohlke's win-arm64 set, and can't be
+source-built in a minimal golden (no MSVC toolchain; [[minimal-images]]).
+torch+torchvision **do** install (PyTorch's own cpu index, `win_arm64`/`cp312`).
+This is a real ecosystem wall — the **low-regret kill signal** for the
+per-platform-native-host path, so **Windows OCR is deferred to `240` (docker host
+unification)**: running the host CLI as a *Linux* binary dissolves the gap. If
+`240` rejects docker, revisit (native `Windows.Media.Ocr` engine at the ADR-0002
+seam, or accept the gap). The harness keeps the experimental in-guest EasyOCR
+attempt behind `TESTANYWARE_WINDOWS_TRY_OCR=1`.
+
 ## On retire (promote upward, then the node retires)
 
 - Record **Windows aarch64 runtime green** into the root BRIEF's Tier-2 checklist
