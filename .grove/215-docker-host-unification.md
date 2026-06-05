@@ -1,7 +1,29 @@
-# 240-docker-host-unification
+# 215-docker-host-unification
 
 **Kind:** research (fail-fast spike + findings doc; may raise an ADR and reshape
 the root backlog if positive)
+
+## HOISTED ahead of `220/050` (2026-06-05)
+
+Originally numbered `240`, picked *after* the whole Windows arc. **Hoisted to
+`215`** (picks before `220/050-windows-distribution`) by user decision once
+`220/040` produced the **low-regret kill signal** this spike was waiting for:
+EasyOCR is **uninstallable on aarch64-windows** (`opencv-python-headless` has no
+`win_arm64` wheel anywhere; no in-guest MSVC to source-build it), so the
+per-platform-native Windows host **cannot do OCR** without either an
+out-of-scope toolchain build or a native `Windows.Media.Ocr` engine. Docker host
+unification would **dissolve this structurally** — a Linux host binary in a
+container runs the fully-wheeled EasyOCR stack regardless of host OS. That makes
+the architectural question urgent *now*, with the Windows arc's evidence
+(`040`: 2/3 bands green, OCR walled) in hand. **`220/050` (windows distribution)
+is gated on this spike's outcome** — don't ship a native Windows binary that
+docker may replace. The already-built Windows binary + `040` harness are
+low-regret (the `030` source pass also serves a shipped Linux host; `040` reused
+`190`'s machinery).
+
+**Extra evidence for the spike:** the win-arm64 OCR wall is a concrete data
+point on the *cost* of the per-platform-native-host path — weigh it in the
+adopt/thin-shim/reject recommendation.
 
 ## Hypothesis
 
@@ -17,12 +39,12 @@ distributable artifact.
 ## Why this is a root-level spike (set 2026-06-05)
 
 It questions the **per-platform-host-binary architecture itself**, not just the
-Windows arc — so it sits at the root, picked **after** `220-windows-arc`
-completes (the already-built Windows binary still gets verified by `040` and, if
-this spike kills the native path, that work is low-regret: the `030` source pass
-also serves the shipped Linux host binary, and `040`'s harness machinery is
-reused from `190`). Chosen over gating `040`/`050` so the architectural question
-is answered with the Windows arc's evidence in hand, not ahead of it.
+Windows arc — so it sits at the root. Originally sequenced after the whole
+`220-windows-arc`; now hoisted to `215` (above) so it runs after `040` (which
+supplied the deciding evidence) but **before** `050` (which it may obviate). The
+already-built Windows binary still got verified by `040`, and if this spike kills
+the native path that work is low-regret: the `030` source pass also serves the
+shipped Linux host binary, and `040`'s harness machinery is reused from `190`.
 
 ## The binding constraint this MUST engage first
 

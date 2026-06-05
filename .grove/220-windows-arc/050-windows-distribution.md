@@ -2,6 +2,17 @@
 
 **Kind:** work
 
+## GATED on `215-docker-host-unification` (2026-06-05)
+
+Do **not** start this until the hoisted docker host-unification spike (`215`,
+formerly `240`) reports. If `215` adopts docker / a thin shim, the **native
+Windows host binary this leaf would distribute may be replaced** by a
+containerized Linux host — making this zip moot or reshaping it entirely. The
+spike picks before this leaf precisely so its findings land first. Also: the OCR
+venv this leaf assumed (`<prefix>/libexec/venv` EasyOCR) is **not installable on
+win-arm64** (see `040` disposition + root BRIEF) — another reason its scope
+waits on `215`.
+
 ## Goal
 
 Ship the **Windows** `testanyware` distribution: a **zip** per Windows triple
