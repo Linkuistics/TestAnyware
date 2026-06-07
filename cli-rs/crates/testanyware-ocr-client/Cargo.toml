@@ -27,6 +27,23 @@ objc2-vision = { version = "0.3", features = ["VNRequest", "VNRecognizeTextReque
 objc2-core-graphics = { version = "0.3", features = ["CGImage", "CGDataProvider", "CGColorSpace"] }
 objc2-core-foundation = { version = "0.3", features = ["CFData", "CFCGTypes"] }
 
+# Windows-only: in-process native Windows.Media.Ocr engine (ADR-0011). The
+# Microsoft-official pure-Rust WinRT bindings — no .NET/C# shim, so the build
+# stays cargo-zigbuild-only and cross-compiles for aarch64-pc-windows-gnullvm
+# from a Mac (the direct analogue of ADR-0003's objc2-over-Swift-shim choice).
+# Non-Windows builds never see this crate. Pinned to 0.62 to share the copy
+# already in the lockfile.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+    "Foundation",
+    "Foundation_Collections",
+    "Globalization",
+    "Graphics_Imaging",
+    "Media_Ocr",
+    "Storage_Streams",
+    "Win32_System_WinRT",
+] }
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
 tempfile = { workspace = true }

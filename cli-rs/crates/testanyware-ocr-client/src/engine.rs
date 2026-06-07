@@ -5,12 +5,16 @@
 //!
 //!   - **macOS**  → in-process Apple Vision by default; the EasyOCR
 //!     daemon only when `TESTANYWARE_OCR_FALLBACK=1`.
-//!   - **Linux / Windows** → the EasyOCR Python daemon
-//!     ([`OcrChildBridge`]).
+//!   - **Windows** → in-process native Windows.Media.Ocr, unconditionally
+//!     (ADR-0011 — no fallback env; EasyOCR is uninstallable on win-arm64).
+//!   - **Linux** → the EasyOCR Python daemon ([`OcrChildBridge`]).
 //!
 //! The macOS Vision engine (ADR-0003, leaf `040-macos-vision-ocr`) is a
 //! pure-Rust `objc2` binding in [`crate::vision`]; [`OcrEngine::detect`]
-//! selects it on macOS unless `TESTANYWARE_OCR_FALLBACK=1`.
+//! selects it on macOS unless `TESTANYWARE_OCR_FALLBACK=1`. The Windows
+//! engine (ADR-0011, leaf `220/070-windows-media-ocr-engine`) is a pure-Rust
+//! WinRT binding in [`crate::windows_ocr`]; `detect()` selects it on Windows
+//! unconditionally.
 
 use std::path::PathBuf;
 
@@ -86,7 +90,8 @@ pub fn resolve_interpreter() -> PathBuf {
 }
 
 /// A selected OCR engine. The daemon-backed variant exists on every
-/// platform; the in-process Apple Vision variant is macOS-only (ADR-0003).
+/// platform; the in-process native variants are platform-gated — Apple Vision
+/// on macOS (ADR-0003), Windows.Media.Ocr on Windows (ADR-0011).
 pub enum OcrEngine {
     /// EasyOCR Python daemon via the long-lived child bridge.
     Daemon(OcrChildBridge),
@@ -95,15 +100,22 @@ pub enum OcrEngine {
     /// carries no data.
     #[cfg(target_os = "macos")]
     Vision,
+    /// In-process native Windows.Media.Ocr (ADR-0011). Stateless: each
+    /// `recognize` builds its own WinRT `OcrEngine`, so the variant carries no
+    /// data.
+    #[cfg(windows)]
+    WindowsMediaOcr,
 }
 
 impl OcrEngine {
     /// Select the engine for the current platform and environment.
     pub fn detect() -> Self {
-        // Per-platform native-facility selection (ADR-0002 / ADR-0003):
-        //   macOS  → in-process Apple Vision by default; the EasyOCR
-        //            daemon when TESTANYWARE_OCR_FALLBACK=1.
-        //   others → EasyOCR daemon only.
+        // Per-platform native-facility selection (ADR-0002 / ADR-0003 / ADR-0011):
+        //   macOS   → in-process Apple Vision by default; the EasyOCR
+        //             daemon when TESTANYWARE_OCR_FALLBACK=1.
+        //   Windows → in-process native Windows.Media.Ocr, unconditionally
+        //             (no fallback env — EasyOCR is uninstallable on win-arm64).
+        //   Linux   → EasyOCR daemon only.
         #[cfg(target_os = "macos")]
         {
             if fallback_requested() {
@@ -112,12 +124,20 @@ impl OcrEngine {
                 OcrEngine::Vision
             }
         }
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(windows)]
+        {
+            OcrEngine::WindowsMediaOcr
+        }
+        #[cfg(not(any(target_os = "macos", windows)))]
         {
             Self::daemon()
         }
     }
 
+    // Constructed by `detect()` on macOS (fallback) and on Linux; on Windows
+    // `detect()` always picks the native engine (ADR-0011), so the constructor
+    // is unreferenced there.
+    #[cfg_attr(windows, allow(dead_code))]
     fn daemon() -> Self {
         OcrEngine::Daemon(OcrChildBridge::new(OcrChildBridgeConfig::new(
             resolve_interpreter(),
@@ -125,12 +145,15 @@ impl OcrEngine {
     }
 
     /// The `engine` token reported in the `--json` envelope and the
-    /// `OcrResponse.engine` field — `"easyocr_daemon"` or `"vision"`.
+    /// `OcrResponse.engine` field — `"easyocr_daemon"`, `"vision"`, or
+    /// `"windows_media_ocr"`.
     pub fn engine_name(&self) -> &'static str {
         match self {
             OcrEngine::Daemon(_) => "easyocr_daemon",
             #[cfg(target_os = "macos")]
             OcrEngine::Vision => "vision",
+            #[cfg(windows)]
+            OcrEngine::WindowsMediaOcr => "windows_media_ocr",
         }
     }
 
@@ -153,16 +176,34 @@ impl OcrEngine {
                         ))
                     })?
             }
+            // Windows.Media.Ocr's WinRT calls are synchronous (driven to
+            // completion via IAsyncOperation::join) and its WinRT objects are
+            // not `Send`, so — exactly like Vision — run on the blocking pool
+            // and let only the `Send` `Vec<OcrDetection>` cross back.
+            #[cfg(windows)]
+            OcrEngine::WindowsMediaOcr => {
+                let png = png.to_vec();
+                tokio::task::spawn_blocking(move || crate::windows_ocr::recognize(&png))
+                    .await
+                    .map_err(|e| {
+                        OcrBridgeError::PermanentlyUnavailable(format!(
+                            "Windows.Media.Ocr task failed to complete: {e}"
+                        ))
+                    })?
+            }
         }
     }
 
-    /// Terminate any long-lived subprocess. Idempotent. Vision holds no
-    /// subprocess, so its arm is a no-op.
+    /// Terminate any long-lived subprocess. Idempotent. The in-process native
+    /// engines (Vision, Windows.Media.Ocr) hold no subprocess, so their arms
+    /// are no-ops.
     pub async fn shutdown(&self) {
         match self {
             OcrEngine::Daemon(bridge) => bridge.shutdown().await,
             #[cfg(target_os = "macos")]
             OcrEngine::Vision => {}
+            #[cfg(windows)]
+            OcrEngine::WindowsMediaOcr => {}
         }
     }
 }
@@ -189,12 +230,21 @@ mod tests {
         assert_eq!(resolved, PathBuf::from("/opt/custom/python3"));
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", windows)))]
     #[test]
     fn detect_returns_a_daemon_engine_named_easyocr() {
         let engine = OcrEngine::detect();
         assert!(matches!(engine, OcrEngine::Daemon(_)));
         assert_eq!(engine.engine_name(), "easyocr_daemon");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn detect_picks_windows_media_ocr_unconditionally() {
+        // ADR-0011: Windows always uses the native engine — no fallback env.
+        let engine = OcrEngine::detect();
+        assert!(matches!(engine, OcrEngine::WindowsMediaOcr));
+        assert_eq!(engine.engine_name(), "windows_media_ocr");
     }
 
     #[cfg(target_os = "macos")]

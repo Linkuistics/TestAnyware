@@ -37,24 +37,26 @@
 //!      **co-located beside the .exe** (Windows searches the image's own
 //!      directory for DLLs); no `LD_LIBRARY_PATH`. Per-case env rides as
 //!      `cmd.exe` `set "K=V" && …` because the agent runs `cmd.exe /c <command>`.
-//!   5. **OCR provisioning** — the Windows golden ships **no Python** (only the
-//!      Linux golden does). The OCR band can install Python **3.12** ARM64 at
-//!      run time and pull **torch from PyTorch's own cpu index** (the `win_arm64`
-//!      `cp312` wheels live there, not on PyPI) — but EasyOCR is ultimately
-//!      **uninstallable on aarch64-windows**: `opencv-python-headless` (a hard
-//!      dep) has no `win_arm64` wheel anywhere and can't be source-built in a
-//!      minimal golden. So the **OCR band is a LOGGED GAP by default**
-//!      ([`try_ocr_band`]), deferred to the **docker host-unification** decision
-//!      (grove `240`) — running the host CLI as a *Linux* binary dissolves the
-//!      gap structurally. `TESTANYWARE_WINDOWS_TRY_OCR=1` opts into the
-//!      experimental in-guest attempt ([`provision_ocr`]).
+//!   5. **OCR engine** — Linux's `screen find-text` routes through the EasyOCR
+//!      Python daemon; Windows uses **in-process native `Windows.Media.Ocr`**
+//!      (ADR-0011, engine token `windows_media_ocr`), so the OCR band needs **no
+//!      provisioning at all** — no Python, no venv, no model download. The engine
+//!      is compiled into the cross binary already staged by [`stage_binary`], so
+//!      `check_find_text` is just `screen find-text File --vnc … --json` over the
+//!      forward, exactly like `screen size`. This *replaces* the earlier deferred
+//!      EasyOCR gap: EasyOCR is uninstallable on win-arm64 (`opencv-python-headless`
+//!      has no `win_arm64` wheel), and the `215` docker-host-unification spike
+//!      rejected containerizing the host, so leaf `220/060` decided the native
+//!      WinRT engine (ADR-0011) and `220/070` built it.
 //!
-//! ## Band coverage on aarch64-windows: 2/3 runtime-GREEN, OCR deferred
+//! ## Band coverage on aarch64-windows: 3/3 runtime-GREEN
 //!
-//! Endpoint-free + endpoint-driven (incl. `screen record` → ffmpeg-8 libx264)
-//! run GREEN in-guest — the cross binary execs, the ffmpeg DLLs load + encode,
-//! and the RFB/agent/input clients speak the wire. The OCR band is the one
-//! deferred gap (above). x86_64-windows stays build/link-verified only.
+//! Endpoint-free + endpoint-driven (incl. `screen record` → ffmpeg-8 libx264 and
+//! **`screen find-text` → native `windows_media_ocr`**) run GREEN in-guest — the
+//! cross binary execs, the ffmpeg DLLs load + encode, the WinRT OCR engine
+//! recognizes the forwarded golden's menu bar, and the RFB/agent/input clients
+//! speak the wire. Windows is now at OCR parity (3/3) with Linux and macOS.
+//! x86_64-windows stays build/link-verified only.
 //!
 //! ## How to run
 //!
@@ -70,8 +72,8 @@
 //! # 2. run the harness. It boots the Windows agent-golden as a QEMU HUT,
 //! #    agent-provisions the cross binary + ffmpeg DLLs, brings up a macOS golden
 //! #    (`testanyware vm start --platform macos`), forwards the golden's agent +
-//! #    VNC through the host, and runs the endpoint-free + endpoint-driven bands
-//! #    (the OCR band is a deferred logged gap — see below):
+//! #    VNC through the host, and runs all three bands (endpoint-free,
+//! #    endpoint-driven, and OCR via the native in-process engine):
 //! TESTANYWARE_WINDOWS_HARNESS=1 cargo test -p testanyware-cli \
 //!   --test windows-host-harness -- --ignored windows_host_harness
 //! ```
@@ -131,22 +133,6 @@ use tokio::sync::watch;
 /// The harness only drives VMs when explicitly opted in.
 fn gate_enabled() -> bool {
     std::env::var("TESTANYWARE_WINDOWS_HARNESS").as_deref() == Ok("1")
-}
-
-/// Whether to *attempt* the EasyOCR OCR band. **Off by default**: EasyOCR is
-/// uninstallable on aarch64-windows — `opencv-python-headless` (a hard EasyOCR
-/// dep) ships no `win_arm64` wheel on PyPI, conda-forge, or cgohlke's win-arm64
-/// set, and can't be source-built in a minimal golden (no MSVC toolchain;
-/// [[minimal-images]]). Windows OCR is therefore deferred to the
-/// host-architecture decision: **docker host unification** (grove `240`) would
-/// run the host CLI as a *Linux* binary where the whole EasyOCR stack is
-/// wheeled, dissolving this gap structurally. By default the OCR band is a
-/// LOGGED GAP (ADR-0009 no-silent-caps), not a failure; set this =1 to exercise
-/// the experimental in-guest EasyOCR provisioning regardless (see
-/// [`provision_ocr`]) — it gets as far as torch (the `win_arm64`/`cp312` wheels
-/// exist) before opencv blocks it.
-fn try_ocr_band() -> bool {
-    std::env::var("TESTANYWARE_WINDOWS_TRY_OCR").as_deref() == Ok("1")
 }
 
 /// Path to the aarch64-windows `testanyware.exe` under test. Defaults to the
@@ -1082,156 +1068,26 @@ async fn check_record(
 }
 
 // ===========================================================================
-// The OCR band: provision EasyOCR (Python 3.12 ARM64 + torch), then find-text
+// The OCR band: native in-process Windows.Media.Ocr, then find-text
 // ===========================================================================
 //
-// On non-macOS the host CLI routes OCR through the EasyOCR Python daemon
-// (`OcrChildBridge`, ADR-0002): `screen find-text` spawns
-// `python -m ocr_analyzer --daemon` and speaks one-JSON-line-per-message to it.
-// The Windows golden ships **no Python** (only the Linux golden does), so unlike
-// the Linux harness's `apt-get install python3-venv`, this band installs Python
-// 3.12 ARM64 at run time and pulls torch from PyTorch's own cpu index — the
-// `win_arm64`/`cp312` wheels live there, not on default PyPI (PyTorch ≥ 2.7,
-// Windows-on-Arm, CPU-only). EasyOCR's remaining transitive deps come from PyPI;
-// any that lack a win_arm64 wheel would fail here and surface as the find-text
-// band result (no-silent-caps), not a silent skip.
+// Windows routes `screen find-text` through the in-process native
+// `Windows.Media.Ocr` engine (ADR-0011, engine token `windows_media_ocr`),
+// compiled into the cross binary already staged by `stage_binary`. Unlike the
+// Linux harness's EasyOCR daemon — and unlike this harness's earlier deferred
+// EasyOCR attempt (Python 3.12 + torch + opencv, blocked by the missing
+// `win_arm64` opencv wheel) — there is **nothing to provision**: no Python, no
+// venv, no model download. The OCR band is therefore just one more
+// endpoint-driven command over the forward, exactly like `screen size`.
 
-/// Python version to install in-guest. Must be **3.12** — PyTorch's Windows-ARM64
-/// wheels are `cp312` only (no 3.11/3.13 at time of writing).
-const PY_VERSION: &str = "3.12.10";
-
-/// In-guest venv layout for the EasyOCR daemon (Windows: `Scripts\python.exe`).
-const OCR_VENV_DIR: &str = r"C:\Users\Public\taw\venv";
-const OCR_VENV_PYTHON: &str = r"C:\Users\Public\taw\venv\Scripts\python.exe";
-
-/// PyTorch's CPU wheel index — carries the `win_arm64` `cp312` torch/torchvision
-/// wheels that default PyPI does not.
-const TORCH_CPU_INDEX: &str = "https://download.pytorch.org/whl/cpu";
-
-/// The `ocr_analyzer` package's Python sources (the channel does single-file
-/// uploads and the package is three small files). `__main__` is the `-m` entry.
-const OCR_MODULE_FILES: &[&str] = &["__init__.py", "daemon.py", "__main__.py"];
-
-/// Path to the `ocr_analyzer` package in the repo working tree.
-fn ocr_module_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../vision/stages/text-ocr/src/ocr_analyzer")
-}
-
-/// Last ~600 chars of a stream, char-safe — for surfacing a failing command's
-/// tail without dumping a multi-thousand-line pip log.
-fn tail(s: &str) -> String {
-    let chars: Vec<char> = s.trim().chars().collect();
-    let start = chars.len().saturating_sub(600);
-    chars[start..].iter().collect()
-}
-
-/// Provision a working EasyOCR daemon in the Windows HUT and return the venv
-/// interpreter for `TESTANYWARE_OCR_PYTHON`. Steps: silent-install Python 3.12
-/// ARM64, build a venv, install torch (+torchvision) from the PyTorch cpu index
-/// then `easyocr` from PyPI, upload the `ocr_analyzer` package, and **pre-download
-/// the EasyOCR models** so the daemon's first `readtext` lands inside the
-/// bridge's first-call deadline rather than racing a model download.
-///
-/// Built into the throwaway HUT at run time, never baked into the golden image
-/// ([[minimal-images]]).
-async fn provision_ocr(ch: &impl ProvisionChannel) -> Result<String, String> {
-    // 1. download + silent-install Python 3.12 ARM64 into RUN_DIR\python. curl
-    //    ships in Windows 10+; the python.org installer supports a quiet,
-    //    per-user, no-PATH install into a chosen TargetDir.
-    let url = format!("https://www.python.org/ftp/python/{PY_VERSION}/python-{PY_VERSION}-arm64.exe");
-    let installer = format!(r"{RUN_DIR}\python-installer.exe");
-    let py_dir = format!(r"{RUN_DIR}\python");
-    let base_py = format!(r"{py_dir}\python.exe");
-    eprintln!("[ocr] downloading + installing Python {PY_VERSION} (arm64) …");
-    // curl -f so a 404/redirect body is an error, not a silently-saved non-exe.
-    exec_ok(ch, &format!("curl -fL -o \"{installer}\" {url}")).await?;
-    // `call` so the line doesn't start with `"` (the cmd /c quote-strip quirk —
-    // see build_invocation); critical here because TargetDir="…" adds a 2nd
-    // quote pair that the strip would unbalance.
-    exec_ok(
-        ch,
-        &format!(
-            "call \"{installer}\" /quiet InstallAllUsers=0 PrependPath=0 Include_test=0 \
-             Include_launcher=0 Include_pip=1 TargetDir=\"{py_dir}\""
-        ),
-    )
-    .await?;
-
-    // 2. build the venv.
-    exec_ok(ch, &format!("call \"{base_py}\" -m venv \"{OCR_VENV_DIR}\"")).await?;
-    exec_ok(ch, &format!("call \"{OCR_VENV_PYTHON}\" -m pip install --quiet --upgrade pip")).await?;
-
-    // 3. torch + torchvision from the PyTorch cpu index (the win_arm64/cp312
-    //    wheels are not on default PyPI).
-    eprintln!("[ocr] pip install torch+torchvision from the PyTorch cpu index …");
-    let t = ch
-        .exec(&format!(
-            "call \"{OCR_VENV_PYTHON}\" -m pip install --quiet torch torchvision --index-url {TORCH_CPU_INDEX}"
-        ))
-        .await?;
-    if t.exit_code != 0 {
-        return Err(format!(
-            "pip install torch (win_arm64) exited {} — needs Python 3.12 + the PyTorch cpu \
-             index; if no win_arm64 wheel is published this is an aarch64-windows OCR gap to log \
-             (ADR-0009 no-silent-caps). stderr tail:\n{}",
-            t.exit_code,
-            tail(&t.stderr),
-        ));
-    }
-
-    // 4. easyocr (+ remaining deps from PyPI; some native deps may lack a
-    //    win_arm64 wheel — that failure surfaces here, not silently).
-    eprintln!("[ocr] pip install easyocr …");
-    let e = ch.exec(&format!("call \"{OCR_VENV_PYTHON}\" -m pip install --quiet easyocr")).await?;
-    if e.exit_code != 0 {
-        return Err(format!(
-            "pip install easyocr exited {} — a transitive native dep (opencv/scikit-image/…) \
-             may lack a win_arm64 wheel. stderr tail:\n{}",
-            e.exit_code,
-            tail(&e.stderr),
-        ));
-    }
-
-    // 5. upload the ocr_analyzer package, file by file.
-    let mod_dir = ocr_module_dir();
-    for f in OCR_MODULE_FILES {
-        let local = mod_dir.join(f);
-        if !local.is_file() {
-            return Err(format!(
-                "ocr_analyzer source {} missing — expected the text-ocr package in the tree",
-                local.display(),
-            ));
-        }
-        ch.upload(&local, &format!(r"{RUN_DIR}\ocr_analyzer\{f}")).await?;
-    }
-
-    // 6. pre-download the EasyOCR models (Reader() fetches the CRAFT detector +
-    //    recognizer on first construction). Off the daemon's hot path.
-    eprintln!("[ocr] pre-downloading EasyOCR models …");
-    let warm = ch
-        .exec(&format!(
-            "call \"{OCR_VENV_PYTHON}\" -c \"import easyocr; easyocr.Reader(['en'], gpu=False)\""
-        ))
-        .await?;
-    if warm.exit_code != 0 {
-        return Err(format!(
-            "EasyOCR model pre-download exited {}:\n{}",
-            warm.exit_code,
-            tail(&warm.stderr),
-        ));
-    }
-    eprintln!("[ocr] daemon provisioned at {OCR_VENV_PYTHON}");
-    Ok(OCR_VENV_PYTHON.to_string())
-}
-
-/// Assert a `screen find-text File` envelope used the EasyOCR daemon and found
-/// the query with a plausible box. Pure over the parsed body so it unit-tests
-/// offline (identical to the Linux harness's `find_text_hit`).
+/// Assert a `screen find-text File` envelope used the native Windows.Media.Ocr
+/// engine and found the query with a plausible box. Pure over the parsed body
+/// so it unit-tests offline (the Windows analogue of the Linux harness's
+/// `find_text_hit`, which asserts `easyocr_daemon`).
 fn find_text_hit(body: &Value) -> Result<String, String> {
     let engine = body.get("engine").and_then(Value::as_str).unwrap_or("");
-    if engine != "easyocr_daemon" {
-        return Err(format!("expected engine easyocr_daemon, got {engine:?}"));
+    if engine != "windows_media_ocr" {
+        return Err(format!("expected engine windows_media_ocr, got {engine:?}"));
     }
     let detections = body
         .get("detections")
@@ -1244,39 +1100,34 @@ fn find_text_hit(body: &Value) -> Result<String, String> {
                 .and_then(Value::as_str)
                 .is_some_and(|t| t.to_lowercase().contains("file"))
         })
-        .ok_or_else(|| format!("EasyOCR did not find 'File'; detections: {detections:?}"))?;
+        .ok_or_else(|| format!("Windows.Media.Ocr did not find 'File'; detections: {detections:?}"))?;
     let w = hit.get("width").and_then(Value::as_f64).unwrap_or(0.0);
     let h = hit.get("height").and_then(Value::as_f64).unwrap_or(0.0);
     if w <= 0.0 || h <= 0.0 {
-        return Err(format!("EasyOCR 'File' hit has an implausible box: {hit}"));
+        return Err(format!("Windows.Media.Ocr 'File' hit has an implausible box: {hit}"));
     }
     Ok(format!(
-        "engine=easyocr_daemon found 'File' at {w:.0}x{h:.0} px on aarch64-windows"
+        "engine=windows_media_ocr found 'File' at {w:.0}x{h:.0} px on aarch64-windows"
     ))
 }
 
-/// `screen find-text File` over the forward, routed through the provisioned
-/// EasyOCR daemon. `TESTANYWARE_OCR_PYTHON` points at the venv; `PYTHONPATH`
-/// makes `ocr_analyzer` importable.
+/// `screen find-text File` over the forward, routed through the in-process
+/// native Windows.Media.Ocr engine. No OCR-specific env — the engine is in the
+/// binary; only the VNC password is needed (like `screen size`).
 async fn check_find_text(
     ch: &impl ProvisionChannel,
     run_dir: &str,
     vnc_ep: &str,
     vnc_password: &str,
-    venv_python: &str,
 ) -> Result<String, String> {
-    let envs = [
-        ("TESTANYWARE_VNC_PASSWORD", vnc_password),
-        ("TESTANYWARE_OCR_PYTHON", venv_python),
-        ("PYTHONPATH", run_dir),
-    ];
+    let envs = [("TESTANYWARE_VNC_PASSWORD", vnc_password)];
     let args = ["screen", "find-text", "File", "--vnc", vnc_ep, "--timeout", "20", "--json"];
     let cmd = build_invocation(run_dir, &envs, &args);
     let out = ch.exec(&cmd).await?;
     let body = expect_ok_envelope(&out).map_err(|e| {
         format!(
-            "{e}\n  ↑ an OCR_* error means the daemon mis-launched: check the venv at \
-             {venv_python} and that PYTHONPATH={run_dir} exposes `ocr_analyzer`."
+            "{e}\n  ↑ an OCR_* error means the native Windows.Media.Ocr engine failed \
+             (no OCR language pack? decode failure?) — see the OcrBridgeError message."
         )
     })?;
     find_text_hit(&body)
@@ -1373,31 +1224,6 @@ async fn windows_host_harness() {
     );
     eprintln!("\nwindows_host_harness: all {} endpoint-free checks passed.", results.len());
 
-    // ---- OCR band — deferred on aarch64-windows (logged gap) --------------
-    //
-    // EasyOCR is uninstallable here (opencv-python-headless has no win_arm64
-    // wheel; see try_ocr_band). Windows OCR is deferred to the docker
-    // host-unification decision (grove 240). By default this is a LOGGED GAP
-    // (ADR-0009 no-silent-caps), not a failure; TRY_OCR opts into the
-    // experimental in-guest provisioning (done before the golden so the
-    // multi-minute torch download doesn't run a macOS VM idle).
-    let ocr_python = if try_ocr_band() {
-        eprintln!("\nwindows_host_harness: TRY_OCR set — provisioning EasyOCR (Python 3.12 arm64 + torch)…");
-        let r = provision_ocr(&channel).await;
-        match &r {
-            Ok(py) => eprintln!("[ocr] ready: {py}"),
-            Err(e) => eprintln!("[ocr] provisioning FAILED (find-text will report it): {e}"),
-        }
-        Some(r)
-    } else {
-        eprintln!(
-            "\n[ocr] GAP (logged, accepted): EasyOCR uninstallable on aarch64-windows — \
-             opencv-python-headless has no win_arm64 wheel. Windows OCR is deferred to the \
-             docker host-unification decision (grove 240). Set TESTANYWARE_WINDOWS_TRY_OCR=1 to attempt anyway."
-        );
-        None
-    };
-
     // ---- Endpoint-driven band: golden + in-process forward ----------------
     //
     // Bring up the macOS golden, forward its agent + VNC through the host, and
@@ -1443,15 +1269,10 @@ async fn windows_host_harness() {
     );
     driven.push(("screen-capture", check_capture(&channel, RUN_DIR, &vnc_ep, &vnc_pw).await));
     driven.push(("screen-record", check_record(&channel, RUN_DIR, &vnc_ep, &vnc_pw).await));
-    // OCR band asserted only when opted in (TRY_OCR); otherwise it's the logged
-    // gap above, deferred to grove 240 (docker host unification).
-    if let Some(ocr) = &ocr_python {
-        let find_text = match ocr {
-            Ok(py) => check_find_text(&channel, RUN_DIR, &vnc_ep, &vnc_pw, py).await,
-            Err(e) => Err(format!("OCR daemon provisioning failed: {e}")),
-        };
-        driven.push(("screen-find-text", find_text));
-    }
+    // OCR band — the native in-process Windows.Media.Ocr engine (ADR-0011),
+    // compiled into the staged binary, so it runs unconditionally now (no
+    // provisioning, no opt-in knob): `screen find-text File` over the forward.
+    driven.push(("screen-find-text", check_find_text(&channel, RUN_DIR, &vnc_ep, &vnc_pw).await));
     driven.extend(run_band(&channel, RUN_DIR, &endpoint_driven_input_cases(&vnc_ep, &vnc_pw)).await);
 
     // Forwards have served their purpose; tear them down before asserting so a
@@ -1480,14 +1301,9 @@ async fn windows_host_harness() {
     );
     eprintln!(
         "\nwindows_host_harness: all {} endpoint-driven checks passed — incl. screen record \
-         (ffmpeg-8 libx264 runtime-proven) on aarch64-windows. Endpoint-free + endpoint-driven \
-         bands GREEN. OCR band: {}.",
+         (ffmpeg-8 libx264 runtime-proven) AND screen find-text (native windows_media_ocr) on \
+         aarch64-windows. All THREE bands GREEN — Windows at OCR parity (3/3) with Linux and macOS.",
         driven.len(),
-        if try_ocr_band() {
-            "exercised (TRY_OCR)"
-        } else {
-            "deferred — logged gap, see grove 240 (docker host unification)"
-        },
     );
 }
 
@@ -1774,45 +1590,46 @@ mod helper_tests {
     }
 
     #[test]
-    fn find_text_hit_accepts_easyocr_daemon_with_a_file_box() {
+    fn find_text_hit_accepts_windows_media_ocr_with_a_file_box() {
         let body = serde_json::json!({
-            "engine": "easyocr_daemon",
+            "engine": "windows_media_ocr",
             "detections": [
-                { "text": "Finder", "x": 40, "y": 2, "width": 48, "height": 16, "confidence": 0.9 },
-                { "text": "File",   "x": 96, "y": 2, "width": 24, "height": 16, "confidence": 0.95 }
+                { "text": "Finder", "x": 40, "y": 2, "width": 48, "height": 16, "confidence": 1.0 },
+                { "text": "File",   "x": 96, "y": 2, "width": 24, "height": 16, "confidence": 1.0 }
             ]
         });
-        let note = find_text_hit(&body).expect("a daemon File hit");
-        assert!(note.contains("easyocr_daemon"), "note names the engine: {note}");
+        let note = find_text_hit(&body).expect("a windows_media_ocr File hit");
+        assert!(note.contains("windows_media_ocr"), "note names the engine: {note}");
         assert!(note.contains("aarch64-windows"), "note names the arch: {note}");
     }
 
     #[test]
     fn find_text_hit_rejects_wrong_engine_missing_hit_and_degenerate_box() {
-        // Wrong engine (e.g. the macOS Vision token) must fail this Windows band.
-        let vision = serde_json::json!({
-            "engine": "vision",
+        // Wrong engine (e.g. the Linux EasyOCR daemon token) must fail this
+        // Windows band — the band asserts the native engine actually ran.
+        let daemon = serde_json::json!({
+            "engine": "easyocr_daemon",
             "detections": [{ "text": "File", "x": 0, "y": 0, "width": 24, "height": 16, "confidence": 1 }]
         });
-        assert!(find_text_hit(&vision).is_err(), "wrong engine");
+        assert!(find_text_hit(&daemon).is_err(), "wrong engine");
 
-        // Daemon engine but no detection containing 'File'.
+        // Native engine but no detection containing 'File'.
         let no_hit = serde_json::json!({
-            "engine": "easyocr_daemon",
+            "engine": "windows_media_ocr",
             "detections": [{ "text": "Edit", "x": 0, "y": 0, "width": 24, "height": 16, "confidence": 1 }]
         });
         assert!(find_text_hit(&no_hit).is_err(), "no File hit");
 
         // A 'File' hit with a zero-area box is implausible.
         let flat = serde_json::json!({
-            "engine": "easyocr_daemon",
+            "engine": "windows_media_ocr",
             "detections": [{ "text": "File", "x": 0, "y": 0, "width": 0, "height": 16, "confidence": 1 }]
         });
         assert!(find_text_hit(&flat).is_err(), "degenerate box");
 
         // Case-insensitive substring: 'profile' contains 'file'.
         let substr = serde_json::json!({
-            "engine": "easyocr_daemon",
+            "engine": "windows_media_ocr",
             "detections": [{ "text": "Profile", "x": 0, "y": 0, "width": 50, "height": 16, "confidence": 1 }]
         });
         assert!(find_text_hit(&substr).is_ok(), "case-insensitive substring match");

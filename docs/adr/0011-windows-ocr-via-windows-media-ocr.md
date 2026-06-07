@@ -67,8 +67,10 @@ bound via the **pure-Rust `windows` crate**.
   daemon fallback is dead on the only runtime-verified arch (EasyOCR uninstallable
   on win-arm64) and x86_64-windows is build-only, so a fallback env would be
   speculative surface for an unverified target. An EasyOCR path can be added
-  lazily if a user ever needs it. The harness's `TESTANYWARE_WINDOWS_TRY_OCR=1`
-  stays a harness-local experimental knob, separate from product engine selection.
+  lazily if a user ever needs it. (The harness's experimental
+  `TESTANYWARE_WINDOWS_TRY_OCR=1` knob — which attempted in-guest EasyOCR
+  provisioning while the band was deferred — is **retired in `070`** now that a
+  real engine exists; the Windows OCR band runs unconditionally.)
 - **FFI strategy.** The Microsoft-official **`windows` crate** (WinRT bindings;
   features `Media_Ocr`, `Graphics_Imaging`, `Globalization`), declared under
   `[target.'cfg(windows)'.dependencies]`. This is the direct analogue of
@@ -110,3 +112,17 @@ implementation + the live harness OCR band land in work leaf
   the band green on aarch64-windows, closing the gap the `040` disposition logged.
   x86_64-windows OCR remains build-verified only, consistent with ADR-0009's
   no-silent-caps treatment of the unverified arch.
+- **Detection granularity is per *word*** (`070`). `Windows.Media.Ocr` returns
+  lines, each holding words, but only `OcrWord` carries a `BoundingRect` (a line
+  exposes text without a box). Emitting one `OcrDetection` per word also serves
+  `find-text` consumers best — a tight, clickable box around the matched token
+  (the "File" menu) rather than a line box spanning the whole menu bar whose
+  centre misses the target — and matches the CLI's "substring match within a
+  single detection" contract and the word/phrase granularity of the EasyOCR and
+  Vision arms.
+- **Confidence is synthesized as `1.0`** (`070`). `Windows.Media.Ocr` exposes no
+  per-word confidence, so every Windows detection reports `1.0` — unlike Vision
+  (which carries a real per-observation score and drops anything below 0.5) and
+  EasyOCR (real per-detection score). Consumers that sort or threshold on
+  `confidence` see all Windows detections as fully trusted; the engine token
+  `windows_media_ocr` in the envelope signals which semantics apply.

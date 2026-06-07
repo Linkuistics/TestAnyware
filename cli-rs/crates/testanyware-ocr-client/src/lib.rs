@@ -22,6 +22,8 @@
 //! - `bridge`: long-lived child-process actor (`OCRChildBridge`).
 //! - `engine`: per-platform `OcrEngine` selection + interpreter resolution.
 //! - `vision`: in-process Apple Vision engine via `objc2` (macOS only).
+//! - `windows_ocr`: in-process native Windows.Media.Ocr engine via the
+//!   `windows` WinRT crate (Windows only, ADR-0011).
 //! - `detection`: the `OcrDetection` value type and `OcrResponse`
 //!   envelope, wire-compatible with the Swift `OCRDetection` /
 //!   `OCRResponse` JSON shape.
@@ -38,6 +40,8 @@ pub mod find;
 pub mod status;
 #[cfg(target_os = "macos")]
 mod vision;
+#[cfg(windows)]
+mod windows_ocr;
 
 pub use bridge::{OcrBridgeError, OcrChildBridge, OcrChildBridgeConfig};
 pub use detection::{OcrDetection, OcrResponse};

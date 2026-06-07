@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/screen-find-text.json",
   "title": "screen-find-text",
-  "description": "OCR text-search result emitted by `testanyware screen find-text --json`. Captures the guest framebuffer host-side, runs OCR (Apple Vision on macOS, the EasyOCR daemon on Linux/Windows), and reports detections whose text contains the query (case-insensitive substring). With no query, every detection is returned, capped at `limit` (default 100) unless `--all`. Detection coordinates are in framebuffer pixels, the same space as `screen capture`.",
+  "description": "OCR text-search result emitted by `testanyware screen find-text --json`. Captures the guest framebuffer host-side, runs OCR (Apple Vision on macOS, native Windows.Media.Ocr on Windows, the EasyOCR daemon on Linux), and reports detections whose text contains the query (case-insensitive substring). With no query, every detection is returned, capped at `limit` (default 100) unless `--all`. Detection coordinates are in framebuffer pixels, the same space as `screen capture`.",
   "type": "object",
   "required": ["schema_version", "ok", "query", "engine", "detections", "returned", "total", "truncated"],
   "additionalProperties": false,
@@ -15,7 +15,7 @@
     },
     "engine": {
       "type": "string",
-      "enum": ["vision", "easyocr_daemon"],
+      "enum": ["vision", "windows_media_ocr", "easyocr_daemon"],
       "description": "OCR engine that produced the detections."
     },
     "detections": {
