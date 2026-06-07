@@ -190,12 +190,30 @@ const REQUIRED_DLLS: &[&str] = &[
     "swresample-6.dll",
 ];
 
+/// Host path to the **release `.zip`** under test by [`windows_dist_zip_smoke`]
+/// — `scripts/release-build.sh`'s `testanyware-v<ver>-aarch64-pc-windows-gnullvm.zip`.
+/// `None` (the env var unset) skips the smoke: unlike the build-output binary
+/// the main harness defaults to, there is no conventional zip path to assume, and
+/// the smoke only makes sense against an actual built artifact.
+fn dist_zip_path() -> Option<PathBuf> {
+    std::env::var("TESTANYWARE_WINDOWS_DIST_ZIP").ok().map(PathBuf::from)
+}
+
 /// Absolute in-guest dir the binary, DLLs, venv and artifacts are provisioned
 /// into. `C:\Users\Public` is world-writable with no elevation, so the agent
 /// (running as the autologin user via its logon task) can always write here —
 /// avoiding both a `%USERPROFILE%` discovery round-trip and the elevation a
 /// `C:\` root write would need.
 const RUN_DIR: &str = r"C:\Users\Public\taw";
+
+/// Where [`windows_dist_zip_smoke`] uploads the release `.zip` and extracts it.
+/// Deliberately *separate* from [`RUN_DIR`]: the distribution smoke proves the
+/// **shipped artifact** unzips into a clean prefix and runs from there with the
+/// DLLs the zip itself carries (image-directory search) — not the loose build
+/// outputs `stage_binary` provisions. The extracted tree is
+/// `{DIST_PREFIX_GUEST}\testanyware-v<ver>-<triple>\bin\{testanyware.exe,*.dll}`.
+const DIST_ZIP_GUEST: &str = r"C:\Users\Public\taw-dist.zip";
+const DIST_PREFIX_GUEST: &str = r"C:\Users\Public\taw-dist";
 
 /// The address a QEMU user-mode (slirp) guest uses to reach the **host**. slirp
 /// always presents the host as the network's gateway at `10.0.2.2` and proxies
@@ -267,6 +285,32 @@ fn build_invocation(run_dir: &str, envs: &[(&str, &str)], args: &[&str]) -> Stri
 /// The no-env convenience used by the `--version` canary and the offline tests.
 fn taw_cmd(run_dir: &str, args: &[&str]) -> String {
     build_invocation(run_dir, &[], args)
+}
+
+/// The `cmd.exe` line that wipes any prior `dest` then expands `zip` into it —
+/// the [`windows_dist_zip_smoke`] "clean prefix" step. Driven through
+/// PowerShell's `Expand-Archive` because the agent runs `cmd.exe /c`, which has
+/// no native unzip. Leads with `powershell` (never a `"`), so the `cmd /c`
+/// quote-strip quirk does not apply (see [`build_invocation`]); paths are
+/// single-quoted inside the `-Command` string and the two statements are joined
+/// with `;`. `-Force` overwrites, and the leading `Remove-Item` guarantees the
+/// "clean" in clean-prefix — stale files from an earlier run cannot survive.
+fn dist_extract_cmd(zip_guest: &str, dest_guest: &str) -> String {
+    format!(
+        "powershell -NoProfile -ExecutionPolicy Bypass -Command \
+         \"if (Test-Path '{dest}') {{ Remove-Item -Recurse -Force '{dest}' }}; \
+         Expand-Archive -Path '{zip}' -DestinationPath '{dest}' -Force\"",
+        dest = dest_guest,
+        zip = zip_guest,
+    )
+}
+
+/// The in-guest `bin\` dir of an extracted release zip: `dest\<stem>\bin`, where
+/// `stem` is the zip's filename without its `.zip` (the bundle's single
+/// top-level dir, `testanyware-v<ver>-<triple>`). Derived from the filename so no
+/// in-guest `dir` round-trip is needed to find the extracted binary.
+fn dist_bin_dir(dest_guest: &str, stem: &str) -> String {
+    format!(r"{dest_guest}\{stem}\bin")
 }
 
 /// Parse `out.stdout` as a JSON object, surfacing a readable error (including a
@@ -527,6 +571,32 @@ async fn stage_binary(ch: &impl ProvisionChannel) -> Result<(), String> {
     }
     eprintln!("[provision] staged binary + {} ffmpeg DLLs into {RUN_DIR}", REQUIRED_DLLS.len());
     Ok(())
+}
+
+/// Provision from the **shipped release zip** instead of loose build outputs:
+/// upload `zip`, wipe any prior extraction, `Expand-Archive` into a clean prefix,
+/// and return the extracted `bin\` dir (which holds `testanyware.exe` *and* the
+/// ffmpeg DLLs the zip itself carries, co-located). This is the distribution
+/// smoke's whole point — proving the artifact a user downloads unzips and runs,
+/// with the DLL co-location the zip layout (not the harness) is responsible for.
+async fn stage_from_zip(ch: &impl ProvisionChannel, zip: &Path) -> Result<String, String> {
+    if !zip.is_file() {
+        return Err(format!(
+            "release zip not found at {} — build it first (scripts/release-build.sh)",
+            zip.display(),
+        ));
+    }
+    // The bundle's single top-level dir is the zip's filename without `.zip`.
+    let stem = zip
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| format!("zip path {} has no usable file stem", zip.display()))?;
+
+    ch.upload(zip, DIST_ZIP_GUEST).await?;
+    exec_ok(ch, &dist_extract_cmd(DIST_ZIP_GUEST, DIST_PREFIX_GUEST)).await?;
+    let bin_dir = dist_bin_dir(DIST_PREFIX_GUEST, stem);
+    eprintln!("[provision] extracted {} into {bin_dir}", zip.display());
+    Ok(bin_dir)
 }
 
 // ---------------------------------------------------------------------------
@@ -1422,6 +1492,129 @@ async fn windows_host_harness() {
 }
 
 // ---------------------------------------------------------------------------
+// The distribution smoke — the pre-publish gate (grove 220/050)
+// ---------------------------------------------------------------------------
+
+/// Real-artifact smoke for the Windows release **zip** (grove `220/050`
+/// pre-publish gate). The `040` harness proves the *build-output* binary runs;
+/// this proves the **shipped artifact** does: it uploads the actual
+/// `release-build.sh` zip into a Windows guest, extracts it into a **clean
+/// prefix**, and runs the endpoint-free band from the extracted `bin\` — so the
+/// thing under test is the zip's own layout (the 5 ffmpeg DLLs co-located beside
+/// `testanyware.exe`, resolved by the PE image-directory search), not loose files
+/// the harness staged. That co-location is the one thing the zip packaging — not
+/// the cross-build — is responsible for, so it is exactly what a distribution
+/// smoke must exercise.
+///
+/// Scope is deliberately endpoint-free only (no macOS golden): functional
+/// correctness over a live endpoint is already `040`'s green result, and is a
+/// property of the binary, not of how it was packaged. Re-running it here would
+/// cost a second VM to re-prove something the zip layout cannot affect. What the
+/// zip *can* break — a dropped/misplaced DLL so the loader fails before `main` —
+/// is caught by the `--version` canary and every endpoint-free case.
+///
+/// aarch64-windows only (the sole Windows guest this Mac boots). x86_64-windows
+/// stays build/link-verified — its zip is produced but not smoke-run here
+/// (ADR-0009 no-silent-caps).
+///
+/// ```text
+/// # build the artifacts (scripts/release-build.sh) then point at the zip:
+/// export TESTANYWARE_WINDOWS_DIST_ZIP=target/dist/testanyware-v<ver>-aarch64-pc-windows-gnullvm.zip
+/// cargo test -p testanyware-cli --test windows-host-harness \
+///   -- --ignored windows_dist_zip_smoke
+/// ```
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "live VM: TESTANYWARE_WINDOWS_DIST_ZIP=<zip> cargo test --test windows-host-harness -- --ignored windows_dist_zip_smoke"]
+async fn windows_dist_zip_smoke() {
+    let Some(zip) = dist_zip_path() else {
+        eprintln!(
+            "windows_dist_zip_smoke: skipped — set TESTANYWARE_WINDOWS_DIST_ZIP=<path to the \
+             aarch64-windows release .zip> to boot the Windows guest and smoke the shipped artifact."
+        );
+        return;
+    };
+    eprintln!("[smoke] artifact under test: {}", zip.display());
+
+    // Bring up the Windows HUT (the agent-golden, via the host CLI) — same boot
+    // path as the main harness; no macOS golden (endpoint-free only).
+    let hut_id = start_vm("windows").await;
+    let _hut_guard = VmGuard { id: hut_id.clone(), label: "hut" };
+    let (agent_host, agent_port) =
+        agent_endpoint(&hut_id).unwrap_or_else(|e| panic!("reading the HUT agent endpoint failed: {e}"));
+    eprintln!("[hut] agent at {agent_host}:{agent_port}");
+    let channel = AgentChannel {
+        client: AgentClient::new(
+            AgentConfig::new(agent_host, agent_port).with_timeout(Duration::from_secs(600)),
+        )
+        .unwrap_or_else(|e| panic!("building the HUT agent client failed: {e}")),
+    };
+    wait_for_hut_agent(&channel, Duration::from_secs(180))
+        .await
+        .unwrap_or_else(|e| panic!("HUT agent readiness wait failed: {e}"));
+    eprintln!("[hut] agent healthy; extracting the release zip into a clean prefix");
+
+    let run_dir = stage_from_zip(&channel, &zip)
+        .await
+        .unwrap_or_else(|e| panic!("extracting the release zip failed: {e}"));
+
+    // Canary: the first command from the *extracted* tree proves the zip's DLLs
+    // resolve via image-directory search — i.e. the shipped layout loads.
+    let version = channel
+        .exec(&taw_cmd(&run_dir, &["--version"]))
+        .await
+        .unwrap_or_else(|e| panic!("--version canary: channel exec failed: {e}"));
+    if version.exit_code != 0 {
+        let hint = if looks_like_missing_dll(&version.stderr, version.exit_code) {
+            "\n  ↑ load-time-libav failure: the zip is missing/misplacing an ffmpeg-8 DLL. The \
+             zip must carry all five REQUIRED_DLLS co-located beside testanyware.exe in bin/."
+        } else {
+            ""
+        };
+        panic!(
+            "--version canary failed: the shipped zip does not run on aarch64-windows \
+             (exit {}).\n  stderr: {}{hint}",
+            version.exit_code,
+            version.stderr.trim(),
+        );
+    }
+    eprintln!("[canary] the extracted zip's testanyware.exe execs: {}", version.stdout.trim());
+
+    // Endpoint-free band, run from the extracted bin/ — the shipped artifact.
+    let results = run_band(&channel, &run_dir, &endpoint_free_cases()).await;
+
+    eprintln!("\nwindows_dist_zip_smoke — endpoint-free band (from the shipped zip):");
+    let mut failures = Vec::new();
+    for (name, res) in &results {
+        match res {
+            Ok(note) => eprintln!("  ✓ {name}: {note}"),
+            Err(reason) => {
+                eprintln!("  ✗ {name}: {reason}");
+                failures.push(format!("{name}: {reason}"));
+            }
+        }
+    }
+
+    eprintln!(
+        "\n[arch] aarch64-windows zip: runtime-smoked in-guest above. x86_64-windows zip: \
+         BUILD/link-verified only (no native x86_64 Windows guest on this Mac) — runtime gap \
+         open and accepted (ADR-0009)."
+    );
+
+    assert!(
+        failures.is_empty(),
+        "{} of {} endpoint-free checks failed against the shipped zip:\n  - {}",
+        failures.len(),
+        results.len(),
+        failures.join("\n  - "),
+    );
+    eprintln!(
+        "\nwindows_dist_zip_smoke: PASS — the aarch64-windows release zip unzips into a clean \
+         prefix and runs ({} endpoint-free checks green from the extracted tree).",
+        results.len(),
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Offline unit tests for the pure helpers (run in a plain `cargo test` on the
 // macOS host; no VM). These pin the contracts the live harness depends on.
 // ---------------------------------------------------------------------------
@@ -1485,6 +1678,31 @@ mod helper_tests {
         );
         // Neither form may start with a quote (the strip-quirk guard).
         assert!(!build_invocation(r"C:\taw", &[], &["--version"]).starts_with('"'));
+    }
+
+    #[test]
+    fn dist_extract_cmd_cleans_then_expands_and_dodges_the_quote_strip() {
+        let cmd = dist_extract_cmd(r"C:\Users\Public\taw-dist.zip", r"C:\Users\Public\taw-dist");
+        // Leads with `powershell`, never a bare `"`, so the cmd /c outer-quote
+        // strip never fires (build_invocation's quirk, same guard).
+        assert!(!cmd.starts_with('"'), "must not start with a quote: {cmd}");
+        // Wipes the prior prefix before expanding — the "clean" in clean-prefix.
+        assert!(cmd.contains("Remove-Item -Recurse -Force 'C:\\Users\\Public\\taw-dist'"));
+        assert!(cmd.contains(
+            "Expand-Archive -Path 'C:\\Users\\Public\\taw-dist.zip' \
+             -DestinationPath 'C:\\Users\\Public\\taw-dist' -Force"
+        ));
+    }
+
+    #[test]
+    fn dist_bin_dir_is_dest_stem_bin() {
+        assert_eq!(
+            dist_bin_dir(
+                r"C:\Users\Public\taw-dist",
+                "testanyware-v1.2.3-aarch64-pc-windows-gnullvm",
+            ),
+            r"C:\Users\Public\taw-dist\testanyware-v1.2.3-aarch64-pc-windows-gnullvm\bin",
+        );
     }
 
     #[test]

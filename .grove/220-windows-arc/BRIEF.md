@@ -162,6 +162,40 @@ with no hypervisor dependency. **Windows OCR is now owned by new leaf
 `Windows.Media.Ocr` vs accept-the-gap (ADR-0002 seam). The harness keeps the
 experimental in-guest EasyOCR attempt behind `TESTANYWARE_WINDOWS_TRY_OCR=1`.
 
+## `050-windows-distribution` disposition — **DONE, aarch64 zip runtime-smoked** (2026-06-08)
+
+The Windows release zip now ships from the shared `scripts/` pipeline. Reused
+`210`'s machinery (`cargo-zigbuild` per triple, BtbN ffmpeg-8 sysroots, the
+shared agent/script payload) with the Windows-specific divergences:
+
+- **Two triples:** `aarch64-pc-windows-gnullvm` (first-class) +
+  `x86_64-pc-windows-gnu` (build/link-verified only). Both cross-build green from
+  this Mac via the `040`-proven recipe (`PKG_CONFIG_LIBDIR` +
+  `BINDGEN_EXTRA_CLANG_ARGS=--target=<arch>-pc-windows-gnu`).
+- **Delivery format = `.zip`, not Homebrew** — `package_bundle` branches on the
+  triple; the formula template is untouched (Windows has no Homebrew entry).
+  `release-publish.sh` uploads the zips as GitHub-release assets.
+- **ffmpeg DLLs co-located beside the `.exe` in `bin/`** (the five
+  `WINDOWS_DLLS`), no `lib/` and no RUNPATH surgery — the PE image-directory
+  search is the Windows analogue of Linux's `$ORIGIN/../lib`.
+- **No OCR module** — EasyOCR uninstallable on win-arm64; `screen find-text` is
+  an unsupported documented gap until `060`.
+- **`release-doctor.sh`** extended: Windows rustup targets, Windows ffmpeg
+  sysroots, and a `zip` tool check.
+
+**Pre-publish real-artifact gate CLEARED:** `windows_dist_zip_smoke`
+(new `#[ignore]`d test in `windows-host-harness.rs`) boots the Windows golden
+HUT, uploads the **actual release zip**, `Expand-Archive`s it into a **clean
+prefix** (`C:\Users\Public\taw-dist`), and runs the endpoint-free band from the
+extracted `bin\` — proving the *shipped layout's* DLL co-location loads (the
+`--version` canary + 6/6 contract checks GREEN on aarch64-windows). Scoped
+endpoint-free only (no macOS golden): functional correctness is `040`'s result
+and a property of the binary, not the packaging; the zip can only break DLL
+co-location, which the canary catches. **x86_64-windows zip produced but not
+smoke-run** (no native x86_64 Windows guest; ADR-0009 no-silent-caps).
+
+Only `060-windows-ocr-band` remains live in this node.
+
 ## On retire (promote upward, then the node retires)
 
 - Record **Windows aarch64 runtime green** into the root BRIEF's Tier-2 checklist

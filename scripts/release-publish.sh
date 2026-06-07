@@ -46,11 +46,15 @@ create_github_release() {
   local version="$1"
   local tag="v${version}"
   echo "release-publish: creating GitHub Release $tag"
+  # macOS + Linux ship .tar.xz (Homebrew points at them); Windows ships .zip.
+  # Both sets are uploaded as release assets; only the .tar.xz feed the formula.
+  local assets=("$DIST_DIR"/*.tar.xz)
+  compgen -G "$DIST_DIR/*.zip" >/dev/null && assets+=("$DIST_DIR"/*.zip)
   gh release create "$tag" \
     --repo Linkuistics/TestAnyware \
     --title "Release $tag" \
     --notes "Release $tag" \
-    "$DIST_DIR"/*.tar.xz
+    "${assets[@]}"
 }
 
 push_formula_to_tap() {

@@ -76,7 +76,9 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
     both triples + a Homebrew formula bundling the ffmpeg-8 `.so`s (RUNPATH
     `$ORIGIN/../lib`) and building the `ocr_analyzer` EasyOCR venv at
     `<prefix>/libexec/venv`; aarch64 runtime-verified, x86_64 build-only. The
-    **Windows distribution** (`220/050`) reuses this machinery), **linux/win
+    **Windows distribution DONE (`220/050`, 2026-06-08)** reused this machinery —
+    a `.zip` per Windows triple, ffmpeg DLLs co-located beside the `.exe`, no OCR
+    venv; aarch64 zip runtime-smoked in-guest, x86_64 build-only), **linux/win
     `vm create-golden`** (full Rust port reusing `110`'s russh layer; macOS-host
     work, no cross binary needed). **Planning leaf `200` decomposes this wave.**
 - **Cross-cutting:** `080-crosscompile-spike` (front-loaded fail-fast for the
@@ -214,7 +216,7 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       (golden produced first-try; fresh clone reachable + accessibility granted).
       **linux/win golden remains Tier 2** (`140-tier2-plan`), built on this same
       `testanyware-vm` foundation.
-- [~] Distribute Rust `testanyware` via Homebrew (macOS + Linux) and Windows zip.
+- [x] Distribute Rust `testanyware` via Homebrew (macOS + Linux) and Windows zip.
       Releases run locally from `scripts/` on an arm64 Mac — no CI. **Decision
       (070): CROSS-COMPILE via `cargo-zigbuild`** (supersedes hand-rolled `zcc`),
       proven by `080`/`160`/`170`. **macOS** Homebrew arm64 ships in Tier 1 (`120`).
@@ -226,8 +228,20 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       `<prefix>/libexec/venv`. **aarch64-linux runtime-verified** — install-layout
       `screen find-text` green with no env crutches (`linux_dist_install_layout`
       harness test); **x86_64-linux build/link-verified ONLY** (no native guest,
-      ADR-0009 no-silent-caps). **Windows** zip remains Tier 2 (`220/050`, reuses
-      this machinery).
+      ADR-0009 no-silent-caps). **Windows DONE (`220/050`, 2026-06-08):**
+      `cargo-zigbuild` both Windows triples (`aarch64-pc-windows-gnullvm` first-class,
+      `x86_64-pc-windows-gnu` build/link-verified only) → a **`.zip` per triple** (no
+      Homebrew on Windows). The zip co-locates the five BtbN ffmpeg-8 DLLs
+      *beside* `testanyware.exe` in `bin/` (PE image-directory search, the Windows
+      analogue of the Linux RUNPATH trick) and ships **NO OCR** (EasyOCR
+      uninstallable on win-arm64 — `screen find-text` an unsupported documented gap
+      until `220/060`). `scripts/release-{build,doctor,publish}.sh` extended;
+      `release-publish.sh` uploads the zips as GitHub-release assets.
+      **aarch64-windows runtime-verified** — the shipped zip unzips into a clean
+      in-guest prefix and runs all 6 endpoint-free contract checks green
+      (`windows_dist_zip_smoke`, the pre-publish real-artifact gate);
+      **x86_64-windows build/link-verified ONLY** (no native x86_64 Windows guest,
+      ADR-0009 no-silent-caps).
 - [x] Final parity verification → **delete `cli/`** and de-transition `CONTEXT.md`.
       **DONE 2026-06-03 (node `130`).** macOS parity proven — `cli-contract.rs`
       green on the full offline surface (22 passed / 0 failed; the 4 remaining

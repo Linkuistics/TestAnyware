@@ -13,14 +13,19 @@ set -euo pipefail
 IFS=$'\n\t'
 trap 'echo "release-doctor: error on line $LINENO" >&2' ERR
 
-# Linux cross-build config — kept in step with release-build.sh.
+# Cross-build config — kept in step with release-build.sh.
 readonly FFMPEG_SR_ROOT="${TESTANYWARE_FFMPEG_SR:-/tmp/taw-ffmpeg-sr}"
 readonly LINUX_RUST_TARGETS=("aarch64-unknown-linux-gnu" "x86_64-unknown-linux-gnu")
+readonly WINDOWS_RUST_TARGETS=("aarch64-pc-windows-gnullvm" "x86_64-pc-windows-gnu")
+# All cross targets that need an ffmpeg sysroot + a rustup std target staged.
+readonly CROSS_RUST_TARGETS=("${LINUX_RUST_TARGETS[@]}" "${WINDOWS_RUST_TARGETS[@]}")
 # triple -> BtbN sysroot subdir (matches release-build.sh::ffmpeg_sysroot_for).
 ffmpeg_sysroot_dir() {
   case "$1" in
-    aarch64-unknown-linux-gnu) echo "$FFMPEG_SR_ROOT/aarch64-linux" ;;
-    x86_64-unknown-linux-gnu)  echo "$FFMPEG_SR_ROOT/x86_64-linux" ;;
+    aarch64-unknown-linux-gnu)   echo "$FFMPEG_SR_ROOT/aarch64-linux" ;;
+    x86_64-unknown-linux-gnu)    echo "$FFMPEG_SR_ROOT/x86_64-linux" ;;
+    aarch64-pc-windows-gnullvm)  echo "$FFMPEG_SR_ROOT/aarch64-windows" ;;
+    x86_64-pc-windows-gnu)       echo "$FFMPEG_SR_ROOT/x86_64-windows" ;;
   esac
 }
 
@@ -97,6 +102,16 @@ check_tar_xz() {
   mark_pass "tar + xz: available"
 }
 
+check_zip() {
+  # The Windows bundles ship as .zip (no Homebrew on Windows).
+  if ! command -v zip >/dev/null 2>&1; then
+    mark_fail "zip: not on PATH (needed to package the Windows bundles)"
+    remediation "zip ships with macOS; if missing, 'brew install zip'"
+    return
+  fi
+  mark_pass "zip: available"
+}
+
 check_gh_auth() {
   if ! command -v gh >/dev/null 2>&1; then
     mark_fail "gh: not installed"
@@ -134,15 +149,15 @@ check_cargo_zigbuild() {
   mark_pass "cargo-zigbuild: installed"
 }
 
-check_rustup_linux_targets() {
+check_rustup_cross_targets() {
   if ! command -v rustup >/dev/null 2>&1; then
-    mark_fail "rustup: not on PATH (needed to add Linux std targets)"
-    remediation "install via https://rustup.rs, then 'rustup target add ${LINUX_RUST_TARGETS[*]}'"
+    mark_fail "rustup: not on PATH (needed to add cross std targets)"
+    remediation "install via https://rustup.rs, then 'rustup target add ${CROSS_RUST_TARGETS[*]}'"
     return
   fi
   local installed triple
   installed="$(rustup target list --installed 2>/dev/null || echo)"
-  for triple in "${LINUX_RUST_TARGETS[@]}"; do
+  for triple in "${CROSS_RUST_TARGETS[@]}"; do
     if grep -qx "$triple" <<<"$installed"; then
       mark_pass "rustup target: $triple"
     else
@@ -154,7 +169,7 @@ check_rustup_linux_targets() {
 
 check_ffmpeg_sysroots() {
   local triple sr
-  for triple in "${LINUX_RUST_TARGETS[@]}"; do
+  for triple in "${CROSS_RUST_TARGETS[@]}"; do
     sr="$(ffmpeg_sysroot_dir "$triple")"
     if [[ -d "$sr/lib/pkgconfig" ]]; then
       mark_pass "ffmpeg sysroot ($triple): $sr"
@@ -186,13 +201,14 @@ main() {
   check_dotnet
   check_python3
   check_tar_xz
+  check_zip
   check_gh_auth
 
   echo
-  echo "release-doctor: Linux cross-build prerequisites"
+  echo "release-doctor: Linux + Windows cross-build prerequisites"
   check_zig
   check_cargo_zigbuild
-  check_rustup_linux_targets
+  check_rustup_cross_targets
   check_ffmpeg_sysroots
 
   echo
