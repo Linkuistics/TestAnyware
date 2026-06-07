@@ -62,6 +62,51 @@ defer until a user needs it.
   arm + the Windows harness OCR band finally run green, or the gap is documented
   as accepted).
 
+## Decisions (running log)
+
+- **Engine = native `Windows.Media.Ocr`** (2026-06-08). A `#[cfg(windows)]`
+  `OcrEngine::WindowsMediaOcr` variant at the ADR-0002 seam, reported token
+  `"windows_media_ocr"`. Chosen over containerized Linux EasyOCR and
+  accept-the-gap because it is the only option with **zero end-user runtime
+  dependency** (WinRT OCR ships in Win10+; the distribution is a zip of
+  `.exe`+DLLs, `220/050`), works **uniformly on both Windows arches**
+  (no arm64/x86_64 OCR divergence — relevant since x86_64-windows is
+  build-only), and is the **right tool for the workload** (rendered UI text,
+  where classical OCR excels; EasyOCR's deep-learning edge is natural-scene
+  text TestAnyware never sees). The container option's Docker-Desktop-on-the-
+  user's-machine cost fails the same friction bar [[minimal-images]] encodes,
+  just on the host rather than the image. Accept-the-gap was the honest
+  fallback (Windows OCR is Tier-2, beyond-parity, additive — the grove's core
+  goal of deleting Swift `cli/` is already met), declined because the native
+  engine's cost is low enough to close the arc and keep Windows symmetric with
+  Linux/macOS (both 3/3).
+
+- **FFI strategy = pure-Rust `windows` crate** (2026-06-08). Microsoft's
+  official WinRT bindings, a plain Cargo dependency (`Media_Ocr`,
+  `Graphics_Imaging`, `Globalization` features). Direct analogue of ADR-0003's
+  `objc2`-over-Swift-shim choice for macOS Vision; the reasoning transfers
+  verbatim — a C#/WinRT shim would drag the .NET toolchain into a build that is
+  today pure `cargo-zigbuild` **and cannot cross-compile from the Mac**, whereas
+  the `windows` crate cross-builds cleanly for `aarch64-pc-windows-gnullvm`.
+
+- **`detect()` is WinRT-only on Windows, no fallback env** (2026-06-08).
+  `#[cfg(windows)]` `detect()` returns `WindowsMediaOcr` unconditionally — no
+  Windows `TESTANYWARE_OCR_FALLBACK`. The daemon fallback is *dead on the only
+  runtime-verified arch* (EasyOCR uninstallable on win-arm64) and x86_64-windows
+  is build-only, so a fallback would be speculative surface for an unverified
+  target (constraint 4 — add EasyOCR lazily if a user ever needs it). The
+  harness's `TESTANYWARE_WINDOWS_TRY_OCR=1` stays a harness-local experimental
+  knob, separate from product engine selection.
+
+- **Scope = decide + decompose** (2026-06-08). This planning leaf records
+  **ADR-0011** and spawns one work leaf **`070-windows-media-ocr-engine`** to
+  build the variant + run the harness OCR band green; the build is its own
+  focused session (the brief's stated intent). Fail-fast risk for `070`: prove
+  the `windows`-crate **link** for `aarch64-pc-windows-gnullvm` via
+  `cargo-zigbuild` early (the `160`-style check) — the crate bundles import
+  libraries for all Windows arches so it *should* link, but verify before
+  building the engine on top.
+
 ## Notes
 
 - Durable rationale for *why not containerize the whole host*:

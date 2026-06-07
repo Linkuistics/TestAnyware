@@ -48,7 +48,11 @@ Risk-ordered, each leaf a focused session landing verified value:
 - **`060-windows-ocr-band`** — **added 2026-06-07** from the `215` spike's reject.
   Decide the Windows OCR engine (containerized Linux EasyOCR vs native
   `Windows.Media.Ocr` vs accept-the-gap, at the ADR-0002 seam) and, if implied,
-  build it. **Additive band; does not block `050`.**
+  build it. **Additive band; does not block `050`.** **DECIDED 2026-06-08 —
+  see disposition below; spawned work leaf `070`.**
+- **`070-windows-media-ocr-engine`** — **added 2026-06-08** by `060`. Work leaf:
+  build the `#[cfg(windows)]` `OcrEngine::WindowsMediaOcr` variant (WinRT via the
+  `windows` crate, ADR-0011) and run the harness OCR band green on aarch64-windows.
 
 `020` and `030` are independent (one is macOS-host golden work, one is source
 `#[cfg]` wiring) and may be done in either order; both must land before `040`.
@@ -194,7 +198,24 @@ and a property of the binary, not the packaging; the zip can only break DLL
 co-location, which the canary catches. **x86_64-windows zip produced but not
 smoke-run** (no native x86_64 Windows guest; ADR-0009 no-silent-caps).
 
-Only `060-windows-ocr-band` remains live in this node.
+Only `060-windows-ocr-band` (now decided → `070`) remains live in this node.
+
+## `060-windows-ocr-band` disposition — **DECIDED, native `Windows.Media.Ocr`** (2026-06-08)
+
+Planning leaf. Grilled the three-way decision the `215` reject left open and
+recorded **ADR-0011**: the Windows OCR engine is **native `Windows.Media.Ocr`**
+(a `#[cfg(windows)]` `OcrEngine::WindowsMediaOcr` variant, token
+`"windows_media_ocr"`), bound via the **pure-Rust `windows` crate** (WinRT —
+ADR-0003's `objc2` precedent recurring), with `detect()` returning it
+**unconditionally on Windows** (no `TESTANYWARE_OCR_FALLBACK`). Rejected
+**containerized Linux EasyOCR** (sound carve-out, but its Docker-Desktop cost
+lands on every Windows *end-user's* machine — against the `220/050` zip-distribution
++ [[minimal-images]] grain) and **accept-the-gap** (honest fallback for Tier-2
+additive work, but the native engine's cost is low enough to close the arc and keep
+Windows symmetric with Linux/macOS at 3/3). Build deferred to work leaf
+**`070-windows-media-ocr-engine`** (the brief's stated plan-then-spawn intent).
+Durable rationale for *not* containerizing: `docs/research/240-docker-host-unification.md`
++ ADR-0010/0011.
 
 ## On retire (promote upward, then the node retires)
 
