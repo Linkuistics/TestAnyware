@@ -188,11 +188,18 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       → ffmpeg-8 libx264 MP4)** GREEN on aarch64-windows. **x86_64-windows
       build/link-verified only** (gap logged). **OCR band deferred** — EasyOCR is
       uninstallable on win-arm64 (opencv-python-headless has no `win_arm64` wheel),
-      the low-regret kill signal that **hoisted `240` (docker host unification)**:
-      Windows OCR is solved structurally by running the host CLI as a Linux binary,
-      so `240` is now picked **before** `220/050` (windows distribution), which is
-      **gated on `240`'s outcome**. If `240` rejects docker, revisit Windows OCR
-      (native `Windows.Media.Ocr` engine, ADR-0002 seam, or accept the gap).
+      the low-regret kill signal that hoisted `215` (docker host unification, was
+      `240`). **`215` REPORTED REJECT (2026-06-07,
+      `docs/research/240-docker-host-unification.md`):** containerizing the whole
+      host binary fails the host-side-framebuffer gate (ADR-0010) on macOS/Windows
+      and *adds* native surface on Windows — ship the native cross-compiled Windows
+      binary, do not replace it. The spike's narrow payoff: OCR is host-side compute
+      *downstream* of framebuffer capture (no hypervisor dep), so only the **OCR
+      engine** can be containerized (Linux EasyOCR container, gate-irrelevant).
+      **`220/050` is UNGATED** (ships OCR-less 2/3-green surface); the Windows OCR
+      band — containerized Linux EasyOCR vs native `Windows.Media.Ocr` vs
+      accept-the-gap, at the ADR-0002 seam — is decided in new leaf
+      **`220/060-windows-ocr-band`**.
 - [x] Live-VM verification gate for the RFB client + input layer (node
       `050-live-vm-gate`: `tests/live-vm-gate.rs` — input landing, show-menu,
       ZRLE/Tight/Raw capture, live Vision OCR; macOS golden, env+`#[ignore]`d).

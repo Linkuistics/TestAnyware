@@ -41,8 +41,14 @@ Risk-ordered, each leaf a focused session landing verified value:
   (ssh → in-VM agent `file upload`/`exec`) + a Windows HUT. Needs the windows
   binary (`030`) *and* the windows golden HUT (`020`).
 - **`050-windows-distribution`** — the Windows zip (`cargo-zigbuild` per windows
-  triple + OCR-venv bundle, reusing `210`'s shared machinery). **Trails `040`** —
-  never ship a binary the harness has not run green.
+  triple, reusing `210`'s shared machinery). **Trails `040`** — never ship a binary
+  the harness has not run green. **No OCR-venv bundle** — EasyOCR is uninstallable
+  on win-arm64; `215` confirmed reject of docker-host-unification, so this ships the
+  native OCR-less 2/3-green surface (unblocked).
+- **`060-windows-ocr-band`** — **added 2026-06-07** from the `215` spike's reject.
+  Decide the Windows OCR engine (containerized Linux EasyOCR vs native
+  `Windows.Media.Ocr` vs accept-the-gap, at the ADR-0002 seam) and, if implied,
+  build it. **Additive band; does not block `050`.**
 
 `020` and `030` are independent (one is macOS-host golden work, one is source
 `#[cfg]` wiring) and may be done in either order; both must land before `040`.
@@ -146,12 +152,15 @@ aarch64-windows**: `opencv-python-headless` (a hard dep) has **no `win_arm64`
 wheel** on PyPI, conda-forge, or cgohlke's win-arm64 set, and can't be
 source-built in a minimal golden (no MSVC toolchain; [[minimal-images]]).
 torch+torchvision **do** install (PyTorch's own cpu index, `win_arm64`/`cp312`).
-This is a real ecosystem wall — the **low-regret kill signal** for the
-per-platform-native-host path, so **Windows OCR is deferred to `240` (docker host
-unification)**: running the host CLI as a *Linux* binary dissolves the gap. If
-`240` rejects docker, revisit (native `Windows.Media.Ocr` engine at the ADR-0002
-seam, or accept the gap). The harness keeps the experimental in-guest EasyOCR
-attempt behind `TESTANYWARE_WINDOWS_TRY_OCR=1`.
+This is a real ecosystem wall — the **low-regret kill signal** that hoisted
+`215` (docker host unification, was `240`). **`215` REPORTED REJECT (2026-06-07,
+`docs/research/240-docker-host-unification.md`):** don't containerize the whole
+host (fails the host-side-framebuffer gate, ADR-0010), but OCR specifically *can*
+move to a Linux container because it is host-side compute downstream of capture
+with no hypervisor dependency. **Windows OCR is now owned by new leaf
+`060-windows-ocr-band`** — containerized Linux EasyOCR vs native
+`Windows.Media.Ocr` vs accept-the-gap (ADR-0002 seam). The harness keeps the
+experimental in-guest EasyOCR attempt behind `TESTANYWARE_WINDOWS_TRY_OCR=1`.
 
 ## On retire (promote upward, then the node retires)
 

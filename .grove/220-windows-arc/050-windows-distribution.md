@@ -2,22 +2,28 @@
 
 **Kind:** work
 
-## GATED on `215-docker-host-unification` (2026-06-05)
+## UNGATED — `215-docker-host-unification` reported REJECT (2026-06-07)
 
-Do **not** start this until the hoisted docker host-unification spike (`215`,
-formerly `240`) reports. If `215` adopts docker / a thin shim, the **native
-Windows host binary this leaf would distribute may be replaced** by a
-containerized Linux host — making this zip moot or reshaping it entirely. The
-spike picks before this leaf precisely so its findings land first. Also: the OCR
-venv this leaf assumed (`<prefix>/libexec/venv` EasyOCR) is **not installable on
-win-arm64** (see `040` disposition + root BRIEF) — another reason its scope
-waits on `215`.
+The hoisted docker host-unification spike (`215`, formerly `240`) **rejected**
+containerizing the host binary (`docs/research/240-docker-host-unification.md`) —
+it fails the host-side-framebuffer gate (ADR-0010) on macOS/Windows and adds
+native surface on Windows. So the **native cross-compiled Windows host binary
+this leaf distributes is NOT being replaced** — ship it. This leaf is unblocked.
+
+**OCR-venv scope removed.** This leaf previously assumed bundling the
+`ocr_analyzer` EasyOCR venv into `<prefix>/libexec/venv` (reusing `210`'s Linux
+recipe). That is **impossible on win-arm64** (EasyOCR/opencv has no `win_arm64`
+wheel) and the spike confirmed the fix is *not* an in-host venv. **Ship the
+OCR-less 2/3-green surface here**; the Windows OCR engine is decided separately in
+`060-windows-ocr-band` (containerized Linux EasyOCR vs native `Windows.Media.Ocr`
+vs accept-the-gap) as an additive band. `screen find-text` is documented
+unsupported on win-arm64 until `060` lands an engine.
 
 ## Goal
 
 Ship the **Windows** `testanyware` distribution: a **zip** per Windows triple
-(`cargo-zigbuild`), bundling the **`ocr_analyzer` EasyOCR venv** into
-`<prefix>/libexec/venv` — reusing the shared distribution machinery `210` built.
+(`cargo-zigbuild`) — CLI + ffmpeg-8 DLLs (the `040`-proven libav link), **no OCR
+venv** (see above) — reusing the shared distribution machinery `210` built.
 
 ## Context
 
@@ -39,15 +45,16 @@ Ship the **Windows** `testanyware` distribution: a **zip** per Windows triple
 ## Done when
 
 - `cargo-zigbuild` produces both Windows triples; the **aarch64-windows** zip (CLI
-  + ffmpeg-8 DLLs + OCR venv) is the harness-green artifact; **x86_64-windows**
+  + ffmpeg-8 DLLs, **no OCR venv**) is the harness-green artifact; **x86_64-windows**
   build-verified, gap logged.
 - The zip is publishable via `scripts/release-publish.sh`; root BRIEF distribution
   checklist updated.
 
 ## Notes
 
-- This is the **last** Windows-arc leaf; landing it (with `040` green) lets the
-  `220` node retire.
+- Once the **last** live Windows-arc leaf (this + `060-windows-ocr-band`) lands,
+  the `220` node retires. `050` and `060` are independent — `060` (OCR band) does
+  not block this distribution.
 - Acceptance gate: **CLI design contract**.
 
 ## Pre-publish gate (deferred-in from `210` inbox, 2026-06-04)
