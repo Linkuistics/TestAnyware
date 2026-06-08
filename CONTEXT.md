@@ -43,8 +43,19 @@ components.
 **In-VM agent**:
 A per-platform process running inside a guest VM that exposes
 accessibility APIs over HTTP for the Host CLI to drive. Lives under
-`agents/{linux,macos,windows}/`. **Out of scope** for the `rust-cli-port`
-grove — separate workstreams.
+`agents/{linux,macos,windows}/`. Today three independent implementations
+(Linux=Python, macOS=Swift, Windows=C#). **Out of scope** for the
+`rust-cli-port` grove — separate workstreams.
+
+**Agent a11y surface**:
+The accessibility-tree subset of the *In-VM agent*'s HTTP endpoints, shared
+(near-identically) across all three platforms: `windows`, `snapshot`,
+`inspect`, `press`, `set-value`, `focus`, `show-menu`,
+`window-{focus,resize,move,close,minimize}`, `wait`. Distinct from the agent's
+*non-a11y* endpoints (`/exec`, `/upload`, `/download`, `/shutdown`, `/health`),
+which are file/process/lifecycle, not accessibility.
+_Avoid_: conflating the whole agent with its a11y surface — the agent is the
+process + HTTP envelope + both surfaces.
 
 **Golden image**:
 A pre-built per-platform VM disk image (`testanyware-golden-<platform>-...`)
