@@ -55,11 +55,11 @@ testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.is
 
 ## Common pitfalls
 
-- **SIP cycle during macOS golden build.** The script reboots the VM
-  into Recovery to disable SIP, writes a TCC grant for the agent
-  tied to its code-signing requirement, then re-enables SIP. If this
-  step is interrupted, the resulting image may have SIP disabled —
-  rebuild from scratch.
+- **SIP cycle during macOS golden build.** `testanyware vm create-golden
+  --platform macos` reboots the VM into Recovery to disable SIP, writes a
+  TCC grant for the agent tied to its code-signing requirement, then
+  re-enables SIP. If this step is interrupted, the resulting image may have
+  SIP disabled — rebuild from scratch.
 - **Windows ISO cache.** Lives at
   `${XDG_DATA_HOME:-~/.local/share}/testanyware/cache/`. First
   invocation of `testanyware vm create-golden --platform windows`
