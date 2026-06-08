@@ -94,8 +94,9 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
 - Glossary terms in play: Host CLI, Swift CLI, Rust CLI, Command surface,
   CLI design contract, In-VM agent, Golden image (see `CONTEXT.md`).
 - Per-platform-facilities direction: use the best native facility per platform
-  via `#[cfg(target_os = ...)]` (macOS Apple Vision OCR; EasyOCR/other on
-  Linux/Windows). Reverses the old "EasyOCR everywhere" decision — reconcile
+  via `#[cfg(target_os = ...)]` (macOS Apple Vision OCR — ADR-0003; **Windows
+  native `Windows.Media.Ocr` — ADR-0011**; EasyOCR daemon on Linux). Reverses the
+  old "EasyOCR everywhere" decision — reconcile
   `git show a062072:LLM_STATE/core/decisions.md` framing when it surfaces.
 - Old backlog task descriptions (a stale snapshot, descriptions only — NOT
   status): `git show a062072:LLM_STATE/core/backlog.yaml`.
@@ -180,28 +181,32 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       `engine=easyocr_daemon`). **x86_64-linux is BUILD-verified only** (no native
       x86_64 guest on this Mac; gap logged in the harness doc-comment, ADR-0009
       no-silent-caps).
-- [x] **Self-hosted host verification harness — Windows aarch64 2/3 bands GREEN**
-      (Tier 2, node `220/040`, 2026-06-05). `cli-rs/.../tests/windows-host-harness.rs`
-      (standalone; **duplicated** 190's machinery, not extracted) boots the Windows
-      agent-golden as a QEMU+swtpm HUT, agent-provisions the cross binary + ffmpeg
-      DLLs (the `ProvisionChannel` 2nd impl: in-VM agent `/exec`+`/upload`+`/download`,
-      no sshd), forwards a macOS golden's agent+VNC via the slirp gateway (10.0.2.2),
-      and runs **endpoint-free (6/6) + endpoint-driven (10/10, incl. `screen record`
-      → ffmpeg-8 libx264 MP4)** GREEN on aarch64-windows. **x86_64-windows
-      build/link-verified only** (gap logged). **OCR band deferred** — EasyOCR is
-      uninstallable on win-arm64 (opencv-python-headless has no `win_arm64` wheel),
-      the low-regret kill signal that hoisted `215` (docker host unification, was
-      `240`). **`215` REPORTED REJECT (2026-06-07,
-      `docs/research/240-docker-host-unification.md`):** containerizing the whole
-      host binary fails the host-side-framebuffer gate (ADR-0010) on macOS/Windows
-      and *adds* native surface on Windows — ship the native cross-compiled Windows
-      binary, do not replace it. The spike's narrow payoff: OCR is host-side compute
-      *downstream* of framebuffer capture (no hypervisor dep), so only the **OCR
-      engine** can be containerized (Linux EasyOCR container, gate-irrelevant).
-      **`220/050` is UNGATED** (ships OCR-less 2/3-green surface); the Windows OCR
-      band — containerized Linux EasyOCR vs native `Windows.Media.Ocr` vs
-      accept-the-gap, at the ADR-0002 seam — is decided in new leaf
-      **`220/060-windows-ocr-band`**.
+- [x] **Self-hosted host verification harness — Windows aarch64 3/3 bands GREEN**
+      (Tier 2, node `220`, harness `040` 2026-06-05, OCR band closed by `070`
+      2026-06-08). `cli-rs/.../tests/windows-host-harness.rs` (standalone;
+      **duplicated** 190's machinery, not extracted) boots the Windows agent-golden
+      as a QEMU+swtpm HUT, agent-provisions the cross binary + ffmpeg DLLs (the
+      `ProvisionChannel` 2nd impl: in-VM agent `/exec`+`/upload`+`/download`, no
+      sshd), forwards a macOS golden's agent+VNC via the slirp gateway (10.0.2.2),
+      and runs **endpoint-free (6/6) + endpoint-driven (11/11, incl. `screen record`
+      → ffmpeg-8 libx264 MP4 AND `screen find-text` → native `windows_media_ocr`)**
+      GREEN on aarch64-windows — **Windows now at OCR parity (3/3) with Linux and
+      macOS**. **x86_64-windows build/link-verified only** (gap logged, ADR-0009).
+      **OCR-band history:** EasyOCR is uninstallable on win-arm64
+      (opencv-python-headless has no `win_arm64` wheel) — the kill signal that
+      hoisted `215` (docker host unification, was `240`). **`215` REPORTED REJECT
+      (2026-06-07, `docs/research/240-docker-host-unification.md`):** containerizing
+      the whole host binary fails the host-side-framebuffer gate (ADR-0010) on
+      macOS/Windows; ship the native cross-compiled binary. The narrow payoff (OCR
+      is host-side compute downstream of capture, so the OCR *engine* alone could
+      containerize) was weighed and **rejected on end-user friction** in favour of
+      the native engine: **`220/060` DECIDED + `220/070` BUILT native
+      `Windows.Media.Ocr`** (ADR-0011) — a `#[cfg(windows)]`
+      `OcrEngine::WindowsMediaOcr` variant via the pure-Rust `windows` WinRT crate,
+      `detect()` returns it unconditionally on Windows, **no provisioning needed**
+      (in-process, unlike Linux's EasyOCR daemon). The harness OCR band runs
+      unconditionally now; the experimental `TESTANYWARE_WINDOWS_TRY_OCR` knob is
+      retired.
 - [x] Live-VM verification gate for the RFB client + input layer (node
       `050-live-vm-gate`: `tests/live-vm-gate.rs` — input landing, show-menu,
       ZRLE/Tight/Raw capture, live Vision OCR; macOS golden, env+`#[ignore]`d).
@@ -233,9 +238,11 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       `x86_64-pc-windows-gnu` build/link-verified only) → a **`.zip` per triple** (no
       Homebrew on Windows). The zip co-locates the five BtbN ffmpeg-8 DLLs
       *beside* `testanyware.exe` in `bin/` (PE image-directory search, the Windows
-      analogue of the Linux RUNPATH trick) and ships **NO OCR** (EasyOCR
-      uninstallable on win-arm64 — `screen find-text` an unsupported documented gap
-      until `220/060`). `scripts/release-{build,doctor,publish}.sh` extended;
+      analogue of the Linux RUNPATH trick) and ships **no EasyOCR venv** (none is
+      needed — `220/070` made Windows OCR an *in-process* native `Windows.Media.Ocr`
+      engine compiled into the `.exe`, so `screen find-text` works from the zip with
+      nothing extra to bundle; the zip predates `070` but the build machinery now
+      produces a binary carrying the engine). `scripts/release-{build,doctor,publish}.sh` extended;
       `release-publish.sh` uploads the zips as GitHub-release assets.
       **aarch64-windows runtime-verified** — the shipped zip unzips into a clean
       in-guest prefix and runs all 6 endpoint-free contract checks green
