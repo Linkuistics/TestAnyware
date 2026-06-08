@@ -45,9 +45,10 @@
 #     the cross binary load-time-imports. Co-located *beside* testanyware.exe so
 #     the PE loader's image-directory search resolves them with no PATH (the
 #     Windows analogue of the Linux RUNPATH trick; grove 220/040 proved it).
-#   - NO OCR module: EasyOCR is uninstallable on win-arm64 (opencv has no
-#     win_arm64 wheel), so `screen find-text` is an unsupported documented gap on
-#     Windows until grove 220/060 lands an engine. ADR-0002 seam unchanged.
+#   - NO OCR venv: unlike Linux (EasyOCR daemon), Windows `screen find-text`
+#     uses the in-process native `Windows.Media.Ocr` engine compiled into the
+#     .exe (grove 220/070, ADR-0011 — EasyOCR is uninstallable on win-arm64), so
+#     nothing extra ships in the zip. ADR-0002 seam unchanged.
 #
 # Output: target/dist/
 #   testanyware-v<ver>-<triple>.tar.xz   (one per macOS/Linux target)
@@ -479,9 +480,9 @@ main() {
   echo "      is unverified; ship knowingly. aarch64 (both linux + windows) is the"
   echo "      harness-runtime-verified tier."
   echo
-  echo "NOTE: Windows zips ship NO OCR — EasyOCR is uninstallable on win-arm64, so"
-  echo "      'screen find-text' is an unsupported documented gap until grove"
-  echo "      220/060 lands a Windows OCR engine."
+  echo "NOTE: Windows 'screen find-text' uses the in-process native"
+  echo "      Windows.Media.Ocr engine compiled into the .exe (grove 220/070,"
+  echo "      ADR-0011) — no OCR venv ships in the zip; nothing extra to bundle."
   echo
   echo "Inspect, then run scripts/release-publish.sh"
 }
