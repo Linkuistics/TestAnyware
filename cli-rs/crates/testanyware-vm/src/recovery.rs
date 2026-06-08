@@ -587,8 +587,12 @@ pub(crate) fn wait_for_pid_exit(pid: i32, attempts: u32, interval: Duration) -> 
 
 /// Boot the setup VM normally and wait for SSH key auth to answer, returning
 /// the refreshed [`SetupVm`]. `--vnc-experimental` is kept so WindowServer
-/// starts (needed for the later TCC/accessibility work — script line 591).
-async fn reboot_and_wait_ssh(setup: &SetupVm, paths: &VmPaths) -> Result<SetupVm, VmError> {
+/// starts (needed for the later TCC/accessibility work — script line 591); on
+/// Linux the same flag gives GDM a virtual display so it does not crash-loop
+/// (Linux script's `--vnc-experimental` note). `pub(crate)` so the Tier-2 Linux
+/// golden ([`crate::golden_linux`]) reuses it for its apply-settings reboot —
+/// the boot+poll-IP+wait-SSH mechanism is platform-neutral.
+pub(crate) async fn reboot_and_wait_ssh(setup: &SetupVm, paths: &VmPaths) -> Result<SetupVm, VmError> {
     eprintln!("Rebooting normally...");
     let (pid, _log) = crate::tart::run_detached(&setup.id, &paths.vms_dir())?;
 

@@ -69,15 +69,17 @@ All golden images share these properties:
 
 ```bash
 testanyware vm create-golden --platform macos
-./provisioner/scripts/vm-create-golden-linux.sh
+testanyware vm create-golden --platform linux
 ```
 
-For Windows, first download the Windows 11 ARM64 ISO from
+For Windows, first download the Windows 11 ARM64 evaluation ISO from
 [Microsoft](https://www.microsoft.com/en-us/software-download/windows11arm64),
-then pass it to the script:
+then pass it to the in-process command (which builds
+`testanyware-golden-windows-11` via QEMU+swtpm, provisioning over the
+in-VM agent — no SSH):
 
 ```bash
-./provisioner/scripts/vm-create-golden-windows.sh --iso ~/Downloads/Win11_ARM64.iso
+testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.iso
 ```
 
 The ISO is cached after first use — subsequent runs don't need `--iso`.

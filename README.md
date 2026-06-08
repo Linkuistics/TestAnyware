@@ -228,19 +228,20 @@ brew install Linkuistics/taps/testanyware
 
 That installs the `testanyware` host CLI on PATH and bundles the in-VM
 agents (macOS Swift binary, Windows .NET 9 self-contained `.exe`, Linux
-Python source) and the golden-image scripts under
-`$(brew --prefix testanyware)/share/testanyware/`. The
-`vm-create-golden-{macos,linux,windows}.sh` scripts read agent
-artifacts from that location automatically — there is nothing to build
-on the host.
+Python source) under `$(brew --prefix testanyware)/share/testanyware/`.
+The golden builders read agent artifacts from that location
+automatically — there is nothing to build on the host.
 
-To create a golden image — macOS is built in to the CLI; the Linux/Windows
-builders are still bundled scripts:
+To create a golden image — all three goldens (macOS, Linux, Windows)
+are in-process `testanyware vm create-golden --platform <os>` commands;
+no golden shell scripts ship any more. The Windows golden builds
+Windows 11 ARM64 (`testanyware-golden-windows-11`) via QEMU+swtpm from
+a Microsoft evaluation ISO, so its first run needs `--iso <path>`:
 
 ```bash
 testanyware vm create-golden --platform macos
-bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-linux.sh"
-bash "$(brew --prefix testanyware)/share/testanyware/scripts/vm-create-golden-windows.sh" --iso ~/Downloads/Win11_ARM64.iso
+testanyware vm create-golden --platform linux
+testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.iso
 ```
 
 `brew upgrade testanyware` updates the CLI and the bundled agents
@@ -328,15 +329,17 @@ Create golden images (one-time, ~10 minutes each):
 
 ```bash
 testanyware vm create-golden --platform macos     # macOS (tart)
-provisioner/scripts/vm-create-golden-linux.sh     # Linux (tart)
+testanyware vm create-golden --platform linux     # Linux (tart)
 ```
 
-For Windows, first download the Windows 11 ARM64 ISO from
+For Windows, first download the Windows 11 ARM64 evaluation ISO from
 [Microsoft](https://www.microsoft.com/en-us/software-download/windows11arm64),
-then pass it to the script:
+then pass it to the in-process command (which builds
+`testanyware-golden-windows-11` via QEMU+swtpm, provisioning over the
+in-VM agent — no SSH):
 
 ```bash
-provisioner/scripts/vm-create-golden-windows.sh --iso ~/Downloads/Win11_ARM64.iso
+testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.iso
 ```
 
 The ISO is cached after first use — subsequent runs don't need `--iso`.
@@ -370,8 +373,8 @@ form; the CLI is the source of truth.
 | Script | How to run | What it does |
 |--------|-----------|--------------|
 | _(built into the CLI)_ | `testanyware vm create-golden --platform macos` | Create macOS golden VM image (tart) with agent + Xcode + Homebrew |
-| `provisioner/scripts/vm-create-golden-linux.sh` | `./provisioner/scripts/vm-create-golden-linux.sh` | Create Linux golden VM image (tart) with agent + dev tools |
-| `provisioner/scripts/vm-create-golden-windows.sh` | `./provisioner/scripts/vm-create-golden-windows.sh --iso <path>` | Create Windows golden VM image (QEMU) with agent + Chocolatey; requires downloaded ISO on first run |
+| _(built into the CLI)_ | `testanyware vm create-golden --platform linux` | Create Linux golden VM image (tart) with agent + dev tools |
+| _(built into the CLI)_ | `testanyware vm create-golden --platform windows --iso <path>` | Create Windows golden VM image (QEMU+swtpm) with agent + Chocolatey; requires downloaded ISO on first run |
 | `provisioner/scripts/vm-start.sh` | `vmid=$(provisioner/scripts/vm-start.sh)` | Start VM, print instance id on stdout, write `$XDG_STATE_HOME/testanyware/vms/<id>.json` |
 | `provisioner/scripts/vm-stop.sh` | `provisioner/scripts/vm-stop.sh "$vmid"` | Stop VM and delete its spec files (id is required; `TESTANYWARE_VM_ID` works too) |
 | `provisioner/scripts/vm-list.sh` | `provisioner/scripts/vm-list.sh` | List golden images and running clones (tart + QEMU) |
@@ -420,7 +423,7 @@ spec](https://specification.freedesktop.org/basedir-spec/latest/):
 | Content | Path | Purpose |
 |---------|------|---------|
 | Running-VM spec + metadata | `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/` | Ephemeral; written by `vm-start.sh`, removed by `vm-stop.sh` |
-| QEMU golden images | `${XDG_DATA_HOME:-~/.local/share}/testanyware/golden/` | Persistent; created by `vm-create-golden-windows.sh` |
+| QEMU golden images | `${XDG_DATA_HOME:-~/.local/share}/testanyware/golden/` | Persistent; created by `testanyware vm create-golden --platform windows` |
 | QEMU clone working dirs | `${XDG_DATA_HOME:-~/.local/share}/testanyware/clones/<id>/` | Ephemeral; created by `vm-start.sh`, removed by `vm-stop.sh` |
 | Windows installer ISO cache | `${XDG_DATA_HOME:-~/.local/share}/testanyware/cache/` | Persistent; reused across golden-image builds |
 

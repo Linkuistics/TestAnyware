@@ -37,7 +37,7 @@ Defaults follow the XDG Base Directory spec.
 | Content | Path | Purpose |
 |---------|------|---------|
 | Running-VM specs | `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.json` and `<id>.meta.json` | Ephemeral; created by `vm start`, removed by `vm stop` |
-| QEMU golden images | `${XDG_DATA_HOME:-~/.local/share}/testanyware/golden/` | Persistent; produced by `vm-create-golden-windows.sh` |
+| QEMU golden images | `${XDG_DATA_HOME:-~/.local/share}/testanyware/golden/` | Persistent; produced by `testanyware vm create-golden --platform windows` |
 | QEMU clone working dirs | `${XDG_DATA_HOME:-~/.local/share}/testanyware/clones/<id>/` | Ephemeral per-clone disk; removed on stop |
 | Windows installer ISO cache | `${XDG_DATA_HOME:-~/.local/share}/testanyware/cache/` | Persistent; reused across golden-image rebuilds |
 
@@ -76,14 +76,15 @@ queries both backends and presents a unified view.
 ## Golden images
 
 Golden images are built once, then every `vm start` clones from a
-golden. macOS is an in-process CLI command; the Linux/Windows builders
-live at `provisioner/scripts/`:
+golden. All three goldens (macOS, Linux, Windows) are in-process
+`testanyware vm create-golden --platform <os>` commands — no golden
+shell scripts ship any more:
 
 | Builder | Produces |
 |---------|----------|
 | `testanyware vm create-golden --platform macos` | `testanyware-golden-macos-tahoe` (tart) |
-| `vm-create-golden-linux.sh` | `testanyware-golden-linux-24.04` (tart) |
-| `vm-create-golden-windows.sh` | `testanyware-golden-windows-11` (QEMU, under `$XDG_DATA_HOME/testanyware/golden/`) |
+| `testanyware vm create-golden --platform linux` | `testanyware-golden-linux-24.04` (tart) |
+| `testanyware vm create-golden --platform windows` | `testanyware-golden-windows-11` (QEMU+swtpm, under `$XDG_DATA_HOME/testanyware/golden/`; first run needs `--iso <path>`) |
 
 Clone semantics: tart uses copy-on-write clones (`tart clone` is fast
 and cheap). QEMU uses file-level copy of the backing qcow2 image — one

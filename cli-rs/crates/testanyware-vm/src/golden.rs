@@ -182,7 +182,10 @@ pub fn parse_clt_label(softwareupdate_output: &str) -> Option<String> {
 /// Resolve the host's SSH keypair: the first existing public-key candidate
 /// and its matching private key. Hard error if neither pair is present — the
 /// whole flow depends on key auth. Ports script lines ~70–81.
-fn resolve_ssh_key() -> Result<(PathBuf, PathBuf), VmError> {
+///
+/// `pub(crate)` so the Tier-2 Linux golden ([`crate::golden_linux`]) reuses it
+/// unchanged — the keypair search is host-side and platform-neutral.
+pub(crate) fn resolve_ssh_key() -> Result<(PathBuf, PathBuf), VmError> {
     let home = std::env::var("HOME").map_err(|_| {
         VmError::GoldenCreateFailed { detail: "HOME is not set; cannot locate ~/.ssh key".into() }
     })?;
@@ -235,8 +238,9 @@ fn resolve_agent_bin() -> Result<PathBuf, VmError> {
 }
 
 /// `brew --prefix <formula>` stdout (trimmed), or `None` when brew is absent
-/// or the formula is not installed.
-fn brew_prefix(formula: &str) -> Option<PathBuf> {
+/// or the formula is not installed. `pub(crate)` so [`crate::golden_linux`]
+/// reuses it for the bundled-agent lookup.
+pub(crate) fn brew_prefix(formula: &str) -> Option<PathBuf> {
     let brew = crate::qemu_profile::which("brew")?;
     let out = std::process::Command::new(brew).args(["--prefix", formula]).output().ok()?;
     if !out.status.success() {
@@ -248,8 +252,9 @@ fn brew_prefix(formula: &str) -> Option<PathBuf> {
 
 /// Run a provisioning command, treating a non-zero exit as a **hard
 /// failure** (`GOLDEN_CREATE_FAILED`). For steps whose failure must abort
-/// boot-1 (pubkey install, agent install).
-async fn exec_checked(session: &SshSession, command: &str, what: &str) -> Result<(), VmError> {
+/// boot-1 (pubkey install, agent install). `pub(crate)` — shared with
+/// [`crate::golden_linux`].
+pub(crate) async fn exec_checked(session: &SshSession, command: &str, what: &str) -> Result<(), VmError> {
     let out = session.exec(command).await?;
     if out.exit_code != 0 {
         return Err(VmError::GoldenCreateFailed {
@@ -265,8 +270,9 @@ async fn exec_checked(session: &SshSession, command: &str, what: &str) -> Result
 
 /// Run a command, **tolerating** failure with a warning — matches the
 /// script's `… || true` / "WARNING:" steps (CLT, Homebrew, wallpaper, desktop
-/// cleanup), where a failure must not abort the golden.
-async fn exec_tolerant(session: &SshSession, command: &str, what: &str) {
+/// cleanup), where a failure must not abort the golden. `pub(crate)` — shared
+/// with [`crate::golden_linux`].
+pub(crate) async fn exec_tolerant(session: &SshSession, command: &str, what: &str) {
     match session.exec(command).await {
         Ok(out) if out.exit_code == 0 => {}
         Ok(out) => eprintln!(

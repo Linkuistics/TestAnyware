@@ -45,6 +45,13 @@ pub mod recovery;
 /// host only, like `tart`/`golden`/`recovery`.
 #[cfg(target_os = "macos")]
 pub mod finalize;
+/// Linux golden-image creation: a tart-based normal-mode SSH provisioning pass +
+/// one apply-settings reboot, reusing `110`'s `ssh`/`tart`/`golden` layers
+/// (ADR-0007). No SIP/TCC/recovery cycle (Linux has none), so it is far simpler
+/// than `finalize`. macOS-host only (built on this Mac via tart) — grove leaf
+/// `230-vm-create-golden-linux`.
+#[cfg(target_os = "macos")]
+pub mod golden_linux;
 
 pub use detached::spawn_detached;
 pub use error::VmError;

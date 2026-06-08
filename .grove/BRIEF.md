@@ -219,8 +219,23 @@ needs only **macOS parity**, not the Linux/Windows additive capability):
       `vm-create-golden` schema is in `surface.rs`; the external
       `vm-create-golden-macos.sh` is **deleted**. **Live-verified 2026-06-03**
       (golden produced first-try; fresh clone reachable + accessibility granted).
-      **linux/win golden remains Tier 2** (`140-tier2-plan`), built on this same
-      `testanyware-vm` foundation.
+- [x] **Linux** golden-image creation as `vm create-golden --platform linux`
+      (node `230`, ADR-0007 ssh-via-russh; **no** SIP/TCC/recovery cycle — Linux
+      has none). FULL RUST PORT — 2 normal boots: tart-clone a vanilla Cirrus Labs
+      Ubuntu image, SSH-provision Ubuntu Desktop (minimal) + NetworkManager + GDM
+      autologin (X11) + a locked-down desktop + the `testanyware_agent` Python
+      package as a systemd **user** service (AT-SPI2), reboot to apply, gate on the
+      agent `/health`, disable+mask sshd, clean shutdown + `tart clone`. Reuses
+      `110`'s `ssh`/`tart`/`golden` layers + `recovery::reboot_and_wait_ssh`
+      (promoted to `pub(crate)`). The `vm-create-golden` schema covers
+      `--platform linux`; the external `vm-create-golden-linux.sh` is **deleted**
+      and `release-build.sh` no longer bundles it — **no golden shell script ships
+      now** (macOS `110`, Windows `220/020`, Linux `230` are all in-process). The
+      **Windows** golden is `220/020`. **Live-verified 2026-06-08** — golden
+      produced first-try after one launcher-quoting fix (a heredoc cannot be
+      `&&`-chained onto the next line); a fresh clone reported `reachable: true`,
+      `accessibility_status: "granted"`, agent
+      `{"accessible": true, "platform": "linux"}`.
 - [x] Distribute Rust `testanyware` via Homebrew (macOS + Linux) and Windows zip.
       Releases run locally from `scripts/` on an arm64 Mac — no CI. **Decision
       (070): CROSS-COMPILE via `cargo-zigbuild`** (supersedes hand-rolled `zcc`),

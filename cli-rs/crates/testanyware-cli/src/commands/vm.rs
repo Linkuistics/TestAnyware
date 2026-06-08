@@ -241,25 +241,25 @@ pub async fn run_vm_create_golden(
     mode: OutputMode,
     dry_run: bool,
 ) {
-    // macOS and Windows goldens are both supported (both macOS-host work).
-    // linux is Tier 2 (a separate standalone leaf). An unknown platform is a
-    // usage error (INVALID_PLATFORM, exit 2); a known but unsupported one is
-    // VM_BACKEND_UNSUPPORTED.
+    // macOS, Windows, and Linux goldens are all supported — all three are
+    // macOS-host work (macOS/Linux via tart, Windows via QEMU+swtpm). An unknown
+    // platform string is a usage error (INVALID_PLATFORM, exit 2).
     let parsed = match Platform::parse(&platform) {
-        Ok(p @ (Platform::Macos | Platform::Windows)) => p,
-        Ok(_) => exit_vm_error(VmError::BackendUnsupported { platform }, mode),
+        Ok(p) => p,
         Err(err) => exit_vm_error(err, mode),
     };
-    // Per-platform default version (macOS: tahoe; Windows: 11).
+    // Per-platform default version (macOS: tahoe; Windows: 11; Linux: 24.04).
     let version = version.unwrap_or_else(|| match parsed {
         Platform::Windows => "11".into(),
-        _ => "tahoe".into(),
+        Platform::Linux => "24.04".into(),
+        Platform::Macos => "tahoe".into(),
     });
     let name = name.unwrap_or_else(|| format!("testanyware-golden-{}-{version}", parsed.as_str()));
 
     match parsed {
         Platform::Windows => run_vm_create_golden_windows(version, name, iso, mode, dry_run).await,
-        _ => run_vm_create_golden_macos(version, name, mode, dry_run).await,
+        Platform::Linux => run_vm_create_golden_linux(version, name, mode, dry_run).await,
+        Platform::Macos => run_vm_create_golden_macos(version, name, mode, dry_run).await,
     }
 }
 
@@ -366,6 +366,58 @@ async fn run_vm_create_golden_windows(
     }
 }
 
+/// Linux golden: a tart-based SSH provisioning pass + one apply-settings reboot
+/// (leaf `230`, ADR-0007). macOS-host work (built on this Mac via tart), no
+/// SIP/TCC/recovery cycle.
+async fn run_vm_create_golden_linux(
+    version: String,
+    name: String,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    if dry_run {
+        emit_linux_golden_plan(&version, &name, mode);
+        return;
+    }
+
+    // tart is macOS-only, so a non-macOS host cannot serve the command.
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (&version, &name);
+        exit_vm_error(
+            VmError::BackendUnsupported {
+                platform: "macos (vm create-golden --platform linux requires a macOS host)".into(),
+            },
+            mode,
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        use testanyware_vm::golden::GoldenOptions;
+        use testanyware_vm::golden_linux::create_golden_linux;
+        use testanyware_vm::VmPaths;
+
+        let opts = GoldenOptions { version: version.clone(), name: name.clone() };
+        let paths = VmPaths::from_process_env();
+        match create_golden_linux(&opts, &paths).await {
+            Ok(golden) => match mode {
+                OutputMode::Text => {
+                    println!("Golden image '{golden}' created successfully.");
+                    println!("Use it with: testanyware vm start --platform linux --base {golden}");
+                }
+                OutputMode::Json => print_success(json!({
+                    "platform": "linux",
+                    "version": version,
+                    "name": golden,
+                    "created": true,
+                })),
+            },
+            Err(err) => exit_vm_error(err, mode),
+        }
+    }
+}
+
 /// The 5-boot provisioning sequence (3 normal + 2 recovery) that golden
 /// creation drives, as `(step, mode, actions)`. Parity with the boot
 /// sequence in `provisioner/scripts/vm-create-golden-macos.sh`. Pure, so
@@ -407,6 +459,51 @@ fn emit_golden_plan(version: &str, name: &str, mode: OutputMode) {
             print_success(json!({
                 "dry_run": true,
                 "platform": "macos",
+                "version": version,
+                "name": name,
+                "boot_plan": steps,
+            }));
+        }
+    }
+}
+
+/// The Linux golden boot sequence (2 normal boots — no SIP/TCC/recovery
+/// cycle), as `(step, mode, actions)`. Parity with the boot sequence in
+/// `provisioner/scripts/vm-create-golden-linux.sh`. Pure, so the plan is
+/// unit-tested and shared by the text and JSON renderers. Reuses the macOS
+/// `boot_plan` schema shape (both Linux boots are `normal`).
+fn linux_boot_plan() -> [(u32, &'static str, &'static str); 2] {
+    [
+        (1, "normal",
+         "SSH pubkey install, Ubuntu Desktop (minimal), NetworkManager via netplan, \
+          Firefox, GDM autologin forced to X11, solid-gray locked-down desktop, \
+          system updates, silent boot, testanyware-agent (systemd user service + AT-SPI2)"),
+        (2, "normal",
+         "reboot to apply (GDM autologin starts the agent), verify agent health on \
+          port 8648, disable + mask sshd, clean shutdown, clone to golden"),
+    ]
+}
+
+fn emit_linux_golden_plan(version: &str, name: &str, mode: OutputMode) {
+    let plan = linux_boot_plan();
+    match mode {
+        OutputMode::Text => {
+            println!("dry-run: would create golden {name} (platform linux, version {version})");
+            println!("boot plan (2 normal boots — no SIP/TCC/recovery cycle):");
+            for (step, boot_mode, actions) in plan {
+                println!("  {step}. [{boot_mode}] {actions}");
+            }
+        }
+        OutputMode::Json => {
+            let steps: Vec<Value> = plan
+                .iter()
+                .map(|(step, boot_mode, actions)| {
+                    json!({ "step": step, "mode": boot_mode, "actions": actions })
+                })
+                .collect();
+            print_success(json!({
+                "dry_run": true,
+                "platform": "linux",
                 "version": version,
                 "name": name,
                 "boot_plan": steps,
@@ -607,6 +704,22 @@ mod tests {
         assert!(plan[1].2.contains("disable SIP"));
         assert!(plan[2].2.contains("TCC"));
         assert!(plan[3].2.contains("re-enable SIP"));
+    }
+
+    #[test]
+    fn linux_boot_plan_is_two_normal_boots() {
+        let plan = linux_boot_plan();
+        assert_eq!(plan.len(), 2);
+        // No recovery cycle on Linux — both boots are normal.
+        assert!(plan.iter().all(|(_, m, _)| *m == "normal"));
+        for (i, (step, _, _)) in plan.iter().enumerate() {
+            assert_eq!(*step as usize, i + 1);
+        }
+        // Boot 1 provisions; boot 2 applies + clones.
+        assert!(plan[0].2.contains("Ubuntu Desktop"));
+        assert!(plan[0].2.contains("testanyware-agent"));
+        assert!(plan[1].2.contains("verify agent health"));
+        assert!(plan[1].2.contains("clone to golden"));
     }
 
     #[test]

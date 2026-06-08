@@ -595,8 +595,8 @@ const VM_CREATE_GOLDEN_AFTER_HELP: &str = "\
 OUTPUT:
     Stable formats: text (a human-readable plan under --dry-run),
     --json (schema: vm-create-golden). Under --dry-run the JSON envelope
-    sets `dry_run: true` and carries the plan array (`boot_plan` for macOS,
-    `plan` for windows); nothing is mutated.
+    sets `dry_run: true` and carries the plan array (`boot_plan` for macOS
+    and linux, `plan` for windows); nothing is mutated.
 
 EXIT CODES:
     0  success (including --dry-run)
@@ -606,10 +606,11 @@ EXIT CODES:
 
 PLATFORM:
     Requires a macOS host. macOS clones a Cirrus Labs vanilla image via tart
-    and drives a 5-boot SIP/TCC cycle. windows boots an unattended install
+    and drives a 5-boot SIP/TCC cycle. linux clones a Cirrus Labs vanilla
+    Ubuntu image via tart and provisions Ubuntu Desktop + the agent over SSH
+    in 2 normal boots (no SIP/TCC cycle). windows boots an unattended install
     from a Microsoft evaluation ISO under QEMU+swtpm and provisions over the
-    in-VM agent (no SSH); pass --iso on first run (cached afterwards). linux
-    goldens are Tier 2.
+    in-VM agent (no SSH); pass --iso on first run (cached afterwards).
 
 IDEMPOTENCY:
     Re-running replaces any existing golden of the same name. The build
@@ -624,6 +625,9 @@ EXAMPLES:
 
     # Create the default Tahoe golden (macOS host)
     testanyware vm create-golden --platform macos
+
+    # Create the default Ubuntu 24.04 golden (macOS host)
+    testanyware vm create-golden --platform linux
 
     # Create the Windows 11 ARM64 golden (first run needs --iso)
     testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.iso
@@ -1828,11 +1832,12 @@ enum VmAction {
     // so `--version tahoe` is our OS selector.
     #[command(after_long_help = VM_CREATE_GOLDEN_AFTER_HELP, disable_version_flag = true)]
     CreateGolden {
-        /// Target platform: `macos` or `windows` (both require a macOS host).
+        /// Target platform: `macos`, `linux`, or `windows` (all require a macOS host).
         #[arg(long, value_name = "PLATFORM")]
         platform: String,
         /// OS version to provision. macOS: tahoe, sequoia, sonoma [default:
-        /// tahoe]. windows: the release number [default: 11].
+        /// tahoe]. linux: 24.04, 22.04 [default: 24.04]. windows: the release
+        /// number [default: 11].
         #[arg(long, value_name = "VERSION")]
         version: Option<String>,
         /// Golden image name [default: testanyware-golden-<platform>-<version>].

@@ -25,8 +25,9 @@
 #   - testanyware-agent       (macOS in-VM agent, Swift)
 #   - testanyware-agent.exe   (Windows in-VM agent, .NET 9 self-contained)
 #   - testanyware_agent       (Linux in-VM agent, Python source)
-#   - vm-create-golden-linux.sh + helpers/* (the Windows golden is now the
-#     in-process `vm create-golden --platform windows` command, grove 220/020)
+#   - _testanyware-paths.sh + helpers/* (all three goldens are now in-process
+#     `vm create-golden --platform <os>` subcommands — macOS 110, Windows
+#     220/020, Linux 230 — so no golden shell script ships)
 #
 # Linux bundles additionally carry:
 #   - lib/libav*.so* + libsw*.so*  — the BtbN ffmpeg-8 gpl-shared runtime libs
@@ -334,11 +335,10 @@ stage_scripts() {
   local stage_scripts="$1"
   echo "release-build: staging provisioner scripts" >&2
   mkdir -p "$stage_scripts"
+  # All three goldens (macOS 110, Windows 220/020, Linux 230) are now the
+  # in-process `vm create-golden --platform <os>` command; no golden shell
+  # script ships. Only the runtime path helper remains.
   cp "$REPO_ROOT/provisioner/scripts/"_testanyware-paths.sh "$stage_scripts/"
-  # The Windows golden is now the in-process `vm create-golden --platform
-  # windows` command (grove 220/020); only the not-yet-ported Linux golden
-  # script still ships.
-  cp "$REPO_ROOT/provisioner/scripts/"vm-create-golden-linux.sh "$stage_scripts/"
   chmod +x "$stage_scripts/"*.sh
 }
 

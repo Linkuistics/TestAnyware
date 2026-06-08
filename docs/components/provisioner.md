@@ -13,9 +13,7 @@ provisioner/
 │   ├── vm-start.sh                       # wrapper around `testanyware vm start`
 │   ├── vm-stop.sh                        # wrapper around `testanyware vm stop`
 │   ├── vm-list.sh                        # wrapper around `testanyware vm list`
-│   ├── vm-delete.sh                      # wrapper around `testanyware vm delete`
-│   ├── vm-create-golden-linux.sh         # build Linux golden (tart, ~10 min)
-│   └── vm-create-golden-windows.sh       # build Windows golden (QEMU+swtpm, 20-40 min)
+│   └── vm-delete.sh                      # wrapper around `testanyware vm delete`
 └── autounattend/                         # Windows unattended-install XML + payload
 ```
 
@@ -26,8 +24,8 @@ provisioner/
 | `scripts/vm-start.sh`, `vm-stop.sh`, `vm-list.sh`, `vm-delete.sh` | Thin `exec testanyware vm …` wrappers. Retained so existing callers (docs, CI, tests) keep working; the CLI is canonical. |
 | `scripts/_testanyware-paths.sh` | Shell-side mirror of `VMPaths.swift`. Must stay in sync. |
 | `testanyware vm create-golden --platform macos` | Builds `testanyware-golden-macos-tahoe`. In-process CLI command (no script): downloads vanilla macOS Tahoe from Cirrus Labs; disables/re-enables SIP to install the TCC grant for the agent. |
-| `scripts/vm-create-golden-linux.sh` | Builds `testanyware-golden-linux-24.04`. Installs `ubuntu-desktop-minimal`, AT-SPI2, the agent, and a systemd user service. |
-| `scripts/vm-create-golden-windows.sh` | Builds `testanyware-golden-windows-11` under `$XDG_DATA_HOME/testanyware/golden/`. Orchestrates QEMU + swtpm through the Windows 11 ARM64 installer; requires the ISO on first run. |
+| `testanyware vm create-golden --platform linux` | Builds `testanyware-golden-linux-24.04`. In-process CLI command (no script): provisions Ubuntu 24.04 via tart, installs `ubuntu-desktop-minimal`, AT-SPI2, the agent, and a systemd user service over 2 normal boots. |
+| `testanyware vm create-golden --platform windows` | Builds `testanyware-golden-windows-11` under `$XDG_DATA_HOME/testanyware/golden/`. In-process CLI command (no script): orchestrates QEMU + swtpm through a Windows 11 ARM64 Microsoft evaluation ISO, provisioning over the in-VM agent (no SSH); requires `--iso <path>` on first run. |
 | `autounattend/` | Windows unattended-install XML + payload. The agent's `publish` dir and a Task Scheduler xml are injected here. |
 
 ## Build / test
@@ -47,8 +45,8 @@ Golden-image creation is long and destructive; don't run it casually.
 
 ```bash
 testanyware vm create-golden --platform macos
-./provisioner/scripts/vm-create-golden-linux.sh
-./provisioner/scripts/vm-create-golden-windows.sh --iso ~/Downloads/Win11_ARM64.iso
+testanyware vm create-golden --platform linux
+testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.iso
 ```
 
 ## Common pitfalls
@@ -60,8 +58,8 @@ testanyware vm create-golden --platform macos
   rebuild from scratch.
 - **Windows ISO cache.** Lives at
   `${XDG_DATA_HOME:-~/.local/share}/testanyware/cache/`. First
-  invocation of `vm-create-golden-windows.sh` requires `--iso <path>`;
-  subsequent invocations reuse the cache.
+  invocation of `testanyware vm create-golden --platform windows`
+  requires `--iso <path>`; subsequent invocations reuse the cache.
 - **Autounattend payload size.** The autounattend media holds the
   agent's entire `publish/` dir plus VirtIO drivers. If you add
   large binaries, the ISO may exceed the media-drive size QEMU is
