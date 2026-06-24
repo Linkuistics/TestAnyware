@@ -166,7 +166,23 @@ clone configured `1920x1080px` still rendered 1024×768, the golden's baked mode
 _Contrast_: Linux/Windows guests honor the host-configured mode directly (QEMU
 virtio-gpu `xres`/`yres`; tart's Linux `px` display). _Implication_: changing a
 macOS guest's resolution is **golden-side / guest-side** work, not a `vm start`
-flag.
+flag. See [[Framebuffer-pixel contract]] for what resolution we target and why.
+
+**Framebuffer-pixel contract** (px, at 1× backing scale):
+The default guest resolution is 1920×1080 **pixels of framebuffer** — the RFB
+ServerInit size that `screen size` reports and the vision pipeline consumes
+(ADR-0013) — **not** 1920×1080 *points*. On macOS this is reached via a
+CoreGraphics display mode at **backing scale 1.0** (LoDPI): such a mode has both
+`pixelWidth = 1920` (matches the vision training distribution) **and**
+`width = 1920 pt` (same logical window sizes as a LoDPI 1920×1080 Linux/Windows
+guest). A Retina/2× mode would present 1920×1080 *points* as a **3840×2160-px**
+framebuffer — identical logical layout but **off** the vision distribution.
+_Implication_: "same window sizes on macOS needs 2× the pixels" is a **myth** —
+layout parity holds at 1× too, because the px axis (vision distribution) is
+**independent** of the pt axis (window layout). HiDPI/Retina rendering is a
+deliberate **deferred** concern, owned by a future dedicated grove that would
+rework the vision pipeline; this grove targets the 1× mode. Relates to
+[[Guest-controlled resolution]].
 
 ## Example dialogue
 
