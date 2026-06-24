@@ -118,8 +118,10 @@ guest-side at start — i.e. exactly the golden-side work this ADR scoped out.
 
 **The decision stands for what it covers.** The per-backend default is the
 correct `vm start`-layer change (necessary on every backend, fully sufficient on
-QEMU + Linux-tart), and the tart `px` encoding is confirmed. The macOS gap is
-tracked by the follow-up planning leaf `macos-guest-resolution-k3`, which decides
-the guest-side mechanism (golden-bake vs guest-side set vs accept-as-limitation)
-— a scope decision, not a mechanical fix, since it reopens the golden-baking
-question this ADR deliberately set aside.
+QEMU + Linux-tart), and the tart `px` encoding is confirmed. The macOS gap was
+resolved by the follow-up planning leaf `macos-guest-resolution-k3`, which chose a
+**runtime, agent-mediated guest-side switch** (over golden-bake) — see **ADR-0014**.
+That ADR also corrects a premise stated above ("VF may snap…") and, more
+importantly, the assumption that blocked a guest-side approach: the in-guest agent
+**does** expose a generic `/exec` channel, so guest-side setting is feasible.
+Implementation is deferred to a dedicated grove.

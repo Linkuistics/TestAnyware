@@ -67,3 +67,57 @@ the grove's macOS contract is consciously closed.
   Golden clone+start is cheap (`vm-costs`).
 - Any guest-side approach must first answer "how do I run a command in a booted
   macOS guest" — no SSH, agent is UI-only.
+
+## Findings (recon, 2026-06-24)
+
+**The "no generic exec" premise above is FALSE.** Verified against source:
+
+- The in-guest agent exposes a generic `POST /exec` endpoint →
+  `ProcessRunner.runShell` runs `/bin/bash -c <cmd>` with stdout/stderr capture
+  (`agents/macos/Sources/testanyware-agent/AgentServer.swift:90`,
+  `…/TestAnywareAgent/ProcessRunner.swift:35`). It is **not** UI/accessibility-only.
+- It is host-reachable and battle-tested: the host CLI calls `client.exec(...)`
+  (`cli-rs/crates/testanyware-cli/src/commands/file.rs:39`), and the agent runs as
+  a LaunchAgent on every booted golden (`golden.rs:587–606`). sshd is off
+  (`finalize.rs:208`) but the agent HTTP channel (port 8648) is up.
+
+**Consequence for the option space:** option (b) "guest-side set at `vm start`" is
+**NOT blocked** — there is a working exec channel. The real remaining gap is the
+*display-switch primitive*: no `displayplacer`, no CoreGraphics display-mode code
+exists anywhere in the repo (only `set-wallpaper.swift`, which sets wallpaper, not
+resolution). So a guest-side approach still needs a switch mechanism built — a
+compiled CG helper, or a native capability added to the Swift agent (which already
+links AppKit/CoreGraphics for UI automation).
+
+## Decisions (running log)
+
+**Q1 — Scope (settled).** Pursue macOS 1920×1080, but **defer implementation to a
+separate, dedicated grove**. This k3 task decides the *mechanism* and records it
+in an ADR; it does **not** grow work leaves or write code. This grove's macOS
+contract closes as "deferred, designed"; Linux ✅ + Windows ✅ ship here. Rationale:
+the exec-channel discovery makes the macOS work bounded but still a distinct unit
+of implementation worth its own grove, keeping this grove's commit focused on the
+shipped per-backend default.
+
+**Q2 — Mechanism (settled).** **Runtime, agent-mediated switch**, not golden-bake.
+At `vm start` (macOS), after the agent is ready, the host `/upload`s a host-compiled
+CoreGraphics helper and `/exec`s it to force the framebuffer to the resolved
+resolution (1920×1080 px default, or the `--display` value). **No golden-image
+change** — reuses the existing agent `/upload`+`/exec` channel and mirrors the
+`set-wallpaper.swift` host-compiled-helper pattern. Rejected: golden-bake (depends
+on unverified saved-mode survival across clone; contradicts ADR-0013's "resolution
+is a runtime concern" principle; needs golden regen) and a native agent
+`/set-display` endpoint (needs golden regen + couples the agent to resolution
+policy). Recorded in **ADR-0014**; implementation deferred to a dedicated grove
+(suggested name `macos-guest-resolution`).
+
+**Open questions handed to the new grove** (empirical, resolve first):
+1. Does VF advertise a *selectable* 1920×1080 CoreGraphics display mode for a
+   headless guest after `tart set --display 1920x1080px`? If not,
+   `CGDisplaySetDisplayMode` has no mode to pick and the approach needs a different
+   primitive (private CGS mode-creation, or fall back to golden-bake).
+2. The exact CG call sequence (`CGDisplayCopyAllDisplayModes` → match →
+   `CGDisplaySetDisplayMode`).
+3. Agent-readiness gating in `vm start` (today the agent endpoint is treated as
+   optionally degraded — `tart.rs:315`); vision/`screen` ops must gate on the
+   switch completing (transient 1024×768 → 1920×1080 window).
