@@ -217,7 +217,7 @@ const DEFAULT_DISPLAY: &str = "1920x1080px";
 /// The `tart set --display` value to apply: the user's `--display` verbatim,
 /// or [`DEFAULT_DISPLAY`] when omitted. We set a default; we never rewrite an
 /// explicit value (ADR-0013).
-fn resolve_display(requested: Option<&str>) -> &str {
+pub(crate) fn resolve_display(requested: Option<&str>) -> &str {
     requested.unwrap_or(DEFAULT_DISPLAY)
 }
 

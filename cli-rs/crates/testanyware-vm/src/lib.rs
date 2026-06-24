@@ -31,6 +31,12 @@ pub mod tart;
 /// seam). macOS-host only, like `tart` — grove node `110-vm-create-golden`.
 #[cfg(target_os = "macos")]
 pub mod golden;
+/// macOS guest runtime display-resolution switch (ADR-0014): host-compile a
+/// CoreGraphics helper, upload + exec it over the agent at `vm start` to force
+/// the guest framebuffer onto the 1920×1080-px contract. macOS-host only, like
+/// `tart`/`golden` — grove `macos-guest-resolution`.
+#[cfg(target_os = "macos")]
+pub mod display;
 /// Windows golden-image creation: unattended ISO install + provisioning over
 /// the in-VM agent's HTTP surface (no sshd on Windows). macOS-host only (FAT32
 /// media built with `hdiutil`) — grove leaf `220/020`.

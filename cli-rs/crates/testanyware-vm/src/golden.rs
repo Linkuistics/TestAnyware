@@ -298,7 +298,7 @@ pub(crate) fn cleanup_setup_vm(id: &str, pid: i32) {
 
 /// Write `contents` to `dir/name`, creating `dir`. A host-side scratch file
 /// (compiled wallpaper helper, plist) staged for SFTP upload.
-fn write_scratch(dir: &Path, name: &str, contents: &[u8]) -> Result<PathBuf, VmError> {
+pub(crate) fn write_scratch(dir: &Path, name: &str, contents: &[u8]) -> Result<PathBuf, VmError> {
     std::fs::create_dir_all(dir)
         .map_err(|e| VmError::Io(format!("create {}: {e}", dir.display())))?;
     let path = dir.join(name);

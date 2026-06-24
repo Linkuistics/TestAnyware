@@ -225,6 +225,27 @@ impl VmLifecycle {
             if wait_for_agent(ip, 8648, 60, Duration::from_secs(2)).await {
                 agent_endpoint = Some(AgentEndpoint { host: ip.clone(), port: 8648 });
                 agent_unreachable = false;
+
+                // macOS guests are guest-controlled (ADR-0014): the agent is up
+                // but the framebuffer still shows the golden's 1024×768. Force it
+                // to the resolved resolution now — synchronously, before `vm
+                // start` returns success — so consumers waiting on `vm start` are
+                // gated on the switch by construction. Best-effort, like the
+                // agent endpoint itself: failures warn and leave the VM started.
+                // Linux-on-tart honors the host-configured mode directly, so the
+                // guest-side switch is macOS-only.
+                if opts.platform == Platform::Macos {
+                    let resolved = crate::tart::resolve_display(opts.display.as_deref());
+                    match crate::display::parse_target(resolved) {
+                        Some(target) => {
+                            crate::display::apply(ip, 8648, target, paths, &opts.id).await;
+                        }
+                        None => eprintln!(
+                            "  warning: cannot derive a px target from display \
+                             '{resolved}' — skipping macOS resolution switch"
+                        ),
+                    }
+                }
             }
         }
 

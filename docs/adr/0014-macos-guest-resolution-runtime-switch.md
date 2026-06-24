@@ -4,8 +4,10 @@ Date: 2026-06-24
 
 ## Status
 
-Accepted — decision made; **implementation deferred to a dedicated grove**
-(suggested name `macos-guest-resolution`).
+Accepted and **implemented** (2026-06-24, grove `macos-guest-resolution`,
+build leaf `build-resolution-switch-k3`). The spike `spike-display-modes-k2`
+CONFIRMED the mechanism (see Verification), and the runtime switch now ships in
+`vm start` — see Implementation.
 
 ## Context
 
@@ -185,3 +187,30 @@ negotiated RFB ServerInit — the contract).
 No macOS golden regeneration was required; the entire switch ran over the agent's
 existing `/upload`+`/exec` surface against a stock clone. The probe is committed
 at `provisioner/helpers/probe-display-modes.swift`.
+
+## Implementation (2026-06-24, `build-resolution-switch-k3`)
+
+The runtime switch ships:
+
+- **Helper** `provisioner/helpers/set-display-mode.swift` — the production trim
+  of the spike probe, parameterized by target px (argv `<w> <h>`). It selects
+  the 1× mode (`pixelWidth==w && width==w && …`), switches via the persistent
+  `.forSession` configuration transaction (finding 3), confirms the active mode
+  reads the target, and exits non-zero with a one-line stderr reason on bad
+  args / no-matching-mode / transaction failure.
+- **Plumbing** `cli-rs/crates/testanyware-vm/src/display.rs` — `include_str!`-
+  embeds the helper, host-compiles it with `swiftc`, uploads it over the agent
+  `/upload`, and `/exec`s it (60 s timeout to absorb the finding-4 settle
+  transient). `parse_target` derives the px target from the same resolved
+  `--display` value that feeds `tart set` (unit suffix ignored — px == pt at 1×).
+- **Wiring** in `VmLifecycle::start_tart` (lifecycle.rs), **after** the
+  agent-readiness wait and synchronously before `vm start` returns, **macOS
+  guests only**. Best-effort: a missing `swiftc` / compile / upload / exec
+  failure warns and leaves the VM started (rides the optionally-degraded agent
+  contract); agent-unreachable skips the switch entirely (no switch attempted).
+
+**Live result:** `vm start --platform macos` with no `--display` against a fresh
+`testanyware-golden-macos-tahoe` clone → the start log shows the in-guest switch
+to modeID 10, and `testanyware screen size` reports **1920×1080** (was 1024×768).
+The switch executes **inside the guest** via the agent — the host display is
+never touched. No golden regeneration was required.
