@@ -1,1 +1,0 @@
-Start a new grove — use the grove skill. First run `grove-llm root-init` to scaffold the root brief and first planning leaf, then enter the loop (`grove-llm pick` → grill the planning leaf → grow the tree).
