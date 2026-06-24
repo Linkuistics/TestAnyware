@@ -1781,7 +1781,7 @@ enum VmAction {
         /// VM instance id [default: testanyware-<hex8>].
         #[arg(long, value_name = "ID")]
         id: Option<String>,
-        /// Display resolution, e.g. 1920x1080.
+        /// Display resolution, e.g. 1920x1080 [default: 1920x1080 px].
         #[arg(long, value_name = "WxH")]
         display: Option<String>,
         /// Open the embedded viewer window after boot (blocks until closed).

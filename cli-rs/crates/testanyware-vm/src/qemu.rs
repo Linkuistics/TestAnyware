@@ -26,6 +26,12 @@ pub struct RunningClone {
     pub backend: &'static str,
 }
 
+/// Default guest framebuffer when `--display` is omitted: 1920×1080 px,
+/// matching the vision training distribution (ADR-0013). QEMU's `xres`/`yres`
+/// are pixels directly, so no unit suffix is needed — contrast tart, whose
+/// `--display` unit hint defaults to *points* on macOS (`tart::DEFAULT_DISPLAY`).
+const DEFAULT_DISPLAY_GEOMETRY: &str = "xres=1920,yres=1080";
+
 /// Inputs to `build_qemu_args` — the per-clone files and sockets.
 #[derive(Debug, Clone)]
 pub struct QemuLaunchSpec {
@@ -130,7 +136,8 @@ pub fn build_qemu_args(profile: &QemuProfile, spec: &QemuLaunchSpec) -> Vec<Stri
                 "virtio-gpu-pci".to_string()
             }
         }
-        None => "virtio-gpu-pci".to_string(),
+        // No --display: apply the TestAnyware default framebuffer (ADR-0013).
+        None => format!("virtio-gpu-pci,{DEFAULT_DISPLAY_GEOMETRY}"),
     };
     let s = |p: &Path| p.display().to_string();
     vec![
@@ -504,7 +511,10 @@ mod tests {
     }
 
     #[test]
-    fn build_qemu_args_omits_display_geometry_when_absent() {
+    fn build_qemu_args_applies_default_geometry_when_absent() {
+        // ADR-0013: with no --display, QEMU emits the TestAnyware default
+        // 1920×1080-px framebuffer. xres/yres are pixels directly, so no
+        // unit suffix is needed (contrast tart's `px` hint on macOS).
         let spec = QemuLaunchSpec {
             uefi_code: "/fw/code.fd".into(),
             clone_efivars: "/c/efivars.fd".into(),
@@ -514,7 +524,9 @@ mod tests {
             display: None,
         };
         let joined = build_qemu_args(&host_profile(), &spec).join(" ");
-        assert!(!joined.contains("xres="), "no geometry without --display: {joined}");
-        assert!(joined.contains("virtio-gpu-pci"), "still wires a GPU: {joined}");
+        assert!(
+            joined.contains("virtio-gpu-pci,xres=1920,yres=1080"),
+            "default geometry applied without --display: {joined}",
+        );
     }
 }

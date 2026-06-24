@@ -206,6 +206,21 @@ pub fn clone(base: &str, id: &str) -> Result<(), VmError> {
     }
 }
 
+/// Default guest display when `--display` is omitted (ADR-0013): 1920×1080
+/// **px**. The explicit `px` is load-bearing — `tart set --display`'s unit
+/// hint defaults to *points* for macOS VMs (`tart set --help`, tart 2.32.1),
+/// so a bare `1920x1080` would yield a 3840×2160-px framebuffer at 2× backing
+/// scale; `px` pins it to a 1920×1080-px (LoDPI) framebuffer — the contract
+/// the vision pipeline consumes.
+const DEFAULT_DISPLAY: &str = "1920x1080px";
+
+/// The `tart set --display` value to apply: the user's `--display` verbatim,
+/// or [`DEFAULT_DISPLAY`] when omitted. We set a default; we never rewrite an
+/// explicit value (ADR-0013).
+fn resolve_display(requested: Option<&str>) -> &str {
+    requested.unwrap_or(DEFAULT_DISPLAY)
+}
+
 /// `tart set <id> --display <WxH>`. Ports `TartRunner.setDisplay`.
 pub fn set_display(id: &str, display: &str) -> Result<(), VmError> {
     let r = run_tart(&["set", id, "--display", display]);
@@ -352,9 +367,10 @@ impl TartRunner {
         }
 
         clone(&opts.base, &opts.id)?;
-        if let Some(display) = &opts.display {
-            set_display(&opts.id, display)?;
-        }
+        // Always set a display: the user's value, or the TestAnyware default
+        // (ADR-0013). Without `--display` tart would fall back to the unknown
+        // Virtualization.framework default — off the vision distribution.
+        set_display(&opts.id, resolve_display(opts.display.as_deref()))?;
 
         let (pid, log_path) = run_detached(&opts.id, &paths.vms_dir())?;
 
@@ -388,6 +404,16 @@ impl TartRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn resolve_display_defaults_to_1920x1080px_when_absent() {
+        // ADR-0013: the macOS default carries an explicit `px` so VF yields a
+        // 1920×1080-px (LoDPI) framebuffer rather than 2× under the macOS
+        // points hint. A user-supplied value is passed through untouched.
+        assert_eq!(resolve_display(None), "1920x1080px");
+        assert_eq!(resolve_display(Some("800x600")), "800x600");
+        assert_eq!(resolve_display(Some("1920x1080px")), "1920x1080px");
+    }
 
     #[test]
     fn parse_vnc_url_extracts_host_port_password() {

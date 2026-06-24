@@ -156,6 +156,18 @@ _Avoid_: conflating with a *guest-side* VNC server (runs inside a booted guest,
 can't serve boot/login/recovery) or with the [[Embedded viewer]] (a *client*
 that consumes a framebuffer, not a server that provides one).
 
+**Guest-controlled resolution** (macOS VF guests):
+A macOS guest under Virtualization.framework renders at the resolution its own
+**WindowServer** restores on login (a saved per-display mode); VF then sizes the
+[[Host-side framebuffer]] to that mode. The host-side `tart set --display WxHpx`
+sets the VM's display *configuration* — a ceiling / available-mode hint — **not**
+a forced mode, so the guest overrides it. _Evidence_ (ADR-0013 verification): a
+clone configured `1920x1080px` still rendered 1024×768, the golden's baked mode.
+_Contrast_: Linux/Windows guests honor the host-configured mode directly (QEMU
+virtio-gpu `xres`/`yres`; tart's Linux `px` display). _Implication_: changing a
+macOS guest's resolution is **golden-side / guest-side** work, not a `vm start`
+flag.
+
 ## Example dialogue
 
 > **Dev:** I broke something — `testanyware vm start` is timing out on

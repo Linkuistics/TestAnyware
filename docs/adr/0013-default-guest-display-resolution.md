@@ -84,3 +84,42 @@ models — a separate workstream, not a default change.
   the prior small defaults (≈8 MB/frame uncompressed); the embedded viewer and
   `screen record` will work on larger frames. Expected acceptable; flagged for
   the work leaf to watch.
+
+## Verification (2026-06-24, `implement-default-resolution-k2`)
+
+Empirically checked via `screen size` (the negotiated RFB framebuffer — the
+contract) against running goldens on a macOS host, `vm start` with no
+`--display`:
+
+- **Linux (tart): ✅ 1920×1080 px.** Stable; the guest renders a crisp LoDPI
+  desktop. The clone's `tart get` shows `Display: 1920x1080px`; the Linux guest
+  honors the host-configured display mode directly.
+- **macOS (tart): ❌ 1024×768 px.** The clone's `tart get` *correctly* shows
+  `Display: 1920x1080px` (our `px` encoding is accepted and stored) and the
+  guest is **fully logged in** — yet the framebuffer is 1024×768. A macOS VF
+  guest's framebuffer is **guest-controlled**: WindowServer restores the guest's
+  *own saved display mode* on login (1024×768, baked into the golden — whose
+  `tart get` shows `Display: 1024x768`), and Virtualization.framework sizes the
+  actual framebuffer to the guest's chosen mode. The host-side `tart set
+  --display` sets the VM's display *configuration* (a ceiling / available-mode
+  hint) but does **not** force the guest to switch modes. (`--display-refit`
+  is a window-fit option, irrelevant to a headless VNC session.)
+- **Windows (QEMU): not run** (no Windows golden on the verification host).
+  Mechanically expected correct and unit-tested: `build_qemu_args` emits
+  `virtio-gpu-pci,xres=1920,yres=1080`, and virtio-gpu's `xres`/`yres` size the
+  framebuffer directly with no guest-side override — the same path Linux-on-qcow2
+  would take.
+
+**Finding.** The "applied at `vm start`, not golden-image baking" scope above is
+**sufficient for QEMU and for Linux-on-tart, but insufficient for macOS-on-tart.**
+Reaching a 1920×1080-px framebuffer on macOS requires changing the **guest's**
+saved resolution — baking it into the macOS golden (`golden.rs`) or setting it
+guest-side at start — i.e. exactly the golden-side work this ADR scoped out.
+
+**The decision stands for what it covers.** The per-backend default is the
+correct `vm start`-layer change (necessary on every backend, fully sufficient on
+QEMU + Linux-tart), and the tart `px` encoding is confirmed. The macOS gap is
+tracked by the follow-up planning leaf `macos-guest-resolution-k3`, which decides
+the guest-side mechanism (golden-bake vs guest-side set vs accept-as-limitation)
+— a scope decision, not a mechanical fix, since it reopens the golden-baking
+question this ADR deliberately set aside.
