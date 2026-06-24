@@ -70,7 +70,7 @@ where
             Err(_elapsed) => break,
         }
     }
-    Ok(conn.framebuffer().clone())
+    Ok(conn.framebuffer().into_owned())
 }
 
 /// [`capture_frame`] followed by a full-frame PNG encode — the OCR-ready

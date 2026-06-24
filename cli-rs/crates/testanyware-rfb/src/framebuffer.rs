@@ -55,6 +55,59 @@ impl Framebuffer {
         &self.pixels
     }
 
+    /// Produce a logically-downsampled copy: each `scale × scale` block of
+    /// this (physical) framebuffer collapses to one pixel by an **exact
+    /// integer box-average** of its R, G and B channels (alpha is always
+    /// opaque). This is the HiDPI logical surface (ADR-0016 D2): a 2× config
+    /// of logical 1920×1080 reports a physical 3840×2160 frame, which
+    /// `downsample(2)` returns to the vision pipeline as its native 1920×1080.
+    ///
+    /// `scale <= 1` is a pass-through (an owned clone) — the box-average is a
+    /// no-op at 1×, so the default/non-HiDPI path is byte-identical.
+    ///
+    /// A box-average (not a resampling filter) is deliberate: it is exact,
+    /// deterministic and order-independent, so the same physical frame always
+    /// yields the same logical pixels — what OCR/window-detection depend on.
+    /// Channels round to nearest (`(sum + n/2) / n`). Physical dimensions are
+    /// assumed an exact multiple of `scale` (guaranteed by the caller's scale
+    /// auto-detection); any remainder rows/columns are truncated.
+    pub fn downsample(&self, scale: u32) -> Framebuffer {
+        if scale <= 1 {
+            return self.clone();
+        }
+        let s = scale as usize;
+        let lw = (self.width as usize) / s;
+        let lh = (self.height as usize) / s;
+        let pstride = self.width as usize * 4;
+        let n = (s * s) as u32;
+        let half = n / 2;
+        let mut out = vec![0u8; lw * lh * 4];
+        for ly in 0..lh {
+            for lx in 0..lw {
+                let (mut r, mut g, mut b) = (0u32, 0u32, 0u32);
+                for dy in 0..s {
+                    let row = (ly * s + dy) * pstride;
+                    for dx in 0..s {
+                        let p = row + (lx * s + dx) * 4;
+                        r += self.pixels[p] as u32;
+                        g += self.pixels[p + 1] as u32;
+                        b += self.pixels[p + 2] as u32;
+                    }
+                }
+                let o = (ly * lw + lx) * 4;
+                out[o] = ((r + half) / n) as u8;
+                out[o + 1] = ((g + half) / n) as u8;
+                out[o + 2] = ((b + half) / n) as u8;
+                out[o + 3] = 0xFF;
+            }
+        }
+        Framebuffer {
+            width: lw as u32,
+            height: lh as u32,
+            pixels: out,
+        }
+    }
+
     /// Apply a Raw-encoded rectangle. `pixels` length must be
     /// `width * height * 4`; channel layout is the negotiated 4-byte
     /// LE format (B, G, R, X).
@@ -238,5 +291,67 @@ mod tests {
             fb.copy_rect(0, 0, 3, 3, 2, 2),
             Err(RfbError::Protocol(_))
         ));
+    }
+
+    #[test]
+    fn downsample_2x_box_averages_each_block() {
+        // One 2x2 physical block → one logical pixel. raw_rect consumes
+        // BGRX, so R lives at byte 2; R values 10,20,30,40 average to
+        // (100 + 2) / 4 = 25.
+        let mut fb = Framebuffer::new(2, 2).unwrap();
+        let bgrx = [
+            0, 0, 10, 0, // (0,0) R=10
+            0, 0, 20, 0, // (1,0) R=20
+            0, 0, 30, 0, // (0,1) R=30
+            0, 0, 40, 0, // (1,1) R=40
+        ];
+        fb.raw_rect(0, 0, 2, 2, &bgrx).unwrap();
+        let down = fb.downsample(2);
+        assert_eq!((down.width(), down.height()), (1, 1));
+        assert_eq!(down.rgba(), &[25, 0, 0, 0xFF]);
+    }
+
+    #[test]
+    fn downsample_rounds_to_nearest() {
+        // R = 1,2,2,2 → sum 7, (7 + 2) / 4 = 2 (true mean 1.75 rounds up).
+        let mut fb = Framebuffer::new(2, 2).unwrap();
+        fb.raw_rect(0, 0, 2, 2, &[0, 0, 1, 0, 0, 0, 2, 0, 0, 0, 2, 0, 0, 0, 2, 0])
+            .unwrap();
+        assert_eq!(fb.downsample(2).rgba()[0], 2);
+    }
+
+    #[test]
+    fn downsample_halves_each_dimension() {
+        let fb = Framebuffer::new(8, 6).unwrap();
+        let down = fb.downsample(2);
+        assert_eq!((down.width(), down.height()), (4, 3));
+    }
+
+    #[test]
+    fn downsample_maps_each_block_to_its_logical_position() {
+        // 4x4 physical, four uniform 2x2 quadrants (R = 100/200 top,
+        // 40/80 bottom). Each logical pixel equals its quadrant's value,
+        // proving block→position placement, not just per-block averaging.
+        let mut fb = Framebuffer::new(4, 4).unwrap();
+        let row = |a: u8, b: u8| [0, 0, a, 0, 0, 0, a, 0, 0, 0, b, 0, 0, 0, b, 0];
+        fb.raw_rect(0, 0, 4, 1, &row(100, 200)).unwrap();
+        fb.raw_rect(0, 1, 4, 1, &row(100, 200)).unwrap();
+        fb.raw_rect(0, 2, 4, 1, &row(40, 80)).unwrap();
+        fb.raw_rect(0, 3, 4, 1, &row(40, 80)).unwrap();
+        let d = fb.downsample(2);
+        assert_eq!((d.width(), d.height()), (2, 2));
+        assert_eq!(&d.rgba()[0..4], &[100, 0, 0, 0xFF], "logical (0,0)");
+        assert_eq!(&d.rgba()[4..8], &[200, 0, 0, 0xFF], "logical (1,0)");
+        assert_eq!(&d.rgba()[8..12], &[40, 0, 0, 0xFF], "logical (0,1)");
+        assert_eq!(&d.rgba()[12..16], &[80, 0, 0, 0xFF], "logical (1,1)");
+    }
+
+    #[test]
+    fn downsample_scale_1_is_identity() {
+        let mut fb = Framebuffer::new(2, 1).unwrap();
+        fb.raw_rect(0, 0, 2, 1, &[0, 0, 255, 0, 0, 255, 0, 0]).unwrap();
+        let down = fb.downsample(1);
+        assert_eq!((down.width(), down.height()), (2, 1));
+        assert_eq!(down.rgba(), fb.rgba());
     }
 }

@@ -276,3 +276,79 @@ async fn scroll_dy_negative_emits_wheel_up_pulses() {
     assert_eq!(msg[13], 0b1000);
     assert_eq!(msg[19], 0);
 }
+
+#[tokio::test]
+async fn pointer_event_scales_logical_coords_to_physical_wire() {
+    // Physical 200x100, logical 100x50 → scale 2. A logical (50,60) pointer
+    // must reach the wire as physical (100,120) (ADR-0016 D2: ×scale on
+    // writes). The button mask is unscaled.
+    let script = server_no_auth_script(200, 100, b"vm");
+    let mut transport = ScriptedTransport::new(script);
+    let mut conn = RfbConnection::handshake(&mut transport, None).await.unwrap();
+    conn.set_logical_target(100, 50);
+    conn.pointer_event(0b001, 50, 60).await.unwrap();
+
+    let msg = &transport.writes()[HANDSHAKE_WRITE_LEN..];
+    assert_eq!(msg.len(), 6);
+    assert_eq!(msg[1], 0b001, "mask is not scaled");
+    assert_eq!(&msg[2..4], &100u16.to_be_bytes(), "x ×2");
+    assert_eq!(&msg[4..6], &120u16.to_be_bytes(), "y ×2");
+}
+
+#[tokio::test]
+async fn click_inherits_pointer_scaling() {
+    // The high-level helpers funnel through `pointer_event`, so they inherit
+    // the logical→physical scale for free.
+    let script = server_no_auth_script(200, 100, b"vm");
+    let mut transport = ScriptedTransport::new(script);
+    let mut conn = RfbConnection::handshake(&mut transport, None).await.unwrap();
+    conn.set_logical_target(100, 50);
+    conn.click(50, 60, "left", 1).await.unwrap();
+
+    let msg = &transport.writes()[HANDSHAKE_WRITE_LEN..];
+    assert_eq!(msg.len(), 12, "down + up");
+    // Down event at physical (100,120).
+    assert_eq!(&msg[2..4], &100u16.to_be_bytes());
+    assert_eq!(&msg[4..6], &120u16.to_be_bytes());
+    // Up event at the same physical point.
+    assert_eq!(&msg[8..10], &100u16.to_be_bytes());
+    assert_eq!(&msg[10..12], &120u16.to_be_bytes());
+}
+
+#[tokio::test]
+async fn request_framebuffer_update_scales_region_to_physical_wire() {
+    // The full-frame refresh request is a third coordinate-bearing wire
+    // message: a logical (0,0,100,50) region must expand to the physical
+    // (0,0,200,100), else the server refreshes only the top-left quarter of
+    // the Retina frame.
+    let script = server_no_auth_script(200, 100, b"vm");
+    let mut transport = ScriptedTransport::new(script);
+    let mut conn = RfbConnection::handshake(&mut transport, None).await.unwrap();
+    conn.set_logical_target(100, 50);
+    conn.request_framebuffer_update(false, 0, 0, 100, 50)
+        .await
+        .unwrap();
+
+    let msg = &transport.writes()[HANDSHAKE_WRITE_LEN..];
+    assert_eq!(msg.len(), 10);
+    assert_eq!(msg[0], 3, "FramebufferUpdateRequest tag");
+    assert_eq!(msg[1], 0, "non-incremental");
+    assert_eq!(&msg[2..4], &0u16.to_be_bytes(), "x");
+    assert_eq!(&msg[4..6], &0u16.to_be_bytes(), "y");
+    assert_eq!(&msg[6..8], &200u16.to_be_bytes(), "w ×2");
+    assert_eq!(&msg[8..10], &100u16.to_be_bytes(), "h ×2");
+}
+
+#[tokio::test]
+async fn pointer_event_unscaled_when_no_logical_target() {
+    // Regression guard: without a target, scale 1, the wire is byte-identical
+    // to the pre-scale path.
+    let script = server_no_auth_script(200, 100, b"vm");
+    let mut transport = ScriptedTransport::new(script);
+    let mut conn = RfbConnection::handshake(&mut transport, None).await.unwrap();
+    conn.pointer_event(0b001, 50, 60).await.unwrap();
+
+    let msg = &transport.writes()[HANDSHAKE_WRITE_LEN..];
+    assert_eq!(&msg[2..4], &50u16.to_be_bytes());
+    assert_eq!(&msg[4..6], &60u16.to_be_bytes());
+}

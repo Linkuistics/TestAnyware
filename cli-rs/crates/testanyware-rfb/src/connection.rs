@@ -4,6 +4,8 @@
 //! bound so test fixtures can pump synthetic byte streams through the
 //! state machine without binding to a port.
 
+use std::borrow::Cow;
+
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 
@@ -37,7 +39,18 @@ pub enum ServerEvent {
 #[derive(Debug)]
 pub struct RfbConnection<T: AsyncRead + AsyncWrite + Unpin> {
     transport: T,
+    /// The **physical** framebuffer negotiated on the wire (e.g. 3840×2160
+    /// under HiDPI). Consumers never see this directly unless they ask for the
+    /// `--physical` accessor; the default surface is the *logical* view
+    /// derived from it (ADR-0016 D2).
     framebuffer: Framebuffer,
+    /// The **logical** target a HiDPI consumer presents over the physical
+    /// wire (e.g. 1920×1080). `None` is the default / non-HiDPI path — every
+    /// scaling site is then a no-op and behaviour is byte-identical. The
+    /// integer [`scale`](Self::scale) is *derived* from this and the live
+    /// physical size, never stored, so a mid-connection `DesktopSize` resize
+    /// re-detects it automatically. Set by the `@2x` opt-in wiring (k6).
+    logical_target: Option<(u32, u32)>,
     pixel_format: PixelFormat,
     /// Persistent ZRLE zlib stream; lives for the whole connection
     /// because ZRLE's stream is never reset between rectangles.
@@ -153,6 +166,7 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
         let mut conn = Self {
             transport,
             framebuffer,
+            logical_target: None,
             pixel_format: server_pf,
             zrle: ZrleDecoder::new(),
             tight: TightDecoder::new(),
@@ -181,11 +195,83 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
         Ok(conn)
     }
 
-    pub fn framebuffer(&self) -> &Framebuffer {
+    /// Set the **logical** target this connection presents over the physical
+    /// wire (ADR-0016 D2). Enables the scale-aware surface: framebuffer reads
+    /// downsample physical→logical and pointer/refresh writes scale
+    /// logical→physical, by the integer factor [`scale`](Self::scale)
+    /// auto-detected from the live physical size. Idempotent; the `@2x` opt-in
+    /// wiring (k6) calls this after the guest reaches its Retina mode.
+    pub fn set_logical_target(&mut self, width: u32, height: u32) {
+        self.logical_target = Some((width, height));
+    }
+
+    /// The logical target, if one was set.
+    pub fn logical_target(&self) -> Option<(u32, u32)> {
+        self.logical_target
+    }
+
+    /// The auto-detected integer downsample factor: `physical / logical` when
+    /// a logical target is set and the physical frame is an exact, equal
+    /// multiple of it; otherwise `1`. A `1` result makes every scaling site a
+    /// no-op — the default path, and the graceful degradation when HiDPI was
+    /// requested but the host yielded a 1× frame (k6 warns on that mismatch
+    /// by observing `scale() == 1` after requesting `@2x`).
+    pub fn scale(&self) -> u32 {
+        match self.logical_target {
+            None => 1,
+            Some((lw, lh)) => {
+                derive_scale(self.framebuffer.width(), self.framebuffer.height(), lw, lh)
+            }
+        }
+    }
+
+    /// The **logical** framebuffer surface every consumer reads — vision,
+    /// `screen capture`/`record`, the viewer (ADR-0016 D2/D2b).
+    ///
+    /// At `scale == 1` (the default / non-HiDPI path) this **borrows** the
+    /// wire framebuffer with zero copy — byte-identical to the pre-scale
+    /// behaviour. At `scale > 1` it returns an owned exact 2:1 box-average
+    /// [`downsample`](Framebuffer::downsample) of the physical frame.
+    ///
+    /// **Cost posture (ADR-0016 consequence):** the downsample is computed
+    /// **lazily, once per read**, never per framebuffer update — the
+    /// `next_message` apply loop never pays it. A consumer that reads every
+    /// frame (the viewer, `screen record`) pays one pass over the physical
+    /// frame per render (3840×2160 RGBA ≈ 33 MB scanned → ~8 MB produced); a
+    /// one-shot consumer (`screen capture`, and `screen size`, which reads no
+    /// pixels at all) pays it at most once. Eager per-update maintenance of a
+    /// second buffer was rejected for re-downsampling frames that are never
+    /// read.
+    pub fn framebuffer(&self) -> Cow<'_, Framebuffer> {
+        let scale = self.scale();
+        if scale <= 1 {
+            Cow::Borrowed(&self.framebuffer)
+        } else {
+            Cow::Owned(self.framebuffer.downsample(scale))
+        }
+    }
+
+    /// The raw **physical** (wire) framebuffer, bypassing the logical
+    /// downsample — the `screen capture --physical` / `screen record
+    /// --physical` path (ADR-0016 D2b) that emits the pixel-exact Retina frame.
+    pub fn physical_framebuffer(&self) -> &Framebuffer {
         &self.framebuffer
     }
 
+    /// The **logical** framebuffer size (`physical / scale`) — what every
+    /// consumer treats as the screen size, and the coordinate space clicks,
+    /// `--region`, and vision share. Equal to the physical size at `scale 1`.
     pub fn framebuffer_size(&self) -> (u32, u32) {
+        let scale = self.scale();
+        (
+            self.framebuffer.width() / scale,
+            self.framebuffer.height() / scale,
+        )
+    }
+
+    /// The raw **physical** (wire) framebuffer size — the `--physical` size
+    /// counterpart to [`framebuffer_size`](Self::framebuffer_size).
+    pub fn physical_framebuffer_size(&self) -> (u32, u32) {
         (self.framebuffer.width(), self.framebuffer.height())
     }
 
@@ -216,9 +302,15 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
         Ok(())
     }
 
-    /// Request a framebuffer update covering `(x,y,w,h)`. Set
-    /// `incremental = false` to ask for a full re-send of the region;
-    /// `true` requests only changes since the last update.
+    /// Request a framebuffer update covering the **logical** region
+    /// `(x,y,w,h)`. Set `incremental = false` to ask for a full re-send of the
+    /// region; `true` requests only changes since the last update.
+    ///
+    /// The region is scaled logical→physical before the wire (the same uniform
+    /// coordinate space as pointer events): under HiDPI a full logical
+    /// `(0,0,1920,1080)` request expands to the physical `(0,0,3840,2160)`, so
+    /// the server refreshes the whole Retina frame — not just its top-left
+    /// quarter. At `scale 1` this is the identity, byte-identical.
     pub async fn request_framebuffer_update(
         &mut self,
         incremental: bool,
@@ -227,13 +319,14 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
         w: u16,
         h: u16,
     ) -> Result<(), RfbError> {
+        let scale = self.scale();
         let mut msg = [0u8; 10];
         msg[0] = client_msg::FRAMEBUFFER_UPDATE_REQUEST;
         msg[1] = if incremental { 1 } else { 0 };
-        msg[2..4].copy_from_slice(&x.to_be_bytes());
-        msg[4..6].copy_from_slice(&y.to_be_bytes());
-        msg[6..8].copy_from_slice(&w.to_be_bytes());
-        msg[8..10].copy_from_slice(&h.to_be_bytes());
+        msg[2..4].copy_from_slice(&scale_coord(x, scale).to_be_bytes());
+        msg[4..6].copy_from_slice(&scale_coord(y, scale).to_be_bytes());
+        msg[6..8].copy_from_slice(&scale_coord(w, scale).to_be_bytes());
+        msg[8..10].copy_from_slice(&scale_coord(h, scale).to_be_bytes());
         self.transport.write_all(&msg).await?;
         self.transport.flush().await?;
         Ok(())
@@ -257,18 +350,26 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
     /// Send a `PointerEvent` (RFB §7.5.5). `button_mask` is the
     /// bit-packed state of currently-held buttons (bit 0 = left,
     /// bit 1 = middle, bit 2 = right; bits 3..6 encode wheel pulses
-    /// as transient down+up edges). `(x, y)` are framebuffer pixels.
+    /// as transient down+up edges).
+    ///
+    /// `(x, y)` are **logical** framebuffer pixels — the same space
+    /// [`framebuffer_size`](Self::framebuffer_size) reports — and are scaled
+    /// logical→physical before the wire (ADR-0016 D2: ×scale on writes). Every
+    /// high-level helper (`click`, `drag`, `scroll`, `mouse_*`) funnels through
+    /// here, so they all inherit the scaling. At `scale 1` this is the
+    /// identity, byte-identical to the pre-scale path.
     pub async fn pointer_event(
         &mut self,
         button_mask: u8,
         x: u16,
         y: u16,
     ) -> Result<(), RfbError> {
+        let scale = self.scale();
         let mut msg = [0u8; 6];
         msg[0] = client_msg::POINTER_EVENT;
         msg[1] = button_mask;
-        msg[2..4].copy_from_slice(&x.to_be_bytes());
-        msg[4..6].copy_from_slice(&y.to_be_bytes());
+        msg[2..4].copy_from_slice(&scale_coord(x, scale).to_be_bytes());
+        msg[4..6].copy_from_slice(&scale_coord(y, scale).to_be_bytes());
         self.transport.write_all(&msg).await?;
         self.transport.flush().await?;
         Ok(())
@@ -384,6 +485,41 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
     }
 }
 
+/// Derive the integer downsample factor from the **physical** (wire)
+/// framebuffer size and the **logical** target, per ADR-0016 D2.
+///
+/// Returns the uniform integer `physical / logical` when the physical
+/// dimensions are an exact, equal multiple of the logical target in both
+/// axes; otherwise `1` — a safe pass-through. The `1` cases are deliberate,
+/// not failures: `physical == logical` is "HiDPI requested but the host gave
+/// a 1× frame" (the auto-detect degrades gracefully); a non-integer or
+/// anisotropic ratio is out of scope (only exact integer 2× lands on the
+/// vision distribution) and never silently half-applies. A `1` result means
+/// every scaling site below is a no-op and behaviour is byte-identical to the
+/// pre-scale default path.
+fn derive_scale(physical_w: u32, physical_h: u32, logical_w: u32, logical_h: u32) -> u32 {
+    if logical_w == 0 || logical_h == 0 {
+        return 1;
+    }
+    if !physical_w.is_multiple_of(logical_w) || !physical_h.is_multiple_of(logical_h) {
+        return 1;
+    }
+    let sx = physical_w / logical_w;
+    let sy = physical_h / logical_h;
+    if sx != sy || sx == 0 {
+        return 1;
+    }
+    sx
+}
+
+/// Scale a logical wire coordinate to physical, saturating at `u16::MAX`.
+/// Physical sizes in scope (≤ 3840×2160) never approach the ceiling; the
+/// saturation only guards a pathological logical input from wrapping. At
+/// `scale == 1` this is the identity.
+fn scale_coord(v: u16, scale: u32) -> u16 {
+    (v as u32 * scale).min(u16::MAX as u32) as u16
+}
+
 /// Pick a security type to satisfy. Prefers VNC-auth when a password is
 /// available, falls back to None otherwise.
 fn pick_security_type(offered: &[u8], have_password: bool) -> Result<u8, RfbError> {
@@ -484,6 +620,37 @@ fn encoding_preferences(forced: Option<ForcedEncoding>) -> Vec<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn derive_scale_detects_exact_2x() {
+        assert_eq!(derive_scale(3840, 2160, 1920, 1080), 2);
+    }
+
+    #[test]
+    fn derive_scale_is_1_when_physical_equals_logical() {
+        // HiDPI requested but the host yielded a 1× framebuffer: the same
+        // code path degrades to a verified no-op (ADR-0016 D2).
+        assert_eq!(derive_scale(1920, 1080, 1920, 1080), 1);
+    }
+
+    #[test]
+    fn derive_scale_falls_back_to_1_on_non_integer_multiple() {
+        // Only exact integer scaling lands on the vision distribution; a
+        // fractional ratio is never silently half-applied — it no-ops.
+        assert_eq!(derive_scale(2880, 1800, 1920, 1080), 1);
+    }
+
+    #[test]
+    fn derive_scale_falls_back_to_1_on_anisotropic_ratio() {
+        // 2× wide but 1× tall is not a uniform scale → no-op, never a
+        // stretched downsample.
+        assert_eq!(derive_scale(3840, 1080, 1920, 1080), 1);
+    }
+
+    #[test]
+    fn derive_scale_guards_zero_logical_target() {
+        assert_eq!(derive_scale(3840, 2160, 0, 0), 1);
+    }
 
     #[test]
     fn pick_none_when_offered_and_no_password() {

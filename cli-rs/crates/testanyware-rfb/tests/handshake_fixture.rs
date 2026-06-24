@@ -196,7 +196,8 @@ async fn full_update_decoded_into_framebuffer() {
         ServerEvent::FramebufferUpdated { rectangles } => assert_eq!(rectangles, 1),
         other => panic!("expected FramebufferUpdated, got {other:?}"),
     }
-    let rgba = conn.framebuffer().rgba();
+    let fb = conn.framebuffer();
+    let rgba = fb.rgba();
     assert_eq!(&rgba[0..4], &[255, 0, 0, 0xFF], "pixel 0 RGBA = red");
     assert_eq!(&rgba[4..8], &[0, 255, 0, 0xFF], "pixel 1 RGBA = green");
 }
@@ -229,8 +230,80 @@ async fn tight_fill_rect_decoded_through_connection_path() {
         other => panic!("expected FramebufferUpdated, got {other:?}"),
     }
     // All four pixels are blue: RGBA = [0, 0, 255, 0xFF].
-    let rgba = conn.framebuffer().rgba();
-    for px in rgba.chunks_exact(4) {
+    let fb = conn.framebuffer();
+    for px in fb.rgba().chunks_exact(4) {
         assert_eq!(px, &[0, 0, 255, 0xFF]);
     }
+}
+
+/// Build a no-auth script ending with a single full-frame Raw update of the
+/// given `width × height`, where `bgrx` supplies the row-major BGRX pixels.
+fn server_script_with_full_raw(width: u16, height: u16, bgrx: &[u8]) -> Vec<u8> {
+    let mut script = server_no_auth_script(width, height, b"vm");
+    script.push(0); // FramebufferUpdate tag
+    script.push(0); // pad
+    script.extend_from_slice(&1u16.to_be_bytes()); // num_rects
+    script.extend_from_slice(&0u16.to_be_bytes()); // x
+    script.extend_from_slice(&0u16.to_be_bytes()); // y
+    script.extend_from_slice(&width.to_be_bytes()); // w
+    script.extend_from_slice(&height.to_be_bytes()); // h
+    script.extend_from_slice(&0i32.to_be_bytes()); // encoding = Raw
+    script.extend_from_slice(bgrx);
+    script
+}
+
+#[tokio::test]
+async fn logical_target_downsamples_framebuffer_read_and_size() {
+    // Physical 2x2 (R = 10,20,30,40) with a logical 1x1 target → scale 2;
+    // the single logical pixel box-averages to (100 + 2) / 4 = 25, while the
+    // physical accessors still expose the raw 2x2 Retina frame (the
+    // `--physical` capture/record path, ADR-0016 D2b).
+    let bgrx = [
+        0, 0, 10, 0, // (0,0)
+        0, 0, 20, 0, // (1,0)
+        0, 0, 30, 0, // (0,1)
+        0, 0, 40, 0, // (1,1)
+    ];
+    let transport = ScriptedTransport::new(server_script_with_full_raw(2, 2, &bgrx));
+    let mut conn = RfbConnection::handshake(transport, None).await.unwrap();
+    conn.next_message().await.unwrap();
+    conn.set_logical_target(1, 1);
+
+    assert_eq!(conn.scale(), 2);
+    assert_eq!(conn.framebuffer_size(), (1, 1), "logical size");
+    assert_eq!(conn.framebuffer().rgba(), &[25, 0, 0, 0xFF], "logical pixel");
+
+    assert_eq!(conn.physical_framebuffer_size(), (2, 2), "physical size");
+    assert_eq!(
+        conn.physical_framebuffer().rgba().len(),
+        2 * 2 * 4,
+        "physical frame untouched"
+    );
+}
+
+#[tokio::test]
+async fn no_logical_target_is_byte_identical_passthrough() {
+    // The default (non-HiDPI) path: no target → scale 1 → the logical view is
+    // the physical frame, verbatim. This is the regression guard.
+    let bgrx = [0, 0, 255, 0, 0, 255, 0, 0]; // red, green
+    let transport = ScriptedTransport::new(server_script_with_full_raw(2, 1, &bgrx));
+    let mut conn = RfbConnection::handshake(transport, None).await.unwrap();
+    conn.next_message().await.unwrap();
+
+    assert_eq!(conn.scale(), 1);
+    assert_eq!(conn.framebuffer_size(), (2, 1));
+    assert_eq!(conn.framebuffer().rgba(), conn.physical_framebuffer().rgba());
+}
+
+#[tokio::test]
+async fn logical_target_no_ops_when_host_yields_1x() {
+    // HiDPI requested (target set) but the host produced a 1× framebuffer:
+    // physical == logical → scale 1 → graceful no-op (ADR-0016 consequence:
+    // the opt-in must never be silently wrong on a 1× host).
+    let transport = ScriptedTransport::new(server_no_auth_script(2, 2, b"vm"));
+    let mut conn = RfbConnection::handshake(transport, None).await.unwrap();
+    conn.set_logical_target(2, 2);
+
+    assert_eq!(conn.scale(), 1, "requested but host gave 1×");
+    assert_eq!(conn.framebuffer_size(), (2, 2));
 }
