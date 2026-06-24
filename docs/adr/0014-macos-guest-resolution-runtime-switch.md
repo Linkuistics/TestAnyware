@@ -103,3 +103,85 @@ de-risking below — is deferred to a dedicated grove.
   does not supersede it. The per-backend `vm start` default and the tart `px`
   encoding stand. Linux + Windows are fully covered by ADR-0013; macOS is covered
   by ADR-0013 (the host-side `tart set`) **plus** this ADR (the guest-side switch).
+
+## Verification (2026-06-24, `spike-display-modes-k2`)
+
+**Verdict: CONFIRMED** — a selectable 1× 1920×1080 CoreGraphics mode exists, and a
+persistent display-configuration transaction switches the host-side framebuffer to
+it. The runtime, agent-mediated mechanism is viable; the build leaf
+(`build-resolution-switch-k3`) is unblocked. **One material correction** to the
+decision above: the bare `CGDisplaySetDisplayMode(_, _, nil)` named in the
+Decision is **insufficient on its own** (see finding 3) — the helper must use a
+configuration *transaction*.
+
+Method: a host-compiled CoreGraphics probe
+(`provisioner/helpers/probe-display-modes.swift`) uploaded through the agent's
+`/upload`+`/exec` surface and run inside a **fresh clone** of the live
+`testanyware-golden-macos-tahoe`, started with `tart set --display 1920x1080px`
+(confirmed by `tart get`: `Display 1920x1080px`). The probe enumerates
+`CGDisplayCopyAllDisplayModes` (both with and without
+`kCGDisplayShowDuplicateLowResolutionModes`), switches to the 1× target, and
+re-reads the active mode; framebuffer reads are `testanyware screen size` (the
+negotiated RFB ServerInit — the contract).
+
+**Findings:**
+
+1. **VF advertises 12 modes for the main display, every one at backing scale 1.0
+   (LoDPI). There are no Retina/2× modes at all** — the default list and the
+   `kCGDisplayShowDuplicateLowResolutionModes` list are identical (12 = 12). All
+   modes report `pixelWidth == width` (px == pt):
+
+   | modeID | px (= pt) | flags | usableForDesktopGUI |
+   |---|---|---|---|
+   | 0 | 800×600 | valid,safe | yes |
+   | 1 | 960×540 | valid,safe | yes |
+   | 2 | 1024×576 | valid,safe | yes |
+   | 3 | **1024×768** | valid,safe | yes |
+   | 4 | 1280×720 | valid,safe | yes |
+   | 5 | 1280×960 | valid,safe | yes |
+   | 6 | 1344×756 | valid,safe | yes |
+   | 7 | 1344×1008 | valid,safe | yes |
+   | 8 | 1600×900 | valid,safe | yes |
+   | 9 | 1600×1200 | valid,safe | yes |
+   | 10 | **1920×1080** | valid,safe,**default,native** (`0x02000007`) | yes |
+   | 11 | 640×480 | valid | no |
+
+2. **The 1× 1920×1080 target exists and is the display's `default`+`native`
+   mode** (modeID 10). It satisfies the `[[Framebuffer-pixel contract]]`:
+   `pixelWidth=1920` (on the vision distribution) **and** `width=1920 pt` (layout
+   parity with Linux/Windows). The clone boots into modeID 3 (1024×768) — the
+   golden's WindowServer-saved mode — which is why `screen size` reported
+   1024×768 pre-switch (reproducing ADR-0013's finding).
+
+   *Bearing on the deferred HiDPI question (plan-k1 D4):* VF offers **no** Retina
+   mode here, so the "1920×1080 only as 3840-px Retina" risk does **not**
+   materialise and the strategic HiDPI question is **not forced**. A future
+   `hidpi-vision` grove would first have to make VF advertise a HiDPI mode at all.
+
+3. **The switch primitive must be a persistent transaction, not the bare call.**
+   `CGDisplaySetDisplayMode(display, modeID10, nil)` returns `kCGErrorSuccess` and
+   the active mode reads 1920×1080 *within the calling process* — but it is
+   `.forAppOnly`-scoped: a **separate** process run immediately afterward reads
+   the active mode back at **1024×768**, and `screen size` stays 1024×768. The
+   change reverts the instant the setting process exits. Switching instead via
+   `CGBeginDisplayConfiguration` → `CGConfigureDisplayWithDisplayMode` →
+   `CGCompleteDisplayConfiguration(_, .forSession)` (CGError 0) **persists past
+   process exit**: a separate reader process reads 1920×1080, and **`screen size`
+   reports 1920×1080** (was 1024×768) on a fresh RFB connection. So VF resizes the
+   host-side framebuffer to follow the guest's chosen mode — but only for a
+   change that outlives the helper. `.forSession` is the right scope (per-instance
+   runtime, not written to prefs / not baked); `.permanently` is unnecessary.
+
+4. **Brief async settle transient after the switch.** The first `/exec` issued
+   immediately after `CGCompleteDisplayConfiguration` stalled to the agent's 30 s
+   exec timeout (while still returning its output); subsequent calls completed in
+   ~0.1 s and agent health stayed reachable with accessibility granted. The
+   framebuffer reconfiguration is asynchronous and briefly stalls the guest, then
+   fully settles. **Build-leaf implication:** the synchronous switch in
+   `TartRunner::start` should tolerate this settle window (the switch `/exec` may
+   itself run long, or a short post-switch readiness re-check may be wanted) — it
+   is not an error.
+
+No macOS golden regeneration was required; the entire switch ran over the agent's
+existing `/upload`+`/exec` surface against a stock clone. The probe is committed
+at `provisioner/helpers/probe-display-modes.swift`.
