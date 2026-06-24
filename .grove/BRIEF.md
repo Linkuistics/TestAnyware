@@ -10,32 +10,57 @@ uses. The vision pipeline is a downstream **consumer**; keeping it on its
 
 ## Done when
 
-Feasibility is now known (**ADR-0015**, spike-hidpi-feasibility-k2): HiDPI is a
-**host-side VF display-config** concern — guest-side REFUTED, reached by injecting
-an explicit high `pixelsPerInch` (tart fork / custom VF harness). The provisional
-success bar, to be tightened by `target-shape-and-vision-disposition-k3`:
+Feasibility is settled (**ADR-0015**) and the **build design** is settled
+(**ADR-0016**, target-shape-and-vision-disposition-k3): a **scale-aware RFB
+surface** (logical 1920×1080 over a physical 3840×2160 wire) shipped as an
+**opt-in** over shipped tart's host-scale `pt` path; the *deterministic* host-side
+mechanism is deferred. The grove is **done** when:
 
-- a macOS guest can be brought up rendering at **2× backing scale** (3840×2160-px
-  framebuffer for logical 1920×1080), via the host-side mechanism;
-- the host-side RFB framebuffer feeds vision its native **1920×1080 px** by an
-  exact **2:1 downsample**, with pointer events mapped ×2 — and a verify leaf
-  confirms vision stays on-distribution;
-- HiDPI is an **opt-in** disposition that leaves the 1× default (ADR-0013/0014)
-  intact; the mechanism + disposition are recorded in ADR(s).
+- `vm start --display 1920x1080@2x` on a Retina host brings a macOS guest up at 2×
+  backing scale (physical 3840×2160 confirmed via `screen size`), with ADR-0014's
+  1× switch suppressed — empirically confirmed (`confirm-hidpi-pt-path-on-retina-host`);
+- the scale-aware `RfbConnection` presents a logical 1920×1080 surface to every
+  consumer (exact 2:1 downsample on reads, ×2 pointer on writes, scale
+  auto-detected, 1×=no-op), unit-tested (`build-scale-aware-rfb-connection`);
+- the `@2x` opt-in is wired end-to-end (parse/translate, route to `pt`, suppress
+  the 1× switch, host-scale warn, `--physical` capture/record); HiDPI renders an
+  app under test at 2× while vision/clicks operate in logical 1920×1080
+  (`build-hidpi-optin-and-wiring`);
+- vision accuracy on the downsampled-2× frame is **measured** against the 1×
+  baseline (`verify-vision-on-downsampled-2x`) — pass blesses vision-on-HiDPI;
+  material fail documents HiDPI as realism/viewer-only + a retraining workstream.
+
+**Out of scope (deferred, not a live leaf):** the deterministic tart-fork /
+custom-VF mechanism for headless / 1×-host / CI HiDPI — ADR-0016 "Deferred",
+triggered by real demand off a Retina host.
 
 ## Decomposition
 
-Children are ordered by dependency — feasibility gates everything downstream.
+Children are ordered by dependency — feasibility gated the design, which gates the
+build; within the build, k4 (mechanism confirm) gates the end-to-end wiring.
 
-1. `01-plan-k1` — initial design grilling: established the driver and the
-   feasibility gate, grew the tree. (this session)
-2. `02-spike-hidpi-feasibility-k2` — the load-bearing gate (DONE). Verdict in
-   **ADR-0015**: guest-side REFUTED, host-side viable via a tart fork / custom VF
-   harness; the framebuffer is reported in px (3840×2160), so the 2:1-downscale
+1. `plan-k1` — initial design grilling: established the driver and the feasibility
+   gate, grew the tree. (DONE)
+2. `spike-hidpi-feasibility-k2` — the load-bearing feasibility gate (DONE). Verdict
+   in **ADR-0015**: guest-side REFUTED, host-side viable via a tart fork / custom
+   VF harness; the framebuffer is reported in px (3840×2160), so the 2:1-downscale
    design applies.
-3. `03-target-shape-and-vision-disposition-k3` — planning: grill the build design
-   the spike deferred (mechanism fork, downsample placement, pointer ×2, opt-in
-   surface, vision disposition), land a PRD/ADR, grow build + verify leaves.
+3. `target-shape-and-vision-disposition-k3` — planning (DONE). Settled the build
+   design in **ADR-0016**: minimal opt-in over the `pt` path, scale-aware logical
+   RFB surface, `--display WxH@2x`, vision gated on a verify leaf; deferred the
+   deterministic fork. Grew k4–k7.
+4. `confirm-hidpi-pt-path-on-retina-host-k4` — the load-bearing empirical de-risk
+   (the doubt pass for ADR-0015's derived-not-measured `pt`→2× claim): on a Retina
+   host, confirm `@2x` yields a 3840×2160 framebuffer and pin the `vm start`
+   sequencing (does the guest need a switch to *select* the Retina mode?).
+5. `build-scale-aware-rfb-connection-k5` — the reusable core: logical surface,
+   exact 2:1 downsample, ×2 pointer, scale auto-detect. Mechanism-independent,
+   unit-testable on any host.
+6. `build-hidpi-optin-and-wiring-k6` — `@2x` parse/translate, route to `pt`,
+   suppress ADR-0014's 1× switch, host-scale warn, `--physical` capture/record;
+   wires k5 into `vm start` end-to-end.
+7. `verify-vision-on-downsampled-2x-k7` — measure OCR + window-detection accuracy
+   on downsampled-2× vs the native-1× baseline; bless or document the disposition.
 
 ## Pointers
 

@@ -179,10 +179,25 @@ guest). A Retina/2× mode would present 1920×1080 *points* as a **3840×2160-px
 framebuffer — identical logical layout but **off** the vision distribution.
 _Implication_: "same window sizes on macOS needs 2× the pixels" is a **myth** —
 layout parity holds at 1× too, because the px axis (vision distribution) is
-**independent** of the pt axis (window layout). HiDPI/Retina rendering is a
-deliberate **deferred** concern, owned by a future dedicated grove that would
-rework the vision pipeline; this grove targets the 1× mode. Relates to
-[[Guest-controlled resolution]].
+**independent** of the pt axis (window layout). HiDPI/Retina rendering is an
+**opt-in** alternative disposition (ADR-0016, `[[HiDPI logical framebuffer]]`),
+reached at 2× backing scale while the 1× px contract remains the **default**.
+Relates to [[Guest-controlled resolution]].
+
+**HiDPI logical framebuffer** (px, at 2× backing scale — opt-in):
+When a macOS guest renders at 2× backing scale (HiDPI/Retina — the test-realism
+opt-in, ADR-0016), the [[Host-side framebuffer]] reports the **physical** px = 2×
+the logical points (logical 1920×1080 → physical 3840×2160). The Rust CLI's RFB
+connection presents a **logical 1920×1080-px surface** to every consumer —
+downsampling physical→logical (exact 2:1) on reads, scaling logical→physical on
+pointer writes — so the [[Framebuffer-pixel contract]]'s 1920×1080-px distribution
+holds for vision unchanged. _Logical_ = the 1920×1080-px surface consumers (vision,
+`screen *`, viewer, `input`) see; _physical_ = the 3840×2160-px wire framebuffer
+(also what `screen capture --physical` emits). Opt-in via `--display WxH@2x`
+(integer 2× only); the 1× px contract is the default; the *deterministic* host-side
+mechanism for headless/1×-host HiDPI is deferred (ADR-0016). _Avoid_: conflating
+*logical* (what consumers/vision see) with *physical* (the Retina wire frame);
+treating 2× as the default (it is opt-in).
 
 ## Example dialogue
 
