@@ -10,10 +10,18 @@ uses. The vision pipeline is a downstream **consumer**; keeping it on its
 
 ## Done when
 
-*Deferred until feasibility is known (plan-k1 D2).* The success bar is set after
-the feasibility spike returns. Provisionally: a macOS guest can be brought up
-rendering at 2× backing scale, the host-side RFB framebuffer + vision pipeline
-have a defined and working disposition, and the mechanism is recorded in an ADR.
+Feasibility is now known (**ADR-0015**, spike-hidpi-feasibility-k2): HiDPI is a
+**host-side VF display-config** concern — guest-side REFUTED, reached by injecting
+an explicit high `pixelsPerInch` (tart fork / custom VF harness). The provisional
+success bar, to be tightened by `target-shape-and-vision-disposition-k3`:
+
+- a macOS guest can be brought up rendering at **2× backing scale** (3840×2160-px
+  framebuffer for logical 1920×1080), via the host-side mechanism;
+- the host-side RFB framebuffer feeds vision its native **1920×1080 px** by an
+  exact **2:1 downsample**, with pointer events mapped ×2 — and a verify leaf
+  confirms vision stays on-distribution;
+- HiDPI is an **opt-in** disposition that leaves the 1× default (ADR-0013/0014)
+  intact; the mechanism + disposition are recorded in ADR(s).
 
 ## Decomposition
 
@@ -21,11 +29,13 @@ Children are ordered by dependency — feasibility gates everything downstream.
 
 1. `01-plan-k1` — initial design grilling: established the driver and the
    feasibility gate, grew the tree. (this session)
-2. `02-spike-hidpi-feasibility-k2` — the load-bearing gate: can VF be made to
-   advertise + *select* a 2× mode for a **headless** guest, and what does the RFB
-   framebuffer become? Guest-side first, characterize host-side (plan-k1 D3).
-3. *(grown after the spike)* target-shape + vision-disposition planning, then
-   build + verify — added lazily once the spike answers feasibility.
+2. `02-spike-hidpi-feasibility-k2` — the load-bearing gate (DONE). Verdict in
+   **ADR-0015**: guest-side REFUTED, host-side viable via a tart fork / custom VF
+   harness; the framebuffer is reported in px (3840×2160), so the 2:1-downscale
+   design applies.
+3. `03-target-shape-and-vision-disposition-k3` — planning: grill the build design
+   the spike deferred (mechanism fork, downsample placement, pointer ×2, opt-in
+   surface, vision disposition), land a PRD/ADR, grow build + verify leaves.
 
 ## Pointers
 
