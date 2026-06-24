@@ -141,3 +141,67 @@ or a custom VF harness (the `s-u/macosvm` `dpi` model). Required only for headle
 agnostic precisely so this can be slotted underneath later without changing the
 user surface or the scale-aware connection. Start from ADR-0015's "Considered
 options" survey. Trigger: concrete demand for reproducible HiDPI off a Retina host.
+
+## Verification (2026-06-25, `confirm-hidpi-pt-path-on-retina-host-k4`)
+
+**Verdict: CONFIRMED.** The `pt`→2× path delivers a 3840×2160 framebuffer, and
+the `vm start` sequencing the k6 opt-in needs is pinned. This closes the one
+empirical unknown above (and ADR-0015's derived-not-measured Q2).
+
+The dev host is a 1× 5120×2160 ultrawide (`NSScreen.main.backingScaleFactor ==
+1.0`) — the same 1× host that forced ADR-0015 to *derive* rather than *measure*.
+But the host **panel** offers a native `2560×1080 pt | 5120×2160 px | 2.00×`
+HiDPI mode, so the host was temporarily switched into it (a fresh-process
+`NSScreen.main.backingScaleFactor` then reads `2.0` — exactly what tart's `pt`
+path consults at VM-construction) for the measurement and restored to 1×
+afterward. Method otherwise mirrors ADR-0014/0015: a fresh
+`testanyware-golden-macos-tahoe` clone started with `--display 1920x1080pt`;
+host-compiled CoreGraphics probes `/upload`+`/exec`'d over the agent; framebuffer
+read via `testanyware screen size`. No golden regeneration.
+
+1. **`pt`→2× advertises Retina modes (the two-axis invariant, now both axes
+   measured).** With the host at 2×, the guest advertised **34 modes, 18 of them
+   2× (Retina)** — including `1920×1080 pt | 3840×2160 px | scale 2.00`. Against
+   k2's run of the *same* `pt` config on a 1× host (12 modes, **all scale 1.0**),
+   this isolates ADR-0015's invariant cleanly: the config's **point dimensions**
+   set the advertised *sizes*; the **host backing scale** sets their *scale*.
+
+2. **The 3840×2160 framebuffer is measured, not derived.** Switching the guest's
+   main display to the Retina 1920-logical mode made `screen size` report
+   **3840×2160 px**, with the active CG mode `1920×1080 pt | 3840×2160 px | scale
+   2.00`. A 2× config of logical 1920×1080 ⇒ a 3840×2160-px host RFB framebuffer.
+   **The downscale design's px precondition (plan-k1 D2) holds, empirically.**
+
+3. **Sequencing: the guest does NOT auto-select Retina — it restores the golden's
+   saved 1024×768.** Right after `vm start`, `screen size` = 1024×768 and the
+   active CG mode was `1024×768 | scale 1.00`. So k6 **must issue a guest-side
+   switch** to *select* the Retina mode (WindowServer's saved-mode restore is
+   scale-independent — the same behaviour ADR-0014 found at 1×). The exact
+   selector k6 implements: the first advertised mode with **`pixelWidth ==
+   2·logicalW && pixelHeight == 2·logicalH && width == logicalW`** (scale 2.0),
+   applied via the persistent `.forSession` transaction
+   (`CGBeginDisplayConfiguration → CGConfigureDisplayWithDisplayMode →
+   CGCompleteDisplayConfiguration`) — the same pattern `set-display-mode.swift`
+   uses. Confirmed working: VF resized the host framebuffer to 3840×2160 within
+   ~1 s of the switch. **Select by predicate, never by `modeID`** — mode ids are
+   not stable across boots or golden regens.
+
+4. **ADR-0014's 1× switch MUST be suppressed under `@2x` — and the reason is
+   sharper than the leaf brief assumed.** The brief hypothesised the 1× selector
+   (`pixelWidth==w && width==w`) would have *no match* at 2×. **Refuted:** at 2×
+   the guest advertises **both** a 1× `1920×1080` mode (`px==pt==1920`) *and* the
+   2× `1920×1080`-logical mode (`px==3840`). So ADR-0014's `set-display-mode 1920
+   1080` would **match the 1× mode and succeed**, forcing the guest to LoDPI
+   1920×1080 and **silently defeating HiDPI**. Suppression (D3 item 2) is
+   therefore load-bearing, not a tidy-up: the switch is **not** self-disabling via
+   no-match; left enabled it actively selects the wrong mode. (In this run the
+   switch happened to be a no-op — the agent IP was not ready inside `vm start`'s
+   window, so `display::apply` was skipped, which is why the pristine 1024×768 was
+   observable. The selector's match against the real advertised 1× mode is what
+   matters for k6, independent of that timing.)
+
+**Net for the build:** k6's `@2x` path = route to the `pt` path (passes through
+today) → **suppress** ADR-0014's 1× switch → **issue** a guest-side Retina-mode
+switch (predicate above, `.forSession`) → set the scale-aware connection's
+logical target. k5's scale-aware surface is unaffected (mechanism-independent,
+unit-testable on any host).
