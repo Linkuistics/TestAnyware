@@ -6,6 +6,7 @@
 
 use serde_json::{json, Value};
 
+use testanyware_vm::display_request::parse_display_request;
 use testanyware_vm::lifecycle::{Platform, VmLifecycle, VmListing, VmStartOptions};
 use testanyware_vm::{VmError, VmMeta, VmPaths};
 
@@ -39,7 +40,33 @@ pub async fn run_vm_start(
         Ok(p) => p,
         Err(err) => exit_vm_error(err, mode),
     };
-    let opts = VmStartOptions::new(parsed, base, id, display, viewer);
+    // Parse the `--display` flag, splitting any `@2x` HiDPI opt-in from the
+    // backend value (ADR-0016 D3). A bad scale / malformed @2x is a usage error.
+    let request = match parse_display_request(display.as_deref()) {
+        Ok(r) => r,
+        Err(err) => print_error(
+            mode,
+            "USAGE_ERROR",
+            &err.to_string(),
+            Some(err.remediation()),
+            json!({ "value": display.unwrap_or_default() }),
+            2,
+        ),
+    };
+    // HiDPI is a macOS-VF concept: there is no Retina mode for Linux/Windows
+    // guests, and the `pt` translation would confuse their backends. Reject it
+    // here rather than silently producing a broken 1× session.
+    if request.logical.is_some() && parsed != Platform::Macos {
+        print_error(
+            mode,
+            "USAGE_ERROR",
+            "HiDPI (@2x) is only supported for macOS guests",
+            Some("Use --platform macos for HiDPI, or drop the @2x suffix for a 1× display."),
+            json!({ "platform": parsed.as_str() }),
+            2,
+        );
+    }
+    let opts = VmStartOptions::new(parsed, base, id, request, viewer);
     let paths = VmPaths::from_process_env();
 
     if dry_run {

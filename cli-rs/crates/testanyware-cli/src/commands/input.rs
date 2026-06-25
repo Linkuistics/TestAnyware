@@ -16,6 +16,10 @@ use crate::resolve::{
 };
 
 /// Connect to the resolved VNC endpoint, or print a typed error and exit.
+///
+/// Routes through [`connect_vnc`](crate::commands::connect_vnc), so a `@2x` VM's
+/// logical target is applied and every `input *` coordinate is interpreted as
+/// logical — k5 scales it ×2 to physical on the wire (ADR-0016 D2).
 pub(crate) async fn connect_or_exit(
     opts: &ConnectionOptions,
     mode: OutputMode,
@@ -24,13 +28,7 @@ pub(crate) async fn connect_or_exit(
         Ok(e) => e,
         Err(err) => exit_resolve_error(err, mode),
     };
-    match RfbConnection::connect(
-        &endpoint.host,
-        endpoint.port,
-        endpoint.password.as_deref().map(str::as_bytes),
-    )
-    .await
-    {
+    match crate::commands::connect_vnc(&endpoint).await {
         Ok(c) => c,
         Err(err) => exit_rfb_error(err, mode),
     }

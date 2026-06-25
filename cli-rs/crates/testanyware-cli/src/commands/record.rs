@@ -13,14 +13,15 @@
 //! AVFoundation/VideoToolbox on macOS, the Tier-2 `ffmpeg-next` encoder
 //! elsewhere (until that lands, non-macOS reports `ACTION_UNSUPPORTED`).
 
+use std::borrow::Cow;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
 use testanyware_rfb::{RfbConnection, ServerEvent};
 use testanyware_video::{new_encoder, VideoCodec, VideoEncoderConfig};
 
-use crate::commands::exit_resolve_error;
 use crate::commands::screen::{exit_rfb_error, parse_region};
+use crate::commands::{connect_vnc, exit_resolve_error};
 use crate::output::{exit_code_for, print_error, print_success, OutputMode};
 use crate::resolve::{resolve_vnc, ConnectionOptions};
 
@@ -48,12 +49,14 @@ pub(crate) fn effective_duration(requested: u32) -> u32 {
 /// `testanyware screen record` handler. `output`/`fps`/`duration` carry the
 /// raw CLI values (already defaulted by clap where applicable); `region` is
 /// the unparsed `X,Y,W,H` string.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_screen_record(
     opts: ConnectionOptions,
     output: String,
     fps: Option<u32>,
     duration: Option<u32>,
     region: Option<String>,
+    physical: bool,
     mode: OutputMode,
     dry_run: bool,
 ) {
@@ -106,18 +109,23 @@ pub async fn run_screen_record(
         Ok(e) => e,
         Err(err) => exit_resolve_error(err, mode),
     };
-    let mut conn = match RfbConnection::connect(
-        &endpoint.host,
-        endpoint.port,
-        endpoint.password.as_deref().map(str::as_bytes),
-    )
-    .await
-    {
+    let mut conn = match connect_vnc(&endpoint).await {
         Ok(c) => c,
         Err(err) => exit_rfb_error(err, mode),
     };
 
-    let (fb_w, fb_h) = conn.framebuffer_size();
+    // Framebuffer-update requests are always issued in *logical* coordinates;
+    // k5 scales them ×scale to physical on the wire, so a full logical request
+    // refreshes the whole Retina frame (ADR-0016 D2).
+    let (log_w, log_h) = conn.framebuffer_size();
+    // The recorded frame's coordinate space: logical by default, physical under
+    // --physical (the raw 3840×2160 Retina frame, ADR-0016 D2b). --region and
+    // the encoder dimensions are interpreted in this space.
+    let (fb_w, fb_h) = if physical {
+        conn.physical_framebuffer_size()
+    } else {
+        (log_w, log_h)
+    };
     let crop = match region {
         Some((x, y, w, h)) if x + w > fb_w || y + h > fb_h => print_error(
             mode,
@@ -149,7 +157,7 @@ pub async fn run_screen_record(
     // Prime the stream with one full update and drain to the first real
     // frame, so frame 0 is genuine rather than a blank pre-decode buffer.
     if let Err(err) = conn
-        .request_framebuffer_update(false, 0, 0, fb_w as u16, fb_h as u16)
+        .request_framebuffer_update(false, 0, 0, log_w as u16, log_h as u16)
         .await
     {
         exit_rfb_error(err, mode);
@@ -162,7 +170,7 @@ pub async fn run_screen_record(
         }
     }
 
-    let frames = match capture_loop(&mut conn, encoder.as_mut(), crop, fps, secs).await {
+    let frames = match capture_loop(&mut conn, encoder.as_mut(), crop, fps, secs, physical).await {
         Ok(n) => n,
         Err(err) => exit_rfb_error(err, mode),
     };
@@ -187,8 +195,11 @@ async fn capture_loop<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
     crop: (u32, u32, u32, u32),
     fps: u32,
     secs: u32,
+    physical: bool,
 ) -> Result<u64, testanyware_rfb::RfbError> {
-    let (fb_w, fb_h) = conn.framebuffer_size();
+    // Refresh requests stay logical (k5 scales them ×scale on the wire); only
+    // the sampled read-out switches to the physical frame under --physical.
+    let (log_w, log_h) = conn.framebuffer_size();
     let frame_interval = Duration::from_secs_f64(1.0 / fps as f64);
     let mut sampler = tokio::time::interval(frame_interval);
     sampler.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -204,13 +215,19 @@ async fn capture_loop<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
             // The `ServerEvent` itself is unused — only its side effect matters.
             msg = conn.next_message() => { msg?; }
             _ = poll.tick() => {
-                conn.request_framebuffer_update(true, 0, 0, fb_w as u16, fb_h as u16).await?;
+                conn.request_framebuffer_update(true, 0, 0, log_w as u16, log_h as u16).await?;
             }
             _ = sampler.tick() => {
                 if Instant::now() >= deadline {
                     break;
                 }
-                let fb = conn.framebuffer();
+                // Logical (downsampled) by default; the raw physical frame under
+                // --physical (ADR-0016 D2b). `crop` is in the matching space.
+                let fb: Cow<testanyware_rfb::Framebuffer> = if physical {
+                    Cow::Borrowed(conn.physical_framebuffer())
+                } else {
+                    conn.framebuffer()
+                };
                 let frame = crop_rgba(fb.rgba(), fb.width(), crop);
                 // An encoder error here is INTERNAL, not an RFB fault; surface
                 // it as such rather than masquerading as a connection drop.

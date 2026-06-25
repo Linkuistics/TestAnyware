@@ -341,6 +341,11 @@ async fn connect_and_stream(
         _ = shutdown_rx.changed() => return StreamOutcome::Shutdown,
     };
 
+    // Apply the @2x logical target (ADR-0016 D2): the viewer then renders the
+    // downsampled logical frame and forwards clicks in logical coords (k5 scales
+    // ×2 on the wire), so the window shows 1920×1080 and clicks land correctly.
+    crate::commands::apply_logical_target(&mut conn, &endpoint);
+
     // Connected: clear any overlay so the live frame shows again.
     mark_connected(frame, ctx);
     // True once a framebuffer arrives — see `StreamOutcome::Lost::productive`.

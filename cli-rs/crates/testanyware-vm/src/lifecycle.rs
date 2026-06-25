@@ -13,7 +13,7 @@ use crate::process::process_alive;
 use crate::qemu::{
     scan_clones_dir, scan_golden_dir, GoldenImage, QemuRunner, QemuStartOptions, RunningClone,
 };
-use crate::spec::{AgentEndpoint, VmSpec, VncEndpoint};
+use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
 
 /// Guest platform. Ports the `Platform` enum + extension in `VMTypes.swift`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -63,23 +63,34 @@ pub struct VmStartOptions {
     pub platform: Platform,
     pub base: String,
     pub id: String,
+    /// The backend display value (`tart set --display` / QEMU). Never carries
+    /// `@2x` — under HiDPI it is the translated `WxHpt` (ADR-0016 D3).
     pub display: Option<String>,
+    /// The HiDPI logical target `(width, height)`, set only by a `@2x` opt-in
+    /// (ADR-0016 D2/D3). Drives the guest-side 2× mode switch and is persisted
+    /// into the spec so later command connections present the logical surface.
+    pub logical: Option<(u32, u32)>,
     pub open_viewer: bool,
 }
 
 impl VmStartOptions {
+    /// Build start options from a parsed [`DisplayRequest`](crate::display_request::DisplayRequest):
+    /// the backend display value and the HiDPI logical target are split apart
+    /// by the `--display` parser, so the `@2x` translation never leaks past the
+    /// CLI boundary.
     pub fn new(
         platform: Platform,
         base: Option<String>,
         id: Option<String>,
-        display: Option<String>,
+        display: crate::display_request::DisplayRequest,
         open_viewer: bool,
     ) -> Self {
         Self {
             platform,
             base: base.unwrap_or_else(|| platform.default_base().to_string()),
             id: id.unwrap_or_else(generate_id),
-            display,
+            display: display.backend_display,
+            logical: display.logical,
             open_viewer,
         }
     }
@@ -167,6 +178,10 @@ impl VmLifecycle {
             },
             agent: agent_endpoint,
             platform: opts.platform.as_str().to_string(),
+            // HiDPI is a macOS-VF concept (rejected for QEMU guests at the CLI
+            // boundary), so this is always `None` here; carried uniformly so the
+            // two backends build the spec identically.
+            logical: opts.logical.map(|(w, h)| LogicalSize { width: w, height: h }),
         };
         let spec_path = paths.spec_path(&opts.id);
         let meta_path = paths.meta_path(&opts.id);
@@ -228,22 +243,54 @@ impl VmLifecycle {
 
                 // macOS guests are guest-controlled (ADR-0014): the agent is up
                 // but the framebuffer still shows the golden's 1024×768. Force it
-                // to the resolved resolution now — synchronously, before `vm
-                // start` returns success — so consumers waiting on `vm start` are
-                // gated on the switch by construction. Best-effort, like the
-                // agent endpoint itself: failures warn and leave the VM started.
+                // to the resolved mode now — synchronously, before `vm start`
+                // returns success — so consumers waiting on `vm start` are gated
+                // on the switch by construction. Best-effort, like the agent
+                // endpoint itself: failures warn and leave the VM started.
                 // Linux-on-tart honors the host-configured mode directly, so the
                 // guest-side switch is macOS-only.
                 if opts.platform == Platform::Macos {
-                    let resolved = crate::tart::resolve_display(opts.display.as_deref());
-                    match crate::display::parse_target(resolved) {
-                        Some(target) => {
-                            crate::display::apply(ip, 8648, target, paths, &opts.id).await;
+                    match opts.logical {
+                        // HiDPI @2x (ADR-0016 D3): select the guest's 2× Retina
+                        // mode for the logical target (k4 finding 3) — *replacing*
+                        // ADR-0014's 1× switch, not skipping it. At 2× the guest
+                        // advertises BOTH a 1× and a 2× 1920-logical mode, so the
+                        // old 1× selector would match the 1× mode and silently
+                        // defeat HiDPI (k4 finding 4); suppression is load-bearing.
+                        Some((lw, lh)) => {
+                            let applied =
+                                crate::display::apply(ip, 8648, (lw, lh), 2, paths, &opts.id).await;
+                            // No 2× mode advertised ⇒ a 1× host (or HiDPI did not
+                            // engage). Fall back to the 1× mode of the same logical
+                            // size so the guest still reaches a sane 1920×1080
+                            // (the connection auto-detects scale=1 and warns —
+                            // ADR-0016 "the host yielded 1×"). Safe vs k4 finding 4:
+                            // this runs only when no 2× mode exists, so it cannot
+                            // defeat HiDPI on a real Retina host (where the 2×
+                            // switch succeeds first and skips this).
+                            if !applied {
+                                eprintln!(
+                                    "  HiDPI 2× switch did not apply — falling back to \
+                                     1× {lw}x{lh} (HiDPI needs a Retina host / the \
+                                     deferred deterministic mechanism, ADR-0016)"
+                                );
+                                crate::display::apply(ip, 8648, (lw, lh), 1, paths, &opts.id).await;
+                            }
                         }
-                        None => eprintln!(
-                            "  warning: cannot derive a px target from display \
-                             '{resolved}' — skipping macOS resolution switch"
-                        ),
+                        // Default 1× path (ADR-0014): force the 1920×1080-px
+                        // contract via the 1× mode selector.
+                        None => {
+                            let resolved = crate::tart::resolve_display(opts.display.as_deref());
+                            match crate::display::parse_target(resolved) {
+                                Some(target) => {
+                                    crate::display::apply(ip, 8648, target, 1, paths, &opts.id).await;
+                                }
+                                None => eprintln!(
+                                    "  warning: cannot derive a px target from display \
+                                     '{resolved}' — skipping macOS resolution switch"
+                                ),
+                            }
+                        }
                     }
                 }
             }
@@ -257,6 +304,10 @@ impl VmLifecycle {
             },
             agent: agent_endpoint,
             platform: opts.platform.as_str().to_string(),
+            // Persist the HiDPI logical surface so every later short-lived
+            // command connection presents it (ADR-0016 D2; ADR-0004 per-command
+            // model). `None` on the default 1× path.
+            logical: opts.logical.map(|(w, h)| LogicalSize { width: w, height: h }),
         };
         let spec_path = paths.spec_path(&opts.id);
         let meta_path = paths.meta_path(&opts.id);
@@ -538,19 +589,43 @@ mod tests {
 
     #[test]
     fn start_options_fill_in_base_and_id_defaults() {
-        let opts = VmStartOptions::new(Platform::Windows, None, None, None, false);
+        use crate::display_request::parse_display_request;
+        let opts = VmStartOptions::new(
+            Platform::Windows,
+            None,
+            None,
+            parse_display_request(None).unwrap(),
+            false,
+        );
         assert_eq!(opts.base, "testanyware-golden-windows-11");
         assert!(opts.id.starts_with("testanyware-"));
+        assert_eq!(opts.logical, None);
         let explicit = VmStartOptions::new(
             Platform::Linux,
             Some("custom-base".into()),
             Some("testanyware-fixedid".into()),
-            Some("800x600".into()),
+            parse_display_request(Some("800x600")).unwrap(),
             false,
         );
         assert_eq!(explicit.base, "custom-base");
         assert_eq!(explicit.id, "testanyware-fixedid");
         assert_eq!(explicit.display.as_deref(), Some("800x600"));
+        assert_eq!(explicit.logical, None);
+    }
+
+    #[test]
+    fn start_options_carry_the_hidpi_logical_target() {
+        use crate::display_request::parse_display_request;
+        let opts = VmStartOptions::new(
+            Platform::Macos,
+            None,
+            None,
+            parse_display_request(Some("1920x1080@2x")).unwrap(),
+            false,
+        );
+        // The backend sees the translated pt value; @2x never leaks past here.
+        assert_eq!(opts.display.as_deref(), Some("1920x1080pt"));
+        assert_eq!(opts.logical, Some((1920, 1080)));
     }
 
     // On a macOS host the tart backend serves macOS guests, so this
@@ -562,7 +637,13 @@ mod tests {
     #[tokio::test]
     async fn start_rejects_the_macos_platform_as_unsupported() {
         let dir = tempfile::tempdir().unwrap();
-        let opts = VmStartOptions::new(Platform::Macos, None, None, None, false);
+        let opts = VmStartOptions::new(
+            Platform::Macos,
+            None,
+            None,
+            crate::display_request::DisplayRequest::default(),
+            false,
+        );
         let err = VmLifecycle::start(&opts, &paths_in(dir.path())).await.unwrap_err();
         assert!(matches!(err, VmError::BackendUnsupported { .. }));
     }
@@ -646,6 +727,7 @@ mod tests {
             vnc: VncEndpoint { host: "localhost".into(), port: 5900, password: None },
             agent: None,
             platform: "windows".into(),
+            logical: None,
         };
         spec.write_atomic(&paths.spec_path(id)).unwrap();
 

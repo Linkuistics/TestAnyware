@@ -10,9 +10,11 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 use testanyware_ocr_client::{find_text, FindOutcome, OcrDetection, OcrEngine};
-use testanyware_rfb::RfbConnection;
-use testanyware_vm::capture::{capture_frame, capture_frame_png, encode_png, CaptureError};
+use testanyware_vm::capture::{
+    capture_frame, capture_frame_physical, capture_frame_png, encode_png, CaptureError,
+};
 
+use crate::commands::connect_vnc;
 use crate::output::{exit_code_for, print_error, print_success, OutputMode};
 use crate::resolve::{resolve_vnc, ConnectionOptions, ResolveError};
 
@@ -22,8 +24,11 @@ pub async fn run_screen_size(opts: ConnectionOptions, mode: OutputMode) {
         Ok(e) => e,
         Err(err) => exit_resolve_error(err, mode),
     };
-    match RfbConnection::connect(&endpoint.host, endpoint.port, endpoint.password.as_deref().map(str::as_bytes)).await {
+    match connect_vnc(&endpoint).await {
         Ok(conn) => {
+            // The logical size (ADR-0016 D2): on a @2x VM this is 1920×1080
+            // even though the wire framebuffer is 3840×2160 — the size every
+            // consumer's coordinate space (clicks, --region, vision) shares.
             let (w, h) = conn.framebuffer_size();
             match mode {
                 OutputMode::Text => println!("{w}x{h}"),
@@ -38,10 +43,16 @@ pub async fn run_screen_size(opts: ConnectionOptions, mode: OutputMode) {
 
 /// `testanyware screen capture` — capture one framebuffer update and
 /// write it to disk as a PNG. `--region x,y,w,h` crops post-decode.
+///
+/// Defaults to the **logical** surface (ADR-0016 D2b): on a `@2x` VM that is the
+/// downsampled 1920×1080 frame, coordinate-consistent with `--region`, clicks,
+/// and vision. `--physical` instead emits the raw 3840×2160 Retina frame (the
+/// pixel-exact realism artifact); at 1× the two are identical.
 pub async fn run_screen_capture(
     opts: ConnectionOptions,
     output_path: Option<String>,
     region: Option<String>,
+    physical: bool,
     mode: OutputMode,
 ) {
     let region = match region.as_deref().map(parse_region) {
@@ -63,21 +74,26 @@ pub async fn run_screen_capture(
         Ok(e) => e,
         Err(err) => exit_resolve_error(err, mode),
     };
-    let mut conn = match RfbConnection::connect(
-        &endpoint.host,
-        endpoint.port,
-        endpoint.password.as_deref().map(str::as_bytes),
-    )
-    .await
-    {
+    let mut conn = match connect_vnc(&endpoint).await {
         Ok(c) => c,
         Err(err) => exit_rfb_error(err, mode),
     };
 
-    let (fb_w, fb_h) = conn.framebuffer_size();
+    // Default crop is the full frame in the chosen coordinate space: logical
+    // (1920×1080) normally, physical (3840×2160) under --physical (ADR-0016 D2b).
+    let (fb_w, fb_h) = if physical {
+        conn.physical_framebuffer_size()
+    } else {
+        conn.framebuffer_size()
+    };
     // Shared capture pipeline (request full-frame → drain until a non-empty
     // update applies). `screen capture` then crops post-decode.
-    let fb = match capture_frame(&mut conn).await {
+    let capture = if physical {
+        capture_frame_physical(&mut conn).await
+    } else {
+        capture_frame(&mut conn).await
+    };
+    let fb = match capture {
         Ok(fb) => fb,
         Err(err) => exit_rfb_error(err, mode),
     };
@@ -141,13 +157,10 @@ pub async fn run_screen_find_text(
         Ok(e) => e,
         Err(err) => exit_resolve_error(err, mode),
     };
-    let mut conn = match RfbConnection::connect(
-        &endpoint.host,
-        endpoint.port,
-        endpoint.password.as_deref().map(str::as_bytes),
-    )
-    .await
-    {
+    // Vision always runs on the logical surface (ADR-0016 D2/D4): `connect_vnc`
+    // applies the @2x logical target so the captured frame is the downsampled
+    // 1920×1080 OCR feed, not the raw 3840×2160 wire frame.
+    let mut conn = match connect_vnc(&endpoint).await {
         Ok(c) => c,
         Err(err) => exit_rfb_error(err, mode),
     };

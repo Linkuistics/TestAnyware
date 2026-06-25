@@ -7,6 +7,10 @@
 /// macOS-gated.
 pub mod capture;
 pub mod detached;
+/// Parse the `--display` flag, separating the HiDPI `@2x` opt-in (ADR-0016 D3)
+/// from the backend display value. Pure + **not** macOS-gated so the CLI
+/// boundary can validate `@Nx` on any host.
+pub mod display_request;
 pub mod error;
 pub mod health;
 pub mod id;

@@ -852,6 +852,31 @@ fn vm_commands_carry_stable_error_codes() {
     assert_eq!(body["code"], "GOLDEN_NOT_FOUND");
 }
 
+/// ADR-0016 D3: the `--display WxH@2x` HiDPI opt-in is validated at the CLI
+/// boundary. A `@Nx` for N≠2, or `@2x` on a non-macOS guest, is a `USAGE_ERROR`
+/// (exit 2) — caught before any VM/golden lookup, so no backend is needed.
+#[test]
+fn vm_start_rejects_invalid_hidpi_display() {
+    // @3x (any scale ≠ 2) is rejected — only integer 2× lands on the vision
+    // distribution.
+    let out = run(&["vm", "start", "--platform", "macos", "--display", "1920x1080@3x", "--json"]);
+    assert_eq!(out.status.code(), Some(2), "@3x must exit 2");
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["code"], "USAGE_ERROR");
+
+    // A malformed @2x size (a unit suffix contradicts the logical-points form).
+    let out = run(&["vm", "start", "--platform", "macos", "--display", "1920x1080px@2x", "--json"]);
+    assert_eq!(out.status.code(), Some(2), "malformed @2x must exit 2");
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["code"], "USAGE_ERROR");
+
+    // HiDPI is macOS-only: @2x on a Linux guest is rejected before any clone.
+    let out = run(&["vm", "start", "--platform", "linux", "--display", "1920x1080@2x", "--json"]);
+    assert_eq!(out.status.code(), Some(2), "@2x on non-macOS must exit 2");
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["code"], "USAGE_ERROR");
+}
+
 /// §9.3: vm stop / vm delete accept `--dry-run`, exit 0, and set
 /// `dry_run: true` without performing the mutation.
 #[test]

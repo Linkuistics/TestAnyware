@@ -43,12 +43,17 @@ impl ResolvedAgent {
 }
 
 /// Resolved VNC endpoint. Surfaced for `screen size`, `screen capture`,
-/// and the `input` family of commands once they land.
+/// and the `input` family of commands.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedVnc {
     pub host: String,
     pub port: u16,
     pub password: Option<String>,
+    /// The HiDPI **logical** target `(width, height)` the spec persisted for a
+    /// `@2x` VM (ADR-0016 D2). `Some` only when resolved from a spec file
+    /// (`--vm`/`--connect`); the direct `--vnc host:port` path carries no spec
+    /// and so is always `None`. Consumers pass it to k5's `set_logical_target`.
+    pub logical: Option<(u32, u32)>,
 }
 
 impl ResolvedVnc {
@@ -65,6 +70,17 @@ pub struct ConnectionSpec {
     pub agent: Option<AgentSpec>,
     #[serde(default)]
     pub platform: Option<String>,
+    /// The HiDPI logical surface a `@2x` VM persisted (ADR-0016 D2; written by
+    /// `testanyware_vm::spec::VmSpec::logical`). Absent on the 1× path.
+    #[serde(default)]
+    pub logical: Option<LogicalSpec>,
+}
+
+/// The persisted HiDPI logical surface, mirroring `VmSpec::logical`'s JSON.
+#[derive(Debug, Clone, Copy, Deserialize)]
+pub struct LogicalSpec {
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -225,6 +241,7 @@ fn load_vnc_from_spec(path: &std::path::Path) -> Result<ResolvedVnc, ResolveErro
             path: path.to_path_buf(),
             source,
         })?;
+    let logical = spec.logical.map(|l| (l.width, l.height));
     let vnc = spec.vnc.ok_or_else(|| ResolveError::NoVncInSpec {
         path: path.to_path_buf(),
     })?;
@@ -232,6 +249,7 @@ fn load_vnc_from_spec(path: &std::path::Path) -> Result<ResolvedVnc, ResolveErro
         host: vnc.host,
         port: vnc.port,
         password: vnc.password,
+        logical,
     })
 }
 
@@ -274,6 +292,8 @@ pub fn parse_vnc_endpoint(value: &str) -> Result<ResolvedVnc, ResolveError> {
         host,
         port,
         password: None,
+        // No spec backing a direct host:port endpoint, so no HiDPI surface.
+        logical: None,
     })
 }
 
@@ -568,6 +588,52 @@ mod tests {
         let r = resolve_agent_with_env(&opts, &env).expect("ok");
         assert_eq!(r.host, "192.168.64.5");
         assert_eq!(r.port, 8648);
+    }
+
+    #[test]
+    fn resolve_vnc_loads_hidpi_logical_from_spec() {
+        let dir = tempdir();
+        let vms = dir.path().join("testanyware").join("vms");
+        std::fs::create_dir_all(&vms).unwrap();
+        let id = "testanyware-hidpi";
+        std::fs::write(
+            vms.join(format!("{id}.json")),
+            serde_json::to_vec(&serde_json::json!({
+                "vnc": { "host": "10.0.0.9", "port": 5900, "password": "pw" },
+                "platform": "macos",
+                "logical": { "width": 1920, "height": 1080 }
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let env = env_with(&[("XDG_STATE_HOME", dir.path().to_str().unwrap())]);
+        let opts = ConnectionOptions { vm: Some(id.into()), ..Default::default() };
+        let r = resolve_vnc_with_env(&opts, &env).expect("ok");
+        assert_eq!(r.host, "10.0.0.9");
+        assert_eq!(r.logical, Some((1920, 1080)));
+    }
+
+    #[test]
+    fn resolve_vnc_logical_is_none_for_a_1x_spec_and_direct_endpoint() {
+        // A spec with no `logical` key, and a direct --vnc endpoint, both 1×.
+        let dir = tempdir();
+        let vms = dir.path().join("testanyware").join("vms");
+        std::fs::create_dir_all(&vms).unwrap();
+        let id = "testanyware-1x";
+        std::fs::write(
+            vms.join(format!("{id}.json")),
+            br#"{"vnc":{"host":"127.0.0.1","port":5900},"platform":"linux"}"#,
+        )
+        .unwrap();
+        let env = env_with(&[("XDG_STATE_HOME", dir.path().to_str().unwrap())]);
+        let from_spec =
+            resolve_vnc_with_env(&ConnectionOptions { vm: Some(id.into()), ..Default::default() }, &env)
+                .unwrap();
+        assert_eq!(from_spec.logical, None);
+
+        let direct = parse_vnc_endpoint("host:5901").unwrap();
+        assert_eq!(direct.logical, None);
     }
 
     #[test]

@@ -21,9 +21,55 @@ pub mod vm;
 pub mod window;
 
 use testanyware_agent_client::{AgentClient, AgentConfig, AgentError};
+use testanyware_rfb::{RfbConnection, RfbError};
+use tokio::io::{AsyncRead, AsyncWrite, BufReader};
+use tokio::net::TcpStream;
 
 use crate::output::{exit_code_for, print_error, OutputMode};
-use crate::resolve::{resolve_agent, ConnectionOptions, ResolveError, ResolvedAgent};
+use crate::resolve::{resolve_agent, ConnectionOptions, ResolveError, ResolvedAgent, ResolvedVnc};
+
+/// Open an RFB connection to a resolved VNC endpoint and apply the HiDPI
+/// logical target the spec carried (ADR-0016 D2), if any.
+///
+/// Every VNC consumer (`screen *`, `input *`, `record`) funnels its connect
+/// through here so the scale-aware surface is wired uniformly: a `@2x` VM's
+/// spec carries a [`logical`](ResolvedVnc::logical) target, which k5's
+/// connection downsamples reads to and scales pointer writes from. On the
+/// default 1× path `logical` is `None` and this is a plain connect.
+pub(crate) async fn connect_vnc(
+    endpoint: &ResolvedVnc,
+) -> Result<RfbConnection<BufReader<TcpStream>>, RfbError> {
+    let mut conn = RfbConnection::connect(
+        &endpoint.host,
+        endpoint.port,
+        endpoint.password.as_deref().map(str::as_bytes),
+    )
+    .await?;
+    apply_logical_target(&mut conn, endpoint);
+    Ok(conn)
+}
+
+/// Apply the resolved HiDPI logical target to an already-open connection
+/// (ADR-0016 D2), and warn if `@2x` was requested but the framebuffer came back
+/// 1× — HiDPI did not take (a 1× host, or it didn't engage). The auto-detected
+/// `scale == 1` keeps that case *correct* (everything operates in 1×), never
+/// silently wrong; the warning makes it visible. Generic over the transport so
+/// the viewer (whose connect is cancellable, not via [`connect_vnc`]) shares it.
+pub(crate) fn apply_logical_target<T: AsyncRead + AsyncWrite + Unpin>(
+    conn: &mut RfbConnection<T>,
+    endpoint: &ResolvedVnc,
+) {
+    let Some((lw, lh)) = endpoint.logical else { return };
+    conn.set_logical_target(lw, lh);
+    if conn.scale() == 1 {
+        let (pw, ph) = conn.physical_framebuffer_size();
+        eprintln!(
+            "warning: --display {lw}x{lh}@2x requested but the framebuffer came back \
+             {pw}x{ph} (1× scale) — HiDPI did not take; operating in 1× {pw}x{ph}. \
+             A 1× host needs the deferred deterministic mechanism (ADR-0016)."
+        );
+    }
+}
 
 /// Resolve the connection options to an `AgentClient`. On failure, print
 /// the §3.4 error envelope (or text-mode equivalent) and exit.

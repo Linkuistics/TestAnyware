@@ -508,6 +508,9 @@ EXAMPLES:
     # Start a guest and open the embedded viewer (blocks until closed)
     testanyware vm start --platform linux --viewer
 
+    # Start a macOS guest at HiDPI/Retina (2× backing scale, Retina host only)
+    testanyware vm start --platform macos --display 1920x1080@2x
+
 SEE ALSO:
     testanyware vm stop, testanyware vm list, testanyware doctor, testanyware viewer
 ";
@@ -1306,6 +1309,12 @@ struct ScreenCaptureArgs {
     output: Option<String>,
     #[arg(long, value_name = "X,Y,W,H")]
     region: Option<String>,
+    #[arg(
+        long,
+        help = "Emit the raw physical (Retina) frame for a @2x VM (e.g. 3840×2160) \
+                instead of the default logical 1920×1080; no effect on a 1× VM"
+    )]
+    physical: bool,
     #[arg(long, help = "Emit JSON envelope on stdout")]
     json: bool,
 }
@@ -1325,6 +1334,12 @@ struct ScreenRecordArgs {
     /// Crop region as X,Y,W,H (default: the whole screen).
     #[arg(long, value_name = "X,Y,W,H")]
     region: Option<String>,
+    #[arg(
+        long,
+        help = "Record the raw physical (Retina) frame for a @2x VM (e.g. 3840×2160) \
+                instead of the default logical 1920×1080; no effect on a 1× VM"
+    )]
+    physical: bool,
     #[arg(long, help = "Emit JSON envelope on stdout")]
     json: bool,
     #[arg(long, help = "Validate inputs and report the plan without recording")]
@@ -1782,7 +1797,10 @@ enum VmAction {
         #[arg(long, value_name = "ID")]
         id: Option<String>,
         /// Display resolution, e.g. 1920x1080 [default: 1920x1080 px].
-        #[arg(long, value_name = "WxH")]
+        /// Append @2x for HiDPI/Retina on a macOS guest (e.g. 1920x1080@2x):
+        /// the guest renders at 2× (physical 3840×2160) while vision/clicks
+        /// operate in logical 1920×1080. Requires a Retina host (ADR-0016).
+        #[arg(long, value_name = "WxH[@2x]")]
         display: Option<String>,
         /// Open the embedded viewer window after boot (blocks until closed).
         #[arg(long)]
@@ -2294,7 +2312,8 @@ async fn run_screen_size(args: ConnectionArgs) {
 
 async fn run_screen_capture(args: ScreenCaptureArgs) {
     let mode = OutputMode::from_flags(args.json);
-    screen_cmds::run_screen_capture(args.conn.into(), args.output, args.region, mode).await
+    screen_cmds::run_screen_capture(args.conn.into(), args.output, args.region, args.physical, mode)
+        .await
 }
 
 async fn run_screen_record(args: ScreenRecordArgs) {
@@ -2305,6 +2324,7 @@ async fn run_screen_record(args: ScreenRecordArgs) {
         args.fps,
         args.duration,
         args.region,
+        args.physical,
         mode,
         args.dry_run,
     )

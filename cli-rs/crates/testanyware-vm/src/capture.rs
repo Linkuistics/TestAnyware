@@ -56,6 +56,33 @@ pub async fn capture_frame<T>(conn: &mut RfbConnection<T>) -> Result<Framebuffer
 where
     T: AsyncRead + AsyncWrite + Unpin,
 {
+    refresh_full_frame(conn).await?;
+    Ok(conn.framebuffer().into_owned())
+}
+
+/// Like [`capture_frame`] but returns the raw **physical** (wire) framebuffer,
+/// bypassing the logical 2:1 downsample — the `screen capture --physical` /
+/// `screen record --physical` path (ADR-0016 D2b) that emits the pixel-exact
+/// Retina frame. At scale 1 (no HiDPI) the physical *is* the logical frame, so
+/// this is equivalent to [`capture_frame`].
+pub async fn capture_frame_physical<T>(conn: &mut RfbConnection<T>) -> Result<Framebuffer, RfbError>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
+    refresh_full_frame(conn).await?;
+    Ok(conn.physical_framebuffer().clone())
+}
+
+/// Request a fresh full-frame update and drain until one carries real pixels.
+///
+/// The request is issued in **logical** coordinates (`framebuffer_size`), which
+/// k5's connection scales logical→physical on the wire — so a single full-frame
+/// request refreshes the *whole* physical Retina frame, making it correct for
+/// both the logical and `--physical` read-outs above.
+async fn refresh_full_frame<T>(conn: &mut RfbConnection<T>) -> Result<(), RfbError>
+where
+    T: AsyncRead + AsyncWrite + Unpin,
+{
     let (w, h) = conn.framebuffer_size();
     conn.request_framebuffer_update(false, 0, 0, w as u16, h as u16)
         .await?;
@@ -70,7 +97,7 @@ where
             Err(_elapsed) => break,
         }
     }
-    Ok(conn.framebuffer().into_owned())
+    Ok(())
 }
 
 /// [`capture_frame`] followed by a full-frame PNG encode — the OCR-ready
