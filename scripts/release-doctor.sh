@@ -14,7 +14,7 @@ IFS=$'\n\t'
 trap 'echo "release-doctor: error on line $LINENO" >&2' ERR
 
 # Cross-build config — kept in step with release-build.sh.
-readonly FFMPEG_SR_ROOT="${TESTANYWARE_FFMPEG_SR:-/tmp/taw-ffmpeg-sr}"
+readonly FFMPEG_SR_ROOT="${TESTANYWARE_FFMPEG_SR:-$HOME/.cache/taw-ffmpeg-sr}"
 readonly LINUX_RUST_TARGETS=("aarch64-unknown-linux-gnu" "x86_64-unknown-linux-gnu")
 readonly WINDOWS_RUST_TARGETS=("aarch64-pc-windows-gnullvm" "x86_64-pc-windows-gnu")
 # All cross targets that need an ffmpeg sysroot + a rustup std target staged.

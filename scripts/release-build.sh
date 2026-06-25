@@ -99,7 +99,7 @@ readonly WINDOWS_DLLS=(
 # Root holding the per-triple BtbN ffmpeg-8 gpl-shared sysroots, laid out as
 # <root>/<arch>-linux/lib/{*.so*,pkgconfig}. Staged by release-doctor.sh /
 # docs/research/170-ffmpeg-cross-link.md. Overridable for a non-default cache.
-readonly FFMPEG_SR_ROOT="${TESTANYWARE_FFMPEG_SR:-/tmp/taw-ffmpeg-sr}"
+readonly FFMPEG_SR_ROOT="${TESTANYWARE_FFMPEG_SR:-$HOME/.cache/taw-ffmpeg-sr}"
 
 # The ffmpeg-8 sonames the cross binary loads: the four it references plus
 # libswresample (a transitive dep of libavcodec we force to a *direct* NEEDED
