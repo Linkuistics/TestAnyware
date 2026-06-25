@@ -205,3 +205,51 @@ today) → **suppress** ADR-0014's 1× switch → **issue** a guest-side Retina-
 switch (predicate above, `.forSession`) → set the scale-aware connection's
 logical target. k5's scale-aware surface is unaffected (mechanism-independent,
 unit-testable on any host).
+
+## Verification — D4 (2026-06-25, `verify-vision-on-downsampled-2x-k7`)
+
+**Verdict: PASS for the live vision path** — vision-on-HiDPI is **blessed for the
+current shipping pipeline (OCR)**; the distribution-sensitive *trained* detectors
+are carried forward to the existing training workstream, not failed. Primary
+measurements: `docs/research/hidpi-vision-on-downsampled-2x.md`.
+
+A finding reshaped the gate. D4 assumed OCR **and** window-detection were runnable
+on real frames; they are not symmetric:
+
+- **OCR (Apple Vision, `engine=vision`)** is the **only** live framebuffer→vision
+  consumer reachable through `vm start` (a `grep` of `cli-rs/` finds no
+  window-detection / icon-classifier invocation), and is a *general* pretrained
+  model — the **least** distribution-sensitive consumer.
+- **Window-detection (YOLO) and the icon classifier** — the actual subjects of
+  ADR-0013's on-distribution concern, and D4's named prime suspect — have **no
+  trained checkpoint anywhere in the repo** (`*.pt/*.pth/*.onnx/*.safetensors/
+  *.mlpackage` → empty) and are **offline pipeline stages, not live framebuffer
+  consumers**. They cannot be measured here: there is nothing built to degrade.
+
+Method mirrors k4: the dev host (1× 5120×2160 ultrawide) was switched into its
+`2560×1080 pt | 5120×2160 px | 2.0×` panel mode and restored afterward; two fresh
+`testanyware-golden-macos-tahoe` clones ran the same TextEdit ground-truth scene —
+native-1× (`vm start`) and downsampled-2× (`vm start --display 1920x1080@2x`).
+
+1. **Positive @2× path confirmed end-to-end live** (the k6 sequence this ADR
+   pinned). Guest switched to `1920x1080 pt @ 2x (3840x2160 px)` with **no
+   host-scale warning**; `screen size` = 1920×1080 logical; `screen capture` =
+   1920×1080, `--physical` = 3840×2160; the logical capture equals a 2:1
+   box-average of the physical frame to **≤1 LSB/channel** (downsample faithful);
+   a logical click on the "Format" menu opened it (**×2 pointer mapping lands**).
+
+2. **OCR at parity on the downsampled-2× frame.** Native-1× vs downsampled-2×:
+   exact ground-truth lines **7/9 = 7/9** (Δ0); token recall **93.7% vs 90.5%**
+   (Δ −3.2 pts). All 7 representative (non-adversarial) lines recovered perfectly
+   and **identically** at both scales; the entire delta is two `i/l/1` confusions
+   on a single deliberately-adversarial small-font line — OCR's ambiguous-glyph
+   noise floor, within run-to-run noise (N=1 scene). **Within the stated pass bar**
+   (recall within ≤5 pts of baseline **and** representative text at parity).
+
+**Disposition.** HiDPI is **not** realism/viewer-only — the live vision path
+operates on it at parity. The blessing is **bounded to the current live pipeline**;
+it does not extend to the future trained detectors, whose on-distribution
+validation folds into ADR-0013's already-named retraining/training workstream
+(build them on the target distribution; the @2x-asset **icon classifier is the
+prime suspect** to validate first). That is a note on that workstream, not a HiDPI
+blocker. The grove `hidpi-vision` is complete on the minimal-opt-in scope.
