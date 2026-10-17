@@ -63,8 +63,13 @@ impl AgentConfig {
 /// `code()` returns the stable token the CLI surfaces in `--json` output.
 #[derive(Debug, Error)]
 pub enum AgentError {
-    #[error("connection refused: {0}")]
-    ConnectionRefused(String),
+    /// Any failure to establish the TCP connection (refused, unreachable,
+    /// ...) — the variant name predates the split. `message` is the whole
+    /// `source()` chain, since reqwest's own `Display` drops the OS cause;
+    /// `os_errno` is the raw errno found in that chain, so a caller can tell
+    /// "refused" from "no route to host" without parsing text.
+    #[error("connection refused: {message}")]
+    ConnectionRefused { message: String, os_errno: Option<i32> },
 
     #[error("connection timed out: {0}")]
     Timeout(String),
@@ -111,7 +116,7 @@ impl AgentError {
     /// Stable §4 code token surfaced in `--json` output.
     pub fn code(&self) -> &'static str {
         match self {
-            AgentError::ConnectionRefused(_) => "CONNECTION_REFUSED",
+            AgentError::ConnectionRefused { .. } => "CONNECTION_REFUSED",
             AgentError::Timeout(_) => "CONNECTION_TIMEOUT",
             AgentError::ConnectionDropped(_) => "CONNECTION_DROPPED",
             AgentError::HttpStatus { status, .. } if *status == StatusCode::UNAUTHORIZED => {
@@ -149,13 +154,41 @@ impl From<reqwest::Error> for AgentError {
         if err.is_timeout() {
             AgentError::Timeout(err.to_string())
         } else if err.is_connect() {
-            AgentError::ConnectionRefused(err.to_string())
+            AgentError::ConnectionRefused {
+                message: error_chain(&err),
+                os_errno: os_errno_in_chain(&err),
+            }
         } else if err.is_request() || err.is_body() {
             AgentError::ConnectionDropped(err.to_string())
         } else {
             AgentError::Internal(err.to_string())
         }
     }
+}
+
+/// `err` and every `source()` beneath it, joined with `: `. reqwest's
+/// `Display` is only "error sending request for url (...)"; the cause (for a
+/// connect failure, `tcp connect error: ... (os error N)`) lives below it.
+fn error_chain(err: &(dyn std::error::Error + 'static)) -> String {
+    let mut parts = vec![err.to_string()];
+    let mut source = err.source();
+    while let Some(cause) = source {
+        parts.push(cause.to_string());
+        source = cause.source();
+    }
+    parts.join(": ")
+}
+
+/// The raw OS errno of the first `io::Error` in `err`'s `source()` chain.
+fn os_errno_in_chain(err: &(dyn std::error::Error + 'static)) -> Option<i32> {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err);
+    while let Some(e) = current {
+        if let Some(code) = e.downcast_ref::<std::io::Error>().and_then(|io| io.raw_os_error()) {
+            return Some(code);
+        }
+        current = e.source();
+    }
+    None
 }
 
 /// Async HTTP client for the in-VM agent.
@@ -549,6 +582,33 @@ mod tests {
         let cfg = AgentConfig::new("192.168.64.2", AgentConfig::DEFAULT_PORT);
         assert_eq!(cfg.base_url(), "http://192.168.64.2:8648");
         assert_eq!(cfg.timeout, Duration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn refused_connect_keeps_the_os_errno_and_the_whole_chain() {
+        // Bind then drop to get a loopback port with nothing listening.
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let client = AgentClient::new(
+            AgentConfig::new("127.0.0.1", port).with_timeout(Duration::from_secs(2)),
+        )
+        .unwrap();
+        let err = client.health().await.unwrap_err();
+        let AgentError::ConnectionRefused { message, os_errno } = err else {
+            panic!("a refused connect must be ConnectionRefused, got {err:?}");
+        };
+        let errno = os_errno.expect("the errno must be recovered from the source chain");
+        assert_eq!(
+            std::io::Error::from_raw_os_error(errno).kind(),
+            std::io::ErrorKind::ConnectionRefused,
+        );
+        assert!(
+            message.contains(&format!("os error {errno}")),
+            "message must carry the chain's OS cause, got: {message}",
+        );
     }
 
     #[test]

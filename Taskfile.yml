@@ -1,12 +1,13 @@
 # Reusable development tasks for TestAnyware. Local only: releases and live checks
 # run on an arm64 Mac, and CI is deliberately not used. Run `task --list`.
 #
-# Grown from need. Task names and recipes follow the Taskfile that issue #3's
-# branch introduced, so the two merge as a small mechanical conflict.
+# Grown from need: the Rust CLI's test/lint loop, the live `vm start` checks, the
+# macOS agent, the golden builds and thin wrappers over scripts/release-*.sh.
 version: '3'
 
 vars:
   CLI_DIR: '{{.ROOT_DIR}}/cli-rs'
+  BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
   default:
@@ -18,7 +19,7 @@ tasks:
   # ---- Rust CLI ------------------------------------------------------------
 
   cli:build:
-    desc: Build the debug host CLI
+    desc: Build the debug host CLI that the live checks drive
     dir: '{{.CLI_DIR}}'
     cmds:
       - cargo build -p testanyware-cli
@@ -34,6 +35,15 @@ tasks:
     dir: '{{.CLI_DIR}}'
     cmds:
       - cargo clippy --workspace --all-targets
+
+  cli:fmt:
+    desc: 'Check rustfmt on given files (task cli:fmt -- <files>); add FIX=1 to rewrite them. Never repo-wide: the repo has pre-existing drift'
+    dir: '{{.CLI_DIR}}'
+    preconditions:
+      - sh: test -n "{{.CLI_ARGS}}"
+        msg: 'name the files to check: task cli:fmt -- crates/testanyware-vm/src/start_outcome.rs'
+    cmds:
+      - rustfmt --edition 2021 {{if .FIX}}{{else}}--check{{end}} {{.CLI_ARGS}}
 
   # ---- macOS In-VM agent ---------------------------------------------------
 
@@ -53,12 +63,32 @@ tasks:
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
-      SCRIPTS: scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh
+      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh
     cmds:
-      - shellcheck {{.SCRIPTS}}
+      - shellcheck -x {{.SCRIPTS}}
       - shfmt -i 2 -ci -d {{.SCRIPTS}}
 
   # ---- Live checks (macOS host) --------------------------------------------
+
+  vm:slot-exhaustion:
+    desc: With both macOS guest slots taken, a third start fails fast with VM_LIMIT_REACHED (exit 6) and leaves no clone
+    deps: [cli:build]
+    cmds:
+      - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh slot-exhaustion
+
+  vm:keep-on-failure:
+    desc: A failed start is torn down by default and kept under --keep-on-failure (about 4 minutes)
+    deps: [cli:build]
+    cmds:
+      - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh keep-on-failure
+
+  vm:start-reliability:
+    desc: 'N consecutive macOS starts must each reach a Healthy agent (task vm:start-reliability N=10)'
+    deps: [cli:build]
+    vars:
+      RUNS: '{{.N | default "10"}}'
+    cmds:
+      - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh reliability {{.RUNS}}
 
   vm:qemu-tpm-check:
     desc: Does this host's QEMU run a Windows guest's TPM device as TestAnyware attaches it (ADR-0017)? Seconds; paused diskless guests, needs qemu and swtpm
@@ -156,3 +186,21 @@ tasks:
         msg: 'set FRESH=<a never-booted VM made by `tart create --from-ipsw`>'
     cmds:
       - cargo test -p testanyware-vm --test ipsw-base-live -- --ignored --nocapture configure_fresh_clone_live
+
+  # ---- Release (wrappers over scripts/release-*.sh; arguments pass through) --
+
+  release:doctor:
+    desc: Check the prerequisites for the release pipeline (read-only)
+    cmds:
+      - scripts/release-doctor.sh {{.CLI_ARGS}}
+
+  release:build:
+    desc: Build the release bundles for the current git tag (long; needs a clean tagged checkout)
+    cmds:
+      - scripts/release-build.sh {{.CLI_ARGS}}
+
+  release:publish:
+    desc: Publish what release:build produced - creates a GitHub Release and pushes the tap (outward-facing)
+    prompt: This publishes a GitHub Release and pushes the Homebrew tap. Continue?
+    cmds:
+      - scripts/release-publish.sh {{.CLI_ARGS}}

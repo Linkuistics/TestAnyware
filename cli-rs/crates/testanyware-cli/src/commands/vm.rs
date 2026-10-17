@@ -49,12 +49,14 @@ pub async fn run_vnc_keeper(id: String, host: String, port: u16) -> i32 {
 }
 
 /// `testanyware vm start`.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_vm_start(
     platform: String,
     base: Option<String>,
     id: Option<String>,
     display: Option<String>,
     viewer: bool,
+    keep_on_failure: bool,
     mode: OutputMode,
     dry_run: bool,
 ) {
@@ -88,7 +90,8 @@ pub async fn run_vm_start(
             2,
         );
     }
-    let opts = VmStartOptions::new(parsed, base, id, request, viewer);
+    let mut opts = VmStartOptions::new(parsed, base, id, request, viewer);
+    opts.keep_on_failure = keep_on_failure;
     let paths = VmPaths::from_process_env();
 
     if dry_run {

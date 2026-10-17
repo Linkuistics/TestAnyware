@@ -22,7 +22,7 @@
     },
     "agent": {
       "type": ["object", "null"],
-      "description": "Agent endpoint, or null if the agent did not reach health within the boot window.",
+      "description": "Agent endpoint. Always present for a tart-backed guest (macOS, Linux-on-tart): a successful start means the agent reached health. Null only for a QEMU-backed guest whose agent did not reach health within the boot window.",
       "properties": {
         "host": { "type": "string" },
         "port": { "type": "integer" }

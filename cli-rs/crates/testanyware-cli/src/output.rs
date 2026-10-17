@@ -137,6 +137,9 @@ pub fn exit_code_for(code: &str) -> i32 {
         | "ELEMENT_AMBIGUOUS"
         | "ACTION_UNSUPPORTED" => 5,
 
+        // §5: rate limited / try again later.
+        "VM_LIMIT_REACHED" => 6,
+
         "VM_BOOT_TIMEOUT" | "CONNECTION_TIMEOUT" | "OCR_TIMEOUT" => 7,
 
         _ => 1,
@@ -184,6 +187,8 @@ mod tests {
         assert_eq!(exit_code_for("TEXT_NOT_FOUND"), 3);
         assert_eq!(exit_code_for("AUTH_REQUIRED"), 4);
         assert_eq!(exit_code_for("KVM_PERMISSION_DENIED"), 4);
+        assert_eq!(exit_code_for("VM_LIMIT_REACHED"), 6);
+        assert_eq!(exit_code_for("VM_BOOT_TIMEOUT"), 7);
         assert_eq!(exit_code_for("SWTPM_MISSING"), 1);
         assert_eq!(exit_code_for("ELEMENT_AMBIGUOUS"), 5);
         assert_eq!(exit_code_for("CONNECTION_TIMEOUT"), 7);

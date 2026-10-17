@@ -310,7 +310,7 @@ pub async fn configure_fresh_vm(vm: &str, paths: &VmPaths) -> Result<(), VmError
     let (pid, log_path) = crate::tart::run_detached(vm, &paths.vms_dir())?;
     let result: Result<(), VmError> = async {
         let Some(vnc) = crate::tart::poll_vnc_url(&log_path, 60, Duration::from_secs(1)) else {
-            return Err(VmError::VmBootTimeout { id: vm.to_string() });
+            return Err(VmError::boot_timeout(vm, crate::error::BootStage::Vnc));
         };
         let mut session = RecoverySession::connect(&vnc.host, vnc.port, vnc.password.as_deref()).await?;
         let driven = async {
@@ -324,7 +324,7 @@ pub async fn configure_fresh_vm(vm: &str, paths: &VmPaths) -> Result<(), VmError
         eprint!("Waiting for guest IP...");
         let Some(ip) = crate::tart::poll_ip(vm, 60, Duration::from_secs(3)) else {
             eprintln!(" timed out.");
-            return Err(VmError::VmBootTimeout { id: vm.to_string() });
+            return Err(VmError::boot_timeout(vm, crate::error::BootStage::GuestIp));
         };
         eprintln!(" {ip}");
         eprint!("Waiting for SSH...");

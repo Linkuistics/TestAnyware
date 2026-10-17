@@ -104,6 +104,29 @@ so neither delays the Koine unblock.
   - an interaction with the idle VNC server (#2);
   - a proxy environment variable, which reqwest honours and curl does not
     (uppercase `HTTP_PROXY`).
+- **What k2's diagnostics showed (2026-10-17, macOS 27.0.1, tart 2.40.1).**
+  Finding 1 reproduced on the first start through the new code, and the
+  agent-probe outcome settled the hypotheses in one run:
+  `VM_BOOT_TIMEOUT`, stage `agent`, 60 attempts over 118 s, last error
+  `No route to host (os error 65)` — `EHOSTUNREACH`, not refused and not a
+  timeout. That is the Local Network signature. The guest's agent was healthy:
+  against the same kept VM, from the same shell, at the same moment,
+  `/usr/bin/curl` returned HTTP 200 and `/usr/bin/nc` connected, while the
+  Rust CLI (the debug build *and* the installed `/opt/homebrew/bin/testanyware`),
+  Homebrew `curl`, `wget` and both Pythons failed with errno 65. So the
+  restriction looks **per executable** — it spared `/usr/bin/curl` and
+  `/usr/bin/nc` but not ad-hoc-signed binaries, nor even Apple's
+  `/usr/bin/python3` — rather than per responsible process (all of these ran
+  under one shell). The evidence does not fit a stale `tart ip` lease (the
+  address was right), a late agent (curl got 200 minutes in), or a proxy
+  variable (none set in that environment; `HTTP_PROXY` was only used later to
+  *force* failures). It does not say *which* property of `curl`/`nc` earns the
+  exemption. k4 should start from here: what lets a
+  non-platform CLI reach a guest on `192.168.64.x` on macOS 27 (signing,
+  an entitlement, a different transport, or routing the agent calls through
+  something already permitted), and whether `vm start` should detect and
+  explain the denial. The VNC side is loopback and unaffected. The 10-start
+  bar and Koine's run can only pass once that is solved.
 - **Hazards.**
   - A dead `tart run` can be a zombie of the still-running CLI, and
     `kill(pid, 0)` reports zombies alive — check tokio's orphan reaping

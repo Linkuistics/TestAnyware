@@ -137,6 +137,7 @@ pub const ERROR_CODES: &[&str] = &[
     // §4.2
     "VM_NOT_FOUND",
     "VM_BOOT_TIMEOUT",
+    "VM_LIMIT_REACHED",
     "VM_STOP_FAILED",
     "VM_BACKEND_UNSUPPORTED",
     "VM_HOST_UNSUPPORTED",

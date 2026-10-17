@@ -123,18 +123,76 @@ pub fn parse_all_names(tart_json: &str) -> Vec<String> {
 /// `TartRunner.pollVNCURL`.
 pub fn poll_vnc_url(log_path: &Path, attempts: u32, interval: Duration) -> Option<VncUrl> {
     for attempt in 0..attempts {
-        if let Ok(text) = std::fs::read_to_string(log_path) {
-            if let Some(url) = text.split_whitespace().find(|t| t.starts_with("vnc://")) {
-                if let Ok(parsed) = parse_vnc_url(url) {
-                    return Some(parsed);
-                }
-            }
+        if let Some(url) = find_vnc_url(log_path) {
+            return Some(url);
         }
         if attempt + 1 < attempts {
             std::thread::sleep(interval);
         }
     }
     None
+}
+
+/// The first well-formed `vnc://…` URL in the log, if any yet. A missing log
+/// is "not yet".
+fn find_vnc_url(log_path: &Path) -> Option<VncUrl> {
+    let text = std::fs::read_to_string(log_path).ok()?;
+    let url = text.split_whitespace().find(|t| t.starts_with("vnc://"))?;
+    parse_vnc_url(url).ok()
+}
+
+/// How a liveness-aware poll ended.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Polled<T> {
+    Found(T),
+    /// The process being waited on exited; the poll stopped at once.
+    ProcessExited,
+    TimedOut { attempts: u32 },
+}
+
+/// Probe up to `attempts` times, `interval` apart, until `probe` yields a
+/// value — but stop at once if `alive` reports the process gone, instead of
+/// spending the rest of the budget waiting on a corpse. A probe that already
+/// has an answer wins over a process that has just died. Sleeps on tokio's
+/// timer, so it never parks a runtime thread.
+pub async fn poll_until<T>(
+    attempts: u32,
+    interval: Duration,
+    mut alive: impl FnMut() -> bool,
+    mut probe: impl FnMut() -> Option<T>,
+) -> Polled<T> {
+    for attempt in 0..attempts {
+        if let Some(found) = probe() {
+            return Polled::Found(found);
+        }
+        if !alive() {
+            return Polled::ProcessExited;
+        }
+        if attempt + 1 < attempts {
+            tokio::time::sleep(interval).await;
+        }
+    }
+    Polled::TimedOut { attempts }
+}
+
+/// [`poll_vnc_url`] for `vm start`: async and aware of `tart run` dying.
+pub async fn await_vnc_url(
+    log_path: &Path,
+    attempts: u32,
+    interval: Duration,
+    alive: impl FnMut() -> bool,
+) -> Polled<VncUrl> {
+    poll_until(attempts, interval, alive, || find_vnc_url(log_path)).await
+}
+
+/// [`poll_ip`] for `vm start`: async and aware of `tart run` dying.
+pub async fn await_guest_ip(
+    id: &str,
+    attempts: u32,
+    interval: Duration,
+    alive: impl FnMut() -> bool,
+) -> Polled<String> {
+    poll_until(attempts, interval, alive, || guest_ip_once(id)).await
 }
 
 // ---- live `tart`-invoking operations -----------------------------------
@@ -344,17 +402,8 @@ fn run_detached_with(id: &str, log_dir: &Path, extra: &[&str]) -> Result<(i32, P
 /// unset). Ports `TartRunner.pollIP`, hardened with the state gate.
 pub fn poll_ip(id: &str, attempts: u32, interval: Duration) -> Option<String> {
     for attempt in 0..attempts {
-        let running = tart_list_json()
-            .map(|j| decode_list(&j).iter().any(|vm| vm.name == id && vm.state.as_deref() == Some("running")))
-            .unwrap_or(false);
-        if running {
-            let r = run_tart(&["ip", id]);
-            if r.exit_code == 0 {
-                let ip = r.stdout.trim();
-                if !ip.is_empty() {
-                    return Some(ip.to_string());
-                }
-            }
+        if let Some(ip) = guest_ip_once(id) {
+            return Some(ip);
         }
         if attempt + 1 < attempts {
             std::thread::sleep(interval);
@@ -363,7 +412,20 @@ pub fn poll_ip(id: &str, attempts: u32, interval: Duration) -> Option<String> {
     None
 }
 
-/// Inputs for `TartRunner::start`.
+/// One IP probe, gated on the `tart list` state column (see [`poll_ip`]).
+fn guest_ip_once(id: &str) -> Option<String> {
+    let running = tart_list_json()
+        .map(|j| decode_list(&j).iter().any(|vm| vm.name == id && vm.state.as_deref() == Some("running")))
+        .unwrap_or(false);
+    if !running {
+        return None;
+    }
+    let r = run_tart(&["ip", id]);
+    let ip = r.stdout.trim();
+    (r.exit_code == 0 && !ip.is_empty()).then(|| ip.to_string())
+}
+
+/// Inputs for `TartRunner::launch`.
 #[derive(Debug, Clone)]
 pub struct TartStartOptions {
     pub id: String,
@@ -371,26 +433,24 @@ pub struct TartStartOptions {
     pub display: Option<String>,
 }
 
-/// Result of a successful `TartRunner::start`: the detached `tart run`
-/// pid, the VNC endpoint tart handed back, the (best-effort) guest IP, and
-/// the VNC keeper's pid.
+/// A launched `tart run`: its detached pid and the log the VNC URL (and any
+/// failure text) lands in.
 #[derive(Debug, Clone)]
-pub struct TartStartArtifacts {
+pub struct TartLaunch {
     pub pid: i32,
-    pub vnc: VncUrl,
-    pub ip: Option<String>,
-    /// Pid of the VNC keeper (ADR-0018), or `None` if it could not start.
-    pub keeper_pid: Option<i32>,
+    pub log_path: PathBuf,
 }
 
 /// tart lifecycle entry points, mirroring `QemuRunner`.
 pub struct TartRunner;
 
 impl TartRunner {
-    /// Clone the golden, start `tart run` detached, and discover the VNC
-    /// endpoint (from the run log) and guest IP (state-gated). Ports the
-    /// pre-sidecar half of `VMLifecycle.startTart`.
-    pub async fn start(opts: &TartStartOptions, paths: &crate::paths::VmPaths) -> Result<TartStartArtifacts, VmError> {
+    /// Clone the golden, set its display and start `tart run` detached. It does
+    /// not wait for anything: the caller owns the readiness stages (VNC URL,
+    /// guest IP, agent), so it can observe and decide on them. If it fails
+    /// after the clone exists, the clone is removed — a failed launch leaves no
+    /// VM behind. Ports the pre-poll half of `VMLifecycle.startTart`.
+    pub async fn launch(opts: &TartStartOptions, paths: &crate::paths::VmPaths) -> Result<TartLaunch, VmError> {
         // Reclaim a same-id VM left over from a prior run.
         if vm_exists(&opts.id) {
             remove_existing(&opts.id);
@@ -401,27 +461,15 @@ impl TartRunner {
         // Always set a display: the user's value, or the TestAnyware default
         // (ADR-0013). Without `--display` tart would fall back to the unknown
         // Virtualization.framework default — off the vision distribution.
-        set_display(&opts.id, resolve_display(opts.display.as_deref()))?;
-
-        let (pid, log_path) = run_detached(&opts.id, &paths.vms_dir())?;
-
-        // VNC URL is the readiness signal: tart prints it once the guest's
-        // framebuffer is up. No URL within the window => boot timeout.
-        let Some(vnc) = poll_vnc_url(&log_path, 60, Duration::from_secs(1)) else {
-            crate::process::terminate(pid, Duration::from_millis(200), 10);
-            remove_existing(&opts.id);
-            return Err(VmError::VmBootTimeout { id: opts.id.clone() });
-        };
-
-        // Hold one silent VNC connection for the life of tart (ADR-0018), so a
-        // client that connects after a pause of 60 s or more cannot crash it on
-        // a macOS 27 host. Start it here, before the first VNC client of any
-        // kind. A failure warns; the guest then runs without the protection.
-        let keeper_pid =
-            crate::keeper::start_keeper(&opts.id, &vnc.host, vnc.port, &paths.vms_dir());
-
-        let ip = poll_ip(&opts.id, 30, Duration::from_secs(2));
-        Ok(TartStartArtifacts { pid, vnc, ip, keeper_pid })
+        let launched = set_display(&opts.id, resolve_display(opts.display.as_deref()))
+            .and_then(|()| run_detached(&opts.id, &paths.vms_dir()));
+        match launched {
+            Ok((pid, log_path)) => Ok(TartLaunch { pid, log_path }),
+            Err(err) => {
+                remove_existing(&opts.id);
+                Err(err)
+            }
+        }
     }
 
     /// Tear down a tart clone: `tart stop` + `tart delete`, then SIGTERM
@@ -574,6 +622,76 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let log_path = fresh_log_path(dir.path(), "testanyware-fresh");
         assert!(!log_path.exists(), "a never-run id has no log to clear");
+    }
+
+    #[tokio::test]
+    async fn poll_until_returns_the_first_answer() {
+        let mut calls = 0;
+        let polled = poll_until(5, Duration::from_millis(1), || true, || {
+            calls += 1;
+            (calls == 3).then_some("ip")
+        })
+        .await;
+        assert_eq!(polled, Polled::Found("ip"));
+        assert_eq!(calls, 3);
+    }
+
+    #[tokio::test]
+    async fn poll_until_times_out_after_exactly_its_attempts() {
+        let mut calls = 0;
+        let polled = poll_until(4, Duration::from_millis(1), || true, || {
+            calls += 1;
+            None::<()>
+        })
+        .await;
+        assert_eq!(polled, Polled::TimedOut { attempts: 4 });
+        assert_eq!(calls, 4);
+    }
+
+    #[tokio::test]
+    async fn poll_until_stops_at_once_when_the_process_is_gone() {
+        // A budget that would take ~10 minutes if spent.
+        let started = std::time::Instant::now();
+        let polled = poll_until(600, Duration::from_secs(1), || false, || None::<()>).await;
+        assert_eq!(polled, Polled::ProcessExited);
+        assert!(started.elapsed() < Duration::from_secs(1), "must not sleep out the budget");
+    }
+
+    #[tokio::test]
+    async fn poll_until_prefers_an_answer_over_a_process_that_just_died() {
+        let polled = poll_until(3, Duration::from_millis(1), || false, || Some(7)).await;
+        assert_eq!(polled, Polled::Found(7));
+    }
+
+    #[tokio::test]
+    async fn await_vnc_url_finds_the_url_in_the_log() {
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("tart.log");
+        std::fs::write(&log, "VNC server is running at vnc://:abc@127.0.0.1:54321\n").unwrap();
+        let polled = await_vnc_url(&log, 3, Duration::from_millis(5), || true).await;
+        let Polled::Found(url) = polled else { panic!("expected the URL, got {polled:?}") };
+        assert_eq!(url.port, 54321);
+    }
+
+    #[tokio::test]
+    async fn await_vnc_url_returns_at_once_when_tart_died_before_printing_a_url() {
+        // The k2 live finding: a refused start exits within a second leaving
+        // only an error line; the old poll waited 60 s for a URL.
+        let dir = tempfile::tempdir().unwrap();
+        let log = dir.path().join("tart.log");
+        std::fs::write(&log, "The number of VMs exceeds the system limit (other running VMs: a, b)\n").unwrap();
+        let started = std::time::Instant::now();
+        let polled = await_vnc_url(&log, 60, Duration::from_secs(1), || false).await;
+        assert_eq!(polled, Polled::ProcessExited);
+        assert!(started.elapsed() < Duration::from_secs(1));
+    }
+
+    #[tokio::test]
+    async fn await_vnc_url_times_out_with_a_live_process_and_no_url() {
+        let dir = tempfile::tempdir().unwrap();
+        let polled =
+            await_vnc_url(&dir.path().join("missing.log"), 2, Duration::from_millis(5), || true).await;
+        assert_eq!(polled, Polled::TimedOut { attempts: 2 });
     }
 
     #[test]

@@ -24,6 +24,8 @@ pub mod process;
 pub mod qemu;
 pub mod qemu_profile;
 pub mod spec;
+/// The pure start-outcome decision behind `vm start`'s honest-failure rule.
+pub mod start_outcome;
 pub mod tpm;
 /// `russh`-backed SSH/SFTP provisioning helper for `vm create-golden`
 /// (ADR-0007). Pure Rust + async, **not** macOS-gated: the Tier-2

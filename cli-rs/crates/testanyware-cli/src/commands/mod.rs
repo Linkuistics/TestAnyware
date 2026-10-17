@@ -320,7 +320,10 @@ mod tests {
         // Codes outside §4.5 (transport-layer, INTERNAL, USAGE_ERROR,
         // etc.) keep the AgentError Display impl, which carries
         // context the curated messages would discard.
-        let err = AgentError::ConnectionRefused("dial tcp: connection refused".into());
+        let err = AgentError::ConnectionRefused {
+            message: "dial tcp: connection refused".into(),
+            os_errno: None,
+        };
         assert_eq!(err.code(), "CONNECTION_REFUSED");
         assert!(friendly_message_for(err.code(), &err).is_none());
 

@@ -489,15 +489,28 @@ OUTPUT:
     omit it.
 
 EXIT CODES:
-    0  success
-    1  QEMU_FAILED, SWTPM_MISSING, VM_BACKEND_UNSUPPORTED, SPAWN_FAILED
+    0  success — the guest has a Healthy agent (tart-backed guests; see HEALTH)
+    1  TART_FAILED, QEMU_FAILED, SWTPM_MISSING, VM_BACKEND_UNSUPPORTED, SPAWN_FAILED
     2  USAGE_ERROR / INVALID_PLATFORM
     3  GOLDEN_NOT_FOUND / UEFI_NOT_FOUND
     4  KVM_PERMISSION_DENIED
+    6  VM_LIMIT_REACHED — the macOS guest limit (two per Mac) is full; try again
+       later. `details.holders` names the VMs holding the slots.
+    7  VM_BOOT_TIMEOUT — the VM is up but a start stage never completed;
+       `details` names the stage (vnc, guest-ip, agent), the last probe error
+       with its OS errno, the attempts and the elapsed time.
+
+HEALTH:
+    A tart-backed guest (macOS, Linux-on-tart) starts successfully only once
+    its agent answers /health. If the backend dies the error carries its log
+    tail (TART_FAILED); if the agent never comes up the error is
+    VM_BOOT_TIMEOUT. QEMU guests (Windows, Linux-on-qcow2) still warn and
+    exit 0 when their agent is unhealthy.
 
 IDEMPOTENCY:
     Not idempotent — each call without --id clones a fresh VM. Retry-safe:
-    a failed start tears its own partial clone down.
+    a failed start removes its own VM and sidecars, unless --keep-on-failure
+    leaves a still-running tart-backed VM behind (reclaim it with `vm stop`).
 
 EXAMPLES:
     # Start a Windows guest at 1080p
@@ -514,6 +527,9 @@ EXAMPLES:
 
     # Start a macOS guest at HiDPI/Retina (2× backing scale, Retina host only)
     testanyware vm start --platform macos --display 1920x1080@2x
+
+    # Investigate a macOS start that fails: keep the VM for a post-mortem
+    testanyware vm start --platform macos --keep-on-failure
 
 SEE ALSO:
     testanyware vm stop, testanyware vm list, testanyware doctor, testanyware viewer
@@ -1832,6 +1848,12 @@ enum VmAction {
         /// Open the embedded viewer window after boot (blocks until closed).
         #[arg(long)]
         viewer: bool,
+        /// If the start fails while its VM is still running, leave the VM (and
+        /// its sidecars) for inspection instead of removing it; reclaim it
+        /// with `vm stop`. Honoured by tart-backed guests (macOS,
+        /// Linux-on-tart); a VM whose backend has exited is always removed.
+        #[arg(long)]
+        keep_on_failure: bool,
         /// Emit JSON envelope on stdout.
         #[arg(long)]
         json: bool,
@@ -2281,9 +2303,9 @@ async fn main() {
             }
         },
         Command::Vm { action } => match action {
-            VmAction::Start { platform, base, id, display, viewer, json, dry_run } => {
+            VmAction::Start { platform, base, id, display, viewer, keep_on_failure, json, dry_run } => {
                 vm_cmds::run_vm_start(
-                    platform, base, id, display, viewer,
+                    platform, base, id, display, viewer, keep_on_failure,
                     OutputMode::from_flags(json), dry_run,
                 )
                 .await

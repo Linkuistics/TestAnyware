@@ -33,13 +33,14 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | Code | When |
 |------|------|
 | `VM_NOT_FOUND` | No VM with the given id. |
-| `VM_BOOT_TIMEOUT` | VNC/agent did not become reachable within the boot window. |
+| `VM_BOOT_TIMEOUT` | The VM is up but `vm start` stage (`vnc`, `guest-ip`, `agent`) never completed; `details` names the stage and the last probe error. Exit `7`. |
+| `VM_LIMIT_REACHED` | The macOS guest limit (two per Mac) is full; `details.holders` names the VMs. Try again later. Exit `6`. |
 | `VM_STOP_FAILED` | `vm stop` could not terminate the VM cleanly. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
 | `GOLDEN_IN_USE` | `vm delete` refused — clones of the golden are running (use `--force`). |
 | `GOLDEN_CREATE_FAILED` | `vm create-golden` aborted. |
-| `TART_FAILED` | A `tart` subprocess exited non-zero. |
+| `TART_FAILED` | A `tart` subprocess exited non-zero, or `tart run` exited before the guest was ready (`details.tart_error` is its log tail). |
 | `QEMU_FAILED` | `qemu-system-*` failed to launch or a QMP command errored. |
 | `KVM_PERMISSION_DENIED` | `/dev/kvm` not accessible (Linux host). |
 | `SWTPM_MISSING` | `swtpm` binary not found. Raised before anything is cloned, by the TPM decision, for a Windows guest (or Windows golden creation) on a host whose QEMU can supply a TPM; install it with `brew install swtpm`. Other guests never raise it. |

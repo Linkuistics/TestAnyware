@@ -291,20 +291,21 @@ Retina wire frame). Also avoid treating 2× as the default (it is opt-in).
 
 ## Example dialogue
 
-> **Dev:** I broke something — `testanyware vm start` is timing out on
-> Windows.
+> **Dev:** I broke something — `testanyware vm start --platform macos` is
+> failing with `VM_BOOT_TIMEOUT`.
 >
 > **Maintainer:** Is it the Host CLI hanging, or the in-VM agent not
-> responding?
+> responding? The error names the stage that ran out of time and the last
+> probe's error.
 >
-> **Dev:** The Host CLI prints the warning about the agent not reaching
-> health, then exits 0.
+> **Dev:** Stage `agent`; the last probe error is "connection refused".
 >
-> **Maintainer:** Then the in-VM agent is the suspect, not the Host CLI.
-> The in-VM agent is out of the rust-cli-port grove's scope — file it
-> against `agents/windows/`, not against `cli-rs/`. The Host CLI's job is
-> just to clone the Golden image and wait. The CLI design contract says
-> it warns and proceeds with `agent: null`.
+> **Maintainer:** Then the VM is up and nothing is listening for the agent —
+> the in-VM agent is the suspect, not the Host CLI. The in-VM agent is out of
+> the rust-cli-port grove's scope — file it against `agents/macos/`, not
+> against `cli-rs/`. The Host CLI's job is just to clone the Golden image and
+> wait for a Healthy agent, and to fail saying why if one never appears —
+> a tart-backed `vm start` never exits 0 with `agent: null`.
 >
 > **Dev:** Where is that behaviour pinned down now that the Swift CLI is gone?
 >

@@ -3,18 +3,27 @@
 
 use std::path::PathBuf;
 use std::time::Duration;
+#[cfg(target_os = "macos")]
+use std::time::Instant;
 
 use crate::error::VmError;
-use crate::health::wait_for_agent;
+use crate::health::{wait_for_agent, AgentWait};
 use crate::id::generate_id;
 use crate::meta::{VmMeta, VmTool};
 use crate::paths::VmPaths;
 use crate::process::process_alive;
+#[cfg(target_os = "macos")]
+use crate::process::child_alive;
 use crate::qemu::{
     scan_clones_dir, scan_golden_dir, GoldenImage, QemuRunner, QemuStartOptions, RunningClone,
 };
 use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
 use crate::qemu_profile::host_profile;
+#[cfg(target_os = "macos")]
+use crate::start_outcome::{
+    decide_start, log_tail, AddressObservation, AgentObservation, Backend, BootObservation,
+    Disposition, ProcessState, StartDecision, VncObservation,
+};
 use crate::tpm::{decide_tpm_on_host, TpmDecision};
 
 /// Guest platform. Ports the `Platform` enum + extension in `VMTypes.swift`.
@@ -68,6 +77,10 @@ pub struct VmStartOptions {
     /// into the spec so later command connections present the logical surface.
     pub logical: Option<(u32, u32)>,
     pub open_viewer: bool,
+    /// On a failed start, leave a still-running VM (with its sidecars) for
+    /// inspection instead of tearing it down (`--keep-on-failure`). Only a VM
+    /// whose backend process is still alive can be kept.
+    pub keep_on_failure: bool,
 }
 
 impl VmStartOptions {
@@ -89,6 +102,7 @@ impl VmStartOptions {
             display: display.backend_display,
             logical: display.logical,
             open_viewer,
+            keep_on_failure: false,
         }
     }
 }
@@ -103,6 +117,8 @@ pub struct VmStartResult {
     pub meta_path: PathBuf,
     /// `true` when the agent did not reach health within the boot window
     /// (the VM still started; agent commands will fail until it comes up).
+    /// Always `false` for tart-backed starts, which fail instead; only the
+    /// QEMU arm still degrades to this, until it joins the honest-start rule.
     pub agent_unreachable: bool,
     /// The TPM decision this start was made under. `None` for a tart-backed
     /// start, which has no such decision to report.
@@ -178,7 +194,10 @@ impl VmLifecycle {
         let mut agent_endpoint = None;
         let mut agent_unreachable = true;
         if let Some(port) = artifacts.agent_port {
-            if wait_for_agent("localhost", port, 120, Duration::from_secs(5)).await {
+            // The QEMU arm still degrades to a warning; it joins the honest-start
+            // rule in `start-failure-qemu-k3`, which adds QEMU liveness here.
+            let wait = wait_for_agent("localhost", port, 120, Duration::from_secs(5), || true).await;
+            if matches!(wait, AgentWait::Healthy { .. }) {
                 agent_endpoint = Some(AgentEndpoint { host: "localhost".into(), port });
                 agent_unreachable = false;
             }
@@ -232,93 +251,99 @@ impl VmLifecycle {
         })
     }
 
-    /// Start a tart-backed VM end-to-end. macOS host only. Mirrors the
-    /// QEMU arm above: the runner clones+starts and hands back the VNC
-    /// endpoint + guest IP; this method waits for the agent (over the
-    /// guest IP, not a localhost forward) and writes the sidecars. Ports
+    /// Start a tart-backed VM end-to-end. macOS host only. The runner clones
+    /// and launches; this method observes each readiness stage (VNC URL, guest
+    /// IP, agent health — the agent listens on the guest IP, not a localhost
+    /// forward), lets [`decide_start`] rule on what it saw, and only then
+    /// writes the sidecars. A start succeeds only with a Healthy agent; any
+    /// other outcome is an error and the VM is torn down unless
+    /// `keep_on_failure` keeps a still-running one. Ports
     /// `VMLifecycle.startTart`.
     #[cfg(target_os = "macos")]
     async fn start_tart(opts: &VmStartOptions, paths: &VmPaths) -> Result<VmStartResult, VmError> {
-        use crate::tart::{TartRunner, TartStartOptions};
+        use crate::tart::{TartLaunch, TartRunner, TartStartOptions};
 
         let topts = TartStartOptions {
             id: opts.id.clone(),
             base: opts.base.clone(),
             display: opts.display.clone(),
         };
-        let artifacts = TartRunner::start(&topts, paths).await?;
+        // A failed launch has already removed its clone.
+        let TartLaunch { pid, log_path } = TartRunner::launch(&topts, paths).await?;
+        let boot = observe_tart_boot(opts, paths, pid, &log_path).await;
 
-        // The agent listens on the guest IP (port 8648), not a localhost
-        // forward as with QEMU. No IP => agent unreachable, spec `agent: null`.
-        let mut agent_endpoint = None;
-        let mut agent_unreachable = true;
-        if let Some(ip) = &artifacts.ip {
-            if wait_for_agent(ip, 8648, 60, Duration::from_secs(2)).await {
-                agent_endpoint = Some(AgentEndpoint { host: ip.clone(), port: 8648 });
-                agent_unreachable = false;
+        let (vnc, ip) = match decide_start(&boot.observation, opts.keep_on_failure) {
+            StartDecision::Ready => match (boot.vnc.clone(), boot.ip.clone()) {
+                (Some(vnc), Some(ip)) => (vnc, ip),
+                // Ready implies both stages passed; refuse to invent an endpoint.
+                _ => {
+                    TartRunner::stop(&opts.id, pid);
+                    return Err(VmError::TartFailed {
+                        detail: "internal error: ready start without a VNC endpoint and guest IP".into(),
+                    });
+                }
+            },
+            StartDecision::Failed { error, disposition } => {
+                settle_failed_tart_start(opts, paths, pid, &boot, disposition);
+                return Err(error);
+            }
+        };
 
-                // macOS guests are guest-controlled (ADR-0014): the agent is up
-                // but the framebuffer still shows the golden's 1024×768. Force it
-                // to the resolved mode now — synchronously, before `vm start`
-                // returns success — so consumers waiting on `vm start` are gated
-                // on the switch by construction. Best-effort, like the agent
-                // endpoint itself: failures warn and leave the VM started.
-                // Linux-on-tart honors the host-configured mode directly, so the
-                // guest-side switch is macOS-only.
-                if opts.platform == Platform::Macos {
-                    match opts.logical {
-                        // HiDPI @2x (ADR-0016 D3): select the guest's 2× Retina
-                        // mode for the logical target (k4 finding 3) — *replacing*
-                        // ADR-0014's 1× switch, not skipping it. At 2× the guest
-                        // advertises BOTH a 1× and a 2× 1920-logical mode, so the
-                        // old 1× selector would match the 1× mode and silently
-                        // defeat HiDPI (k4 finding 4); suppression is load-bearing.
-                        Some((lw, lh)) => {
-                            let applied =
-                                crate::display::apply(ip, 8648, (lw, lh), 2, paths, &opts.id).await;
-                            // No 2× mode advertised ⇒ a 1× host (or HiDPI did not
-                            // engage). Fall back to the 1× mode of the same logical
-                            // size so the guest still reaches a sane 1920×1080
-                            // (the connection auto-detects scale=1 and warns —
-                            // ADR-0016 "the host yielded 1×"). Safe vs k4 finding 4:
-                            // this runs only when no 2× mode exists, so it cannot
-                            // defeat HiDPI on a real Retina host (where the 2×
-                            // switch succeeds first and skips this).
-                            if !applied {
-                                eprintln!(
-                                    "  HiDPI 2× switch did not apply — falling back to \
-                                     1× {lw}x{lh} (HiDPI needs a Retina host / the \
-                                     deferred deterministic mechanism, ADR-0016)"
-                                );
-                                crate::display::apply(ip, 8648, (lw, lh), 1, paths, &opts.id).await;
-                            }
+        // macOS guests are guest-controlled (ADR-0014): the agent is up
+        // but the framebuffer still shows the golden's 1024×768. Force it
+        // to the resolved mode now — synchronously, before `vm start`
+        // returns success — so consumers waiting on `vm start` are gated
+        // on the switch by construction. The agent is known healthy here;
+        // the switch itself stays best-effort: failures warn and leave the VM
+        // started. Linux-on-tart honors the host-configured mode directly, so
+        // the guest-side switch is macOS-only.
+        if opts.platform == Platform::Macos {
+            match opts.logical {
+                // HiDPI @2x (ADR-0016 D3): select the guest's 2× Retina
+                // mode for the logical target (k4 finding 3) — *replacing*
+                // ADR-0014's 1× switch, not skipping it. At 2× the guest
+                // advertises BOTH a 1× and a 2× 1920-logical mode, so the
+                // old 1× selector would match the 1× mode and silently
+                // defeat HiDPI (k4 finding 4); suppression is load-bearing.
+                Some((lw, lh)) => {
+                    let applied = crate::display::apply(&ip, 8648, (lw, lh), 2, paths, &opts.id).await;
+                    // No 2× mode advertised ⇒ a 1× host (or HiDPI did not
+                    // engage). Fall back to the 1× mode of the same logical
+                    // size so the guest still reaches a sane 1920×1080
+                    // (the connection auto-detects scale=1 and warns —
+                    // ADR-0016 "the host yielded 1×"). Safe vs k4 finding 4:
+                    // this runs only when no 2× mode exists, so it cannot
+                    // defeat HiDPI on a real Retina host (where the 2×
+                    // switch succeeds first and skips this).
+                    if !applied {
+                        eprintln!(
+                            "  HiDPI 2× switch did not apply — falling back to \
+                             1× {lw}x{lh} (HiDPI needs a Retina host / the \
+                             deferred deterministic mechanism, ADR-0016)"
+                        );
+                        crate::display::apply(&ip, 8648, (lw, lh), 1, paths, &opts.id).await;
+                    }
+                }
+                // Default 1× path (ADR-0014): force the 1920×1080-px
+                // contract via the 1× mode selector.
+                None => {
+                    let resolved = crate::tart::resolve_display(opts.display.as_deref());
+                    match crate::display::parse_target(resolved) {
+                        Some(target) => {
+                            crate::display::apply(&ip, 8648, target, 1, paths, &opts.id).await;
                         }
-                        // Default 1× path (ADR-0014): force the 1920×1080-px
-                        // contract via the 1× mode selector.
-                        None => {
-                            let resolved = crate::tart::resolve_display(opts.display.as_deref());
-                            match crate::display::parse_target(resolved) {
-                                Some(target) => {
-                                    crate::display::apply(ip, 8648, target, 1, paths, &opts.id).await;
-                                }
-                                None => eprintln!(
-                                    "  warning: cannot derive a px target from display \
-                                     '{resolved}' — skipping macOS resolution switch"
-                                ),
-                            }
-                        }
+                        None => eprintln!(
+                            "  warning: cannot derive a px target from display \
+                             '{resolved}' — skipping macOS resolution switch"
+                        ),
                     }
                 }
             }
         }
 
         let spec = VmSpec {
-            vnc: VncEndpoint {
-                host: artifacts.vnc.host.clone(),
-                port: artifacts.vnc.port,
-                password: artifacts.vnc.password.clone(),
-            },
-            agent: agent_endpoint,
+            vnc: VncEndpoint { host: vnc.host.clone(), port: vnc.port, password: vnc.password.clone() },
+            agent: Some(AgentEndpoint { host: ip, port: 8648 }),
             platform: opts.platform.as_str().to_string(),
             // Persist the HiDPI logical surface so every later short-lived
             // command connection presents it (ADR-0016 D2; ADR-0004 per-command
@@ -330,7 +355,7 @@ impl VmLifecycle {
         // tart is now running; a sidecar-write failure must tear it down
         // so it cannot survive untracked.
         spec.write_atomic(&spec_path).inspect_err(|_| {
-            TartRunner::stop(&opts.id, artifacts.pid);
+            TartRunner::stop(&opts.id, pid);
         })?;
 
         // tart manages its own storage, so the meta carries no clone_dir;
@@ -338,15 +363,15 @@ impl VmLifecycle {
         let meta = VmMeta {
             id: opts.id.clone(),
             tool: VmTool::Tart,
-            pid: artifacts.pid,
+            pid,
             clone_dir: None,
             viewer_window_id: None,
-            // The keeper started inside `TartRunner::start`, before any VNC
+            // The keeper started in `observe_tart_boot`, before any VNC
             // client (ADR-0018). `vm stop` signals it as a backstop.
-            keeper_pid: artifacts.keeper_pid,
+            keeper_pid: boot.keeper_pid,
         };
         meta.write_atomic(&meta_path).inspect_err(|_| {
-            TartRunner::stop(&opts.id, artifacts.pid);
+            TartRunner::stop(&opts.id, pid);
             let _ = std::fs::remove_file(&spec_path);
         })?;
 
@@ -356,7 +381,7 @@ impl VmLifecycle {
             spec,
             spec_path,
             meta_path,
-            agent_unreachable,
+            agent_unreachable: false,
             tpm: None,
         })
     }
@@ -537,6 +562,170 @@ fn wants_tart(platform: Platform, base: &str, paths: &VmPaths) -> bool {
         Platform::Linux => {
             let qcow2 = paths.golden_dir().join(format!("{base}.qcow2"));
             !qcow2.is_file() && crate::tart::vm_exists(base)
+        }
+    }
+}
+
+/// Readiness-stage budgets for a tart boot. The agent budget is the same 60
+/// probes 2 s apart `vm start` has always used; this grove's job is to make
+/// its failure honest, not to retune it.
+#[cfg(target_os = "macos")]
+const VNC_POLLS: (u32, Duration) = (60, Duration::from_secs(1));
+#[cfg(target_os = "macos")]
+const IP_POLLS: (u32, Duration) = (30, Duration::from_secs(2));
+#[cfg(target_os = "macos")]
+const AGENT_POLLS: (u32, Duration) = (60, Duration::from_secs(2));
+/// The agent's fixed port in the guest.
+#[cfg(target_os = "macos")]
+const AGENT_PORT: u16 = 8648;
+/// How much of a dead backend's log goes into its error.
+#[cfg(target_os = "macos")]
+const LOG_TAIL_LINES: usize = 20;
+#[cfg(target_os = "macos")]
+const LOG_TAIL_BYTES: usize = 4096;
+
+/// What a tart boot observed, plus the endpoints it found along the way.
+#[cfg(target_os = "macos")]
+struct TartBoot {
+    observation: BootObservation,
+    vnc: Option<crate::tart::VncUrl>,
+    ip: Option<String>,
+    /// Pid of the VNC keeper (ADR-0018), or `None` if it could not start.
+    keeper_pid: Option<i32>,
+}
+
+/// Run the readiness stages in order — VNC URL, guest IP, agent health —
+/// stopping at the first that fails, and record what was seen. Each stage
+/// notices a dead `tart run` at once. The process is sampled last, so a death
+/// during any stage is what the decision sees.
+#[cfg(target_os = "macos")]
+async fn observe_tart_boot(
+    opts: &VmStartOptions,
+    paths: &VmPaths,
+    pid: i32,
+    log_path: &std::path::Path,
+) -> TartBoot {
+    use crate::tart::{await_guest_ip, await_vnc_url, Polled};
+
+    let alive = move || child_alive(pid);
+    let mut observation = BootObservation {
+        id: opts.id.clone(),
+        backend: Backend::Tart,
+        platform: opts.platform,
+        process: ProcessState::Running,
+        vnc: VncObservation::Found,
+        address: AddressObservation::NotReached,
+        agent: AgentObservation::NotReached,
+    };
+    let mut vnc = None;
+    let mut ip = None;
+    let mut keeper_pid = None;
+
+    let stage_start = Instant::now();
+    match await_vnc_url(log_path, VNC_POLLS.0, VNC_POLLS.1, alive).await {
+        Polled::Found(url) => {
+            // Hold one silent VNC connection for the life of tart (ADR-0018),
+            // so a client that connects after a pause of 60 s or more cannot
+            // crash it on a macOS 27 host. Start it as soon as tart prints the
+            // URL, before the first VNC client of any kind. A failure warns;
+            // the guest then runs without the protection.
+            keeper_pid = crate::keeper::start_keeper(&opts.id, &url.host, url.port, &paths.vms_dir());
+            vnc = Some(url);
+        }
+        Polled::ProcessExited => {}
+        Polled::TimedOut { attempts } => {
+            observation.vnc = VncObservation::Missing { attempts, elapsed: stage_start.elapsed() };
+        }
+    }
+
+    if vnc.is_some() {
+        let stage_start = Instant::now();
+        match await_guest_ip(&opts.id, IP_POLLS.0, IP_POLLS.1, alive).await {
+            Polled::Found(found) => {
+                observation.address = AddressObservation::Found;
+                ip = Some(found);
+            }
+            Polled::ProcessExited => {}
+            Polled::TimedOut { attempts } => {
+                observation.address =
+                    AddressObservation::Missing { attempts, elapsed: stage_start.elapsed() };
+            }
+        }
+    }
+
+    if let Some(ip) = &ip {
+        let wait = wait_for_agent(ip, AGENT_PORT, AGENT_POLLS.0, AGENT_POLLS.1, alive).await;
+        observation.agent = AgentObservation::Waited {
+            endpoint: format!("http://{ip}:{AGENT_PORT}/health"),
+            wait,
+        };
+    }
+
+    if !child_alive(pid) {
+        let text = std::fs::read_to_string(log_path).unwrap_or_default();
+        observation.process =
+            ProcessState::Exited { log_tail: log_tail(&text, LOG_TAIL_LINES, LOG_TAIL_BYTES) };
+    }
+    TartBoot { observation, vnc, ip, keeper_pid }
+}
+
+/// Act on a failed tart start's disposition. `Teardown` stops and deletes the
+/// clone and leaves no sidecars. `Keep` leaves the running VM with its
+/// sidecars so `vm stop` can reclaim it: the meta always, the spec once a VNC
+/// endpoint is known (naming the agent endpoint if the guest IP is, so
+/// commands against the kept VM report the real connection error).
+#[cfg(target_os = "macos")]
+fn settle_failed_tart_start(
+    opts: &VmStartOptions,
+    paths: &VmPaths,
+    pid: i32,
+    boot: &TartBoot,
+    disposition: Disposition,
+) {
+    use crate::tart::TartRunner;
+
+    let spec_path = paths.spec_path(&opts.id);
+    let meta_path = paths.meta_path(&opts.id);
+    match disposition {
+        Disposition::Teardown => {
+            TartRunner::stop(&opts.id, pid);
+            // The keeper ends itself once tart is gone (ADR-0018); this is the
+            // backstop, and it signals only a pid that is still this id's keeper.
+            crate::keeper::stop_keeper(&opts.id, boot.keeper_pid);
+            let _ = std::fs::remove_file(&spec_path);
+            let _ = std::fs::remove_file(&meta_path);
+        }
+        Disposition::Keep => {
+            if let Some(vnc) = &boot.vnc {
+                let spec = VmSpec {
+                    vnc: VncEndpoint {
+                        host: vnc.host.clone(),
+                        port: vnc.port,
+                        password: vnc.password.clone(),
+                    },
+                    agent: boot
+                        .ip
+                        .as_ref()
+                        .map(|ip| AgentEndpoint { host: ip.clone(), port: AGENT_PORT }),
+                    platform: opts.platform.as_str().to_string(),
+                    logical: opts.logical.map(|(w, h)| LogicalSize { width: w, height: h }),
+                };
+                if let Err(err) = spec.write_atomic(&spec_path) {
+                    eprintln!("warning: could not write the kept VM's spec: {err}");
+                }
+            }
+            let meta = VmMeta {
+                id: opts.id.clone(),
+                tool: VmTool::Tart,
+                pid,
+                clone_dir: None,
+                viewer_window_id: None,
+                // A kept VM keeps its keeper; `vm stop` signals it later.
+                keeper_pid: boot.keeper_pid,
+            };
+            if let Err(err) = meta.write_atomic(&meta_path) {
+                eprintln!("warning: could not write the kept VM's meta (reclaim with `tart stop/delete {}`): {err}", opts.id);
+            }
         }
     }
 }

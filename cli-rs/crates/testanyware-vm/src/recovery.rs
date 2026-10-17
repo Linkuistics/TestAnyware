@@ -459,7 +459,7 @@ pub async fn recovery_boot_csrutil(
     // 1. Graceful stop of the running setup VM (System Events shutdown over
     //    SSH, then wait for the tart process to exit, force-stop fallback).
     stop_vm_graceful(setup).await;
-    // Let tart fully release the VM before re-launching it (as TartRunner::start
+    // Let tart fully release the VM before re-launching it (as TartRunner::launch
     // does after a reclaim) so the recovery `tart run` does not race the stop.
     tokio::time::sleep(Duration::from_secs(2)).await;
 
@@ -468,7 +468,7 @@ pub async fn recovery_boot_csrutil(
     let (recovery_pid, log_path) = crate::tart::run_detached_recovery(&setup.id, &paths.vms_dir())?;
     let Some(vnc) = crate::tart::poll_vnc_url(&log_path, 60, Duration::from_secs(1)) else {
         crate::process::terminate(recovery_pid, Duration::from_millis(200), 10);
-        return Err(VmError::VmBootTimeout { id: setup.id.clone() });
+        return Err(VmError::boot_timeout(setup.id.clone(), crate::error::BootStage::Vnc));
     };
     eprintln!("Recovery VNC at {}:{}", vnc.host, vnc.port);
 
@@ -616,7 +616,7 @@ pub(crate) async fn reboot_and_wait_ssh(setup: &SetupVm, paths: &VmPaths) -> Res
     let Some(ip) = crate::tart::poll_ip(&setup.id, 60, Duration::from_secs(3)) else {
         eprintln!(" timed out.");
         crate::process::terminate(pid, Duration::from_millis(200), 10);
-        return Err(VmError::VmBootTimeout { id: setup.id.clone() });
+        return Err(VmError::boot_timeout(setup.id.clone(), crate::error::BootStage::GuestIp));
     };
     eprintln!(" {ip}");
 
@@ -641,7 +641,7 @@ pub(crate) async fn reboot_and_wait_ssh(setup: &SetupVm, paths: &VmPaths) -> Res
     }
     eprintln!(" not reachable.");
     crate::process::terminate(pid, Duration::from_millis(200), 10);
-    Err(last.unwrap_or(VmError::VmBootTimeout { id: setup.id.clone() }))
+    Err(last.unwrap_or_else(|| VmError::boot_timeout(setup.id.clone(), crate::error::BootStage::Ssh)))
 }
 
 /// A deadline `d` from now — the polling-wait equivalent of the script's

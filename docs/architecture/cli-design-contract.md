@@ -86,6 +86,7 @@ uses these and only these names:
 | Unbounded results | `--all` | — | Mutually exclusive with `--limit`. |
 | Custom format template | `--format <tmpl>` | — | Optional; only where templating is meaningful. Must NOT collide with `--output <fmt>`. |
 | Color | `--color <when>` | — | Values: `auto` (default), `always`, `never`. |
+| Keep a failed start's VM | `--keep-on-failure` | — | `vm start` only: leave a still-running VM (and its sidecars) for inspection instead of removing it. See the §4.2 amendment of 2026-10-17. |
 
 **Reserved short flags** (must remain consistent across the whole
 binary): `-q`, `-v`, `-y`, `-o` (output format only), `-h` (help), `-V`
@@ -258,13 +259,14 @@ version bump.
 | Code | When |
 |---|---|
 | `VM_NOT_FOUND` | `--vm <id>` resolved to a missing spec. |
-| `VM_BOOT_TIMEOUT` | VNC didn't become reachable within the boot window. |
+| `VM_BOOT_TIMEOUT` | `vm start`: the VM is alive but a start stage never completed — the VNC endpoint, the guest IP, or (the usual case) the agent never became a Healthy agent. `details` names the `stage` (`vnc`, `guest-ip`, `agent`), the polled `endpoint`, the `last_error` (kind, OS errno, text), the `attempts`, the `elapsed_secs` and whether the VM was `kept`. |
+| `VM_LIMIT_REACHED` | `vm start` was refused because the platform's concurrent-guest limit is full — Apple's macOS guest limit, two per Mac. A *try again later* condition: exit `6`. `details`: `platform`, `limit`, `holders` (the VMs holding the slots), `tart_error` (the backend's own line). |
 | `VM_STOP_FAILED` | `vm stop` couldn't terminate the VM cleanly. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform on this host. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
 | `GOLDEN_IN_USE` | `vm delete` refused: running clones depend on the image. Use `--force`. |
 | `GOLDEN_CREATE_FAILED` | `vm create-golden` could not produce the golden image (a provisioning boot, TCC/SIP step, or the final health gate failed). `details.detail` carries the cause. |
-| `TART_FAILED` | tart subprocess returned non-zero. `details.tart_error` carries its stderr. |
+| `TART_FAILED` | tart subprocess returned non-zero, or `tart run` exited before the guest was ready. `details.tart_error` carries its stderr / the tail of its log. |
 | `QEMU_FAILED` | QEMU subprocess failed (start, monitor, or QMP). |
 | `KVM_PERMISSION_DENIED` | `/dev/kvm` is missing or not readable+writable (Linux host). `details.path` carries `/dev/kvm`. |
 | `SWTPM_MISSING` | swtpm is not installed; required for a Windows guest whose host QEMU can supply a TPM (TPM 2.0 socket). Raised before anything is cloned, by the TPM decision (ADR-0017), also under `vm start --dry-run` and before `vm create-golden --platform windows` boots. |
@@ -281,6 +283,31 @@ version bump.
 > `SSH_CONNECT_FAILED` (§4.1) and `GOLDEN_CREATE_FAILED` (§4.2) added for the
 > `vm create-golden` golden-provisioning command. Both are generic failures
 > mapping to exit code `1` (§5) and carry their cause in `details.detail`.
+
+> **Amendment 2026-10-17** (`start-failure-tart-k2`, issue #3): `vm start`
+> succeeds only when its guest has a **Healthy agent**; it never writes an
+> agent-less spec. When it cannot, it exits non-zero with the reason and
+> removes its VM (clone, process and sidecars):
+>
+> - `VM_BOOT_TIMEOUT` (exit `7`) now also covers the agent stage — the VM is
+>   alive but its agent never answered `/health`. The error names the stage
+>   and the last probe's error, including its OS errno (refused vs. no route
+>   to host vs. timeout).
+> - `TART_FAILED` is returned as soon as the `tart run` process exits, with
+>   its log tail in `details.tart_error`, rather than after the boot window.
+> - `VM_LIMIT_REACHED` (new; exit `6`, the previously reserved bucket) is
+>   returned when tart reports the macOS guest limit. Drivers can wait on
+>   exit `6` without parsing text.
+> - `--keep-on-failure` (new) leaves a failed start's VM running, with its
+>   sidecars, when the backend process is still alive, so it can be inspected
+>   and then reclaimed with `vm stop`. A VM whose backend has exited is always
+>   removed. The kept VM's spec names the agent endpoint if the guest IP is
+>   known, so commands against it report the real connection error.
+>
+> This is written for the tart backend (macOS and Linux-on-tart guests). The
+> QEMU backend (Windows, Linux-on-qcow2) still warns and exits `0` with
+> `agent: null` when its agent is unhealthy; it joins this rule in
+> `start-failure-qemu-k3`, which then states the rule for every backend.
 
 ### 4.3 VNC capture
 
@@ -371,7 +398,7 @@ catalogue grows by one entry; agents can poll for additions.
 | `3` | Not found (`*_NOT_FOUND` family: `VM_NOT_FOUND`, `WINDOW_NOT_FOUND`, `ELEMENT_NOT_FOUND`, `GOLDEN_NOT_FOUND`, `UEFI_NOT_FOUND`, `SCHEMA_NOT_FOUND`, `TEXT_NOT_FOUND`). |
 | `4` | Auth/permission required (`AUTH_REQUIRED`, `KVM_PERMISSION_DENIED`). |
 | `5` | Conflict / precondition failed (`GOLDEN_IN_USE`, `RECORD_ALREADY_ACTIVE`, `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED`). |
-| `6` | Rate limited / try again later (reserved; not currently used). |
+| `6` | Rate limited / try again later (`VM_LIMIT_REACHED`). |
 | `7` | Boot/startup timeout (`VM_BOOT_TIMEOUT`, `CONNECTION_TIMEOUT`, `OCR_TIMEOUT`, recording-related timeouts). |
 
 **Sub-process exit codes.** `file exec` propagates the in-VM process's
@@ -594,7 +621,7 @@ Every mutating command's `--help` documents:
 
 | Command | Idempotent? | Retry-safe? |
 |---|---|---|
-| `vm start` | Yes (returns existing id if `--id` matches a running VM; otherwise creates a new one). | Yes. |
+| `vm start` | Yes (returns existing id if `--id` matches a running VM; otherwise creates a new one). | Yes — a failed start removes its own VM unless `--keep-on-failure` kept a still-running one. |
 | `vm stop` | Yes (no-op if already stopped). | Yes. |
 | `vm delete` | Yes (no-op if absent). | Yes. |
 | `screen capture` | Yes. | Yes. |

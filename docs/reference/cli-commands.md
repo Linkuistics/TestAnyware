@@ -424,7 +424,7 @@ Container for VM lifecycle operations. Sub-sub-commands below.
 stdout.
 
 ```
-testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--display <display>] [--viewer]
+testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--display <display>] [--viewer] [--keep-on-failure]
 ```
 
 - `--platform <platform>` — `macos`, `linux`, or `windows`. Default: `macos`.
@@ -434,6 +434,15 @@ testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--disp
 - `--id <id>` — VM instance id. Default: `testanyware-<hex8>`.
 - `--display <display>` — Display resolution (e.g. `1920x1080`).
 - `--viewer` — Open a VNC viewer after boot.
+- `--keep-on-failure` — If the start fails while its VM is still running,
+  leave the VM and its sidecars for inspection (reclaim with `vm stop`)
+  instead of removing it. Tart-backed guests only; a VM whose backend has
+  exited is always removed.
+
+A tart-backed start (macOS, Linux-on-tart) succeeds only once the guest's
+agent answers `/health`. Otherwise it exits non-zero: `7` `VM_BOOT_TIMEOUT`
+(stage, last probe error), `6` `VM_LIMIT_REACHED` (the macOS guest limit, two
+per Mac, is full — try again later) or `1` `TART_FAILED` (with tart's log).
 
 **TPM report:** a QEMU-backed start says whether the guest's TPM was attached
 or omitted, and why: a `tpm` object in `--json` (`{"attached": true,

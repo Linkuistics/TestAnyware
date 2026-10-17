@@ -261,7 +261,7 @@ pub async fn create_golden_linux(opts: &GoldenOptions, paths: &VmPaths) -> Resul
     let (pid, log_path) = crate::tart::run_detached(&setup_id, &paths.vms_dir())?;
     if crate::tart::poll_vnc_url(&log_path, 60, Duration::from_secs(1)).is_none() {
         cleanup_setup_vm(&setup_id, pid);
-        return Err(VmError::VmBootTimeout { id: setup_id });
+        return Err(VmError::boot_timeout(setup_id, crate::error::BootStage::Vnc));
     }
 
     // Carry the in-flight setup VM (pid changes across the reboot) so a failure
@@ -298,7 +298,7 @@ async fn provision_and_finalize(
     eprint!("Waiting for guest IP...");
     let Some(ip) = crate::tart::poll_ip(&setup.id, 60, Duration::from_secs(3)) else {
         eprintln!(" timed out.");
-        return Err((setup.clone(), VmError::VmBootTimeout { id: setup.id }));
+        return Err((setup.clone(), VmError::boot_timeout(setup.id, crate::error::BootStage::GuestIp)));
     };
     eprintln!(" {ip}");
     setup.ip = ip.clone();

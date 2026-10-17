@@ -16,7 +16,9 @@ verification run.
   keeps the VM for a post-mortem, and the Taskfile's reliability loop repeats
   starts.
 - The root brief's Notes list the hypotheses the first failure's error kind
-  should tell apart, and anything k2 observed.
+  should tell apart, and what k2 observed: the first failure was already
+  `No route to host (os error 65)` while `/usr/bin/curl` reached the same
+  healthy agent — start there.
 - Koine: `scripts/vm-verify-lib.sh` (`start_vm`, `guest`) and
   `task app:vm-verify-homebrew`, in `~/Development/Koine`.
 
@@ -28,6 +30,11 @@ verification run.
 - The Taskfile reliability loop passes: 10 consecutive
   `vm start --platform macos` reach a Healthy agent.
 - Koine's `task app:vm-verify-homebrew` passes once.
+- A healthy macOS start also shows the resolution switch applied
+  (`testanyware screen size` reports 1920×1080). `start-failure-tart-k2` could
+  not check this live: from its harness no start reached a Healthy agent, so
+  the criterion "a normal macOS start still succeeds with the switch applied"
+  was handed to this leaf.
 - If the failure never reproduces with the diagnostics in place, the leaf says
   so plainly — bar met, root cause unknown — instead of claiming a cause.
 

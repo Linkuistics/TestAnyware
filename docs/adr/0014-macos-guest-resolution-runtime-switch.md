@@ -82,9 +82,10 @@ de-risking below — is deferred to a dedicated grove.
 
 - macOS guests will reach a uniform 1920×1080-px framebuffer like the other
   backends, **without** regenerating the macOS golden.
-- `vm start` gains a macOS-specific post-boot step: it must **wait for agent
-  readiness** (today the agent endpoint is treated as optionally-degraded —
-  `tart.rs:315`) and then upload+exec the helper. There is a brief transient where
+- `vm start` gains a macOS-specific post-boot step: it **waits for agent
+  readiness** — a tart-backed start succeeds only with a Healthy agent (the
+  CLI design contract's 2026-10-17 amendment), so the agent is guaranteed up
+  when the step runs — and then uploads+execs the helper. There is a brief transient where
   the framebuffer is still 1024×768 before the switch; **vision / `screen`
   consumers must gate on the switch completing**, the same way they gate on
   readiness.
@@ -204,10 +205,11 @@ The runtime switch ships:
   transient). `parse_target` derives the px target from the same resolved
   `--display` value that feeds `tart set` (unit suffix ignored — px == pt at 1×).
 - **Wiring** in `VmLifecycle::start_tart` (lifecycle.rs), **after** the
-  agent-readiness wait and synchronously before `vm start` returns, **macOS
-  guests only**. Best-effort: a missing `swiftc` / compile / upload / exec
-  failure warns and leaves the VM started (rides the optionally-degraded agent
-  contract); agent-unreachable skips the switch entirely (no switch attempted).
+  start-outcome decision has confirmed a Healthy agent and synchronously before
+  `vm start` returns, **macOS guests only**. The switch itself is best-effort,
+  independent of agent health: a missing `swiftc` / compile / upload / exec
+  failure warns and leaves the VM started. A start whose agent never became
+  healthy fails (`VM_BOOT_TIMEOUT`) before the switch is ever attempted.
 
 **Live result:** `vm start --platform macos` with no `--display` against a fresh
 `testanyware-golden-macos-tahoe` clone → the start log shows the in-guest switch

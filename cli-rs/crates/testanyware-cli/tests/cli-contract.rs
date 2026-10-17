@@ -630,6 +630,8 @@ fn capabilities_lists_full_surface() {
         "ELEMENT_NOT_FOUND",
         "USAGE_ERROR",
         "SCHEMA_NOT_FOUND",
+        "VM_BOOT_TIMEOUT",
+        "VM_LIMIT_REACHED",
     ] {
         assert!(
             error_codes.contains(&required),
@@ -798,6 +800,39 @@ fn vm_commands_help_follows_template() {
             "`vm {sub} --help` needs ≥2 example invocations, found {examples}",
         );
     }
+}
+
+/// §4.2 + §5 + §7: `vm start --help` documents the honest-start contract —
+/// the `--keep-on-failure` flag and the failure exit codes a driver branches
+/// on (6 = try again later, 7 = the VM is up but a stage never completed).
+#[test]
+fn vm_start_help_documents_keep_on_failure_and_the_failure_exit_codes() {
+    let out = run(&["vm", "start", "--help"]);
+    assert!(out.status.success());
+    let help = String::from_utf8_lossy(&out.stdout);
+    for needle in ["--keep-on-failure", "6  VM_LIMIT_REACHED", "7  VM_BOOT_TIMEOUT", "TART_FAILED"] {
+        assert!(help.contains(needle), "`vm start --help` missing {needle:?}; got:\n{help}");
+    }
+}
+
+/// §9.3: `--keep-on-failure` is a start-time option, so `--dry-run` accepts it
+/// and still mutates nothing (the failure path it governs never runs).
+#[test]
+fn vm_start_dry_run_accepts_keep_on_failure() {
+    let dir = tempfile::tempdir().unwrap();
+    let golden = dir.path().join("testanyware").join("golden");
+    std::fs::create_dir_all(&golden).unwrap();
+    std::fs::write(golden.join("testanyware-golden-linux-24.04.qcow2"), b"disk").unwrap();
+    let out = run_env(
+        &["vm", "start", "--platform", "linux", "--keep-on-failure", "--dry-run", "--json"],
+        &[
+            ("XDG_DATA_HOME", dir.path().to_str().unwrap()),
+            ("XDG_STATE_HOME", dir.path().to_str().unwrap()),
+        ],
+    );
+    // A QEMU preflight failure (no /dev/kvm on the dev Mac) is a different
+    // exit; what this pins is that the flag itself parses (never exit 2).
+    assert_ne!(out.status.code(), Some(2), "--keep-on-failure must be a recognised flag");
 }
 
 /// §3.1 + §3.5: `vm list --json` emits the truncation envelope.

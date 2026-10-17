@@ -1,6 +1,113 @@
 //! `VmError` — the crate error type, mapped to contract §4 codes.
 
+use std::fmt;
+use std::time::Duration;
+
 use serde_json::{json, Value};
+
+use crate::health::ProbeError;
+
+/// The stage of a start that ran out of time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootStage {
+    /// The backend never reported a VNC endpoint (tart's `vnc://` line).
+    Vnc,
+    /// The guest never got an IP address.
+    GuestIp,
+    /// The agent never became a Healthy agent.
+    Agent,
+    /// A provisioning VM never accepted SSH (`vm create-golden` only).
+    Ssh,
+}
+
+impl BootStage {
+    /// Stable token for `--json` details.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BootStage::Vnc => "vnc",
+            BootStage::GuestIp => "guest-ip",
+            BootStage::Agent => "agent",
+            BootStage::Ssh => "ssh",
+        }
+    }
+}
+
+impl fmt::Display for BootStage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// What a `VM_LIMIT_REACHED` knows: which platform's limit, its size, the VMs
+/// holding the slots, and the backend's own words.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LimitReached {
+    pub platform: String,
+    pub limit: u32,
+    /// The VMs holding the slots, as the backend named them (possibly none).
+    pub holders: Vec<String>,
+    /// The backend's own line, verbatim — backends reword the framework's error.
+    pub raw: String,
+}
+
+impl fmt::Display for LimitReached {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{} guest limit reached: {} VMs are already running ({})",
+            self.platform,
+            self.limit,
+            self.holders.join(", ")
+        )
+    }
+}
+
+/// What a `VM_BOOT_TIMEOUT` knows: the stage that ran out of time, what was
+/// being polled, the last probe's error, and how long it tried.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BootTimeout {
+    pub stage: BootStage,
+    /// The endpoint polled during the stage, when it has one (the agent's
+    /// `/health` URL).
+    pub endpoint: Option<String>,
+    pub last_error: Option<ProbeError>,
+    pub attempts: u32,
+    pub elapsed: Duration,
+    /// The VM was left running (`--keep-on-failure`), so the caller must
+    /// `vm stop` it.
+    pub kept: bool,
+}
+
+impl BootTimeout {
+    /// A timeout that knows only its stage (the golden-provisioning flows,
+    /// which poll but do not report probe detail).
+    pub fn at(stage: BootStage) -> Self {
+        BootTimeout {
+            stage,
+            endpoint: None,
+            last_error: None,
+            attempts: 0,
+            elapsed: Duration::ZERO,
+            kept: false,
+        }
+    }
+}
+
+impl fmt::Display for BootTimeout {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "stage {}", self.stage)?;
+        if let Some(endpoint) = &self.endpoint {
+            write!(f, ", polling {endpoint}")?;
+        }
+        if self.attempts > 0 {
+            write!(f, ", {} attempts over {}s", self.attempts, self.elapsed.as_secs())?;
+        }
+        if let Some(err) = &self.last_error {
+            write!(f, "; last error: {err}")?;
+        }
+        Ok(())
+    }
+}
 
 /// Errors produced by the VM lifecycle. Each variant maps 1:1 to a §4
 /// error code and a §5 exit code.
@@ -21,8 +128,14 @@ pub enum VmError {
     #[error("tart failed: {detail}")]
     TartFailed { detail: String },
 
-    #[error("VM '{id}' did not become reachable within the boot window")]
-    VmBootTimeout { id: String },
+    #[error("VM '{id}' did not become reachable within the boot window ({timeout})")]
+    VmBootTimeout { id: String, timeout: Box<BootTimeout> },
+
+    /// The platform's concurrent-guest limit refused the start (Apple's macOS
+    /// guest limit: two per Mac). A "try again later" condition, not a fault.
+    /// Boxed so `VmError` stays small enough for `Result` error types.
+    #[error("{0}")]
+    VmLimitReached(Box<LimitReached>),
 
     #[error("could not discover the agent port via the QEMU monitor")]
     MonitorDiscoveryFailed,
@@ -76,6 +189,11 @@ pub enum VmError {
 }
 
 impl VmError {
+    /// A `VM_BOOT_TIMEOUT` that knows only its stage.
+    pub fn boot_timeout(id: impl Into<String>, stage: BootStage) -> Self {
+        VmError::VmBootTimeout { id: id.into(), timeout: Box::new(BootTimeout::at(stage)) }
+    }
+
     /// Stable contract §4 code surfaced in `--json` output.
     pub fn code(&self) -> &'static str {
         match self {
@@ -85,6 +203,7 @@ impl VmError {
             VmError::QemuFailed { .. } | VmError::MonitorDiscoveryFailed => "QEMU_FAILED",
             VmError::TartFailed { .. } => "TART_FAILED",
             VmError::VmBootTimeout { .. } => "VM_BOOT_TIMEOUT",
+            VmError::VmLimitReached(_) => "VM_LIMIT_REACHED",
             VmError::SpawnFailed { .. } => "SPAWN_FAILED",
             VmError::GoldenNotFound { .. } => "GOLDEN_NOT_FOUND",
             VmError::GoldenInUse { .. } => "GOLDEN_IN_USE",
@@ -108,6 +227,8 @@ impl VmError {
             | VmError::VmNotFound { .. } => 3,
             VmError::GoldenInUse { .. } => 5,
             VmError::InvalidPlatform { .. } => 2,
+            // §5: rate limited / try again later.
+            VmError::VmLimitReached(_) => 6,
             // §5: boot/startup-timeout family.
             VmError::VmBootTimeout { .. } => 7,
             _ => 1,
@@ -141,6 +262,22 @@ impl VmError {
                  backend, which is not yet ported to the Rust CLI."
                     .into(),
             ),
+            VmError::VmBootTimeout { id, timeout } => Some(if timeout.kept {
+                format!("The VM was kept for inspection; reclaim it with `testanyware vm stop {id}`.")
+            } else {
+                "Re-run with --keep-on-failure to leave the VM running for inspection.".into()
+            }),
+            VmError::VmLimitReached(limit) => Some(if limit.holders.is_empty() {
+                "Stop a running macOS VM (`testanyware vm list`, `testanyware vm stop <id>`), \
+                 or retry once one has finished."
+                    .into()
+            } else {
+                format!(
+                    "Stop one of the running macOS VMs ({}) with `testanyware vm stop <id>`, \
+                     or retry once one has finished.",
+                    limit.holders.join(", ")
+                )
+            }),
             VmError::HostUnsupported { .. } => Some(
                 "Launch VMs from a Linux or macOS host. The Windows host binary is \
                  build/link-verified only — it has no local-QEMU runtime path \
@@ -162,9 +299,26 @@ impl VmError {
             VmError::GoldenInUse { name, clone_pids } => {
                 json!({ "golden_name": name, "clone_pids": clone_pids })
             }
-            VmError::VmNotFound { id }
-            | VmError::VmStopFailed { id }
-            | VmError::VmBootTimeout { id } => json!({ "vm_id": id }),
+            VmError::VmNotFound { id } | VmError::VmStopFailed { id } => json!({ "vm_id": id }),
+            VmError::VmBootTimeout { id, timeout } => json!({
+                "vm_id": id,
+                "stage": timeout.stage.as_str(),
+                "endpoint": timeout.endpoint,
+                "attempts": timeout.attempts,
+                "elapsed_secs": timeout.elapsed.as_secs_f64(),
+                "last_error": timeout.last_error.as_ref().map(|e| json!({
+                    "kind": e.kind.as_str(),
+                    "os_errno": e.os_errno,
+                    "detail": e.detail,
+                })),
+                "kept": timeout.kept,
+            }),
+            VmError::VmLimitReached(limit) => json!({
+                "platform": limit.platform,
+                "limit": limit.limit,
+                "holders": limit.holders,
+                "tart_error": limit.raw,
+            }),
             VmError::TartFailed { detail } => json!({ "tart_error": detail }),
             VmError::SshConnectFailed { detail }
             | VmError::GoldenCreateFailed { detail }
@@ -182,6 +336,19 @@ impl VmError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn vm_error_stays_small_enough_to_be_a_result_error() {
+        // Rich variants (boot-timeout detail, limit refusal) are boxed so
+        // `Result<_, (SetupVm, VmError)>` callers do not trip
+        // `clippy::result_large_err`. Widening a variant past this fails here
+        // instead of surfacing as a lint in unrelated callers.
+        assert!(
+            std::mem::size_of::<VmError>() <= 56,
+            "VmError is {} bytes",
+            std::mem::size_of::<VmError>()
+        );
+    }
 
     #[test]
     fn codes_match_contract_section_4() {
@@ -294,10 +461,79 @@ mod tests {
 
     #[test]
     fn vm_boot_timeout_maps_to_its_contract_code_and_exit_7() {
-        let err = VmError::VmBootTimeout { id: "testanyware-abcd1234".into() };
+        let err = VmError::boot_timeout("testanyware-abcd1234", BootStage::Vnc);
         // §4.2 code + §5 boot-timeout family → exit 7.
         assert_eq!(err.code(), "VM_BOOT_TIMEOUT");
         assert_eq!(err.exit_code(), 7);
         assert_eq!(err.details()["vm_id"], "testanyware-abcd1234");
+        assert_eq!(err.details()["stage"], "vnc");
+    }
+
+    fn agent_timeout(kept: bool) -> VmError {
+        VmError::VmBootTimeout {
+            id: "testanyware-abcd1234".into(),
+            timeout: Box::new(BootTimeout {
+                stage: BootStage::Agent,
+                endpoint: Some("http://192.168.64.5:8648/health".into()),
+                last_error: Some(ProbeError {
+                    kind: crate::health::ProbeKind::Unreachable,
+                    os_errno: Some(65),
+                    detail: "tcp connect error".into(),
+                }),
+                attempts: 60,
+                elapsed: Duration::from_secs(118),
+                kept,
+            }),
+        }
+    }
+
+    #[test]
+    fn vm_boot_timeout_names_the_stage_endpoint_last_error_attempts_and_elapsed() {
+        let err = agent_timeout(false);
+        let message = err.to_string();
+        for needle in [
+            "stage agent",
+            "http://192.168.64.5:8648/health",
+            "60 attempts over 118s",
+            "host unreachable (os error 65)",
+        ] {
+            assert!(message.contains(needle), "{needle:?} missing from: {message}");
+        }
+        let d = err.details();
+        assert_eq!(d["stage"], "agent");
+        assert_eq!(d["endpoint"], "http://192.168.64.5:8648/health");
+        assert_eq!(d["attempts"], 60);
+        assert_eq!(d["elapsed_secs"], 118.0);
+        assert_eq!(d["last_error"]["kind"], "host_unreachable");
+        assert_eq!(d["last_error"]["os_errno"], 65);
+        assert_eq!(d["kept"], false);
+    }
+
+    #[test]
+    fn vm_boot_timeout_remediation_depends_on_whether_the_vm_was_kept() {
+        assert!(agent_timeout(false).remediation().unwrap().contains("--keep-on-failure"));
+        let kept = agent_timeout(true);
+        assert!(kept.remediation().unwrap().contains("vm stop testanyware-abcd1234"));
+        assert_eq!(kept.details()["kept"], true);
+    }
+
+    #[test]
+    fn vm_limit_reached_is_exit_6_and_names_the_holders() {
+        let err = VmError::VmLimitReached(Box::new(LimitReached {
+            platform: "macos".into(),
+            limit: 2,
+            holders: vec!["koine-verify-1".into(), "testanyware-a1b2c3d4".into()],
+            raw: "The number of VMs exceeds the system limit (other running VMs: koine-verify-1, testanyware-a1b2c3d4)".into(),
+        }));
+        // §4.2 code + §5 "rate limited / try again later" → exit 6.
+        assert_eq!(err.code(), "VM_LIMIT_REACHED");
+        assert_eq!(err.exit_code(), 6);
+        let d = err.details();
+        assert_eq!(d["platform"], "macos");
+        assert_eq!(d["limit"], 2);
+        assert_eq!(d["holders"], serde_json::json!(["koine-verify-1", "testanyware-a1b2c3d4"]));
+        assert!(d["tart_error"].as_str().unwrap().contains("exceeds the system limit"));
+        assert!(err.to_string().contains("koine-verify-1, testanyware-a1b2c3d4"));
+        assert!(err.remediation().unwrap().contains("vm stop"));
     }
 }

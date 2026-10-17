@@ -28,7 +28,7 @@ fields the host CLI resolves.
 | `vnc.host` | string | yes | VNC host (loopback for tart, LAN for QEMU). |
 | `vnc.port` | integer | yes | VNC TCP port. Dynamically assigned per VM. |
 | `vnc.password` | string | optional | VNC password. Present on tart (macOS/Linux) and QEMU (Windows, fixed `testanyware`). |
-| `agent` | object | optional | Agent HTTP endpoint. Present when the agent reached health during startup (expected for all golden images). Absent if the boot wait timed out. |
+| `agent` | object | optional | Agent HTTP endpoint. Present whenever `vm start` succeeded on a tart-backed guest (macOS, Linux-on-tart): a successful start means the agent reached health. Absent only for a QEMU-backed guest whose agent did not reach health (that backend still warns and exits 0). A spec kept by `vm start --keep-on-failure` names the agent endpoint if the guest IP was found, even though the agent never became healthy. |
 | `agent.host` | string | yes (when `agent` present) | Agent host (VM LAN IP). |
 | `agent.port` | integer | yes (when `agent` present) | Agent TCP port. Defaults to 8648 but can be overridden per-platform. |
 | `platform` | string enum | yes | One of `macos`, `linux`, `windows`. |

@@ -350,7 +350,7 @@ pub async fn provision_boot1(opts: &GoldenOptions, paths: &VmPaths) -> Result<Se
     let (pid, log_path) = crate::tart::run_detached(&setup_id, &paths.vms_dir())?;
     if crate::tart::poll_vnc_url(&log_path, 60, Duration::from_secs(1)).is_none() {
         cleanup_setup_vm(&setup_id, pid);
-        return Err(VmError::VmBootTimeout { id: setup_id });
+        return Err(VmError::boot_timeout(setup_id, crate::error::BootStage::Vnc));
     }
 
     // Run the provisioning, tearing the VM down on any hard failure.
@@ -382,7 +382,7 @@ async fn provision_running(
     eprint!("Waiting for guest IP...");
     let Some(ip) = crate::tart::poll_ip(setup_id, 60, Duration::from_secs(3)) else {
         eprintln!(" timed out.");
-        return Err(VmError::VmBootTimeout { id: setup_id.to_string() });
+        return Err(VmError::boot_timeout(setup_id, crate::error::BootStage::GuestIp));
     };
     eprintln!(" {ip}");
 

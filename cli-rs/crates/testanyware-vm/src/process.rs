@@ -26,6 +26,37 @@ pub fn process_alive(_pid: i32) -> bool {
     false
 }
 
+/// Whether `pid` is a running process, reaping it first if it is our own
+/// exited child.
+///
+/// [`process_alive`] cannot tell a zombie from a live process, and during
+/// `vm start` the detached backend is still this CLI's child: tokio parks an
+/// exited, dropped `Child` on an orphan queue that is drained only when the
+/// runtime driver parks after a SIGCHLD (tokio 1.50 `process/unix/orphan.rs`,
+/// `runtime/process.rs`), so it can stay a zombie for an unbounded time.
+/// `waitpid(WNOHANG)` settles it: `StillAlive` is alive, any exit status means
+/// we just reaped it. `ECHILD` means tokio already reaped it or the pid is not
+/// our child, so fall back to the signal-0 probe.
+#[cfg(unix)]
+pub fn child_alive(pid: i32) -> bool {
+    use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+    use nix::unistd::Pid;
+    if pid <= 0 {
+        return false;
+    }
+    match waitpid(Pid::from_raw(pid), Some(WaitPidFlag::WNOHANG)) {
+        Ok(WaitStatus::StillAlive) => true,
+        Ok(_) => false,
+        // ECHILD (or anything unexpected): not ours to reap, or already reaped.
+        Err(_) => process_alive(pid),
+    }
+}
+
+#[cfg(not(unix))]
+pub fn child_alive(_pid: i32) -> bool {
+    false
+}
+
 /// Terminate `pid`: SIGTERM, poll up to `attempts` times spaced by
 /// `poll_interval`, then SIGKILL if still alive. Idempotent and
 /// best-effort — a dead or stale pid is a silent no-op. Ports the qemu
@@ -131,6 +162,37 @@ mod tests {
         assert!(process_alive(pid), "freshly spawned child should be alive");
         terminate(pid, Duration::from_millis(100), 10);
         assert!(!process_alive(pid), "child should be dead after terminate");
+    }
+
+    #[test]
+    fn child_alive_sees_through_a_zombie_that_process_alive_reports_alive() {
+        // The hazard `vm start` liveness exists for: a child that exited but
+        // has not been reaped is a zombie, and `kill(pid, 0)` still succeeds.
+        // The std `Child` is held (not waited on) so nothing reaps it for us.
+        let mut child = std::process::Command::new("true").spawn().expect("spawn true");
+        let pid = child.id() as i32;
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(process_alive(pid), "an unreaped zombie fools kill(pid, 0)");
+        assert!(!child_alive(pid), "child_alive must reap it and report it dead");
+        // Reaped by `child_alive`: std's own wait now finds nothing to reap,
+        // which is exactly the ECHILD path the production code relies on.
+        let _ = child.wait();
+    }
+
+    #[test]
+    fn child_alive_is_true_for_a_running_child_and_false_once_terminated() {
+        let pid = spawn_sleep(30);
+        assert!(child_alive(pid), "a running child is alive, and probing must not reap it");
+        assert!(child_alive(pid), "probing twice must not change the answer");
+        terminate(pid, Duration::from_millis(100), 10);
+        assert!(!child_alive(pid));
+    }
+
+    #[test]
+    fn child_alive_is_false_for_unused_and_nonpositive_pids() {
+        assert!(!child_alive(i32::MAX));
+        assert!(!child_alive(0));
+        assert!(!child_alive(-1));
     }
 
     #[test]

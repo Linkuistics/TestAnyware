@@ -70,8 +70,7 @@ pub fn parse_target(display: &str) -> Option<(u32, u32)> {
 ///   *logical* point size and the helper picks the Retina mode whose pixels are
 ///   2× the points (`pixelWidth == 2·width`), per k4 finding 3.
 ///
-/// **Tolerant throughout**: the switch rides the same optionally-degraded
-/// contract as the agent endpoint itself (ADR-0013/0014) — a missing `swiftc`,
+/// **Tolerant throughout**: the switch is best-effort (ADR-0013/0014) — a missing `swiftc`,
 /// a compile / upload / exec failure, or a helper that finds no matching mode
 /// all warn and return, leaving the VM started at its current resolution. It
 /// never fails `vm start`.
