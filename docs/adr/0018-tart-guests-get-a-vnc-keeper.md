@@ -71,9 +71,10 @@ RST that crashes tart.
 
 ### How it starts
 
-`TartRunner::start` spawns the keeper with `spawn_detached` when the VNC URL
-appears in the tart log, before the guest-IP and agent waits. The keeper runs in its own session and
-writes its log to `<vms>/<id>.keeper.log`. Its pid goes into the meta of the VM
+`vm start` spawns the keeper with `spawn_detached` when the VNC URL appears in
+the tart log, before the guest-IP and agent waits. The tart boot observer in
+`lifecycle.rs` does this, in `observe_tart_boot`. The keeper runs in its own
+session and writes its log to `<vms>/<id>.keeper.log`. Its pid goes into the meta of the VM
 as `keeper_pid`. If the spawn fails, `vm start` prints a warning and continues.
 The guest then runs as it does without a keeper.
 

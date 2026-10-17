@@ -267,7 +267,7 @@ version bump.
 | `GOLDEN_IN_USE` | `vm delete` refused: running clones depend on the image. Use `--force`. |
 | `GOLDEN_CREATE_FAILED` | `vm create-golden` could not produce the golden image (a provisioning boot, TCC/SIP step, or the final health gate failed). `details.detail` carries the cause. |
 | `TART_FAILED` | tart subprocess returned non-zero, or `tart run` exited before the guest was ready. `details.tart_error` carries its stderr / the tail of its log. |
-| `QEMU_FAILED` | QEMU subprocess failed (start, monitor, or QMP). |
+| `QEMU_FAILED` | QEMU subprocess failed (start, monitor, or QMP), or the QEMU process exited before the guest was ready. `details.qemu_error` carries the tail of its log. |
 | `KVM_PERMISSION_DENIED` | `/dev/kvm` is missing or not readable+writable (Linux host). `details.path` carries `/dev/kvm`. |
 | `SWTPM_MISSING` | swtpm is not installed; required for a Windows guest whose host QEMU can supply a TPM (TPM 2.0 socket). Raised before anything is cloned, by the TPM decision (ADR-0017), also under `vm start --dry-run` and before `vm create-golden --platform windows` boots. |
 | `UEFI_NOT_FOUND` | UEFI firmware path missing for the requested QEMU configuration. |
@@ -284,30 +284,31 @@ version bump.
 > `vm create-golden` golden-provisioning command. Both are generic failures
 > mapping to exit code `1` (§5) and carry their cause in `details.detail`.
 
-> **Amendment 2026-10-17** (`start-failure-tart-k2`, issue #3): `vm start`
-> succeeds only when its guest has a **Healthy agent**; it never writes an
-> agent-less spec. When it cannot, it exits non-zero with the reason and
-> removes its VM (clone, process and sidecars):
+> **Amendment 2026-10-17** (`start-failure-tart-k2`, `start-failure-qemu-k3`,
+> issue #3): `vm start` succeeds only when its guest has a **Healthy agent**,
+> on every backend — tart (macOS, Linux-on-tart) and QEMU (Windows,
+> Linux-on-qcow2) alike. It never writes an agent-less spec. When it cannot,
+> it exits non-zero with the reason and removes its VM (clone, process and
+> sidecars):
 >
-> - `VM_BOOT_TIMEOUT` (exit `7`) now also covers the agent stage — the VM is
+> - `VM_BOOT_TIMEOUT` (exit `7`) also covers the agent stage — the VM is
 >   alive but its agent never answered `/health`. The error names the stage
 >   and the last probe's error, including its OS errno (refused vs. no route
->   to host vs. timeout).
-> - `TART_FAILED` is returned as soon as the `tart run` process exits, with
->   its log tail in `details.tart_error`, rather than after the boot window.
+>   to host vs. timeout). A QEMU guest gets 120 probes, 5 s apart (ten to
+>   fourteen minutes), to bring its agent up because Windows boots slowly; a
+>   tart guest gets 60 probes, 2 s apart.
+> - `TART_FAILED` / `QEMU_FAILED` is returned as soon as the backend process
+>   (`tart run` / QEMU) exits, with its log tail in `details.tart_error` /
+>   `details.qemu_error`, rather than after the boot window.
 > - `VM_LIMIT_REACHED` (new; exit `6`, the previously reserved bucket) is
->   returned when tart reports the macOS guest limit. Drivers can wait on
->   exit `6` without parsing text.
+>   returned when tart reports the macOS guest limit — Apple's, so tart only.
+>   Drivers can wait on exit `6` without parsing text.
 > - `--keep-on-failure` (new) leaves a failed start's VM running, with its
 >   sidecars, when the backend process is still alive, so it can be inspected
 >   and then reclaimed with `vm stop`. A VM whose backend has exited is always
->   removed. The kept VM's spec names the agent endpoint if the guest IP is
->   known, so commands against it report the real connection error.
->
-> This is written for the tart backend (macOS and Linux-on-tart guests). The
-> QEMU backend (Windows, Linux-on-qcow2) still warns and exits `0` with
-> `agent: null` when its agent is unhealthy; it joins this rule in
-> `start-failure-qemu-k3`, which then states the rule for every backend.
+>   removed. The kept VM's spec names the agent endpoint if it is known (the
+>   guest IP for tart, the loopback forward for QEMU), so commands against it
+>   report the real connection error.
 
 ### 4.3 VNC capture
 

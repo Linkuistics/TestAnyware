@@ -193,20 +193,29 @@ pub fn decide_start(obs: &BootObservation, keep_on_failure: bool) -> StartDecisi
 }
 
 fn backend_exit_error(obs: &BootObservation, log_tail: &str) -> VmError {
-    if let Some(refusal) = parse_limit_refusal(log_tail) {
-        return VmError::VmLimitReached(Box::new(LimitReached {
-            platform: obs.platform.as_str().to_string(),
-            limit: MACOS_GUEST_LIMIT,
-            holders: refusal.holders,
-            raw: refusal.raw,
-        }));
+    // The guest limit is Virtualization.framework's, so only tart can report
+    // it; a QEMU log that happens to contain the phrase is a QEMU failure.
+    if obs.backend == Backend::Tart {
+        if let Some(refusal) = parse_limit_refusal(log_tail) {
+            return VmError::VmLimitReached(Box::new(LimitReached {
+                platform: obs.platform.as_str().to_string(),
+                limit: MACOS_GUEST_LIMIT,
+                holders: refusal.holders,
+                raw: refusal.raw,
+            }));
+        }
     }
-    let detail = if log_tail.trim().is_empty() {
+    backend_failed(obs.backend, exit_detail(log_tail))
+}
+
+/// The reason a backend process that exited gives: its log tail, or a plain
+/// statement that it said nothing.
+pub fn exit_detail(log_tail: &str) -> String {
+    if log_tail.trim().is_empty() {
         "the VM process exited without output".to_string()
     } else {
         log_tail.trim().to_string()
-    };
-    backend_failed(obs.backend, detail)
+    }
 }
 
 fn backend_failed(backend: Backend, detail: String) -> VmError {
@@ -252,6 +261,18 @@ pub fn parse_limit_refusal(log_tail: &str) -> Option<LimitRefusal> {
         })
         .unwrap_or_default();
     Some(LimitRefusal { holders, raw })
+}
+
+/// How much of a dead backend's log goes into its error.
+pub const LOG_TAIL_LINES: usize = 20;
+pub const LOG_TAIL_BYTES: usize = 4096;
+
+/// The tail of the log at `path` ([`LOG_TAIL_LINES`] / [`LOG_TAIL_BYTES`]);
+/// empty if it cannot be read. Read it *before* tearing the VM down: QEMU's
+/// log lives in the clone directory that teardown deletes.
+pub fn read_log_tail(path: &std::path::Path) -> String {
+    let text = std::fs::read_to_string(path).unwrap_or_default();
+    log_tail(&text, LOG_TAIL_LINES, LOG_TAIL_BYTES)
 }
 
 /// The tail of a log: at most `max_lines` lines, then at most `max_bytes`
@@ -517,6 +538,153 @@ mod tests {
             .unwrap()
             .contains("host unreachable"));
         assert_eq!(disposition, Disposition::Teardown);
+    }
+
+    // ---- QEMU observations ------------------------------------------------
+
+    /// A QEMU boot that went perfectly: the forward is the loopback port.
+    fn qemu_healthy() -> BootObservation {
+        BootObservation {
+            id: "testanyware-win0001".into(),
+            backend: Backend::Qemu,
+            platform: Platform::Windows,
+            process: ProcessState::Running,
+            vnc: VncObservation::Found,
+            address: AddressObservation::Found,
+            agent: AgentObservation::Waited {
+                endpoint: "http://localhost:51234/health".into(),
+                wait: AgentWait::Healthy { attempts: 31 },
+            },
+        }
+    }
+
+    fn qemu_agent_never_healthy() -> BootObservation {
+        BootObservation {
+            agent: AgentObservation::Waited {
+                endpoint: "http://localhost:51234/health".into(),
+                wait: AgentWait::NotHealthy {
+                    last_error: Some(ProbeError {
+                        kind: ProbeKind::Timeout,
+                        os_errno: None,
+                        detail: "request timed out".into(),
+                    }),
+                    attempts: 120,
+                    elapsed: Duration::from_secs(600),
+                },
+            },
+            ..qemu_healthy()
+        }
+    }
+
+    #[test]
+    fn a_qemu_guest_with_a_healthy_agent_is_ready() {
+        assert!(matches!(
+            decide_start(&qemu_healthy(), false),
+            StartDecision::Ready
+        ));
+    }
+
+    #[test]
+    fn a_qemu_guest_whose_agent_never_became_healthy_is_a_boot_timeout_not_a_warning() {
+        // The rule QEMU used to break: it warned and exited 0 with `agent: null`.
+        let (error, disposition) = failure(decide_start(&qemu_agent_never_healthy(), false));
+        assert_eq!(error.code(), "VM_BOOT_TIMEOUT");
+        assert_eq!(error.exit_code(), 7);
+        let d = error.details();
+        assert_eq!(d["stage"], "agent");
+        assert_eq!(d["endpoint"], "http://localhost:51234/health");
+        assert_eq!(d["attempts"], 120);
+        assert_eq!(d["last_error"]["kind"], "timeout");
+        assert_eq!(d["kept"], false);
+        assert_eq!(disposition, Disposition::Teardown);
+    }
+
+    #[test]
+    fn keep_on_failure_keeps_a_qemu_guest_that_is_still_running() {
+        let (error, disposition) = failure(decide_start(&qemu_agent_never_healthy(), true));
+        assert_eq!(disposition, Disposition::Keep);
+        assert_eq!(error.details()["kept"], true);
+    }
+
+    #[test]
+    fn a_qemu_process_that_exited_is_qemu_failed_with_its_log_tail() {
+        let obs = BootObservation {
+            process: ProcessState::Exited {
+                log_tail: "qemu-system-aarch64: could not open disk image".into(),
+            },
+            ..qemu_agent_never_healthy()
+        };
+        let (error, disposition) = failure(decide_start(&obs, false));
+        assert_eq!(error.code(), "QEMU_FAILED");
+        assert_eq!(error.exit_code(), 1);
+        assert_eq!(
+            error.details()["qemu_error"],
+            "qemu-system-aarch64: could not open disk image"
+        );
+        assert_eq!(disposition, Disposition::Teardown);
+    }
+
+    #[test]
+    fn keep_on_failure_cannot_keep_a_qemu_guest_whose_process_is_gone() {
+        let obs = BootObservation {
+            process: ProcessState::Exited {
+                log_tail: "killed".into(),
+            },
+            ..qemu_healthy()
+        };
+        let (_, disposition) = failure(decide_start(&obs, true));
+        assert_eq!(disposition, Disposition::Teardown);
+    }
+
+    #[test]
+    fn a_qemu_wait_that_saw_the_process_exit_is_qemu_failed() {
+        let obs = BootObservation {
+            agent: AgentObservation::Waited {
+                endpoint: "http://localhost:51234/health".into(),
+                wait: AgentWait::VmExited {
+                    last_error: None,
+                    attempts: 4,
+                    elapsed: Duration::from_secs(20),
+                },
+            },
+            ..qemu_healthy()
+        };
+        let (error, disposition) = failure(decide_start(&obs, true));
+        assert_eq!(error.code(), "QEMU_FAILED");
+        assert!(error.details()["qemu_error"]
+            .as_str()
+            .unwrap()
+            .contains("exited during the agent wait"));
+        assert_eq!(disposition, Disposition::Teardown);
+    }
+
+    #[test]
+    fn only_a_tart_exit_can_be_the_macos_guest_limit() {
+        // The limit is Virtualization.framework's; a QEMU log that happens to
+        // contain the phrase is still a QEMU failure.
+        let obs = BootObservation {
+            process: ProcessState::Exited {
+                log_tail: LIMIT_LINE.into(),
+            },
+            ..qemu_healthy()
+        };
+        let (error, _) = failure(decide_start(&obs, false));
+        assert_eq!(error.code(), "QEMU_FAILED");
+    }
+
+    #[test]
+    fn a_qemu_that_exited_silently_still_explains_itself() {
+        let obs = BootObservation {
+            process: ProcessState::Exited {
+                log_tail: " \n".into(),
+            },
+            ..qemu_healthy()
+        };
+        let (error, _) = failure(decide_start(&obs, false));
+        assert_eq!(
+            error.details()["qemu_error"],
+            "the VM process exited without output"
+        );
     }
 
     #[test]

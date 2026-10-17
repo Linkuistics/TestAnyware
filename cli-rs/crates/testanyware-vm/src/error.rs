@@ -320,6 +320,7 @@ impl VmError {
                 "tart_error": limit.raw,
             }),
             VmError::TartFailed { detail } => json!({ "tart_error": detail }),
+            VmError::QemuFailed { detail } => json!({ "qemu_error": detail }),
             VmError::SshConnectFailed { detail }
             | VmError::GoldenCreateFailed { detail }
             | VmError::HostUnsupported { detail } => {
@@ -457,6 +458,16 @@ mod tests {
         assert_eq!(err.exit_code(), 1);
         // §4.2: `details.tart_error` carries the subprocess stderr.
         assert_eq!(err.details()["tart_error"], "tart clone: image not found");
+    }
+
+    #[test]
+    fn qemu_failed_carries_the_backends_reason_in_qemu_error() {
+        let err = VmError::QemuFailed { detail: "qemu: could not open disk".into() };
+        assert_eq!(err.code(), "QEMU_FAILED");
+        assert_eq!(err.exit_code(), 1);
+        // Mirrors `details.tart_error`, so a driver reads either backend's
+        // reason the same way.
+        assert_eq!(err.details()["qemu_error"], "qemu: could not open disk");
     }
 
     #[test]

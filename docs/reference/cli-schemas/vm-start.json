@@ -21,8 +21,8 @@
       }
     },
     "agent": {
-      "type": ["object", "null"],
-      "description": "Agent endpoint. Always present for a tart-backed guest (macOS, Linux-on-tart): a successful start means the agent reached health. Null only for a QEMU-backed guest whose agent did not reach health within the boot window.",
+      "type": "object",
+      "description": "Agent endpoint. Present whenever the start succeeded, on every backend: a successful start means the agent reached health. Absent from a --dry-run receipt, which starts nothing.",
       "properties": {
         "host": { "type": "string" },
         "port": { "type": "integer" }

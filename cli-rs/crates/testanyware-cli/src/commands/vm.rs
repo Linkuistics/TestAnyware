@@ -108,12 +108,6 @@ pub async fn run_vm_start(
 
     match VmLifecycle::start(&opts, &paths).await {
         Ok(result) => {
-            if result.agent_unreachable {
-                eprintln!(
-                    "warning: agent did not reach health within the boot window — \
-                     agent commands will fail until it comes up"
-                );
-            }
             // Text mode keeps stdout to the id alone, so the TPM decision goes
             // to stderr; `--json` carries it in the envelope (`tpm`).
             if let (OutputMode::Text, Some(tpm)) = (mode, result.tpm) {

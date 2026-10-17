@@ -14,13 +14,26 @@
 #       VM_BOOT_TIMEOUT (exit 7, stage "agent"): torn down by default, kept
 #       and reclaimable by `vm stop` under --keep-on-failure. Takes ~2 min per
 #       case (the agent wait budget).
+#   live-start-checks.sh qemu-death
+#       The QEMU arm (a Windows golden): `kill -9` of QEMU during the agent
+#       wait must end the start at once with QEMU_FAILED (exit 1), by default
+#       and under --keep-on-failure alike (a dead QEMU has nothing to keep),
+#       leaving no clone, session dir, sidecars, QEMU or swtpm. About a minute;
+#       the guest need not become healthy. Needs qemu, swtpm and the Windows
+#       golden; no tart.
+#   live-start-checks.sh qemu-start
+#       qemu-death, then one Windows `vm start` that must reach a Healthy agent
+#       (minutes: the Windows boot).
 #   live-start-checks.sh reliability [N]
 #       N (default 10) consecutive macOS `vm start`s must each reach a Healthy
 #       agent. Stops at the first failure and leaves that VM kept for
 #       inspection.
 #
 # Env: TESTANYWARE_BIN (default cli-rs/target/debug/testanyware),
-#      MAX_REFUSAL_SECS (default 30; the slot-exhaustion latency bound).
+#      MAX_REFUSAL_SECS (default 30; the slot-exhaustion latency bound),
+#      KILL_AFTER_SECS (default 15; how long a qemu-start waits before killing
+#      QEMU, so the start is in its agent wait), MAX_DEATH_SECS (default 10;
+#      how fast a killed QEMU must end the start).
 # Precondition: no macOS VM is running (the limit is Apple's: two per Mac).
 
 set -euo pipefail
@@ -30,7 +43,12 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly REPO_ROOT
 readonly BIN="${TESTANYWARE_BIN:-$REPO_ROOT/cli-rs/target/debug/testanyware}"
 readonly MAX_REFUSAL_SECS="${MAX_REFUSAL_SECS:-30}"
+readonly KILL_AFTER_SECS="${KILL_AFTER_SECS:-15}"
+readonly MAX_DEATH_SECS="${MAX_DEATH_SECS:-10}"
 readonly VMS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/testanyware/vms"
+readonly CLONES_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/testanyware/clones"
+# Where QEMU's AF_UNIX sockets live (paths.rs `session_dir`).
+readonly SESSIONS_DIR="${TMPDIR:-/tmp}"
 # A port nothing listens on; used as a dead HTTP proxy to starve the agent probes.
 readonly DEAD_PROXY="http://127.0.0.1:9"
 
@@ -52,6 +70,12 @@ cleanup() {
   local id
   for id in ${started_ids[@]+"${started_ids[@]}"}; do
     "$BIN" vm stop "$id" >/dev/null 2>&1 || true
+    if [[ -d "$CLONES_DIR/$id" ]]; then
+      echo "live-start-checks: $id's QEMU clone survived 'vm stop'; removing it by hand" >&2
+      pkill -f "qemu-system.*$id\.qcow2" 2>/dev/null || true
+      pkill -f "swtpm.*clones/$id/" 2>/dev/null || true
+      rm -rf "${CLONES_DIR:?}/$id" "${SESSIONS_DIR%/}/testanyware-$id"
+    fi
     if tart_names 2>/dev/null | grep -qx "$id"; then
       echo "live-start-checks: $id survived 'vm stop'; removing it with tart" >&2
       tart stop "$id" >/dev/null 2>&1 || true
@@ -61,9 +85,10 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# The tools a check needs, as arguments; jq and the CLI binary always.
 require_tools() {
   local tool
-  for tool in jq tart; do
+  for tool in jq "$@"; do
     command -v "$tool" >/dev/null || die "$tool not on PATH"
   done
   [[ -x "$BIN" ]] || die "no CLI binary at $BIN (run: task cli:build)"
@@ -127,6 +152,95 @@ assert_vm_gone() {
   [[ ! -e "$VMS_DIR/$id.json" && ! -e "$VMS_DIR/$id.meta.json" ]] ||
     die "sidecars for $id still exist in $VMS_DIR"
   pass "no clone and no sidecars for $id"
+}
+
+# Keep QEMU check ids short: the monitor's AF_UNIX path is
+# $TMPDIR/testanyware-<id>/monitor.sock and macOS allows under 104 bytes of it.
+# Nothing of a QEMU VM may remain: no clone dir, session dir, sidecars, QEMU
+# or swtpm. (`vm stop` is the sanctioned remover; this checks a failed start
+# did the equivalent itself.)
+assert_qemu_vm_gone() {
+  local id="$1"
+  [[ ! -e "$CLONES_DIR/$id" ]] || die "clone dir for $id still exists"
+  [[ ! -e "${SESSIONS_DIR%/}/testanyware-$id" ]] || die "session dir for $id still exists"
+  [[ ! -e "$VMS_DIR/$id.json" && ! -e "$VMS_DIR/$id.meta.json" ]] ||
+    die "sidecars for $id still exist in $VMS_DIR"
+  ! pgrep -f "qemu-system.*$id\.qcow2" >/dev/null || die "QEMU for $id is still running"
+  ! pgrep -f "swtpm.*clones/$id/" >/dev/null || die "swtpm for $id is still running"
+  pass "no clone, session dir, sidecars or processes for $id"
+}
+
+# Start a Windows VM in the background, SIGKILL its QEMU once the start is in
+# its agent wait, and set OUT/RC/ELAPSED for the start's end. Extra args go to
+# `vm start`. The VM's id is registered by the caller.
+start_and_kill_qemu() {
+  local id="$1" out_file cli qemu_pid waited=0
+  shift
+  out_file="$(mktemp)"
+  "$BIN" vm start --platform windows --id "$id" --json "$@" >"$out_file" &
+  cli=$!
+  until qemu_pid="$(pgrep -f "qemu-system.*$id\.qcow2" | head -n1)" && [[ -n "$qemu_pid" ]]; do
+    kill -0 "$cli" 2>/dev/null || die "the start ended before QEMU launched: $(cat "$out_file")"
+    ((++waited < 120)) || die "QEMU for $id never launched"
+    sleep 0.5
+  done
+  # Past the launch and the monitor discovery, into the agent wait. A Windows
+  # guest cannot have a healthy agent this early.
+  sleep "$KILL_AFTER_SECS"
+  kill -0 "$cli" 2>/dev/null || die "the start ended before the kill: $(cat "$out_file")"
+  local began=$SECONDS
+  kill -9 "$qemu_pid"
+  RC=0
+  wait "$cli" || RC=$?
+  ELAPSED=$((SECONDS - began))
+  OUT="$(cat "$out_file")"
+  rm -f "$out_file"
+}
+
+check_qemu_healthy_start() {
+  local ok="qc$$-ok" port
+
+  # Registered before the start that may create it.
+  started_ids+=("$ok")
+
+  echo "qemu-start: a Windows start reaches a Healthy agent (minutes)"
+  RC=0
+  OUT="$("$BIN" vm start --platform windows --id "$ok" --json)" || RC=$?
+  assert_eq "exit code" 0 "$RC"
+  port="$(jq -r '.agent.port // empty' <<<"$OUT")"
+  [[ -n "$port" ]] || die "the start succeeded without an agent endpoint: $OUT"
+  pass "the start names its agent at localhost:$port"
+  curl -fsS --max-time 10 "http://localhost:$port/health" >/dev/null ||
+    die "the agent named by the start does not answer /health"
+  pass "that agent answers /health"
+  "$BIN" vm stop "$ok" >/dev/null || die "vm stop could not reclaim $ok"
+  assert_qemu_vm_gone "$ok"
+}
+
+check_qemu_death() {
+  local killed="qc$$-kill" kept="qc$$-keep"
+
+  # Registered before the starts that may create them.
+  started_ids+=("$killed" "$kept")
+
+  echo "qemu-death: killing QEMU during the agent wait ends the start at once"
+  start_and_kill_qemu "$killed"
+  assert_eq "exit code" 1 "$RC"
+  assert_eq "error code" QEMU_FAILED "$(jq -r '.code' <<<"$OUT")"
+  # The wait's own report, not the launch's or the monitor's: otherwise the
+  # kill landed before the agent wait and this exercised another path.
+  jq -e '.details.qemu_error | (contains("monitor") or contains("right after launch")) | not' \
+    <<<"$OUT" >/dev/null || die "the kill landed before the agent wait (raise KILL_AFTER_SECS): $OUT"
+  pass "QEMU died during the agent wait: $(jq -r '.details.qemu_error' <<<"$OUT")"
+  ((ELAPSED <= MAX_DEATH_SECS)) || die "the start took ${ELAPSED}s to notice QEMU died (> ${MAX_DEATH_SECS}s)"
+  pass "the start ended ${ELAPSED}s after the kill"
+  assert_qemu_vm_gone "$killed"
+
+  echo "qemu-death: --keep-on-failure cannot keep a VM whose QEMU is dead"
+  start_and_kill_qemu "$kept" --keep-on-failure
+  assert_eq "exit code" 1 "$RC"
+  assert_eq "error code" QEMU_FAILED "$(jq -r '.code' <<<"$OUT")"
+  assert_qemu_vm_gone "$kept"
 }
 
 check_slot_exhaustion() {
@@ -221,11 +335,28 @@ main() {
   local check="${1:-}"
   [[ -n "$check" ]] || usage
   shift
-  require_tools
   case "$check" in
-    slot-exhaustion) check_slot_exhaustion ;;
-    keep-on-failure) check_keep_on_failure ;;
-    reliability) check_reliability "$@" ;;
+    slot-exhaustion)
+      require_tools tart
+      check_slot_exhaustion
+      ;;
+    keep-on-failure)
+      require_tools tart
+      check_keep_on_failure
+      ;;
+    reliability)
+      require_tools tart
+      check_reliability "$@"
+      ;;
+    qemu-death)
+      require_tools pgrep
+      check_qemu_death
+      ;;
+    qemu-start)
+      require_tools curl pgrep
+      check_qemu_death
+      check_qemu_healthy_start
+      ;;
     *) usage ;;
   esac
 }

@@ -154,11 +154,32 @@ pub enum AgentWait {
     },
 }
 
+/// The longest the wait sleeps without asking whether the VM is still alive.
+const LIVENESS_SLICE: Duration = Duration::from_millis(250);
+
+/// Sleep for `interval`, cutting it short once the VM is gone, so a death
+/// between probes ends the wait within a slice rather than a whole interval
+/// later (QEMU's is 5 s). An interval of one slice or less is a single sleep:
+/// the loop head asks again before the next probe anyway.
+async fn sleep_while_alive(interval: Duration, vm_alive: &mut impl FnMut() -> bool) {
+    let deadline = Instant::now() + interval;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        tokio::time::sleep(left.min(LIVENESS_SLICE)).await;
+        if Instant::now() < deadline && !vm_alive() {
+            return;
+        }
+    }
+}
+
 /// Poll `http://<host>:<port>/health` up to `attempts` times, `interval`
 /// apart, until the agent is healthy.
 ///
-/// `vm_alive` is asked before every probe; once it reports the VM gone the
-/// wait ends at once with [`AgentWait::VmExited`] rather than spending the
+/// `vm_alive` is asked before every probe and during the sleep between probes;
+/// once it reports the VM gone the wait ends at once with [`AgentWait::VmExited`] rather than spending the
 /// rest of the budget on a corpse. It is injected so the wait is testable
 /// without a hypervisor.
 pub async fn wait_for_agent(
@@ -198,7 +219,7 @@ pub async fn wait_for_agent(
             Err(err) => last_error = Some(ProbeError::from_agent_error(&err)),
         }
         if attempt + 1 < attempts {
-            tokio::time::sleep(interval).await;
+            sleep_while_alive(interval, &mut vm_alive).await;
         }
     }
     AgentWait::NotHealthy {
@@ -357,6 +378,34 @@ mod tests {
         assert!(
             started.elapsed() < Duration::from_secs(5),
             "must not spend the budget"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_vm_that_dies_between_probes_ends_the_wait_within_the_interval() {
+        // Alive for the first probe, dead from the next question on; the
+        // interval (20 s) is what a dead VM must not be waited out for.
+        let mut asked = 0;
+        let started = Instant::now();
+        let wait = wait_for_agent(
+            "127.0.0.1",
+            dead_port(),
+            100,
+            Duration::from_secs(20),
+            || {
+                asked += 1;
+                asked == 1
+            },
+        )
+        .await;
+        let AgentWait::VmExited { attempts, .. } = wait else {
+            panic!("expected VmExited, got {wait:?}");
+        };
+        assert_eq!(attempts, 1);
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "took {:?}: the death was noticed only after the interval",
+            started.elapsed()
         );
     }
 

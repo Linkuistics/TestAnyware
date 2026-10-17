@@ -810,8 +810,18 @@ fn vm_start_help_documents_keep_on_failure_and_the_failure_exit_codes() {
     let out = run(&["vm", "start", "--help"]);
     assert!(out.status.success());
     let help = String::from_utf8_lossy(&out.stdout);
-    for needle in ["--keep-on-failure", "6  VM_LIMIT_REACHED", "7  VM_BOOT_TIMEOUT", "TART_FAILED"] {
+    for needle in [
+        "--keep-on-failure",
+        "6  VM_LIMIT_REACHED",
+        "7  VM_BOOT_TIMEOUT",
+        "TART_FAILED",
+        "QEMU_FAILED",
+    ] {
         assert!(help.contains(needle), "`vm start --help` missing {needle:?}; got:\n{help}");
+    }
+    // One rule on every backend: no backend may be described as exempt.
+    for stale in ["still warn", "tart-backed guests; see HEALTH"] {
+        assert!(!help.contains(stale), "`vm start --help` still carries {stale:?}; got:\n{help}");
     }
 }
 

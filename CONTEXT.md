@@ -86,12 +86,12 @@ _Avoid_: "vanilla" for the IPSW-built one (vanilla is Cirrus's image).
 
 **macOS guest limit**:
 Apple allows **two** macOS guest VMs to run at the same time on one Mac. The
-macOS licence (§2B(iii)) grants this cap. Virtualization.framework enforces it
-(`VZErrorVirtualMachineLimitExceeded`), so it binds every VM tool, tart included.
+macOS licence (§2B(iii)) sets this cap, and Virtualization.framework enforces it
+(`VZErrorVirtualMachineLimitExceeded`). It binds every VM tool, tart included.
 tart reports it as "The number of VMs exceeds the system limit (other running
 VMs: …)". To run more than two macOS guests, use more Macs (issues #4, #5).
-_Avoid_: "tart's limit" (Apple sets the limit). "two-VM limit" (it counts macOS
-guests, not every VM).
+_Avoid_: "tart's limit" (Apple sets the limit) and "two-VM limit" (it counts
+macOS guests, not every VM).
 
 **Autounattend provisioning** (Windows golden creation):
 How the **Windows** Golden image is built — structurally unlike the macOS one.
@@ -298,14 +298,14 @@ Retina wire frame). Also avoid treating 2× as the default (it is opt-in).
 > responding? The error names the stage that ran out of time and the last
 > probe's error.
 >
-> **Dev:** Stage `agent`; the last probe error is "connection refused".
+> **Dev:** Stage `agent`. The last probe error is "connection refused".
 >
 > **Maintainer:** Then the VM is up and nothing is listening for the agent —
 > the in-VM agent is the suspect, not the Host CLI. The in-VM agent is out of
 > the rust-cli-port grove's scope — file it against `agents/macos/`, not
-> against `cli-rs/`. The Host CLI's job is just to clone the Golden image and
-> wait for a Healthy agent, and to fail saying why if one never appears —
-> a tart-backed `vm start` never exits 0 with `agent: null`.
+> against `cli-rs/`. The Host CLI's job is to clone the Golden image and wait
+> for a Healthy agent. If one never appears, the CLI fails and says why.
+> `vm start` never exits 0 with `agent: null`, on any backend.
 >
 > **Dev:** Where is that behaviour pinned down now that the Swift CLI is gone?
 >

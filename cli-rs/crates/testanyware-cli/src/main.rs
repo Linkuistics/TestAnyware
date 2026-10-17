@@ -489,8 +489,9 @@ OUTPUT:
     omit it.
 
 EXIT CODES:
-    0  success — the guest has a Healthy agent (tart-backed guests; see HEALTH)
+    0  success — the guest has a Healthy agent (see HEALTH)
     1  TART_FAILED, QEMU_FAILED, SWTPM_MISSING, VM_BACKEND_UNSUPPORTED, SPAWN_FAILED
+       (the backend's own log tail is in `details.tart_error` / `details.qemu_error`)
     2  USAGE_ERROR / INVALID_PLATFORM
     3  GOLDEN_NOT_FOUND / UEFI_NOT_FOUND
     4  KVM_PERMISSION_DENIED
@@ -501,16 +502,17 @@ EXIT CODES:
        with its OS errno, the attempts and the elapsed time.
 
 HEALTH:
-    A tart-backed guest (macOS, Linux-on-tart) starts successfully only once
-    its agent answers /health. If the backend dies the error carries its log
-    tail (TART_FAILED); if the agent never comes up the error is
-    VM_BOOT_TIMEOUT. QEMU guests (Windows, Linux-on-qcow2) still warn and
-    exit 0 when their agent is unhealthy.
+    On every backend (tart: macOS, Linux-on-tart; QEMU: Windows,
+    Linux-on-qcow2) `vm start` succeeds only once the guest's agent answers
+    /health. If the backend process dies, the start ends at once and the error
+    carries its log tail (TART_FAILED / QEMU_FAILED); if the agent never comes
+    up the error is VM_BOOT_TIMEOUT. A QEMU guest gets 120 probes 5 s apart
+    (ten to fourteen minutes) for its agent, because Windows boots slowly.
 
 IDEMPOTENCY:
     Not idempotent — each call without --id clones a fresh VM. Retry-safe:
     a failed start removes its own VM and sidecars, unless --keep-on-failure
-    leaves a still-running tart-backed VM behind (reclaim it with `vm stop`).
+    leaves a still-running VM behind (reclaim it with `vm stop`).
 
 EXAMPLES:
     # Start a Windows guest at 1080p
@@ -1850,8 +1852,8 @@ enum VmAction {
         viewer: bool,
         /// If the start fails while its VM is still running, leave the VM (and
         /// its sidecars) for inspection instead of removing it; reclaim it
-        /// with `vm stop`. Honoured by tart-backed guests (macOS,
-        /// Linux-on-tart); a VM whose backend has exited is always removed.
+        /// with `vm stop`. A VM whose backend process has exited is always
+        /// removed.
         #[arg(long)]
         keep_on_failure: bool,
         /// Emit JSON envelope on stdout.

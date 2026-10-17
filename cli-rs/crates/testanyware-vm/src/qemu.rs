@@ -7,7 +7,8 @@ use crate::error::VmError;
 use crate::monitor::QemuMonitorClient;
 use crate::paths::VmPaths;
 use crate::preflight::check_kvm;
-use crate::process::{pgrep_first, process_alive, terminate};
+use crate::process::{child_alive, pgrep_first, terminate};
+use crate::start_outcome::{exit_detail, read_log_tail};
 use crate::qemu_profile::{host_profile, resolve_uefi_code, which, QemuProfile};
 use crate::tpm::{self, tpm_state_source, TpmDecision, TpmStateSource, TpmWiring};
 
@@ -60,8 +61,13 @@ pub struct QemuStartOptions {
 pub struct StartArtifacts {
     pub pid: i32,
     pub vnc_port: u16,
-    pub agent_port: Option<u16>,
+    /// The host port forwarded to the guest agent. `start` fails rather than
+    /// return without one.
+    pub agent_port: u16,
     pub clone_dir: PathBuf,
+    /// QEMU's stdout+stderr. It lives inside `clone_dir`, so read it before
+    /// tearing the VM down.
+    pub log_path: PathBuf,
 }
 
 /// Classify a golden / clone name into a platform string. Ports
@@ -333,13 +339,18 @@ impl QemuRunner {
         let pid = crate::detached::spawn_detached(&qemu_bin, &args, &log_path)
             .inspect_err(|_| teardown(0, &clone_dir, &session))?;
         tokio::time::sleep(Duration::from_secs(1)).await;
-        if !process_alive(pid) {
-            // Pass `pid`, not 0: once spawn_detached has handed back a
+        // `child_alive`, not `process_alive`: the detached QEMU is still this
+        // CLI's child, and an exited one lingers as a zombie that
+        // `kill(pid, 0)` reports alive.
+        if !child_alive(pid) {
+            // The log is inside the clone dir that teardown deletes: read it
+            // first. Pass `pid`, not 0: once spawn_detached has handed back a
             // pid, every failure routes the pid through teardown for
             // consistency. `terminate` is a safe no-op on a dead pid.
+            let reason = exit_detail(&read_log_tail(&log_path));
             teardown(pid, &clone_dir, &session);
             return Err(VmError::QemuFailed {
-                detail: "QEMU did not remain running after launch".into(),
+                detail: format!("QEMU exited right after launch: {reason}"),
             });
         }
 
@@ -347,17 +358,28 @@ impl QemuRunner {
         let monitor = QemuMonitorClient::new(&monitor_socket);
         monitor.set_vnc_password("testanyware", 3).await;
 
-        let agent_port = monitor.agent_port(5, Duration::from_secs(1)).await;
-        if agent_port.is_none() {
+        let Some(agent_port) = monitor.agent_port(5, Duration::from_secs(1)).await else {
+            // A monitor that never answered is usually a QEMU that died: then
+            // its log is the reason, not the monitor.
+            let error = if child_alive(pid) {
+                VmError::MonitorDiscoveryFailed
+            } else {
+                VmError::QemuFailed {
+                    detail: format!(
+                        "QEMU exited before its monitor answered: {}",
+                        exit_detail(&read_log_tail(&log_path))
+                    ),
+                }
+            };
             teardown(pid, &clone_dir, &session);
-            return Err(VmError::MonitorDiscoveryFailed);
-        }
+            return Err(error);
+        };
         let vnc_port = monitor
             .vnc_port(3, Duration::from_millis(500))
             .await
             .unwrap_or(5900);
 
-        Ok(StartArtifacts { pid, vnc_port, agent_port, clone_dir })
+        Ok(StartArtifacts { pid, vnc_port, agent_port, clone_dir, log_path })
     }
 
     /// Tear down a running QEMU VM. Public wrapper deriving the session

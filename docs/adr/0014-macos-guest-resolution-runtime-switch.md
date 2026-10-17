@@ -83,9 +83,9 @@ de-risking below — is deferred to a dedicated grove.
 - macOS guests will reach a uniform 1920×1080-px framebuffer like the other
   backends, **without** regenerating the macOS golden.
 - `vm start` gains a macOS-specific post-boot step: it **waits for agent
-  readiness** — a tart-backed start succeeds only with a Healthy agent (the
-  CLI design contract's 2026-10-17 amendment), so the agent is guaranteed up
-  when the step runs — and then uploads+execs the helper. There is a brief transient where
+  readiness** — a start succeeds only with a Healthy agent, on every backend
+  (the CLI design contract's 2026-10-17 amendment), so the agent is guaranteed
+  up when the step runs — and then uploads+execs the helper. There is a brief transient where
   the framebuffer is still 1024×768 before the switch; **vision / `screen`
   consumers must gate on the switch completing**, the same way they gate on
   readiness.

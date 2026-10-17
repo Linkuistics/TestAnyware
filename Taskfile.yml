@@ -82,6 +82,18 @@ tasks:
     cmds:
       - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh keep-on-failure
 
+  vm:qemu-death:
+    desc: Killing QEMU during a Windows start's agent wait fails at once with QEMU_FAILED and leaves no VM (about a minute; needs qemu, swtpm and the Windows golden)
+    deps: [cli:build]
+    cmds:
+      - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh qemu-death
+
+  vm:qemu-start:
+    desc: qemu-death, then a Windows (QEMU) start that must reach a Healthy agent (minutes)
+    deps: [cli:build]
+    cmds:
+      - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh qemu-start
+
   vm:start-reliability:
     desc: 'N consecutive macOS starts must each reach a Healthy agent (task vm:start-reliability N=10)'
     deps: [cli:build]

@@ -436,13 +436,15 @@ testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--disp
 - `--viewer` — Open a VNC viewer after boot.
 - `--keep-on-failure` — If the start fails while its VM is still running,
   leave the VM and its sidecars for inspection (reclaim with `vm stop`)
-  instead of removing it. Tart-backed guests only; a VM whose backend has
-  exited is always removed.
+  instead of removing it. A VM whose backend process has exited is always
+  removed.
 
-A tart-backed start (macOS, Linux-on-tart) succeeds only once the guest's
-agent answers `/health`. Otherwise it exits non-zero: `7` `VM_BOOT_TIMEOUT`
-(stage, last probe error), `6` `VM_LIMIT_REACHED` (the macOS guest limit, two
-per Mac, is full — try again later) or `1` `TART_FAILED` (with tart's log).
+On every backend (tart: macOS, Linux-on-tart; QEMU: Windows, Linux-on-qcow2) a
+start succeeds only once the guest's agent answers `/health`. Otherwise it
+exits non-zero: `7` `VM_BOOT_TIMEOUT` (stage, last probe error), `6`
+`VM_LIMIT_REACHED` (the macOS guest limit, two per Mac, is full — try again
+later) or `1` `TART_FAILED` / `QEMU_FAILED` (with the backend's log tail, as
+soon as its process exits).
 
 **TPM report:** a QEMU-backed start says whether the guest's TPM was attached
 or omitted, and why: a `tpm` object in `--json` (`{"attached": true,
