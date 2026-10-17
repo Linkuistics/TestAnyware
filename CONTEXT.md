@@ -84,6 +84,15 @@ auto-login and no display sleep. A Base VM is not a Golden image: it has no agen
 and no TCC grants.
 _Avoid_: "vanilla" for the IPSW-built one (vanilla is Cirrus's image).
 
+**macOS guest limit**:
+Apple allows **two** macOS guest VMs to run at the same time on one Mac. The
+macOS licence (§2B(iii)) grants this cap. Virtualization.framework enforces it
+(`VZErrorVirtualMachineLimitExceeded`), so it binds every VM tool, tart included.
+tart reports it as "The number of VMs exceeds the system limit (other running
+VMs: …)". To run more than two macOS guests, use more Macs (issues #4, #5).
+_Avoid_: "tart's limit" (Apple sets the limit). "two-VM limit" (it counts macOS
+guests, not every VM).
+
 **Autounattend provisioning** (Windows golden creation):
 How the **Windows** Golden image is built — structurally unlike the macOS one.
 macOS *clones a pre-built vanilla image* and provisions a running system over
