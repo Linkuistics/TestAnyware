@@ -45,11 +45,18 @@ pass() {
   echo "  ✓ $*"
 }
 
-# Stop every VM this run started and still owns; best-effort.
+# Stop every VM this run started and still owns; best-effort. `vm stop` needs
+# the VM's meta, so a clone that outlived its sidecars (the very failure these
+# checks exist to catch) is removed through tart directly.
 cleanup() {
   local id
   for id in ${started_ids[@]+"${started_ids[@]}"}; do
     "$BIN" vm stop "$id" >/dev/null 2>&1 || true
+    if tart_names 2>/dev/null | grep -qx "$id"; then
+      echo "live-start-checks: $id survived 'vm stop'; removing it with tart" >&2
+      tart stop "$id" >/dev/null 2>&1 || true
+      tart delete "$id" >/dev/null 2>&1 || true
+    fi
   done
 }
 trap cleanup EXIT
@@ -131,6 +138,9 @@ check_slot_exhaustion() {
   fill_slot
   second="$FILLED_ID"
   probe="testanyware-slotcheck-$$"
+  # Registered before the start that may create it, so an unexpected success
+  # or a failed assertion still cleans it up.
+  started_ids+=("$probe")
   local before
   before="$(tart_names)"
 
@@ -151,6 +161,9 @@ check_keep_on_failure() {
   require_no_running_vms
   local torn="testanyware-keepcheck-$$-torn" kept="testanyware-keepcheck-$$-kept"
 
+  # Both ids are registered before the starts that may create them.
+  started_ids+=("$torn" "$kept")
+
   echo "keep-on-failure: default failure tears the VM down (~2 min)"
   run_failing_start env "HTTP_PROXY=$DEAD_PROXY" "$BIN" vm start --platform macos --id "$torn" --json
   assert_eq "exit code" 7 "$RC"
@@ -161,7 +174,6 @@ check_keep_on_failure() {
   assert_vm_gone "$torn"
 
   echo "keep-on-failure: --keep-on-failure leaves a reclaimable VM (~2 min)"
-  started_ids+=("$kept")
   run_failing_start env "HTTP_PROXY=$DEAD_PROXY" "$BIN" vm start --platform macos --id "$kept" \
     --keep-on-failure --json
   assert_eq "exit code" 7 "$RC"

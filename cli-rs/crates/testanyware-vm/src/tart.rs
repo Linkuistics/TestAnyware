@@ -451,6 +451,12 @@ impl TartRunner {
     /// after the clone exists, the clone is removed — a failed launch leaves no
     /// VM behind. Ports the pre-poll half of `VMLifecycle.startTart`.
     pub async fn launch(opts: &TartStartOptions, paths: &crate::paths::VmPaths) -> Result<TartLaunch, VmError> {
+        // A start in progress invalidates whatever the id's sidecars described
+        // (a reclaimed prior run, or leftovers of a crash). Clear them now so
+        // a launch that fails before the start settles cannot leave sidecars
+        // pointing at a deleted VM.
+        crate::lifecycle::clear_sidecars(paths, &opts.id);
+
         // Reclaim a same-id VM left over from a prior run.
         if vm_exists(&opts.id) {
             remove_existing(&opts.id);

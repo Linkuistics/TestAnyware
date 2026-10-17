@@ -73,8 +73,8 @@ pub struct BootTimeout {
     pub last_error: Option<ProbeError>,
     pub attempts: u32,
     pub elapsed: Duration,
-    /// The VM was left running (`--keep-on-failure`), so the caller must
-    /// `vm stop` it.
+    /// A VM was left behind (kept by `--keep-on-failure`, or a teardown that
+    /// could not remove it), so the caller must `vm stop` it.
     pub kept: bool,
 }
 
@@ -263,7 +263,7 @@ impl VmError {
                     .into(),
             ),
             VmError::VmBootTimeout { id, timeout } => Some(if timeout.kept {
-                format!("The VM was kept for inspection; reclaim it with `testanyware vm stop {id}`.")
+                format!("The VM was left behind; reclaim it with `testanyware vm stop {id}`.")
             } else {
                 "Re-run with --keep-on-failure to leave the VM running for inspection.".into()
             }),

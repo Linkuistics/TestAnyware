@@ -283,8 +283,13 @@ impl VmLifecycle {
                     });
                 }
             },
-            StartDecision::Failed { error, disposition } => {
-                settle_failed_tart_start(opts, paths, pid, &boot, disposition);
+            StartDecision::Failed { mut error, disposition } => {
+                let left_behind = settle_failed_tart_start(opts, paths, pid, &boot, disposition);
+                // The decision predicts `kept` from the flag alone; settlement
+                // knows whether a VM really remains for `vm stop` to reclaim.
+                if let VmError::VmBootTimeout { timeout, .. } = &mut error {
+                    timeout.kept = left_behind;
+                }
                 return Err(error);
             }
         };
@@ -669,11 +674,23 @@ async fn observe_tart_boot(
     TartBoot { observation, vnc, ip, keeper_pid }
 }
 
-/// Act on a failed tart start's disposition. `Teardown` stops and deletes the
-/// clone and leaves no sidecars. `Keep` leaves the running VM with its
-/// sidecars so `vm stop` can reclaim it: the meta always, the spec once a VNC
-/// endpoint is known (naming the agent endpoint if the guest IP is, so
-/// commands against the kept VM report the real connection error).
+/// Remove an id's spec and meta sidecars; a missing file is the normal case.
+#[cfg(target_os = "macos")]
+pub(crate) fn clear_sidecars(paths: &VmPaths, id: &str) {
+    let _ = std::fs::remove_file(paths.spec_path(id));
+    let _ = std::fs::remove_file(paths.meta_path(id));
+}
+
+/// Act on a failed tart start's disposition. Returns whether a VM was left
+/// behind for the caller to reclaim with `vm stop`.
+///
+/// `Teardown` stops and deletes the clone and, once it is really gone, removes
+/// the sidecars. If the clone survives the teardown the meta is kept (or
+/// written) so `vm stop` can retry, because the meta is the only handle it has.
+/// `Keep` leaves the running VM: the meta always, the spec once a VNC endpoint
+/// is known (naming the agent endpoint if the guest IP is, so commands against
+/// the kept VM report the real connection error). A kept VM that cannot be
+/// given its meta could never be reclaimed, so it is torn down instead.
 #[cfg(target_os = "macos")]
 fn settle_failed_tart_start(
     opts: &VmStartOptions,
@@ -681,51 +698,98 @@ fn settle_failed_tart_start(
     pid: i32,
     boot: &TartBoot,
     disposition: Disposition,
-) {
-    use crate::tart::TartRunner;
+) -> bool {
+    use crate::tart::{vm_exists, TartRunner};
 
-    let spec_path = paths.spec_path(&opts.id);
-    let meta_path = paths.meta_path(&opts.id);
-    match disposition {
-        Disposition::Teardown => {
-            TartRunner::stop(&opts.id, pid);
+    settle_failed_start(
+        opts,
+        paths,
+        pid,
+        boot,
+        disposition,
+        |id, pid| {
+            TartRunner::stop(id, pid);
             // The keeper ends itself once tart is gone (ADR-0018); this is the
             // backstop, and it signals only a pid that is still this id's keeper.
-            crate::keeper::stop_keeper(&opts.id, boot.keeper_pid);
-            let _ = std::fs::remove_file(&spec_path);
-            let _ = std::fs::remove_file(&meta_path);
-        }
-        Disposition::Keep => {
-            if let Some(vnc) = &boot.vnc {
-                let spec = VmSpec {
-                    vnc: VncEndpoint {
-                        host: vnc.host.clone(),
-                        port: vnc.port,
-                        password: vnc.password.clone(),
-                    },
-                    agent: boot
-                        .ip
-                        .as_ref()
-                        .map(|ip| AgentEndpoint { host: ip.clone(), port: AGENT_PORT }),
-                    platform: opts.platform.as_str().to_string(),
-                    logical: opts.logical.map(|(w, h)| LogicalSize { width: w, height: h }),
-                };
-                if let Err(err) = spec.write_atomic(&spec_path) {
-                    eprintln!("warning: could not write the kept VM's spec: {err}");
+            crate::keeper::stop_keeper(id, boot.keeper_pid);
+        },
+        vm_exists,
+    )
+}
+
+/// [`settle_failed_tart_start`] with the tart calls injected, so the cleanup
+/// failure paths are testable without tart.
+#[cfg(target_os = "macos")]
+fn settle_failed_start(
+    opts: &VmStartOptions,
+    paths: &VmPaths,
+    pid: i32,
+    boot: &TartBoot,
+    disposition: Disposition,
+    teardown: impl Fn(&str, i32),
+    clone_exists: impl Fn(&str) -> bool,
+) -> bool {
+    let spec_path = paths.spec_path(&opts.id);
+    let meta_path = paths.meta_path(&opts.id);
+    let meta = VmMeta {
+        id: opts.id.clone(),
+        tool: VmTool::Tart,
+        pid,
+        clone_dir: None,
+        viewer_window_id: None,
+        // A kept VM keeps its keeper; `vm stop` signals it later.
+        keeper_pid: boot.keeper_pid,
+    };
+
+    if disposition == Disposition::Keep {
+        match meta.write_atomic(&meta_path) {
+            Ok(()) => {
+                if let Some(vnc) = &boot.vnc {
+                    let spec = VmSpec {
+                        vnc: VncEndpoint {
+                            host: vnc.host.clone(),
+                            port: vnc.port,
+                            password: vnc.password.clone(),
+                        },
+                        agent: boot
+                            .ip
+                            .as_ref()
+                            .map(|ip| AgentEndpoint { host: ip.clone(), port: AGENT_PORT }),
+                        platform: opts.platform.as_str().to_string(),
+                        logical: opts.logical.map(|(w, h)| LogicalSize { width: w, height: h }),
+                    };
+                    if let Err(err) = spec.write_atomic(&spec_path) {
+                        eprintln!("warning: could not write the kept VM's spec: {err}");
+                    }
                 }
+                return true;
             }
-            let meta = VmMeta {
-                id: opts.id.clone(),
-                tool: VmTool::Tart,
-                pid,
-                clone_dir: None,
-                viewer_window_id: None,
-                // A kept VM keeps its keeper; `vm stop` signals it later.
-                keeper_pid: boot.keeper_pid,
-            };
-            if let Err(err) = meta.write_atomic(&meta_path) {
-                eprintln!("warning: could not write the kept VM's meta (reclaim with `tart stop/delete {}`): {err}", opts.id);
-            }
+            Err(err) => eprintln!(
+                "warning: could not write the kept VM's meta, so `vm stop` could not reclaim it; tearing it down instead: {err}"
+            ),
+        }
+    }
+
+    teardown(&opts.id, pid);
+    if !clone_exists(&opts.id) {
+        clear_sidecars(paths, &opts.id);
+        return false;
+    }
+    // The clone survived the teardown: keep the handle `vm stop` needs.
+    match meta.write_atomic(&meta_path) {
+        Ok(()) => {
+            eprintln!(
+                "warning: could not remove the failed start's VM; reclaim it with `testanyware vm stop {}`",
+                opts.id
+            );
+            true
+        }
+        Err(err) => {
+            eprintln!(
+                "warning: could not remove the failed start's VM, and could not record it for `vm stop` ({err}); reclaim it with `tart stop {id}` and `tart delete {id}`",
+                id = opts.id
+            );
+            false
         }
     }
 }
@@ -956,5 +1020,165 @@ mod tests {
             clone.platform, "windows",
             "platform must come from the spec, not the name-derived guess",
         );
+    }
+
+    // ---- settling a failed tart start -------------------------------------
+
+    #[cfg(target_os = "macos")]
+    mod settle {
+        use super::*;
+        use crate::start_outcome::{AddressObservation, AgentObservation, VncObservation};
+        use std::cell::Cell;
+
+        const ID: &str = "testanyware-settle01";
+
+        fn opts() -> VmStartOptions {
+            VmStartOptions {
+                platform: Platform::Macos,
+                base: "golden".into(),
+                id: ID.into(),
+                display: None,
+                logical: None,
+                open_viewer: false,
+                keep_on_failure: false,
+            }
+        }
+
+        fn boot() -> TartBoot {
+            TartBoot {
+                observation: BootObservation {
+                    id: ID.into(),
+                    backend: Backend::Tart,
+                    platform: Platform::Macos,
+                    process: ProcessState::Running,
+                    vnc: VncObservation::Found,
+                    address: AddressObservation::Found,
+                    agent: AgentObservation::NotReached,
+                },
+                vnc: Some(crate::tart::VncUrl {
+                    host: "127.0.0.1".into(),
+                    port: 5901,
+                    password: Some("pw".into()),
+                }),
+                ip: Some("192.168.64.9".into()),
+                keeper_pid: None,
+            }
+        }
+
+        /// Seed both sidecars so a settlement has something to remove or keep.
+        fn seed(paths: &VmPaths) {
+            std::fs::create_dir_all(paths.vms_dir()).unwrap();
+            std::fs::write(paths.spec_path(ID), b"{}").unwrap();
+            std::fs::write(paths.meta_path(ID), b"{}").unwrap();
+        }
+
+        #[test]
+        fn teardown_that_removes_the_clone_removes_the_sidecars() {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = paths_in(dir.path());
+            seed(&paths);
+            let stopped = Cell::new(false);
+            let left = settle_failed_start(
+                &opts(),
+                &paths,
+                4242,
+                &boot(),
+                Disposition::Teardown,
+                |id, pid| {
+                    assert_eq!((id, pid), (ID, 4242));
+                    stopped.set(true);
+                },
+                |_| !stopped.get(),
+            );
+            assert!(!left);
+            assert!(!paths.spec_path(ID).exists() && !paths.meta_path(ID).exists());
+        }
+
+        #[test]
+        fn teardown_that_leaves_the_clone_keeps_a_meta_for_vm_stop() {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = paths_in(dir.path());
+            // No sidecars on disk: settlement must write the handle itself.
+            std::fs::create_dir_all(paths.vms_dir()).unwrap();
+            let left = settle_failed_start(&opts(), &paths, 4242, &boot(), Disposition::Teardown, |_, _| {}, |_| true);
+            assert!(left, "a surviving clone must be reported as left behind");
+            let meta = VmMeta::load(&paths.meta_path(ID)).expect("meta must survive for `vm stop`");
+            assert_eq!((meta.id.as_str(), meta.pid, meta.tool), (ID, 4242, VmTool::Tart));
+        }
+
+        #[test]
+        fn surviving_clone_with_an_unwritable_meta_is_not_claimed_reclaimable() {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = paths_in(dir.path());
+            // A regular file where the `vms` directory should be: no sidecar can be written.
+            std::fs::create_dir_all(paths.vms_dir().parent().unwrap()).unwrap();
+            std::fs::write(paths.vms_dir(), b"").unwrap();
+            let left = settle_failed_start(&opts(), &paths, 4242, &boot(), Disposition::Teardown, |_, _| {}, |_| true);
+            assert!(!left, "`vm stop` cannot find a VM with no meta");
+        }
+
+        #[test]
+        fn keep_writes_the_meta_and_the_spec_and_tears_nothing_down() {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = paths_in(dir.path());
+            std::fs::create_dir_all(paths.vms_dir()).unwrap();
+            let left = settle_failed_start(
+                &opts(),
+                &paths,
+                4242,
+                &boot(),
+                Disposition::Keep,
+                |_, _| panic!("a kept VM must not be torn down"),
+                |_| true,
+            );
+            assert!(left);
+            assert_eq!(VmMeta::load(&paths.meta_path(ID)).unwrap().pid, 4242);
+            let spec = VmSpec::load(&paths.spec_path(ID)).unwrap();
+            assert_eq!(spec.agent.unwrap().host, "192.168.64.9");
+        }
+
+        #[test]
+        fn keep_without_a_vnc_endpoint_still_writes_the_meta() {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = paths_in(dir.path());
+            std::fs::create_dir_all(paths.vms_dir()).unwrap();
+            let mut early = boot();
+            early.vnc = None;
+            early.ip = None;
+            let left = settle_failed_start(&opts(), &paths, 7, &early, Disposition::Keep, |_, _| {}, |_| true);
+            assert!(left);
+            assert!(paths.meta_path(ID).exists());
+            assert!(!paths.spec_path(ID).exists(), "a spec cannot exist without a VNC endpoint");
+        }
+
+        #[test]
+        fn keep_that_cannot_write_its_meta_tears_the_vm_down_instead() {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = paths_in(dir.path());
+            std::fs::create_dir_all(paths.vms_dir().parent().unwrap()).unwrap();
+            std::fs::write(paths.vms_dir(), b"").unwrap();
+            let stopped = Cell::new(false);
+            let left = settle_failed_start(
+                &opts(),
+                &paths,
+                4242,
+                &boot(),
+                Disposition::Keep,
+                |_, _| stopped.set(true),
+                |_| !stopped.get(),
+            );
+            assert!(stopped.get(), "an unreclaimable kept VM must be torn down");
+            assert!(!left, "and the error must not claim it was kept");
+        }
+
+        #[test]
+        fn clear_sidecars_removes_both_and_tolerates_absence() {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = paths_in(dir.path());
+            seed(&paths);
+            clear_sidecars(&paths, ID);
+            assert!(!paths.spec_path(ID).exists() && !paths.meta_path(ID).exists());
+            clear_sidecars(&paths, ID);
+        }
     }
 }
