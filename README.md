@@ -554,6 +554,11 @@ the grant valid across rebuilds.
 Known issues, VM quirks, platform-specific workarounds, and CLI edge
 cases have moved to [`docs/user/troubleshooting.md`](docs/user/troubleshooting.md).
 
+On a macOS 27 host, a tart guest (macOS or Linux) stops if a `screen` or `input` command runs
+60 seconds or more after the last VNC client left. Keep one VNC connection open
+to avoid it. The troubleshooting entry "A tart guest dies when `screen` or
+`input` runs after 60 idle seconds" has the details.
+
 ## Key Directories
 
 ```

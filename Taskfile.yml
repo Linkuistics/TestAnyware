@@ -106,6 +106,11 @@ tasks:
     cmds:
       - scripts/windows-healthy-start.sh {{.BASE}}
 
+  vm:tart-vnc-idle-repro:
+    desc: 'Does tart abort when a VNC client connects after GAP seconds (default 70) with no client? Reproduces the macOS 27 host fault with a bare RFB client; exits 1 on a crash. Optional BASE=<golden>, HOLD=1 to keep a bare TCP connection open (the workaround; expect no crash). About 2.5 minutes; always stops and deletes the clone'
+    cmds:
+      - python3 scripts/tart-vnc-idle-repro.py --gap {{.GAP | default "70"}} {{if .BASE}}--base {{.BASE}}{{end}} {{if .HOLD}}--hold{{end}}
+
   vm:ipsw-base-live:
     desc: 'Does `ensure_base_vm(27)` build testanyware-base-macos-27 from Apple''s IPSW and does the result pass its contract (SSH admin/admin, passwordless sudo, auto-login, no sleep)? A no-op build if the base exists. First run downloads about 25 GB; the install is about 4 minutes and Setup Assistant about 5 more. Run from a terminal that may reach guest IPs (macOS Local Network permission)'
     dir: '{{.CLI_DIR}}'

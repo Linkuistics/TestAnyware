@@ -56,3 +56,21 @@ that works, or document the limit if none does.
 - Never modify `testanyware-golden-macos-27` or the Tahoe golden. Run
   experiments on clones.
 - Filing upstream is the human's call.
+
+## Decisions (running log)
+
+- **Trigger isolated (2026-10-19).** A bare stdlib RFB client, no TestAnyware code, crashes tart
+  when it connects 60 s or more after the last client left. 57 s survives, 60 s dies. The
+  `~120 s` in the first note was a coarse reading. The abrupt-close variant (RST) dies at once.
+  Evidence and tables: `docs/research/tart-vnc-reconnect-crash-macos-27.md`.
+- **Host fault, not guest (2026-10-19).** The macOS 26 golden and the Linux golden crash the
+  same way on this host, so no guest fix exists.
+- **Long-lived client works, tart `--vnc` does not (2026-10-19).** A bare TCP connection that
+  sends nothing is enough. The real CLI survived 300 s idle with an `nc` holder. `tart run
+  --vnc` needs Screen Sharing, which the golden has off, and Apple Remote Desktop auth, which the
+  RFB client lacks. Not pursued: it breaks the minimal-image rule.
+- **Build nothing inline.** A keeper in `vm start` is a process with a lifecycle, so the brief
+  says to cut a `design` leaf. Cut `vnc-keeper-design-k19`. Documented the workaround meanwhile
+  (`docs/user/troubleshooting.md`, `LLM_INSTRUCTIONS.md`, `README.md`) and added
+  `task vm:tart-vnc-idle-repro` (HOLD=1 shows the fix) backed by `scripts/tart-vnc-idle-repro.py`.
+- **Not filed.** The draft report in the research note is ready. Filing is the human's call.

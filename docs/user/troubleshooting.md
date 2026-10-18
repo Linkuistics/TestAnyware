@@ -63,6 +63,46 @@ targeting against unfamiliar windows, capture a full-screen
 pass those directly without `--window`. Surfaced 2026-04-18 during
 Mini Browser verification; compensation landed 2026-04-28.
 
+## A tart guest dies when `screen` or `input` runs after 60 idle seconds (macOS 27 host)
+
+On a host running macOS 27, a `testanyware screen` or `input` command can stop a
+tart guest (macOS or Linux). The symptom is `I/O error: early eof`. The next command reports
+`Connection refused`, and `tart list` shows the clone as `stopped`.
+
+Every `screen` and `input` command opens a new VNC connection to `tart run`. The
+host's VNC server (Apple's `_VZVNCServer`) aborts the tart process if a client
+connects after the last client left 60 seconds or more earlier. The guest stops
+with it. Tart 2.40.1 on macOS 27.0.1 shows this.
+
+The guest does not matter. A macOS 26 guest and a Linux guest under tart fail the same way.
+Windows guests run under QEMU, which has its own VNC server, and are not affected.
+A first connection after boot works.
+
+Two things avoid it:
+
+- **Keep one VNC connection open for as long as the guest runs.** One open
+  connection is enough, even a bare TCP connection that sends nothing. With it
+  open, commands after any idle gap work. Run it in a spare terminal. Use the
+  address and port from `testanyware vm list`:
+
+  ```bash
+  tail -f /dev/null | nc 127.0.0.1 <vnc-port>
+  ```
+
+  Stop it with Ctrl-C after `vm stop`. If you stop it first, the 60-second rule applies again.
+- **Space commands less than 60 seconds apart.** Use this for short scripted runs.
+  An agent that waits on the guest between commands should use the first option.
+
+Check the host with `task vm:tart-vnc-idle-repro` (about 2.5 minutes). It runs a bare
+RFB client, so the fault shows without TestAnyware. `task vm:tart-vnc-idle-repro HOLD=1`
+shows that an open connection prevents it.
+
+A client that closes its connection with unread data pending (an RST) also kills
+tart, even after a 5-second gap. The TestAnyware client has not shown this.
+Full evidence and the draft report for Apple and Cirrus Labs are in
+[`docs/research/tart-vnc-reconnect-crash-macos-27.md`](../research/tart-vnc-reconnect-crash-macos-27.md).
+Observed 2026-10-18 to 2026-10-19.
+
 ## `testanyware agent set-value` fails for NSTextField inside NSStackView
 
 The macOS agent's element resolver does not reliably reach text
