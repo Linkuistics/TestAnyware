@@ -9,6 +9,7 @@ use crate::paths::VmPaths;
 use crate::preflight::{check_kvm, check_swtpm};
 use crate::process::{pgrep_first, process_alive, terminate};
 use crate::qemu_profile::{host_profile, resolve_uefi_code, which, QemuProfile};
+use crate::tpm::{self, TpmDecision};
 
 /// A golden image discovered on disk.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,7 +39,8 @@ pub struct QemuLaunchSpec {
     pub uefi_code: PathBuf,
     pub clone_efivars: PathBuf,
     pub clone_qcow2: PathBuf,
-    pub tpm_socket: PathBuf,
+    /// swtpm's control socket. `Some` wires the TPM device; `None` leaves it out.
+    pub tpm_socket: Option<PathBuf>,
     pub monitor_socket: PathBuf,
     pub display: Option<String>,
 }
@@ -49,8 +51,8 @@ pub struct QemuStartOptions {
     pub id: String,
     pub base: String,
     pub display: Option<String>,
-    /// Whether the guest needs a TPM (Windows). Drives the swtpm preflight.
-    pub needs_tpm: bool,
+    /// Whether the guest gets a TPM. Gates every TPM site (see [`crate::tpm`]).
+    pub tpm: TpmDecision,
 }
 
 /// Result of a successful `QemuRunner::start`.
@@ -140,7 +142,7 @@ pub fn build_qemu_args(profile: &QemuProfile, spec: &QemuLaunchSpec) -> Vec<Stri
         None => format!("virtio-gpu-pci,{DEFAULT_DISPLAY_GEOMETRY}"),
     };
     let s = |p: &Path| p.display().to_string();
-    vec![
+    let mut args: Vec<String> = vec![
         "-machine".into(), profile.machine.into(),
         "-accel".into(), profile.accelerator.into(),
         "-cpu".into(), profile.cpu.into(),
@@ -148,9 +150,9 @@ pub fn build_qemu_args(profile: &QemuProfile, spec: &QemuLaunchSpec) -> Vec<Stri
         "-m".into(), "4096".into(),
         "-drive".into(), format!("if=pflash,format=raw,file={},readonly=on", s(&spec.uefi_code)),
         "-drive".into(), format!("if=pflash,format=raw,file={}", s(&spec.clone_efivars)),
-        "-chardev".into(), format!("socket,id=chrtpm,path={}", s(&spec.tpm_socket)),
-        "-tpmdev".into(), "emulator,id=tpm0,chardev=chrtpm".into(),
-        "-device".into(), "tpm-tis-device,tpmdev=tpm0".into(),
+    ];
+    args.extend(tpm::device_args(spec.tpm_socket.as_deref()));
+    args.extend([
         "-drive".into(), format!("file={},if=none,id=hd0,format=qcow2", s(&spec.clone_qcow2)),
         "-device".into(), "nvme,drive=hd0,serial=boot,bootindex=0".into(),
         "-device".into(), "ramfb".into(),
@@ -163,7 +165,8 @@ pub fn build_qemu_args(profile: &QemuProfile, spec: &QemuLaunchSpec) -> Vec<Stri
         "-vnc".into(), "localhost:0,to=99,password=on".into(),
         "-monitor".into(), format!("unix:{},server,nowait", s(&spec.monitor_socket)),
         "-display".into(), "none".into(),
-    ]
+    ]);
+    args
 }
 
 /// Run `program` with `args` synchronously, inheriting the parent's
@@ -209,7 +212,8 @@ fn process_holding_qcow2(dir: &Path) -> Option<i32> {
 pub struct QemuRunner;
 
 impl QemuRunner {
-    /// Clone the golden, start swtpm + QEMU detached, and discover the
+    /// Clone the golden, start swtpm (when the guest gets a TPM) + QEMU
+    /// detached, and discover the
     /// dynamic VNC/agent ports. Ports `QEMURunner.start`.
     pub async fn start(opts: &QemuStartOptions, paths: &VmPaths) -> Result<StartArtifacts, VmError> {
         // --- Preflight (host + KVM + swtpm) ------------------------------
@@ -218,7 +222,7 @@ impl QemuRunner {
         // there (ADR-0009). Linux/macOS pass straight through.
         crate::preflight::check_host_supports_local_qemu()?;
         check_kvm()?;
-        if opts.needs_tpm {
+        if opts.tpm.attaches() {
             check_swtpm()?;
         }
 
@@ -264,13 +268,15 @@ impl QemuRunner {
 
         let golden_tpm = golden_dir.join(format!("{}-tpm", opts.base));
         let clone_tpm_dir = clone_dir.join(format!("{}-tpm", opts.id));
-        run_and_check("cp", &[
-            "-r".into(),
-            golden_tpm.display().to_string(),
-            clone_tpm_dir.display().to_string(),
-        ])
-        .await
-        .inspect_err(|_| teardown(0, &clone_dir, &session))?;
+        if opts.tpm.attaches() {
+            run_and_check("cp", &[
+                "-r".into(),
+                golden_tpm.display().to_string(),
+                clone_tpm_dir.display().to_string(),
+            ])
+            .await
+            .inspect_err(|_| teardown(0, &clone_dir, &session))?;
+        }
 
         // --- Resolve UEFI firmware ---------------------------------------
         let profile = host_profile();
@@ -285,23 +291,28 @@ impl QemuRunner {
             }
         })?;
 
-        // --- Start swtpm (sockets staged under $TMPDIR) ------------------
-        let tpm_socket = session.join("swtpm-sock");
+        // --- Start swtpm if the guest gets a TPM (sockets under $TMPDIR) -
         let monitor_socket = session.join("monitor.sock");
-        let swtpm = which("swtpm")
-            .map(|p| p.display().to_string())
-            .unwrap_or_else(|| "swtpm".to_string());
-        run_and_check(&swtpm, &[
-            "socket".into(),
-            "--tpmstate".into(), format!("dir={}", clone_tpm_dir.display()),
-            "--ctrl".into(), format!("type=unixio,path={}", tpm_socket.display()),
-            "--tpm2".into(),
-            "--log".into(), "level=0".into(),
-            "--daemon".into(),
-        ])
-        .await
-        .inspect_err(|_| teardown(0, &clone_dir, &session))?;
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        let tpm_socket = if opts.tpm.attaches() {
+            let tpm_socket = session.join("swtpm-sock");
+            let swtpm = which("swtpm")
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "swtpm".to_string());
+            run_and_check(&swtpm, &[
+                "socket".into(),
+                "--tpmstate".into(), format!("dir={}", clone_tpm_dir.display()),
+                "--ctrl".into(), format!("type=unixio,path={}", tpm_socket.display()),
+                "--tpm2".into(),
+                "--log".into(), "level=0".into(),
+                "--daemon".into(),
+            ])
+            .await
+            .inspect_err(|_| teardown(0, &clone_dir, &session))?;
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            Some(tpm_socket)
+        } else {
+            None
+        };
 
         // --- Launch QEMU detached ----------------------------------------
         let launch = QemuLaunchSpec {
@@ -496,7 +507,7 @@ mod tests {
             uefi_code: std::path::PathBuf::from("/fw/code.fd"),
             clone_efivars: std::path::PathBuf::from("/c/efivars.fd"),
             clone_qcow2: std::path::PathBuf::from("/c/disk.qcow2"),
-            tpm_socket: std::path::PathBuf::from("/s/swtpm-sock"),
+            tpm_socket: Some(std::path::PathBuf::from("/s/swtpm-sock")),
             monitor_socket: std::path::PathBuf::from("/s/monitor.sock"),
             display: Some("1920x1080".into()),
         };
@@ -519,7 +530,7 @@ mod tests {
             uefi_code: "/fw/code.fd".into(),
             clone_efivars: "/c/efivars.fd".into(),
             clone_qcow2: "/c/disk.qcow2".into(),
-            tpm_socket: "/s/swtpm-sock".into(),
+            tpm_socket: Some("/s/swtpm-sock".into()),
             monitor_socket: "/s/monitor.sock".into(),
             display: None,
         };
@@ -528,5 +539,38 @@ mod tests {
             joined.contains("virtio-gpu-pci,xres=1920,yres=1080"),
             "default geometry applied without --display: {joined}",
         );
+    }
+
+    fn tpm_spec(tpm_socket: Option<&str>) -> QemuLaunchSpec {
+        QemuLaunchSpec {
+            uefi_code: "/fw/code.fd".into(),
+            clone_efivars: "/c/efivars.fd".into(),
+            clone_qcow2: "/c/disk.qcow2".into(),
+            tpm_socket: tpm_socket.map(Into::into),
+            monitor_socket: "/s/monitor.sock".into(),
+            display: None,
+        }
+    }
+
+    #[test]
+    fn build_qemu_args_emits_the_tpm_triple_only_with_a_socket() {
+        let with = build_qemu_args(&host_profile(), &tpm_spec(Some("/s/swtpm-sock")));
+        let without = build_qemu_args(&host_profile(), &tpm_spec(None));
+
+        let joined = without.join(" ");
+        for fragment in ["chrtpm", "-tpmdev", "tpm-tis-device", "tpm0", "swtpm"] {
+            assert!(!joined.contains(fragment), "no TPM wiring without a socket ({fragment}): {joined}");
+        }
+
+        // The two vectors differ by exactly the TPM triple, in place.
+        let pos = with.iter().position(|a| a == "-tpmdev").expect("tpm wired") - 2;
+        let mut stripped = with.clone();
+        let triple: Vec<String> = stripped.drain(pos..pos + 6).collect();
+        assert_eq!(triple, vec![
+            "-chardev", "socket,id=chrtpm,path=/s/swtpm-sock",
+            "-tpmdev", "emulator,id=tpm0,chardev=chrtpm",
+            "-device", "tpm-tis-device,tpmdev=tpm0",
+        ]);
+        assert_eq!(stripped, without);
     }
 }

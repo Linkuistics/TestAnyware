@@ -55,6 +55,8 @@ use crate::monitor::QemuMonitorClient;
 use crate::paths::VmPaths;
 use crate::process::{pgrep_first, process_alive, terminate};
 use crate::qemu_profile::{host_profile, resolve_uefi_code, which, QemuProfile};
+use crate::lifecycle::Platform;
+use crate::tpm::{self, decide_tpm, TpmDecision};
 
 // ---- embedded media (self-contained once the shell script is deleted) ----
 
@@ -148,7 +150,8 @@ struct InstallBootSpec {
     uefi_code: PathBuf,
     efivars: PathBuf,
     setup_qcow2: PathBuf,
-    tpm_socket: PathBuf,
+    /// swtpm's control socket. `Some` wires the TPM device; `None` leaves it out.
+    tpm_socket: Option<PathBuf>,
     monitor_socket: PathBuf,
     iso: PathBuf,
     autounattend_img: PathBuf,
@@ -165,7 +168,7 @@ struct InstallBootSpec {
 /// GPU driver is not installed until SetupComplete.cmd runs).
 fn build_install_qemu_args(profile: &QemuProfile, spec: &InstallBootSpec) -> Vec<String> {
     let s = |p: &Path| p.display().to_string();
-    vec![
+    let mut args: Vec<String> = vec![
         "-machine".into(), profile.machine.into(),
         "-accel".into(), profile.accelerator.into(),
         "-cpu".into(), profile.cpu.into(),
@@ -173,9 +176,9 @@ fn build_install_qemu_args(profile: &QemuProfile, spec: &InstallBootSpec) -> Vec
         "-m".into(), "4096".into(),
         "-drive".into(), format!("if=pflash,format=raw,file={},readonly=on", s(&spec.uefi_code)),
         "-drive".into(), format!("if=pflash,format=raw,file={}", s(&spec.efivars)),
-        "-chardev".into(), format!("socket,id=chrtpm,path={}", s(&spec.tpm_socket)),
-        "-tpmdev".into(), "emulator,id=tpm0,chardev=chrtpm".into(),
-        "-device".into(), "tpm-tis-device,tpmdev=tpm0".into(),
+    ];
+    args.extend(tpm::device_args(spec.tpm_socket.as_deref()));
+    args.extend([
         "-drive".into(), format!("file={},if=none,id=hd0,format=qcow2", s(&spec.setup_qcow2)),
         "-device".into(), "nvme,drive=hd0,serial=boot,bootindex=0".into(),
         "-device".into(), "ramfb".into(),
@@ -193,7 +196,8 @@ fn build_install_qemu_args(profile: &QemuProfile, spec: &InstallBootSpec) -> Vec
         "-serial".into(), format!("file:{}", s(&spec.serial_log)),
         "-d".into(), "guest_errors".into(),
         "-display".into(), "none".into(),
-    ]
+    ]);
+    args
 }
 
 /// The agent `/exec` probe for the desktop-setup completion marker. Ports the
@@ -537,7 +541,10 @@ pub async fn create_golden_windows(
     paths: &VmPaths,
 ) -> Result<String, VmError> {
     // --- Fail fast on host prerequisites before booting anything ----------
-    crate::preflight::check_swtpm()?;
+    let tpm = decide_tpm(Platform::Windows)?;
+    if tpm.attaches() {
+        crate::preflight::check_swtpm()?;
+    }
     let agent_exe = resolve_windows_agent()?;
     eprintln!("Using Windows agent: {}", agent_exe.display());
 
@@ -566,11 +573,11 @@ pub async fn create_golden_windows(
     let stage_dir = cache_dir.join(format!("{setup_id}-stage"));
 
     // Drive the build, tearing everything down on any failure.
-    match build_and_provision(&agent_exe, &iso, &setup, &setup_id, &stage_dir, paths).await {
+    match build_and_provision(&agent_exe, &iso, &setup, &setup_id, &stage_dir, paths, tpm).await {
         Ok(qemu_pid) => {
             // The VM is down; finalize by moving the setup artefacts to golden.
             eprintln!("Creating golden image '{}'...", opts.name);
-            finalize_golden(&setup, &golden)?;
+            finalize_golden(&setup, &golden, tpm)?;
             cleanup_setup(qemu_pid, &setup, /* golden_done */ true);
             let _ = std::fs::remove_dir_all(&stage_dir);
             eprintln!("Golden image '{}' created successfully.", opts.name);
@@ -596,6 +603,7 @@ async fn build_and_provision(
     setup_id: &str,
     stage_dir: &Path,
     paths: &VmPaths,
+    tpm: TpmDecision,
 ) -> Result<i32, (i32, VmError)> {
     macro_rules! tri {
         ($e:expr, $pid:expr) => {
@@ -634,20 +642,25 @@ async fn build_and_provision(
     );
     eprintln!("Preparing UEFI firmware and TPM...");
     tri!(create_blank_efivars(&setup.efivars, 64 * 1024 * 1024), 0);
-    tri!(std::fs::create_dir_all(&setup.tpm_dir)
-        .map_err(|e| VmError::Io(format!("create {}: {e}", setup.tpm_dir.display()))), 0);
-    let tpm_socket = setup.tpm_dir.join("swtpm-sock");
-    tri!(run_checked(
-        &tool("swtpm"),
-        &["socket".into(),
-          "--tpmstate".into(), format!("dir={}", setup.tpm_dir.display()),
-          "--ctrl".into(), format!("type=unixio,path={}", tpm_socket.display()),
-          "--tpm2".into(),
-          "--log".into(), "level=0".into(),
-          "--daemon".into()],
-        "start swtpm",
-    ), 0);
-    tokio::time::sleep(Duration::from_secs(1)).await;
+    let tpm_socket = if tpm.attaches() {
+        tri!(std::fs::create_dir_all(&setup.tpm_dir)
+            .map_err(|e| VmError::Io(format!("create {}: {e}", setup.tpm_dir.display()))), 0);
+        let tpm_socket = setup.tpm_dir.join("swtpm-sock");
+        tri!(run_checked(
+            &tool("swtpm"),
+            &["socket".into(),
+              "--tpmstate".into(), format!("dir={}", setup.tpm_dir.display()),
+              "--ctrl".into(), format!("type=unixio,path={}", tpm_socket.display()),
+              "--tpm2".into(),
+              "--log".into(), "level=0".into(),
+              "--daemon".into()],
+            "start swtpm",
+        ), 0);
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        Some(tpm_socket)
+    } else {
+        None
+    };
 
     // --- Boot the installer (detached QEMU) -------------------------------
     let session = paths.session_dir(setup_id);
@@ -801,11 +814,16 @@ async fn build_and_provision(
 
 /// Move the three throwaway setup artefacts into their golden home. Ports the
 /// script's finalize `mv`s (lines ~571–574).
-fn finalize_golden(setup: &SetupArtifacts, golden: &GoldenArtifacts) -> Result<(), VmError> {
+fn finalize_golden(
+    setup: &SetupArtifacts,
+    golden: &GoldenArtifacts,
+    tpm: TpmDecision,
+) -> Result<(), VmError> {
     rename_or_copy(&setup.qcow2, &golden.qcow2)?;
     rename_or_copy(&setup.efivars, &golden.efivars)?;
     // The TPM state is a directory: rename if possible, else recursive copy.
-    if std::fs::rename(&setup.tpm_dir, &golden.tpm_dir).is_err() {
+    // A golden built without a TPM has none to move.
+    if tpm.attaches() && std::fs::rename(&setup.tpm_dir, &golden.tpm_dir).is_err() {
         copy_dir_recursive(&setup.tpm_dir, &golden.tpm_dir)?;
         let _ = std::fs::remove_dir_all(&setup.tpm_dir);
     }
@@ -898,7 +916,7 @@ mod tests {
             uefi_code: "/fw/code.fd".into(),
             efivars: "/c/setup-efivars.fd".into(),
             setup_qcow2: "/c/setup.qcow2".into(),
-            tpm_socket: "/s/swtpm-sock".into(),
+            tpm_socket: Some("/s/swtpm-sock".into()),
             monitor_socket: "/s/monitor.sock".into(),
             iso: "/c/windows-11-arm64-eval.iso".into(),
             autounattend_img: "/c/autounattend.img".into(),
@@ -919,6 +937,38 @@ mod tests {
         assert!(joined.contains("file:/c/qemu.log"));
         // ramfb-only video: the VioGPU driver is not installed at install time.
         assert!(!joined.contains("virtio-gpu-pci"), "install boot must not wire virtio-gpu: {joined}");
+    }
+
+    #[test]
+    fn install_qemu_args_emit_the_tpm_triple_only_with_a_socket() {
+        let spec = |tpm_socket: Option<&str>| InstallBootSpec {
+            uefi_code: "/fw/code.fd".into(),
+            efivars: "/c/setup-efivars.fd".into(),
+            setup_qcow2: "/c/setup.qcow2".into(),
+            tpm_socket: tpm_socket.map(Into::into),
+            monitor_socket: "/s/monitor.sock".into(),
+            iso: "/c/windows-11-arm64-eval.iso".into(),
+            autounattend_img: "/c/autounattend.img".into(),
+            serial_log: "/c/qemu.log".into(),
+        };
+        let with = build_install_qemu_args(&host_profile(), &spec(Some("/s/swtpm-sock")));
+        let without = build_install_qemu_args(&host_profile(), &spec(None));
+
+        let joined = without.join(" ");
+        for fragment in ["chrtpm", "-tpmdev", "tpm-tis-device", "tpm0", "swtpm"] {
+            assert!(!joined.contains(fragment), "no TPM wiring without a socket ({fragment}): {joined}");
+        }
+
+        // The two vectors differ by exactly the TPM triple, in place.
+        let pos = with.iter().position(|a| a == "-tpmdev").expect("tpm wired") - 2;
+        let mut stripped = with.clone();
+        let triple: Vec<String> = stripped.drain(pos..pos + 6).collect();
+        assert_eq!(triple, vec![
+            "-chardev", "socket,id=chrtpm,path=/s/swtpm-sock",
+            "-tpmdev", "emulator,id=tpm0,chardev=chrtpm",
+            "-device", "tpm-tis-device,tpmdev=tpm0",
+        ]);
+        assert_eq!(stripped, without);
     }
 
     #[test]

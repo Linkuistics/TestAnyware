@@ -1,0 +1,36 @@
+# Reusable development tasks for TestAnyware. Local only: releases and live checks
+# run on an arm64 Mac, and CI is deliberately not used. Run `task --list`.
+#
+# Grown from need. Task names and recipes follow the Taskfile that issue #3's
+# branch introduced, so the two merge as a small mechanical conflict.
+version: '3'
+
+vars:
+  CLI_DIR: '{{.ROOT_DIR}}/cli-rs'
+
+tasks:
+  default:
+    desc: List the available tasks
+    silent: true
+    cmds:
+      - task --list
+
+  # ---- Rust CLI ------------------------------------------------------------
+
+  cli:build:
+    desc: Build the debug host CLI
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - cargo build -p testanyware-cli
+
+  cli:test:
+    desc: Run the whole cli-rs test suite (live-VM tests stay ignored)
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - cargo test --workspace
+
+  cli:clippy:
+    desc: Lint cli-rs (clippy has pre-existing warnings in testanyware-rfb and two large-Err sites, so this reports and never gates)
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - cargo clippy --workspace --all-targets

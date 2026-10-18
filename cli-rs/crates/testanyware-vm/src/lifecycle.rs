@@ -14,6 +14,7 @@ use crate::qemu::{
     scan_clones_dir, scan_golden_dir, GoldenImage, QemuRunner, QemuStartOptions, RunningClone,
 };
 use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
+use crate::tpm::decide_tpm;
 
 /// Guest platform. Ports the `Platform` enum + extension in `VMTypes.swift`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -49,11 +50,6 @@ impl Platform {
             Platform::Linux => "testanyware-golden-linux-24.04",
             Platform::Windows => "testanyware-golden-windows-11",
         }
-    }
-
-    /// Windows guests need a TPM 2.0 socket.
-    fn needs_tpm(self) -> bool {
-        matches!(self, Platform::Windows)
     }
 }
 
@@ -154,7 +150,7 @@ impl VmLifecycle {
             id: opts.id.clone(),
             base: opts.base.clone(),
             display: opts.display.clone(),
-            needs_tpm: opts.platform.needs_tpm(),
+            tpm: decide_tpm(opts.platform)?,
         };
         let artifacts = QemuRunner::start(&qopts, paths).await?;
 
@@ -450,7 +446,7 @@ impl VmLifecycle {
             return Err(VmError::GoldenNotFound { name: opts.base.clone() });
         }
         crate::preflight::check_kvm()?;
-        if opts.platform == Platform::Windows {
+        if decide_tpm(opts.platform)?.attaches() {
             crate::preflight::check_swtpm()?;
         }
         Ok("qemu")

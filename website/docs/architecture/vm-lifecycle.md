@@ -55,9 +55,12 @@ queries both backends and presents a unified view.
    port, and dynamically generated password from the URL.
 3. **QEMU path:** copy `${XDG_DATA_HOME}/testanyware/golden/<name>/` into
    a fresh `${XDG_DATA_HOME}/testanyware/clones/<id>/` → spawn
-   `qemu-system-aarch64` + `swtpm` (for TPM 2.0) in the background →
-   discover VNC via the QEMU monitor socket. VNC password is fixed
-   (`testanyware`).
+   `qemu-system-aarch64` in the background → discover VNC via the QEMU
+   monitor socket. VNC password is fixed (`testanyware`). A guest that
+   needs a TPM (today, Windows) also gets its golden's TPM state copied
+   and an `swtpm` (TPM 2.0) spawned, wired to QEMU as a `tpm-tis-device`;
+   a guest that does not need one gets none of these, and needs no `swtpm`
+   installed.
 4. Wait up to a boot budget (typically 120 s) for VNC to accept
    connections. On timeout, throw `VMLifecycleError.vncTimeout`.
 5. Probe `GET /health` on the agent (port 8648) until it returns 200.

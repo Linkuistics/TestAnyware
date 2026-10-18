@@ -23,6 +23,7 @@ pub mod process;
 pub mod qemu;
 pub mod qemu_profile;
 pub mod spec;
+pub mod tpm;
 /// `russh`-backed SSH/SFTP provisioning helper for `vm create-golden`
 /// (ADR-0007). Pure Rust + async, **not** macOS-gated: the Tier-2
 /// linux/win goldens reuse it. Consumed by the `110` boot leaves.
