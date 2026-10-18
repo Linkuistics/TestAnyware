@@ -52,8 +52,16 @@ one before it (decomposition stays lazy). Intended order:
    some of the provisioning (CLT, TCC, the SIP recovery cycle's OCR targets).
 3. `checks-27` (impl). The Display / HiDPI and accessibility-agent checks in
    the new guest, and the fixes or externalised leaves they call for.
-4. `default-and-docs-27` (impl). Ask the human whether 27 becomes the default;
-   update the default, docs and website copies to match.
+4. `vnc-reconnect-crash-27` (impl). `checks-27` cut it. On this macOS 27.0.1
+   host, tart 2.40.1 aborts when a VNC client reconnects after about two idle
+   minutes. The leaf isolates the trigger. It then picks the smallest mitigation,
+   or documents the limit. It sits before the default decision, because the human
+   should know the result first.
+5. `default-and-docs-27` (impl). Ask the human whether 27 becomes the default.
+   Then update the default, the docs and the website copies to match. It also
+   asks two questions that `checks-27` left. One is a live HiDPI `@2x` run, which
+   needs the host display switched. The other is a golden rebuild to carry an
+   agent fix.
 
 ## Decisions (running log)
 

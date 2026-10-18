@@ -147,7 +147,7 @@ private func handleSnapshot(_ request: Request) async throws -> Response {
     let req: SnapshotRequest = try await decode(request)
     let mode = req.mode ?? "interact"
     let depth = req.depth ?? 3
-    let roleFilter: UnifiedRole? = req.role.map { RoleMapper.map(role: $0) }
+    let roleFilter: UnifiedRole? = req.role.map { RoleMapper.queryRole($0) }
 
     var windows = enumerateWindows()
     if let filterStr = req.window {
@@ -200,7 +200,7 @@ private func handleSnapshot(_ request: Request) async throws -> Response {
 
 private func handleInspect(_ request: Request) async throws -> Response {
     let req: ElementQuery = try await decode(request)
-    let roleFilter: UnifiedRole? = req.role.map { RoleMapper.map(role: $0) }
+    let roleFilter: UnifiedRole? = req.role.map { RoleMapper.queryRole($0) }
 
     var windows = enumerateWindows()
     if let filterStr = req.window {
@@ -281,7 +281,7 @@ private func resolveAndAct(
     actionName: String,
     perform: (any AccessibleElement) throws -> Void
 ) -> Response {
-    let roleFilter: UnifiedRole? = query.role.map { RoleMapper.map(role: $0) }
+    let roleFilter: UnifiedRole? = query.role.map { RoleMapper.queryRole($0) }
 
     var windows = enumerateWindows()
     if let filterStr = query.window {

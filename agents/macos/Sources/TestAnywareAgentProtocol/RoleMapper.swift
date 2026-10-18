@@ -82,4 +82,13 @@ public struct RoleMapper {
         }
         return roleTable[role] ?? .unknown
     }
+
+    /// Resolve the `role` of a wire query to the role it filters on.
+    ///
+    /// The protocol sends unified names (`button`, `editable-text`;
+    /// docs/architecture/agent-protocol.md), so those are read first. A platform
+    /// name (`AXButton`) is still accepted. Anything else filters on `.unknown`.
+    public static func queryRole(_ value: String) -> UnifiedRole {
+        UnifiedRole(rawValue: value) ?? map(role: value)
+    }
 }

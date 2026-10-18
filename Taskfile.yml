@@ -35,6 +35,15 @@ tasks:
     cmds:
       - cargo clippy --workspace --all-targets
 
+  # ---- macOS In-VM agent ---------------------------------------------------
+
+  agent:macos:test:
+    desc: Build the macOS In-VM agent and run its Swift tests (host-side; mock elements, no guest)
+    dir: '{{.ROOT_DIR}}/agents/macos'
+    cmds:
+      - swift build
+      - swift test
+
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
