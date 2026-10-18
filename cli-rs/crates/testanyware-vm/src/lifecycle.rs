@@ -14,7 +14,8 @@ use crate::qemu::{
     scan_clones_dir, scan_golden_dir, GoldenImage, QemuRunner, QemuStartOptions, RunningClone,
 };
 use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
-use crate::tpm::decide_tpm;
+use crate::qemu_profile::host_profile;
+use crate::tpm::decide_tpm_on_host;
 
 /// Guest platform. Ports the `Platform` enum + extension in `VMTypes.swift`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,11 +147,16 @@ impl VmLifecycle {
             return Err(VmError::BackendUnsupported { platform: "macos".into() });
         }
 
+        // The one TPM decision, before anything is cloned or booted. The host
+        // gate comes first so a Windows host reports `VM_HOST_UNSUPPORTED`
+        // rather than failing to run the probe.
+        crate::preflight::check_host_supports_local_qemu()?;
+        let tpm = decide_tpm_on_host(opts.platform, &host_profile())?;
         let qopts = QemuStartOptions {
             id: opts.id.clone(),
             base: opts.base.clone(),
             display: opts.display.clone(),
-            tpm: decide_tpm(opts.platform)?,
+            tpm,
         };
         let artifacts = QemuRunner::start(&qopts, paths).await?;
 
@@ -446,9 +452,7 @@ impl VmLifecycle {
             return Err(VmError::GoldenNotFound { name: opts.base.clone() });
         }
         crate::preflight::check_kvm()?;
-        if decide_tpm(opts.platform)?.attaches() {
-            crate::preflight::check_swtpm()?;
-        }
+        decide_tpm_on_host(opts.platform, &host_profile())?;
         Ok("qemu")
     }
 

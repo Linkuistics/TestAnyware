@@ -244,7 +244,7 @@ version bump.
 | `TART_FAILED` | tart subprocess returned non-zero. `details.tart_error` carries its stderr. |
 | `QEMU_FAILED` | QEMU subprocess failed (start, monitor, or QMP). |
 | `KVM_PERMISSION_DENIED` | `/dev/kvm` is missing or not readable+writable (Linux host). `details.path` carries `/dev/kvm`. |
-| `SWTPM_MISSING` | swtpm is not installed; required for Windows guests (TPM 2.0 socket). |
+| `SWTPM_MISSING` | swtpm is not installed; required for a Windows guest whose host QEMU can supply a TPM (TPM 2.0 socket). Raised before anything is cloned, by the TPM decision (ADR-0017), also under `vm start --dry-run` and before `vm create-golden --platform windows` boots. |
 | `UEFI_NOT_FOUND` | UEFI firmware path missing for the requested QEMU configuration. |
 | `SPAWN_FAILED` | `posix_spawn` (or platform equivalent) returned an error. |
 

@@ -42,7 +42,7 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | `TART_FAILED` | A `tart` subprocess exited non-zero. |
 | `QEMU_FAILED` | `qemu-system-*` failed to launch or a QMP command errored. |
 | `KVM_PERMISSION_DENIED` | `/dev/kvm` not accessible (Linux host). |
-| `SWTPM_MISSING` | `swtpm` binary not found (TPM-backed guests). |
+| `SWTPM_MISSING` | `swtpm` binary not found. Raised before anything is cloned, by the TPM decision, for a Windows guest (or Windows golden creation) on a host whose QEMU can supply a TPM; install it with `brew install swtpm`. Other guests never raise it. |
 | `UEFI_NOT_FOUND` | UEFI firmware path missing. |
 | `SPAWN_FAILED` | Process spawn failed for a backend executable. |
 

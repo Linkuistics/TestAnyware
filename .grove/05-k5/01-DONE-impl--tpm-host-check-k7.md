@@ -108,3 +108,76 @@ TPM site that one answer. This is the leaf that makes QEMU stop aborting.
   edits there narrow so its later rebase stays small (plan-k1 D8).
 - Teardown and golden deletion are already idempotent about a missing
   `-tpm` directory (`k2`'s Notes); neither needs to change.
+
+## Decisions (running log)
+
+**The decision is lazy, and a closure carries the observation.**
+`decide_tpm(platform, accelerator, observe: impl FnOnce() -> Result<HostTpm,
+VmError>)`. A non-Windows guest returns before calling `observe`, and a test
+pins that with a `Cell` flag. `decide_tpm_on_host(platform, &profile)` is the
+entry point the three consumers call, with the real probe.
+
+**The table's order is code order.** Not Windows → omit; front end absent →
+omit (`OmitReason::HostCannotSupplyOne`); swtpm missing → `Err(SwtpmMissing)`;
+otherwise `Attach { ppi_off }` with `ppi_off = accelerator == "hvf" && ppi
+listed`. Front end absent *and* swtpm missing omits, as the table orders it; a
+test pins it.
+
+**One value carries the wiring.** `TpmDecision::Attach { ppi_off }` plus
+`TpmDecision::wiring(socket) -> Option<TpmWiring>`; both builders now take
+`tpm: Option<TpmWiring>` in place of `tpm_socket: Option<PathBuf>`, so "PPI off,
+no TPM" cannot be written.
+
+**There is one swtpm rule.** `preflight::check_swtpm` and `swtpm_result` are
+gone, and `QemuRunner::start` no longer preflights swtpm. The observation reads
+`which("swtpm").is_some()`, and the decision turns that into the refusal.
+
+**Probe failure is `QemuFailed`, not omit.** The probe spawns the resolved QEMU
+(`which`, then the bare name). A spawn failure, or output that is neither a
+property list nor "Device 'tpm-tis-device' not found", is `QemuFailed` (the
+second one quotes the text). The parser reads stdout and stderr together: the
+list goes to stdout, the "not found" complaint to stderr, and the exit status is
+0 either way.
+
+**Host gate before the decision in `start`.** `check_host_supports_local_qemu()`
+now runs just before the decision, so a Windows host still reports
+`VM_HOST_UNSUPPORTED` rather than a probe failure. `QemuRunner::start` keeps its
+own call; it is cheap and idempotent.
+
+**A golden without TPM state starts on a fresh one.** `tpm_state_source(
+golden_state_exists) -> {CopyGolden, Fresh}`; `Fresh` creates the clone's empty
+`-tpm` directory (swtpm needs it to exist). Pure, unit-tested.
+
+**ADR-0017 needed no edit.** Implementation matches it.
+
+## Result
+
+**Verification.** `task cli:test`: 562 passed, 0 failed (550 before). `task
+cli:clippy`: nothing in the files touched (the warnings in `finalize.rs`,
+`golden_linux.rs` and `rfb` were there before). `task vm:qemu-tpm-check` passes
+with Homebrew's QEMU 11.1.2, and fails with "no tpm-tis-device" under
+`QEMU=qemu-system-x86_64`, as the leaf expected.
+
+**Live, on a clone.** `vm start --platform windows --id k7-live`: QEMU stayed up
+and its argv, from `ps`, held `tpm-tis-device,tpmdev=tpm0,ppi=off`. A VNC capture
+of the clone showed the Windows lock screen (the clock and date), with no
+"password expired" text visible at that point. The start was killed before it
+wrote a spec (the agent wait is 10 to 14 minutes), so I stopped QEMU and swtpm by
+pid and removed the clone and session directories by hand. The golden was
+untouched. `vm start --dry-run` for Windows passes.
+
+**Docs sweep.** Every TPM/swtpm mention in every tracked non-Rust file, then
+classified. Edited: the QEMU start flow in `docs/architecture/vm-lifecycle.md`
+and its `website/docs/` copy (host check, refusal, `ppi=off`, fresh state); the
+`SWTPM_MISSING` row in `docs/reference/error-codes.md`, its website copy, and the
+contract's error table (raised before cloning, by the decision, also under
+`--dry-run`); the "UEFI + TPM 2.0" line in `docs/user/golden-images.md` and its
+copy (a golden built where the host cannot supply a TPM has none); the Rust help
+text for the install plan in `commands/vm.rs`. Left as true: the `QEMU+swtpm`
+mentions in READMEs, the quick-start prerequisites and the overview diagrams.
+`CONTEXT.md` already defines *TPM decision* (written by the design leaf).
+
+**For `start-reports-tpm-k9`.** `TpmDecision` is `Attach { ppi_off }` or
+`Omit(GuestDoesNotNeedOne | HostCannotSupplyOne)`. `VmLifecycle::start` makes the
+decision at the top of the QEMU path and `dry_run_validate_start` discards it, so
+the dry-run plan has to take it from there.

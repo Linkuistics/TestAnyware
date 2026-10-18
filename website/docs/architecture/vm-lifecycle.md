@@ -58,9 +58,16 @@ queries both backends and presents a unified view.
    `qemu-system-aarch64` in the background → discover VNC via the QEMU
    monitor socket. VNC password is fixed (`testanyware`). A guest that
    needs a TPM (today, Windows) also gets its golden's TPM state copied
-   and an `swtpm` (TPM 2.0) spawned, wired to QEMU as a `tpm-tis-device`;
-   a guest that does not need one gets none of these, and needs no `swtpm`
-   installed.
+   (or a fresh, empty state when the golden has none) and an `swtpm`
+   (TPM 2.0) spawned, wired to QEMU as a `tpm-tis-device`; a guest that
+   does not need one gets none of these, and needs no `swtpm` installed.
+   The TPM is decided once, before anything is cloned, from what the
+   host's QEMU binary reports (`qemu-system-aarch64 -machine none -device
+   tpm-tis-device,help`): where that binary has no `tpm-tis-device` the
+   guest goes without a TPM; where `swtpm` is missing the start is refused
+   with `SWTPM_MISSING`; otherwise the TPM is attached, with `ppi=off`
+   under HVF when the binary lists a `ppi` property (QEMU 11.1+, whose PPI
+   region aborts QEMU under Hypervisor.framework; ADR-0017).
 4. Wait up to a boot budget (typically 120 s) for VNC to accept
    connections. On timeout, throw `VMLifecycleError.vncTimeout`.
 5. Probe `GET /health` on the agent (port 8648) until it returns 200.

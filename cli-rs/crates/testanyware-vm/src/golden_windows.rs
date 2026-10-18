@@ -56,7 +56,7 @@ use crate::paths::VmPaths;
 use crate::process::{pgrep_first, process_alive, terminate};
 use crate::qemu_profile::{host_profile, resolve_uefi_code, which, QemuProfile};
 use crate::lifecycle::Platform;
-use crate::tpm::{self, decide_tpm, TpmDecision};
+use crate::tpm::{self, decide_tpm_on_host, TpmDecision, TpmWiring};
 
 // ---- embedded media (self-contained once the shell script is deleted) ----
 
@@ -150,8 +150,8 @@ struct InstallBootSpec {
     uefi_code: PathBuf,
     efivars: PathBuf,
     setup_qcow2: PathBuf,
-    /// swtpm's control socket. `Some` wires the TPM device; `None` leaves it out.
-    tpm_socket: Option<PathBuf>,
+    /// `Some` wires the TPM device to swtpm; `None` leaves it out.
+    tpm: Option<TpmWiring>,
     monitor_socket: PathBuf,
     iso: PathBuf,
     autounattend_img: PathBuf,
@@ -177,7 +177,7 @@ fn build_install_qemu_args(profile: &QemuProfile, spec: &InstallBootSpec) -> Vec
         "-drive".into(), format!("if=pflash,format=raw,file={},readonly=on", s(&spec.uefi_code)),
         "-drive".into(), format!("if=pflash,format=raw,file={}", s(&spec.efivars)),
     ];
-    args.extend(tpm::device_args(spec.tpm_socket.as_deref()));
+    args.extend(tpm::device_args(spec.tpm.as_ref()));
     args.extend([
         "-drive".into(), format!("file={},if=none,id=hd0,format=qcow2", s(&spec.setup_qcow2)),
         "-device".into(), "nvme,drive=hd0,serial=boot,bootindex=0".into(),
@@ -541,10 +541,7 @@ pub async fn create_golden_windows(
     paths: &VmPaths,
 ) -> Result<String, VmError> {
     // --- Fail fast on host prerequisites before booting anything ----------
-    let tpm = decide_tpm(Platform::Windows)?;
-    if tpm.attaches() {
-        crate::preflight::check_swtpm()?;
-    }
+    let tpm = decide_tpm_on_host(Platform::Windows, &host_profile())?;
     let agent_exe = resolve_windows_agent()?;
     eprintln!("Using Windows agent: {}", agent_exe.display());
 
@@ -642,7 +639,7 @@ async fn build_and_provision(
     );
     eprintln!("Preparing UEFI firmware and TPM...");
     tri!(create_blank_efivars(&setup.efivars, 64 * 1024 * 1024), 0);
-    let tpm_socket = if tpm.attaches() {
+    let tpm_wiring = if tpm.attaches() {
         tri!(std::fs::create_dir_all(&setup.tpm_dir)
             .map_err(|e| VmError::Io(format!("create {}: {e}", setup.tpm_dir.display()))), 0);
         let tpm_socket = setup.tpm_dir.join("swtpm-sock");
@@ -657,7 +654,7 @@ async fn build_and_provision(
             "start swtpm",
         ), 0);
         tokio::time::sleep(Duration::from_secs(1)).await;
-        Some(tpm_socket)
+        tpm.wiring(tpm_socket)
     } else {
         None
     };
@@ -672,7 +669,7 @@ async fn build_and_provision(
         uefi_code,
         efivars: setup.efivars.clone(),
         setup_qcow2: setup.qcow2.clone(),
-        tpm_socket,
+        tpm: tpm_wiring,
         monitor_socket: monitor_socket.clone(),
         iso: iso.to_path_buf(),
         autounattend_img,
@@ -916,7 +913,7 @@ mod tests {
             uefi_code: "/fw/code.fd".into(),
             efivars: "/c/setup-efivars.fd".into(),
             setup_qcow2: "/c/setup.qcow2".into(),
-            tpm_socket: Some("/s/swtpm-sock".into()),
+            tpm: Some(TpmWiring { socket: "/s/swtpm-sock".into(), ppi_off: false }),
             monitor_socket: "/s/monitor.sock".into(),
             iso: "/c/windows-11-arm64-eval.iso".into(),
             autounattend_img: "/c/autounattend.img".into(),
@@ -940,18 +937,18 @@ mod tests {
     }
 
     #[test]
-    fn install_qemu_args_emit_the_tpm_triple_only_with_a_socket() {
-        let spec = |tpm_socket: Option<&str>| InstallBootSpec {
+    fn install_qemu_args_emit_the_tpm_triple_only_with_wiring() {
+        let spec = |tpm: Option<TpmWiring>| InstallBootSpec {
             uefi_code: "/fw/code.fd".into(),
             efivars: "/c/setup-efivars.fd".into(),
             setup_qcow2: "/c/setup.qcow2".into(),
-            tpm_socket: tpm_socket.map(Into::into),
+            tpm,
             monitor_socket: "/s/monitor.sock".into(),
             iso: "/c/windows-11-arm64-eval.iso".into(),
             autounattend_img: "/c/autounattend.img".into(),
             serial_log: "/c/qemu.log".into(),
         };
-        let with = build_install_qemu_args(&host_profile(), &spec(Some("/s/swtpm-sock")));
+        let with = build_install_qemu_args(&host_profile(), &spec(Some(TpmWiring { socket: "/s/swtpm-sock".into(), ppi_off: false })));
         let without = build_install_qemu_args(&host_profile(), &spec(None));
 
         let joined = without.join(" ");
@@ -969,6 +966,28 @@ mod tests {
             "-device", "tpm-tis-device,tpmdev=tpm0",
         ]);
         assert_eq!(stripped, without);
+    }
+
+    #[test]
+    fn install_qemu_args_add_ppi_off_to_the_device_exactly_when_wired() {
+        let device = |ppi_off| {
+            let spec = InstallBootSpec {
+                uefi_code: "/fw/code.fd".into(),
+                efivars: "/c/setup-efivars.fd".into(),
+                setup_qcow2: "/c/setup.qcow2".into(),
+                tpm: Some(TpmWiring { socket: "/s/swtpm-sock".into(), ppi_off }),
+                monitor_socket: "/s/monitor.sock".into(),
+                iso: "/c/windows-11-arm64-eval.iso".into(),
+                autounattend_img: "/c/autounattend.img".into(),
+                serial_log: "/c/qemu.log".into(),
+            };
+            build_install_qemu_args(&host_profile(), &spec)
+                .into_iter()
+                .find(|a| a.starts_with("tpm-tis-device"))
+                .expect("tpm device wired")
+        };
+        assert_eq!(device(true), "tpm-tis-device,tpmdev=tpm0,ppi=off");
+        assert_eq!(device(false), "tpm-tis-device,tpmdev=tpm0");
     }
 
     #[test]

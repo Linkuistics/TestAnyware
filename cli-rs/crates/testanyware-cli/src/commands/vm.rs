@@ -547,7 +547,8 @@ fn windows_install_plan() -> [(u32, &'static str, &'static str); 4] {
     [
         (1, "media",
          "build autounattend USB (answer file + agent + VirtIO ARM64 drivers), \
-          blank 64GB NVMe disk, blank UEFI vars, swtpm TPM 2.0"),
+          blank 64GB NVMe disk, blank UEFI vars, swtpm TPM 2.0 (when the host \
+          QEMU can supply one)"),
         (2, "install",
          "boot from ISO + USB; unattended Setup partitions, installs Windows, \
           creates admin/autologin, installs agent logon task + Chocolatey (20–40 min)"),

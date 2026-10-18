@@ -58,7 +58,10 @@ All golden images share these properties:
   communication via agent HTTP.
 - **First-logon animation disabled** — clones boot straight to desktop
   without OOBE.
-- **UEFI + TPM 2.0** — standard Windows 11 secure boot via swtpm.
+- **UEFI + TPM 2.0** — standard Windows 11 secure boot via swtpm. Where the
+  host's QEMU has no `tpm-tis-device` the golden is built, and its clones
+  start, without a TPM; `swtpm` missing on a host that could supply one is
+  an error (`SWTPM_MISSING`), not a silent omission.
 - **VirtIO networking** — virtio-net-pci driver installed during setup.
 
 ## Creating the golden images
