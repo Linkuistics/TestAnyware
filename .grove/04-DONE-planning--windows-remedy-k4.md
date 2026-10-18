@@ -115,3 +115,78 @@ independent faults:
   well as this grove's code on `main`.
 - The upstream QEMU report is a draft in k3's Notes. Filing it is the human's
   call (D9).
+
+## Decisions (running log)
+
+**P1. Two ordered increments, one per fault, each a node.** The remedy's two
+parts are independent faults with different evidence and different checks, and
+each leaves the product working. Stage 1 (`windows-start-on-hvf-k5`) restores
+Windows starts on HVF: a live start keeps QEMU up and reaches the lock screen,
+which is checkable without the golden being fixed. Stage 2
+(`windows-golden-password-k6`) makes the golden survive its 42-day password
+age and meets the root bar. A user with a fresh golden needs only stage 1.
+Stage 2 follows stage 1 because golden creation aborts at the TPM until the
+host check lands (no stage-2 live build can run before it). Rejected: one flat
+list of four leaves (it hides that the stages are separately useful and
+verified); three stages with the report as its own (the report is two small
+outputs over an answer that already exists, so it rides in stage 1 as its own
+leaf, which keeps the host check's session about the decision).
+
+**P2. Stage 1 is two leaves, cut by what each can be verified on.**
+`tpm-host-check-k7` holds everything that is one decision and its consumers
+(observation, parser, full table, `ppi=off` in both builders, wired into
+start, dry-run and golden creation, the fresh-state edge, the TPM docs sweep).
+Splitting the pure table from its wiring would leave a leaf dead until its
+sibling landed, so they stay together. `start-reports-tpm-k9` is a separate
+vertical slice (decision to result to text and JSON, schema, contract) that
+the first leaf's new answers feed, verifiable on its own by the schema test
+and a live `--json` start. Rejected: report first (it would report answers
+that do not exist yet).
+
+**P3. Stage 2 is two leaves, split at the human's decision.**
+`admin-password-never-expires-k8` is the fix plus the live build and its proof,
+ending on a committed, verified new golden under its own name.
+`golden-swap-in-k10` is the human-gated replacement of the only Windows golden
+plus the final bar with the default golden. It is its own leaf because the
+decision is the human's (the brief forbids replacing the only golden without
+asking) and because the 75-minute build session should not end mid-question.
+
+**P4. The edge the leaf was asked to settle: a golden with no TPM state.**
+When a golden has no `<golden>-tpm` directory (built where the decision
+omitted the TPM) and a later start attaches, start swtpm on a fresh, empty
+state directory rather than failing the copy. k3's evidence supports it:
+nothing on these goldens is sealed to the TPM (BitLocker off, PCR7 binding
+impossible). It sits in k7, with the sites it touches.
+
+**P5. Where the password is made never to expire: `SetupComplete.cmd`, with an
+in-guest check that fails the build.** k3 found no answer-file setting for it.
+The leaf prefers `Set-LocalUser -PasswordNeverExpires` (one account) and
+allows `net accounts /maxpwage:unlimited`. The addition that matters is the
+check: after provisioning, `net user admin` through the agent must show
+"Password expires Never" or the build fails with the output. Without it a
+regression would be invisible for 42 days, because a fresh golden reaches a
+Healthy agent either way. For the same reason k8 says the fix is proved by
+`net user admin`, not by the Healthy agent, and offers a shifted-RTC clone
+as an optional behavioural proof.
+
+**P6. The Taskfile recipe is `vm:windows-healthy-start`, not `vm:qemu-start`.**
+Issue #3's `vm:qemu-start` runs a different recipe through
+`scripts/live-start-checks.sh`, which is not on `main`. A distinct name keeps
+the later merge a union of the two files. The recipe is first needed by k8 and
+reused by k10; it must read the agent itself because this branch's start
+exits 0 with a warning when the agent never answers.
+
+**P7. No review chain; the `doctor` question goes to the human with the swap.**
+The plan is four leaves, all decisions recorded in ADR-0017, and every leaf
+has executable checks, so a `review-planning` leaf would not earn its place
+(`references/decompose.md`: a load-bearing artifact earns one; size and
+preference do not). No in-session reviewer was spent. Whether `doctor` should
+report the host TPM check is the human's call and not work this grove has been
+asked for, so it is no leaf yet: `golden-swap-in` asks it while the human is
+there and cuts the leaf on a yes. It is also in the root brief's Notes.
+
+**Check.** `grove-llm pick` returns `tpm-host-check-k7`; its brief chain is
+root, `windows-start-on-hvf`. Every item of this leaf's Done when has a home:
+seam 1, the parser and seam 2 (k7); the start's report and its contract (k9);
+golden creation's decision (k7) and password (k8); D4's live build (k8); the
+swap and the final bar (k10); docs (k7, k8, k9); the Taskfile (k8).

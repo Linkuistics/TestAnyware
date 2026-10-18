@@ -42,9 +42,28 @@ Not this grove's: the issue #3 grove's waiting check
    Taskfile. It comes first because it is small, certain and useful on its
    own, and the remedy extends its seam. Windows behaviour does not change.
 2. `windows-tpm-on-hvf` (design). Finds the root cause and chooses the remedy
-   within the settled decisions, records it, and drafts any upstream report.
-   Its last act adds the `planning` leaf for the remedy's implementation,
-   because that shape depends on what the investigation finds.
+   within the settled decisions, records it (ADR-0017), and drafts any upstream
+   report. It found two independent faults: the TPM abort, and a Windows golden
+   whose `admin` password expires after 42 days.
+3. `windows-remedy` (planning). Cuts the remedy into two ordered increments,
+   each leaving the product working and checkable, each a node:
+   - `windows-start-on-hvf` (node). Stage 1: Windows starts again on HVF with
+     its TPM, and the start says whether the TPM was attached. Leaves:
+     `tpm-host-check` (the host observation, the full decision table,
+     `ppi=off` in both builders, wired into start, dry-run and golden
+     creation), then `start-reports-tpm` (the decision in the human and
+     `--json` outputs and the contract). Seams 1 and 2. A live Windows start
+     keeps QEMU up and reaches the lock screen.
+   - `windows-golden-password` (node). Stage 2: golden creation makes
+     `admin`'s password never expire, and a new golden is built and verified.
+     Leaves: `admin-password-never-expires` (the fix, the in-guest check, the
+     live build under a new name, the live-check recipe), then `golden-swap-in`
+     (ask the human, swap, run the final bar with the default golden). Seam 3.
+   Stage 2 follows stage 1 because golden creation aborts at the TPM until
+   stage 1 lands. The stages are separate because a user with a fresh golden
+   needs only stage 1, and a golden older than 42 days needs both.
+   No review chain was cut: the plan is four leaves with the decisions already
+   recorded in an ADR, and each leaf's checks are executable.
 
 ## Pointers
 
@@ -54,9 +73,12 @@ Not this grove's: the issue #3 grove's waiting check
 - Issues: #6 (the human's words). #3, whose grove (jj workspace `gh-issue-3`,
   not on `main`) found #6; its `start-failure-qemu-k3` running log, Q10 and
   Q11, holds the live evidence.
-- ADRs: ADR-0009 (the Windows host harness runs its host-under-test under QEMU
-  and swtpm, through `vm start`); ADR-0010 (the host-side framebuffer: the
-  QEMU VNC endpoint shows a Windows guest's screen before its agent is up).
+- ADRs: ADR-0017 (a QEMU guest's TPM is decided from the host's QEMU binary,
+  with the PPI off under HVF; the remedy this grove implements, with
+  `docs/research/windows-tpm-on-hvf.md` as its evidence); ADR-0009 (the
+  Windows host harness runs its host-under-test under QEMU and swtpm, through
+  `vm start`); ADR-0010 (the host-side framebuffer: the QEMU VNC endpoint shows
+  a Windows guest's screen before its agent is up).
 - Contract: `docs/architecture/cli-design-contract.md` and
   `docs/reference/error-codes.md` (a refusal code, and the start's report of
   an omitted TPM, are recorded there).
@@ -102,6 +124,11 @@ making one for testing would be test-only image tooling.
   never a host-specific channel. Never modify `testanyware-golden-windows-11`
   itself (experiments run on clones), and do not replace it without asking: it
   is the only Windows golden.
+- **For the human, not yet decided.** Whether `testanyware doctor` should
+  report the host TPM check (k3 recommends yes). `golden-swap-in` asks it
+  while the human is there for the golden swap, and cuts a leaf if the answer
+  is yes. Filing the drafted QEMU report (k3's Notes) and closing #6 are also
+  the human's.
 - **Landing.** This grove lands on `main` first, then issue #3's grove rebases
   onto it. Expect conflicts there in `qemu.rs`, `lifecycle.rs`, the Taskfile
   and the contract docs; #3's grove resolves them. Reusing #3's task names
