@@ -69,6 +69,17 @@ _Avoid_: "agent ready" (blurs healthy with accessible); treating
 A pre-built per-platform VM disk image (`testanyware-golden-<platform>-...`)
 that `vm start` clones to spawn a fresh instance.
 
+**Base VM** (macOS golden creation):
+The stopped tart VM a macOS *Golden image* is built from. For a release Cirrus
+Labs publishes (`tahoe`, `sequoia`, `sonoma`) it is their **vanilla** image,
+cloned as-is. For one it does not publish (`--version 27`), TestAnyware builds
+it once from Apple's IPSW as `testanyware-base-macos-<major>`: `tart create
+--from-ipsw`, Setup Assistant driven over RFB + OCR, Remote Login on, then the
+same first-contact state a vanilla image has — an `admin`/`admin` account,
+passwordless `sudo`, auto-login, no display sleep. It is not a Golden image: it
+has no agent and no TCC grants.
+_Avoid_: "vanilla" for the IPSW-built one (vanilla is Cirrus's image).
+
 **Autounattend provisioning** (Windows golden creation):
 How the **Windows** Golden image is built — structurally unlike the macOS one.
 macOS *clones a pre-built vanilla image* and provisions a running system over

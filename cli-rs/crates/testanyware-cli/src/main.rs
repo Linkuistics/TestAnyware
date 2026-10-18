@@ -613,7 +613,10 @@ EXIT CODES:
 
 PLATFORM:
     Requires a macOS host. macOS clones a Cirrus Labs vanilla image via tart
-    and drives a 5-boot SIP/TCC cycle. linux clones a Cirrus Labs vanilla
+    and drives a 5-boot SIP/TCC cycle. A numeric --version (27) names a release
+    Cirrus does not publish: the first run installs it from Apple's IPSW
+    (about 25 GB, cached) into the base VM testanyware-base-macos-27 by
+    driving Setup Assistant, and later runs reuse that base. linux clones a Cirrus Labs vanilla
     Ubuntu image via tart and provisions Ubuntu Desktop + the agent over SSH
     in 2 normal boots (no SIP/TCC cycle). windows boots an unattended install
     from a Microsoft evaluation ISO under QEMU+swtpm and provisions over the
@@ -1859,9 +1862,10 @@ enum VmAction {
         /// Target platform: `macos`, `linux`, or `windows` (all require a macOS host).
         #[arg(long, value_name = "PLATFORM")]
         platform: String,
-        /// OS version to provision. macOS: tahoe, sequoia, sonoma [default:
-        /// tahoe]. linux: 24.04, 22.04 [default: 24.04]. windows: the release
-        /// number [default: 11].
+        /// OS version to provision. macOS: tahoe, sequoia, sonoma (Cirrus Labs
+        /// vanilla images) or a major number such as 27 (built once from
+        /// Apple's IPSW) [default: tahoe]. linux: 24.04, 22.04 [default:
+        /// 24.04]. windows: the release number [default: 11].
         #[arg(long, value_name = "VERSION")]
         version: Option<String>,
         /// Golden image name [default: testanyware-golden-<platform>-<version>].

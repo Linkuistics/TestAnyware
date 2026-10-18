@@ -41,6 +41,7 @@ use std::time::Duration;
 
 use crate::error::VmError;
 use crate::id::generate_id;
+use crate::ipsw_base::{base_source, BaseSource};
 use crate::paths::VmPaths;
 use crate::ssh::SshSession;
 
@@ -98,7 +99,7 @@ pub struct SetupVm {
 /// The vanilla Cirrus Labs image ref for a macOS `version`. Ports
 /// `_VANILLA="ghcr.io/cirruslabs/macos-$_VERSION-vanilla:latest"`.
 pub fn vanilla_image(version: &str) -> String {
-    format!("ghcr.io/cirruslabs/macos-{version}-vanilla:latest")
+    crate::base_source::vanilla_image(version)
 }
 
 /// Ordered host SSH **public**-key candidates under `home`. Ports the
@@ -328,11 +329,19 @@ pub async fn provision_boot1(opts: &GoldenOptions, paths: &VmPaths) -> Result<Se
     // or a golden. `generate_id()` yields `testanyware-<hex8>`; splice in a
     // `setup-` marker. Ports `_SETUP_VM="testanyware-setup-$$"`.
     let setup_id = generate_id().replacen("testanyware-", "testanyware-setup-", 1);
-    let vanilla = vanilla_image(&opts.version);
 
-    eprintln!("Cloning {vanilla} → {setup_id}...");
-    eprintln!("(This may pull the image on first run — can take several minutes)");
-    crate::tart::clone(&vanilla, &setup_id)?;
+    // The base to clone: a Cirrus vanilla image, or — for a release Cirrus does
+    // not publish (a numeric `--version`, e.g. 27) — a base built from Apple's
+    // IPSW, built now if it does not exist yet.
+    let base = match base_source(&opts.version) {
+        BaseSource::Vanilla(image) => {
+            eprintln!("(Cloning may pull the image on first run — can take several minutes)");
+            image
+        }
+        BaseSource::Ipsw { major } => crate::ipsw_base::ensure_base_vm(major, paths).await?,
+    };
+    eprintln!("Cloning {base} → {setup_id}...");
+    crate::tart::clone(&base, &setup_id)?;
 
     // Boot detached (`tart run --no-graphics --vnc-experimental`); the VNC
     // line in the run log is the booting signal.

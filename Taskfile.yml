@@ -96,3 +96,24 @@ tasks:
     deps: [cli:build]
     cmds:
       - scripts/windows-healthy-start.sh {{.BASE}}
+
+  vm:ipsw-base-live:
+    desc: 'Does `ensure_base_vm(27)` build testanyware-base-macos-27 from Apple''s IPSW and does the result pass its contract (SSH admin/admin, passwordless sudo, auto-login, no sleep)? A no-op build if the base exists. First run downloads about 25 GB; the install is about 4 minutes and Setup Assistant about 5 more. Run from a terminal that may reach guest IPs (macOS Local Network permission)'
+    dir: '{{.CLI_DIR}}'
+    env:
+      TESTANYWARE_LIVE_IPSW_BASE: '1'
+    cmds:
+      - cargo test -p testanyware-vm --test ipsw-base-live -- --ignored --nocapture ensure_base_vm_live
+
+  vm:setup-assistant-live:
+    desc: 'Iterate on the Setup Assistant driver: run it against a clone of a never-booted IPSW VM, then check the result. Needs FRESH=<vm> (make one with `tart create <vm> --from-ipsw <cached ipsw>`); about 5 minutes, no reinstall. Keeps the clone as testanyware-base-livetest'
+    dir: '{{.CLI_DIR}}'
+    env:
+      TESTANYWARE_LIVE_IPSW_BASE: '1'
+      TESTANYWARE_IPSW_FRESH_VM: '{{.FRESH}}'
+      TESTANYWARE_IPSW_KEEP: '1'
+    preconditions:
+      - sh: test -n "{{.FRESH}}"
+        msg: 'set FRESH=<a never-booted VM made by `tart create --from-ipsw`>'
+    cmds:
+      - cargo test -p testanyware-vm --test ipsw-base-live -- --ignored --nocapture configure_fresh_clone_live

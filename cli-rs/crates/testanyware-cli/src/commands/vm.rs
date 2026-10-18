@@ -515,13 +515,29 @@ fn golden_boot_plan() -> [(u32, &'static str, &'static str); 5] {
     ]
 }
 
+/// Where the macOS golden's base VM comes from, in words, for the dry-run
+/// plan: a Cirrus vanilla image, or a base built from Apple's IPSW on first use.
+/// Pure (no `tart`, no network), shared by the text and JSON renderers.
+fn golden_base_note(version: &str) -> String {
+    use testanyware_vm::base_source::{base_source, base_vm_name, BaseSource};
+    match base_source(version) {
+        BaseSource::Vanilla(image) => format!("Cirrus Labs vanilla image {image}"),
+        BaseSource::Ipsw { major } => format!(
+            "{}, built from Apple's IPSW for macOS {major} on first use (about 25 GB download)",
+            base_vm_name(major)
+        ),
+    }
+}
+
 fn emit_golden_plan(version: &str, name: &str, mode: OutputMode) {
     let plan = golden_boot_plan();
+    let base = golden_base_note(version);
     match mode {
         OutputMode::Text => {
             println!(
                 "dry-run: would create golden {name} (platform macos, version {version})"
             );
+            println!("base: {base}");
             println!("boot plan (3 normal + 2 recovery = 5 boots):");
             for (step, boot_mode, actions) in plan {
                 println!("  {step}. [{boot_mode}] {actions}");
@@ -539,6 +555,7 @@ fn emit_golden_plan(version: &str, name: &str, mode: OutputMode) {
                 "platform": "macos",
                 "version": version,
                 "name": name,
+                "base": base,
                 "boot_plan": steps,
             }));
         }
@@ -827,6 +844,16 @@ mod tests {
                 assert!(tpm["properties"].get(key).is_some(), "{key} not in schema");
             }
         }
+    }
+
+    #[test]
+    fn golden_base_note_names_a_vanilla_image_or_the_ipsw_built_base() {
+        assert_eq!(
+            golden_base_note("tahoe"),
+            "Cirrus Labs vanilla image ghcr.io/cirruslabs/macos-tahoe-vanilla:latest"
+        );
+        let ipsw = golden_base_note("27");
+        assert!(ipsw.starts_with("testanyware-base-macos-27, built from Apple's IPSW"), "{ipsw}");
     }
 
     #[test]

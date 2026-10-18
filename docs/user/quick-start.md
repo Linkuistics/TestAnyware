@@ -36,6 +36,14 @@ The command downloads a vanilla macOS Tahoe image, installs the
 TestAnyware agent, grants accessibility, and finalises the golden. You
 only need to do this once per host.
 
+For a macOS release Cirrus Labs does not publish an image for, pass its major
+number: `testanyware vm create-golden --platform macos --version 27`. The first
+run installs macOS from Apple's IPSW (about 25 GB, cached under
+`~/.local/share/testanyware/cache/`) into a base VM,
+`testanyware-base-macos-27`, by driving Setup Assistant, then builds the golden
+from it; later runs reuse the base. Expect about 30 minutes extra on the first
+run.
+
 ## 3. Start a VM
 
 ```bash

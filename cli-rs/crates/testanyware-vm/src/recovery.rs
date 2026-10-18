@@ -306,6 +306,15 @@ impl RecoverySession {
         }
     }
 
+    /// One capture → OCR pass: everything readable on screen right now. The
+    /// building block for drivers (Setup Assistant, [`crate::setup_assistant`])
+    /// that decide what to do from the whole screen rather than from one
+    /// expected string.
+    pub(crate) async fn observe(&mut self) -> Result<Vec<OcrDetection>, RecoveryError> {
+        let png = capture_frame_png(&mut self.conn).await?;
+        self.engine.recognize(&png).await.map_err(|e| RecoveryError::Ocr(e.to_string()))
+    }
+
     /// Wait until the framebuffer stops changing for [`SETTLE_QUIET`], bounded
     /// by `deadline`. Returns `Ok` either on quiesce or at the deadline —
     /// settle is a best-effort proxy for a signal-less gap, never an
@@ -340,14 +349,21 @@ impl RecoverySession {
     // -- act --------------------------------------------------------------
 
     /// Press and release a named key with no modifiers.
-    async fn key(&mut self, name: &str) -> Result<(), RecoveryError> {
+    pub(crate) async fn key(&mut self, name: &str) -> Result<(), RecoveryError> {
         self.conn.press_key(name, &[], Platform::Macos).await?;
+        Ok(())
+    }
+
+    /// Press a named key together with modifier names (`cmd`, `shift`, …),
+    /// resolved for a macOS guest (Command is `XK_Alt_L` on this VNC path).
+    pub(crate) async fn key_chord(&mut self, name: &str, modifiers: &[&str]) -> Result<(), RecoveryError> {
+        self.conn.press_key(name, modifiers, Platform::Macos).await?;
         Ok(())
     }
 
     /// Type a literal string (per-character key events; newlines are skipped
     /// by the input layer — issue [`RecoverySession::key`]`("return")`).
-    async fn type_text(&mut self, text: &str) -> Result<(), RecoveryError> {
+    pub(crate) async fn type_text(&mut self, text: &str) -> Result<(), RecoveryError> {
         self.conn.type_text(text).await?;
         Ok(())
     }
@@ -395,7 +411,7 @@ impl RecoverySession {
     /// Move onto a point and click it (move → down → up), with short settle
     /// pauses so the guest registers the hover before the press and the press
     /// before the release.
-    async fn click_at(&mut self, x: u16, y: u16) -> Result<(), RecoveryError> {
+    pub(crate) async fn click_at(&mut self, x: u16, y: u16) -> Result<(), RecoveryError> {
         self.mouse_move(x, y).await?;
         tokio::time::sleep(NAV_PAUSE).await;
         self.mouse_down(x, y).await?;
@@ -630,13 +646,13 @@ pub(crate) async fn reboot_and_wait_ssh(setup: &SetupVm, paths: &VmPaths) -> Res
 
 /// A deadline `d` from now — the polling-wait equivalent of the script's
 /// fixed-budget `sleep N`.
-fn deadline_in(d: Duration) -> Instant {
+pub(crate) fn deadline_in(d: Duration) -> Instant {
     Instant::now() + d
 }
 
 /// Round an OCR centre point to integer framebuffer coordinates for a pointer
 /// event. Negative or overflowing values are clamped into `u16`.
-fn round_point((x, y): (f64, f64)) -> (u16, u16) {
+pub(crate) fn round_point((x, y): (f64, f64)) -> (u16, u16) {
     let clamp = |v: f64| v.round().clamp(0.0, u16::MAX as f64) as u16;
     (clamp(x), clamp(y))
 }

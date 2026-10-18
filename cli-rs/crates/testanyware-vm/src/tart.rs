@@ -206,6 +206,34 @@ pub fn clone(base: &str, id: &str) -> Result<(), VmError> {
     }
 }
 
+/// `tart create <name> --from-ipsw <ipsw> --disk-size <gb>`: install macOS from
+/// a restore image into a new, stopped VM. Takes a while (the restore runs
+/// inside Virtualization.framework), so callers should expect minutes. The VM
+/// boots to Setup Assistant — no account exists yet.
+pub fn create_from_ipsw(name: &str, ipsw: &Path, disk_gb: u32) -> Result<(), VmError> {
+    let disk = disk_gb.to_string();
+    let ipsw_arg = ipsw.display().to_string();
+    let r = run_tart(&["create", name, "--from-ipsw", &ipsw_arg, "--disk-size", &disk]);
+    if r.exit_code == 0 {
+        Ok(())
+    } else {
+        Err(VmError::TartFailed {
+            detail: format!("tart create {name} --from-ipsw {ipsw_arg}: {}", r.stderr.trim()),
+        })
+    }
+}
+
+/// `tart rename <from> <to>`. Used to publish a finished base VM under its
+/// real name only once it is complete.
+pub fn rename(from: &str, to: &str) -> Result<(), VmError> {
+    let r = run_tart(&["rename", from, to]);
+    if r.exit_code == 0 {
+        Ok(())
+    } else {
+        Err(VmError::TartFailed { detail: format!("tart rename {from} {to}: {}", r.stderr.trim()) })
+    }
+}
+
 /// Default guest display when `--display` is omitted (ADR-0013): 1920×1080
 /// **px**. The explicit `px` is load-bearing — `tart set --display`'s unit
 /// hint defaults to *points* for macOS VMs (`tart set --help`, tart 2.32.1),
