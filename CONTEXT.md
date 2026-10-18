@@ -98,6 +98,18 @@ TestAnyware builds no Linux qcow2 golden itself, so the path is reached only wit
 a supplied image.
 _Avoid_: "the Linux golden" (by default that is the tart image).
 
+**TPM decision**:
+The one answer, for a QEMU guest's start or a Windows golden's creation, to
+whether the guest gets a TPM: *attach* (swtpm, the golden's TPM state and the
+`tpm-tis-device`, with its PPI off under HVF), *omit* with a reason (the guest
+does not need one; or the host cannot supply one, because its QEMU binary has
+no `tpm-tis-device`), or *refuse* before anything is cloned (swtpm is missing).
+It is decided from the guest's platform and the host check: the QEMU binary's
+own `tpm-tis-device` property list, swtpm on the path, and the accelerator
+(ADR-0017). Every TPM site consumes it, and the start reports it.
+_Avoid_: "needs TPM" (only one input to the decision); "TPM support" (blurs
+what the host's QEMU offers with what this guest gets).
+
 **Shared-VNC server** (historical):
 The Swift `_server` process — a long-lived host-side daemon that held **one
 VNC connection** open on a unix socket (with a PID file and idle timeout) and

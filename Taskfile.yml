@@ -34,3 +34,10 @@ tasks:
     dir: '{{.CLI_DIR}}'
     cmds:
       - cargo clippy --workspace --all-targets
+
+  # ---- Live checks (macOS host) --------------------------------------------
+
+  vm:qemu-tpm-check:
+    desc: Does this host's QEMU run a Windows guest's TPM device as TestAnyware attaches it (ADR-0017)? Seconds; paused diskless guests, needs qemu and swtpm
+    cmds:
+      - scripts/qemu-tpm-check.sh
