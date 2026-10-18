@@ -24,7 +24,12 @@ use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 use serde_json::{json, Value};
+use testanyware_vm::error::VmError;
+use testanyware_vm::lifecycle::Platform;
+use testanyware_vm::qemu_profile::host_profile;
+use testanyware_vm::tpm::{decide_tpm_on_host, OmitReason, TpmDecision};
 
+use crate::commands::vm::{tpm_json, tpm_text};
 use crate::output::{OutputMode, SCHEMA_VERSION};
 
 // =========================================================================
@@ -825,6 +830,104 @@ fn gather_provisioner(brew_prefix: Option<&str>, tools: &[ToolStatus]) -> Provis
 }
 
 // =========================================================================
+// 6. Windows guest TPM (reports the decision `vm start` makes; ADR-0017).
+// =========================================================================
+
+/// Why the TPM decision could not be reported as an answer: its error code,
+/// message and remediation, as `vm start` would print them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TpmProblem {
+    pub code: &'static str,
+    pub message: String,
+    pub remediation: Option<String>,
+}
+
+impl TpmProblem {
+    fn from_error(err: &VmError) -> Self {
+        TpmProblem { code: err.code(), message: err.to_string(), remediation: err.remediation() }
+    }
+}
+
+/// What `doctor` reports about a Windows guest's TPM on this host.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TpmCheck {
+    /// The decision `vm start --platform windows` would make: attach, or omit.
+    Decided(TpmDecision),
+    /// The decision's *refuse* answer: a Windows start would be rejected
+    /// before launch (swtpm missing). The one TPM outcome that fails `doctor`.
+    Refused(TpmProblem),
+    /// The host could not be observed (QEMU would not run, or printed output
+    /// the probe does not recognise). A start would fail too, but not as a TPM
+    /// refusal, and QEMU's own absence is already reported under host tools.
+    Unobservable(TpmProblem),
+}
+
+impl TpmCheck {
+    /// `false` only when a Windows start would be refused for want of a TPM.
+    pub fn is_ok(&self) -> bool {
+        !matches!(self, TpmCheck::Refused(_))
+    }
+
+    fn status(&self) -> &'static str {
+        match self {
+            TpmCheck::Decided(TpmDecision::Attach { .. })
+            | TpmCheck::Decided(TpmDecision::Omit(OmitReason::GuestDoesNotNeedOne)) => "pass",
+            TpmCheck::Decided(TpmDecision::Omit(OmitReason::HostCannotSupplyOne)) => "warn",
+            TpmCheck::Refused(_) => "fail",
+            TpmCheck::Unobservable(_) => "warn",
+        }
+    }
+}
+
+/// Pure classifier over the TPM decision's result. Only `SwtpmMissing` is the
+/// decision refusing; any other error means the host was not observed.
+pub fn classify_windows_tpm(decision: Result<TpmDecision, VmError>) -> TpmCheck {
+    match decision {
+        Ok(decision) => TpmCheck::Decided(decision),
+        Err(err @ VmError::SwtpmMissing) => TpmCheck::Refused(TpmProblem::from_error(&err)),
+        Err(err) => TpmCheck::Unobservable(TpmProblem::from_error(&err)),
+    }
+}
+
+/// The check's JSON: `status`, plus the `vm start` `tpm` object for an answer
+/// (`attached`, `ppi_off` or `reason`), or `attached: false` and an `error`.
+fn windows_tpm_json(check: &TpmCheck) -> Value {
+    let mut body = match check {
+        TpmCheck::Decided(decision) => tpm_json(*decision),
+        TpmCheck::Refused(problem) | TpmCheck::Unobservable(problem) => json!({
+            "attached": false,
+            "error": {
+                "code": problem.code,
+                "message": problem.message,
+                "remediation": problem.remediation,
+            },
+        }),
+    };
+    body["status"] = json!(check.status());
+    body
+}
+
+fn windows_tpm_lines(check: &TpmCheck) -> Vec<String> {
+    let mut lines = Vec::new();
+    match check {
+        TpmCheck::Decided(decision) => {
+            let mark = if check.status() == "pass" { "✓" } else { "!" };
+            lines.push(format!("  {mark} Windows guests: {}", tpm_text(*decision)));
+        }
+        TpmCheck::Refused(problem) => {
+            lines.push(format!("  ✗ Windows guests would be refused: {}", problem.message));
+            if let Some(remediation) = &problem.remediation {
+                lines.push(format!("    remediation: {remediation}"));
+            }
+        }
+        TpmCheck::Unobservable(problem) => {
+            lines.push(format!("  ! could not check this host's TPM support: {}", problem.message));
+        }
+    }
+    lines
+}
+
+// =========================================================================
 // Report assembly, JSON + text rendering.
 // =========================================================================
 
@@ -835,6 +938,7 @@ struct DoctorReport {
     scripts: ScriptsVerdict,
     tools: Vec<ToolStatus>,
     provisioner: ProvisionerResult,
+    windows_tpm: TpmCheck,
 }
 
 impl DoctorReport {
@@ -850,13 +954,15 @@ impl DoctorReport {
             scripts: classify_bundled_scripts(brew.as_deref(), &probe_script_files(brew.as_deref())),
             provisioner: gather_provisioner(brew.as_deref(), &tools),
             tools,
+            windows_tpm: classify_windows_tpm(decide_tpm_on_host(Platform::Windows, &host_profile())),
         }
     }
 
     /// Overall health. Tool availability and script floors are advisory and
-    /// do not flip this (matching the Swift `isOK` semantics).
+    /// do not flip this (matching the Swift `isOK` semantics). A Windows TPM
+    /// that would be omitted is advisory too; one that would be refused is not.
     fn is_ok(&self) -> bool {
-        self.install.is_ok() && self.agents.is_ok() && self.scripts.is_ok()
+        self.install.is_ok() && self.agents.is_ok() && self.scripts.is_ok() && self.windows_tpm.is_ok()
     }
 
     fn to_json(&self) -> Value {
@@ -869,6 +975,7 @@ impl DoctorReport {
                 "bundled_scripts": self.scripts_json(),
                 "host_tools": self.tools_json(),
                 "script_tool_floors": self.provisioner_json(),
+                "windows_tpm": windows_tpm_json(&self.windows_tpm),
             },
         })
     }
@@ -992,6 +1099,10 @@ impl DoctorReport {
 
         lines.push("Bundled-script tool floors".to_string());
         self.render_provisioner(&mut lines);
+        lines.push(String::new());
+
+        lines.push("Windows guest TPM".to_string());
+        lines.extend(windows_tpm_lines(&self.windows_tpm));
 
         let mut text = lines.join("\n");
         text.push('\n');
@@ -1199,7 +1310,7 @@ fn pretty_source(source: &str) -> String {
 
 /// `testanyware doctor` entry point. Read-only: no `--dry-run` (contract
 /// §9.3). Emits the full report in both modes; exit 0 when healthy, 1 when a
-/// blocking check (install/agents/scripts) fails.
+/// blocking check (install/agents/scripts, or a refused Windows TPM) fails.
 pub fn run_doctor(mode: OutputMode) -> ! {
     let report = DoctorReport::gather();
     let ok = report.is_ok();
@@ -1475,5 +1586,124 @@ mod tests {
         assert!(candidates.contains(&"/home/linuxbrew/.linuxbrew/bin/brew"));
         #[cfg(not(any(target_os = "macos", target_os = "linux")))]
         assert!(candidates.is_empty());
+    }
+
+    // ---- Windows guest TPM ----
+
+    /// Every outcome of the TPM decision, as `decide_tpm` can return it for a
+    /// Windows guest (plus the one it cannot: the guest needing none).
+    fn every_outcome() -> Vec<(&'static str, Result<TpmDecision, VmError>)> {
+        vec![
+            ("attach", Ok(TpmDecision::Attach { ppi_off: false })),
+            ("attach_ppi_off", Ok(TpmDecision::Attach { ppi_off: true })),
+            ("omit_host", Ok(TpmDecision::Omit(OmitReason::HostCannotSupplyOne))),
+            ("omit_guest", Ok(TpmDecision::Omit(OmitReason::GuestDoesNotNeedOne))),
+            ("refuse", Err(VmError::SwtpmMissing)),
+            ("unobservable", Err(VmError::QemuFailed { detail: "qemu: not found".into() })),
+        ]
+    }
+
+    #[test]
+    fn windows_tpm_classifies_each_outcome() {
+        let checks: Vec<(&str, TpmCheck)> = every_outcome()
+            .into_iter()
+            .map(|(name, result)| (name, classify_windows_tpm(result)))
+            .collect();
+        assert_eq!(checks[0].1, TpmCheck::Decided(TpmDecision::Attach { ppi_off: false }));
+        assert_eq!(checks[1].1, TpmCheck::Decided(TpmDecision::Attach { ppi_off: true }));
+        assert_eq!(checks[2].1, TpmCheck::Decided(TpmDecision::Omit(OmitReason::HostCannotSupplyOne)));
+        assert!(matches!(&checks[4].1, TpmCheck::Refused(p) if p.code == "SWTPM_MISSING"));
+        assert!(matches!(&checks[5].1, TpmCheck::Unobservable(p) if p.code == "QEMU_FAILED"));
+    }
+
+    #[test]
+    fn windows_tpm_json_is_the_vm_start_object_plus_a_status() {
+        let json_of = |r| windows_tpm_json(&classify_windows_tpm(r));
+        assert_eq!(
+            json_of(Ok(TpmDecision::Attach { ppi_off: true })),
+            json!({ "status": "pass", "attached": true, "ppi_off": true })
+        );
+        assert_eq!(
+            json_of(Ok(TpmDecision::Attach { ppi_off: false })),
+            json!({ "status": "pass", "attached": true, "ppi_off": false })
+        );
+        assert_eq!(
+            json_of(Ok(TpmDecision::Omit(OmitReason::HostCannotSupplyOne))),
+            json!({ "status": "warn", "attached": false, "reason": "host_cannot_supply_one" })
+        );
+        let refused = json_of(Err(VmError::SwtpmMissing));
+        assert_eq!(refused["status"], "fail");
+        assert_eq!(refused["attached"], false);
+        assert_eq!(refused["error"]["code"], "SWTPM_MISSING");
+        assert!(refused["error"]["remediation"].as_str().unwrap().contains("brew install swtpm"));
+        let unobserved = json_of(Err(VmError::QemuFailed { detail: "x".into() }));
+        assert_eq!(unobserved["status"], "warn");
+        assert_eq!(unobserved["error"]["code"], "QEMU_FAILED");
+    }
+
+    #[test]
+    fn only_a_refusal_fails_the_run() {
+        for (name, result) in every_outcome() {
+            let check = classify_windows_tpm(result);
+            assert_eq!(check.is_ok(), name != "refuse", "{name}");
+            assert_eq!(check.status() == "fail", name == "refuse", "{name}");
+        }
+    }
+
+    #[test]
+    fn windows_tpm_text_marks_each_outcome() {
+        let text_of = |r| windows_tpm_lines(&classify_windows_tpm(r)).join("\n");
+        assert_eq!(
+            text_of(Ok(TpmDecision::Attach { ppi_off: false })),
+            "  ✓ Windows guests: TPM attached"
+        );
+        assert_eq!(
+            text_of(Ok(TpmDecision::Attach { ppi_off: true })),
+            "  ✓ Windows guests: TPM attached (PPI off)"
+        );
+        let omit = text_of(Ok(TpmDecision::Omit(OmitReason::HostCannotSupplyOne)));
+        assert!(omit.starts_with("  ! Windows guests: TPM omitted"), "{omit}");
+        let refused = text_of(Err(VmError::SwtpmMissing));
+        assert!(refused.starts_with("  ✗ "), "{refused}");
+        assert!(refused.contains("remediation:") && refused.contains("brew install swtpm"), "{refused}");
+        let unobserved = text_of(Err(VmError::QemuFailed { detail: "qemu: not found".into() }));
+        assert!(unobserved.starts_with("  ! could not check"), "{unobserved}");
+        assert!(unobserved.contains("qemu: not found"), "{unobserved}");
+    }
+
+    /// `doctor.json` declares the `windows_tpm` group and every status and
+    /// field the renderer emits.
+    #[test]
+    fn windows_tpm_json_fits_the_doctor_schema() {
+        let schema: Value =
+            serde_json::from_str(include_str!("../../../../../docs/reference/cli-schemas/doctor.json"))
+                .unwrap();
+        let checks = &schema["properties"]["checks"];
+        let required = checks["required"].as_array().unwrap();
+        assert!(required.iter().any(|r| r == "windows_tpm"), "windows_tpm must be required");
+        let tpm = &checks["properties"]["windows_tpm"];
+        let statuses: Vec<&str> = tpm["properties"]["status"]["enum"]
+            .as_array()
+            .expect("status enum")
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        let reasons: Vec<&str> = tpm["properties"]["reason"]["enum"]
+            .as_array()
+            .expect("reason enum")
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        for (name, result) in every_outcome() {
+            let body = windows_tpm_json(&classify_windows_tpm(result));
+            let status = body["status"].as_str().unwrap();
+            assert!(statuses.contains(&status), "{name}: status {status} not in schema");
+            if let Some(reason) = body["reason"].as_str() {
+                assert!(reasons.contains(&reason), "{name}: reason {reason} not in schema");
+            }
+            for key in body.as_object().unwrap().keys() {
+                assert!(tpm["properties"].get(key).is_some(), "{name}: {key} not in schema");
+            }
+        }
     }
 }

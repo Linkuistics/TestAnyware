@@ -651,8 +651,10 @@ OUTPUT:
 EXIT CODES:
     0  healthy — every blocking check passed
     1  unhealthy — a blocking check failed (install path, bundled agents,
-       or bundled scripts). Host-tool and script-floor checks are advisory
-       and never flip the exit code.
+       bundled scripts, or the Windows guest TPM check when a Windows start
+       would be refused for want of swtpm). Host-tool and script-floor
+       checks, and a Windows TPM that would be omitted, are advisory and
+       never flip the exit code.
 
 EXAMPLES:
     # Human-readable diagnosis of the local install

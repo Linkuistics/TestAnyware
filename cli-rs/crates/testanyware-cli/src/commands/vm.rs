@@ -164,15 +164,17 @@ fn emit_start_plan(opts: &VmStartOptions, tpm: Option<TpmDecision>, mode: Output
 /// The `tpm` value of the `vm start` envelope: `{"attached": true, "ppi_off":
 /// bool}` or `{"attached": false, "reason": ...}`. Pure, so every answer of the
 /// TPM decision is unit-tested; the schema (`vm-start.json`) describes it.
-fn tpm_json(decision: TpmDecision) -> Value {
+/// `doctor` renders its Windows TPM check from the same function.
+pub(crate) fn tpm_json(decision: TpmDecision) -> Value {
     match decision {
         TpmDecision::Attach { ppi_off } => json!({ "attached": true, "ppi_off": ppi_off }),
         TpmDecision::Omit(reason) => json!({ "attached": false, "reason": omit_reason_slug(reason) }),
     }
 }
 
-/// The same answer in words, for stderr in text mode and the dry-run plan.
-fn tpm_text(decision: TpmDecision) -> String {
+/// The same answer in words, for stderr in text mode and the dry-run plan (and
+/// `doctor`'s text line).
+pub(crate) fn tpm_text(decision: TpmDecision) -> String {
     match decision {
         TpmDecision::Attach { ppi_off: false } => "TPM attached".to_string(),
         TpmDecision::Attach { ppi_off: true } => "TPM attached (PPI off)".to_string(),

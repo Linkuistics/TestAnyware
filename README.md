@@ -99,7 +99,7 @@ testanyware vm stop <vm-id>
 testanyware vm list
 testanyware vm delete <golden-image-name> [--force]
 
-# Diagnostics — verify the install layout (catches dev symlinks shadowing brew)
+# Diagnostics — verify the install layout (catches dev symlinks shadowing brew) and the Windows guest TPM
 testanyware doctor
 ```
 

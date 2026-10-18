@@ -39,3 +39,33 @@ would have pointed straight at the issue #6 fault).
 - Doctor reports; it does not fail the run on an omitted TPM unless the
   decision is "refuse".
 - Live evidence is cheap (no VM needed): run `doctor` directly.
+
+## Decisions (running log)
+
+**`doctor` consumes the decision, it does not re-run the probe.**
+`DoctorReport::gather` calls `decide_tpm_on_host(Platform::Windows,
+&host_profile())`, the entry point `vm start` uses, and a pure
+`classify_windows_tpm` turns its `Result` into a `TpmCheck`. `vm.rs`'s
+`tpm_json` and `tpm_text` became `pub(crate)` so the JSON fields and the words
+are the ones `vm start` emits.
+
+**Status mapping.** `Attach` and `Omit(GuestDoesNotNeedOne)` are `pass`;
+`Omit(HostCannotSupplyOne)` is `warn`; `SwtpmMissing` (the decision's refuse
+answer) is `fail` and the only outcome that flips `ok` and the exit code. Any
+other error (QEMU would not run, or unrecognised probe output) is
+`Unobservable`, a `warn`: the host was not observed, which is not a refusal,
+and QEMU's absence is already shown under host tools (a tart-only Mac must not
+fail `doctor`).
+
+**Doc scope.** The `doctor` user docs exist only in `docs/reference/cli-commands.md`.
+The `website/docs/` copy of that file has no `doctor` section or table row at
+all (it is stale in other ways too), so there is no entry there to update and
+none was added. Updated: the CLI's own `doctor --help` exit-code text, the
+contract (§3.1 note and the §10.1 row), `doctor.json` (new required group), the
+README comment, ADR-0017 (one sentence).
+
+**Live evidence.** `testanyware doctor` on this Mac prints `✓ Windows guests:
+TPM attached (PPI off)`; `--json` gives `{"attached": true, "ppi_off": true,
+"status": "pass"}`. `task doctor:tpm-check` also checks the refuse path with
+swtpm hidden by a sandbox (control: the sandbox's `ls` fails), where `doctor`
+exits 1 with `SWTPM_MISSING`. `task cli:test` passes.

@@ -51,7 +51,9 @@ decision then answers, in this order:
 | otherwise | attach; under HVF, add `ppi=off` when the binary lists a `ppi` property |
 
 Golden creation takes the same answer. The start reports it in its human and
-`--json` outputs: attached, or omitted with the reason.
+`--json` outputs: attached, or omitted with the reason. `testanyware doctor`
+reports the same answer for a Windows guest without starting anything, and
+fails only on the refusal.
 
 Outside HVF the device keeps QEMU's default, so a QEMU ≥ 11.1 under KVM keeps
 the PPI, which works there and silences the Event ID 15 that tpm.sys otherwise

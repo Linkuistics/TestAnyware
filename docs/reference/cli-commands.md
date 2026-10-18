@@ -488,12 +488,26 @@ the brew-installed CLI is silently ignored). The remediation hint targets
 the symlink itself, so following it removes the shadow without touching the
 brew install.
 
+It also reports the **Windows guest TPM** (ADR-0017): the decision
+`vm start --platform windows` and `vm create-golden --platform windows` make
+from this host's QEMU, without starting anything. The line says the TPM would
+be attached (`TPM attached`, or `TPM attached (PPI off)` under Apple's
+Hypervisor.framework with QEMU 11.1 or later), omitted because this host's
+QEMU cannot supply one, or refused because swtpm is missing (with the
+`brew install swtpm` remediation). If QEMU itself cannot be run, the line
+warns that the host could not be checked. In `--json` it is
+`checks.windows_tpm`: the same `tpm` object `vm start` emits
+(`attached`, `ppi_off` or `reason`), plus a `status` of `pass`, `warn` or
+`fail`, and an `error` object when the check refused or could not run.
+
 ```
 testanyware doctor
 ```
 
 **Exit code:** `0` when the install is healthy or Homebrew is not installed;
-`1` when a shadow is detected or `testanyware` is not on PATH.
+`1` when a shadow is detected, `testanyware` is not on PATH, or a Windows
+start would be refused for want of swtpm. A TPM that would be omitted is a
+warning and does not change the exit code.
 
 - `<name>` — Golden image name (run `testanyware vm list` to see available).
 - `--force` — Delete even if running clones appear to depend on the image.

@@ -71,6 +71,26 @@ tasks:
         echo "$out" | grep -q '"code": "SWTPM_MISSING"'
         echo "$out" | grep -q 'brew install swtpm'
 
+  doctor:tpm-check:
+    desc: Does `doctor` report the Windows TPM decision (attached, PPI off here), and fail with SWTPM_MISSING when swtpm is hidden? Seconds; no VM is started
+    deps: [cli:build]
+    vars:
+      CLI: '{{.CLI_DIR}}/target/debug/testanyware'
+    cmds:
+      - '{{.CLI}} doctor --json | grep -q ''"attached": true'''
+      - '{{.CLI}} doctor | grep -q "Windows guests: TPM attached (PPI off)"'
+      # As in vm:start-tpm-report-check: the `ls` is the control and must fail
+      # under the sandbox, or the sandbox is hiding nothing. A refused TPM
+      # makes doctor exit 1.
+      - |
+        profile='(version 1)(allow default)(deny file-read-metadata file-read-data (literal "/opt/homebrew/bin/swtpm"))'
+        if sandbox-exec -p "$profile" /bin/ls /opt/homebrew/bin/swtpm >/dev/null 2>&1; then
+          echo "control failed: the sandbox does not hide swtpm" >&2; exit 1
+        fi
+        out=$(sandbox-exec -p "$profile" {{.CLI}} doctor --json) && { echo "doctor exited 0 with swtpm hidden" >&2; exit 1; }
+        echo "$out" | grep -q '"code": "SWTPM_MISSING"'
+        echo "$out" | grep -q 'brew install swtpm'
+
   vm:windows-healthy-start:
     desc: 'Does one `vm start --platform windows` reach a Healthy agent, unaided, with the TPM attached? Optional BASE=<golden>. About 2.5 minutes (10 to 14 if the agent never answers); always stops and deletes the clone'
     deps: [cli:build]

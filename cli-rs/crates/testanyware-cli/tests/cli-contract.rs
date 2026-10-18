@@ -940,7 +940,7 @@ fn doctor_help_follows_template() {
 }
 
 /// §3.1 + §10.1: `doctor --json` emits a single report envelope with
-/// `schema_version`, a boolean `ok`, and the five structured check groups.
+/// `schema_version`, a boolean `ok`, and the six structured check groups.
 /// doctor is read-only and safe to run; it exits 0 when healthy or 1 when a
 /// blocking check fails — both are valid here, so we assert the shape, not the
 /// host's health.
@@ -964,6 +964,7 @@ fn doctor_json_emits_report_envelope() {
         "bundled_scripts",
         "host_tools",
         "script_tool_floors",
+        "windows_tpm",
     ] {
         assert!(checks.contains_key(group), "checks missing {group:?}; got: {body:#?}");
         assert!(

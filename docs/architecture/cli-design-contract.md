@@ -155,6 +155,16 @@ answer can be seen without starting anything. A tart-backed start (macOS, and
 Linux on a tart golden) has no TPM decision and omits `tpm`. The field is
 optional in `vm-start.json`, so it is an additive change under §3.2.
 
+**`doctor` reports the same decision.** The `doctor` report carries a sixth
+check group, `checks.windows_tpm`, which asks the Windows question of the TPM
+decision (ADR-0017) without starting anything. It is the `tpm` object above
+plus a `status`: `pass` (attached), `warn` (omitted because the host cannot
+supply a TPM, or the host could not be observed) or `fail` (the decision
+refuses with `SWTPM_MISSING`, §4.2). A refusal also carries an `error` object
+(`code`, `message`, `remediation`). Only `fail` flips `doctor`'s `ok` and its
+exit code to `1`; a `warn` never does. The group is required in `doctor.json`,
+which is an additive change under §3.2.
+
 ### 3.2 Stability
 
 Schemas are versioned by the binary's major version. **Adding** a field
@@ -653,7 +663,7 @@ is.
 | `agent windows` | Formatted text only. | Add `--json`. Truncation envelope per §3.5. |
 | `agent press` / `set-value` / `focus` / `show-menu` / `wait` / `window-*` | Formatted text only. | Add `--json` with `agent-action` / `agent-window-action` schemas. |
 | `agent health` | Prints `OK`/`UNHEALTHY`, throws `ExitCode.failure` on bad. | Keep text behaviour; add `--json` returning `{ok, agent_version, accessibility_status, uptime_s}`. |
-| `doctor` | Decorated multi-line prose with ✓/✗/!. | Add `--json`. The five check groups become structured records. Keep the pretty text mode; have it render the same data. |
+| `doctor` | Decorated multi-line prose with ✓/✗/!. | Add `--json`. The check groups become structured records (five from the Swift command, plus `windows_tpm`, below). Keep the pretty text mode; have it render the same data. |
 
 ### 10.2 Help
 
