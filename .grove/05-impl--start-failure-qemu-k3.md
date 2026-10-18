@@ -156,3 +156,12 @@ ours" sentence in `retire.md`). The human will start a new grove for it. Until t
 lands, Done-when's first live sentence (a Windows golden `vm start` reaches a Healthy
 agent, seam check e) cannot be observed here, and this leaf stays live for that one
 check. Everything else in Done-when is met (Q10–Q13).
+
+**Q15 — re-picked with #6 still open; nothing to do, leaf stays live.** The driver
+relaunched this leaf. `HEAD` is still the commit that recorded the blocker, #6 is open
+with no comments, and `task vm:qemu-start` on the same host fails identically
+(`QEMU_FAILED`, `tpm-tis-device … HV_BAD_ARGUMENT`) before the death check can even
+run; no QEMU, swtpm or clone was left behind. The one unmet Done-when sentence still
+cannot be observed, so retiring would claim a check that did not run (Q12). Because
+`pick` returns the first live leaf, k3 will be re-picked every launch until #6 is fixed
+or the human reorders the tree — handed back for that call.
