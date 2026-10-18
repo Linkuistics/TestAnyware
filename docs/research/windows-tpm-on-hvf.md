@@ -134,6 +134,13 @@ branch's CLI and Homebrew QEMU 11.1.2. A `PATH` shim in front of
 | E2b | triple removed | ~2.5 min | same | 10 s after the same change |
 | E3 | triple, `ppi=off` added | 136 s | same | 9 s after the same change |
 
+The remedy's own run, on the rebuilt default golden (after the fix, on this
+branch's CLI; the old golden was deleted and rebuilt under its default name):
+
+| run | TPM arguments | logon | Healthy agent |
+|---|---|---|---|
+| final bar (2026-10-18) | `ppi=off`, reported `{"attached":true,"ppi_off":true}` | automatic, `admin`'s password never expires | one `vm start --platform windows`, no help over VNC |
+
 - **The password.** The answer file's `<AutoLogon>` has no `LogonCount`;
   in-guest `AutoAdminLogon` is 1 with no `AutoLogonCount`, and `net accounts`
   shows a maximum password age of 42 days. The guest clock read 2026-10-18,

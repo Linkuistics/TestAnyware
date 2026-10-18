@@ -67,3 +67,11 @@ Healthy agent, with no help over VNC, and says the TPM was attached.
 - Guests are driven only through the In-VM agent and VNC.
 - This branch's `vm start` warns and exits 0 if the agent never answers;
   the final check must read the agent itself.
+
+## Decisions (running log)
+
+- **Human's answers (2026-10-18).** Swap: option (c), delete the old `testanyware-golden-windows-11` and rebuild under the default name with `vm create-golden`. The option as asked named the deletion and called it irreversible. Doctor: yes, cut an `impl` leaf `doctor-reports-tpm-check`.
+- **Order.** `testanyware-golden-windows-11-pwfix` (verified in k8) stays on disk as a fallback until the rebuilt default golden reaches a Healthy agent. It is not deleted without a further yes.
+- **Rebuild.** Deleted `testanyware-golden-windows-11` with `vm delete` (dry-run first; no clone running), then `vm create-golden --platform windows` from a frozen copy of the debug CLI with no `--name`: exit 0 in about an hour, `SetupComplete.log` showed `admin password set to never expire (exit 0)` and the build's in-guest check printed `admin's password never expires.`
+- **Final bar (2026-10-18).** `task vm:windows-healthy-start` with the default golden: `OK: testanyware-512fb51f agent healthy at localhost:57581, TPM attached`; `{"tpm":{"attached":true,"ppi_off":true}}`; `/health` `{"accessible":true,"platform":"windows"}`; `vm list` shows no running clones afterwards. No help over VNC. The root brief's bar is met.
+- **Left for the human.** `testanyware-golden-windows-11-pwfix` (13 GB) is now a duplicate of the default golden. It was not deleted: that needs its own yes. Doctor leaf `doctor-reports-tpm-check-k11` cut at the human's yes.
