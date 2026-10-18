@@ -166,7 +166,7 @@ fn systemd_user_unit() -> String {
 /// Whether an agent `/health` body reports `accessible: true`. Ports the
 /// script's `grep -q '"accessible": *true'`, but parses the JSON so spacing /
 /// key order cannot fool it. A non-JSON or `accessible: false` body is `false`.
-fn health_accessible(body: &str) -> bool {
+pub(crate) fn health_accessible(body: &str) -> bool {
     serde_json::from_str::<serde_json::Value>(body)
         .ok()
         .and_then(|v| v.get("accessible").and_then(|a| a.as_bool()))

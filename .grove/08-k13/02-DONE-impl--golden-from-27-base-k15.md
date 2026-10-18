@@ -80,3 +80,73 @@ for what is not this leaf's.
   provisioning); keep the image minimal.
 - If the Local Network question needs the human and no human is reachable,
   stop and leave this leaf live.
+
+## Decisions (running log)
+
+- **Local Network blocker confirmed (2026-10-18).** Cloned
+  `testanyware-base-macos-27` to a throwaway `probe-27-net`, started it, and got
+  `192.168.64.7`. From this harness: `nc -z` to port 22 succeeded; Homebrew
+  Python `connect()` and a freshly compiled Rust `std::net::TcpStream` both got
+  `No route to host (os error 65)`; the system `ssh` reached the host (it got as
+  far as an auth refusal). Same split as `ipsw-base-vm-k14` saw, so russh (boot-1
+  provisioning, finalize, `vm start`'s agent wait) cannot run from here. Probe VM
+  deleted; `tart list` shows no clone and nothing running. Not worked around in
+  product code, as the leaf says. Waiting on the human: build from a terminal
+  that may reach guest IPs, or grant Local Network access to what launches the
+  harness. No build run yet.
+- **Terminal run 1 (2026-10-18, the human's terminal).** The installed
+  Homebrew `testanyware` 2.1.0 predates `ipsw-base-vm-k14`, so it read `27` as a
+  Cirrus tag and failed on `macos-27-vanilla` (403). Not a guest-access fault.
+  The branch binary `cli-rs/target/debug/testanyware` was run instead. From that
+  terminal russh reached the guest: **the Local Network blocker is specific to the
+  harness, not the CLI.** Boot 1, `csrutil disable`, the TCC grant and its
+  after-grant check, and `csrutil enable` all ran on 27. The run then failed at
+  "TCC verification failed (after SIP re-enable): Accessibility=missing, Full Disk
+  Access=missing", and teardown deleted the setup VM.
+- **Cause of that failure: an unreadable database, not a missing grant
+  (2026-10-18).** On a clone of the base (SIP on), `sudo sqlite3
+  "/Library/Application Support/com.apple.TCC/TCC.db" "select count(*) from
+  access;"` over `ssh` exits 1 with `unable to open database ...: authorization
+  denied`. `tcc_row` dropped stderr and read the empty stdout as "no row". So the
+  after-re-enable check could never pass on 27 whatever the grants held. Whether
+  the grants survived the SIP re-enable is **not yet observed**; the health gate
+  below is what shows it.
+- **Fix.** `finalize.rs`: `classify_tcc_read` separates `Unreadable` from `Absent`;
+  `tcc_verdict` defers an unreadable database to the health gate only when SIP is
+  on (`Sip::On`) and keeps it fatal with SIP off, where the grant step needs the
+  read; `verify_agent_health` now requires `accessible: true` (the agent's
+  `AXIsProcessTrusted()`, as the Linux gate already did), via the shared
+  `golden_linux::health_accessible`. Unit-tested (187 pass in the crate). This
+  makes the health gate the single post-SIP proof of the grant, so it is stricter
+  than before on Tahoe too.
+
+## Outcome (2026-10-18)
+
+**Delivered and verified live:**
+- `vm create-golden --platform macos --version 27` (branch binary, human's
+  terminal) completed and left `testanyware-golden-macos-27`. The pipeline ran
+  on 27 without change except the TCC verification: boot 1 (CLT, Homebrew,
+  agent), `csrutil disable`, the TCC grant and read-back, `csrutil enable`, the
+  health gate, the clone.
+- A clone started with `vm start --platform macos --base
+  testanyware-golden-macos-27` (human's terminal; the display switched to
+  1920x1080 @ 1x). From the harness, `curl http://192.168.64.4:8648/health`
+  returned `{"accessible":true,"platform":"macos"}` and `/windows` returned
+  windows. `defaults read com.apple.WindowManager StandardHideWidgets` = 1, and
+  `csrutil status` = enabled, in the clone.
+- The clone was stopped with `vm stop` (it deletes the clone). Afterwards `vm
+  list` shows none running; `tart list` shows the base, the 27 golden, the Tahoe
+  golden and the Linux golden, all stopped.
+
+**What 27 broke, and the fix:** one thing, the post-SIP TCC read-back (see the
+running log). Fixed in `finalize.rs` and unit-tested; the live build is the test
+of the fix. Nothing in boot-1 provisioning, the recovery OCR targets or the TCC
+insert needed a change.
+
+**Not exercised here:** the Tahoe path with the stricter health gate; the
+Display / HiDPI and accessibility checks beyond `/health` and `/windows`
+(`checks-27`); the desktop widgets still draw on 27 (passed to `checks-27`).
+
+**Harness note:** the Local Network blocker is specific to the harness. The
+human's terminal reaches guests, so russh steps (`vm create-golden`, `vm start`)
+ran there. Saved to memory; the human wants it fixed later.

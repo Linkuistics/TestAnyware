@@ -45,6 +45,7 @@ use std::time::Duration;
 
 use crate::error::VmError;
 use crate::golden::{cleanup_setup_vm, provision_boot1, GoldenOptions, SetupVm, VANILLA_USER};
+use crate::golden_linux::health_accessible;
 use crate::paths::VmPaths;
 use crate::recovery::{recovery_boot_csrutil, wait_for_pid_exit};
 use crate::ssh::SshSession;
@@ -133,6 +134,31 @@ fn parse_tcc_row(out: &str) -> Option<(i64, i64)> {
     Some((auth.trim().parse().ok()?, len.trim().parse().ok()?))
 }
 
+/// What one verification `SELECT` against `TCC.db` came back with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TccRead {
+    /// A grant row: `(auth_value, length(csreq))`.
+    Row(i64, i64),
+    /// The database opened and holds no row for the agent.
+    Absent,
+    /// The database would not open. With SIP on, macOS 27 refuses `sudo sqlite3`
+    /// (`unable to open database … authorization denied`, exit 1) even for root
+    /// over SSH, so the read says nothing about whether the grant is there.
+    Unreadable,
+}
+
+/// Classify a `sudo sqlite3 … SELECT` result. An open failure must not read as a
+/// missing row: the two need different answers once SIP is back on.
+fn classify_tcc_read(exit_code: i32, stdout: &str, stderr: &str) -> TccRead {
+    if exit_code != 0 && stderr.to_lowercase().contains("authorization denied") {
+        return TccRead::Unreadable;
+    }
+    match parse_tcc_row(stdout) {
+        Some((auth, len)) => TccRead::Row(auth, len),
+        None => TccRead::Absent,
+    }
+}
+
 /// A grant is good iff it is allowed (`auth_value == 2`) with a non-empty csreq
 /// blob. Ports the script's `grep -q "^2|"` plus the `len > 0` intent.
 fn grant_ok(row: Option<(i64, i64)>) -> bool {
@@ -194,7 +220,7 @@ async fn run_sip_tcc_finalize(
         return Err((setup, e));
     }
     // 4. Verify both TCC rows — fatal.
-    if let Err(e) = verify_tcc_grants(&setup, "after grant").await {
+    if let Err(e) = verify_tcc_grants(&setup, "after grant", Sip::Off).await {
         return Err((setup, e));
     }
 
@@ -206,7 +232,7 @@ async fn run_sip_tcc_finalize(
     report_sip_status(&setup, "enabled").await;
 
     // 6. Verify both TCC rows survive SIP re-enable — fatal.
-    if let Err(e) = verify_tcc_grants(&setup, "after SIP re-enable").await {
+    if let Err(e) = verify_tcc_grants(&setup, "after SIP re-enable", Sip::On).await {
         return Err((setup, e));
     }
 
@@ -277,56 +303,111 @@ async fn grant_tcc_permissions(setup: &SetupVm) -> Result<(), VmError> {
     Ok(())
 }
 
+/// Whether SIP is on at a verification point. It decides what an unreadable
+/// `TCC.db` means.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sip {
+    Off,
+    On,
+}
+
 /// Verify both TCC rows are present and allowed (`auth_value=2`, non-empty
 /// csreq). Fatal on a missing/denied grant (script lines 699–713 / 727–743).
 /// `when` labels the call site ("after grant" / "after SIP re-enable").
-async fn verify_tcc_grants(setup: &SetupVm, when: &str) -> Result<(), VmError> {
+///
+/// With SIP on, macOS 27 will not let an SSH `sudo sqlite3` open `TCC.db`, so the
+/// rows cannot be read back. That is not a failure: the grant was verified while
+/// SIP was off, and the health gate that follows requires `accessible: true`,
+/// which is the agent's own `AXIsProcessTrusted()`. With SIP off the read must
+/// work, so an unreadable database there is fatal.
+async fn verify_tcc_grants(setup: &SetupVm, when: &str, sip: Sip) -> Result<(), VmError> {
     eprintln!("Verifying TCC database entries ({when})...");
     let session = ssh(setup).await?;
-    let ax = tcc_row(&session, SERVICE_ACCESSIBILITY).await;
-    let fda = tcc_row(&session, SERVICE_FDA).await;
+    let ax = tcc_read(&session, SERVICE_ACCESSIBILITY).await;
+    let fda = tcc_read(&session, SERVICE_FDA).await;
     eprintln!("  Accessibility:    {}", describe_grant(ax));
     eprintln!("  Full Disk Access: {}", describe_grant(fda));
-    if grant_ok(ax) && grant_ok(fda) {
-        eprintln!("  Both TCC grants verified (auth_value=2, non-empty csreq).");
-        Ok(())
-    } else {
-        Err(VmError::GoldenCreateFailed {
+    match tcc_verdict(ax, fda, sip) {
+        TccVerdict::Verified => {
+            eprintln!("  Both TCC grants verified (auth_value=2, non-empty csreq).");
+            Ok(())
+        }
+        TccVerdict::DeferToHealth => {
+            eprintln!(
+                "  TCC.db is unreadable with SIP on; the agent health check below \
+                 confirms the grants (accessible: true)."
+            );
+            Ok(())
+        }
+        TccVerdict::Failed => Err(VmError::GoldenCreateFailed {
             detail: format!(
                 "TCC verification failed ({when}): Accessibility={}, Full Disk Access={}",
                 describe_grant(ax),
                 describe_grant(fda)
             ),
-        })
+        }),
     }
 }
 
-/// Run one verification `SELECT` and parse its row.
-async fn tcc_row(session: &SshSession, service: &str) -> Option<(i64, i64)> {
+/// What the two reads, taken with SIP in the given state, add up to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TccVerdict {
+    Verified,
+    DeferToHealth,
+    Failed,
+}
+
+fn tcc_verdict(ax: TccRead, fda: TccRead, sip: Sip) -> TccVerdict {
+    let unreadable = ax == TccRead::Unreadable || fda == TccRead::Unreadable;
+    if unreadable {
+        return if sip == Sip::On { TccVerdict::DeferToHealth } else { TccVerdict::Failed };
+    }
+    if grant_ok(read_row(ax)) && grant_ok(read_row(fda)) {
+        TccVerdict::Verified
+    } else {
+        TccVerdict::Failed
+    }
+}
+
+fn read_row(read: TccRead) -> Option<(i64, i64)> {
+    match read {
+        TccRead::Row(auth, len) => Some((auth, len)),
+        TccRead::Absent | TccRead::Unreadable => None,
+    }
+}
+
+/// Run one verification `SELECT` and classify what came back. A failed exec is
+/// treated as an absent row, as before.
+async fn tcc_read(session: &SshSession, service: &str) -> TccRead {
     let cmd = format!("sudo sqlite3 \"{TCC_DB}\" \"{}\"", tcc_verify_sql(service));
-    let out = session.exec(&cmd).await.ok()?;
-    parse_tcc_row(&out.stdout)
+    match session.exec(&cmd).await {
+        Ok(out) => classify_tcc_read(out.exit_code, &out.stdout, &out.stderr),
+        Err(_) => TccRead::Absent,
+    }
 }
 
 /// Human-readable grant state for the narration / error detail.
-fn describe_grant(row: Option<(i64, i64)>) -> String {
-    match row {
-        Some((auth, len)) => format!("auth_value={auth}, csreq={len} bytes"),
-        None => "missing".to_string(),
+fn describe_grant(read: TccRead) -> String {
+    match read {
+        TccRead::Row(auth, len) => format!("auth_value={auth}, csreq={len} bytes"),
+        TccRead::Absent => "missing".to_string(),
+        TccRead::Unreadable => "unreadable (authorization denied)".to_string(),
     }
 }
 
 /// Final health gate: the agent (launched by launchd) must respond on
-/// `localhost:8648`. The agent binds guest-localhost, so this `curl`s **inside**
-/// the guest over SSH rather than reaching it from the host (script lines
-/// 746–760). Fatal on timeout.
+/// `localhost:8648` and report `accessible: true`, its own `AXIsProcessTrusted()`
+/// — the proof the Accessibility grant works, which is the only one available
+/// once SIP is back on (see [`verify_tcc_grants`]). The agent binds
+/// guest-localhost, so this `curl`s **inside** the guest over SSH rather than
+/// reaching it from the host (script lines 746–760). Fatal on timeout.
 async fn verify_agent_health(setup: &SetupVm) -> Result<(), VmError> {
     eprintln!("Checking agent health on port 8648...");
     let session = ssh(setup).await?;
     for attempt in 0..AGENT_HEALTH_ATTEMPTS {
         if let Ok(out) = session.exec("curl -sf http://localhost:8648/health").await {
-            if out.exit_code == 0 {
-                eprintln!("  Agent is running and healthy on port 8648.");
+            if out.exit_code == 0 && health_accessible(&out.stdout) {
+                eprintln!("  Agent is running, healthy and accessible on port 8648.");
                 return Ok(());
             }
         }
@@ -335,8 +416,8 @@ async fn verify_agent_health(setup: &SetupVm) -> Result<(), VmError> {
         }
     }
     Err(VmError::GoldenCreateFailed {
-        detail: "agent did not respond on http://localhost:8648/health within the health window \
-                 — check launchd and the agent log on the setup VM"
+        detail: "agent did not report accessible on http://localhost:8648/health within the \
+                 health window — check launchd, the agent log and the TCC grant on the setup VM"
             .into(),
     })
 }
@@ -460,6 +541,33 @@ mod tests {
         assert_eq!(parse_tcc_row("\n"), None);
         assert_eq!(parse_tcc_row("denied"), None); // no `|`
         assert_eq!(parse_tcc_row("x|y"), None); // unparsable numbers
+    }
+
+    #[test]
+    fn classify_tcc_read_tells_unreadable_from_absent() {
+        // The macOS 27 + SIP-on failure that once read as a missing grant.
+        let denied = "Error: unable to open database \"/Library/Application Support/com.apple.TCC/TCC.db\": authorization denied\n";
+        assert_eq!(classify_tcc_read(1, "", denied), TccRead::Unreadable);
+        // Opened fine, no row.
+        assert_eq!(classify_tcc_read(0, "", ""), TccRead::Absent);
+        // Opened fine, a row.
+        assert_eq!(classify_tcc_read(0, "2|123\n", ""), TccRead::Row(2, 123));
+        // Some other failure is not "unreadable".
+        assert_eq!(classify_tcc_read(1, "", "Error: no such table: access"), TccRead::Absent);
+    }
+
+    #[test]
+    fn tcc_verdict_defers_an_unreadable_db_only_when_sip_is_on() {
+        let good = TccRead::Row(2, 123);
+        assert_eq!(tcc_verdict(good, good, Sip::Off), TccVerdict::Verified);
+        assert_eq!(tcc_verdict(good, good, Sip::On), TccVerdict::Verified);
+        let denied = TccRead::Unreadable;
+        assert_eq!(tcc_verdict(denied, denied, Sip::On), TccVerdict::DeferToHealth);
+        // With SIP off the grant step needed this read; failing it is a real fault.
+        assert_eq!(tcc_verdict(denied, denied, Sip::Off), TccVerdict::Failed);
+        // A readable db without the rows is a failure either way.
+        assert_eq!(tcc_verdict(TccRead::Absent, good, Sip::On), TccVerdict::Failed);
+        assert_eq!(tcc_verdict(TccRead::Row(0, 123), good, Sip::Off), TccVerdict::Failed);
     }
 
     #[test]
