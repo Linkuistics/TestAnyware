@@ -35,6 +35,14 @@ tasks:
     cmds:
       - cargo clippy --workspace --all-targets
 
+  scripts:check:
+    desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
+    vars:
+      SCRIPTS: scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh
+    cmds:
+      - shellcheck {{.SCRIPTS}}
+      - shfmt -i 2 -ci -d {{.SCRIPTS}}
+
   # ---- Live checks (macOS host) --------------------------------------------
 
   vm:qemu-tpm-check:
@@ -62,3 +70,9 @@ tasks:
         out=$(sandbox-exec -p "$profile" {{.CLI}} vm start --platform windows --dry-run --json) && exit 1
         echo "$out" | grep -q '"code": "SWTPM_MISSING"'
         echo "$out" | grep -q 'brew install swtpm'
+
+  vm:windows-healthy-start:
+    desc: 'Does one `vm start --platform windows` reach a Healthy agent, unaided, with the TPM attached? Optional BASE=<golden>. About 2.5 minutes (10 to 14 if the agent never answers); always stops and deletes the clone'
+    deps: [cli:build]
+    cmds:
+      - scripts/windows-healthy-start.sh {{.BASE}}

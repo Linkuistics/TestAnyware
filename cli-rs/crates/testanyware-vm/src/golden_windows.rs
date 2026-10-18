@@ -211,6 +211,25 @@ fn desktop_setup_done(result: &ExecResult) -> bool {
     result.stdout.contains("DONE")
 }
 
+/// The agent `/exec` that reads `admin`'s account details, whose
+/// `Password expires` line says whether the golden will lock itself out.
+fn admin_password_probe() -> &'static str {
+    "net user admin"
+}
+
+/// Whether a `net user admin` result shows the password never expiring: the
+/// `Password expires` line's value is `Never`. A golden that fails this stops
+/// at "Your password has expired" once it is older than Windows' 42-day
+/// maximum password age, and its logon-triggered agent never starts.
+fn admin_password_never_expires(result: &ExecResult) -> bool {
+    result.exit_code == 0
+        && result.stdout.lines().any(|line| {
+            line.trim_start()
+                .strip_prefix("Password expires")
+                .is_some_and(|value| value.trim() == "Never")
+        })
+}
+
 /// The pre-shutdown desktop-cleanup command: close any startup apps that opened
 /// windows so clones inherit a clean desktop. Ports the script's
 /// `powershell … Stop-Process` one-liner (line ~535).
@@ -726,6 +745,28 @@ async fn build_and_provision(
         }
     }
 
+    // --- admin's password must never expire (issue #6's second fault) -----
+    // Checked in the guest rather than trusted from SetupComplete.cmd, so a
+    // golden that would lock itself out after 42 days cannot be produced.
+    let password_check = agent_exec(&client, admin_password_probe(), 30).await;
+    match &password_check {
+        Some(r) if admin_password_never_expires(r) => {
+            eprintln!("admin's password never expires.");
+        }
+        other => {
+            let shown = other.as_ref().map_or_else(
+                || "the agent could not run `net user admin`".to_string(),
+                |r| format!("`net user admin` said:\n{}{}", r.stdout.trim(), r.stderr.trim()),
+            );
+            return Err((qemu_pid, VmError::GoldenCreateFailed {
+                detail: format!(
+                    "admin's password is not set to never expire, so this golden would stop at \
+                     \"Your password has expired\" after 42 days; {shown}"
+                ),
+            }));
+        }
+    }
+
     // --- Wait for the desktop-setup RunOnce marker ------------------------
     eprint!("Waiting for desktop setup to complete...");
     let mut desktop_done = false;
@@ -1002,6 +1043,43 @@ mod tests {
         );
     }
 
+    fn exec_ok(stdout: &str) -> ExecResult {
+        ExecResult { exit_code: 0, stdout: stdout.into(), stderr: String::new(), timed_out: None }
+    }
+
+    const NET_USER_NEVER: &str = "User name                    admin\r\n\
+Account active               Yes\r\n\
+Account expires              Never\r\n\
+\r\n\
+Password last set            18/10/2026 9:00:00 AM\r\n\
+Password expires             Never\r\n\
+Password changeable          18/10/2026 9:00:00 AM\r\n";
+
+    #[test]
+    fn admin_password_check_passes_when_password_expires_never() {
+        assert_eq!(admin_password_probe(), "net user admin");
+        assert!(admin_password_never_expires(&exec_ok(NET_USER_NEVER)));
+    }
+
+    #[test]
+    fn admin_password_check_fails_when_the_password_has_an_expiry_date() {
+        let expiring = NET_USER_NEVER.replace(
+            "Password expires             Never",
+            "Password expires             29/11/2026 9:00:00 AM",
+        );
+        assert!(!admin_password_never_expires(&exec_ok(&expiring)));
+    }
+
+    #[test]
+    fn admin_password_check_ignores_other_never_lines_and_failed_commands() {
+        // "Account expires  Never" is not the password line.
+        let only_account = "Account expires              Never\r\nPassword expires             1/1/2027\r\n";
+        assert!(!admin_password_never_expires(&exec_ok(only_account)));
+        assert!(!admin_password_never_expires(&exec_ok("")));
+        let failed = ExecResult { exit_code: 2, ..exec_ok(NET_USER_NEVER) };
+        assert!(!admin_password_never_expires(&failed));
+    }
+
     #[test]
     fn clean_desktop_command_force_stops_startup_apps() {
         let cmd = clean_desktop_command();
@@ -1018,6 +1096,9 @@ mod tests {
         assert!(AUTOUNATTEND_XML.contains("FirstLogonCommands"));
         assert!(SETUP_COMPLETE_CMD.contains("schtasks"));
         assert!(SETUP_COMPLETE_CMD.contains("TestAnywareAgent"));
+        // The 42-day password age would otherwise lock an old golden out.
+        assert!(SETUP_COMPLETE_CMD
+            .contains("Set-LocalUser -Name admin -PasswordNeverExpires $true"));
         assert!(DESKTOP_SETUP_PS1.contains("desktop-setup-done.txt"));
         assert!(STARTUP_NSH.contains("bootaa64.efi"));
     }

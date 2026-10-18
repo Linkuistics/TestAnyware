@@ -77,6 +77,12 @@ evaluation ISO** alongside an **autounattend USB** and lets Windows Setup run a
 fully **unattended install** (`autounattend.xml`: partitions, bypasses
 TPM/SecureBoot/RAM checks, creates `admin`/autologin, installs VirtIO drivers,
 registers the *In-VM agent* as a Task Scheduler logon task + Chocolatey).
+`SetupComplete.cmd` also sets `admin`'s password to never expire — the answer
+file's auto-logon has no logon count, so Windows' default 42-day maximum
+password age would otherwise stop a golden older than that at "Your password has
+expired" and its logon-triggered agent would never start — and golden creation
+checks `net user admin` through the agent and fails the build unless
+`Password expires` is `Never`.
 Post-install provisioning then runs over the **in-VM agent's HTTP surface**
 (`/health`, `/exec`) — **Windows ships no sshd**, so the agent is the only
 in-guest control channel. The answer file + post-install scripts

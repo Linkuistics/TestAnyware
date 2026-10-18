@@ -104,3 +104,22 @@ password never expiring, then build a new golden with it and prove it.
 - If the build fails, diagnose before retrying; a failure that is not a small
   fix is a reason to decompose this leaf rather than to run long.
 - Guests are driven only through the In-VM agent and VNC.
+
+## Decisions (running log)
+
+- **Fix form.** `SetupComplete.cmd` step 9 runs `powershell -NoProfile -Command "Set-LocalUser -Name admin -PasswordNeverExpires $true"`, logged to `SetupComplete.log` with its exit code. The narrower per-account form was tried first, per the brief; `net accounts /maxpwage:unlimited` stays the fallback if the live build shows the cmdlet failing at SYSTEM/SetupComplete time.
+- **In-guest check.** `admin_password_never_expires` (pure, over `ExecResult`) requires exit 0 and a line whose `Password expires` value is exactly `Never` ("Account expires  Never" does not count). It runs right after the agent comes up and `SetupComplete.log` is printed, before the 60 s settle and the reboot, so a failing golden fails in minutes rather than after the whole build. The error carries `net user admin`'s output.
+- **Live check.** `scripts/windows-healthy-start.sh` + `task vm:windows-healthy-start [BASE=…]`; also `task scripts:check` (shellcheck + `shfmt -i 2 -ci -d` over the two scripts the tasks run). Failure path seen once with a nonexistent base: exit 1, no clone left behind.
+- **Build.** Started with a frozen copy of the debug CLI (so a later rebuild cannot move the subject) as `vm create-golden --platform windows --name testanyware-golden-windows-11-pwfix`, agent from the brew-installed 2.1.0 bundle, log in the session scratchpad `build.log`.
+- **Live build (2026-10-18).** `vm create-golden --platform windows --name testanyware-golden-windows-11-pwfix` ran about 25 minutes and exited 0. `SetupComplete.log` showed `admin password set to never expire (exit 0)`: `Set-LocalUser` works at SYSTEM/SetupComplete time, so the `net accounts` fallback was not needed. The build's own in-guest check printed `admin's password never expires.` The golden is `~/.local/share/testanyware/golden/testanyware-golden-windows-11-pwfix.*`; `testanyware-golden-windows-11` was not touched.
+- **D1 bar.** `task vm:windows-healthy-start BASE=testanyware-golden-windows-11-pwfix` passed in 21 s: Healthy agent at `localhost:55280`, `{"attached":true,"ppi_off":true}`, `/health` `{"accessible":true,"platform":"windows"}`, no manual logon, clone removed.
+- **The fix, proved by `net user admin` on a fresh clone** (via `file exec`), not by the Healthy agent:
+  ```
+  Account expires              Never
+  Password last set            10/18/2026 6:12:00 AM
+  Password expires             Never
+  ```
+  `net accounts` on the same clone still shows `Maximum password age (days): 42`, so it is the per-account `Set-LocalUser` flag that protects `admin`; the machine-wide policy is unchanged.
+- **Behavioural proof (optional step, done).** A PATH shim in the session scratchpad (outside the repo) added `-rtc base=2026-12-17T17:19:36` to QEMU's argv (60 days after the build; the 42-day expiry would have fallen on 2026-11-29). The same `vm:windows-healthy-start` run was Healthy with the TPM attached. Not run: the old golden under the same shift as a control; k3 already showed it stopping at the expired-password prompt, and today (141 days after its build) it is past expiry without any shift.
+- **Docs.** The never-expiring password is stated in `CONTEXT.md` (*Autounattend provisioning*), `docs/user/golden-images.md`, `README.md` and `docs/components/provisioner.md` plus the two `website/docs/` copies. The grep for the provisioning claim (auto-logon, logon task, SetupComplete, admin password) found no other statement of the golden's account state. ADR-0017 records the cause and the remedy already; no ADR change.
+- **Checks.** `task cli:test` passes; `task scripts:check` clean (the three `release-*.sh` scripts were not formatted under `shfmt -i 2 -ci` before this leaf and are not in the task's file list).

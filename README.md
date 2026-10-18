@@ -490,6 +490,7 @@ All images share these properties:
 
 - **Windows 11 Pro** (ARM64, installed from Microsoft evaluation ISO via QEMU)
 - **Agent autostart** — Task Scheduler logon task (`TestAnywareAgent`)
+- **Password never expires** — `admin` (auto-logon) is set to never expire, so a golden older than Windows' 42-day password age still logs in and starts the agent; golden creation verifies it with `net user admin`
 - **Accessibility** — UI Automation via FlaUI (built into Windows)
 - **Package manager** — Chocolatey
 - **No SSH** — agent binary installed from autounattend media; all communication via agent HTTP

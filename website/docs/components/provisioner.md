@@ -29,7 +29,7 @@ provisioner/
 | `scripts/_testanyware-paths.sh` | Shell-side mirror of `VMPaths.swift`. Must stay in sync. |
 | `testanyware vm create-golden --platform macos` | Builds `testanyware-golden-macos-tahoe`. In-process CLI command (no script): downloads vanilla macOS Tahoe from Cirrus Labs; disables/re-enables SIP to install the TCC grant for the agent. |
 | `testanyware vm create-golden --platform linux` | Builds `testanyware-golden-linux-24.04`. In-process CLI command (no script): provisions Ubuntu 24.04 via tart, installs `ubuntu-desktop-minimal`, AT-SPI2, the agent, and a systemd user service over 2 normal boots. |
-| `testanyware vm create-golden --platform windows` | Builds `testanyware-golden-windows-11` under `$XDG_DATA_HOME/testanyware/golden/`. In-process CLI command (no script): orchestrates QEMU + swtpm through a Windows 11 ARM64 Microsoft evaluation ISO, provisioning over the in-VM agent (no SSH); requires `--iso <path>` on first run. |
+| `testanyware vm create-golden --platform windows` | Builds `testanyware-golden-windows-11` under `$XDG_DATA_HOME/testanyware/golden/`. In-process CLI command (no script): orchestrates QEMU + swtpm through a Windows 11 ARM64 Microsoft evaluation ISO, provisioning over the in-VM agent (no SSH), leaving `admin`'s password never expiring (checked in the guest with `net user admin`); requires `--iso <path>` on first run. |
 | `autounattend/` | Windows unattended-install XML + payload. The agent's `publish` dir and a Task Scheduler xml are injected here. |
 
 ## Build / test

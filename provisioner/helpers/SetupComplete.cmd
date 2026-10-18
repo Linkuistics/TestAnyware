@@ -2,7 +2,9 @@
 :: SetupComplete.cmd — Runs as SYSTEM after OOBE, before first user logon.
 :: Installs VirtIO drivers (network + GPU), copies agent + desktop script from the
 :: autounattend USB media, applies HKLM registry tweaks, and registers
-:: the agent to start on logon via Task Scheduler.
+:: the agent to start on logon via Task Scheduler, and keeps admin's password
+:: from expiring (auto-logon has no LogonCount, so an expired password would
+:: stop every start at the sign-in screen and the logon-triggered agent never runs).
 
 set LOG=C:\Windows\Setup\Scripts\SetupComplete.log
 echo [%date% %time%] SetupComplete.cmd starting >> %LOG%
@@ -53,4 +55,9 @@ reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v NoAutoReb
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU" /v AUOptions /t REG_DWORD /d 2 /f >> %LOG% 2>&1
 reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v EnableFirstLogonAnimation /t REG_DWORD /d 0 /f >> %LOG% 2>&1
 reg add "HKLM\SOFTWARE\Policies\Microsoft\Dsh" /v AllowNewsAndInterests /t REG_DWORD /d 0 /f >> %LOG% 2>&1
+:: 9. admin's password never expires. Windows' default 42-day maximum password age
+:: would otherwise stop a golden older than that at "Your password has expired".
+:: Golden creation re-checks this with `net user admin` through the agent.
+powershell -NoProfile -Command "Set-LocalUser -Name admin -PasswordNeverExpires $true" >> %LOG% 2>&1
+echo [%date% %time%] admin password set to never expire (exit %errorlevel%) >> %LOG%
 echo [%date% %time%] SetupComplete.cmd finished >> %LOG%
