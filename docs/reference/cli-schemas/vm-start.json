@@ -29,6 +29,20 @@
       }
     },
     "spec_path": { "type": "string" },
-    "meta_path": { "type": "string" }
+    "meta_path": { "type": "string" },
+    "tpm": {
+      "type": "object",
+      "description": "The TPM decision this start was made under (ADR-0017). Present for QEMU-backed starts and under --dry-run; absent for tart-backed (macOS, tart Linux) starts, which have no such decision.",
+      "required": ["attached"],
+      "properties": {
+        "attached": { "type": "boolean", "description": "true when the guest got a TPM (swtpm and a tpm-tis-device); false when it was omitted." },
+        "ppi_off": { "type": "boolean", "description": "Present when attached. true when the device was wired with ppi=off (HVF with a QEMU that lists a ppi property)." },
+        "reason": {
+          "type": "string",
+          "enum": ["guest_does_not_need_one", "host_cannot_supply_one"],
+          "description": "Present when omitted. guest_does_not_need_one: only Windows needs a TPM. host_cannot_supply_one: the host's QEMU binary has no tpm-tis-device."
+        }
+      }
+    }
   }
 }

@@ -142,6 +142,19 @@ The current Rust-port target list:
 | `doctor` | data | `doctor` |
 | `capabilities` | data | `capabilities` |
 
+**`vm start` reports its TPM decision.** A QEMU-backed start (Windows, and
+Linux on a qcow2 golden) is made under one TPM decision (ADR-0017) and says
+what it was. In `--json` the envelope carries an optional `tpm` object:
+`{"attached": true, "ppi_off": <bool>}` or `{"attached": false, "reason":
+"guest_does_not_need_one" | "host_cannot_supply_one"}`. In text mode stdout
+stays the id alone and a line on stderr says the same in words (`TPM
+attached`, `TPM omitted: ...`). `--dry-run` reports the decision in its plan,
+in both modes (a text plan prints it as a second `dry-run:` line), so a
+refusal (`SWTPM_MISSING`, §4.2, raised before anything is cloned) and the
+answer can be seen without starting anything. A tart-backed start (macOS, and
+Linux on a tart golden) has no TPM decision and omits `tpm`. The field is
+optional in `vm-start.json`, so it is an additive change under §3.2.
+
 ### 3.2 Stability
 
 Schemas are versioned by the binary's major version. **Adding** a field

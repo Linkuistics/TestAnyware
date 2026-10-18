@@ -74,7 +74,9 @@ queries both backends and presents a unified view.
    If the agent never responds, the spec is still written but the
    `agent` field is omitted — callers can still drive via VNC.
 6. Write `<id>.json` and `<id>.meta.json` atomically; print `<id>` on
-   stdout.
+   stdout. A QEMU-backed start also reports the TPM decision: a line on
+   stderr in text mode, a `tpm` object in the `--json` envelope (and in the
+   `--dry-run` plan).
 
 ## Stop flow
 

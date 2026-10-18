@@ -8,6 +8,7 @@ use serde_json::{json, Value};
 
 use testanyware_vm::display_request::parse_display_request;
 use testanyware_vm::lifecycle::{Platform, VmLifecycle, VmListing, VmStartOptions};
+use testanyware_vm::tpm::{OmitReason, TpmDecision};
 use testanyware_vm::{VmError, VmMeta, VmPaths};
 
 use crate::output::{print_error, print_success, OutputMode};
@@ -73,10 +74,11 @@ pub async fn run_vm_start(
         // Validate without side effects: the golden must exist in the
         // backend `start` would route to (tart on macOS, else QEMU), plus
         // the QEMU host preflight. Routing lives in the vm crate.
-        if let Err(err) = VmLifecycle::dry_run_validate_start(&opts, &paths) {
-            exit_vm_error(err, mode);
-        }
-        emit_start_plan(&opts, mode);
+        let plan = match VmLifecycle::dry_run_validate_start(&opts, &paths) {
+            Ok(plan) => plan,
+            Err(err) => exit_vm_error(err, mode),
+        };
+        emit_start_plan(&opts, plan.tpm, mode);
         return;
     }
 
@@ -87,6 +89,11 @@ pub async fn run_vm_start(
                     "warning: agent did not reach health within the boot window — \
                      agent commands will fail until it comes up"
                 );
+            }
+            // Text mode keeps stdout to the id alone, so the TPM decision goes
+            // to stderr; `--json` carries it in the envelope (`tpm`).
+            if let (OutputMode::Text, Some(tpm)) = (mode, result.tpm) {
+                eprintln!("{}", tpm_text(tpm));
             }
             // Capture the viewer endpoint before the envelope arm moves any
             // `result` fields. The viewer resolves through `--connect` against
@@ -101,7 +108,7 @@ pub async fn run_vm_start(
                         .as_ref()
                         .map(|a| json!({ "host": a.host, "port": a.port }))
                         .unwrap_or(Value::Null);
-                    print_success(json!({
+                    let mut data = json!({
                         "id": result.id,
                         "platform": result.platform.as_str(),
                         "base": opts.base,
@@ -109,7 +116,11 @@ pub async fn run_vm_start(
                         "agent": agent,
                         "spec_path": result.spec_path.display().to_string(),
                         "meta_path": result.meta_path.display().to_string(),
-                    }));
+                    });
+                    if let Some(tpm) = result.tpm {
+                        data["tpm"] = tpm_json(tpm);
+                    }
+                    print_success(data);
                 }
             }
             // Sugar (ADR-0005 Q2): the start envelope is already emitted, so
@@ -125,21 +136,59 @@ pub async fn run_vm_start(
     }
 }
 
-fn emit_start_plan(opts: &VmStartOptions, mode: OutputMode) {
+fn emit_start_plan(opts: &VmStartOptions, tpm: Option<TpmDecision>, mode: OutputMode) {
     match mode {
         OutputMode::Text => {
             println!("dry-run: would start {} (platform {}, base {})",
                 opts.id, opts.platform.as_str(), opts.base);
+            if let Some(tpm) = tpm {
+                println!("dry-run: {}", tpm_text(tpm));
+            }
         }
         OutputMode::Json => {
-            print_success(json!({
+            let mut data = json!({
                 "dry_run": true,
                 "id": opts.id,
                 "platform": opts.platform.as_str(),
                 "base": opts.base,
                 "vnc": { "host": "localhost", "port": 0 },
-            }));
+            });
+            if let Some(tpm) = tpm {
+                data["tpm"] = tpm_json(tpm);
+            }
+            print_success(data);
         }
+    }
+}
+
+/// The `tpm` value of the `vm start` envelope: `{"attached": true, "ppi_off":
+/// bool}` or `{"attached": false, "reason": ...}`. Pure, so every answer of the
+/// TPM decision is unit-tested; the schema (`vm-start.json`) describes it.
+fn tpm_json(decision: TpmDecision) -> Value {
+    match decision {
+        TpmDecision::Attach { ppi_off } => json!({ "attached": true, "ppi_off": ppi_off }),
+        TpmDecision::Omit(reason) => json!({ "attached": false, "reason": omit_reason_slug(reason) }),
+    }
+}
+
+/// The same answer in words, for stderr in text mode and the dry-run plan.
+fn tpm_text(decision: TpmDecision) -> String {
+    match decision {
+        TpmDecision::Attach { ppi_off: false } => "TPM attached".to_string(),
+        TpmDecision::Attach { ppi_off: true } => "TPM attached (PPI off)".to_string(),
+        TpmDecision::Omit(OmitReason::GuestDoesNotNeedOne) => {
+            "TPM omitted: the guest does not need one".to_string()
+        }
+        TpmDecision::Omit(OmitReason::HostCannotSupplyOne) => {
+            "TPM omitted: this host's QEMU cannot supply one (it has no tpm-tis-device)".to_string()
+        }
+    }
+}
+
+fn omit_reason_slug(reason: OmitReason) -> &'static str {
+    match reason {
+        OmitReason::GuestDoesNotNeedOne => "guest_does_not_need_one",
+        OmitReason::HostCannotSupplyOne => "host_cannot_supply_one",
     }
 }
 
@@ -714,6 +763,69 @@ fn exit_vm_error(err: VmError, mode: OutputMode) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tpm_json_covers_every_answer() {
+        assert_eq!(
+            tpm_json(TpmDecision::Attach { ppi_off: true }),
+            json!({ "attached": true, "ppi_off": true })
+        );
+        assert_eq!(
+            tpm_json(TpmDecision::Attach { ppi_off: false }),
+            json!({ "attached": true, "ppi_off": false })
+        );
+        assert_eq!(
+            tpm_json(TpmDecision::Omit(OmitReason::GuestDoesNotNeedOne)),
+            json!({ "attached": false, "reason": "guest_does_not_need_one" })
+        );
+        assert_eq!(
+            tpm_json(TpmDecision::Omit(OmitReason::HostCannotSupplyOne)),
+            json!({ "attached": false, "reason": "host_cannot_supply_one" })
+        );
+    }
+
+    #[test]
+    fn tpm_text_tells_attached_from_each_omit() {
+        assert_eq!(tpm_text(TpmDecision::Attach { ppi_off: false }), "TPM attached");
+        assert_eq!(tpm_text(TpmDecision::Attach { ppi_off: true }), "TPM attached (PPI off)");
+        let guest = tpm_text(TpmDecision::Omit(OmitReason::GuestDoesNotNeedOne));
+        let host = tpm_text(TpmDecision::Omit(OmitReason::HostCannotSupplyOne));
+        assert!(guest.starts_with("TPM omitted") && guest.contains("guest"));
+        assert!(host.starts_with("TPM omitted") && host.contains("host"));
+        assert_ne!(guest, host);
+    }
+
+    /// The renderer's output stays inside what `vm-start.json` declares: the
+    /// `tpm` property exists, is optional, and enumerates the reasons emitted.
+    #[test]
+    fn tpm_json_fits_the_vm_start_schema() {
+        let schema: Value = serde_json::from_str(include_str!(
+            "../../../../../docs/reference/cli-schemas/vm-start.json"
+        ))
+        .unwrap();
+        let tpm = &schema["properties"]["tpm"];
+        assert_eq!(tpm["type"], "object", "vm-start.json must describe `tpm`");
+        let required = schema["required"].as_array().unwrap();
+        assert!(!required.iter().any(|r| r == "tpm"), "tpm stays optional (additive)");
+        let reasons: Vec<&str> = tpm["properties"]["reason"]["enum"]
+            .as_array()
+            .expect("reason enum")
+            .iter()
+            .map(|r| r.as_str().unwrap())
+            .collect();
+        for d in [
+            TpmDecision::Omit(OmitReason::GuestDoesNotNeedOne),
+            TpmDecision::Omit(OmitReason::HostCannotSupplyOne),
+        ] {
+            let slug = tpm_json(d)["reason"].as_str().unwrap().to_string();
+            assert!(reasons.contains(&slug.as_str()), "{slug} missing from schema enum");
+        }
+        for d in [TpmDecision::Attach { ppi_off: true }, TpmDecision::Attach { ppi_off: false }] {
+            for key in tpm_json(d).as_object().unwrap().keys() {
+                assert!(tpm["properties"].get(key).is_some(), "{key} not in schema");
+            }
+        }
+    }
 
     #[test]
     fn golden_boot_plan_is_three_normal_two_recovery() {

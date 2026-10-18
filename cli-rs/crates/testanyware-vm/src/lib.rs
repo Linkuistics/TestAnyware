@@ -68,7 +68,7 @@ pub use detached::spawn_detached;
 pub use error::VmError;
 pub use health::wait_for_agent;
 pub use id::generate_id;
-pub use lifecycle::{Platform, RunningEntry, VmLifecycle, VmListing, VmStartOptions, VmStartResult};
+pub use lifecycle::{Platform, RunningEntry, StartPlan, VmLifecycle, VmListing, VmStartOptions, VmStartResult};
 pub use meta::{VmMeta, VmTool};
 pub use monitor::QemuMonitorClient;
 pub use paths::VmPaths;

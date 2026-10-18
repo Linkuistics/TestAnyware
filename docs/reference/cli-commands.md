@@ -434,6 +434,12 @@ testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--disp
 - `--display <display>` — Display resolution (e.g. `1920x1080`).
 - `--viewer` — Open a VNC viewer after boot.
 
+**TPM report:** a QEMU-backed start says whether the guest's TPM was attached
+or omitted, and why: a `tpm` object in `--json` (`{"attached": true,
+"ppi_off": ...}` or `{"attached": false, "reason": ...}`), a line on stderr in
+text mode (stdout stays the id). `--dry-run` reports it too. A tart-backed
+start (macOS, tart Linux) has no TPM decision and omits it.
+
 **Example:**
 ```bash
 vmid=$(testanyware vm start --viewer)

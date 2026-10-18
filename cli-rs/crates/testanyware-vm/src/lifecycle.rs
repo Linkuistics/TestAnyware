@@ -15,7 +15,7 @@ use crate::qemu::{
 };
 use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
 use crate::qemu_profile::host_profile;
-use crate::tpm::decide_tpm_on_host;
+use crate::tpm::{decide_tpm_on_host, TpmDecision};
 
 /// Guest platform. Ports the `Platform` enum + extension in `VMTypes.swift`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +104,18 @@ pub struct VmStartResult {
     /// `true` when the agent did not reach health within the boot window
     /// (the VM still started; agent commands will fail until it comes up).
     pub agent_unreachable: bool,
+    /// The TPM decision this start was made under. `None` for a tart-backed
+    /// start, which has no such decision to report.
+    pub tpm: Option<TpmDecision>,
+}
+
+/// What `vm start --dry-run` established without side effects.
+#[derive(Debug, Clone, Copy)]
+pub struct StartPlan {
+    /// The backend `start` would route to (`"tart"` or `"qemu"`).
+    pub backend: &'static str,
+    /// The TPM decision `start` would be made under; `None` on the tart backend.
+    pub tpm: Option<TpmDecision>,
 }
 
 /// A running clone enriched from its spec/meta sidecars.
@@ -215,6 +227,7 @@ impl VmLifecycle {
             spec_path,
             meta_path,
             agent_unreachable,
+            tpm: Some(tpm),
         })
     }
 
@@ -340,6 +353,7 @@ impl VmLifecycle {
             spec_path,
             meta_path,
             agent_unreachable,
+            tpm: None,
         })
     }
 
@@ -428,16 +442,16 @@ impl VmLifecycle {
 
     /// Validate a `vm start --dry-run` without side effects: confirm the
     /// golden exists in whichever backend `start` would route to, and run
-    /// the host preflight for the QEMU path. Returns the backend name so
-    /// the caller can report it. Keeps the per-platform routing (and the
+    /// the host preflight for the QEMU path. Returns the backend and the TPM
+    /// decision so the caller can report them. Keeps the per-platform routing (and the
     /// macOS-only tart lookups) inside the crate, off the command layer.
-    pub fn dry_run_validate_start(opts: &VmStartOptions, paths: &VmPaths) -> Result<&'static str, VmError> {
+    pub fn dry_run_validate_start(opts: &VmStartOptions, paths: &VmPaths) -> Result<StartPlan, VmError> {
         #[cfg(target_os = "macos")]
         if wants_tart(opts.platform, &opts.base, paths) {
             if !crate::tart::golden_exists(&opts.base) {
                 return Err(VmError::GoldenNotFound { name: opts.base.clone() });
             }
-            return Ok("tart");
+            return Ok(StartPlan { backend: "tart", tpm: None });
         }
 
         if opts.platform == Platform::Macos {
@@ -452,8 +466,8 @@ impl VmLifecycle {
             return Err(VmError::GoldenNotFound { name: opts.base.clone() });
         }
         crate::preflight::check_kvm()?;
-        decide_tpm_on_host(opts.platform, &host_profile())?;
-        Ok("qemu")
+        let tpm = decide_tpm_on_host(opts.platform, &host_profile())?;
+        Ok(StartPlan { backend: "qemu", tpm: Some(tpm) })
     }
 
     /// Validate a `vm delete --dry-run`: the golden must exist as a QEMU

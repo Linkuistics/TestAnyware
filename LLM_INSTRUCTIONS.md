@@ -43,7 +43,9 @@ testanyware screen capture -o screen.png
 testanyware vm stop "$vmid"
 ```
 
-`vm start` prints the new VM id on stdout. When automation spans multiple
+`vm start` prints the new VM id on stdout. For a QEMU-backed guest (Windows)
+it also says on stderr whether the guest's TPM was attached or omitted, and
+`--json` carries the same answer as a `tpm` object. When automation spans multiple
 processes, persist the id to a file so later steps can find and stop it:
 
 ```bash

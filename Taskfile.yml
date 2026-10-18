@@ -41,3 +41,24 @@ tasks:
     desc: Does this host's QEMU run a Windows guest's TPM device as TestAnyware attaches it (ADR-0017)? Seconds; paused diskless guests, needs qemu and swtpm
     cmds:
       - scripts/qemu-tpm-check.sh
+
+  vm:start-tpm-report-check:
+    desc: Does `vm start --dry-run` report the Windows TPM decision (attached here), and refuse with SWTPM_MISSING when swtpm is hidden? Seconds; no VM is started
+    deps: [cli:build]
+    vars:
+      CLI: '{{.CLI_DIR}}/target/debug/testanyware'
+    cmds:
+      - '{{.CLI}} vm start --platform windows --dry-run --json | grep -q ''"attached": true'''
+      - '{{.CLI}} vm start --platform windows --dry-run 2>&1 | grep -q "TPM attached"'
+      # A trimmed PATH cannot hide swtpm: the CLI's `which` always adds
+      # /opt/homebrew/bin and /usr/local/bin on macOS. A sandbox denying
+      # that one file to the CLI process can. The `ls` is the control: it
+      # must fail under the same profile, or the sandbox is hiding nothing.
+      - |
+        profile='(version 1)(allow default)(deny file-read-metadata file-read-data (literal "/opt/homebrew/bin/swtpm"))'
+        if sandbox-exec -p "$profile" /bin/ls /opt/homebrew/bin/swtpm >/dev/null 2>&1; then
+          echo "control failed: the sandbox does not hide swtpm" >&2; exit 1
+        fi
+        out=$(sandbox-exec -p "$profile" {{.CLI}} vm start --platform windows --dry-run --json) && exit 1
+        echo "$out" | grep -q '"code": "SWTPM_MISSING"'
+        echo "$out" | grep -q 'brew install swtpm'

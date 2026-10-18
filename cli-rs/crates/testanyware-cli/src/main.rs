@@ -483,6 +483,10 @@ SEE ALSO:
 const VM_START_AFTER_HELP: &str = "\
 OUTPUT:
     Stable formats: text (the VM id on one line), --json (schema: vm-start).
+    A QEMU-backed start also says whether the guest's TPM was attached or
+    omitted, and why: a line on stderr in text mode, a `tpm` object in --json
+    (`--dry-run` reports it too). Tart-backed starts have no TPM decision and
+    omit it.
 
 EXIT CODES:
     0  success
