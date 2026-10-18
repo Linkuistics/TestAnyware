@@ -147,3 +147,12 @@ with `VM_LIMIT_REACHED` (exit 6) naming both holders, no clone and no sidecars
 left for it, and no VM left running afterwards. `task cli:test` (609 tests),
 `task scripts:check` pass; clippy adds no warnings (only the two large-`Err` ones
 k2's I8 recorded).
+
+**Q14 — the TPM abort is filed as Linkuistics/TestAnyware#6, outside this grove.**
+The blocker in Q10/Q12 (`tpm-tis-device` aborts QEMU with `HV_BAD_ARGUMENT` on the
+macOS 27 Apple Silicon host, so no QEMU guest starts) is not the honest-start rule's
+and not this leaf's to fix, so it became a GitHub issue rather than a leaf (the "not
+ours" sentence in `retire.md`). The human will start a new grove for it. Until that
+lands, Done-when's first live sentence (a Windows golden `vm start` reaches a Healthy
+agent, seam check e) cannot be observed here, and this leaf stays live for that one
+check. Everything else in Done-when is met (Q10–Q13).
