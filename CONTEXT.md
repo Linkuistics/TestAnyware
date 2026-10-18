@@ -57,6 +57,14 @@ which are file/process/lifecycle, not accessibility.
 _Avoid_: conflating the whole agent with its a11y surface — the agent is the
 process + HTTP envelope + both surfaces.
 
+**Healthy agent**:
+An *In-VM agent* whose `/health` answers with a 2xx response and a decodable
+body. Health means the agent's HTTP server is up; whether the guest has granted
+accessibility (TCC) is reported separately, as `accessible`. `vm start` waits
+for a Healthy agent.
+_Avoid_: "agent ready" (blurs healthy with accessible); treating
+`accessible: false` as unhealthy.
+
 **Golden image**:
 A pre-built per-platform VM disk image (`testanyware-golden-<platform>-...`)
 that `vm start` clones to spawn a fresh instance.
@@ -82,6 +90,13 @@ in `vm create-golden --platform windows` (grove `220/020`, ADR-0009); it
 `provisioner/helpers/autounattend.xml`).
 _Avoid_: assuming the macOS clone-and-SSH model applies to Windows; calling the
 autounattend USB a "golden" (it is throwaway install media).
+
+**Linux-on-qcow2**:
+A Linux guest served by the QEMU backend because a `<base>.qcow2` *Golden image*
+exists for it; without one, a macOS host serves Linux from a tart golden.
+TestAnyware builds no Linux qcow2 golden itself, so the path is reached only with
+a supplied image.
+_Avoid_: "the Linux golden" (by default that is the tart image).
 
 **Shared-VNC server** (historical):
 The Swift `_server` process — a long-lived host-side daemon that held **one
