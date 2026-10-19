@@ -87,6 +87,7 @@ uses these and only these names:
 | Custom format template | `--format <tmpl>` | — | Optional; only where templating is meaningful. Must NOT collide with `--output <fmt>`. |
 | Color | `--color <when>` | — | Values: `auto` (default), `always`, `never`. |
 | Keep a failed start's VM | `--keep-on-failure` | — | `vm start` only: leave a still-running VM (and its sidecars) for inspection instead of removing it. See the §4.2 amendment of 2026-10-17. |
+| Wait for a free slot | `--wait[=<seconds>]` | — | `vm start` only: when the macOS guest limit is full, retry until a slot frees or the wait runs out, instead of failing at once. Bare `--wait` is 600 s. Seconds, as in the other timeout flags. See the §4.2 amendment of 2026-10-19 (`--wait`). |
 
 **Reserved short flags** (must remain consistent across the whole
 binary): `-q`, `-v`, `-y`, `-o` (output format only), `-h` (help), `-V`
@@ -260,7 +261,7 @@ version bump.
 |---|---|
 | `VM_NOT_FOUND` | `--vm <id>` resolved to a missing spec. |
 | `VM_BOOT_TIMEOUT` | `vm start`: the VM is alive but a start stage never completed — the VNC endpoint, the guest IP, or (the usual case) the agent never became a Healthy agent. `details` names the `stage` (`vnc`, `guest-ip`, `agent`), the polled `endpoint`, the `last_error` (kind, OS errno, text), the `attempts`, the `elapsed_secs`, the proven `cause` (`null`, or `local_network_denied`; see the §4.2 amendment of 2026-10-19) and whether the VM was `kept`. |
-| `VM_LIMIT_REACHED` | `vm start` was refused because the platform's concurrent-guest limit is full — Apple's macOS guest limit, two per Mac. A *try again later* condition: exit `6`. `details`: `platform`, `limit`, `holders` (the VMs holding the slots), `tart_error` (the backend's own line). |
+| `VM_LIMIT_REACHED` | `vm start` was refused because the platform's concurrent-guest limit is full — Apple's macOS guest limit, two per Mac. A *try again later* condition: exit `6`. `details`: `platform`, `limit`, `holders` (the VMs holding the slots), `tart_error` (the backend's own line). A `--wait` start that ran out returns the same error. |
 | `VM_STOP_FAILED` | `vm stop` couldn't terminate the VM cleanly. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform on this host. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
@@ -328,6 +329,32 @@ version bump.
 > - A QEMU guest is on loopback and never asks.
 >
 > `vm start` does not route any agent call through `nc`.
+
+> **Amendment 2026-10-19** (`start-wait-for-slot-k6`, issue #3): `vm start`
+> gains `--wait[=<seconds>]` to wait out a full macOS guest limit.
+>
+> - Without `--wait` nothing changes: a refused start fails at once with
+>   `VM_LIMIT_REACHED` (exit `6`).
+> - With `--wait`, a refusal is retried until the start succeeds or the wait
+>   runs out. Bare `--wait` waits 600 s, so an unattended driver cannot hang
+>   for ever. `--wait=<seconds>` sets the bound. A wait that runs out fails with
+>   the same `VM_LIMIT_REACHED`, exit `6`, and the holders of the last refusal.
+> - Virtualization.framework's refusal is the only authoritative signal that a
+>   slot is free, so each retry is a real `tart run` on the one clone the first
+>   attempt made. A wait leaves one clone, never one per retry, and removes it
+>   when it fails.
+> - While waiting, stderr names the VMs holding the slots: at the first
+>   refusal, when the holders change, and every 30 s otherwise. The `--json`
+>   envelope is still the final result only.
+> - SIGINT or SIGTERM during a waiting start removes the clone and ends the
+>   process as the signal would have (130 / 143).
+> - Waiters are not served in order. Whichever retries first after a slot frees
+>   gets it (retries are 3 s apart). A host-wide queue was left out: it would
+>   serialise starts that the limit does not.
+> - `--wait` changes nothing else. Any failure other than the limit, such as
+>   `TART_FAILED` or `VM_BOOT_TIMEOUT`, ends the start at once. The wait is
+>   spent only on refusals, and boot time after the slot is won does not count
+>   against it.
 
 ### 4.3 VNC capture
 

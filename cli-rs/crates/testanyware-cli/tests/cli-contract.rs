@@ -845,6 +845,51 @@ fn vm_start_dry_run_accepts_keep_on_failure() {
     assert_ne!(out.status.code(), Some(2), "--keep-on-failure must be a recognised flag");
 }
 
+/// §7: `vm start --help` documents `--wait`: the flag, its bound and default,
+/// the error a spent wait returns, and the cleanup an interrupt performs.
+#[test]
+fn vm_start_help_documents_wait_its_default_and_its_exit_code() {
+    let out = run(&["vm", "start", "--help"]);
+    assert!(out.status.success());
+    let help = String::from_utf8_lossy(&out.stdout);
+    for needle in [
+        "--wait",
+        "--wait=SECONDS",
+        "600 s",
+        "6  VM_LIMIT_REACHED",
+        "Interrupting a",
+        "not served in order",
+    ] {
+        assert!(help.contains(needle), "`vm start --help` missing {needle:?}; got:\n{help}");
+    }
+}
+
+/// §9.3: `--wait` is a start-time option, so `--dry-run` accepts it bare and
+/// with a bound, and rejects a bound that is not a number of seconds.
+#[test]
+fn vm_start_dry_run_accepts_wait_bare_or_bounded_and_rejects_a_non_number() {
+    let dir = tempfile::tempdir().unwrap();
+    let golden = dir.path().join("testanyware").join("golden");
+    std::fs::create_dir_all(&golden).unwrap();
+    std::fs::write(golden.join("testanyware-golden-linux-24.04.qcow2"), b"disk").unwrap();
+    let env = [
+        ("XDG_DATA_HOME", dir.path().to_str().unwrap()),
+        ("XDG_STATE_HOME", dir.path().to_str().unwrap()),
+    ];
+    for wait in ["--wait", "--wait=30"] {
+        let out = run_env(
+            &["vm", "start", "--platform", "linux", wait, "--dry-run", "--json"],
+            &env,
+        );
+        assert_ne!(out.status.code(), Some(2), "{wait} must be a recognised flag");
+    }
+    let out = run_env(
+        &["vm", "start", "--platform", "linux", "--wait=soon", "--dry-run", "--json"],
+        &env,
+    );
+    assert_eq!(out.status.code(), Some(2), "a non-numeric --wait is a usage error");
+}
+
 /// §3.1 + §3.5: `vm list --json` emits the truncation envelope.
 #[test]
 fn vm_list_json_emits_truncation_envelope() {

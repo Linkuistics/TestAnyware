@@ -89,7 +89,9 @@ Apple allows **two** macOS guest VMs to run at the same time on one Mac. The
 macOS licence (§2B(iii)) sets this cap, and Virtualization.framework enforces it
 (`VZErrorVirtualMachineLimitExceeded`). It binds every VM tool, tart included.
 tart reports it as "The number of VMs exceeds the system limit (other running
-VMs: …)". To run more than two macOS guests, use more Macs (issues #4, #5).
+VMs: …)". To run more than two macOS guests, use more Macs (issues #4, #5). A
+`vm start` that finds both slots taken fails with `VM_LIMIT_REACHED`;
+`vm start --wait` waits for a slot instead.
 _Avoid_: "tart's limit" (Apple sets the limit) and "two-VM limit" (it counts
 macOS guests, not every VM).
 

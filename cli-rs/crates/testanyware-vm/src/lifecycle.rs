@@ -20,6 +20,8 @@ use crate::qemu::{
 };
 use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
 use crate::qemu_profile::host_profile;
+#[cfg(target_os = "macos")]
+use crate::start_outcome::{next_slot_step, SlotWaitReporter, SlotWaitStep, SLOT_RETRY_INTERVAL};
 use crate::start_outcome::{
     decide_start, read_log_tail, AddressObservation, AgentObservation, Backend, BootObservation,
     Disposition, ProcessState, StartDecision, VncObservation,
@@ -81,6 +83,10 @@ pub struct VmStartOptions {
     /// inspection instead of tearing it down (`--keep-on-failure`). Only a VM
     /// whose backend process is still alive can be kept.
     pub keep_on_failure: bool,
+    /// On a refusal by the macOS guest limit, retry until a slot frees or this
+    /// long has passed, instead of failing at once (`--wait`). `None` fails at
+    /// the first refusal. Only the tart backend can be refused this way.
+    pub wait: Option<Duration>,
 }
 
 impl VmStartOptions {
@@ -103,6 +109,7 @@ impl VmStartOptions {
             logical: display.logical,
             open_viewer,
             keep_on_failure: false,
+            wait: None,
         }
     }
 }
@@ -257,18 +264,18 @@ impl VmLifecycle {
     /// `VMLifecycle.startTart`.
     #[cfg(target_os = "macos")]
     async fn start_tart(opts: &VmStartOptions, paths: &VmPaths) -> Result<VmStartResult, VmError> {
-        use crate::tart::{TartLaunch, TartRunner, TartStartOptions};
+        use crate::tart::{TartRunner, TartStartOptions};
 
         let topts = TartStartOptions {
             id: opts.id.clone(),
             base: opts.base.clone(),
             display: opts.display.clone(),
         };
-        // A failed launch has already removed its clone.
-        let TartLaunch { pid, log_path } = TartRunner::launch(&topts, paths).await?;
-        let boot = observe_tart_boot(opts, paths, pid, &log_path).await;
+        // A failed clone has already removed itself.
+        TartRunner::prepare(&topts, paths).await?;
+        let (pid, boot, decision) = Self::run_until_slot(opts, paths, &topts).await?;
 
-        let (vnc, ip) = match decide_start(&boot.observation, opts.keep_on_failure) {
+        let (vnc, ip) = match decision {
             StartDecision::Ready => match (boot.vnc.clone(), boot.ip.clone()) {
                 (Some(vnc), Some(ip)) => (vnc, ip),
                 // Ready implies both stages passed; refuse to invent an endpoint.
@@ -388,6 +395,89 @@ impl VmLifecycle {
             meta_path,
             tpm: None,
         })
+    }
+
+    /// Run `tart run` on the prepared clone and observe its boot, returning the
+    /// verdict. Without `--wait` that is one attempt. With it, a refusal by the
+    /// macOS guest limit runs the *same* clone again after a pause, until a slot
+    /// frees or the wait is spent; the final refusal is then the verdict, with
+    /// the same error as a start that never waited. Waiting and starting are
+    /// one operation, so no other caller can take the freed slot in between.
+    ///
+    /// A SIGINT or SIGTERM during a `--wait` start removes the clone, so an
+    /// interrupted wait leaks nothing, then ends the process the way the signal
+    /// would have.
+    #[cfg(target_os = "macos")]
+    async fn run_until_slot(
+        opts: &VmStartOptions,
+        paths: &VmPaths,
+        topts: &crate::tart::TartStartOptions,
+    ) -> Result<(i32, TartBoot, StartDecision), VmError> {
+        let Some(timeout) = opts.wait else {
+            return Self::run_and_observe(opts, paths, topts, &std::cell::Cell::new(0)).await;
+        };
+        let Some(mut stop) = StopSignals::install() else {
+            return Self::wait_for_slot(opts, paths, topts, timeout, &std::cell::Cell::new(0)).await;
+        };
+        // The loop's current `tart run`, so an interrupt can stop it too.
+        let running = std::cell::Cell::new(0);
+        let outcome = tokio::select! {
+            outcome = Self::wait_for_slot(opts, paths, topts, timeout, &running) => outcome,
+            caught = stop.caught() => {
+                crate::tart::TartRunner::stop(&opts.id, running.get());
+                clear_sidecars(paths, &opts.id);
+                StopSignals::end_like(caught)
+            }
+        };
+        // The wait is over; the rest of the start answers a signal as it always has.
+        StopSignals::restore_defaults();
+        outcome
+    }
+
+    /// The retry loop behind [`run_until_slot`](Self::run_until_slot).
+    #[cfg(target_os = "macos")]
+    async fn wait_for_slot(
+        opts: &VmStartOptions,
+        paths: &VmPaths,
+        topts: &crate::tart::TartStartOptions,
+        timeout: Duration,
+        running: &std::cell::Cell<i32>,
+    ) -> Result<(i32, TartBoot, StartDecision), VmError> {
+        let waiting_since = Instant::now();
+        let mut reporter = SlotWaitReporter::default();
+        loop {
+            let (pid, boot, decision) = Self::run_and_observe(opts, paths, topts, running).await?;
+            let StartDecision::Failed { error: VmError::VmLimitReached(limit), .. } = &decision else {
+                return Ok((pid, boot, decision));
+            };
+            let elapsed = waiting_since.elapsed();
+            match next_slot_step(elapsed, timeout, SLOT_RETRY_INTERVAL) {
+                SlotWaitStep::GiveUp => return Ok((pid, boot, decision)),
+                SlotWaitStep::RetryAfter(pause) => {
+                    if let Some(line) = reporter.note(limit, elapsed) {
+                        eprintln!("{line}");
+                    }
+                    tokio::time::sleep(pause).await;
+                }
+            }
+        }
+    }
+
+    /// One `tart run` on the prepared clone and what its boot showed. The pid
+    /// goes into `running` as soon as there is one. A failed spawn has already
+    /// removed the clone.
+    #[cfg(target_os = "macos")]
+    async fn run_and_observe(
+        opts: &VmStartOptions,
+        paths: &VmPaths,
+        topts: &crate::tart::TartStartOptions,
+        running: &std::cell::Cell<i32>,
+    ) -> Result<(i32, TartBoot, StartDecision), VmError> {
+        let crate::tart::TartLaunch { pid, log_path } = crate::tart::TartRunner::run(topts, paths)?;
+        running.set(pid);
+        let boot = observe_tart_boot(opts, paths, pid, &log_path).await;
+        let decision = decide_start(&boot.observation, opts.keep_on_failure);
+        Ok((pid, boot, decision))
     }
 
     /// Stop a VM and remove its sidecars. Ports `VMLifecycle.stop`
@@ -619,6 +709,56 @@ const AGENT_PORT: u16 = 8648;
 /// QEMU that *dies* ends the wait at once, so the long window costs nothing on
 /// a failed launch.
 const QEMU_AGENT_POLLS: (u32, Duration) = (120, Duration::from_secs(5));
+
+/// The two signals that ask a waiting `vm start` to stop. Holding the streams
+/// is what keeps tokio's handlers installed; [`restore_defaults`](Self::restore_defaults)
+/// puts the process back the way it was once the wait is over.
+#[cfg(target_os = "macos")]
+struct StopSignals {
+    interrupt: tokio::signal::unix::Signal,
+    terminate: tokio::signal::unix::Signal,
+}
+
+#[cfg(target_os = "macos")]
+impl StopSignals {
+    /// `None` if the handlers cannot be installed; the wait then runs without
+    /// interrupt cleanup, as every start did before `--wait` existed.
+    fn install() -> Option<Self> {
+        use tokio::signal::unix::{signal, SignalKind};
+        Some(Self {
+            interrupt: signal(SignalKind::interrupt()).ok()?,
+            terminate: signal(SignalKind::terminate()).ok()?,
+        })
+    }
+
+    /// Resolves with the first stop signal to arrive.
+    async fn caught(&mut self) -> nix::sys::signal::Signal {
+        use nix::sys::signal::Signal;
+        tokio::select! {
+            _ = self.interrupt.recv() => Signal::SIGINT,
+            _ = self.terminate.recv() => Signal::SIGTERM,
+        }
+    }
+
+    /// Give SIGINT and SIGTERM back their default action.
+    fn restore_defaults() {
+        use nix::sys::signal::{signal, SigHandler, Signal};
+        for sig in [Signal::SIGINT, Signal::SIGTERM] {
+            // SAFETY: SIG_DFL installs no handler code, so there is nothing to
+            // be unsound about; it only undoes the handlers tokio installed.
+            let _ = unsafe { signal(sig, SigHandler::SigDfl) };
+        }
+    }
+
+    /// End the process as `caught` would have, so the caller's shell sees a
+    /// death by signal (130 / 143) rather than an invented exit code.
+    fn end_like(caught: nix::sys::signal::Signal) -> ! {
+        Self::restore_defaults();
+        let _ = nix::sys::signal::raise(caught);
+        // Unreachable unless the signal is blocked; exit with the shell's code.
+        std::process::exit(128 + caught as i32)
+    }
+}
 
 /// What a tart boot observed, plus the endpoints it found along the way.
 #[cfg(target_os = "macos")]
@@ -1334,6 +1474,7 @@ mod tests {
                 logical: None,
                 open_viewer: false,
                 keep_on_failure: false,
+                wait: None,
             };
             let mut boot = TartBoot {
                 observation: BootObservation {
@@ -1386,6 +1527,7 @@ mod tests {
                 logical: None,
                 open_viewer: false,
                 keep_on_failure,
+                wait: None,
             }
         }
 

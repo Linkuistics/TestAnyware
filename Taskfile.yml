@@ -76,6 +76,12 @@ tasks:
     cmds:
       - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh slot-exhaustion
 
+  vm:slot-wait:
+    desc: With both macOS guest slots taken, `vm start --wait` waits, runs out with VM_LIMIT_REACHED, and begins within seconds of a holder stopping (about 4 minutes; needs one free slot, takes the other)
+    deps: [cli:build]
+    cmds:
+      - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh slot-wait
+
   vm:keep-on-failure:
     desc: A failed start is torn down by default and kept under --keep-on-failure (about 4 minutes)
     deps: [cli:build]

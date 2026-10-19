@@ -34,7 +34,7 @@ disagrees with `surface.rs`, `surface.rs` wins.
 |------|------|
 | `VM_NOT_FOUND` | No VM with the given id. |
 | `VM_BOOT_TIMEOUT` | The VM is up but `vm start` stage (`vnc`, `guest-ip`, `agent`) never completed; `details` names the stage and the last probe error. Exit `7`. |
-| `VM_LIMIT_REACHED` | The macOS guest limit (two per Mac) is full; `details.holders` names the VMs. Try again later. Exit `6`. |
+| `VM_LIMIT_REACHED` | The macOS guest limit (two per Mac) is full; `details.holders` names the VMs. Try again later, or start with `--wait`; a `--wait` that ran out returns it too. Exit `6`. |
 | `VM_STOP_FAILED` | `vm stop` could not terminate the VM cleanly. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |

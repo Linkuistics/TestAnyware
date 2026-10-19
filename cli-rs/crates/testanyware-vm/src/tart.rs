@@ -448,6 +448,15 @@ impl TartRunner {
     /// after the clone exists, the clone is removed — a failed launch leaves no
     /// VM behind. Ports the pre-poll half of `VMLifecycle.startTart`.
     pub async fn launch(opts: &TartStartOptions, paths: &crate::paths::VmPaths) -> Result<TartLaunch, VmError> {
+        Self::prepare(opts, paths).await?;
+        Self::run(opts, paths)
+    }
+
+    /// The clone half of [`launch`](Self::launch): reclaim a same-id leftover,
+    /// clone the golden and set its display. A failed clone leaves no VM. The
+    /// caller owns the clone from here and removes it if it never runs — which
+    /// lets a `--wait` start run the one clone again after each refusal.
+    pub async fn prepare(opts: &TartStartOptions, paths: &crate::paths::VmPaths) -> Result<(), VmError> {
         // A start in progress invalidates whatever the id's sidecars described
         // (a reclaimed prior run, or leftovers of a crash). Clear them now so
         // a launch that fails before the start settles cannot leave sidecars
@@ -464,9 +473,15 @@ impl TartRunner {
         // Always set a display: the user's value, or the TestAnyware default
         // (ADR-0013). Without `--display` tart would fall back to the unknown
         // Virtualization.framework default — off the vision distribution.
-        let launched = set_display(&opts.id, resolve_display(opts.display.as_deref()))
-            .and_then(|()| run_detached(&opts.id, &paths.vms_dir()));
-        match launched {
+        set_display(&opts.id, resolve_display(opts.display.as_deref())).inspect_err(|_| {
+            remove_existing(&opts.id);
+        })
+    }
+
+    /// The run half of [`launch`](Self::launch): start `tart run` detached on a
+    /// prepared clone. A failed spawn removes the clone.
+    pub fn run(opts: &TartStartOptions, paths: &crate::paths::VmPaths) -> Result<TartLaunch, VmError> {
+        match run_detached(&opts.id, &paths.vms_dir()) {
             Ok((pid, log_path)) => Ok(TartLaunch { pid, log_path }),
             Err(err) => {
                 remove_existing(&opts.id);

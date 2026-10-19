@@ -8,6 +8,14 @@
 #       With both macOS guest slots taken, a third `vm start` must fail within
 #       seconds with VM_LIMIT_REACHED (exit 6), name the holders, and leave no
 #       clone and no sidecars.
+#   live-start-checks.sh slot-wait
+#       With both macOS guest slots taken, `vm start --wait=SECONDS` must not
+#       fail at once: it waits, names the holders on stderr, keeps exactly one
+#       clone, and at its deadline fails with VM_LIMIT_REACHED (exit 6), leaving
+#       no clone. A SIGTERM during a wait must remove the clone and end the start
+#       by the signal (exit 143). Then a wait, with a holder stopped mid-wait, must
+#       begin within MAX_BEGIN_SECS of the stop and reach a Healthy agent (or,
+#       in a shell Local Network privacy denies, a kept VM at the agent stage).
 #   live-start-checks.sh keep-on-failure
 #       An alive VM whose agent never becomes healthy (forced by pointing
 #       HTTP_PROXY at a closed port, which reqwest honours) must fail with
@@ -46,6 +54,8 @@
 # Env: TESTANYWARE_BIN (default cli-rs/target/debug/testanyware),
 #      MAX_REFUSAL_SECS (default 30; the slot-exhaustion latency bound),
 #      MAX_DENIAL_SECS (default 60; the local-network latency bound),
+#      MAX_BEGIN_SECS (default 15; how soon a waiting start must begin once a
+#      holder stops), WAIT_DEADLINE_SECS (default 8; the short wait that must run out),
 #      KILL_AFTER_SECS (default 15; how long a qemu-start waits before killing
 #      QEMU, so the start is in its agent wait), MAX_DEATH_SECS (default 10;
 #      how fast a killed QEMU must end the start).
@@ -63,6 +73,8 @@ readonly MAX_REFUSAL_SECS="${MAX_REFUSAL_SECS:-30}"
 # Apple's cap on concurrently running macOS guests per Mac.
 readonly MACOS_SLOTS=2
 readonly MAX_DENIAL_SECS="${MAX_DENIAL_SECS:-60}"
+readonly MAX_BEGIN_SECS="${MAX_BEGIN_SECS:-15}"
+readonly WAIT_DEADLINE_SECS="${WAIT_DEADLINE_SECS:-8}"
 readonly KILL_AFTER_SECS="${KILL_AFTER_SECS:-15}"
 readonly MAX_DEATH_SECS="${MAX_DEATH_SECS:-10}"
 readonly VMS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/testanyware/vms"
@@ -301,6 +313,99 @@ check_slot_exhaustion() {
   assert_vm_gone "$probe"
 }
 
+# How many clones named $1 tart lists (0 or 1).
+clone_count() {
+  tart_names | grep -cx "$1" || true
+}
+
+check_slot_wait() {
+  require_free_slot
+  echo "slot-wait: filling the free macOS guest slots (another session's VM may hold one)"
+  local ours holders
+  fill_slot
+  ours="$FILLED_ID"
+  while (($(running_macos_vms | grep -c .) < MACOS_SLOTS)); do
+    fill_slot
+  done
+  holders="$(running_macos_vms)"
+
+  local probe="testanyware-waitcheck-$$" err_file
+  err_file="$(mktemp)"
+  # Registered before the starts that may create it.
+  started_ids+=("$probe")
+
+  echo "slot-wait: a wait that runs out fails like a start that never waited"
+  local began=$SECONDS
+  RC=0
+  OUT="$("$BIN" vm start --platform macos --id "$probe" --wait="$WAIT_DEADLINE_SECS" --json 2>"$err_file")" || RC=$?
+  ELAPSED=$((SECONDS - began))
+  assert_eq "exit code" 6 "$RC"
+  assert_eq "error code" VM_LIMIT_REACHED "$(jq -r '.code' <<<"$OUT")"
+  ((ELAPSED >= WAIT_DEADLINE_SECS)) ||
+    die "the start gave up after ${ELAPSED}s, before its ${WAIT_DEADLINE_SECS}s wait ran out"
+  pass "it waited the full ${WAIT_DEADLINE_SECS}s (${ELAPSED}s)"
+  local holder
+  for holder in $holders; do
+    grep -q "$holder" "$err_file" || die "stderr does not name the holder $holder: $(cat "$err_file")"
+  done
+  pass "stderr named the holders while it waited"
+  assert_vm_gone "$probe"
+
+  echo "slot-wait: SIGTERM during a wait removes the clone and ends the start by the signal"
+  : >"$err_file"
+  "$BIN" vm start --platform macos --id "$probe" --wait=120 --json >/dev/null 2>"$err_file" &
+  local cli=$! waited=0
+  until [[ -s "$err_file" ]]; do
+    kill -0 "$cli" 2>/dev/null || die "the waiting start ended early: $(cat "$err_file")"
+    ((++waited < 60)) || die "the waiting start never reported a wait"
+    sleep 0.5
+  done
+  assert_eq "clones held by the waiting start" 1 "$(clone_count "$probe")"
+  kill -TERM "$cli"
+  RC=0
+  wait "$cli" || RC=$?
+  assert_eq "exit status (128 + SIGTERM)" 143 "$RC"
+  assert_vm_gone "$probe"
+
+  echo "slot-wait: a holder stopping mid-wait lets the waiting start begin"
+  : >"$err_file"
+  local out_file
+  out_file="$(mktemp)"
+  "$BIN" vm start --platform macos --id "$probe" --wait=120 --keep-on-failure --json \
+    >"$out_file" 2>"$err_file" &
+  cli=$!
+  waited=0
+  # Wait until the start has refused once (it has named the holders) and holds
+  # its single clone.
+  until [[ -s "$err_file" ]]; do
+    kill -0 "$cli" 2>/dev/null || die "the waiting start ended early: $(cat "$out_file")"
+    ((++waited < 60)) || die "the waiting start never reported a wait"
+    sleep 0.5
+  done
+  assert_eq "clones held by the waiting start" 1 "$(clone_count "$probe")"
+  "$BIN" vm stop "$ours" >/dev/null || die "vm stop could not reclaim $ours"
+  local stopped=$SECONDS
+  until [[ "$(tart list --format json | jq -r --arg id "$probe" '.[] | select(.Name == $id) | .State')" == running ]]; do
+    kill -0 "$cli" 2>/dev/null || die "the waiting start ended before it began: $(cat "$out_file")"
+    (($((SECONDS - stopped)) <= MAX_BEGIN_SECS)) ||
+      die "the waiting start had not begun ${MAX_BEGIN_SECS}s after the holder stopped"
+    sleep 0.5
+  done
+  pass "the waiting start began $((SECONDS - stopped))s after the holder stopped"
+  assert_eq "clones after the retries" 1 "$(clone_count "$probe")"
+  RC=0
+  wait "$cli" || RC=$?
+  OUT="$(cat "$out_file")"
+  if ((RC == 0)); then
+    pass "it reached a Healthy agent"
+  else
+    assert_eq "exit code" 7 "$RC"
+    assert_eq "failed stage" agent "$(jq -r '.details.stage' <<<"$OUT")"
+    pass "it began and failed at the agent stage (a shell Local Network privacy denies)"
+  fi
+  rm -f "$err_file" "$out_file"
+}
+
 check_keep_on_failure() {
   require_no_running_vms
   local torn="testanyware-keepcheck-$$-torn" kept="testanyware-keepcheck-$$-kept"
@@ -429,6 +534,10 @@ main() {
     slot-exhaustion)
       require_tools tart
       check_slot_exhaustion
+      ;;
+    slot-wait)
+      require_tools tart
+      check_slot_wait
       ;;
     keep-on-failure)
       require_tools tart

@@ -480,6 +480,11 @@ SEE ALSO:
     testanyware file upload, testanyware file exec
 ";
 
+/// What a bare `vm start --wait` waits, in seconds. Bounded, so an unattended
+/// driver cannot hang for ever on a Mac whose slots never free. The help text
+/// below states it too; `vm_start_help_documents_wait…` pins that.
+const VM_START_DEFAULT_WAIT_SECS: &str = "600";
+
 const VM_START_AFTER_HELP: &str = "\
 OUTPUT:
     Stable formats: text (the VM id on one line), --json (schema: vm-start).
@@ -496,7 +501,8 @@ EXIT CODES:
     3  GOLDEN_NOT_FOUND / UEFI_NOT_FOUND
     4  KVM_PERMISSION_DENIED
     6  VM_LIMIT_REACHED — the macOS guest limit (two per Mac) is full; try again
-       later. `details.holders` names the VMs holding the slots.
+       later, or start with --wait. `details.holders` names the VMs holding
+       the slots. With --wait it is also what a wait that ran out returns.
     7  VM_BOOT_TIMEOUT — the VM is up but a start stage never completed;
        `details` names the stage (vnc, guest-ip, agent), the last probe error
        with its OS errno, the attempts and the elapsed time.
@@ -508,6 +514,18 @@ HEALTH:
     carries its log tail (TART_FAILED / QEMU_FAILED); if the agent never comes
     up the error is VM_BOOT_TIMEOUT. A QEMU guest gets 120 probes 5 s apart
     (ten to fourteen minutes) for its agent, because Windows boots slowly.
+
+WAITING FOR A SLOT:
+    Only two macOS guests can run on a Mac at once. Without --wait a start
+    that finds both slots taken fails at once (VM_LIMIT_REACHED, exit 6).
+    With --wait the start retries until a slot frees, then starts; bare
+    --wait gives up after 600 s, --wait=SECONDS after that many. The retries
+    reuse one clone, and stderr names the VMs holding the slots while the
+    start waits (--json still prints only the final result). When the wait
+    runs out the start fails with VM_LIMIT_REACHED as before. Interrupting a
+    waiting start (Ctrl-C, SIGTERM) removes its clone. Several waiters are
+    not served in order: whichever retries first after a slot frees gets it.
+    --wait does not change a failure of any other kind.
 
 IDEMPOTENCY:
     Not idempotent — each call without --id clones a fresh VM. Retry-safe:
@@ -532,6 +550,9 @@ EXAMPLES:
 
     # Investigate a macOS start that fails: keep the VM for a post-mortem
     testanyware vm start --platform macos --keep-on-failure
+
+    # Wait up to 5 minutes for a free macOS slot instead of failing at once
+    testanyware vm start --platform macos --wait=300
 
 SEE ALSO:
     testanyware vm stop, testanyware vm list, testanyware doctor, testanyware viewer
@@ -1865,6 +1886,12 @@ enum VmAction {
         /// removed.
         #[arg(long)]
         keep_on_failure: bool,
+        /// If the macOS guest limit is full, wait for a slot instead of
+        /// failing at once with VM_LIMIT_REACHED. Optionally bounded:
+        /// --wait=SECONDS [default when bare: 600]. At the deadline the start
+        /// fails with the same VM_LIMIT_REACHED.
+        #[arg(long, value_name = "SECONDS", num_args = 0..=1, require_equals = true, default_missing_value = VM_START_DEFAULT_WAIT_SECS)]
+        wait: Option<u64>,
         /// Emit JSON envelope on stdout.
         #[arg(long)]
         json: bool,
@@ -2314,9 +2341,9 @@ async fn main() {
             }
         },
         Command::Vm { action } => match action {
-            VmAction::Start { platform, base, id, display, viewer, keep_on_failure, json, dry_run } => {
+            VmAction::Start { platform, base, id, display, viewer, keep_on_failure, wait, json, dry_run } => {
                 vm_cmds::run_vm_start(
-                    platform, base, id, display, viewer, keep_on_failure,
+                    platform, base, id, display, viewer, keep_on_failure, wait,
                     OutputMode::from_flags(json), dry_run,
                 )
                 .await

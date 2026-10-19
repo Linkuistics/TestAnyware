@@ -424,7 +424,7 @@ Container for VM lifecycle operations. Sub-sub-commands below.
 stdout.
 
 ```
-testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--display <display>] [--viewer] [--keep-on-failure]
+testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--display <display>] [--viewer] [--keep-on-failure] [--wait[=<seconds>]]
 ```
 
 - `--platform <platform>` — `macos`, `linux`, or `windows`. Default: `macos`.
@@ -438,6 +438,13 @@ testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--disp
   leave the VM and its sidecars for inspection (reclaim with `vm stop`)
   instead of removing it. A VM whose backend process has exited is always
   removed.
+- `--wait[=<seconds>]` — If the macOS guest limit is full, wait for a slot
+  instead of failing at once, then start. Bare `--wait` waits up to 600 s; the
+  value is in seconds and needs `=` (`--wait=300`). When the wait runs out the
+  start fails with `VM_LIMIT_REACHED` (exit `6`), as it does without the flag.
+  While it waits, stderr names the VMs holding the slots; `--json` still prints
+  only the final result. The retries reuse one clone, and Ctrl-C or SIGTERM
+  removes it. Several waiters are not served in order.
 
 On every backend (tart: macOS, Linux-on-tart; QEMU: Windows, Linux-on-qcow2) a
 start succeeds only once the guest's agent answers `/health`. Otherwise it

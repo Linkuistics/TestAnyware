@@ -283,6 +283,73 @@ pub fn parse_limit_refusal(log_tail: &str) -> Option<LimitRefusal> {
     Some(LimitRefusal { holders, raw })
 }
 
+/// The pause between a refusal and the next try. The refusal is the only
+/// authoritative signal that a slot is free (`tart list` cannot see macOS VMs
+/// run by other tools), so each try is a real `tart run`; a few seconds keeps
+/// that cheap while a freed slot is taken well inside "within seconds".
+pub const SLOT_RETRY_INTERVAL: Duration = Duration::from_secs(3);
+
+/// How often a long wait repeats itself on stderr when nothing has changed.
+const SLOT_REPORT_EVERY: Duration = Duration::from_secs(30);
+
+/// What a `--wait` start does after the platform's guest limit refused it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlotWaitStep {
+    /// Pause this long, then try again.
+    RetryAfter(Duration),
+    /// The wait is spent: fail with the refusal.
+    GiveUp,
+}
+
+/// Decide the next step of a `--wait` start. The last pause is shortened to end
+/// exactly at the deadline, so the final try is made *at* the timeout rather
+/// than up to one interval before it.
+pub fn next_slot_step(elapsed: Duration, timeout: Duration, interval: Duration) -> SlotWaitStep {
+    let remaining = timeout.saturating_sub(elapsed);
+    if remaining.is_zero() {
+        SlotWaitStep::GiveUp
+    } else {
+        SlotWaitStep::RetryAfter(interval.min(remaining))
+    }
+}
+
+/// Decides when a waiting start speaks on stderr: on the first refusal, when
+/// the holders change, and as a heartbeat while they do not. The `--json`
+/// envelope stays the final result only, so this is the only voice a wait has.
+#[derive(Debug, Default)]
+pub struct SlotWaitReporter {
+    last: Option<(Vec<String>, Duration)>,
+}
+
+impl SlotWaitReporter {
+    /// The line to print for this refusal, or `None` when it would only repeat
+    /// the last one.
+    pub fn note(&mut self, limit: &LimitReached, elapsed: Duration) -> Option<String> {
+        let due = match &self.last {
+            None => true,
+            Some((holders, at)) => {
+                *holders != limit.holders || elapsed.saturating_sub(*at) >= SLOT_REPORT_EVERY
+            }
+        };
+        if !due {
+            return None;
+        }
+        self.last = Some((limit.holders.clone(), elapsed));
+        let held_by = if limit.holders.is_empty() {
+            "VMs TestAnyware cannot name".to_string()
+        } else {
+            limit.holders.join(", ")
+        };
+        Some(format!(
+            "waiting for a {} guest slot ({} of {} in use, held by {held_by}); {}s elapsed",
+            limit.platform,
+            limit.limit,
+            limit.limit,
+            elapsed.as_secs()
+        ))
+    }
+}
+
 /// How much of a dead backend's log goes into its error.
 pub const LOG_TAIL_LINES: usize = 20;
 pub const LOG_TAIL_BYTES: usize = 4096;
@@ -782,5 +849,92 @@ mod tests {
         let tail = log_tail("ééééé", 20, 3);
         assert!(tail.len() <= 3 && tail.chars().all(|c| c == 'é'));
         assert_eq!(log_tail("", 20, 100), "");
+    }
+
+    fn limit(holders: &[&str]) -> LimitReached {
+        LimitReached {
+            platform: "macos".into(),
+            limit: MACOS_GUEST_LIMIT,
+            holders: holders.iter().map(|h| h.to_string()).collect(),
+            raw: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_slot_wait_retries_one_interval_later_until_the_timeout() {
+        let (timeout, interval) = (Duration::from_secs(60), Duration::from_secs(3));
+        assert_eq!(
+            next_slot_step(Duration::ZERO, timeout, interval),
+            SlotWaitStep::RetryAfter(interval)
+        );
+        assert_eq!(
+            next_slot_step(Duration::from_secs(30), timeout, interval),
+            SlotWaitStep::RetryAfter(interval)
+        );
+    }
+
+    #[test]
+    fn the_last_pause_ends_at_the_deadline_and_the_try_after_it_gives_up() {
+        let (timeout, interval) = (Duration::from_secs(10), Duration::from_secs(3));
+        assert_eq!(
+            next_slot_step(Duration::from_secs(9), timeout, interval),
+            SlotWaitStep::RetryAfter(Duration::from_secs(1))
+        );
+        assert_eq!(
+            next_slot_step(timeout, timeout, interval),
+            SlotWaitStep::GiveUp
+        );
+        assert_eq!(
+            next_slot_step(Duration::from_secs(11), timeout, interval),
+            SlotWaitStep::GiveUp
+        );
+    }
+
+    #[test]
+    fn a_zero_timeout_gives_up_at_the_first_refusal() {
+        assert_eq!(
+            next_slot_step(Duration::ZERO, Duration::ZERO, SLOT_RETRY_INTERVAL),
+            SlotWaitStep::GiveUp
+        );
+    }
+
+    #[test]
+    fn the_reporter_names_the_holders_on_the_first_refusal() {
+        let mut reporter = SlotWaitReporter::default();
+        let line = reporter
+            .note(&limit(&["alpha", "beta"]), Duration::ZERO)
+            .unwrap();
+        assert!(line.contains("alpha, beta"), "{line}");
+        assert!(line.contains("2 of 2"), "{line}");
+    }
+
+    #[test]
+    fn the_reporter_stays_quiet_while_nothing_changes_then_repeats_as_a_heartbeat() {
+        let mut reporter = SlotWaitReporter::default();
+        let held = limit(&["alpha", "beta"]);
+        assert!(reporter.note(&held, Duration::ZERO).is_some());
+        assert!(reporter.note(&held, Duration::from_secs(3)).is_none());
+        assert!(reporter.note(&held, Duration::from_secs(29)).is_none());
+        assert!(reporter.note(&held, Duration::from_secs(30)).is_some());
+        assert!(reporter.note(&held, Duration::from_secs(33)).is_none());
+    }
+
+    #[test]
+    fn the_reporter_speaks_again_when_the_holders_change() {
+        let mut reporter = SlotWaitReporter::default();
+        assert!(reporter
+            .note(&limit(&["alpha", "beta"]), Duration::ZERO)
+            .is_some());
+        let line = reporter
+            .note(&limit(&["alpha", "gamma"]), Duration::from_secs(3))
+            .unwrap();
+        assert!(line.contains("alpha, gamma"), "{line}");
+    }
+
+    #[test]
+    fn the_reporter_admits_when_the_holders_are_unnamed() {
+        let mut reporter = SlotWaitReporter::default();
+        let line = reporter.note(&limit(&[]), Duration::ZERO).unwrap();
+        assert!(line.contains("cannot name"), "{line}");
     }
 }

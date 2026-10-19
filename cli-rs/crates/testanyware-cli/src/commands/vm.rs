@@ -57,6 +57,7 @@ pub async fn run_vm_start(
     display: Option<String>,
     viewer: bool,
     keep_on_failure: bool,
+    wait: Option<u64>,
     mode: OutputMode,
     dry_run: bool,
 ) {
@@ -92,6 +93,7 @@ pub async fn run_vm_start(
     }
     let mut opts = VmStartOptions::new(parsed, base, id, request, viewer);
     opts.keep_on_failure = keep_on_failure;
+    opts.wait = wait.map(std::time::Duration::from_secs);
     let paths = VmPaths::from_process_env();
 
     if dry_run {
