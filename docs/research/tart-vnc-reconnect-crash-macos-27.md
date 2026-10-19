@@ -126,9 +126,20 @@ a later one sees 1024x768. One `screen capture` on a first connection failed wit
 `task vm:tart-vnc-idle-repro` shows the crash, and `task vm:tart-vnc-idle-repro HOLD=1`
 shows the fix.
 
-**In the product:** `vm start` could start a small keeper that holds one connection until
-`vm stop`. That needs a design. The keeper is a process with a lifecycle, and ADR-0004
-dropped the earlier persistent VNC server. Leaf `vnc-keeper-design-k19` records the choice.
+**In the product:** ADR-0018 decides it. Each tart-backed `vm start` starts a VNC keeper.
+The keeper is a detached process that holds one bare TCP connection for the life of the guest.
+Until the keeper is built, the workaround above applies.
+
+## Where the findings landed
+
+ADR-0018 (`docs/adr/0018-tart-guests-get-a-vnc-keeper.md`) uses these findings:
+
+- The 60-second gap and the bare TCP holder are the reason for the keeper and its form.
+- The RST finding is why the keeper reads and discards all that the server sends.
+- The shared sessions are why the keeper cannot disturb the viewer, `screen record` or a command.
+- The reading of the golden-creation code is why golden creation gets no keeper.
+- The untested macOS 26 host is why the keeper runs on every host, with no version gate.
+- The re-run on 2026-10-19 (macOS 27.0.1, tart 2.40.1, 70-second gap) crashed tart again.
 
 ## Draft report for Apple (Feedback Assistant) and Cirrus Labs (tart)
 

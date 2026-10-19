@@ -50,8 +50,13 @@ opens one short-lived RFB connection … then disconnects. This mirrors the Swif
 CLI's per-invocation lifecycle."* There is no multiplexer, no unix socket,
 no PID file, no idle-timeout daemon.
 
-What replaces the shared server is therefore **nothing persistent** — just
-per-invocation connections. The handshake cost the shared server amortised is
+What replaces the shared server is therefore **nothing that commands talk to** —
+just per-invocation connections. One persistent process exists for each tart
+guest: the VNC keeper (ADR-0018). It holds one silent connection so that a host
+fault cannot kill the guest. It carries no traffic, and no invocation attaches
+to it.
+
+The handshake cost the shared server amortised is
 accepted as the cost of a stateless, simpler CLI. The only planned long-lived
 RFB consumer is the embedded `egui` viewer (leaf `060-egui-viewer`). That is a
 *viewer*, a single-process display surface. It is not a shared multiplexer

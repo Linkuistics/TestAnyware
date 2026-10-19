@@ -150,6 +150,15 @@ ADR-0004 owns the retirement.
 _Avoid_: "the server" (ambiguous — agents and the OCR daemon are also servers),
 conflating it with `OcrChildBridge`.
 
+**VNC keeper** (decided, not yet built):
+The detached `testanyware _vnc-keeper` process that holds one bare TCP
+connection to a tart guest's [[Host-side framebuffer]] (ADR-0018). It lives as
+long as the guest and sends nothing. Each tart-backed `vm start` starts one, because on
+a macOS 27 host Apple's `_VZVNCServer` aborts tart when a client connects 60
+seconds after the last one left.
+_Avoid_: "VNC server" or "Shared-VNC server". The keeper is a client, carries no
+traffic, and nothing attaches to it.
+
 **OCR daemon**:
 The long-lived Python child process (`OcrChildBridge` in
 `testanyware-ocr-client`) that hosts EasyOCR for the Linux/Windows OCR path,
