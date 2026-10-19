@@ -189,17 +189,17 @@ accessibility APIs:
   coordinate bugs)
 - Windows: C#/ASP.NET, uses UI Automation (UIA) via FlaUI
 
-**Host side (Rust):** the `cli-rs/` workspace — `testanyware-rfb` wraps the RFB
-protocol, `testanyware-agent-client` the agent HTTP client, and
+**Host side (Rust):** the `cli-rs/` workspace. `testanyware-rfb` wraps the RFB
+protocol. `testanyware-agent-client` is the agent HTTP client.
 `testanyware-protocol` defines the wire-format types (the macOS agent ships its
 own self-contained copy of the same module — see §Key Directories). The CLI is
 built on `clap`.
 
 **Vision pipeline (Python):** A `uv` workspace at `vision/` decomposes
-screenshots into structured UI data through sequential stages (window
-detection → chrome → element → icon classification → drawing primitives →
-menu → OCR → state). Uses pytest with `--import-mode=importlib` to avoid
-duplicate-module collisions across the workspace members.
+screenshots into structured UI data. It does this through sequential stages
+(window detection → chrome → element → icon classification → drawing
+primitives → menu → OCR → state). It uses pytest with `--import-mode=importlib`
+to avoid duplicate-module collisions across the workspace members.
 
 ## Tech Stack & Languages
 
@@ -232,11 +232,12 @@ Python source) under `$(brew --prefix testanyware)/share/testanyware/`.
 The golden builders read agent artifacts from that location
 automatically — there is nothing to build on the host.
 
-To create a golden image — all three goldens (macOS, Linux, Windows)
-are in-process `testanyware vm create-golden --platform <os>` commands;
-no golden shell scripts ship any more. The Windows golden builds
-Windows 11 ARM64 (`testanyware-golden-windows-11`) via QEMU+swtpm from
-a Microsoft evaluation ISO, so its first run needs `--iso <path>`:
+All three goldens (macOS, Linux, Windows) are in-process
+`testanyware vm create-golden --platform <os>` commands. No golden shell
+scripts ship any more. The Windows golden builds Windows 11 ARM64
+(`testanyware-golden-windows-11`) via QEMU+swtpm from a Microsoft evaluation
+ISO, so its first run needs `--iso <path>`. To create a golden image, run
+these commands:
 
 ```bash
 testanyware vm create-golden --platform macos
@@ -245,7 +246,7 @@ testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.is
 ```
 
 `brew upgrade testanyware` updates the CLI and the bundled agents
-together (they share the wire protocol; never split). Rebuild your
+together (they share the wire protocol, so never split them). Rebuild your
 goldens after upgrading the formula so the in-VM agent matches the
 host CLI.
 
@@ -260,7 +261,7 @@ vars consumed by the golden scripts:
 | `TESTANYWARE_CLI_BIN_OVERRIDE=/abs/path/to/testanyware` | macOS golden's recovery-mode VNC driver (host CLI) |
 | `TESTANYWARE_AGENT_BIN_OVERRIDE=/abs/path/to/{testanyware-agent,testanyware-agent.exe,agents/linux}` | per-platform agent payload |
 
-If neither is set, the scripts resolve `command -v testanyware` and
+If you set neither, the scripts resolve `command -v testanyware` and
 `brew --prefix testanyware`/`share/testanyware/agents/<platform>/...`.
 
 **Host CLI (Rust, cross-platform):**
@@ -333,16 +334,15 @@ testanyware vm create-golden --platform linux     # Linux (tart)
 ```
 
 For Windows, first download the Windows 11 ARM64 evaluation ISO from
-[Microsoft](https://www.microsoft.com/en-us/software-download/windows11arm64),
-then pass it to the in-process command (which builds
-`testanyware-golden-windows-11` via QEMU+swtpm, provisioning over the
-in-VM agent — no SSH):
+[Microsoft](https://www.microsoft.com/en-us/software-download/windows11arm64).
+The in-process command builds `testanyware-golden-windows-11` via QEMU+swtpm.
+It provisions over the in-VM agent, with no SSH. Pass the ISO to it:
 
 ```bash
 testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.iso
 ```
 
-The ISO is cached after first use — subsequent runs don't need `--iso`.
+The command caches the ISO after first use. Subsequent runs do not need `--iso`.
 The Windows installation is fully automated via `autounattend.xml`
 (typical time: 20-40 minutes).
 
@@ -368,25 +368,25 @@ swift test --package-path cli
 
 `provisioner/scripts/vm-{start,stop,list,delete}.sh` are thin wrappers
 around `testanyware vm {start,stop,list,delete}`. You can call either
-form; the CLI is the source of truth.
+form. The CLI is the source of truth.
 
 | Script | How to run | What it does |
 |--------|-----------|--------------|
 | _(built into the CLI)_ | `testanyware vm create-golden --platform macos` | Create macOS golden VM image (tart) with agent + Xcode + Homebrew |
 | _(built into the CLI)_ | `testanyware vm create-golden --platform linux` | Create Linux golden VM image (tart) with agent + dev tools |
-| _(built into the CLI)_ | `testanyware vm create-golden --platform windows --iso <path>` | Create Windows golden VM image (QEMU+swtpm) with agent + Chocolatey; requires downloaded ISO on first run |
+| _(built into the CLI)_ | `testanyware vm create-golden --platform windows --iso <path>` | Create Windows golden VM image (QEMU+swtpm) with agent + Chocolatey. The first run requires a downloaded ISO |
 | `provisioner/scripts/vm-start.sh` | `vmid=$(provisioner/scripts/vm-start.sh)` | Start VM, print instance id on stdout, write `$XDG_STATE_HOME/testanyware/vms/<id>.json` |
-| `provisioner/scripts/vm-stop.sh` | `provisioner/scripts/vm-stop.sh "$vmid"` | Stop VM and delete its spec files (id is required; `TESTANYWARE_VM_ID` works too) |
+| `provisioner/scripts/vm-stop.sh` | `provisioner/scripts/vm-stop.sh "$vmid"` | Stop VM and delete its spec files (give the id, or set `TESTANYWARE_VM_ID`) |
 | `provisioner/scripts/vm-list.sh` | `provisioner/scripts/vm-list.sh` | List golden images and running clones (tart + QEMU) |
-| `provisioner/scripts/vm-delete.sh` | `provisioner/scripts/vm-delete.sh <name> [--force]` | Delete a golden image by name; auto-detects tart vs QEMU backend |
+| `provisioner/scripts/vm-delete.sh` | `provisioner/scripts/vm-delete.sh <name> [--force]` | Delete a golden image by name. It detects the tart or QEMU backend automatically |
 
 ### Environment variables
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `TESTANYWARE_VM_ID` | `testanyware-a3f7b2c1` | VM instance id; CLI resolves it to `$XDG_STATE_HOME/testanyware/vms/<id>.json` |
+| `TESTANYWARE_VM_ID` | `testanyware-a3f7b2c1` | VM instance id. The CLI resolves it to `$XDG_STATE_HOME/testanyware/vms/<id>.json` |
 | `TESTANYWARE_AGENT` | `192.168.64.100:8648` | Agent HTTP endpoint (overrides the spec file's agent) |
-| `TESTANYWARE_VNC` | `127.0.0.1:59948` | VNC endpoint (ad-hoc; no spec file needed) |
+| `TESTANYWARE_VNC` | `127.0.0.1:59948` | VNC endpoint (ad-hoc, no spec file needed) |
 | `TESTANYWARE_VNC_PASSWORD` | `syrup-rotate-nasty` | VNC password used with `TESTANYWARE_VNC` |
 | `TESTANYWARE_PLATFORM` | `macos` | Target platform (`macos`, `linux`, `windows`) |
 
@@ -422,15 +422,15 @@ spec](https://specification.freedesktop.org/basedir-spec/latest/):
 
 | Content | Path | Purpose |
 |---------|------|---------|
-| Running-VM spec + metadata | `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/` | Ephemeral; written by `vm-start.sh`, removed by `vm-stop.sh` |
-| QEMU golden images | `${XDG_DATA_HOME:-~/.local/share}/testanyware/golden/` | Persistent; created by `testanyware vm create-golden --platform windows` |
-| QEMU clone working dirs | `${XDG_DATA_HOME:-~/.local/share}/testanyware/clones/<id>/` | Ephemeral; created by `vm-start.sh`, removed by `vm-stop.sh` |
-| Windows installer ISO cache | `${XDG_DATA_HOME:-~/.local/share}/testanyware/cache/` | Persistent; reused across golden-image builds |
+| Running-VM spec + metadata | `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/` | Ephemeral. `vm-start.sh` writes it and `vm-stop.sh` deletes it |
+| QEMU golden images | `${XDG_DATA_HOME:-~/.local/share}/testanyware/golden/` | Persistent. `testanyware vm create-golden --platform windows` creates it |
+| QEMU clone working dirs | `${XDG_DATA_HOME:-~/.local/share}/testanyware/clones/<id>/` | Ephemeral. `vm-start.sh` creates it and `vm-stop.sh` deletes it |
+| Windows installer ISO cache | `${XDG_DATA_HOME:-~/.local/share}/testanyware/cache/` | Persistent. Golden-image builds reuse it |
 
 ### Per-VM spec file format
 
-`vm-start.sh` writes the spec as JSON. The CLI consumes this; clients
-reading it directly can rely on this schema:
+`vm-start.sh` writes the spec as JSON. The CLI consumes this. Clients
+that read it directly can rely on this schema:
 
 ```json
 {
@@ -448,9 +448,9 @@ reading it directly can rely on this schema:
 
 Older spec files written by VMs started before the SSH-disable change may
 still carry an `ssh` field. The decoder ignores unknown keys, so they load
-without modification; new specs do not emit it.
+without modification. New specs do not emit it.
 
-A sibling `<id>.meta.json` is written alongside. It's an internal sidecar
+A sibling `<id>.meta.json` is written alongside. It is an internal sidecar
 for `vm-stop.sh` (PID, tool, clone dir, viewer window id) — clients should
 not read or depend on its shape.
 
@@ -460,7 +460,7 @@ All images share these properties:
 
 - **User** — `admin`, with autologin to desktop session
 - **testanyware-agent** — HTTP service on port 8648, started automatically on boot
-- **Solid gray wallpaper** — clean background for screenshot analysis
+- **Solid grey wallpaper** — clean background for screenshot analysis
 - **Notifications and widgets disabled** — no visual clutter during tests
 
 ### macOS (`testanyware-golden-macos-27`)
@@ -472,7 +472,7 @@ All images share these properties:
 - **Accessibility** — TCC grant via system TCC database with code signing requirement (SIP disable/enable cycle during image creation)
 - **Package manager** — Homebrew (`/opt/homebrew/bin/brew`)
 - **Dev tools** — Xcode Command Line Tools (`swift`, `clang`, `git`, `make`)
-- **No SSH at runtime** — Remote Login is enabled during golden creation only and turned off (`systemsetup -f -setremotelogin off`) before the final shutdown; clones communicate via the agent on port 8648
+- **No SSH at runtime** — Remote Login is on during golden creation only. Golden creation turns it off (`systemsetup -f -setremotelogin off`) before the final shutdown. Clones communicate via the agent on port 8648
 - **Session restore disabled** — apps don't reopen old windows
 - **SIP enabled** — standard security posture after image creation
 
@@ -482,7 +482,7 @@ All images share these properties:
 - **Agent autostart** — systemd user service (`testanyware-agent.service`)
 - **Accessibility** — AT-SPI2 enabled, `python3-pyatspi` for bindings, `xdotool` for window management fallback
 - **Package manager** — apt
-- **No SSH at runtime** — `openssh-server` is used during golden creation only and disabled + masked (`systemctl disable ssh && systemctl mask ssh`) immediately before the final shutdown; clones communicate via the agent on port 8648
+- **No SSH at runtime** — `openssh-server` runs during golden creation only. Golden creation disables and masks it (`systemctl disable ssh && systemctl mask ssh`) immediately before the final shutdown. Clones communicate via the agent on port 8648
 - **Silent boot** — GRUB hidden, Plymouth splash, no text-mode console output
 - **Screen lock and blanking disabled** — no interruptions during tests
 - **NetworkManager** — configured via netplan (replaces systemd-networkd from base image)
@@ -491,10 +491,10 @@ All images share these properties:
 
 - **Windows 11 Pro** (ARM64, installed from Microsoft evaluation ISO via QEMU)
 - **Agent autostart** — Task Scheduler logon task (`TestAnywareAgent`)
-- **Password never expires** — `admin` (auto-logon) is set to never expire, so a golden older than Windows' 42-day password age still logs in and starts the agent; golden creation verifies it with `net user admin`
+- **Password never expires** — `admin` (auto-logon) has a password that never expires. A golden older than Windows' 42-day password age therefore still logs in and starts the agent. Golden creation verifies it with `net user admin`
 - **Accessibility** — UI Automation via FlaUI (built into Windows)
 - **Package manager** — Chocolatey
-- **No SSH** — agent binary installed from autounattend media; all communication via agent HTTP
+- **No SSH** — agent binary installed from autounattend media. All communication via agent HTTP
 - **First-logon animation disabled** — clones boot straight to desktop without OOBE
 - **UEFI + TPM 2.0** — standard Windows 11 secure boot via swtpm
 - **VirtIO networking** — virtio-net-pci driver installed during setup
@@ -528,8 +528,8 @@ the grant valid across rebuilds.
   (CLI) or HTTP 400+ responses (agents). Exec output captured as
   `{stdout, stderr, exitCode}`, never thrown.
 - **VNC passwords:** Extracted from tart's dynamically-generated VNC URL at
-  startup and written into the per-VM spec file by `vm-start.sh`; never
-  hardcoded, never hand-assembled.
+  startup and written into the per-VM spec file by `vm-start.sh`. They are never
+  hardcoded and never hand-assembled.
 - **Testing:** Pytest marker-driven (`unit|vision|integration|slow`). Vision
   tests run against golden datasets under `vision/`. Integration tests
   need live VMs from `vm-start.sh`. Always invoke pytest with
@@ -539,7 +539,7 @@ the grant valid across rebuilds.
   only) and `full` (all roles). For layout analysis, prefer `full`. For
   action targeting, use `interact`.
 - **Coordinate systems:** All coordinates are screen-absolute. VNC framebuffer
-  is (0,0) at top-left; agents return screen coords. Linux GTK4 apps return
+  is (0,0) at top-left. Agents return screen coords. Linux GTK4 apps return
   (0,0) for all coordinate types — agent auto-detects and computes offset
   via xdotool + `_GTK_FRAME_EXTENTS`.
 - **Text matching:** Word-level OCR (not line-level). Multi-word GT labels
@@ -553,11 +553,11 @@ the grant valid across rebuilds.
 ## Troubleshooting
 
 Known issues, VM quirks, platform-specific workarounds, and CLI edge
-cases have moved to [`docs/user/troubleshooting.md`](docs/user/troubleshooting.md).
+cases now live in [`docs/user/troubleshooting.md`](docs/user/troubleshooting.md).
 
-On a macOS 27 host, a tart guest (macOS or Linux) stops if a `screen` or `input` command runs
-60 seconds or more after the last VNC client left. Keep one VNC connection open
-to avoid it. The troubleshooting entry "A tart guest dies when `screen` or
+On a macOS 27 host, the last VNC client can leave a tart guest (macOS or Linux).
+If a `screen` or `input` command then runs 60 seconds or more later, the guest
+stops. Keep one VNC connection open to avoid it. The troubleshooting entry "A tart guest dies when `screen` or
 `input` runs after 60 idle seconds" has the details.
 
 ## Key Directories
@@ -615,7 +615,7 @@ to avoid it. The troubleshooting entry "A tart guest dies when `screen` or
 
 ## LLM Integration
 
-If you want to drive TestAnyware from another LLM (i.e. use it as a tool
-from within an LLM-driven workflow), see
-[LLM_INSTRUCTIONS.md](LLM_INSTRUCTIONS.md) for the complete CLI surface,
-command reference, vision-pipeline stages, and workflow patterns.
+You can drive TestAnyware from another LLM, that is, use it as a tool from
+within an LLM-driven workflow. For the complete CLI surface, command reference,
+vision-pipeline stages, and workflow patterns, see
+[LLM_INSTRUCTIONS.md](LLM_INSTRUCTIONS.md).

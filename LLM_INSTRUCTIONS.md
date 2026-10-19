@@ -1,14 +1,15 @@
 # TestAnyware — LLM Instructions
 
 `testanyware` is a command-line tool that drives a virtual machine for UI
-testing. It reaches each VM over two channels: **VNC** (screenshots,
-keyboard, mouse, video) and an in-VM **HTTP agent** on port 8648
-(accessibility tree, semantic UI actions, command exec, file transfer).
+testing. It reaches each VM over two channels. The first is **VNC**
+(screenshots, keyboard, mouse, video). The second is an in-VM **HTTP agent**
+on port 8648 (accessibility tree, semantic UI actions, command exec, file
+transfer).
 
 It is *not* a general remote shell, *not* a host-side screen recorder, and
-*not* an OCR library — it is glue between an LLM agent and a running guest
+*not* an OCR library. It is glue between an LLM agent and a running guest
 OS. Every instruction below is runnable with only the `testanyware` binary
-on your `PATH`; no source checkout is required.
+on your `PATH`. You do not need a source checkout.
 
 ## Mental model
 
@@ -44,7 +45,7 @@ testanyware vm stop "$vmid"
 ```
 
 `vm start` prints the new VM id on stdout. For a QEMU-backed guest (Windows)
-it also says on stderr whether the guest's TPM was attached or omitted, and
+it also says on stderr whether it attached or omitted the guest's TPM.
 `--json` carries the same answer as a `tpm` object. When automation spans multiple
 processes, persist the id to a file so later steps can find and stop it:
 
@@ -58,16 +59,16 @@ rm .testanyware-vmid
 
 ### VM lifecycle
 
-- `testanyware vm start [--platform macos|linux|windows] [--id <id>] [--display WxH] [--viewer]` — start a VM; prints its id.
-- `testanyware vm stop <id>` — stop a VM and remove its spec file.
+- `testanyware vm start [--platform macos|linux|windows] [--id <id>] [--display WxH] [--viewer]` — start a VM. It prints its id.
+- `testanyware vm stop <id>` — stop a VM and delete its spec file.
 - `testanyware vm list` — list golden images and running clones.
 - `testanyware vm delete <name> [--force]` — delete a golden image.
 
 `vm start` boots a **clone of a pre-built golden image** (clean desktop,
 agent pre-installed, accessibility enabled, agent on port 8648). Run
 `testanyware vm list` to see which golden images are available. If none
-exist, create one — all three goldens (macOS, Linux, Windows) are
-in-process `testanyware vm create-golden --platform <os>` commands; no
+exist, create one. All three goldens (macOS, Linux, Windows) are
+in-process `testanyware vm create-golden --platform <os>` commands. No
 golden shell scripts ship any more. The Windows golden builds Windows 11
 ARM64 (`testanyware-golden-windows-11`) via QEMU+swtpm from a Microsoft
 evaluation ISO, so its first run needs `--iso <path>`:
@@ -78,7 +79,7 @@ testanyware vm create-golden --platform linux
 testanyware vm create-golden --platform windows --iso ~/Downloads/Win11_ARM64.iso
 ```
 
-`vm start --viewer` opens a VNC viewer window; on macOS the first use
+`vm start --viewer` opens a VNC viewer window. On macOS the first use
 prompts for Automation permission.
 
 ## Agent commands (semantic / exec channel)
@@ -99,9 +100,9 @@ testanyware agent window-focus|window-resize|window-move|window-close|window-min
 - Snapshot options: `--mode interact|layout|full`, `--window FILTER`, `--role ROLE`, `--label TEXT`, `--depth N`.
 - Element query: `--role ROLE`, `--label TEXT`, `--window FILTER`, `--id ID`, `--index N`.
 
-The in-VM agent needs OS-level accessibility permission; golden images
-grant it at build time. `agent health` reports whether it is granted —
-a missing grant surfaces as exit code `4` (`AUTH_REQUIRED`).
+The in-VM agent needs OS-level accessibility permission. Golden images
+grant it at build time. `agent health` reports whether the agent has this
+permission. A missing grant surfaces as exit code `4` (`AUTH_REQUIRED`).
 
 ### exec & file transfer
 
@@ -128,7 +129,7 @@ testanyware input drag fromX fromY toX toY
 ```
 
 - Keys: `a`-`z` `0`-`9` `return` `tab` `escape` `space` `delete` `backspace` `forwarddelete` `up` `down` `left` `right` `home` `end` `pageup` `pagedown` `f1`-`f19`.
-- Modifiers: `cmd` `alt` `shift` `ctrl`, mapped per `--platform` (`macos` maps `cmd` to Command; `windows` maps `cmd` to Ctrl).
+- Modifiers: `cmd` `alt` `shift` `ctrl`. The tool maps them per `--platform`. The `macos` platform maps `cmd` to Command. The `windows` platform maps `cmd` to Ctrl.
 
 ## Screen commands (VNC channel)
 
@@ -144,7 +145,7 @@ testanyware screen find-text                   # all text on screen
 
 `find-text` returns e.g.
 `[{"text":"Terminal","x":248,"y":91,"width":55,"height":12,"confidence":0.95}]`.
-Click the element's center at `x + width/2`, `y + height/2`.
+Click the element's centre at `x + width/2`, `y + height/2`.
 
 ## Connection spec JSON
 
@@ -157,7 +158,7 @@ Click the element's center at `x + width/2`, `y + height/2`.
  "platform": "macos"}
 ```
 
-- `vnc` is always present; `vnc.password` is present on the macOS, Linux, and Windows goldens.
+- `vnc` is always present. `vnc.password` is present on the macOS, Linux, and Windows goldens.
 - `agent` is present once the agent reached health during startup.
 - `platform` is one of `macos` | `linux` | `windows`.
 
@@ -171,15 +172,15 @@ Spec files live at
 |----------|---------|---------|
 | `TESTANYWARE_VM_ID` | `testanyware-a3f7b2c1` | Resolves to the per-VM spec file |
 | `TESTANYWARE_AGENT` | `192.168.64.100:8648` | Agent HTTP endpoint (overrides the spec) |
-| `TESTANYWARE_VNC` | `127.0.0.1:59948` | VNC endpoint (ad-hoc; no spec file needed) |
+| `TESTANYWARE_VNC` | `127.0.0.1:59948` | VNC endpoint (ad-hoc, no spec file needed) |
 | `TESTANYWARE_VNC_PASSWORD` | `syrup-rotate-nasty` | VNC password used with `TESTANYWARE_VNC` |
 | `TESTANYWARE_PLATFORM` | `macos` | Target platform (`macos`, `linux`, `windows`) |
 
 ## Workflow patterns
 
-All examples assume `TESTANYWARE_VM_ID` is set.
+Set `TESTANYWARE_VM_ID` before you run these examples.
 
-**Discover-then-act (preferred)** — the agent is the primary channel; act
+**Discover-then-act (preferred)** — the agent is the primary channel. Act
 on elements semantically, not by pixel:
 
 ```bash
@@ -188,7 +189,7 @@ testanyware agent press --role button --label "Save"  # 2. act by role + label
 testanyware agent snapshot --mode interact            # 3. verify the result
 ```
 
-**Visual verification** — for colors, layout, and custom-drawn UI that
+**Visual verification** — for colours, layout, and custom-drawn UI that
 accessibility cannot see:
 
 ```bash
@@ -206,18 +207,18 @@ testanyware file exec "choco install jq -y"         # Windows
 
 ## JSON output, exit codes, idempotency
 
-- Every data-producing command supports `--json`. JSON envelopes carry `schema_version` and `ok`; failures add a stable `code` and a `message`.
+- Every data-producing command supports `--json`. JSON envelopes carry `schema_version` and `ok`. Failures add a stable `code` and a `message`.
 - Exit codes: `0` success, `1` generic, `2` usage, `3` not-found, `4` auth, `5` conflict, `7` timeout. `file exec` propagates the guest process's own exit code.
 - Mutating commands accept `--dry-run`: the JSON envelope sets `dry_run: true` and no side effect runs.
 
 ## Common mistakes
 
 - **Don't parse text output.** Use `--json` and parse the envelope — text output is for humans and is not a stable interface.
-- **Don't click pixel coordinates when a role + label exists.** `agent press --role button --label "Save"` survives layout changes; pixel clicks do not.
-- **Don't reuse a screenshot's coordinates after a window moves.** Coordinates are absolute; re-snapshot, or use `--window <name>` filters that resolve at click time.
+- **Don't click pixel coordinates when a role + label exists.** `agent press --role button --label "Save"` survives layout changes. Pixel clicks do not.
+- **Don't reuse a screenshot's coordinates after a window moves.** Coordinates are absolute. Re-snapshot, or use `--window <name>` filters that resolve at click time.
 - **Don't poll `agent windows` in a tight loop.** Use `agent wait`, which blocks until the element is ready.
 - **Don't mix `--vm` with `--vnc`/`--agent`.** The resolution chain takes the first match and silently ignores the rest.
-- **Sleep after input.** VMs need time to settle: `sleep 1` after keyboard/mouse, `sleep 5` after launching an app.
+- **Sleep after input.** VMs need time to settle: `sleep 1` after keyboard/mouse, `sleep 5` after starting an app.
 - **On a macOS 27 host, a tart guest (macOS or Linux) dies if a `screen` or `input` command runs 60 seconds after the last one.** Tart's VNC server aborts on a reconnect after an idle gap. Keep one VNC connection open for the guest's life (`tail -f /dev/null | nc <vnc-host> <vnc-port>`), or keep commands less than 60 seconds apart. See `docs/user/troubleshooting.md`.
 
 ## Where to read more

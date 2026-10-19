@@ -1,50 +1,51 @@
 # Troubleshooting
 
 Known issues, VM quirks, platform-specific workarounds, and CLI edge
-cases. Every entry here has been observed against real hardware and
-software; workarounds are load-bearing.
+cases. Someone observed every entry here against real hardware and
+software. The workarounds are load-bearing.
 
 ## VM state is non-deterministic
 
-Each run generates different file explorer content, different terminal
-state. Cross-session metric comparisons are meaningless; re-run
-baselines when comparing. Use A/B evaluation on captured snapshots
+Each run generates different file explorer content and different terminal
+state. Cross-session metric comparisons are meaningless. Re-run
+baselines when you compare. Use A/B evaluation on captured snapshots
 instead.
 
 ## Icon-only buttons pollute ground truth
 
-Toolbar buttons with AX descriptions (e.g., "back", "forward") aren't
-rendered text. Filter applied to button/toggle-button only; non-button
-roles (menu-item, image) still carry icon descriptions. Extended GT
-filtering needed for high-precision scenarios.
+Toolbar buttons with AX descriptions (for example "back" and "forward") are not
+rendered text. The filter applies to button/toggle-button roles only. Non-button
+roles (menu-item, image) still carry icon descriptions. High-precision
+scenarios need extended GT filtering.
 
 ## macOS OCR has sparse coverage
 
-Apple Vision OCR skips lines in dense monospace output (e.g., terminal
+Apple Vision OCR skips lines in dense monospace output (for example a terminal
 `ls` listing). Terminal content GT helps Linux/Windows but hurts macOS
-(-4.3 pp) because predictions don't exist. Disable terminal GT on
+(-4.3 pp) because predictions do not exist. Disable terminal GT on
 macOS.
 
 ## AT-SPI coordinate bug on Linux
 
 GTK4 returns `(0,0)` for all coordinate types. The TestAnyware Linux
 agent detects this and computes the offset via an `xdotool` window
-search plus CSD padding. Requires `WaylandEnable=false` in GDM because
-xdotool can't find native Wayland windows.
+search plus CSD padding. This workaround requires `WaylandEnable=false` in GDM
+because xdotool cannot find native Wayland windows.
 
 ## Order matters in filter chains
 
 Pipeline filters (showing check → role exclusion → text-content
-inclusion → label extract → icon filter) apply sequentially; later
+inclusion → label extract → icon filter) apply sequentially. Later
 filters only see elements that passed earlier ones. Changing the order
 changes the result set.
 
 ## IoU spatial matching is fundamentally broken
 
 AX boxes include padding (menu bar 30 px tall vs OCR 12 px). Median
-IoU 0.305 even for matched text. Replaced with center-distance:
-predicts within GT box (±10 px margin) or GT fully contains predict.
-Not a threshold fix — the metric itself was wrong.
+IoU 0.305 even for matched text. Centre-distance replaced it. A
+prediction matches when it falls within the GT box (±10 px margin) or
+when the GT box fully contains it. A threshold change does not fix this,
+because the metric itself was wrong.
 
 ## `--window` on input commands compensates for the Tahoe drop-shadow inset
 
@@ -56,12 +57,13 @@ includes the structural drop-shadow inset). The CLI now subtracts a
 40 px top inset from the y origin when the resolved platform is
 `macos`, so window-relative coordinates land where intended.
 
-If your macOS version reports a different inset, override it via
+If your macOS version reports a different inset, override it with
 `TESTANYWARE_WINDOW_TOP_INSET=<int>` (in pixels). For pixel-perfect
 targeting against unfamiliar windows, capture a full-screen
-`testanyware screenshot`, read screen-absolute coords off it, and
-pass those directly without `--window`. Surfaced 2026-04-18 during
-Mini Browser verification; compensation landed 2026-04-28.
+`testanyware screenshot`. Read the screen-absolute coordinates off it.
+Pass those coordinates directly, without `--window`. Mini Browser
+verification surfaced this on 2026-04-18. The compensation landed on
+2026-04-28.
 
 ## A tart guest dies when `screen` or `input` runs after 60 idle seconds (macOS 27 host)
 
@@ -106,29 +108,31 @@ Observed 2026-10-18 to 2026-10-19.
 ## `testanyware agent set-value` fails for NSTextField inside NSStackView
 
 The macOS agent's element resolver does not reliably reach text
-fields hosted inside `NSStackView` containers on Tahoe. Symptom:
-`--role textfield --window "..."` returns "Multiple elements matched";
-adding `--index N` returns "No element found matching query". AppKit
+fields hosted inside `NSStackView` containers on Tahoe. The symptom is
+that `--role textfield --window "..."` returns "Multiple elements matched".
+Adding `--index N` then returns "No element found matching query". AppKit
 does not always propagate stack-view children through
-`kAXChildrenAttribute` on Tahoe. Workaround until fixed: derive the
-field's screen-absolute VNC coords from a full-screen screenshot,
-triple-click at those coords to focus and select existing text, then
-`testanyware input type` + `testanyware input key return`. Backlog
-item #8 tracks the fix.
+`kAXChildrenAttribute` on Tahoe.
+
+Until the fix lands, use this workaround. Derive the field's screen-absolute VNC coordinates from a full-screen
+screenshot. Triple-click at those coordinates to focus and select existing
+text. Then run `testanyware input type` and then
+`testanyware input key return`. Backlog item #8 tracks the fix.
 
 ## VirtioFS shared folders can serve stale file content
 
-VirtioFS (the FS-sharing mechanism used by tart's `--dir` flag and
-similar QEMU `virtiofsd` setups) does not always propagate host-side
-file updates to the guest immediately. Editing a source file on the
-host and then recompiling or re-running it in the VM can pick up the
-old content even after the host write has flushed. Surfaced 2026-04-17
-during Racket sample-app validation.
+VirtioFS does not always propagate host-side file updates to the guest
+immediately. VirtioFS is the FS-sharing mechanism of tart's `--dir` flag and
+similar QEMU `virtiofsd` setups. Suppose you edit a source file on the host.
+You then recompile or re-run it in the VM. The VM can pick up the old content.
+This can happen even after the host write flushes.
 
-The TestAnyware CLI does not configure VirtioFS itself — this bites
+Racket sample-app validation surfaced this on 2026-04-17.
+
+The TestAnyware CLI does not configure VirtioFS itself. The problem appears
 when callers stack a tart `--dir` mount on top of a TestAnyware-managed
 VM. The agent-channel file-transfer commands bypass the shared-folder
-layer entirely and are the recommended cache-bust path:
+layer entirely. They are the recommended cache-bust path:
 
 ```bash
 testanyware upload   /host/path/file.rkt /Users/admin/file.rkt
@@ -138,28 +142,32 @@ testanyware download /Users/admin/output.txt ./output.txt
 `upload` and `download` push and pull bytes through the in-VM HTTP
 agent on port 8648, which reads and writes the guest's local
 filesystem directly. There is no intermediate cache. If a host edit
-must be visible to the guest within the same session, `upload` it; do
-not rely on a VirtioFS share that was mounted at VM start.
+must be visible to the guest within the same session, `upload` it.
+Do not rely on a VirtioFS share that exists at VM start.
 
 Restarting the VM also clears the cache, but `upload`/`download` is
 the per-file alternative that does not interrupt other in-flight work.
 
 ## Electron apps on `testanyware-golden-linux-24.04` need `--disable-gpu`
 
-Launching an Electron app (Obsidian, VSCode, Slack, etc.) inside the
-Linux golden image produces a completely black framebuffer — X11
-reports the window as created and focused,
-`xdotool getactivewindow getwindowname` returns the correct title,
-but `testanyware screenshot` and in-VM `scrot` both capture pure
-black. The `virtio-gpu` backend under tart on ARM64 Ubuntu 24.04
-doesn't expose the GL acceleration Electron expects for compositing,
-and Electron falls back to a non-rendering path instead of software
-compositing by default. Workaround: launch the app with
-`--disable-gpu --no-sandbox`. Software compositing then renders
-correctly into both the VNC framebuffer and local `scrot`. The
-`--no-sandbox` flag is only needed if `chrome-sandbox` is not
-suid-root (AppImage extraction drops the suid bit; restore it with
-`sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox`
-and drop `--no-sandbox`). First observed during the Ravel
-Obsidian symlink validation spike (2026-04-13); same symptom
-expected for any Chromium-derived app.
+Starting an Electron app (Obsidian, VSCode, Slack, etc.) inside the
+Linux golden image produces a completely black framebuffer. X11
+reports the window as created and focused.
+`xdotool getactivewindow getwindowname` returns the window's actual title.
+But `testanyware screenshot` and in-VM `scrot` both capture pure
+black.
+
+The `virtio-gpu` backend under tart on ARM64 Ubuntu 24.04
+does not expose the GL acceleration that Electron expects for compositing.
+By default, Electron falls back to a non-rendering path instead of software
+compositing.
+
+Workaround: start the app with `--disable-gpu --no-sandbox`. Software
+compositing then renders properly into both the VNC framebuffer and local
+`scrot`. The `--no-sandbox` flag is only needed if `chrome-sandbox` is not
+suid-root. AppImage extraction drops the suid bit. Restore it with
+`sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox`.
+Then drop `--no-sandbox`.
+
+The Ravel Obsidian symlink validation spike first observed this on
+2026-04-13. The same symptom is expected for any Chromium-derived app.
