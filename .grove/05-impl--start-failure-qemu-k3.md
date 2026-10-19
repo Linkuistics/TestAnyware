@@ -165,3 +165,33 @@ run; no QEMU, swtpm or clone was left behind. The one unmet Done-when sentence s
 cannot be observed, so retiring would claim a check that did not run (Q12). Because
 `pick` returns the first live leaf, k3 will be re-picked every launch until #6 is fixed
 or the human reorders the tree — handed back for that call.
+
+**Q16 — the stack is rebased onto the #6 fixes.** The human asked for a rebase
+onto `main` to get issue #6's fixes. The target is `88170645`, not the `main`
+bookmark (`d1a8ed13`). `88170645` is `main` plus the v2.2.0 release and the
+removal of the #6 grove's task tree. The #6 grove's `.grove/` files collided with
+this grove's, and they do not exist there. Both targets hold the same fix:
+`QemuStartOptions.tpm`, `tpm.rs`, ADR-0017 and `scripts/qemu-tpm-check.sh`.
+
+I resolved each commit in its own place, and every commit builds.
+
+- *`start` makes the TPM decision, `start_qemu` takes it.* `start` runs the host
+  gate and `decide_tpm_on_host`, then calls `start_qemu(opts, paths, tpm)`.
+  `VmStartResult.tpm` stays, and `agent_unreachable` stays removed (Q6).
+- *The VNC keeper moves into k2's observation step.* `main` started it inside the
+  old `TartRunner::start`, which k2 split. `observe_tart_boot` now starts it when
+  the VNC URL appears, and `TartBoot.keeper_pid` carries the pid. `start_tart`
+  and a kept failed start write it into the meta. A torn-down failed start does
+  not stop the keeper: ADR-0018 says stopping tart is enough, and ADR-0018 now
+  names `observe_tart_boot` as the starter.
+- *`main`'s `ipsw_base.rs` used the old `VmBootTimeout { id }` shape.* It now uses
+  `VmError::boot_timeout(vm, BootStage::Vnc)` and `BootStage::GuestIp`.
+- *The glossary and the Taskfile keep both sides.* The Taskfile gains `main`'s
+  golden, TPM and keeper tasks beside this grove's `vm start` checks and release
+  wrappers. `scripts:check` covers all the scripts.
+
+Checked after the merge: `cargo test --workspace` (28 test binaries pass),
+`task scripts:check`, clippy at k2's recorded baseline, and the controlled-English
+linter on `CONTEXT.md` and ADR-0018 (zero hard findings). Not checked: any live
+VM. Q14's blocker is gone from the code, so Done-when's first live sentence can
+now be tried with `task vm:windows-healthy-start`.
