@@ -452,7 +452,7 @@ impl VmLifecycle {
         #[cfg(target_os = "macos")]
         if !qcow2.is_file() && crate::tart::golden_exists(name) {
             if !force {
-                let running = crate::tart::list_running_ids();
+                let running = running_tart_clone_ids(paths);
                 if !running.is_empty() {
                     // tart cannot cheaply prove which clones back this
                     // image; warn via the in-use error (no pids) unless forced.
@@ -542,7 +542,7 @@ impl VmLifecycle {
             let mut goldens = goldens;
             let mut running = running;
             goldens.extend(crate::tart::list_goldens());
-            for id in crate::tart::list_running_ids() {
+            for id in running_tart_clone_ids(paths) {
                 let clone = RunningClone { id, platform: "unknown".into(), backend: "tart" };
                 running.push(enrich_running(&clone, paths));
             }
@@ -551,6 +551,37 @@ impl VmLifecycle {
 
         VmListing { goldens, running }
     }
+}
+
+/// Which of the running tart VMs `vm list` shows as TestAnyware clones: those
+/// named `testanyware-…` (a golden, `testanyware-golden-…`, is not a clone), and
+/// those with a sidecar, because `vm start --id` accepts any id — Koine's
+/// `koine-verify-<pid>` and a `--keep-on-failure` VM with a custom id carry
+/// neither the prefix nor a name `tart list` could tell from a hand-made VM.
+/// `has_sidecars` is injected so this stays pure. A sidecar whose VM is not in
+/// `running` is deliberately ignored: `vm list` shows what is running, and
+/// `vm stop <id>` still removes the leftover sidecar.
+#[cfg(any(target_os = "macos", test))]
+fn tart_clone_ids(running: Vec<String>, has_sidecars: impl Fn(&str) -> bool) -> Vec<String> {
+    running
+        .into_iter()
+        .filter(|name| {
+            let by_prefix = name.starts_with("testanyware-") && !name.starts_with("testanyware-golden-");
+            by_prefix || has_sidecars(name)
+        })
+        .collect()
+}
+
+/// The running tart clones, by [`tart_clone_ids`]'s rule. `[]` when tart is absent.
+#[cfg(target_os = "macos")]
+fn running_tart_clone_ids(paths: &VmPaths) -> Vec<String> {
+    tart_clone_ids(crate::tart::list_running_names(), |id| has_sidecars(paths, id))
+}
+
+/// Whether `vm start` left a spec or meta sidecar for `id`.
+#[cfg(any(target_os = "macos", test))]
+fn has_sidecars(paths: &VmPaths, id: &str) -> bool {
+    paths.spec_path(id).is_file() || paths.meta_path(id).is_file()
 }
 
 /// Whether to route this start to the tart backend (macOS host only).
@@ -1107,6 +1138,50 @@ mod tests {
             clone.platform, "windows",
             "platform must come from the spec, not the name-derived guess",
         );
+    }
+
+    // ---- which running tart VMs `vm list` shows ---------------------------
+
+    fn names(list: &[&str]) -> Vec<String> {
+        list.iter().map(|n| n.to_string()).collect()
+    }
+
+    #[test]
+    fn tart_clone_ids_lists_a_custom_id_that_has_sidecars() {
+        let running = names(&["koine-verify-4242", "hand-made-vm"]);
+        let ids = tart_clone_ids(running, |id| id == "koine-verify-4242");
+        assert_eq!(ids, vec!["koine-verify-4242"]);
+    }
+
+    #[test]
+    fn tart_clone_ids_still_lists_prefixed_clones_without_sidecars() {
+        let running = names(&["testanyware-a1b2c3d4"]);
+        assert_eq!(tart_clone_ids(running, |_| false), vec!["testanyware-a1b2c3d4"]);
+    }
+
+    #[test]
+    fn tart_clone_ids_skips_a_running_golden_without_sidecars() {
+        let running = names(&["testanyware-golden-macos-27"]);
+        assert!(tart_clone_ids(running, |_| false).is_empty());
+    }
+
+    #[test]
+    fn tart_clone_ids_ignores_sidecars_of_vms_that_are_not_running() {
+        // `running` is the only source of candidates, so a stale sidecar for a
+        // stopped or deleted VM cannot surface.
+        assert!(tart_clone_ids(Vec::new(), |_| true).is_empty());
+    }
+
+    #[test]
+    fn has_sidecars_sees_a_spec_or_a_meta_and_nothing_else() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths_in(dir.path());
+        std::fs::create_dir_all(paths.vms_dir()).unwrap();
+        assert!(!has_sidecars(&paths, "koine-verify-1"));
+        std::fs::write(paths.meta_path("koine-verify-1"), b"{}").unwrap();
+        assert!(has_sidecars(&paths, "koine-verify-1"));
+        std::fs::write(paths.spec_path("koine-verify-2"), b"{}").unwrap();
+        assert!(has_sidecars(&paths, "koine-verify-2"));
     }
 
     // ---- settling a failed start (either backend) -------------------------

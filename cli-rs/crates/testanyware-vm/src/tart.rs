@@ -5,7 +5,7 @@
 //! "macos")]`-gated at the crate root and never referenced in a Linux or
 //! Windows build (consistent with ADR-0003's per-target gating).
 //!
-//! Pure parsers (`parse_vnc_url`, `parse_goldens`, `parse_running_ids`,
+//! Pure parsers (`parse_vnc_url`, `parse_goldens`, `parse_running_names`,
 //! `poll_vnc_url`) are unit-tested without invoking `tart`. The
 //! `tart`-invoking operations (`clone`, `run_detached`, `start`, …) are
 //! exercised by the manual `vm start --platform macos` verification the
@@ -93,18 +93,15 @@ pub fn parse_goldens(tart_json: &str) -> Vec<GoldenImage> {
         .collect()
 }
 
-/// Running-clone ids from `tart list --format json`: entries with
-/// `state == "running"` whose name starts with `testanyware-` but not
-/// `testanyware-golden-`. Ports the `.running` arm of
-/// `TartRunner.parseList`. Malformed JSON yields `[]`.
-pub fn parse_running_ids(tart_json: &str) -> Vec<String> {
+/// Names of the VMs `tart list --format json` reports as running, whatever
+/// their name. Ports the `.running` arm of `TartRunner.parseList` without its
+/// prefix filter: whether a running VM is TestAnyware's is for the caller to
+/// decide (by the `testanyware-` prefix or by its sidecars), because `vm start
+/// --id` accepts any id. Malformed JSON yields `[]`.
+pub fn parse_running_names(tart_json: &str) -> Vec<String> {
     decode_list(tart_json)
         .into_iter()
-        .filter(|vm| {
-            vm.state.as_deref() == Some("running")
-                && vm.name.starts_with("testanyware-")
-                && !vm.name.starts_with("testanyware-golden-")
-        })
+        .filter(|vm| vm.state.as_deref() == Some("running"))
         .map(|vm| vm.name)
         .collect()
 }
@@ -237,9 +234,9 @@ pub fn list_goldens() -> Vec<GoldenImage> {
     tart_list_json().map(|j| parse_goldens(&j)).unwrap_or_default()
 }
 
-/// Ids of running tart clones. `[]` when tart is absent.
-pub fn list_running_ids() -> Vec<String> {
-    tart_list_json().map(|j| parse_running_ids(&j)).unwrap_or_default()
+/// Names of every running tart VM, goldens included. `[]` when tart is absent.
+pub fn list_running_names() -> Vec<String> {
+    tart_list_json().map(|j| parse_running_names(&j)).unwrap_or_default()
 }
 
 /// Whether a tart VM with `name` exists in any state. `false` when tart
@@ -556,13 +553,17 @@ mod tests {
     }
 
     #[test]
-    fn parse_running_ids_skips_goldens_and_stopped() {
+    fn parse_running_names_keeps_every_running_vm_and_skips_stopped() {
         let json = r#"[
           {"Name": "testanyware-golden-macos-tahoe", "State": "running"},
           {"Name": "testanyware-a1b2c3d4", "State": "running"},
+          {"Name": "koine-verify-4242", "State": "running"},
           {"Name": "testanyware-b5c6d7e8", "State": "stopped"}
         ]"#;
-        assert_eq!(parse_running_ids(json), vec!["testanyware-a1b2c3d4"]);
+        assert_eq!(
+            parse_running_names(json),
+            vec!["testanyware-golden-macos-tahoe", "testanyware-a1b2c3d4", "koine-verify-4242"],
+        );
     }
 
     #[test]
@@ -585,7 +586,7 @@ mod tests {
     fn parsers_are_lenient_on_malformed_or_empty_json() {
         for bad in ["", "not json", "{}"] {
             assert!(parse_goldens(bad).is_empty(), "goldens lenient on {bad:?}");
-            assert!(parse_running_ids(bad).is_empty(), "running lenient on {bad:?}");
+            assert!(parse_running_names(bad).is_empty(), "running lenient on {bad:?}");
             assert!(parse_all_names(bad).is_empty(), "names lenient on {bad:?}");
         }
     }

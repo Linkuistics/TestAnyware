@@ -100,6 +100,12 @@ tasks:
     cmds:
       - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh local-network
 
+  vm:list-custom-id:
+    desc: 'A macOS start with an id outside the testanyware- prefix (koine-verify-<n>) is listed by vm list, enriched, and gone after vm stop. Needs one free macOS guest slot'
+    deps: [cli:build]
+    cmds:
+      - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh list-custom-id
+
   vm:start-reliability:
     desc: 'N consecutive macOS starts must each reach a Healthy agent (task vm:start-reliability N=10)'
     deps: [cli:build]

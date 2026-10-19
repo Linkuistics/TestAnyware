@@ -435,7 +435,7 @@ codes it can produce (see §7).
 
 | Identifier | Format | Round-trippable? |
 |---|---|---|
-| VM instance id | `testanyware-<8 hex>` | Yes — accepted by `--vm`, returned by `vm start` / `vm list --json`. |
+| VM instance id | `testanyware-<8 hex>` by default; `vm start --id` accepts any id | Yes — accepted by `--vm`, returned by `vm start` / `vm list --json`. |
 | Golden image name | `testanyware-golden-<platform>-<release>` | Yes — accepted by `vm delete` / passed via `--base`. |
 | AX element id | Agent-issued opaque string | Yes — accepted by `agent --id <id>`, returned by `agent inspect --json`. |
 | Window id | Agent-issued opaque string | Yes — accepted by `agent --window <filter>` (currently substring-matched on title/app, see Gap §G.4). |

@@ -31,6 +31,13 @@
 #       (exit 7), stage "agent", cause "local_network_denied", and leave no VM
 #       (ADR-0019). Either way it says which kind of shell this is. Needs one
 #       free macOS guest slot.
+#   live-start-checks.sh list-custom-id
+#       A macOS `vm start --id koine-verify-<n>` (an id without the testanyware-
+#       prefix) must appear in `vm list --json`, enriched from its sidecars
+#       (platform macos, a vnc endpoint, a pid), and must be gone from the listing
+#       once `vm stop` reclaims it. A start that fails at the agent stage keeps its
+#       VM (--keep-on-failure), so the check holds in a shell that Local Network
+#       privacy denies too. Needs one free macOS guest slot.
 #   live-start-checks.sh reliability [N]
 #       N (default 10) consecutive macOS `vm start`s must each reach a Healthy
 #       agent. Stops at the first failure and leaves that VM kept for
@@ -350,6 +357,40 @@ check_local_network() {
   assert_vm_gone "$id"
 }
 
+# The `vm list` row for $1, or empty when it is not listed.
+list_row() {
+  "$BIN" vm list --json --all | jq -c --arg id "$1" '.items[] | select(.kind == "running" and .name == $id)'
+}
+
+check_list_custom_id() {
+  local id="koine-verify-lc$$" out rc=0 row
+  require_free_slot
+
+  # Registered before the start that may create it.
+  started_ids+=("$id")
+
+  echo "list-custom-id: a macOS start with the id $id"
+  out="$("$BIN" vm start --platform macos --id "$id" --keep-on-failure --json)" || rc=$?
+  if ((rc != 0)); then
+    ((rc == 7)) || die "start failed with exit $rc, not the agent-stage exit 7: $out"
+    echo "  (the agent never became healthy, so the VM is kept: still a VM TestAnyware started)" >&2
+  fi
+
+  row="$(list_row "$id")"
+  [[ -n "$row" ]] || die "$id is running but 'vm list' does not show it"
+  pass "'vm list' shows $id although it lacks the testanyware- prefix"
+  assert_eq "platform" macos "$(jq -r '.platform' <<<"$row")"
+  assert_eq "backend" tart "$(jq -r '.backend' <<<"$row")"
+  [[ "$(jq -r '.vnc' <<<"$row")" != null ]] || die "$id's row has no vnc endpoint: $row"
+  [[ "$(jq -r '.pid' <<<"$row")" != null ]] || die "$id's row has no pid: $row"
+  pass "the row is enriched from the sidecars: $row"
+
+  "$BIN" vm stop "$id" >/dev/null || die "vm stop could not reclaim $id"
+  [[ -z "$(list_row "$id")" ]] || die "$id is still listed after 'vm stop'"
+  pass "$id is gone from 'vm list' after 'vm stop'"
+  assert_vm_gone "$id"
+}
+
 check_reliability() {
   local runs="${1:-10}" run id began
   [[ "$runs" =~ ^[1-9][0-9]*$ ]] || die "run count must be a positive integer, got '$runs'"
@@ -396,6 +437,10 @@ main() {
     local-network)
       require_tools tart
       check_local_network
+      ;;
+    list-custom-id)
+      require_tools tart
+      check_list_custom_id
       ;;
     reliability)
       require_tools tart

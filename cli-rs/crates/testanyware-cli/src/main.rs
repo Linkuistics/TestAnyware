@@ -566,6 +566,15 @@ SEE ALSO:
 ";
 
 const VM_LIST_AFTER_HELP: &str = "\
+WHAT IS LISTED:
+    Goldens, and the running VMs TestAnyware started, whatever their id:
+    a `vm start --id koine-verify-1` VM is listed like a testanyware-<hex>
+    one. A running tart VM counts as started by TestAnyware when its id
+    starts with `testanyware-` or it has a spec or meta sidecar under
+    $XDG_STATE_HOME/testanyware/vms/. Only running VMs are listed: a
+    sidecar whose VM is not running is ignored, not shown as stale
+    (`vm stop <id>` removes it).
+
 OUTPUT:
     Stable formats: --json (schema: vm-list; envelope carries
     returned/total/truncated per contract §3.5). Text is a two-section

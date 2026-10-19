@@ -477,6 +477,11 @@ backends.
 testanyware vm list
 ```
 
+Lists the running VMs TestAnyware started, whatever their id. A running tart VM
+counts when its id starts with `testanyware-` or it has a spec or meta sidecar,
+so `vm start --id koine-verify-1` appears. A sidecar whose VM is not running is
+ignored, not listed as stale; `vm stop <id>` removes it.
+
 ### `testanyware vm delete`
 
 **Synopsis:** Delete a golden image by name. Auto-detects tart vs QEMU
