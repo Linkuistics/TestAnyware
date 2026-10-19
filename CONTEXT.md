@@ -108,6 +108,19 @@ proves the denial with `nc` and fails with `VM_BOOT_TIMEOUT`, cause
 `local_network_denied` (ADR-0019).
 _Avoid_: "the agent is down" (it is up), and "firewall" (no firewall rule applies).
 
+**VM broker**:
+The process on a macOS host through which the *Host CLI* reaches guest VMs,
+instead of connecting to them itself. It runs inside the *TestAnyware app*
+(issue #8).
+_Avoid_: "the server" (the *In-VM agent* and the [[Host-side framebuffer]] are
+servers too), and "daemon".
+
+**TestAnyware app**:
+The signed macOS app bundle that runs the *VM broker* and holds its macOS
+permissions, Local Network among them. The user grants each permission to the
+app once.
+_Avoid_: "the server", and "the CLI" (the *Host CLI* is a client of the app).
+
 **Autounattend provisioning** (Windows golden creation):
 How the **Windows** Golden image is built — structurally unlike the macOS one.
 macOS *clones a pre-built vanilla image* and provisions a running system over
