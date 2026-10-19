@@ -9,14 +9,15 @@ scriptable surface over the in-VM agents and the VNC framebuffer.
 
 **Host CLI**:
 The user-facing `testanyware` binary that runs on the developer's machine
-and orchestrates VMs + agents. Implemented in Rust under `cli-rs/` (the
-**Rust CLI**); the legacy Swift implementation was retired 2026-06-03.
+and orchestrates VMs + agents. Its Rust implementation lives under `cli-rs/` (the
+**Rust CLI**). The legacy Swift implementation was retired on 2026-06-03.
 _Avoid_: bare "CLI" — in-VM components also have CLIs.
 
 **Swift CLI** (historical):
 The original host-CLI implementation, macOS-only, that lived under
-`cli/Sources/testanyware/`. **Retired 2026-06-03** when the `rust-cli-port`
-grove reached macOS parity and deleted `cli/`; recoverable from git history.
+`cli/Sources/testanyware/`. It was **retired on 2026-06-03**, when the
+`rust-cli-port` grove reached macOS parity and deleted `cli/`. It is recoverable
+from git history.
 The term survives only because ADRs and docs reference it as the
 retirement target.
 _Avoid_: present-tense framing — it no longer exists in the tree.
@@ -59,10 +60,10 @@ process + HTTP envelope + both surfaces.
 
 **Healthy agent**:
 An *In-VM agent* whose `/health` answers with a 2xx response and a decodable
-body. Health means the agent's HTTP server is up; whether the guest has granted
+body. Health means the agent's HTTP server is up. Whether the guest has granted
 accessibility (TCC) is reported separately, as `accessible`. `vm start` waits
 for a Healthy agent.
-_Avoid_: "agent ready" (blurs healthy with accessible); treating
+_Avoid_: "agent ready" (blurs healthy with accessible). Also avoid treating
 `accessible: false` as unhealthy.
 
 **Golden image**:
@@ -72,70 +73,80 @@ that `vm start` clones to spawn a fresh instance.
 **Base VM** (macOS golden creation):
 The stopped tart VM a macOS *Golden image* is built from. For a release Cirrus
 Labs publishes (`tahoe`, `sequoia`, `sonoma`) it is their **vanilla** image,
-cloned as-is. For one it does not publish (`--version 27`, the default), TestAnyware builds
-it once from Apple's IPSW as `testanyware-base-macos-<major>`: `tart create
---from-ipsw`, Setup Assistant driven over RFB + OCR, Remote Login on, then the
-same first-contact state a vanilla image has — an `admin`/`admin` account,
-passwordless `sudo`, auto-login, no display sleep. It is not a Golden image: it
-has no agent and no TCC grants.
+cloned as-is. For a release that Cirrus Labs does not publish (`--version 27`,
+the default), TestAnyware builds it once from Apple's IPSW as
+`testanyware-base-macos-<major>`.
+
+The IPSW build runs `tart create --from-ipsw`, drives Setup Assistant over RFB +
+OCR and enables Remote Login. Then it gives the VM the same first-contact state
+that a vanilla image has: an `admin`/`admin` account, passwordless `sudo`,
+auto-login and no display sleep. A Base VM is not a Golden image: it has no agent
+and no TCC grants.
 _Avoid_: "vanilla" for the IPSW-built one (vanilla is Cirrus's image).
 
 **Autounattend provisioning** (Windows golden creation):
 How the **Windows** Golden image is built — structurally unlike the macOS one.
 macOS *clones a pre-built vanilla image* and provisions a running system over
-SSH (ADR-0007 `russh`); Windows instead boots a **blank disk from a Microsoft
+SSH (ADR-0007 `russh`). Windows instead boots a **blank disk from a Microsoft
 evaluation ISO** alongside an **autounattend USB** and lets Windows Setup run a
-fully **unattended install** (`autounattend.xml`: partitions, bypasses
-TPM/SecureBoot/RAM checks, creates `admin`/autologin, installs VirtIO drivers,
-registers the *In-VM agent* as a Task Scheduler logon task + Chocolatey).
-`SetupComplete.cmd` also sets `admin`'s password to never expire — the answer
-file's auto-logon has no logon count, so Windows' default 42-day maximum
+fully **unattended install**. The answer file `autounattend.xml` partitions the
+disk, bypasses TPM/SecureBoot/RAM checks, creates `admin`/autologin and installs
+VirtIO drivers. It also registers the *In-VM agent* as a Task Scheduler logon
+task + Chocolatey.
+
+`SetupComplete.cmd` also sets `admin`'s password to never expire. The answer
+file's auto-logon has no logon count. So Windows' default 42-day maximum
 password age would otherwise stop a golden older than that at "Your password has
-expired" and its logon-triggered agent would never start — and golden creation
+expired". Then its logon-triggered agent would never start. Golden creation
 checks `net user admin` through the agent and fails the build unless
 `Password expires` is `Never`.
+
 Post-install provisioning then runs over the **in-VM agent's HTTP surface**
 (`/health`, `/exec`) — **Windows ships no sshd**, so the agent is the only
 in-guest control channel. The answer file + post-install scripts
 (`SetupComplete.cmd`, `desktop-setup.ps1`) are `include_str!`-embedded in the
-binary; the agent `.exe` and the VirtIO ARM64 drivers are staged into the
-throwaway USB at run time (nothing test-specific is baked into the image). A
-**macOS-host** operation: the
-FAT32 media is built with `hdiutil`, QEMU+swtpm runs the install. The port lives
-in `vm create-golden --platform windows` (grove `220/020`, ADR-0009); it
-*documents* this model rather than deciding it (the model predates the port in
-`provisioner/helpers/autounattend.xml`).
-_Avoid_: assuming the macOS clone-and-SSH model applies to Windows; calling the
-autounattend USB a "golden" (it is throwaway install media).
+binary. The agent `.exe` and the VirtIO ARM64 drivers are staged into the
+throwaway USB at run time. Nothing test-specific is baked into the image.
+
+A **macOS-host** operation: the FAT32 media is built with `hdiutil`, QEMU+swtpm
+runs the install. The port lives in `vm create-golden --platform windows`
+(grove `220/020`, ADR-0009). It *documents* this model rather than deciding it
+(the model predates the port in `provisioner/helpers/autounattend.xml`).
+_Avoid_: assuming the macOS clone-and-SSH model applies to Windows. Also avoid
+calling the autounattend USB a "golden" (it is throwaway install media).
 
 **Linux-on-qcow2**:
 A Linux guest served by the QEMU backend because a `<base>.qcow2` *Golden image*
-exists for it; without one, a macOS host serves Linux from a tart golden.
+exists for it. Without one, a macOS host serves Linux from a tart golden.
 TestAnyware builds no Linux qcow2 golden itself, so the path is reached only with
 a supplied image.
 _Avoid_: "the Linux golden" (by default that is the tart image).
 
 **TPM decision**:
 The one answer, for a QEMU guest's start or a Windows golden's creation, to
-whether the guest gets a TPM: *attach* (swtpm, the golden's TPM state and the
-`tpm-tis-device`, with its PPI off under HVF), *omit* with a reason (the guest
-does not need one; or the host cannot supply one, because its QEMU binary has
-no `tpm-tis-device`), or *refuse* before anything is cloned (swtpm is missing).
-It is decided from the guest's platform and the host check: the QEMU binary's
-own `tpm-tis-device` property list, swtpm on the path, and the accelerator
-(ADR-0017). Every TPM site consumes it, and the start reports it.
-_Avoid_: "needs TPM" (only one input to the decision); "TPM support" (blurs
-what the host's QEMU offers with what this guest gets).
+whether the guest gets a TPM. The answer is *attach*, *omit* with a reason, or
+*refuse* before anything is cloned. *Attach* means swtpm, the golden's TPM state
+and the `tpm-tis-device`, with its PPI off under HVF. *Omit* gives a reason: the
+guest does not need a TPM, or the host cannot supply one, because its QEMU
+binary has no `tpm-tis-device`. *Refuse* applies when swtpm is missing.
+
+The decision derives from the guest's platform and the host check: the QEMU
+binary's own `tpm-tis-device` property list, swtpm on the path, and the
+accelerator (ADR-0017). Every TPM site consumes it, and the start reports it.
+_Avoid_: "needs TPM" (only one input to the decision). Also avoid "TPM support"
+(blurs what the host's QEMU offers with what this guest gets).
 
 **Shared-VNC server** (historical):
-The Swift `_server` process — a long-lived host-side daemon that held **one
-VNC connection** open on a unix socket (with a PID file and idle timeout) and
-multiplexed it across CLI invocations. The Rust CLI **deliberately dropped** it
-(ADR-0004): every command opens its own short-lived RFB connection instead. The
-Swift `_server` tree was deleted with `cli/` on 2026-06-03. Do not confuse
-with the *OCR daemon* — structurally unrelated (one multiplexes VNC, the other
-hosts a Python OCR process); the Swift CLI merely solved both with similar
-helper plumbing. The retirement is owned by ADR-0004.
+The Swift `_server` process. It was a long-lived host-side daemon that held **one
+VNC connection** open on a unix socket (with a PID file and idle timeout). It
+multiplexed this connection across CLI invocations. The Rust CLI **deliberately
+dropped** it (ADR-0004): every command opens its own short-lived RFB connection
+instead. The Swift `_server` tree was deleted with `cli/` on 2026-06-03.
+
+Do not confuse the Shared-VNC server with the *OCR daemon*. The two are
+structurally unrelated: one multiplexes VNC, and the other hosts a Python OCR
+process. The Swift CLI merely solved both with similar helper plumbing.
+ADR-0004 owns the retirement.
 _Avoid_: "the server" (ambiguous — agents and the OCR daemon are also servers),
 conflating it with `OcrChildBridge`.
 
@@ -155,72 +166,81 @@ sugar) — an in-process `eframe`/`wgpu` window that renders a live RFB
 per-invocation connection (ADR-0004) — and the first continuous driver of the
 `testanyware-rfb` client. `screen record` is now the **second** long-lived
 consumer (ADR-0006): a *bounded, non-interactive* one that samples the stream
-into a video encoder for `--duration` seconds, so the viewer is no longer the
-*only* one. Architecture in ADR-0005: dedicated RFB thread + isolated runtime,
-eframe on the main thread. Contrast the Swift `--viewer`, which launched an
+into a video encoder for `--duration` seconds. So the viewer is no longer the
+*only* one.
+
+Architecture in ADR-0005: dedicated RFB thread + isolated runtime,
+eframe on the main thread. Contrast the Swift `--viewer`, which started an
 *external* VNC app via AppleScript.
-_Avoid_: "the VNC server" (it is a *client*/display surface, not a server);
-conflating it with the retired *Shared-VNC server* (a multiplexer other
-invocations attached to — the viewer is a single standalone display).
+_Avoid_: "the VNC server" (it is a *client*/display surface, not a server).
+Also avoid conflating it with the retired *Shared-VNC server* (a multiplexer
+that other invocations attached to). The viewer is a single standalone display.
 
 **Self-hosted verification harness**:
 The Tier-2 mechanism (ADR-0009) that proves the *cross-compiled* Host CLI
-actually runs on Linux/Windows: it runs the binary **inside a native-arch
-(aarch64) guest** and has it drive a real tart macOS Golden image's agent +
-VNC endpoint through a **macOS-host port-forward** (the guest only ever talks
-to the host gateway — the one reliable NAT edge). Verifies **aarch64** builds
-natively on the Apple-Silicon Mac; **x86_64** builds are build/link-verified
-only (no native x86_64 guest here), with the gap logged. Reuses the ADR-0007
-`russh` provisioning on Linux; on Windows, the in-VM agent's `file`/`exec`
-surface (no SSH on Windows).
-_Avoid_: conflating with the live-VM gate (`tests/live-vm-gate.rs`), which runs
-the *macOS* CLI against a macOS golden — the harness is about *non-macOS* host
-binaries.
+actually runs on Linux/Windows. It runs the binary **inside a native-arch
+(aarch64) guest**. It has the binary drive a real tart macOS Golden image's
+agent + VNC endpoint through a **macOS-host port-forward**. The guest only ever
+talks to the host gateway, which is the one reliable NAT edge.
+
+The harness verifies **aarch64** builds natively on the Apple-Silicon Mac.
+**x86_64** builds are build/link-verified only (no native x86_64 guest here),
+with the gap logged. It reuses the ADR-0007 `russh` provisioning on Linux. On
+Windows, it reuses the in-VM agent's `file`/`exec` surface (no SSH on Windows).
+_Avoid_: conflating it with the live-VM gate (`tests/live-vm-gate.rs`), which
+runs the *macOS* CLI against a macOS golden. The harness is about *non-macOS*
+host binaries.
 
 **Host-under-test (HUT) VM**:
 The guest VM that *runs* the cross-compiled Host CLI in the self-hosted
-verification harness — it is the **host** being tested, not a driven target, so
+verification harness. It is the **host** being tested, not a driven target. So
 it needs **no in-VM agent** (the CLI drives a *separate* forwarded endpoint).
-Linux HUT = stock tart Ubuntu ARM64 (ssh-provisioned); Windows HUT = the
-Windows agent-golden (agent-provisioned, since Windows lacks SSH).
+The Linux HUT is stock tart Ubuntu ARM64 (ssh-provisioned). The Windows HUT is
+the Windows agent-golden (agent-provisioned, since Windows lacks SSH).
 _Avoid_: confusing the HUT (runs the CLI) with the forwarded Golden image
 (provides the agent/VNC the CLI drives).
 
 **Host-side framebuffer**:
 A VNC/RFB endpoint served by the **hypervisor on the host**, not by software
-inside the guest — so it is reachable headless and **before the guest OS
+inside the guest. So it is reachable headless and **before the guest OS
 boots** (boot screen, login window, recovery). Both supported backends provide
 it: tart via `tart run --vnc-experimental`'s `vnc://` URL, QEMU via a `-vnc`
 endpoint backed by its monitor socket. It is the **first gate** any new VM
-backend is evaluated against (ADR-0010): the whole `testanyware-rfb` stack, and
-golden creation's pre-boot recovery cycle (ADR-0008), depend on it. **Parallels
-Desktop was rejected** precisely because it offers no host-side framebuffer —
-only a guest-side VNC server, which cannot reach the pre-boot framebuffer.
-_Avoid_: conflating with a *guest-side* VNC server (runs inside a booted guest,
-can't serve boot/login/recovery) or with the [[Embedded viewer]] (a *client*
-that consumes a framebuffer, not a server that provides one).
+backend is evaluated against (ADR-0010). The whole `testanyware-rfb` stack and
+golden creation's pre-boot recovery cycle (ADR-0008) depend on it.
+
+**Parallels Desktop was rejected** precisely because it offers no host-side
+framebuffer — only a guest-side VNC server, which cannot reach the pre-boot
+framebuffer.
+_Avoid_: conflating it with a *guest-side* VNC server (runs inside a booted
+guest, cannot serve boot/login/recovery). Also avoid conflating it with the
+[[Embedded viewer]] (a *client* that consumes a framebuffer, not a server that
+provides one).
 
 **Guest-controlled resolution** (macOS VF guests):
 A macOS guest under Virtualization.framework renders at the resolution its own
-**WindowServer** restores on login (a saved per-display mode); VF then sizes the
+**WindowServer** restores on login (a saved per-display mode). VF then sizes the
 [[Host-side framebuffer]] to that mode. The host-side `tart set --display WxHpx`
 sets the VM's display *configuration* — a ceiling / available-mode hint — **not**
-a forced mode, so the guest overrides it. _Evidence_ (ADR-0013 verification): a
-clone configured `1920x1080px` still rendered 1024×768, the golden's baked mode.
-_Contrast_: Linux/Windows guests honor the host-configured mode directly (QEMU
-virtio-gpu `xres`/`yres`; tart's Linux `px` display). _Implication_: changing a
+a forced mode, so the guest overrides it.
+
+_Evidence_ (ADR-0013 verification): a clone configured `1920x1080px` still
+rendered 1024×768, the golden's baked mode.
+_Contrast_: Linux/Windows guests honour the host-configured mode directly (QEMU
+virtio-gpu `xres`/`yres`, tart's Linux `px` display). _Implication_: changing a
 macOS guest's resolution is **golden-side / guest-side** work, not a `vm start`
 flag. See [[Framebuffer-pixel contract]] for what resolution we target and why.
 
 **Framebuffer-pixel contract** (px, at 1× backing scale):
-The default guest resolution is 1920×1080 **pixels of framebuffer** — the RFB
-ServerInit size that `screen size` reports and the vision pipeline consumes
-(ADR-0013) — **not** 1920×1080 *points*. On macOS this is reached via a
-CoreGraphics display mode at **backing scale 1.0** (LoDPI): such a mode has both
+The default guest resolution is 1920×1080 **pixels of framebuffer**, **not**
+1920×1080 *points*. This is the RFB ServerInit size that `screen size` reports
+and the vision pipeline consumes (ADR-0013). On macOS this is reached via a
+CoreGraphics display mode at **backing scale 1.0** (LoDPI). Such a mode has both
 `pixelWidth = 1920` (matches the vision training distribution) **and**
 `width = 1920 pt` (same logical window sizes as a LoDPI 1920×1080 Linux/Windows
 guest). A Retina/2× mode would present 1920×1080 *points* as a **3840×2160-px**
 framebuffer — identical logical layout but **off** the vision distribution.
+
 _Implication_: "same window sizes on macOS needs 2× the pixels" is a **myth** —
 layout parity holds at 1× too, because the px axis (vision distribution) is
 **independent** of the pt axis (window layout). HiDPI/Retina rendering is an
@@ -229,19 +249,24 @@ reached at 2× backing scale while the 1× px contract remains the **default**.
 Relates to [[Guest-controlled resolution]].
 
 **HiDPI logical framebuffer** (px, at 2× backing scale — opt-in):
-When a macOS guest renders at 2× backing scale (HiDPI/Retina — the test-realism
-opt-in, ADR-0016), the [[Host-side framebuffer]] reports the **physical** px = 2×
-the logical points (logical 1920×1080 → physical 3840×2160). The Rust CLI's RFB
-connection presents a **logical 1920×1080-px surface** to every consumer —
-downsampling physical→logical (exact 2:1) on reads, scaling logical→physical on
-pointer writes — so the [[Framebuffer-pixel contract]]'s 1920×1080-px distribution
-holds for vision unchanged. _Logical_ = the 1920×1080-px surface consumers (vision,
-`screen *`, viewer, `input`) see; _physical_ = the 3840×2160-px wire framebuffer
-(also what `screen capture --physical` emits). Opt-in via `--display WxH@2x`
-(integer 2× only); the 1× px contract is the default; the *deterministic* host-side
-mechanism for headless/1×-host HiDPI is deferred (ADR-0016). _Avoid_: conflating
-*logical* (what consumers/vision see) with *physical* (the Retina wire frame);
-treating 2× as the default (it is opt-in).
+HiDPI/Retina rendering at 2× backing scale is the test-realism opt-in for a
+macOS guest (ADR-0016). At that scale, the [[Host-side framebuffer]] reports the
+**physical** px = 2× the logical points (logical 1920×1080 → physical
+3840×2160). The Rust CLI's RFB connection presents a **logical 1920×1080-px
+surface** to every consumer. It downsamples physical→logical (exact 2:1) on
+reads and scales logical→physical on pointer writes. So the
+[[Framebuffer-pixel contract]]'s 1920×1080-px distribution holds for vision
+unchanged.
+
+_Logical_ means the 1920×1080-px surface that consumers (vision, `screen *`,
+viewer, `input`) see. _Physical_ means the 3840×2160-px wire framebuffer (also
+what `screen capture --physical` emits).
+
+The opt-in is `--display WxH@2x` (integer 2× only). The 1× px contract is the
+default. The *deterministic* host-side mechanism for headless/1×-host HiDPI is
+deferred (ADR-0016).
+_Avoid_: conflating *logical* (what consumers/vision see) with *physical* (the
+Retina wire frame). Also avoid treating 2× as the default (it is opt-in).
 
 ## Example dialogue
 
@@ -257,10 +282,10 @@ treating 2× as the default (it is opt-in).
 > **Maintainer:** Then the in-VM agent is the suspect, not the Host CLI.
 > The in-VM agent is out of the rust-cli-port grove's scope — file it
 > against `agents/windows/`, not against `cli-rs/`. The Host CLI's job is
-> just to clone the Golden image and wait; the CLI design contract says
+> just to clone the Golden image and wait. The CLI design contract says
 > it warns and proceeds with `agent: null`.
 >
-> **Dev:** Where is that behavior pinned down now that the Swift CLI is gone?
+> **Dev:** Where is that behaviour pinned down now that the Swift CLI is gone?
 >
 > **Maintainer:** The CLI design contract is the single source of truth, and
 > the Rust CLI — now *the* Host CLI — is built to satisfy it. The
