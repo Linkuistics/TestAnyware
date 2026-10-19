@@ -72,7 +72,7 @@ that `vm start` clones to spawn a fresh instance.
 **Base VM** (macOS golden creation):
 The stopped tart VM a macOS *Golden image* is built from. For a release Cirrus
 Labs publishes (`tahoe`, `sequoia`, `sonoma`) it is their **vanilla** image,
-cloned as-is. For one it does not publish (`--version 27`), TestAnyware builds
+cloned as-is. For one it does not publish (`--version 27`, the default), TestAnyware builds
 it once from Apple's IPSW as `testanyware-base-macos-<major>`: `tart create
 --from-ipsw`, Setup Assistant driven over RFB + OCR, Remote Login on, then the
 same first-contact state a vanilla image has — an `admin`/`admin` account,

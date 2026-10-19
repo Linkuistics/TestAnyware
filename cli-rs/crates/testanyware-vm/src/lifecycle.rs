@@ -47,7 +47,7 @@ impl Platform {
     /// Default golden-image name. Ports `Platform.defaultBase`.
     pub fn default_base(self) -> &'static str {
         match self {
-            Platform::Macos => "testanyware-golden-macos-tahoe",
+            Platform::Macos => "testanyware-golden-macos-27",
             Platform::Linux => "testanyware-golden-linux-24.04",
             Platform::Windows => "testanyware-golden-windows-11",
         }
@@ -598,7 +598,7 @@ mod tests {
     fn platform_default_base_matches_golden_naming() {
         assert_eq!(Platform::Linux.default_base(), "testanyware-golden-linux-24.04");
         assert_eq!(Platform::Windows.default_base(), "testanyware-golden-windows-11");
-        assert_eq!(Platform::Macos.default_base(), "testanyware-golden-macos-tahoe");
+        assert_eq!(Platform::Macos.default_base(), "testanyware-golden-macos-27");
     }
 
     #[test]

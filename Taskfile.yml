@@ -44,6 +44,12 @@ tasks:
       - swift build
       - swift test
 
+  agent:macos:build:
+    desc: Build the release macOS In-VM agent at agents/macos/.build/release/testanyware-agent (what a golden build installs when TESTANYWARE_AGENT_BIN_OVERRIDE names it)
+    dir: '{{.ROOT_DIR}}/agents/macos'
+    cmds:
+      - swift build -c release
+
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
@@ -110,6 +116,19 @@ tasks:
     desc: 'Does tart abort when a VNC client connects after GAP seconds (default 70) with no client? Reproduces the macOS 27 host fault with a bare RFB client; exits 1 on a crash. Optional BASE=<golden>, HOLD=1 to keep a bare TCP connection open (the workaround; expect no crash). About 2.5 minutes; always stops and deletes the clone'
     cmds:
       - python3 scripts/tart-vnc-idle-repro.py --gap {{.GAP | default "70"}} {{if .BASE}}--base {{.BASE}}{{end}} {{if .HOLD}}--hold{{end}}
+
+  vm:create-golden-macos:
+    desc: 'Build a macOS golden that carries this checkout''s agent, not the Homebrew-bundled one. Needs NAME=<golden> (use a new name: a rebuild replaces a golden of the same name); optional VERSION (default 27). About 20 minutes when the base VM exists. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
+    deps: [cli:build, agent:macos:build]
+    vars:
+      CLI: '{{.CLI_DIR}}/target/debug/testanyware'
+    env:
+      TESTANYWARE_AGENT_BIN_OVERRIDE: '{{.ROOT_DIR}}/agents/macos/.build/release/testanyware-agent'
+    preconditions:
+      - sh: test -n "{{.NAME}}"
+        msg: 'set NAME=<a golden name that does not exist yet>'
+    cmds:
+      - '{{.CLI}} vm create-golden --platform macos --version {{.VERSION | default "27"}} --name {{.NAME}}'
 
   vm:ipsw-base-live:
     desc: 'Does `ensure_base_vm(27)` build testanyware-base-macos-27 from Apple''s IPSW and does the result pass its contract (SSH admin/admin, passwordless sudo, auto-login, no sleep)? A no-op build if the base exists. First run downloads about 25 GB; the install is about 4 minutes and Setup Assistant about 5 more. Run from a terminal that may reach guest IPs (macOS Local Network permission)'

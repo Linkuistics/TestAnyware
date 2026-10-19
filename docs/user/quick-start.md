@@ -26,23 +26,24 @@ symlink into your `PATH`:
 ln -sf "$PWD/target/release/testanyware" /usr/local/bin/testanyware
 ```
 
-## 2. Create the macOS golden image (one-time, ~10 minutes)
+## 2. Create the macOS golden image (one-time, ~10 minutes, ~40 on the first run)
 
 ```bash
 testanyware vm create-golden --platform macos
 ```
 
-The command downloads a vanilla macOS Tahoe image, installs the
-TestAnyware agent, grants accessibility, and finalises the golden. You
-only need to do this once per host.
-
-For a macOS release Cirrus Labs does not publish an image for, pass its major
-number: `testanyware vm create-golden --platform macos --version 27`. The first
-run installs macOS from Apple's IPSW (about 25 GB, cached under
+The default golden is macOS 27. Cirrus Labs publishes no image for it, so the
+first run installs macOS from Apple's IPSW (about 25 GB, cached under
 `~/.local/share/testanyware/cache/`) into a base VM,
-`testanyware-base-macos-27`, by driving Setup Assistant, then builds the golden
-from it; later runs reuse the base. Expect about 30 minutes extra on the first
+`testanyware-base-macos-27`, by driving Setup Assistant. The command then
+installs the TestAnyware agent, grants accessibility, and finalises the
+golden `testanyware-golden-macos-27`. Later runs reuse the base. You only
+need to do this once per host. Expect about 30 minutes extra on the first
 run.
+
+To use macOS 26 (Tahoe) instead, build it from Cirrus Labs' vanilla image with
+`--version tahoe`, and pass `--base testanyware-golden-macos-tahoe` to
+`vm start`.
 
 ## 3. Start a VM
 

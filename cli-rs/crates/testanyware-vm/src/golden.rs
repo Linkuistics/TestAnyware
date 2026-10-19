@@ -72,7 +72,8 @@ const SOLID_GRAY_PNG_BASE64: &str =
 #[derive(Debug, Clone)]
 pub struct GoldenOptions {
     /// macOS version selector — `tahoe`, `sequoia`, `sonoma` (the vanilla
-    /// image tag). Ports `--version`.
+    /// image tag) or a major number such as `27` (built from the IPSW).
+    /// Ports `--version`.
     pub version: String,
     /// Final golden image name. Ports `--name`
     /// (default `testanyware-golden-macos-<version>`).

@@ -427,7 +427,8 @@ testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--disp
 
 - `--platform <platform>` — `macos`, `linux`, or `windows`. Default: `macos`.
 - `--base <base>` — Base image to clone from. Default: platform-specific
-  golden image.
+  golden image (macOS: `testanyware-golden-macos-27`; pass
+  `testanyware-golden-macos-tahoe` for the macOS 26 golden).
 - `--id <id>` — VM instance id. Default: `testanyware-<hex8>`.
 - `--display <display>` — Display resolution (e.g. `1920x1080`).
 - `--viewer` — Open a VNC viewer after boot.

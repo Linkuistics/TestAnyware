@@ -326,11 +326,12 @@ pub async fn run_vm_create_golden(
         Ok(p) => p,
         Err(err) => exit_vm_error(err, mode),
     };
-    // Per-platform default version (macOS: tahoe; Windows: 11; Linux: 24.04).
+    // Per-platform default version (macOS: 27; Windows: 11; Linux: 24.04). The
+    // macOS default must name the golden `Platform::default_base` starts.
     let version = version.unwrap_or_else(|| match parsed {
         Platform::Windows => "11".into(),
         Platform::Linux => "24.04".into(),
-        Platform::Macos => "tahoe".into(),
+        Platform::Macos => "27".into(),
     });
     let name = name.unwrap_or_else(|| format!("testanyware-golden-{}-{version}", parsed.as_str()));
 

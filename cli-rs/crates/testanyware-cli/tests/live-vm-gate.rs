@@ -18,7 +18,7 @@
 //!
 //! ## What golden it needs
 //!
-//! The gate targets the **macOS** golden (`testanyware-golden-macos-tahoe`),
+//! The gate targets the **macOS** golden (the default, `testanyware-golden-macos-27`),
 //! driven by the tart backend on an arm64 Mac host. macOS is the only platform
 //! whose freshly-booted golden exposes *deterministic* on-screen content with no
 //! test-specific tooling baked into the image (`minimal-images`): a clean Finder

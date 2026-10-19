@@ -69,3 +69,31 @@ code and docs match the answer.
 - Guests are driven only through the In-VM agent and VNC.
 - Never replace or delete `testanyware-golden-macos-tahoe` without asking.
 - Never run `set-display-mode.swift` on the host.
+
+## Decisions (running log)
+
+- **27 becomes the default (2026-10-19, human).** `Platform::default_base`, its test and every
+  doc naming macOS 26 or Tahoe as the macOS golden change. Tahoe stays on disk, selectable with `--base`.
+- **HiDPI `@2x` live run: skipped (2026-10-19, human).** The docs say `@2x` is unit-tested only on 27.
+- **Golden rebuild: now (2026-10-19, human).** It carries the `RoleMapper.queryRole` fix. It runs in the
+  human's terminal, because golden builds cannot run from this harness.
+- **Done 2026-10-19:** `Platform::default_base` and the macOS `create-golden` default are both `27` (the
+  golden name derives from the version, so they must agree). The pinning test, the help text, the schema,
+  the README, `docs/` and `website/docs/` copies, CONTEXT.md and ADR-0016 (a 27 verification section that
+  says `@2x` is not yet run live on 27) are updated. `task cli:test` passes. Historical ADR and research
+  mentions of Tahoe stay: they record what ran on which guest.
+- **Finding: a plain rebuild would not carry the agent fix.** `create-golden` installs the Homebrew-bundled
+  agent (dated 25 June) unless `TESTANYWARE_AGENT_BIN_OVERRIDE` names a binary. Added
+  `task agent:macos:build` and `task vm:create-golden-macos NAME=<new name>`, which build the release
+  agent and set the override.
+- **Rebuild plan.** The human builds `testanyware-golden-macos-27-agentfix` in their terminal. The old 27
+  golden stays until the new one is verified (Healthy agent, and `role: "button"` matches). The swap
+  (delete the old 27 golden, rename the new one) is asked, not assumed.
+- **Left to do:** the rebuild and its check, the swap question, `vm list` clean, retire, commit.
+- **Rebuilt and swapped (2026-10-19, human).** The human built `testanyware-golden-macos-27-agentfix` in iTerm
+  (a herdr pane and this session cannot reach guest IPs). A clone reaches a Healthy agent, and
+  `/snapshot {"role":"button"}` returns the Spotlight button. The same query on a clone of the old 27 golden
+  returns the menu-bar element with empty children (positive control). The human then chose to swap: the old
+  `testanyware-golden-macos-27` was deleted and the new one renamed to it. Tahoe is untouched. `vm list`
+  shows no running clones. The Tahoe golden still carries the old agent; a rebuild of it needs
+  `task vm:create-golden-macos NAME=<new name> VERSION=tahoe`.

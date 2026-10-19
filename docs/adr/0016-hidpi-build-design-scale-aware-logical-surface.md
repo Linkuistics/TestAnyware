@@ -253,3 +253,14 @@ validation folds into ADR-0013's already-named retraining/training workstream
 (build them on the target distribution; the @2x-asset **icon classifier is the
 prime suspect** to validate first). That is a note on that workstream, not a HiDPI
 blocker. The grove `hidpi-vision` is complete on the minimal-opt-in scope.
+
+## Verification — macOS 27 guest (2026-10-19, `checks-27-k16`, `default-and-docs-27-k18`)
+
+macOS 27 is now the default macOS golden. On a clone of `testanyware-golden-macos-27`
+the 1× path passes: the guest advertises 12 modes, all at scale 1.0 (the Tahoe list),
+and the switch to `1920x1080` lands. The scale-2 selector exits 2 with its reason and
+changes nothing on this 1× host. The Rust unit tests for the scale-aware surface pass.
+
+**The live `@2x` run has not been repeated on a 27 guest.** It needs the host panel at
+its 2.00× mode, and the human chose to skip the switch. The `@2x` path is verified live
+only on the Tahoe guest above. Repeat it on 27 the next time the host is on that mode.
