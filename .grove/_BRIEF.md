@@ -55,7 +55,13 @@ so neither delays the Koine unblock.
 - Issues: #3 (the human's words). #2, the tart crash in `_VZVNCServer` after
   about 60 s of VNC idle, is a different bug. #4 and #5 (more Macs; placement
   by OS and architecture) are outside this grove.
-- ADRs: ADR-0010 (host-side framebuffer); ADR-0014 (its resolution switch
+- Live checks from a harness: macOS Local Network privacy denies every
+  non-platform executable the guest subnet (ADR-0019), so a harness session
+  runs live macOS checks through `open -a Terminal <script>.command`, which
+  writes its results to files (verified by `reliable-macos-start-k4`). A check
+  that starts VMs needs a free macOS slot: other sessions hold slots, and
+  `vm start` refuses with exit 6.
+- ADRs: ADR-0019 (the Local Network diagnosis); ADR-0010 (host-side framebuffer); ADR-0014 (its resolution switch
   rides "the optionally-degraded agent contract" — reworked in place by k2);
   ADR-0004 (per-command connections).
 - Contract: `docs/architecture/cli-design-contract.md` — §4.2 (lifecycle

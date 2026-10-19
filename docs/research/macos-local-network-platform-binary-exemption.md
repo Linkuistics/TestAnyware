@@ -54,6 +54,18 @@ cp /usr/bin/nc ./nc-adhoc && codesign --force -s - ./nc-adhoc
 Run both from the shell that runs `testanyware`. If the first connects and the
 second fails, the system denies that shell.
 
+## A permitted context
+
+Terminal.app is allowed on this host. The harness opened a script with
+`open -a Terminal`, and the Host CLI then behaved as follows:
+
+- `vm start --platform macos` reached a Healthy agent in 13 to 16 s, ten times in a
+  row, and `screen size` reported 1920x1080.
+- The same CLI that fails in the harness needed no change to do this.
+
+So the cause of issue #3 finding 1 is the context, and the Host CLI works where
+macOS allows its app.
+
 ## What the product does about it
 
 `vm start` asks `/usr/bin/nc` after five unreachable probes and fails fast with

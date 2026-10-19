@@ -104,3 +104,29 @@ screen from a healthy start. Each needs a shell that macOS Local Network privacy
 allows onto `192.168.64.x`, and this harness has none (Q1). I cannot make that
 true from inside the session. The decision for the human is how to run those
 checks: see the hand-back in the session's last message.
+
+**Q4 — the live bars are met, through Terminal.app.** The user chose the Terminal
+route ("Try Terminal via open"). I wrote `.command` scripts that write their results
+to files and ran them with `open -a Terminal`. Terminal.app is allowed on this host
+(no prompt). Results, 2026-10-19, with the debug build of this branch:
+
+- `task vm:local-network`: `this shell may reach guests`, a Healthy agent in 14 s.
+- `task vm:start-reliability N=10`: 10 of 10 consecutive starts reached a Healthy
+  agent, in 13 to 16 s each, the display switch applied each time.
+- `testanyware screen size` after a healthy start: `1920x1080`.
+- Koine's `task app:vm-verify-homebrew` passed. Its first run failed on Koine's own
+  check (`the cask installed 0.3.0, not this tree's 0.2.0`): Koine's checkout is a
+  detached `HEAD` at 0.2.0 content, and the published cask is 0.3.0. I read that
+  without changing Koine and ran the task against `git archive v0.3.0` instead,
+  with `.build/app/Koine.app` symlinked in because the library insists on a built
+  bundle. The run waited out two other sessions' VMs (the macOS guest limit
+  refused it ten times, exit 6, naming the holders) and passed on try 11.
+
+Also learned: `require_no_running_vms` was stricter than the reliability loop
+needs, because another session's VM held a slot. The loop and `local-network` now
+use `require_free_slot`. The slot-exhaustion and keep-on-failure checks keep the
+strict precondition.
+
+The cause is the context, not the Host CLI (Q1). The product change is the
+diagnosis (Q2): it turns the 118 s unexplained failure into a 20 s explained one.
+No VM of mine remains. The Koine checkout stays at 0.2.0 for the user to move.

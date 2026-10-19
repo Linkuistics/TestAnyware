@@ -42,7 +42,9 @@
 #      KILL_AFTER_SECS (default 15; how long a qemu-start waits before killing
 #      QEMU, so the start is in its agent wait), MAX_DEATH_SECS (default 10;
 #      how fast a killed QEMU must end the start).
-# Precondition: no macOS VM is running (the limit is Apple's: two per Mac).
+# Precondition: slot-exhaustion and keep-on-failure need no macOS VM running (the
+# limit is Apple's: two per Mac). reliability and local-network start one VM at a
+# time and need one free slot.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -51,6 +53,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly REPO_ROOT
 readonly BIN="${TESTANYWARE_BIN:-$REPO_ROOT/cli-rs/target/debug/testanyware}"
 readonly MAX_REFUSAL_SECS="${MAX_REFUSAL_SECS:-30}"
+# Apple's cap on concurrently running macOS guests per Mac.
+readonly MACOS_SLOTS=2
 readonly MAX_DENIAL_SECS="${MAX_DENIAL_SECS:-60}"
 readonly KILL_AFTER_SECS="${KILL_AFTER_SECS:-15}"
 readonly MAX_DEATH_SECS="${MAX_DEATH_SECS:-10}"
@@ -116,6 +120,16 @@ require_no_running_vms() {
   local running
   running="$(running_macos_vms)"
   [[ -z "$running" ]] || die "VMs are already running (stop them first): ${running//$'\n'/ }"
+}
+
+# One macOS guest slot must be free. A check that starts one VM at a time needs
+# no more, so another session's VM does not stop it. If that session fills the
+# other slot mid-run, the start fails honestly with VM_LIMIT_REACHED.
+require_free_slot() {
+  local running
+  running="$(running_macos_vms)"
+  (($(grep -c . <<<"$running") < MACOS_SLOTS)) ||
+    die "both macOS guest slots are taken: ${running//$'\n'/ }"
 }
 
 # Occupy one macOS guest slot and set FILLED_ID to the holder's id (a global,
@@ -312,6 +326,7 @@ check_keep_on_failure() {
 
 check_local_network() {
   local id="testanyware-lncheck-$$"
+  require_free_slot
 
   # Registered before the start that may create it.
   started_ids+=("$id")
@@ -338,7 +353,7 @@ check_local_network() {
 check_reliability() {
   local runs="${1:-10}" run id began
   [[ "$runs" =~ ^[1-9][0-9]*$ ]] || die "run count must be a positive integer, got '$runs'"
-  require_no_running_vms
+  require_free_slot
   for ((run = 1; run <= runs; run++)); do
     began=$SECONDS
     RC=0
