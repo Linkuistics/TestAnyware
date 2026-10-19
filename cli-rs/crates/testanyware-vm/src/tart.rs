@@ -372,12 +372,15 @@ pub struct TartStartOptions {
 }
 
 /// Result of a successful `TartRunner::start`: the detached `tart run`
-/// pid, the VNC endpoint tart handed back, and the (best-effort) guest IP.
+/// pid, the VNC endpoint tart handed back, the (best-effort) guest IP, and
+/// the VNC keeper's pid.
 #[derive(Debug, Clone)]
 pub struct TartStartArtifacts {
     pub pid: i32,
     pub vnc: VncUrl,
     pub ip: Option<String>,
+    /// Pid of the VNC keeper (ADR-0018), or `None` if it could not start.
+    pub keeper_pid: Option<i32>,
 }
 
 /// tart lifecycle entry points, mirroring `QemuRunner`.
@@ -410,8 +413,15 @@ impl TartRunner {
             return Err(VmError::VmBootTimeout { id: opts.id.clone() });
         };
 
+        // Hold one silent VNC connection for the life of tart (ADR-0018), so a
+        // client that connects after a pause of 60 s or more cannot crash it on
+        // a macOS 27 host. Start it here, before the first VNC client of any
+        // kind. A failure warns; the guest then runs without the protection.
+        let keeper_pid =
+            crate::keeper::start_keeper(&opts.id, &vnc.host, vnc.port, &paths.vms_dir());
+
         let ip = poll_ip(&opts.id, 30, Duration::from_secs(2));
-        Ok(TartStartArtifacts { pid, vnc, ip })
+        Ok(TartStartArtifacts { pid, vnc, ip, keeper_pid })
     }
 
     /// Tear down a tart clone: `tart stop` + `tart delete`, then SIGTERM

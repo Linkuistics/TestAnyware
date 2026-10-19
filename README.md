@@ -557,8 +557,11 @@ cases now live in [`docs/user/troubleshooting.md`](docs/user/troubleshooting.md)
 
 On a macOS 27 host, the last VNC client can leave a tart guest (macOS or Linux).
 If a `screen` or `input` command then runs 60 seconds or more later, the guest
-stops. Keep one VNC connection open to avoid it. The troubleshooting entry "A tart guest dies when `screen` or
-`input` runs after 60 idle seconds" has the details.
+stops. `vm start` prevents this. It starts a VNC keeper, a detached process that
+holds one silent connection to the guest for as long as the guest runs. A tart
+guest that you started with `tart run` has no keeper, so keep one VNC
+connection open yourself. The troubleshooting entry "A tart guest dies when
+`screen` or `input` runs after 60 idle seconds" has the details.
 
 ## Key Directories
 

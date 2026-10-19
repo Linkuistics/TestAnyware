@@ -50,7 +50,8 @@ queries both backends and presents a unified view.
 1. `testanyware vm start` picks the backend based on `--platform`.
 2. **tart path:** `tart clone <golden> <clone-id>` → `tart run` in the
    background → discover VNC URL (`tart vnc <clone-id>`) → parse host,
-   port, and dynamically generated password from the URL.
+   port, and dynamically generated password from the URL. Then spawn the
+   VNC keeper (see [VNC keeper](#vnc-keeper)).
 3. **QEMU path:** copy `${XDG_DATA_HOME}/testanyware/golden/<name>/` into
    a fresh `${XDG_DATA_HOME}/testanyware/clones/<id>/` → spawn
    `qemu-system-aarch64` in the background → discover VNC via the QEMU
@@ -83,10 +84,32 @@ queries both backends and presents a unified view.
 1. Look up `<id>.meta.json` for the backend, clone dir, and viewer
    window id.
 2. Send the backend-specific stop. For tart, run `tart stop <clone-id>`
-   then `tart delete <clone-id>`. For QEMU, send QMP quit, then SIGKILL as
-   needed.
+   then `tart delete <clone-id>`, then signal the VNC keeper if it still
+   runs. For QEMU, send QMP quit, then SIGKILL as needed.
 3. Close the viewer window if one was opened (AppleScript).
 4. Remove the clone dir (QEMU) and both JSON files.
+
+## VNC keeper
+
+On a macOS 27 host, Apple's VNC server aborts tart when a client connects 60
+seconds or more after the last client left. Every `screen` and `input` command
+opens its own VNC connection, so a command after a long pause can stop the guest.
+ADR-0018 decides the remedy.
+
+Each tart-backed `vm start` spawns a VNC keeper right after tart prints its VNC
+URL. The keeper is the `testanyware` binary run as the hidden command
+`_vnc-keeper --id <id> --host <host> --port <port>`. It runs detached, in its own
+session. It holds one TCP connection to the VNC port, sends nothing, and reads
+and discards what the server sends. The meta file records its pid as
+`keeper_pid`. Its log is `<id>.keeper.log` in the same directory as the spec file.
+
+The keeper stops itself. When its connection ends, it waits about one second and
+connects again. When the port refuses, tart is gone, and the keeper exits. It also
+exits when five connections in a row end within five seconds of opening.
+`vm stop` signals the recorded pid as a backstop, only if the command line of that
+pid still names `_vnc-keeper` and this id. Nothing restarts a keeper that dies.
+
+QEMU guests, golden creation and `vm start --dry-run` start no keeper.
 
 ## Golden images
 

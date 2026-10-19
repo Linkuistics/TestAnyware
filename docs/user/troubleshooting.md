@@ -80,7 +80,22 @@ The guest does not matter. A macOS 26 guest and a Linux guest under tart fail th
 Windows guests run under QEMU, which has its own VNC server, and are not affected.
 A first connection after boot works.
 
-Two things avoid it:
+`vm start` prevents the fault for each tart guest that it starts. It starts a VNC
+keeper, a detached process that holds one silent connection to the guest's VNC
+port for as long as tart runs. The keeper sends nothing. It ends itself when tart
+stops, and `vm stop` signals it as a backstop. Its log is
+`${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.keeper.log`.
+To see that it runs, use `pgrep -f _vnc-keeper`.
+
+You can still meet the fault in two cases:
+
+- **You started the guest without `vm start`.** For example, you ran `tart run`
+  yourself. That guest has no keeper.
+- **The keeper died while tart ran.** Nothing restarts it. Read the keeper log to
+  see why it ended. If the keeper died more than 60 seconds ago, the next
+  connection of any kind can already stop the guest.
+
+In both cases, two things avoid the fault:
 
 - **Keep one VNC connection open for as long as the guest runs.** One open
   connection is enough, even a bare TCP connection that sends nothing. With it

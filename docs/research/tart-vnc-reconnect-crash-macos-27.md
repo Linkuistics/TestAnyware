@@ -120,15 +120,15 @@ a later one sees 1024x768. One `screen capture` on a first connection failed wit
 
 ## Workaround and mitigation
 
-**Today:** keep one VNC connection open for as long as the guest runs. The command
+**For a guest that `vm start` did not start:** keep one VNC connection open for as long as the guest runs. The command
 `tail -f /dev/null | nc <vnc-host> <vnc-port>` does it. The user guide has the steps:
 `docs/user/troubleshooting.md`. The same recipe in the Taskfile checks the host:
 `task vm:tart-vnc-idle-repro` shows the crash, and `task vm:tart-vnc-idle-repro HOLD=1`
 shows the fix.
 
-**In the product:** ADR-0018 decides it. Each tart-backed `vm start` starts a VNC keeper.
+**In the product:** ADR-0018 decides it, and `vm start` now does it. Each tart-backed `vm start` starts a VNC keeper.
 The keeper is a detached process that holds one bare TCP connection for the life of the guest.
-Until the keeper is built, the workaround above applies.
+The manual recipe above applies only to a tart guest that `vm start` did not start.
 
 ## Where the findings landed
 

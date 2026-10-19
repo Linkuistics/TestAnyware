@@ -14,6 +14,7 @@ pub mod display_request;
 pub mod error;
 pub mod health;
 pub mod id;
+pub mod keeper;
 pub mod lifecycle;
 pub mod meta;
 pub mod monitor;

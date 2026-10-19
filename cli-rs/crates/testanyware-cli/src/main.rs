@@ -1219,6 +1219,18 @@ enum Command {
         action: VmAction,
     },
 
+    /// Internal: hold one silent VNC connection to a tart guest (ADR-0018).
+    /// `vm start` spawns it; it is not part of the public contract (§1).
+    #[command(name = "_vnc-keeper", hide = true)]
+    VncKeeper {
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        host: String,
+        #[arg(long)]
+        port: u16,
+    },
+
     /// Open an interactive viewer window for a VM's VNC framebuffer
     #[command(after_long_help = VIEWER_AFTER_HELP)]
     Viewer {
@@ -2293,6 +2305,9 @@ async fn main() {
                 vm_cmds::run_vm_delete(name, force, OutputMode::from_flags(json), dry_run).await
             }
         },
+        Command::VncKeeper { id, host, port } => {
+            std::process::exit(vm_cmds::run_vnc_keeper(id, host, port).await)
+        }
         // Synchronous on purpose: eframe::run_native must own the main
         // thread, and `block_on` keeps this arm on it (ADR-0005). No await.
         Command::Viewer { conn } => viewer_cmds::run_viewer(conn.into()),

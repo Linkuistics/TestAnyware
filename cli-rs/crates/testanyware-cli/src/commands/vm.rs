@@ -27,6 +27,27 @@ pub struct ListItem {
 
 // ---- handlers -----------------------------------------------------------
 
+/// The hidden `_vnc-keeper` command (ADR-0018): hold one silent connection to
+/// a tart guest's VNC port until the port goes away. `vm start` spawns it
+/// detached, with its output in `<id>.keeper.log`. Returns the exit code: 0
+/// when it held a connection and the port then went away, 1 otherwise.
+pub async fn run_vnc_keeper(id: String, host: String, port: u16) -> i32 {
+    let started = std::time::Instant::now();
+    let mut log = |line: &str| eprintln!("[{id} +{}s] {line}", started.elapsed().as_secs());
+    let report = testanyware_vm::keeper::hold(
+        &host,
+        port,
+        testanyware_vm::keeper::KeeperPolicy::DEFAULT,
+        &mut log,
+    )
+    .await;
+    log(&format!(
+        "exiting after {} connection(s), {} byte(s) discarded: {:?}",
+        report.connections, report.bytes_discarded, report.exit
+    ));
+    if report.ended_normally() { 0 } else { 1 }
+}
+
 /// `testanyware vm start`.
 pub async fn run_vm_start(
     platform: String,

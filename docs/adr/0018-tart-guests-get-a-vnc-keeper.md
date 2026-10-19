@@ -4,8 +4,9 @@ Date: 2026-10-19
 
 ## Status
 
-Accepted (grove `gh-issue-6`, design leaf `vnc-keeper-design-k19`). Not built
-yet. The evidence is `docs/research/tart-vnc-reconnect-crash-macos-27.md`.
+Accepted (grove `gh-issue-6`, design leaf `vnc-keeper-design-k19`). Built in
+leaf `vnc-keeper-k20`. The evidence is
+`docs/research/tart-vnc-reconnect-crash-macos-27.md`.
 
 ## Context
 
@@ -70,8 +71,8 @@ RST that crashes tart.
 
 ### How it starts
 
-`start_tart` spawns the keeper with `spawn_detached` when the VNC URL appears in
-the tart log, before the agent wait. The keeper runs in its own session and
+`TartRunner::start` spawns the keeper with `spawn_detached` when the VNC URL
+appears in the tart log, before the guest-IP and agent waits. The keeper runs in its own session and
 writes its log to `<vms>/<id>.keeper.log`. Its pid goes into the meta of the VM
 as `keeper_pid`. If the spawn fails, `vm start` prints a warning and continues.
 The guest then runs as it does without a keeper.
@@ -169,7 +170,10 @@ talk to".
 ## Consequences
 
 - A `screen` or `input` command after any pause no longer kills a tart guest on
-  a macOS 27 host. The follow-up implementation proves this live.
+  a macOS 27 host. `task vm:vnc-keeper-live` proves this on macOS 27.0.1 with tart
+  2.40.1. A macOS clone survived 5 minutes with no other client, and a Linux
+  clone survived 70 seconds. With the keeper killed, a macOS clone crashed after
+  70 seconds, so the keeper is what protects the guest.
 - Each running tart guest has one more process (`testanyware _vnc-keeper`) and
   one more socket. The meta gains an optional `keeper_pid`, and a meta without
   it still loads.

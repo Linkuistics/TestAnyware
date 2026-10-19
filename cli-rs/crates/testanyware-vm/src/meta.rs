@@ -27,6 +27,11 @@ pub struct VmMeta {
     pub clone_dir: Option<String>,
     #[serde(rename = "viewer_window_id", default, skip_serializing_if = "Option::is_none")]
     pub viewer_window_id: Option<String>,
+    /// Pid of the VNC keeper that `vm start` spawned for a tart guest
+    /// (ADR-0018). Absent for QEMU guests and for a meta written before the
+    /// keeper existed.
+    #[serde(rename = "keeper_pid", default, skip_serializing_if = "Option::is_none")]
+    pub keeper_pid: Option<i32>,
 }
 
 impl VmMeta {
@@ -56,6 +61,7 @@ mod tests {
             pid: 4242,
             clone_dir: Some("/d/clones/testanyware-deadbeef".into()),
             viewer_window_id: None,
+            keeper_pid: None,
         };
         meta.write_atomic(&path).unwrap();
         assert_eq!(VmMeta::load(&path).unwrap(), meta);
@@ -99,6 +105,7 @@ mod tests {
             pid: 5151,
             clone_dir: None,
             viewer_window_id: None,
+            keeper_pid: None,
         };
         meta.write_atomic(&path).unwrap();
         let loaded = VmMeta::load(&path).unwrap();
@@ -113,10 +120,40 @@ mod tests {
     fn key_names_match_swift_coding_keys() {
         let meta = VmMeta {
             id: "v".into(), tool: VmTool::Qemu, pid: 1,
-            clone_dir: Some("/c".into()), viewer_window_id: Some("w".into()),
+            clone_dir: Some("/c".into()), viewer_window_id: Some("w".into()), keeper_pid: Some(7),
         };
         let json = serde_json::to_string(&meta).unwrap();
         assert!(json.contains("\"clone_dir\""), "snake_case clone_dir: {json}");
         assert!(json.contains("\"viewer_window_id\""), "snake_case viewer id: {json}");
+        assert!(json.contains("\"keeper_pid\":7"), "snake_case keeper pid: {json}");
+    }
+
+    #[test]
+    fn keeper_pid_round_trips_and_is_omitted_when_absent() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v.meta.json");
+        let mut meta = VmMeta {
+            id: "testanyware-abcd1234".into(),
+            tool: VmTool::Tart,
+            pid: 5151,
+            clone_dir: None,
+            viewer_window_id: None,
+            keeper_pid: Some(6262),
+        };
+        meta.write_atomic(&path).unwrap();
+        assert_eq!(VmMeta::load(&path).unwrap().keeper_pid, Some(6262));
+
+        meta.keeper_pid = None;
+        let json = serde_json::to_string(&meta).unwrap();
+        assert!(!json.contains("keeper_pid"), "an absent keeper pid must not serialize: {json}");
+    }
+
+    #[test]
+    fn a_meta_written_before_the_keeper_still_loads() {
+        // The shape `vm start --platform macos` wrote before ADR-0018.
+        let json = r#"{"id":"testanyware-abcd1234","pid":5151,"tool":"tart"}"#;
+        let meta: VmMeta = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.tool, VmTool::Tart);
+        assert_eq!(meta.keeper_pid, None);
     }
 }

@@ -1043,3 +1043,46 @@ fn screen_find_text_connection_error_envelope() {
     assert_eq!(body["code"], "IO_ERROR");
     assert!(body["schema_version"].is_string());
 }
+
+/// §1 internal commands: `_vnc-keeper` (ADR-0018) is hidden from every
+/// `--help` listing the public surface, yet it runs.
+#[test]
+fn vnc_keeper_is_hidden_from_help() {
+    for args in [&["--help"][..], &["vm", "--help"][..]] {
+        let out = run(args);
+        let help = String::from_utf8_lossy(&out.stdout);
+        assert!(!help.contains("_vnc-keeper"), "`{}` must not list _vnc-keeper:\n{help}", args.join(" "));
+    }
+}
+
+/// The keeper holds a connection, connects again when the server closes it,
+/// and exits 0 when the port refuses (how it ends when tart stops). The
+/// log lines go to stderr, which `vm start` points at `<id>.keeper.log`.
+#[test]
+fn vnc_keeper_holds_then_exits_when_the_port_goes_away() {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let server = std::thread::spawn(move || {
+        let (conn, _) = listener.accept().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        drop(conn);
+        // The listener drops here too: the keeper's next connect is refused.
+    });
+    let out = run(&["_vnc-keeper", "--id", "testanyware-ab12cd34", "--host", "127.0.0.1", "--port", &port.to_string()]);
+    server.join().unwrap();
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+    let log = String::from_utf8_lossy(&out.stderr);
+    assert!(log.contains("holding a connection"), "log: {log}");
+    assert!(log.contains("exiting after 1 connection(s)"), "log: {log}");
+}
+
+/// A keeper that cannot connect at all exits 1.
+#[test]
+fn vnc_keeper_exits_1_when_it_never_connects() {
+    let port = {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        listener.local_addr().unwrap().port()
+    };
+    let out = run(&["_vnc-keeper", "--id", "testanyware-ab12cd34", "--host", "127.0.0.1", "--port", &port.to_string()]);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", String::from_utf8_lossy(&out.stderr));
+}

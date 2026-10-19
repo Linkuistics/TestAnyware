@@ -85,6 +85,30 @@ pub fn pgrep_first(_pattern: &str) -> Option<i32> {
     None
 }
 
+/// The command line of `pid` as `ps` prints it, or `None` if no such process
+/// exists or `ps` is unavailable. `vm stop` uses it to check that a recorded
+/// keeper pid still names the keeper (ADR-0018).
+#[cfg(unix)]
+pub fn command_line(pid: i32) -> Option<String> {
+    if pid <= 0 {
+        return None;
+    }
+    let output = std::process::Command::new("ps")
+        .args(["-o", "command=", "-p", &pid.to_string()])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let line = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    (!line.is_empty()).then_some(line)
+}
+
+#[cfg(not(unix))]
+pub fn command_line(_pid: i32) -> Option<String> {
+    None
+}
+
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
@@ -136,5 +160,15 @@ mod tests {
     #[test]
     fn pgrep_first_returns_none_on_no_match() {
         assert_eq!(pgrep_first("a-pattern-that-matches-nothing-xyzzy-42"), None);
+    }
+
+    #[test]
+    fn command_line_reads_a_running_process_and_misses_a_dead_pid() {
+        let pid = spawn_sleep(28_932);
+        let line = command_line(pid);
+        terminate(pid, Duration::from_millis(100), 10);
+        assert_eq!(line.as_deref(), Some("sleep 28932"));
+        assert_eq!(command_line(i32::MAX), None);
+        assert_eq!(command_line(0), None);
     }
 }

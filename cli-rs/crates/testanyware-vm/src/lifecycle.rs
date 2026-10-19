@@ -214,6 +214,7 @@ impl VmLifecycle {
             pid: artifacts.pid,
             clone_dir: Some(artifacts.clone_dir.display().to_string()),
             viewer_window_id: None,
+            keeper_pid: None,
         };
         meta.write_atomic(&meta_path).inspect_err(|_| {
             QemuRunner::stop(artifacts.pid, &artifacts.clone_dir, paths);
@@ -340,6 +341,9 @@ impl VmLifecycle {
             pid: artifacts.pid,
             clone_dir: None,
             viewer_window_id: None,
+            // The keeper started inside `TartRunner::start`, before any VNC
+            // client (ADR-0018). `vm stop` signals it as a backstop.
+            keeper_pid: artifacts.keeper_pid,
         };
         meta.write_atomic(&meta_path).inspect_err(|_| {
             TartRunner::stop(&opts.id, artifacts.pid);
@@ -376,7 +380,12 @@ impl VmLifecycle {
                 // `tart stop` + `tart delete` the clone, SIGTERM the
                 // detached `tart run` pid. A VM that no longer exists is a
                 // stop failure (mirrors Swift `stop`'s `ok = false`).
-                if crate::tart::TartRunner::stop(id, meta.pid) {
+                let stopped = crate::tart::TartRunner::stop(id, meta.pid);
+                // The keeper ends itself once tart is gone (ADR-0018); this
+                // signal is the backstop, and only reaches a pid that is
+                // still this id's keeper.
+                crate::keeper::stop_keeper(id, meta.keeper_pid);
+                if stopped {
                     None
                 } else {
                     Some(VmError::VmStopFailed { id: id.to_string() })
@@ -695,6 +704,7 @@ mod tests {
             pid: 0,
             clone_dir: None,
             viewer_window_id: None,
+            keeper_pid: None,
         };
         meta.write_atomic(&paths.meta_path(id)).unwrap();
 

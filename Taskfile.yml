@@ -53,7 +53,7 @@ tasks:
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
-      SCRIPTS: scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh
+      SCRIPTS: scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh
     cmds:
       - shellcheck {{.SCRIPTS}}
       - shfmt -i 2 -ci -d {{.SCRIPTS}}
@@ -116,6 +116,12 @@ tasks:
     desc: 'Does tart abort when a VNC client connects after GAP seconds (default 70) with no client? Reproduces the macOS 27 host fault with a bare RFB client; exits 1 on a crash. Optional BASE=<golden>, HOLD=1 to keep a bare TCP connection open (the workaround; expect no crash). About 2.5 minutes; always stops and deletes the clone'
     cmds:
       - python3 scripts/tart-vnc-idle-repro.py --gap {{.GAP | default "70"}} {{if .BASE}}--base {{.BASE}}{{end}} {{if .HOLD}}--hold{{end}}
+
+  vm:vnc-keeper-live:
+    desc: 'Does the VNC keeper protect a tart guest on this macOS 27 host (ADR-0018)? A macOS clone survives 5 minutes with no other client, and a Linux clone survives 70 s; with the keeper killed, a macOS clone crashes after 70 s (the negative control); after `vm stop` no keeper and no clone remain. Optional MACOS_BASE, LINUX_BASE, IDLE, GAP. About 14 minutes; always stops and deletes its clones'
+    deps: [cli:build]
+    cmds:
+      - scripts/vnc-keeper-live.sh
 
   vm:create-golden-macos:
     desc: 'Build a macOS golden that carries this checkout''s agent, not the Homebrew-bundled one. Needs NAME=<golden> (use a new name: a rebuild replaces a golden of the same name); optional VERSION (default 27). About 20 minutes when the base VM exists. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
