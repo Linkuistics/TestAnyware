@@ -93,6 +93,17 @@ VMs: …)". To run more than two macOS guests, use more Macs (issues #4, #5).
 _Avoid_: "tart's limit" (Apple sets the limit) and "two-VM limit" (it counts
 macOS guests, not every VM).
 
+**Local Network denial**:
+macOS Local Network privacy can refuse a process a route to a tart guest's
+host-only subnet (`192.168.64.0/24`) while the guest's agent is healthy. The
+refusal is `No route to host` (errno 65). Platform-signed tools such as
+`/usr/bin/nc` are exempt, and every other executable is subject to it, so the
+Host CLI can fail where `nc` connects. An agent harness runs under a background
+login service, so it has no app that the user can allow. `vm start`
+proves the denial with `nc` and fails with `VM_BOOT_TIMEOUT`, cause
+`local_network_denied` (ADR-0019).
+_Avoid_: "the agent is down" (it is up), and "firewall" (no firewall rule applies).
+
 **Autounattend provisioning** (Windows golden creation):
 How the **Windows** Golden image is built — structurally unlike the macOS one.
 macOS *clones a pre-built vanilla image* and provisions a running system over

@@ -62,6 +62,24 @@ impl fmt::Display for LimitReached {
     }
 }
 
+/// A proven reason a stage could not finish, when the timeout alone is not
+/// the whole story.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BootCause {
+    /// A platform tool connected to the guest's agent port, but this process
+    /// was refused the route: macOS Local Network privacy.
+    LocalNetworkDenied,
+}
+
+impl BootCause {
+    /// Stable token for `--json` details.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            BootCause::LocalNetworkDenied => "local_network_denied",
+        }
+    }
+}
+
 /// What a `VM_BOOT_TIMEOUT` knows: the stage that ran out of time, what was
 /// being polled, the last probe's error, and how long it tried.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,6 +91,9 @@ pub struct BootTimeout {
     pub last_error: Option<ProbeError>,
     pub attempts: u32,
     pub elapsed: Duration,
+    /// The proven reason, when there is one. `None` means the stage only ran
+    /// out of time.
+    pub cause: Option<BootCause>,
     /// A VM was left behind (kept by `--keep-on-failure`, or a teardown that
     /// could not remove it), so the caller must `vm stop` it.
     pub kept: bool,
@@ -88,6 +109,7 @@ impl BootTimeout {
             last_error: None,
             attempts: 0,
             elapsed: Duration::ZERO,
+            cause: None,
             kept: false,
         }
     }
@@ -105,9 +127,23 @@ impl fmt::Display for BootTimeout {
         if let Some(err) = &self.last_error {
             write!(f, "; last error: {err}")?;
         }
+        if self.cause == Some(BootCause::LocalNetworkDenied) {
+            f.write_str(
+                "; a platform tool connects to the agent's port, so macOS Local Network \
+                 privacy denies this process the route",
+            )?;
+        }
         Ok(())
     }
 }
+
+/// What to do when macOS Local Network privacy denies the process the guest
+/// subnet. The harness case needs its own sentence: a process that a launchd
+/// service started has no app that the user can allow.
+const LOCAL_NETWORK_REMEDY: &str =
+    "The guest answers a platform tool. Run testanyware from an app that has \
+     Local Network access. Allow that app in System Settings, Privacy & Security, Local Network. \
+     A background service or agent harness has no app to allow.";
 
 /// Errors produced by the VM lifecycle. Each variant maps 1:1 to a §4
 /// error code and a §5 exit code.
@@ -262,11 +298,17 @@ impl VmError {
                  backend, which is not yet ported to the Rust CLI."
                     .into(),
             ),
-            VmError::VmBootTimeout { id, timeout } => Some(if timeout.kept {
-                format!("The VM was left behind; reclaim it with `testanyware vm stop {id}`.")
-            } else {
-                "Re-run with --keep-on-failure to leave the VM running for inspection.".into()
-            }),
+            VmError::VmBootTimeout { id, timeout } => {
+                let next = if timeout.kept {
+                    format!("The VM was left behind; reclaim it with `testanyware vm stop {id}`.")
+                } else {
+                    "Re-run with --keep-on-failure to leave the VM running for inspection.".into()
+                };
+                Some(match timeout.cause {
+                    Some(BootCause::LocalNetworkDenied) => format!("{LOCAL_NETWORK_REMEDY} {next}"),
+                    None => next,
+                })
+            }
             VmError::VmLimitReached(limit) => Some(if limit.holders.is_empty() {
                 "Stop a running macOS VM (`testanyware vm list`, `testanyware vm stop <id>`), \
                  or retry once one has finished."
@@ -311,6 +353,7 @@ impl VmError {
                     "os_errno": e.os_errno,
                     "detail": e.detail,
                 })),
+                "cause": timeout.cause.map(BootCause::as_str),
                 "kept": timeout.kept,
             }),
             VmError::VmLimitReached(limit) => json!({
@@ -493,9 +536,36 @@ mod tests {
                 }),
                 attempts: 60,
                 elapsed: Duration::from_secs(118),
+                cause: None,
                 kept,
             }),
         }
+    }
+
+    #[test]
+    fn a_denied_agent_timeout_names_its_cause_and_the_remedy() {
+        let err = VmError::VmBootTimeout {
+            id: "testanyware-abcd1234".into(),
+            timeout: Box::new(BootTimeout {
+                cause: Some(BootCause::LocalNetworkDenied),
+                ..match agent_timeout(false) {
+                    VmError::VmBootTimeout { timeout, .. } => *timeout,
+                    _ => unreachable!(),
+                }
+            }),
+        };
+        assert_eq!(err.code(), "VM_BOOT_TIMEOUT", "the contract code is unchanged");
+        assert_eq!(err.exit_code(), 7);
+        assert_eq!(err.details()["cause"], "local_network_denied");
+        assert!(err.to_string().contains("Local Network privacy denies this process"));
+        let remedy = err.remediation().unwrap();
+        assert!(remedy.contains("Local Network"), "{remedy}");
+        assert!(remedy.contains("--keep-on-failure"), "the keep hint stays: {remedy}");
+    }
+
+    #[test]
+    fn a_plain_timeout_has_no_cause() {
+        assert_eq!(agent_timeout(false).details()["cause"], serde_json::Value::Null);
     }
 
     #[test]

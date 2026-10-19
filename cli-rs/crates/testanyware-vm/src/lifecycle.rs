@@ -8,6 +8,8 @@ use std::time::Instant;
 
 use crate::error::VmError;
 use crate::health::wait_for_agent;
+#[cfg(target_os = "macos")]
+use crate::health::wait_for_agent_with_oracle;
 use crate::id::generate_id;
 use crate::meta::{VmMeta, VmTool};
 use crate::paths::VmPaths;
@@ -657,7 +659,12 @@ async fn observe_tart_boot(
     }
 
     if let Some(ip) = &ip {
-        let wait = wait_for_agent(ip, AGENT_PORT, AGENT_POLLS.0, AGENT_POLLS.1, alive).await;
+        // The guest is on a host-only subnet, so macOS Local Network privacy may
+        // deny this process while the agent is healthy (ADR-0019).
+        let wait = wait_for_agent_with_oracle(ip, AGENT_PORT, AGENT_POLLS.0, AGENT_POLLS.1, alive, || {
+            crate::local_network::platform_tool_reaches(ip, AGENT_PORT)
+        })
+        .await;
         observation.agent = AgentObservation::Waited {
             endpoint: format!("http://{ip}:{AGENT_PORT}/health"),
             wait,

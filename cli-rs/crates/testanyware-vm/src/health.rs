@@ -6,6 +6,7 @@
 //! and can stop early when the VM itself is gone.
 
 use std::fmt;
+use std::future::Future;
 use std::time::{Duration, Instant};
 
 use testanyware_agent_client::{AgentClient, AgentConfig, AgentError};
@@ -152,6 +153,14 @@ pub enum AgentWait {
         attempts: u32,
         elapsed: Duration,
     },
+    /// The probes kept failing with "host unreachable" while a platform tool
+    /// connected to the same endpoint. This process is denied the route
+    /// (macOS Local Network privacy), so more probes cannot help.
+    LocalNetworkDenied {
+        last_error: ProbeError,
+        attempts: u32,
+        elapsed: Duration,
+    },
 }
 
 /// The longest the wait sleeps without asking whether the VM is still alive.
@@ -175,6 +184,11 @@ async fn sleep_while_alive(interval: Duration, vm_alive: &mut impl FnMut() -> bo
     }
 }
 
+/// Consecutive "host unreachable" probes after which the wait asks whether
+/// another process can reach the endpoint. A booting guest that has not
+/// answered ARP yet gives the same errno, so a few misses prove nothing.
+const DENIAL_STREAK: u32 = 5;
+
 /// Poll `http://<host>:<port>/health` up to `attempts` times, `interval`
 /// apart, until the agent is healthy.
 ///
@@ -182,29 +196,86 @@ async fn sleep_while_alive(interval: Duration, vm_alive: &mut impl FnMut() -> bo
 /// once it reports the VM gone the wait ends at once with [`AgentWait::VmExited`] rather than spending the
 /// rest of the budget on a corpse. It is injected so the wait is testable
 /// without a hypervisor.
+///
+/// For an endpoint on loopback (QEMU's port forward), where no privacy layer
+/// sits between this process and the guest. A guest on a host-only subnet uses
+/// [`wait_for_agent_with_oracle`].
 pub async fn wait_for_agent(
     host: &str,
     port: u16,
     attempts: u32,
     interval: Duration,
-    mut vm_alive: impl FnMut() -> bool,
+    vm_alive: impl FnMut() -> bool,
 ) -> AgentWait {
+    wait_for_agent_with_oracle(host, port, attempts, interval, vm_alive, || async { false }).await
+}
+
+/// [`wait_for_agent`] for a guest on a host-only subnet, where macOS Local
+/// Network privacy can deny this process the route while the agent is healthy.
+///
+/// After [`DENIAL_STREAK`] unreachable probes in a row, and again after every
+/// further streak of that length, the wait calls `reach_oracle`. It answers
+/// whether a process that the privacy layer exempts (a platform tool such as
+/// `/usr/bin/nc`) reaches the endpoint. A `true` ends the wait with
+/// [`AgentWait::LocalNetworkDenied`]. A `false` changes nothing.
+pub async fn wait_for_agent_with_oracle<Reach>(
+    host: &str,
+    port: u16,
+    attempts: u32,
+    interval: Duration,
+    vm_alive: impl FnMut() -> bool,
+    reach_oracle: impl FnMut() -> Reach,
+) -> AgentWait
+where
+    Reach: Future<Output = bool>,
+{
     // A short per-request timeout keeps each poll snappy; the loop, not
     // the socket, owns the overall budget.
     let config = AgentConfig::new(host, port).with_timeout(Duration::from_secs(2));
-    let started = Instant::now();
     let client = match AgentClient::new(config) {
         Ok(client) => client,
         Err(err) => {
             return AgentWait::NotHealthy {
                 last_error: Some(ProbeError::from_agent_error(&err)),
                 attempts: 0,
-                elapsed: started.elapsed(),
+                elapsed: Duration::ZERO,
             };
         }
     };
+    let client = &client;
+    wait_with_probe(
+        attempts,
+        interval,
+        vm_alive,
+        move || async move {
+            client
+                .health()
+                .await
+                .map(|_| ())
+                .map_err(|err| ProbeError::from_agent_error(&err))
+        },
+        reach_oracle,
+    )
+    .await
+}
+
+/// The wait loop over an injected probe, so its rules are testable with
+/// scripted results instead of a network.
+async fn wait_with_probe<Probe, Reach>(
+    attempts: u32,
+    interval: Duration,
+    mut vm_alive: impl FnMut() -> bool,
+    mut probe: impl FnMut() -> Probe,
+    mut reach_oracle: impl FnMut() -> Reach,
+) -> AgentWait
+where
+    Probe: Future<Output = Result<(), ProbeError>>,
+    Reach: Future<Output = bool>,
+{
+    let started = Instant::now();
     let mut last_error = None;
     let mut made = 0;
+    let mut unreachable_streak = 0;
     for attempt in 0..attempts {
         if !vm_alive() {
             return AgentWait::VmExited {
@@ -214,9 +285,24 @@ pub async fn wait_for_agent(
             };
         }
         made += 1;
-        match client.health().await {
-            Ok(_) => return AgentWait::Healthy { attempts: made },
-            Err(err) => last_error = Some(ProbeError::from_agent_error(&err)),
+        match probe().await {
+            Ok(()) => return AgentWait::Healthy { attempts: made },
+            Err(err) => {
+                if err.kind == ProbeKind::Unreachable {
+                    unreachable_streak += 1;
+                } else {
+                    unreachable_streak = 0;
+                }
+                let ask = unreachable_streak > 0 && unreachable_streak % DENIAL_STREAK == 0;
+                if ask && reach_oracle().await {
+                    return AgentWait::LocalNetworkDenied {
+                        last_error: err,
+                        attempts: made,
+                        elapsed: started.elapsed(),
+                    };
+                }
+                last_error = Some(err);
+            }
         }
         if attempt + 1 < attempts {
             sleep_while_alive(interval, &mut vm_alive).await;
@@ -429,6 +515,107 @@ mod tests {
         };
         assert_eq!(attempts, 0);
         assert_eq!(last_error, None);
+    }
+
+    fn unreachable_probe() -> Result<(), ProbeError> {
+        Err(ProbeError {
+            kind: ProbeKind::Unreachable,
+            os_errno: Some(65),
+            detail: "tcp connect error".into(),
+        })
+    }
+
+    fn refused_probe() -> Result<(), ProbeError> {
+        Err(ProbeError {
+            kind: ProbeKind::Refused,
+            os_errno: Some(61),
+            detail: "tcp connect error".into(),
+        })
+    }
+
+    /// Run the wait over scripted probe results (the last repeats forever),
+    /// counting how often the reach oracle was asked.
+    async fn scripted_wait(
+        script: Vec<Result<(), ProbeError>>,
+        attempts: u32,
+        oracle_says: bool,
+        asked: &std::cell::Cell<u32>,
+    ) -> AgentWait {
+        let mut next = 0;
+        wait_with_probe(
+            attempts,
+            Duration::from_millis(1),
+            always_alive,
+            move || {
+                let result = script[next.min(script.len() - 1)].clone();
+                next += 1;
+                async move { result }
+            },
+            || {
+                asked.set(asked.get() + 1);
+                async move { oracle_says }
+            },
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn five_unreachable_probes_in_a_row_ask_the_oracle_and_a_yes_is_a_denial() {
+        let asked = std::cell::Cell::new(0);
+        let wait = scripted_wait(vec![unreachable_probe()], 60, true, &asked).await;
+        let AgentWait::LocalNetworkDenied {
+            last_error,
+            attempts,
+            ..
+        } = wait
+        else {
+            panic!("expected LocalNetworkDenied, got {wait:?}");
+        };
+        assert_eq!(attempts, 5, "the fifth refusal triggers the question");
+        assert_eq!(last_error.kind, ProbeKind::Unreachable);
+        assert_eq!(asked.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_no_from_the_oracle_keeps_waiting_and_asks_again_after_another_five() {
+        let asked = std::cell::Cell::new(0);
+        let wait = scripted_wait(vec![unreachable_probe()], 12, false, &asked).await;
+        let AgentWait::NotHealthy { attempts, .. } = wait else {
+            panic!("expected NotHealthy, got {wait:?}");
+        };
+        assert_eq!(attempts, 12, "an unproven denial spends the whole budget");
+        assert_eq!(asked.get(), 2, "asked at the 5th and the 10th refusal");
+    }
+
+    #[tokio::test]
+    async fn a_probe_that_is_not_unreachable_resets_the_streak() {
+        // Four unreachable, one refused, four unreachable: never five in a row.
+        let mut script = vec![unreachable_probe(); 4];
+        script.push(refused_probe());
+        script.extend(vec![unreachable_probe(); 4]);
+        script.push(refused_probe());
+        let asked = std::cell::Cell::new(0);
+        let wait = scripted_wait(script, 10, true, &asked).await;
+        assert!(matches!(wait, AgentWait::NotHealthy { .. }), "got {wait:?}");
+        assert_eq!(asked.get(), 0, "the oracle is never asked");
+    }
+
+    #[tokio::test]
+    async fn refused_probes_never_ask_the_oracle() {
+        let asked = std::cell::Cell::new(0);
+        let wait = scripted_wait(vec![refused_probe()], 20, true, &asked).await;
+        assert!(matches!(wait, AgentWait::NotHealthy { .. }), "got {wait:?}");
+        assert_eq!(asked.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_healthy_probe_after_a_streak_wins_over_the_oracle() {
+        let mut script = vec![unreachable_probe(); 3];
+        script.push(Ok(()));
+        let asked = std::cell::Cell::new(0);
+        let wait = scripted_wait(script, 60, true, &asked).await;
+        assert_eq!(wait, AgentWait::Healthy { attempts: 4 });
+        assert_eq!(asked.get(), 0);
     }
 
     #[test]

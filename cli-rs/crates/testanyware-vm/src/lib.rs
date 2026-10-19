@@ -31,6 +31,10 @@ pub mod tpm;
 /// (ADR-0007). Pure Rust + async, **not** macOS-gated: the Tier-2
 /// linux/win goldens reuse it. Consumed by the `110` boot leaves.
 pub mod ssh;
+/// The reach oracle behind the Local Network diagnosis (ADR-0019): asks the
+/// platform `nc`, so macOS-host only.
+#[cfg(target_os = "macos")]
+pub mod local_network;
 /// tart wraps Apple's Virtualization.framework — macOS-host only (ADR-0003
 /// per-target gating). Absent from Linux/Windows builds.
 #[cfg(target_os = "macos")]

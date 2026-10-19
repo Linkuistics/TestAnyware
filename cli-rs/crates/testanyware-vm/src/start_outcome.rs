@@ -18,7 +18,7 @@
 
 use std::time::Duration;
 
-use crate::error::{BootStage, BootTimeout, LimitReached, VmError};
+use crate::error::{BootCause, BootStage, BootTimeout, LimitReached, VmError};
 use crate::health::AgentWait;
 use crate::lifecycle::Platform;
 
@@ -146,6 +146,26 @@ pub fn decide_start(obs: &BootObservation, keep_on_failure: bool) -> StartDecisi
             last_error: last_error.clone(),
             attempts: *attempts,
             elapsed: *elapsed,
+            ..BootTimeout::at(BootStage::Agent)
+        },
+        (
+            _,
+            _,
+            AgentObservation::Waited {
+                endpoint,
+                wait:
+                    AgentWait::LocalNetworkDenied {
+                        last_error,
+                        attempts,
+                        elapsed,
+                    },
+            },
+        ) => BootTimeout {
+            endpoint: Some(endpoint.clone()),
+            last_error: Some(last_error.clone()),
+            attempts: *attempts,
+            elapsed: *elapsed,
+            cause: Some(BootCause::LocalNetworkDenied),
             ..BootTimeout::at(BootStage::Agent)
         },
         // The wait saw the VM die but the shell's last sample still found it
@@ -382,6 +402,44 @@ mod tests {
         assert_eq!(d["last_error"]["os_errno"], 65);
         assert_eq!(d["kept"], false);
         assert_eq!(disposition, Disposition::Teardown);
+    }
+
+    fn agent_denied() -> BootObservation {
+        BootObservation {
+            agent: AgentObservation::Waited {
+                endpoint: "http://192.168.64.5:8648/health".into(),
+                wait: AgentWait::LocalNetworkDenied {
+                    last_error: unreachable_probe(),
+                    attempts: 5,
+                    elapsed: Duration::from_secs(8),
+                },
+            },
+            ..healthy()
+        }
+    }
+
+    #[test]
+    fn a_denied_local_network_is_a_boot_timeout_with_its_cause_not_an_unexplained_one() {
+        // Finding 1 of issue #3: the guest's agent is healthy, this process is
+        // refused the route. Same code and exit as any agent-stage timeout, but
+        // the cause is named and the wait did not run its whole window.
+        let (error, disposition) = failure(decide_start(&agent_denied(), false));
+        assert_eq!(error.code(), "VM_BOOT_TIMEOUT");
+        assert_eq!(error.exit_code(), 7);
+        let d = error.details();
+        assert_eq!(d["stage"], "agent");
+        assert_eq!(d["cause"], "local_network_denied");
+        assert_eq!(d["attempts"], 5);
+        assert_eq!(d["last_error"]["os_errno"], 65);
+        assert_eq!(disposition, Disposition::Teardown);
+    }
+
+    #[test]
+    fn a_denied_local_network_still_honours_keep_on_failure() {
+        let (error, disposition) = failure(decide_start(&agent_denied(), true));
+        assert_eq!(disposition, Disposition::Keep);
+        assert_eq!(error.details()["kept"], true);
+        assert_eq!(error.details()["cause"], "local_network_denied");
     }
 
     #[test]

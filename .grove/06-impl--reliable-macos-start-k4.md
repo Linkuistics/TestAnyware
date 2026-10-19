@@ -43,3 +43,64 @@ verification run.
 - Cloning and starting a VM is cheap, so repeat freely, but stop every VM you
   start: the macOS guest limit is two.
 - Leave #2 (the VNC-idle crash) alone unless the evidence points at it.
+
+## Decisions (running log)
+
+**Q1 — the cause of finding 1: a non-platform process is denied the guest subnet.**
+Measured on 2026-10-19 (macOS 27.0.1, tart 2.40.1) from this harness, against a
+guest whose `/health` answered 200 to `/usr/bin/curl`:
+
+- Platform-signed tools connected to `192.168.64.x:8648`: `/usr/bin/curl`,
+  `/usr/bin/nc` and `/usr/bin/perl` (`Platform identifier=26`).
+- Non-platform tools got `No route to host` (errno 65): Homebrew `curl`, the
+  Xcode `python3` that `/usr/bin/python3` shims to (Apple team-signed, but not a
+  platform binary), and the Rust CLI.
+- The decisive control: a copy of `/usr/bin/nc` re-signed ad hoc is the same code
+  and fails with errno 65 to the guest, while it connects to a loopback listener
+  and to the host's own LAN address. Only the signature changed.
+- A byte-copy of a platform binary without re-signing is killed by the kernel
+  (exit 137), so the copy must be re-signed to run at all.
+
+So the property is "is the connecting executable a platform binary", not the
+parent chain: every process here shares one `zsh` ancestry. This fits macOS
+Local Network privacy: the harness chain ends at a launchd service, so no app
+exists that the user can allow. It is not proven that Terminal.app or the
+user's terminal is allowed. The earlier hypotheses (stale lease, late agent,
+proxy variable, idle VNC) were already excluded by k2's evidence.
+
+**Q2 — the product diagnoses the denial; it does not route around it.** The
+user's standing instruction (memory `project-harness-local-network-blocked`) is to
+fix the harness's access, not to work around it in product code. A relay through
+`/usr/bin/nc` was therefore rejected. Instead, when the agent probe has seen
+"host unreachable" five times running, the wait asks `/usr/bin/nc -z` to reach the
+same endpoint. If `nc` connects, the CLI's own refusal is proven to be
+process-specific, and `vm start` fails at once with `VM_BOOT_TIMEOUT`, cause
+`local_network_denied`, instead of waiting 118 s. If `nc` fails, the wait carries on
+unchanged (an unanswered ARP also gives errno 65 while a guest boots). QEMU
+guests are on loopback and never ask.
+
+**Q3 — Q2 is built and checked; the two live bars stay unmet.** Built:
+
+- `health.rs`: `wait_for_agent_with_oracle`, a new outcome
+  `AgentWait::LocalNetworkDenied`, and `wait_with_probe`, the loop over an
+  injected probe. `wait_for_agent` keeps its signature for QEMU's loopback.
+- `local_network.rs`: `platform_tool_reaches`, which runs `/usr/bin/nc -z`.
+- `error.rs`: `BootCause::LocalNetworkDenied`, `details.cause`, the message
+  clause and the remedy. The code and the exit stay `VM_BOOT_TIMEOUT` and 7.
+- `start_outcome.rs`: the new arm of `decide_start`; `lifecycle.rs` wires the tart
+  arm to the oracle.
+- ADR-0019, the contract amendment of 2026-10-19, the `Local Network denial` entry
+  in `CONTEXT.md`, the evidence note under `docs/research/`, and the
+  `task vm:local-network` live check.
+
+Checked: eight new unit tests, all 28 test binaries green, clippy at k2's baseline,
+`task scripts:check`, and the controlled-English linter on what I wrote. Live, from
+this harness: `vm start` ended in 21.7 s with `cause: local_network_denied` after 5
+probes (it ran 118 s before), and `task vm:local-network` passed in 19 s. Both left
+no VM.
+
+Not met, and why. Done-when asks for 10 healthy starts, Koine's run and a 1920×1080
+screen from a healthy start. Each needs a shell that macOS Local Network privacy
+allows onto `192.168.64.x`, and this harness has none (Q1). I cannot make that
+true from inside the session. The decision for the human is how to run those
+checks: see the hand-back in the session's last message.

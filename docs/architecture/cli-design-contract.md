@@ -259,7 +259,7 @@ version bump.
 | Code | When |
 |---|---|
 | `VM_NOT_FOUND` | `--vm <id>` resolved to a missing spec. |
-| `VM_BOOT_TIMEOUT` | `vm start`: the VM is alive but a start stage never completed — the VNC endpoint, the guest IP, or (the usual case) the agent never became a Healthy agent. `details` names the `stage` (`vnc`, `guest-ip`, `agent`), the polled `endpoint`, the `last_error` (kind, OS errno, text), the `attempts`, the `elapsed_secs` and whether the VM was `kept`. |
+| `VM_BOOT_TIMEOUT` | `vm start`: the VM is alive but a start stage never completed — the VNC endpoint, the guest IP, or (the usual case) the agent never became a Healthy agent. `details` names the `stage` (`vnc`, `guest-ip`, `agent`), the polled `endpoint`, the `last_error` (kind, OS errno, text), the `attempts`, the `elapsed_secs`, the proven `cause` (`null`, or `local_network_denied`; see the §4.2 amendment of 2026-10-19) and whether the VM was `kept`. |
 | `VM_LIMIT_REACHED` | `vm start` was refused because the platform's concurrent-guest limit is full — Apple's macOS guest limit, two per Mac. A *try again later* condition: exit `6`. `details`: `platform`, `limit`, `holders` (the VMs holding the slots), `tart_error` (the backend's own line). |
 | `VM_STOP_FAILED` | `vm stop` couldn't terminate the VM cleanly. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform on this host. |
@@ -309,6 +309,25 @@ version bump.
 >   removed. The kept VM's spec names the agent endpoint if it is known (the
 >   guest IP for tart, the loopback forward for QEMU), so commands against it
 >   report the real connection error.
+
+> **Amendment 2026-10-19** (`reliable-macos-start-k4`, issue #3, ADR-0019):
+> `VM_BOOT_TIMEOUT` at the agent stage gains `details.cause`. A tart guest is
+> on a host-only subnet, and macOS Local Network privacy can refuse this
+> process a route to it while the agent is healthy. The refusal is errno `65`
+> (`host_unreachable`), the same errno as a guest that has not answered ARP.
+>
+> - After five `host_unreachable` probes in a row, `vm start` asks the platform
+>   `/usr/bin/nc` to connect to the same endpoint. The platform tool is exempt
+>   from the privacy check.
+> - If `nc` connects, the refusal is about this process. The start ends at once
+>   with `VM_BOOT_TIMEOUT` (exit `7`), `details.cause` is
+>   `local_network_denied`, and `remediation` says to run testanyware from an
+>   app that has Local Network access.
+> - If `nc` does not connect, the wait carries on unchanged and asks again
+>   after each further five. `details.cause` stays `null`.
+> - A QEMU guest is on loopback and never asks.
+>
+> `vm start` does not route any agent call through `nc`.
 
 ### 4.3 VNC capture
 

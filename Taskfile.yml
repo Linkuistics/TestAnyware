@@ -94,6 +94,12 @@ tasks:
     cmds:
       - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh qemu-start
 
+  vm:local-network:
+    desc: 'Does a macOS start from this shell reach a Healthy agent, or fail within a minute naming the Local Network denial (cause local_network_denied, ADR-0019)? Needs one free macOS guest slot; stops its VM'
+    deps: [cli:build]
+    cmds:
+      - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/live-start-checks.sh local-network
+
   vm:start-reliability:
     desc: 'N consecutive macOS starts must each reach a Healthy agent (task vm:start-reliability N=10)'
     deps: [cli:build]

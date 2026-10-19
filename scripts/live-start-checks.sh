@@ -24,6 +24,13 @@
 #   live-start-checks.sh qemu-start
 #       qemu-death, then one Windows `vm start` that must reach a Healthy agent
 #       (minutes: the Windows boot).
+#   live-start-checks.sh local-network
+#       One macOS `vm start` from this shell. A shell that macOS Local Network
+#       privacy allows reaches a Healthy agent, and the start is stopped again.
+#       A shell it denies must fail within MAX_DENIAL_SECS with VM_BOOT_TIMEOUT
+#       (exit 7), stage "agent", cause "local_network_denied", and leave no VM
+#       (ADR-0019). Either way it says which kind of shell this is. Needs one
+#       free macOS guest slot.
 #   live-start-checks.sh reliability [N]
 #       N (default 10) consecutive macOS `vm start`s must each reach a Healthy
 #       agent. Stops at the first failure and leaves that VM kept for
@@ -31,6 +38,7 @@
 #
 # Env: TESTANYWARE_BIN (default cli-rs/target/debug/testanyware),
 #      MAX_REFUSAL_SECS (default 30; the slot-exhaustion latency bound),
+#      MAX_DENIAL_SECS (default 60; the local-network latency bound),
 #      KILL_AFTER_SECS (default 15; how long a qemu-start waits before killing
 #      QEMU, so the start is in its agent wait), MAX_DEATH_SECS (default 10;
 #      how fast a killed QEMU must end the start).
@@ -43,6 +51,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly REPO_ROOT
 readonly BIN="${TESTANYWARE_BIN:-$REPO_ROOT/cli-rs/target/debug/testanyware}"
 readonly MAX_REFUSAL_SECS="${MAX_REFUSAL_SECS:-30}"
+readonly MAX_DENIAL_SECS="${MAX_DENIAL_SECS:-60}"
 readonly KILL_AFTER_SECS="${KILL_AFTER_SECS:-15}"
 readonly MAX_DEATH_SECS="${MAX_DEATH_SECS:-10}"
 readonly VMS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/testanyware/vms"
@@ -301,6 +310,31 @@ check_keep_on_failure() {
   assert_vm_gone "$kept"
 }
 
+check_local_network() {
+  local id="testanyware-lncheck-$$"
+
+  # Registered before the start that may create it.
+  started_ids+=("$id")
+
+  echo "local-network: one macOS start from this shell"
+  run_failing_start "$BIN" vm start --platform macos --id "$id" --json
+  if ((RC == 0)); then
+    "$BIN" exec --vm "$id" true >/dev/null || die "$id started but the agent cannot exec"
+    pass "this shell may reach guests: $id reached a Healthy agent in ${ELAPSED}s"
+    "$BIN" vm stop "$id" >/dev/null || die "vm stop could not reclaim $id"
+    assert_vm_gone "$id"
+    return
+  fi
+  assert_eq "exit code" 7 "$RC"
+  assert_eq "error code" VM_BOOT_TIMEOUT "$(jq -r '.code' <<<"$OUT")"
+  assert_eq "failed stage" agent "$(jq -r '.details.stage' <<<"$OUT")"
+  assert_eq "cause" local_network_denied "$(jq -r '.details.cause' <<<"$OUT")"
+  pass "this shell is denied the guest subnet, and the error says so"
+  ((ELAPSED <= MAX_DENIAL_SECS)) || die "the denial took ${ELAPSED}s to report (> ${MAX_DENIAL_SECS}s)"
+  pass "reported in ${ELAPSED}s"
+  assert_vm_gone "$id"
+}
+
 check_reliability() {
   local runs="${1:-10}" run id began
   [[ "$runs" =~ ^[1-9][0-9]*$ ]] || die "run count must be a positive integer, got '$runs'"
@@ -343,6 +377,10 @@ main() {
     keep-on-failure)
       require_tools tart
       check_keep_on_failure
+      ;;
+    local-network)
+      require_tools tart
+      check_local_network
       ;;
     reliability)
       require_tools tart
