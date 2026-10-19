@@ -195,3 +195,25 @@ Checked after the merge: `cargo test --workspace` (28 test binaries pass),
 linter on `CONTEXT.md` and ADR-0018 (zero hard findings). Not checked: any live
 VM. Q14's blocker is gone from the code, so Done-when's first live sentence can
 now be tried with `task vm:windows-healthy-start`.
+
+**Q17 — the live checks now pass, and the leaf is done.** I ran these on the merged
+stack, on the macOS 27 host:
+
+- *Done-when, first live sentence.* `task vm:windows-healthy-start` reached a Healthy
+  agent: `testanyware-8052ce92`, agent at `localhost:50840`, TPM attached (`ppi_off`),
+  `accessible: true`. The stop left no QEMU, swtpm or clone. The TPM abort of Q10
+  is gone, so the Windows golden now boots under the honest-start rule.
+- *Done-when, second live sentence, on the merged code.* `task vm:qemu-death`: `kill -9`
+  of QEMU during the agent wait gave `QEMU_FAILED` (exit 1) 1 s after the kill, with
+  QEMU's own log line in the error. It left no clone, session dir, sidecar or process,
+  by default and under `--keep-on-failure`.
+- *The merged keeper wiring, as far as this harness can reach.* A macOS start with
+  `--keep-on-failure` kept a VM. A keeper process held `127.0.0.1:<vnc port>`, and the
+  meta recorded its pid as `keeper_pid`. `vm stop` removed the keeper, the VM and both
+  sidecars. Only the two logs stayed, as for every VM.
+
+Not run: `task vm:vnc-keeper-live`, and any macOS start that reaches a Healthy agent.
+This harness cannot reach guest IPs (macOS Local Network permission). A macOS start
+here fails honestly with `VM_BOOT_TIMEOUT`, stage `agent`, `host_unreachable` (os error
+65), and leaves no VM. Run `task vm:vnc-keeper-live` and `task vm:start-reliability`
+from a terminal that may reach guest IPs.
