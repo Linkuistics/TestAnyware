@@ -18,7 +18,8 @@ use testanyware_app_client::{AppClient, AppStream, StartEnd};
 use testanyware_app_protocol::version::SUPPORTED_RANGE;
 use testanyware_app_protocol::{
     decide, AppError, ClientHello, Decision, DeleteResult, Directories, ListRequest, Peer,
-    ServerHello, StartRequest, StopResult, StreamKind, StreamTarget, APP_UNREACHABLE,
+    ServerHello, StartRequest, StatusResponse, StopResult, StreamKind, StreamTarget,
+    APP_UNREACHABLE,
 };
 use testanyware_vm::listing::ListView;
 
@@ -34,6 +35,47 @@ pub fn bundle_search_paths(home: &Path) -> Vec<PathBuf> {
         PathBuf::from("/Applications").join(BUNDLE_NAME),
         home.join("Applications").join(BUNDLE_NAME),
     ]
+}
+
+/// A bundle of the app found in one of the search paths.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstalledApp {
+    pub path: PathBuf,
+    /// The build in the bundle's `Info.plist`, or `None` when it does not read.
+    pub version: Option<String>,
+}
+
+/// The first of `searched` that holds a bundle. `doctor` uses this to say what the commands
+/// mean by an installed app (see [`name_missing_install`]).
+pub fn find_installed(
+    searched: &[PathBuf],
+    exists: impl Fn(&Path) -> bool,
+    build_of: impl Fn(&Path) -> Option<String>,
+) -> Option<InstalledApp> {
+    searched.iter().find(|path| exists(path)).map(|path| InstalledApp {
+        path: path.clone(),
+        version: build_of(path),
+    })
+}
+
+/// The installed app on this host.
+pub fn installed_app_here() -> (Vec<PathBuf>, Option<InstalledApp>) {
+    let searched = bundle_search_paths(&home_dir_with_env(&EnvProvider::process()));
+    let installed = find_installed(
+        &searched,
+        Path::exists,
+        testanyware_app_protocol::bundle_build_at,
+    );
+    (searched, installed)
+}
+
+/// Read `GET /v1/status` of the app on `socket`. The request changes nothing in the app, and the
+/// app answers it for any protocol range and any directories. The client states no notice of
+/// a skew, because the `doctor` report states it.
+pub async fn status(socket: PathBuf) -> Result<StatusResponse, AppError> {
+    AppClient::new(socket, client_hello())
+        .get_json("/v1/status")
+        .await
 }
 
 /// Name the missing install. Nothing answers on `socket`, and no search path holds a bundle,

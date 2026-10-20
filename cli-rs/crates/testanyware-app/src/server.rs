@@ -13,7 +13,7 @@ use serde_json::{json, Value};
 use testanyware_app_protocol::hello::{BUILD_HEADER, BUNDLE_BUILD_HEADER, PROTOCOL_HEADER};
 use testanyware_app_protocol::{
     older_than_bundle, parse_end_path, parse_stream_path, AppError, ClientHello, EndRoute,
-    ListRequest, RouteMatch, StatusResponse, StreamKind, StreamTarget, LIST_PATH,
+    ListRequest, LoginItemState, RouteMatch, StatusResponse, StreamKind, StreamTarget, LIST_PATH,
     STREAM_UPGRADE_TOKEN,
 };
 use testanyware_vm::tools::ToolSearch;
@@ -55,7 +55,14 @@ pub struct AppContext {
     pub adoption: crate::adoption::AdoptionLog,
     /// How long a probe of an adopted VM may take. A test shortens it.
     pub probe_deadline: std::time::Duration,
+    /// Asks macOS for the status of the login item, each time `GET /v1/status` needs it. The
+    /// menu bar app sets it. A run with no login item, such as the test mode, states
+    /// `unobserved`.
+    pub login_item: LoginItemProbe,
 }
+
+/// A function that reads the status of the app's login item now.
+pub type LoginItemProbe = fn() -> LoginItemState;
 
 impl AppContext {
     pub fn new(identity: AppIdentity, own_uid: u32, config: AppConfig) -> Self {
@@ -70,6 +77,35 @@ impl AppContext {
             starts: crate::gate_start::StartGate::default(),
             adoption: crate::adoption::AdoptionLog::default(),
             probe_deadline: crate::adoption::PROBE_DEADLINE,
+            login_item: || LoginItemState::Unobserved,
+        }
+    }
+
+    /// The same context with a probe of the login item.
+    pub fn with_login_item(mut self, probe: LoginItemProbe) -> Self {
+        self.login_item = probe;
+        self
+    }
+
+    /// The body of `GET /v1/status`. It reads state and changes none.
+    pub fn status(&self) -> StatusResponse {
+        let bundle_build = self.bundle.build();
+        StatusResponse {
+            build: self.identity.build.clone(),
+            protocol_range: self.identity.protocol_range,
+            directories: self.identity.directories.clone(),
+            older_than_bundle: older_than_bundle(&self.identity.build, bundle_build.as_deref()),
+            bundle_build,
+            adoption: self.adoption.snapshot(),
+            configuration: self.config.status(&stat_file),
+            executable: std::env::current_exe().ok(),
+            local_network: crate::grant::local_network_status(
+                &self
+                    .grant
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            ),
+            login_item: (self.login_item)(),
         }
     }
 
@@ -173,16 +209,7 @@ async fn route(
     // `doctor` needs the status of an app it cannot otherwise talk to, so this request
     // skips the checks and changes nothing.
     if method == Method::GET && path == "/v1/status" {
-        let bundle_build = ctx.bundle.build();
-        let body = StatusResponse {
-            build: ctx.identity.build.clone(),
-            protocol_range: ctx.identity.protocol_range,
-            directories: ctx.identity.directories.clone(),
-            older_than_bundle: older_than_bundle(&ctx.identity.build, bundle_build.as_deref()),
-            bundle_build,
-            adoption: ctx.adoption.snapshot(),
-            configuration: ctx.config.status(&stat_file),
-        };
+        let body = ctx.status();
         return json_response(
             StatusCode::OK,
             serde_json::to_value(body).expect("status serialises"),
@@ -299,7 +326,10 @@ const START_BODY_LIMIT: usize = 64 * 1024;
 /// events of the start. A request that cannot start anything fails before the stream, as a
 /// JSON error object.
 async fn start_vm(ctx: &Arc<AppContext>, req: &mut Request<Incoming>) -> Response<AppBody> {
-    let body = match Limited::new(req.body_mut(), START_BODY_LIMIT).collect().await {
+    let body = match Limited::new(req.body_mut(), START_BODY_LIMIT)
+        .collect()
+        .await
+    {
         Ok(collected) => collected.to_bytes(),
         Err(e) => {
             let err = AppError::new(

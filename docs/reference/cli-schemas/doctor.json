@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/doctor.json",
   "title": "doctor",
-  "description": "Host preflight report emitted by `testanyware doctor --json`. Seven check groups; `ok` reflects the blocking checks (install_path, bundled_agents, bundled_scripts, windows_tpm when its status is `fail`, and config when its status is `fail`). host_tools and script_tool_floors are advisory and never flip `ok`; neither does a `warn` from windows_tpm. A failing check makes `doctor` exit 1.",
+  "description": "Host preflight report emitted by `testanyware doctor --json`. Eight check groups; `ok` reflects the blocking checks (install_path, bundled_agents, bundled_scripts, windows_tpm when its status is `fail`, config when its status is `fail`, and app when its status is `fail`). host_tools and script_tool_floors are advisory and never flip `ok`; neither does a `warn` from windows_tpm. A failing check makes `doctor` exit 1.",
   "type": "object",
   "required": ["schema_version", "ok", "checks"],
   "additionalProperties": false,
@@ -11,7 +11,7 @@
     "ok": { "type": "boolean" },
     "checks": {
       "type": "object",
-      "required": ["install_path", "bundled_agents", "bundled_scripts", "host_tools", "script_tool_floors", "windows_tpm", "config"],
+      "required": ["install_path", "bundled_agents", "bundled_scripts", "host_tools", "script_tool_floors", "windows_tpm", "config", "app"],
       "additionalProperties": false,
       "properties": {
         "install_path": {
@@ -127,6 +127,631 @@
                     "line": { "type": ["integer", "null"], "description": "1-based. `null` for a wrong type or an unknown key, which no line holds." },
                     "message": { "type": "string" }
                   }
+                }
+              }
+            }
+          }
+        },
+        "app": {
+          "type": "object",
+          "description": "The TestAnyware app, on a macOS host (spec: \"What the commands report about the app\"). `status` is `fail` when any item fails, and `warn` items never flip it. `doctor` reads `GET /v1/status`, which changes nothing in the app and which the app answers for any protocol range and any directories. When the app does not answer, `installed` and `running` report, and every other item is `skip` with the verdict `app_not_running`. On a Linux or Windows host the group is `skip` with the verdict `not_applicable`, and it holds no item. A directory mismatch and a protocol mismatch are failing items, not error envelopes.",
+          "required": [
+            "status"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": [
+                "pass",
+                "fail",
+                "skip"
+              ]
+            },
+            "verdict": {
+              "const": "not_applicable",
+              "description": "Present on a Linux or Windows host."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Present when the check is skipped."
+            },
+            "socket": {
+              "type": "string",
+              "description": "The socket that `doctor` asked: `TESTANYWARE_APP_SOCKET`, else the default."
+            },
+            "installed": {
+              "type": "object",
+              "description": "Whether a bundle sits in `/Applications/TestAnyware.app` or `~/Applications/TestAnyware.app`, the places the commands search. `not_found` is `fail` when the app does not answer, and `warn` when an app outside those places does (a development bundle).",
+              "required": [
+                "status",
+                "verdict",
+                "summary"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "warn",
+                    "fail"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "installed",
+                    "not_found"
+                  ]
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "The finding in one sentence."
+                },
+                "remedy": {
+                  "type": "string",
+                  "description": "Present when the item is not a pass and a person can act on it."
+                },
+                "path": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "CFBundleShortVersionString of the bundle. `null` when its Info.plist does not read."
+                },
+                "searched": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  },
+                  "description": "Present when no bundle is found."
+                }
+              }
+            },
+            "running": {
+              "type": "object",
+              "description": "Whether the app answers on the socket, with its build and protocol range. `not_running`: nothing answers. `unreachable`: the socket exists and a check on it failed (unsafe directory, path too long, quitting).",
+              "required": [
+                "status",
+                "verdict",
+                "summary"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "fail"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "running",
+                    "not_running",
+                    "unreachable"
+                  ]
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "The finding in one sentence."
+                },
+                "remedy": {
+                  "type": "string",
+                  "description": "Present when the item is not a pass and a person can act on it."
+                },
+                "build": {
+                  "type": "string"
+                },
+                "protocol_range": {
+                  "type": "object",
+                  "required": [
+                    "min",
+                    "max"
+                  ],
+                  "properties": {
+                    "min": {
+                      "type": "integer"
+                    },
+                    "max": {
+                      "type": "integer"
+                    }
+                  }
+                },
+                "executable": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "error": {
+                  "type": "object",
+                  "description": "Present when the app does not answer: the APP_UNREACHABLE error object.",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "remediation": {
+                      "type": "string"
+                    },
+                    "details": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "login_item": {
+              "type": "object",
+              "description": "The status of `SMAppService.mainApp`, which starts the app at login. `not_registered` includes the status macOS calls not found. `requires_approval`: a person has yet to allow the item in System Settings. `unobserved`: the run has no login item (the test mode).",
+              "required": [
+                "status",
+                "verdict",
+                "summary"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "fail",
+                    "skip"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "enabled",
+                    "not_registered",
+                    "requires_approval",
+                    "unobserved",
+                    "app_not_running"
+                  ]
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "The finding in one sentence."
+                },
+                "remedy": {
+                  "type": "string",
+                  "description": "Present when the item is not a pass and a person can act on it."
+                }
+              }
+            },
+            "local_network": {
+              "type": "object",
+              "description": "The app's last observation of the Local Network grant. Only a dial to a network that a host interface attaches changes it. `not_yet_seen` is advisory: no guest connection has shown the grant yet.",
+              "required": [
+                "status",
+                "verdict",
+                "summary"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "warn",
+                    "fail",
+                    "skip"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "allowed",
+                    "not_yet_seen",
+                    "denied",
+                    "app_not_running"
+                  ]
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "The finding in one sentence."
+                },
+                "remedy": {
+                  "type": "string",
+                  "description": "Present when the item is not a pass and a person can act on it."
+                },
+                "destination": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "The address of the dial that made the observation, as `host:port`."
+                },
+                "observed_at": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Seconds since the Unix epoch."
+                }
+              }
+            },
+            "configuration": {
+              "type": "object",
+              "description": "The app's own evaluation of config.rhai. The app evaluates the file once, when it starts. `changed`: the file differs from the one the app evaluated, and only a restart of the app reads it again.",
+              "required": [
+                "status",
+                "verdict",
+                "summary"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "warn",
+                    "fail",
+                    "skip"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "loaded",
+                    "absent",
+                    "disabled",
+                    "invalid",
+                    "changed",
+                    "app_not_running"
+                  ]
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "The finding in one sentence."
+                },
+                "remedy": {
+                  "type": "string",
+                  "description": "Present when the item is not a pass and a person can act on it."
+                },
+                "file": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "evaluated_at": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "description": "Seconds since the Unix epoch."
+                },
+                "changed_since_evaluation": {
+                  "type": "boolean"
+                },
+                "error": {
+                  "type": [
+                    "object",
+                    "null"
+                  ],
+                  "description": "Present when the file fails: the CONFIG_INVALID error object.",
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "properties": {
+                    "code": {
+                      "const": "CONFIG_INVALID"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "remediation": {
+                      "type": "string"
+                    },
+                    "details": {
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            },
+            "adoption": {
+              "type": "object",
+              "description": "What the app did with each VM it found when it started. `not_adopted` is advisory: the app signalled none of those VMs and they keep running. `pending`: the probes have not finished.",
+              "required": [
+                "status",
+                "verdict",
+                "summary"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "warn",
+                    "skip"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "adopted",
+                    "not_adopted",
+                    "pending",
+                    "app_not_running"
+                  ]
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "The finding in one sentence."
+                },
+                "remedy": {
+                  "type": "string",
+                  "description": "Present when the item is not a pass and a person can act on it."
+                },
+                "finished": {
+                  "type": "boolean"
+                },
+                "adopted": {
+                  "type": "integer",
+                  "description": "The number of VMs the app serves again."
+                },
+                "not_adopted": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "reason",
+                      "detail"
+                    ],
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": [
+                          "process_gone",
+                          "start_time_differs",
+                          "boot_session_differs",
+                          "no_boot_session",
+                          "meta_unreadable"
+                        ]
+                      },
+                      "detail": {
+                        "type": "string"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "directories": {
+              "type": "object",
+              "description": "Whether the Host CLI and the app resolve the same state and data directories. The commands fail with APP_INCOMPATIBLE on a mismatch, and carry the same remedy.",
+              "required": [
+                "status",
+                "verdict",
+                "summary"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "fail",
+                    "skip"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "match",
+                    "mismatch",
+                    "app_not_running"
+                  ]
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "The finding in one sentence."
+                },
+                "remedy": {
+                  "type": "string",
+                  "description": "Present when the item is not a pass and a person can act on it."
+                },
+                "app": {
+                  "type": "object",
+                  "required": [
+                    "state_dir",
+                    "data_dir"
+                  ],
+                  "properties": {
+                    "state_dir": {
+                      "type": "string"
+                    },
+                    "data_dir": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "cli": {
+                  "type": "object",
+                  "required": [
+                    "state_dir",
+                    "data_dir"
+                  ],
+                  "properties": {
+                    "state_dir": {
+                      "type": "string"
+                    },
+                    "data_dir": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            },
+            "versions": {
+              "type": "object",
+              "description": "The builds and protocol ranges of the Host CLI and the app. `builds_differ`: the ranges overlap and the builds differ. `no_common_version`: the ranges share no version, so the commands fail with APP_INCOMPATIBLE.",
+              "required": [
+                "status",
+                "verdict",
+                "summary"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "warn",
+                    "fail",
+                    "skip"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "match",
+                    "builds_differ",
+                    "no_common_version",
+                    "app_not_running"
+                  ]
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "The finding in one sentence."
+                },
+                "remedy": {
+                  "type": "string",
+                  "description": "Present when the item is not a pass and a person can act on it."
+                },
+                "cli_build": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "app_build": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "cli_protocol_range": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "min",
+                        "max"
+                      ],
+                      "properties": {
+                        "min": {
+                          "type": "integer"
+                        },
+                        "max": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "app_protocol_range": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "min",
+                        "max"
+                      ],
+                      "properties": {
+                        "min": {
+                          "type": "integer"
+                        },
+                        "max": {
+                          "type": "integer"
+                        }
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "remedy_word": {
+                  "type": "string",
+                  "enum": [
+                    "quit_and_open_app",
+                    "upgrade_cask",
+                    "upgrade_host_cli"
+                  ],
+                  "description": "The stable word of the remedy, as `details.remedy` of APP_INCOMPATIBLE."
+                }
+              }
+            },
+            "bundle": {
+              "type": "object",
+              "description": "Whether the running app is older than its bundle on disk, which a cask upgrade replaces under a running app. `no_bundle`: the app runs from no bundle, or its Info.plist does not read.",
+              "required": [
+                "status",
+                "verdict",
+                "summary"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "pass",
+                    "warn",
+                    "skip"
+                  ]
+                },
+                "verdict": {
+                  "type": "string",
+                  "enum": [
+                    "current",
+                    "older_than_bundle",
+                    "no_bundle",
+                    "app_not_running"
+                  ]
+                },
+                "summary": {
+                  "type": "string",
+                  "description": "The finding in one sentence."
+                },
+                "remedy": {
+                  "type": "string",
+                  "description": "Present when the item is not a pass and a person can act on it."
+                },
+                "app_build": {
+                  "type": "string"
+                },
+                "bundle_build": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 }
               }
             }

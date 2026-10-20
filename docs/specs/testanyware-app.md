@@ -294,6 +294,15 @@ That request changes nothing, and `doctor` needs it to report a mismatch. The
 response keeps the app's build, protocol range and directories in the same
 fields in every protocol version.
 
+The response also holds `executable`, the path of the running executable.
+`local_network` holds the observation of the grant: `state` (`not_yet_seen`,
+`allowed` or `denied`), and, once the app has made one, the `destination` of
+the dial and `observed_at` in seconds since the Unix epoch. `login_item` holds
+the status of `SMAppService.mainApp`: `enabled`, `not_registered`,
+`requires_approval` or `not_found`. A run without a login item, such as the test
+mode, states `unobserved`. A reader ignores the fields it does not know, and
+reads a body that lacks them.
+
 A request for a guest stream is a `GET` that carries `Connection: Upgrade`,
 `Upgrade: testanyware-stream` and the headers of the handshake. A request that
 lacks the two upgrade headers, or uses another method, fails with `USAGE_ERROR`
@@ -784,6 +793,20 @@ Each existing code keeps its meaning and its exit code.
   directory mismatch and a protocol mismatch are each a failing check in the
   report, not an error envelope. As today, a failing check makes `doctor` exit
   with 1.
+
+  The `app` check holds one item for each fact above: `installed`, `running`,
+  `login_item`, `local_network`, `configuration`, `adoption`, `directories`,
+  `versions` and `bundle`. An item is `pass`, `warn`, `fail` or `skip`, and only
+  `fail` flips the check. These fail: no bundle while the app does not answer, an
+  app that does not answer, a login item that is off or waits for approval, a
+  denied grant, a configuration that failed, other directories, and ranges that
+  share no version. These warn: a bundle outside the two search paths while the app
+  answers, a grant not yet seen, a file that changed after the evaluation, VMs
+  that were not adopted or whose probes have not finished, builds that differ, and
+  an app older than its bundle. When the app does not answer, `installed` and
+  `running` report and every other item is `skip`. The remedy of a directory
+  mismatch and of a protocol mismatch is the one the commands give in the same
+  case. The schema `docs/reference/cli-schemas/doctor.json` documents each item.
 - **`llm-instructions`** gains a section on the TestAnyware app. It covers the
   one-time setup by a person, and the rule that a client never starts the app.
   It also covers each error above with its remedy, and golden creation from

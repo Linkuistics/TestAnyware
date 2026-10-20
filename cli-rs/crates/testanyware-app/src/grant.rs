@@ -5,7 +5,9 @@
 //! networks, leaves the observation as it was (spec: "The Local Network diagnosis").
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::time::SystemTime;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use testanyware_app_protocol::{GrantState, LocalNetworkStatus};
 
 /// What the app last learned about the grant.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +24,24 @@ pub enum GrantObservation {
         destination: SocketAddr,
         at: SystemTime,
     },
+}
+
+/// The observation as `GET /v1/status` states it.
+pub fn local_network_status(observation: &GrantObservation) -> LocalNetworkStatus {
+    let seconds = |at: &SystemTime| at.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+    match observation {
+        GrantObservation::NotYetSeen => LocalNetworkStatus::default(),
+        GrantObservation::Allowed { destination, at } => LocalNetworkStatus {
+            state: GrantState::Allowed,
+            destination: Some(destination.to_string()),
+            observed_at: seconds(at),
+        },
+        GrantObservation::Denied { destination, at } => LocalNetworkStatus {
+            state: GrantState::Denied,
+            destination: Some(destination.to_string()),
+            observed_at: seconds(at),
+        },
+    }
 }
 
 /// What a dial showed.
@@ -152,6 +172,25 @@ pub fn host_networks() -> Vec<HostNetwork> {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn the_status_states_the_destination_and_the_time_of_the_dial() {
+        let destination: SocketAddr = "192.168.64.5:8648".parse().unwrap();
+        let at = UNIX_EPOCH + Duration::from_secs(1_000);
+        let allowed = local_network_status(&GrantObservation::Allowed { destination, at });
+        assert_eq!(allowed.state, GrantState::Allowed);
+        assert_eq!(allowed.destination.as_deref(), Some("192.168.64.5:8648"));
+        assert_eq!(allowed.observed_at, Some(1_000));
+        let denied = local_network_status(&GrantObservation::Denied { destination, at });
+        assert_eq!(denied.state, GrantState::Denied);
+    }
+
+    #[test]
+    fn no_dial_yet_states_nothing_about_a_destination() {
+        let status = local_network_status(&GrantObservation::NotYetSeen);
+        assert_eq!(status.state, GrantState::NotYetSeen);
+        assert_eq!((status.destination, status.observed_at), (None, None));
+    }
 
     fn v4(a: u8, b: u8, c: u8, d: u8) -> IpAddr {
         IpAddr::V4(Ipv4Addr::new(a, b, c, d))

@@ -9,7 +9,9 @@ use std::time::SystemTime;
 
 use hyper::StatusCode;
 use serde_json::{json, Map, Value};
-use testanyware_app_protocol::{AppError, Directories, StreamKind, StreamTarget};
+use testanyware_app_protocol::{
+    AppError, Directories, StreamKind, StreamTarget, LOCAL_NETWORK_REMEDY,
+};
 use testanyware_vm::paths::VmPaths;
 use testanyware_vm::spec::VmSpec;
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -140,9 +142,6 @@ pub fn invalid_endpoint(value: &str, reason: &str) -> ServeError {
     )
 }
 
-const DENIAL_REMEDY: &str = "Allow TestAnyware in System Settings, Privacy & Security, \
-     Local Network. A person does this once, and again when an upgrade of TestAnyware asks.";
-
 /// The error object for a failed dial.
 pub fn dial_error(endpoint: &GuestEndpoint, err: &DialError) -> ServeError {
     let mut details = Map::new();
@@ -173,7 +172,7 @@ pub fn dial_error(endpoint: &GuestEndpoint, err: &DialError) -> ServeError {
                          tool /usr/bin/nc connects to it.",
                         endpoint.host, endpoint.port
                     ),
-                    Some(DENIAL_REMEDY.to_string()),
+                    Some(LOCAL_NETWORK_REMEDY.to_string()),
                 ),
                 Cause::HostUnreachable => (
                     failure.message.clone(),

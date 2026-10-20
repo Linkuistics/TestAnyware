@@ -35,6 +35,17 @@ pub enum LoginItemStatus {
     NotFound,
 }
 
+impl From<LoginItemStatus> for testanyware_app_protocol::LoginItemState {
+    fn from(status: LoginItemStatus) -> Self {
+        match status {
+            LoginItemStatus::NotRegistered => Self::NotRegistered,
+            LoginItemStatus::Enabled => Self::Enabled,
+            LoginItemStatus::RequiresApproval => Self::RequiresApproval,
+            LoginItemStatus::NotFound => Self::NotFound,
+        }
+    }
+}
+
 impl LoginItemStatus {
     /// Both `Enabled` and `RequiresApproval` mean that the app asked to start at login.
     pub fn is_registered(self) -> bool {

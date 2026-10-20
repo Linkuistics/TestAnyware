@@ -249,6 +249,13 @@ fn selector(action: MenuAction) -> Sel {
     }
 }
 
+/// The status of the login item for `GET /v1/status`, which the server asks on its own threads.
+/// Apple documents no main-thread requirement for `SMAppService` or its `status`.
+/// https://developer.apple.com/documentation/servicemanagement/smappservice
+pub fn login_item_state() -> testanyware_app_protocol::LoginItemState {
+    login_item_status().into()
+}
+
 fn login_item_status() -> LoginItemStatus {
     // SAFETY: `mainAppService` and `status` take no arguments.
     let status = unsafe { SMAppService::mainAppService().status() };

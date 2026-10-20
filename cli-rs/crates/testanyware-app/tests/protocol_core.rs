@@ -376,6 +376,23 @@ fn status_answers_with_no_handshake_headers_at_all() {
 }
 
 #[test]
+fn status_states_the_executable_the_grant_and_the_login_item() {
+    let _serial = serial();
+    let app = start();
+
+    let body = raw_request(&app.socket, "/v1/status", None).json();
+
+    // The test mode has no login item, no guest has shown the grant yet, and the executable is
+    // the one that runs.
+    assert_eq!(body["login_item"], "unobserved");
+    assert_eq!(
+        body["local_network"],
+        serde_json::json!({ "state": "not_yet_seen", "destination": null, "observed_at": null })
+    );
+    assert!(body["executable"].as_str().unwrap().ends_with("testanyware-app"));
+}
+
+#[test]
 fn status_answers_for_a_disjoint_range_and_for_other_directories() {
     let _serial = serial();
     let app = start();

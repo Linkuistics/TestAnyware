@@ -4,6 +4,7 @@
 //! directory check in [`socket`], and it builds on every host (ADR-0004,
 //! ADR-0019). The Host CLI uses it on Linux and Windows hosts too.
 
+pub mod bundle;
 pub mod error;
 pub mod hello;
 pub mod list;
@@ -15,9 +16,10 @@ pub mod stop_delete;
 pub mod stream;
 pub mod version;
 
+pub use bundle::{bundle_build_at, bundle_build_from_plist};
 pub use error::{
     AppError, Peer, UnreachableCause, APP_INCOMPATIBLE, APP_NOT_INSTALLED, APP_UNREACHABLE,
-    CONFIG_INVALID, SETUP_REMEDY,
+    CONFIG_INVALID, LOCAL_NETWORK_REMEDY, SETUP_REMEDY,
 };
 pub use hello::{ClientHello, Directories, ServerHello};
 pub use list::{ListRequest, LIST_PATH};
@@ -30,8 +32,8 @@ pub use start::{
     EventLines, HostPort, StartEvent, StartRequest, StartResult, TpmReport, START_CONTENT_TYPE,
 };
 pub use status::{
-    AdoptedVm, AdoptionStatus, ConfigurationState, ConfigurationStatus, NotAdoptedVm, ProbeAnswer,
-    StatusResponse,
+    AdoptedVm, AdoptionStatus, ConfigurationState, ConfigurationStatus, GrantState,
+    LocalNetworkStatus, LoginItemState, NotAdoptedVm, ProbeAnswer, StatusResponse,
 };
 pub use stop_delete::{
     delete_path, parse_end_path, stop_path, DeleteRequest, DeleteResult, EndRoute, StopResult,

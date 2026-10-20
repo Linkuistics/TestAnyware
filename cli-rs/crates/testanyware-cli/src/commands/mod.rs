@@ -11,6 +11,7 @@
 
 pub mod agent;
 pub mod doctor;
+pub mod doctor_app;
 pub mod file;
 pub mod input;
 pub mod menu_bar;

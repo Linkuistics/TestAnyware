@@ -63,6 +63,12 @@ pub const SETUP_REMEDY: &str = "Set up the TestAnyware app once, as a person. \
 5. Allow the Local Network alert when it appears. \
 The Host CLI never starts the app.";
 
+/// The remedy of a Local Network denial: the app holds the grant, and a person gives it once
+/// (spec: "The Local Network diagnosis"). The app words its stream errors with it, and `doctor`
+/// words the failing observation with it.
+pub const LOCAL_NETWORK_REMEDY: &str = "Allow TestAnyware in System Settings, Privacy & Security, \
+     Local Network. A person does this once, and again when an upgrade of TestAnyware asks.";
+
 /// An error that the app sends before an upgrade, as a JSON object.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppError {

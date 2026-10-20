@@ -29,6 +29,7 @@ use testanyware_vm::lifecycle::Platform;
 use testanyware_vm::qemu_profile::host_profile;
 use testanyware_vm::tpm::{decide_tpm_on_host, OmitReason, TpmDecision};
 
+use crate::commands::doctor_app::AppCheck;
 use crate::commands::vm::{tpm_json, tpm_text};
 use crate::host_config::{self, ConfigStatus};
 use crate::output::{OutputMode, SCHEMA_VERSION};
@@ -1001,10 +1002,11 @@ struct DoctorReport {
     provisioner: ProvisionerResult,
     windows_tpm: TpmCheck,
     config: ConfigStatus,
+    app: AppCheck,
 }
 
 impl DoctorReport {
-    fn gather(config: ConfigStatus) -> Self {
+    fn gather(config: ConfigStatus, app: AppCheck) -> Self {
         let brew = resolve_brew_prefix();
         let tools = gather_tool_statuses();
         DoctorReport {
@@ -1018,19 +1020,22 @@ impl DoctorReport {
             tools,
             windows_tpm: classify_windows_tpm(decide_tpm_on_host(Platform::Windows, &host_profile())),
             config,
+            app,
         }
     }
 
     /// Overall health. Tool availability and script floors are advisory and
     /// do not flip this (matching the Swift `isOK` semantics). A Windows TPM
     /// that would be omitted is advisory too; one that would be refused is not. A `config.rhai`
-    /// that fails is a blocking check (spec: "doctor reports the failures that it diagnoses").
+    /// that fails is a blocking check (spec: "doctor reports the failures that it diagnoses"), and
+    /// so is an `app` check with a failing item.
     fn is_ok(&self) -> bool {
         self.install.is_ok()
             && self.agents.is_ok()
             && self.scripts.is_ok()
             && self.windows_tpm.is_ok()
             && config_is_ok(&self.config)
+            && self.app.is_ok()
     }
 
     fn to_json(&self) -> Value {
@@ -1045,6 +1050,7 @@ impl DoctorReport {
                 "script_tool_floors": self.provisioner_json(),
                 "windows_tpm": windows_tpm_json(&self.windows_tpm),
                 "config": config_json(&self.config),
+                "app": self.app.to_json(),
             },
         })
     }
@@ -1176,6 +1182,10 @@ impl DoctorReport {
 
         lines.push("Configuration file".to_string());
         lines.extend(config_lines(&self.config));
+        lines.push(String::new());
+
+        lines.push("TestAnyware app".to_string());
+        lines.extend(self.app.lines());
 
         let mut text = lines.join("\n");
         text.push('\n');
@@ -1383,11 +1393,13 @@ fn pretty_source(source: &str) -> String {
 
 /// `testanyware doctor` entry point. Read-only: no `--dry-run` (contract
 /// §9.3). Emits the full report in both modes; exit 0 when healthy, 1 when a
-/// blocking check (install/agents/scripts, a refused Windows TPM, or a `config.rhai` that fails)
-/// fails. It is the one command that runs with a file that fails: the binary skips the refusal
+/// blocking check (install/agents/scripts, a refused Windows TPM, a `config.rhai` that fails, or
+/// a failing item of the `app` check) fails. It is the one command that runs with a file that fails: the binary skips the refusal
 /// for it, and the other checks use the values that resolve without the file.
-pub fn run_doctor(mode: OutputMode) -> ! {
-    let report = DoctorReport::gather(host_config::init_from_process().status.clone());
+pub async fn run_doctor(mode: OutputMode) -> ! {
+    let config = host_config::init_from_process().status.clone();
+    let app = AppCheck::gather(cfg!(target_os = "macos")).await;
+    let report = DoctorReport::gather(config, app);
     let ok = report.is_ok();
     match mode {
         OutputMode::Json => {
@@ -1805,7 +1817,7 @@ mod tests {
     #[test]
     fn a_report_with_a_file_that_fails_is_not_ok_and_keeps_the_other_checks() {
         let (_, failed) = every_config_status().remove(4);
-        let report = DoctorReport::gather(failed);
+        let report = DoctorReport::gather(failed, AppCheck::NotApplicable);
         assert!(!report.is_ok());
         let body = report.to_json();
         assert_eq!(body["ok"], false);
@@ -1819,7 +1831,7 @@ mod tests {
         // The same host with a file that loads has the config check pass. Its `ok` then rests on
         // the other checks alone, which this test does not judge.
         let (_, loaded) = every_config_status().remove(3);
-        let report = DoctorReport::gather(loaded);
+        let report = DoctorReport::gather(loaded, AppCheck::NotApplicable);
         assert_eq!(report.to_json()["checks"]["config"]["status"], "pass");
     }
 

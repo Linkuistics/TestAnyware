@@ -17,7 +17,11 @@
 #      is gone and the socket file with it.
 #      Between 4 and 5, check that the app and golden creation name the same directories
 #      (golden-directory-check): the Host CLI at an XDG_DATA_HOME that the app cannot have is
-#      refused by the app and by golden creation, with the same app directories.
+#      refused by the app and by golden creation, with the same app directories. Then check
+#      that the status reports what only the real app can know, and that `doctor` reports it
+#      (doctor-app-check): the login item that macOS holds, the executable, and the Local
+#      Network observation. The status request reads `SMAppService` on a thread of the server,
+#      so a crash or a hang there shows in this step.
 #   7. Open the bundle again with TESTANYWARE_CONFIG naming a config.rhai that fails (ADR-0021),
 #      check that the status reports the CONFIG_INVALID error and that the menu shows the file,
 #      the error and an item that opens the file, and quit.
@@ -112,6 +116,29 @@ done
 [[ "$(jq -r .details.client.data_dir <<<"$golden")" == "$other/testanyware" ]] ||
   fail "golden creation does not name its own data directory: $golden"
 echo "app-bundle-live: ok   golden creation expects the directories that the app holds ($(jq -c .details.app <<<"$golden"))"
+
+# 4c
+login=$(jq -r .login_item <<<"$body")
+case "$login" in
+  enabled | not_registered | requires_approval | not_found) ;;
+  *) fail "the status reports login item \"$login\", and a real bundle reports one of macOS's states." ;;
+esac
+[[ "$(jq -r .executable <<<"$body")" == "$bundle/Contents/MacOS/testanyware-app" ]] ||
+  fail "the status names executable $(jq -r .executable <<<"$body"), and the bundle's is $bundle/Contents/MacOS/testanyware-app."
+case "$(jq -r .local_network.state <<<"$body")" in
+  not_yet_seen | allowed | denied) ;;
+  *) fail "the status reports no Local Network observation: $(jq -c .local_network <<<"$body")" ;;
+esac
+# A second read, after the first, proves the call works off the main thread more than once.
+body=$(status) || fail "the second GET /v1/status failed."
+report=$("$cli" doctor --json 2>/dev/null || true)
+[[ "$(jq -r .checks.app.running.status <<<"$report")" == pass ]] ||
+  fail "doctor does not report the running app: $(jq -c .checks.app <<<"$report")"
+[[ "$(jq -r .checks.app.login_item.verdict <<<"$report")" == "${login/not_found/not_registered}" ]] ||
+  fail "doctor reports login item $(jq -r .checks.app.login_item.verdict <<<"$report"), and the status says $login."
+[[ "$(jq -r .checks.app.directories.verdict <<<"$report")" == match ]] ||
+  fail "doctor does not find the directories equal: $(jq -c .checks.app.directories <<<"$report")"
+echo "app-bundle-live: ok   the status reports login item $login, and doctor reports the app ($(jq -r .checks.app.login_item.status <<<"$report") for the login item)"
 
 # 5
 # AXCancel closes the menu. The Escape key does not, on macOS 27, and an open menu keeps the

@@ -709,10 +709,21 @@ OUTPUT:
 EXIT CODES:
     0  healthy — every blocking check passed
     1  unhealthy — a blocking check failed (install path, bundled agents,
-       bundled scripts, or the Windows guest TPM check when a Windows start
-       would be refused for want of swtpm). Host-tool and script-floor
+       bundled scripts, the Windows guest TPM check when a Windows start
+       would be refused for want of swtpm, a config.rhai that fails, or a
+       failing item of the app check). Host-tool and script-floor
        checks, and a Windows TPM that would be omitted, are advisory and
        never flip the exit code.
+
+THE APP CHECK:
+    On a macOS host, every guest connection goes through the TestAnyware
+    app. The app check reports whether the app is installed, whether it
+    runs, whether it starts at login, what it observed of the Local Network
+    grant, its configuration, the VMs it did not adopt, whether its
+    directories match those of this CLI, and whether its version fits this
+    CLI. Each failing item carries a remedy. A mismatch of directories or of
+    protocol is a failing item, not an error. On a Linux or Windows host the
+    check reports that it does not apply.
 
 EXAMPLES:
     # Human-readable diagnosis of the local install
@@ -2381,7 +2392,7 @@ async fn main() {
         // Synchronous on purpose: eframe::run_native must own the main
         // thread, and `block_on` keeps this arm on it (ADR-0005). No await.
         Command::Viewer { conn } => viewer_cmds::run_viewer(conn.into()),
-        Command::Doctor { json } => doctor_cmds::run_doctor(OutputMode::from_flags(json)),
+        Command::Doctor { json } => doctor_cmds::run_doctor(OutputMode::from_flags(json)).await,
         Command::Capabilities { json: _ } => run_capabilities(),
         Command::Schema { command } => run_schema(&command),
         Command::LlmInstructions => run_llm_instructions(),

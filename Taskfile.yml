@@ -61,13 +61,22 @@ tasks:
       - 'cargo test -p testanyware-app --lib -- config:: menu::'
       - cargo test -p testanyware-app --test configuration
 
+  doctor:app-test:
+    desc: Test the `app` check of `doctor` (spec "What the commands report about the app"). The classifier of every item, the report against doctor.json, the status fields of the app (Local Network observation, login item, executable), and the real CLI binary against the real app executable with a directory mismatch, a protocol mismatch, a bundle newer than the app, a file that fails and an app that does not run (macOS host). A Linux or Windows host runs the not-applicable case
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - 'cargo test -p testanyware-app-protocol --lib -- status:: bundle::'
+      - 'cargo test -p testanyware-app --lib -- grant:: menu:: bundle::'
+      - 'cargo test -p testanyware-cli --lib -- doctor_app::'
+      - cargo test -p testanyware-cli --test doctor-app
+
   app:bundle-dev:
     desc: Build and sign the development bundle of the TestAnyware app, bundle id dev.antony.TestAnyware.dev (macOS host). Prints its path. The signing identity is the Developer ID of team TA43A4RUP3, and any other team is refused
     cmds:
       - scripts/build-app.sh dev
 
   app:bundle-live:
-    desc: Live check on this Mac. Open the development bundle through LaunchServices, read GET /v1/status on the app socket, check that golden creation expects the directories that the app holds, read the status item's menu, and quit it. Then open it again with a config.rhai that fails (TESTANYWARE_CONFIG) and check the status and the menu. Needs no guest and uses the real app socket, so quit a running app first
+    desc: Live check on this Mac. Open the development bundle through LaunchServices, read GET /v1/status on the app socket, check that golden creation expects the directories that the app holds, check the login item, the executable and the Local Network observation that the real app reports and that `doctor` reports them, read the status item's menu, and quit it. Then open it again with a config.rhai that fails (TESTANYWARE_CONFIG) and check the status and the menu. Needs no guest and uses the real app socket, so quit a running app first
     deps: [cli:build]
     cmds:
       - scripts/app-bundle-live.sh

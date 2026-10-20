@@ -178,32 +178,36 @@ fn main() -> ExitCode {
     });
     let tools = config.tool_search(paths.tools);
 
-    let ctx = Arc::new(
-        AppContext::new(
-            AppIdentity {
-                build: args
-                    .build
-                    .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
-                protocol_range: args.protocol_range.unwrap_or(SUPPORTED_RANGE),
-                directories,
-            },
-            own_uid,
-            config,
-        )
-        .with_bundle(match args.bundle_build {
-            Some(build) => testanyware_app::bundle::BundleSource::Fixed(Some(build)),
-            None => testanyware_app::bundle::BundleSource::this_process(),
-        })
-        .with_tools(tools)
-        .with_agent_port(
-            args.agent_port
-                .unwrap_or(testanyware_vm::start_context::AGENT_PORT),
-        )
-        .with_probe_deadline(args.probe_deadline_ms.map_or(
-            testanyware_app::adoption::PROBE_DEADLINE,
-            std::time::Duration::from_millis,
-        )),
-    );
+    let mut ctx = AppContext::new(
+        AppIdentity {
+            build: args
+                .build
+                .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
+            protocol_range: args.protocol_range.unwrap_or(SUPPORTED_RANGE),
+            directories,
+        },
+        own_uid,
+        config,
+    )
+    .with_bundle(match args.bundle_build {
+        Some(build) => testanyware_app::bundle::BundleSource::Fixed(Some(build)),
+        None => testanyware_app::bundle::BundleSource::this_process(),
+    })
+    .with_tools(tools)
+    .with_agent_port(
+        args.agent_port
+            .unwrap_or(testanyware_vm::start_context::AGENT_PORT),
+    )
+    .with_probe_deadline(args.probe_deadline_ms.map_or(
+        testanyware_app::adoption::PROBE_DEADLINE,
+        std::time::Duration::from_millis,
+    ));
+    // The test mode has no login item to ask. It states `unobserved`.
+    #[cfg(target_os = "macos")]
+    if !args.test_mode {
+        ctx = ctx.with_login_item(testanyware_app::shell::login_item_state);
+    }
+    let ctx = Arc::new(ctx);
     eprintln!("testanyware-app: serving on {}", paths.socket.display());
 
     if args.test_mode {

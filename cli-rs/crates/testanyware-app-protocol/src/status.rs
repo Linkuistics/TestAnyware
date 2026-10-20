@@ -31,6 +31,55 @@ pub struct StatusResponse {
     /// What the app made of `config.rhai` when it started (spec: "Configuration").
     #[serde(default)]
     pub configuration: ConfigurationStatus,
+    /// The executable of the running app. `None` when the app cannot name it.
+    #[serde(default)]
+    pub executable: Option<PathBuf>,
+    /// What the app last learned about the Local Network grant (spec: "The Local Network
+    /// diagnosis").
+    #[serde(default)]
+    pub local_network: LocalNetworkStatus,
+    /// The status of the app's login item, as macOS reports it.
+    #[serde(default)]
+    pub login_item: LoginItemState,
+}
+
+/// What the app last learned about the Local Network grant.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GrantState {
+    /// No dial of the kind that tells has happened yet.
+    #[default]
+    NotYetSeen,
+    Allowed,
+    Denied,
+}
+
+/// The app's observation of the grant, with the dial that made it.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LocalNetworkStatus {
+    pub state: GrantState,
+    /// The address of the dial, as `host:port`. `None` before the first observation.
+    pub destination: Option<String>,
+    /// When the dial happened, in seconds since the Unix epoch. `None` before the first
+    /// observation.
+    pub observed_at: Option<u64>,
+}
+
+/// The status of `SMAppService.mainApp`, as macOS reports it.
+/// https://developer.apple.com/documentation/servicemanagement/smappservice/status-swift.enum
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LoginItemState {
+    /// The app has no login item to ask, as in its test mode. A reader that sees this reports
+    /// nothing about the login item.
+    #[default]
+    Unobserved,
+    NotRegistered,
+    Enabled,
+    /// The app asked to start at login, and a person has yet to allow it in System Settings.
+    RequiresApproval,
+    /// macOS knows no login item for this bundle. It counts as not registered.
+    NotFound,
 }
 
 /// What a run of the app made of `config.rhai`.
@@ -131,6 +180,20 @@ mod tests {
         assert!(!status.older_than_bundle);
         assert!(!status.adoption.finished);
         assert_eq!(status.configuration, ConfigurationStatus::default());
+        assert_eq!(status.executable, None);
+        assert_eq!(status.local_network, LocalNetworkStatus::default());
+        assert_eq!(status.login_item, LoginItemState::Unobserved);
+    }
+
+    #[test]
+    fn the_grant_and_the_login_item_serialise_as_snake_case_words() {
+        let status = LocalNetworkStatus {
+            state: GrantState::NotYetSeen,
+            ..LocalNetworkStatus::default()
+        };
+        assert_eq!(serde_json::to_value(status).unwrap()["state"], "not_yet_seen");
+        let item = serde_json::to_value(LoginItemState::RequiresApproval).unwrap();
+        assert_eq!(item, "requires_approval");
     }
 
     #[test]
