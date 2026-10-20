@@ -18,6 +18,10 @@ cli-rs/
 │   ├── testanyware-ocr-client/      # OcrEngine seam; EasyOCR daemon bridge (ADR-0002)
 │   ├── testanyware-video/           # VideoEncoder seam; screen record (ADR-0006)
 │   ├── testanyware-vm/              # VM lifecycle: QEMU/tart, golden images, paths
+│   ├── testanyware-config/          # config.rhai evaluator (ADR-0021)
+│   ├── testanyware-app-protocol/    # wire types of the TestAnyware app, its errors and its skew rules
+│   ├── testanyware-app-client/      # client of the TestAnyware app's socket (macOS host)
+│   ├── testanyware-app/             # the TestAnyware app: menu bar app, guest streams, adoption (ADR-0019)
 │   └── testanyware-cli/             # clap binary `testanyware` + command surface
 └── tests/
     ├── cli-contract.rs              # offline full-surface contract gate
@@ -30,7 +34,8 @@ cli-rs/
 | File | Role |
 |------|------|
 | `crates/testanyware-cli/src/surface.rs` | The canonical command surface (`CANONICAL_COMMANDS`) and the stable `ERROR_CODES` catalogue. The authoritative list both `capabilities` and `schema` derive from. |
-| `crates/testanyware-cli/src/commands/` | One module per command group (`vm`, `input`, `screen`, `agent`, `file`, `doctor`, `menu_bar`, `window`, …). |
+| `crates/testanyware-cli/src/commands/` | One module per command group (`vm`, `input`, `screen`, `agent`, `file`, `doctor`, `menu_bar`, `window`, …). `doctor` holds the `config` check on every host and the `app` check on a macOS host (`doctor_app.rs`). |
+| `crates/testanyware-cli/src/app_route.rs`, `resolve.rs` | On a macOS host, the route of each guest connection through the TestAnyware app. The default socket, the setup remedy and the app errors (`APP_NOT_INSTALLED`, `APP_UNREACHABLE`, `APP_INCOMPATIBLE`) come from here. |
 | `crates/testanyware-cli/src/discoverability.rs` | `--json` envelope shape, help-text template enforcement, schema discovery. |
 | `crates/testanyware-vm/src/lifecycle.rs` | `vm start` / `stop` / `list` / `delete` / `create-golden` entry points. |
 | `crates/testanyware-rfb/src/input.rs`, `keymap.rs` | RFB input events + per-platform keymap (powers all `input *`). |
@@ -66,7 +71,9 @@ a lowest-common-denominator everywhere:
 ## Common pitfalls
 
 - **No persistent VNC server.** Unlike the retired Swift `_server`, every
-  command opens its own short-lived RFB connection (ADR-0004). The two
+  command opens its own short-lived RFB connection (ADR-0004). On a macOS host,
+  the TestAnyware app relays each connection (ADR-0019), and a client never
+  starts the app. Linux and Windows hosts connect directly. The two
   long-lived RFB consumers are the embedded viewer (`viewer` / `vm start
   --viewer`, ADR-0005) and the bounded `screen record` sampler.
 - **The contract is the gate.** Every command must satisfy

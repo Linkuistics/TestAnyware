@@ -171,6 +171,7 @@ pub const ERROR_CODES: &[&str] = &[
     "UPLOAD_FAILED",
     "DOWNLOAD_FAILED",
     "AGENT_ERROR_UNKNOWN",
+    "AGENT_INVALID_JSON",
     // §4.6
     "USAGE_ERROR",
     "IO_ERROR",

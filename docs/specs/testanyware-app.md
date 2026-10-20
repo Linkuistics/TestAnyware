@@ -112,7 +112,9 @@ does not restart itself after a crash.
 
 When the app is not running, each command that needs the app fails with
 `APP_UNREACHABLE`. The remedy says to open TestAnyware and to turn on "Start at
-Login". The command never falls back to a direct connection.
+Login". When the host has no app bundle at all, the command fails with
+`APP_NOT_INSTALLED`, and the remedy is the setup below. The command never falls
+back to a direct connection.
 
 The setup is one time, and a person does it:
 
@@ -693,8 +695,10 @@ was. Before the first dial of that kind, the observation is not yet seen.
 
 ADR-0021 records this decision. One optional file,
 `~/.config/testanyware/config.rhai`, configures the TestAnyware app and the Host
-CLI. Only `TESTANYWARE_CONFIG`, a variable for tests, names another file or
-`none`.
+CLI. Only `TESTANYWARE_CONFIG` names another file or `none`. A test uses it, and
+the remedy of `CONFIG_INVALID` names `TESTANYWARE_CONFIG=none` for one command
+without the file. Only the Host CLI reads the variable, because the app has no
+shell environment.
 
 - The Host CLI and the app evaluate the file with one shared evaluator and the
   same limits. The script has no access to files, processes or the network, and
@@ -854,7 +858,7 @@ path of today for every command. `config.rhai` applies there too.
 ### Documents that the implementation corrects
 
 The code survey of 2026-10-20 found documents that this design changes, or that
-are wrong today:
+were wrong. The implementation corrected them:
 
 - `docs/reference/connection-spec.md` describes the `<id>.json` file as a
   contract for direct readers. It stops being one. It also calls the QEMU VNC
@@ -872,6 +876,14 @@ are wrong today:
   remedy names the TestAnyware app instead (ADR-0019). The contract's catalogue
   of error codes also gains the codes of "New error codes" above. The dated
   research documents stay as evidence, unchanged.
+- The same order of the resolution chain appears in `LLM_INSTRUCTIONS.md` and in
+  `docs/reference/cli-commands.md`. Both now put `TESTANYWARE_VM_ID` before
+  `--agent` and `--vnc`.
+- `LLM_INSTRUCTIONS.md` and `docs/reference/env-vars.md` said that
+  `TESTANYWARE_AGENT` overrides the spec file. It never did, because a spec file
+  comes first in the chain.
+- No document listed `VM_HOST_UNSUPPORTED`. A test now compares each code of the
+  catalogue and each public variable of `capabilities` with the documents.
 
 ## Requirements
 

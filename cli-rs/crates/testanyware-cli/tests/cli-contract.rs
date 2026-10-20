@@ -636,6 +636,11 @@ fn capabilities_lists_full_surface() {
         "SCHEMA_NOT_FOUND",
         "VM_BOOT_TIMEOUT",
         "VM_LIMIT_REACHED",
+        "AGENT_INVALID_JSON",
+        "APP_NOT_INSTALLED",
+        "APP_UNREACHABLE",
+        "APP_INCOMPATIBLE",
+        "CONFIG_INVALID",
     ] {
         assert!(
             error_codes.contains(&required),
@@ -767,6 +772,73 @@ fn llm_instructions_command_emits_manual() {
         "llm-instructions output is {} bytes — too large to prepend as LLM context (§8.3)",
         body.len(),
     );
+}
+
+/// Contract §4.8 and §9.5: the documents list what `capabilities` lists. Each error code is in
+/// `docs/reference/error-codes.md` and in the catalogue of the contract, and each variable of
+/// `capabilities` that is not internal is in `docs/reference/env-vars.md`. A code or a variable
+/// added in `surface.rs` or `discoverability.rs` without its document fails here.
+#[test]
+fn documents_list_every_error_code_and_public_variable() {
+    let docs = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../docs");
+    let read = |relative: &str| {
+        std::fs::read_to_string(docs.join(relative))
+            .unwrap_or_else(|e| panic!("cannot read docs/{relative}: {e}"))
+    };
+    let error_codes_doc = read("reference/error-codes.md");
+    let contract = read("architecture/cli-design-contract.md");
+    let env_vars_doc = read("reference/env-vars.md");
+
+    let mut missing: Vec<String> = Vec::new();
+    for code in testanyware_cli::surface::ERROR_CODES {
+        for (name, text) in [("reference/error-codes.md", &error_codes_doc), ("architecture/cli-design-contract.md", &contract)] {
+            if !text.contains(code) {
+                missing.push(format!("{code} is not in docs/{name}"));
+            }
+        }
+    }
+
+    let out = run(&["capabilities"]);
+    assert!(out.status.success(), "`capabilities` exited non-zero");
+    let body: serde_json::Value =
+        serde_json::from_slice(&out.stdout).expect("capabilities stdout must parse as JSON");
+    for var in body["env_vars"].as_array().expect("capabilities.env_vars is an array") {
+        if var["internal"].as_bool() == Some(true) {
+            continue;
+        }
+        let name = var["name"].as_str().expect("env_vars entries have a name");
+        if !env_vars_doc.contains(&format!("`{name}`")) {
+            missing.push(format!("{name} is not in docs/reference/env-vars.md"));
+        }
+    }
+    assert!(missing.is_empty(), "documents lag the code:\n{}", missing.join("\n"));
+}
+
+/// Spec "What the commands report about the app": the `llm-instructions` name each error that the
+/// app adds, and the rules a person and an agent need. A text that loses one fails here.
+#[test]
+fn llm_instructions_describe_the_app() {
+    let out = run(&["llm-instructions"]);
+    assert!(out.status.success(), "`llm-instructions` exited non-zero");
+    let body = String::from_utf8_lossy(&out.stdout);
+    for needle in [
+        "TestAnyware app",
+        "APP_NOT_INSTALLED",
+        "APP_UNREACHABLE",
+        "APP_INCOMPATIBLE",
+        "CONFIG_INVALID",
+        "local_network_denied",
+        "never starts",
+        "Start at Login",
+        "vm create-golden",
+        "Terminal",
+        "doctor",
+    ] {
+        assert!(
+            body.contains(needle),
+            "llm-instructions does not mention {needle:?}",
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

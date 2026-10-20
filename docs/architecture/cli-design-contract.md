@@ -266,6 +266,7 @@ version bump.
 | `VM_LIMIT_REACHED` | `vm start` was refused because the platform's concurrent-guest limit is full — Apple's macOS guest limit, two per Mac. A *try again later* condition: exit `6`. `details`: `platform`, `limit`, `holders` (the VMs holding the slots), `tart_error` (the backend's own line). A `--wait` start that ran out returns the same error. |
 | `VM_STOP_FAILED` | `vm stop` couldn't terminate the VM cleanly. The app's stop of a QEMU guest that an older release started signals no process; it fails when a socket still answers or a process still holds the clone's disk, and `details` names `monitor_socket`, `swtpm_socket`, `disk_holders` and `disk_check_error`. The app removes nothing then, and the remedy says to quit that QEMU by hand and run `vm stop` again. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform on this host. |
+| `VM_HOST_UNSUPPORTED` | `vm start` ran on a Windows host. That host cannot run a local QEMU VM, because the binary has no QEMU monitor and no process control for Windows. `details.detail` holds the text. Start VMs from a Linux or macOS host. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
 | `GOLDEN_IN_USE` | `vm delete` refused: running clones depend on the image. Use `--force`. |
 | `GOLDEN_CREATE_FAILED` | `vm create-golden` could not produce the golden image (a provisioning boot, TCC/SIP step, or the final health gate failed). `details.detail` carries the cause. |
@@ -327,7 +328,8 @@ version bump.
 > - If `nc` connects, the refusal is about this process. The start ends at once
 >   with `VM_BOOT_TIMEOUT` (exit `7`), `details.cause` is
 >   `local_network_denied`, and `remediation` says to run testanyware from an
->   app that has Local Network access.
+>   app that has Local Network access. On a macOS host, `remediation` names the
+>   TestAnyware app instead (amendment 2026-10-20 below and §4.9).
 > - If `nc` does not connect, the wait carries on unchanged and asks again
 >   after each further five. `details.cause` stays `null`.
 > - A QEMU guest is on loopback and never asks.
@@ -459,6 +461,30 @@ strings surface as `code: AGENT_ERROR_UNKNOWN` with the wire string in
 catalogue in `error_codes`. Adding a new code in a release means the
 catalogue grows by one entry. Agents can poll for additions.
 
+### 4.9 The TestAnyware app and configuration
+
+> **Amendment 2026-10-21** (`llm-instructions-and-docs-k35`, issue #8, ADR-0019,
+> ADR-0021): on a macOS host, every guest connection goes through the
+> TestAnyware app. One optional file, `config.rhai`, configures the app and the
+> Host CLI. The catalogue gains four codes. Each error carries a `remediation`.
+
+| Code | Exit | When |
+|---|---|---|
+| `APP_NOT_INSTALLED` | `1` | Nothing answers on the default socket, and `/Applications` and `~/Applications` hold no `TestAnyware.app`. `details.searched` lists both paths. The remedy is the one-time setup. A socket that `TESTANYWARE_APP_SOCKET` names never gives this error. |
+| `APP_UNREACHABLE` | `1` | The Host CLI cannot use the socket of the app. `details.cause` is `not_running`, `unsafe_socket_directory`, `quitting`, `socket_path_too_long` or `socket_error`. |
+| `APP_INCOMPATIBLE` | `1` | `details.cause` is `protocol` (the two protocol ranges share no version) or `directories` (the Host CLI and the app resolved other directories). |
+| `CONFIG_INVALID` | `2` | `config.rhai` fails to evaluate, or it names an unknown key. `details` holds `file`, `line` and `message`. |
+
+- A client never starts the app. When the app is not running, the command fails
+  with `APP_NOT_INSTALLED` or `APP_UNREACHABLE`, and `remediation` names the fix.
+- A Local Network denial keeps its codes. `CONNECTION_REFUSED` and
+  `VM_BOOT_TIMEOUT` carry `details.cause` `local_network_denied`. On a macOS
+  host their `remediation` says to allow TestAnyware in System Settings,
+  Privacy & Security, Local Network.
+- `vm create-golden` keeps its direct path. It needs a context with Local
+  Network access, such as Terminal.
+- Each existing code keeps its meaning and its exit code.
+
 ---
 
 ## 5. Exit code scheme
@@ -466,8 +492,8 @@ catalogue grows by one entry. Agents can poll for additions.
 | Code | Meaning |
 |---|---|
 | `0` | Success. |
-| `1` | Generic failure (no more specific bucket fits). |
-| `2` | Usage error (`USAGE_ERROR` family — bad flags, missing args, invalid combinations). |
+| `1` | Generic failure (no more specific bucket fits). The `APP_*` codes use it. |
+| `2` | Usage error (`USAGE_ERROR` family — bad flags, missing args, invalid combinations). `CONFIG_INVALID` also uses it. |
 | `3` | Not found (`*_NOT_FOUND` family: `VM_NOT_FOUND`, `WINDOW_NOT_FOUND`, `ELEMENT_NOT_FOUND`, `GOLDEN_NOT_FOUND`, `UEFI_NOT_FOUND`, `SCHEMA_NOT_FOUND`, `TEXT_NOT_FOUND`). |
 | `4` | Auth/permission required (`AUTH_REQUIRED`, `KVM_PERMISSION_DENIED`). |
 | `5` | Conflict / precondition failed (`GOLDEN_IN_USE`, `RECORD_ALREADY_ACTIVE`, `ELEMENT_AMBIGUOUS`, `ACTION_UNSUPPORTED`). |
@@ -663,6 +689,9 @@ It covers:
   - "Don't poll `agent windows` in a tight loop. Use `agent wait`."
 - Authentication and state assumptions.
 - JSON output, exit codes, and idempotency conventions.
+- On a macOS host, the TestAnyware app. This covers the one-time setup by a
+  person and the rule that a client never starts the app. It also covers each
+  error of §4.9 with its remedy, and golden creation from Terminal.
 
 Every instruction MUST be runnable with only the installed binary — no
 source checkout, no repo-relative paths. Keep the guide lean enough to

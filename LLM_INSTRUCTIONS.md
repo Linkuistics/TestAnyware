@@ -26,11 +26,12 @@ convenience:
 resolved in this order (first match wins):
 
 1. `--connect <path>` — explicit JSON spec file.
-2. `--vm <id>` — per-VM spec at `$XDG_STATE_HOME/testanyware/vms/<id>.json`.
-3. `--vnc` / `--agent` / `--platform` — direct flags.
-4. `TESTANYWARE_VM_ID` env — resolves like `--vm`.
-5. `TESTANYWARE_VNC` / `TESTANYWARE_AGENT` / `TESTANYWARE_PLATFORM` env.
-6. Otherwise: error.
+2. `--vm <id>`, or the `TESTANYWARE_VM_ID` env var — per-VM spec.
+3. `--vnc` / `--agent`, or the `TESTANYWARE_VNC` / `TESTANYWARE_AGENT` env vars — direct endpoints.
+4. Otherwise: error.
+
+An env var takes the place of its flag. So `TESTANYWARE_VM_ID` beats `--agent`.
+`--platform` and `TESTANYWARE_PLATFORM` set the platform. They do not choose a target.
 
 The typical pattern is to start a VM, export its id once, then run every
 later command with no connection flags.
@@ -150,7 +151,8 @@ Click the element's centre at `x + width/2`, `y + height/2`.
 ## Connection spec JSON
 
 `testanyware vm start` writes a per-VM spec file that `--vm <id>` (and
-`--connect <path>`) consume:
+`--connect <path>`) consume. Use the file through those options only. Do not
+read it yourself, because it is private to TestAnyware. Use `vm list` to find an id.
 
 ```json
 {"vnc":      {"host": "localhost", "port": 5900, "password": "secret"},
@@ -166,15 +168,58 @@ Spec files live at
 `${XDG_STATE_HOME:-$HOME/.local/state}/testanyware/vms/<id>.json`, mode
 `600` — treat them as secrets.
 
+## The TestAnyware app (macOS host)
+
+On a macOS host, every command that reaches a guest goes through the
+**TestAnyware app**, even with an explicit `--agent`, `--vnc` or `--connect`.
+The app is a menu bar app that holds the Local Network access. So an agent that
+macOS refuses, for example under herdr, can still drive a VM. Only
+`vm create-golden` connects directly. Linux and Windows hosts have no app.
+
+**A person sets the app up once.** An agent cannot.
+
+1. `brew install --cask linkuistics/taps/testanyware-app`.
+2. Open TestAnyware from `/Applications`. Answer the "downloaded from the Internet" dialog with Open.
+3. Turn on "Start at Login" in the app's menu.
+4. Allow the Local Network alert when it appears.
+
+An upgrade of the app can ask for the Local Network access again.
+
+**A client never starts the app.** When the app is not running, the command
+fails and names the remedy. Tell the person to open TestAnyware. Do not retry in
+a loop. Read `remediation` in the `--json` envelope.
+
+| Code (exit) and `details.cause` | Remedy |
+|---|---|
+| `APP_NOT_INSTALLED` (1): no `TestAnyware.app` in `/Applications` or `~/Applications` | A person does the setup above |
+| `APP_UNREACHABLE` (1): `not_running` or `quitting` | Open TestAnyware from `/Applications` |
+| `APP_UNREACHABLE` (1): `unsafe_socket_directory` | Make the app's socket directory yours with mode 0700, then open TestAnyware |
+| `APP_INCOMPATIBLE` (1): `protocol` | Do what `details.remedy` says: `quit_and_open_app`, `upgrade_cask` or `upgrade_host_cli` |
+| `APP_INCOMPATIBLE` (1): `directories` | Make `XDG_STATE_HOME` and `XDG_DATA_HOME`, or `state_dir` and `data_dir` in `config.rhai`, the same for the CLI and the app. Then quit and open TestAnyware |
+| `CONFIG_INVALID` (2) | Fix `~/.config/testanyware/config.rhai`, or delete it. `TESTANYWARE_CONFIG=none` runs one command without it |
+| `CONNECTION_REFUSED` or `VM_BOOT_TIMEOUT` (7): `local_network_denied` | A person allows TestAnyware in System Settings, Privacy & Security, Local Network |
+
+`config.rhai` is optional. Its keys are `tools` (`tart`, `qemu-system-aarch64`,
+`swtpm`), `state_dir` and `data_dir`, each an absolute path.
+
+**Golden creation** connects to the guest itself. Run `vm create-golden` from
+Terminal, which has Local Network access. Under a harness that macOS refuses, it
+fails with the Local Network error.
+
+`testanyware doctor` reports the app: installed, running, started at login and
+allowed on the Local Network. Each failing item has a remedy. Its `config` check
+reports `config.rhai`.
+
 ## Environment variables
 
 | Variable | Example | Purpose |
 |----------|---------|---------|
-| `TESTANYWARE_VM_ID` | `testanyware-a3f7b2c1` | Resolves to the per-VM spec file |
-| `TESTANYWARE_AGENT` | `192.168.64.100:8648` | Agent HTTP endpoint (overrides the spec) |
+| `TESTANYWARE_VM_ID` | `testanyware-a3f7b2c1` | Resolves to the per-VM spec file. Same place as `--vm` |
+| `TESTANYWARE_AGENT` | `192.168.64.100:8648` | Agent HTTP endpoint. Used when no spec file resolves |
 | `TESTANYWARE_VNC` | `127.0.0.1:59948` | VNC endpoint (ad-hoc, no spec file needed) |
 | `TESTANYWARE_VNC_PASSWORD` | `syrup-rotate-nasty` | VNC password used with `TESTANYWARE_VNC` |
 | `TESTANYWARE_PLATFORM` | `macos` | Target platform (`macos`, `linux`, `windows`) |
+| `TESTANYWARE_CONFIG` | `none` | Another `config.rhai` file, or `none` to run without one |
 
 ## Workflow patterns
 
@@ -226,4 +271,4 @@ testanyware file exec "choco install jq -y"         # Windows
 - `testanyware capabilities` — machine-readable surface: every subcommand, alias, feature flag, and error code.
 - `testanyware schema <command>` — JSON Schema for a command's `--json` output, e.g. `testanyware schema agent snapshot`.
 - `testanyware <command> --help` — full per-command help: usage, output formats, exit codes, examples.
-- `testanyware doctor` — diagnose the local install when CLI behaviour looks mismatched with the installed version.
+- `testanyware doctor` — diagnose the local install when CLI behaviour looks mismatched with the installed version. On a macOS host it also reports the TestAnyware app.

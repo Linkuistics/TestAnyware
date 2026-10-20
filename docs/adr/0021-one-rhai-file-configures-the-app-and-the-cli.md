@@ -68,4 +68,6 @@ TestAnyware app and the Host CLI. Both evaluate it with one shared evaluator.**
   `HOME` alone, so the two agree without a running app.
 - An edit of the file reaches the app only after a restart of the app. `doctor`
   reports when the app evaluated an older file.
-- A test names another file, or none, through `TESTANYWARE_CONFIG`.
+- A test names another file, or none, through `TESTANYWARE_CONFIG`. The remedy of
+  `CONFIG_INVALID` also names `TESTANYWARE_CONFIG=none`, to run one command without
+  the file. Only the Host CLI reads the variable.

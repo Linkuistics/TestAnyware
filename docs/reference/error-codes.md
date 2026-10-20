@@ -20,7 +20,7 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | Code | When |
 |------|------|
 | `AUTH_REQUIRED` | Agent rejected the request: TCC / accessibility permission not granted. |
-| `CONNECTION_REFUSED` | TCP/RFB connect refused by the endpoint. |
+| `CONNECTION_REFUSED` | TCP/RFB connect refused by the endpoint. On a macOS host, `details.cause` `local_network_denied` means that macOS refused the TestAnyware app the route to the guest. `host_unreachable` means that no route exists. |
 | `CONNECTION_TIMEOUT` | Endpoint did not accept a connection within the window. |
 | `CONNECTION_DROPPED` | Peer dropped mid-request. |
 | `INVALID_ENDPOINT` | Malformed `--connect` / `--vnc` / `--agent` endpoint. |
@@ -37,6 +37,7 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | `VM_LIMIT_REACHED` | The macOS guest limit (two per Mac) is full. `details.holders` names the VMs. Try again later, or start with `--wait`. A `--wait` that ran out returns it too. Exit `6`. |
 | `VM_STOP_FAILED` | `vm stop` could not stop the VM cleanly. In the app, the stop of a QEMU guest started by an older release signals no process. `details` names the `monitor_socket` and `swtpm_socket` that still answer. It also names the `disk_holders` (pids) that hold the clone's disk, and a `disk_check_error` when the app could not tell. The app removes nothing. Quit that QEMU by hand and run `vm stop` again. A meta with an identity whose pid now names another process also fails with this code. Nothing is signalled or removed, and `details` holds `pid`, `reason` (`start_time_differs`, `boot_session_differs` or `no_boot_session`), `detail` and `records`. Stop the VM by hand, then remove the two records. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform. |
+| `VM_HOST_UNSUPPORTED` | `vm start` ran on a Windows host. That host cannot run a local QEMU VM. `details.detail` holds the text. Start VMs from a Linux or macOS host. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
 | `GOLDEN_IN_USE` | `vm delete` refused — clones of the golden are running (use `--force`). |
 | `GOLDEN_CREATE_FAILED` | `vm create-golden` aborted. |
@@ -78,6 +79,7 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | `EXEC_FAILED` | Process failed to spawn (exec itself). |
 | `UPLOAD_FAILED` / `DOWNLOAD_FAILED` | File I/O error on the VM. |
 | `AGENT_ERROR_UNKNOWN` | Agent returned an error string the host doesn't map. |
+| `AGENT_INVALID_JSON` | The agent could not parse the request body as JSON. This is a CLI bug. Report it. |
 
 ### §4.6 — General
 
@@ -98,6 +100,19 @@ disagrees with `surface.rs`, `surface.rs` wins.
 |------|------|
 | `TEXT_NOT_FOUND` | `screen find-text` matched no text. |
 | `SCHEMA_NOT_FOUND` | `schema <command>` requested an unknown command. |
+
+### §4.9 — The TestAnyware app and configuration
+
+On a macOS host, every guest connection goes through the TestAnyware app. A
+client never starts the app. Each error carries a `remediation`, and in
+`--json` mode `details` carries the fields below.
+
+| Code | Exit | When |
+|------|------|------|
+| `APP_NOT_INSTALLED` | `1` | Nothing answers on the default socket, and `/Applications` and `~/Applications` hold no `TestAnyware.app`. `details.searched` lists both paths. The remedy is the one-time setup: install the cask, open the app, turn on "Start at Login" and allow Local Network. A person does it. |
+| `APP_UNREACHABLE` | `1` | The Host CLI cannot use the app's socket. `details.cause` is one of five values. `not_running`: the app is not running. `unsafe_socket_directory`: another user owns the socket directory, or its mode admits others. `quitting`: the app closed the connection before it answered. `socket_path_too_long`. `socket_error`, with `details.errno` where there is one. For `not_running` and `quitting`, open TestAnyware from `/Applications`. |
+| `APP_INCOMPATIBLE` | `1` | `details.cause` is `protocol` or `directories`. For `protocol`, the two protocol ranges share no version, and `details.remedy` is `quit_and_open_app`, `upgrade_cask` or `upgrade_host_cli`. For `directories`, the Host CLI and the app resolved other state or data directories. Set the same `XDG_STATE_HOME` and `XDG_DATA_HOME`, or the same `state_dir` and `data_dir` in `config.rhai`. Then quit TestAnyware and open it again. |
+| `CONFIG_INVALID` | `2` | `~/.config/testanyware/config.rhai` fails to evaluate, or it names an unknown key. `details` holds `file`, `line` (`null` when no line holds the error) and `message`. Fix the file or remove it. `TESTANYWARE_CONFIG=none` runs one command without it. `doctor` still runs and reports the error. |
 
 ## Agent HTTP error shape
 

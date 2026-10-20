@@ -2,8 +2,8 @@
 
 Exhaustive per-subcommand reference for `testanyware`. Generated from
 `swift run testanyware <cmd> --help`. Every command accepts these common
-connection flags (resolved in order: `--connect` → `--vm` → explicit
-`--vnc`/`--agent`/`--platform` → `TESTANYWARE_VM_ID` → `TESTANYWARE_VNC`
+connection flags (resolved in order: `--connect` → `--vm` or
+`TESTANYWARE_VM_ID` → `--vnc`/`--agent` or `TESTANYWARE_VNC`/`TESTANYWARE_AGENT`
 → error):
 
 - `--connect <path>` — Path to connection spec JSON file.
@@ -529,14 +529,42 @@ warns that the host could not be checked. In `--json` it is
 (`attached`, `ppi_off` or `reason`), plus a `status` of `pass`, `warn` or
 `fail`, and an `error` object when the check refused or could not run.
 
+On every host it reports the **configuration** (`checks.config`): the Host CLI's
+own evaluation of `~/.config/testanyware/config.rhai`, or of the file that
+`TESTANYWARE_CONFIG` names. The check passes when the file evaluates, when it
+does not exist, and when `TESTANYWARE_CONFIG=none`. It fails with the
+`CONFIG_INVALID` error object when the file fails. `doctor` is the one command
+that runs with a file that fails.
+
+On a macOS host it reports the **TestAnyware app** (`checks.app`). The check has
+one item for each fact:
+
+- `installed`: whether a bundle sits in `/Applications` or `~/Applications`, with its path and version.
+- `running`: whether the app answers on the socket, with its build and protocol range.
+- `login_item`: the status of "Start at Login".
+- `local_network`: the last observation of the Local Network grant.
+- `configuration`: the app's own evaluation of `config.rhai`.
+- `adoption`: what the app did with each VM it found when it started.
+- `directories`: whether the Host CLI and the app resolve the same directories.
+- `versions`: the builds and the protocol ranges of both sides.
+- `bundle`: whether the running app is older than its bundle on disk.
+
+An item is `pass`, `warn`, `fail` or `skip`. Each failing item carries a remedy.
+Only `fail` flips the check. When the app does not answer, only `installed` and
+`running` report, and every other item is `skip`. On a Linux or Windows host the
+check reports that it does not apply. The schema
+`docs/reference/cli-schemas/doctor.json` documents each item.
+
 ```
 testanyware doctor
 ```
 
 **Exit code:** `0` when the install is healthy or Homebrew is not installed.
 It is `1` when a shadow is detected, `testanyware` is not on PATH, or a Windows
-start would be refused for want of swtpm. A TPM that would be omitted is a
-warning and does not change the exit code.
+start would be refused for want of swtpm. It is also `1` when the `config` check
+fails, or when the `app` check fails on a macOS host.
+
+A TPM that would be omitted is a warning and does not change the exit code.
 
 - `<name>` — Golden image name (run `testanyware vm list` to see available).
 - `--force` — Delete even if running clones appear to depend on the image.

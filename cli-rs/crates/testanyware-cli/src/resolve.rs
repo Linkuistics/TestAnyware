@@ -5,9 +5,15 @@
 //! `VMPaths.specPath(forID:)`. The chain is:
 //!
 //!   1. `--connect <path>` — explicit spec file
-//!   2. `--vm <id>` — per-VM spec under `<state>/testanyware/vms/<id>.json`
-//!   3. `--agent <host:port>` — explicit endpoint (skips VNC)
+//!   2. `--vm <id>`, or `TESTANYWARE_VM_ID` — per-VM spec under
+//!      `<state>/testanyware/vms/<id>.json`
+//!   3. `--agent <host:port>`, or `TESTANYWARE_AGENT` — explicit endpoint (skips VNC)
 //!   4. error (`NO_CONNECTION_SPECIFIED`)
+//!
+//! clap reads each variable as the value of its flag, so a variable and its flag take the
+//! same place in the chain. `TESTANYWARE_VM_ID` therefore comes before `--agent`, and a
+//! spec beats an explicit endpoint. The VNC chain has the same order, with `--vnc` and
+//! `TESTANYWARE_VNC` in place 3.
 //!
 //! Per Swift parity, `<state>` resolves to `$XDG_STATE_HOME` if set and
 //! non-empty, otherwise `$HOME/.local/state`. On Windows

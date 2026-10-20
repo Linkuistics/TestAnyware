@@ -12,7 +12,8 @@ Every `testanyware vm start` produces:
 - a per-VM spec at `$XDG_STATE_HOME/testanyware/vms/<id>.json`,
 - a per-VM backend clone (tart clone or QEMU copy),
 - VNC on a dynamically-assigned port,
-- the agent on port 8648 inside each VM (reached via the VM's own LAN IP).
+- the agent on port 8648 inside each VM. A tart guest is reached at its own IP.
+  A QEMU guest is reached on `localhost`, at a forwarded port.
 
 All commands target exactly one VM at a time via `--vm <id>` (or
 `TESTANYWARE_VM_ID` in the current shell). There is no "default VM" —
@@ -71,15 +72,16 @@ to `.gitignore`.
 
 ## Recovering the id after a shell exit
 
-The id is recoverable from disk even if the shell that captured it
-exits:
+`testanyware vm list` shows each running VM with its id, even if the
+shell that captured the id has exited:
 
 ```bash
-ls "${XDG_STATE_HOME:-$HOME/.local/state}/testanyware/vms/"*.json
-# → /Users/you/.local/state/testanyware/vms/testanyware-a3f7b2c1.json
+testanyware vm list
 ```
 
-The filename (minus `.json`) is the id.
+Do not read the spec files in the state directory for this. They are
+private to TestAnyware, and on a macOS host only the TestAnyware app can
+use the endpoints in them.
 
 ## Port layout
 
@@ -88,9 +90,11 @@ No host ports are shared:
 - **VNC ports** are dynamically assigned per-VM. Tart picks a free
   high port, and QEMU runs with `-vnc 127.0.0.1:<auto>`. The
   actual port is written into `<id>.json → vnc.port`.
-- **Agent port** is 8648 *inside the VM*. The host reaches it via
-  `<vm-ip>:8648`, where `<vm-ip>` is allocated per VM by tart
-  (`192.168.64.<n>`) or by the QEMU virtio-net setup.
+- **Agent port** is 8648 *inside the VM*. For a tart guest, the host reaches it
+  at `<vm-ip>:8648`, where tart allocates `<vm-ip>` per VM
+  (`192.168.64.<n>`). For a QEMU guest, QEMU forwards a dynamically assigned
+  port on `localhost` to port 8648 of the guest. On a macOS host, the
+  TestAnyware app opens each of these connections.
 
 Because the VNC port and agent host are per-VM and recorded in the
 spec, there are no collisions regardless of how many VMs are running.
