@@ -10,7 +10,7 @@ this area that have a real trade-off, and this spec cites them:
   TestAnyware app relays each one.
 - ADR-0019: the TestAnyware app holds the Local Network grant, and a denial is
   diagnosed where the connection is made.
-- ADR-0020: the TestAnyware app keeps one executable UUID and ships as a cask.
+- ADR-0020: the TestAnyware app keeps one signing identity and ships as a cask.
 - ADR-0021: one Rhai file configures the TestAnyware app and the Host CLI.
 
 The evidence is in `docs/research/vm-broker-prior-art-a.md`, the survey, and in
@@ -124,7 +124,8 @@ The setup is one time, and a person does it:
 
 The alert appears at the app's first connection to a guest, so step 5 can come
 later than step 4. Until a person allows the alert, each guest connection fails
-as "The Local Network diagnosis" below describes.
+as "The Local Network diagnosis" below describes. An upgrade can raise the
+alert again, as "Packaging and identity" below describes.
 
 ```mermaid
 sequenceDiagram
@@ -159,14 +160,13 @@ ADR-0020 records the choices of this section and their trade-offs.
   `linkuistics/taps/testanyware` and on Apple silicon.
 - The bundle id is `dev.antony.TestAnyware`. The app has a Developer ID
   Application signature of team `TA43A4RUP3` and the hardened runtime. It is
-  notarised and stapled, as Koine is.
-- The main executable of the app carries one pinned UUID, the same value in
-  every release. The build sets it before it signs the app, and the release
-  checks it.
-- The Host CLI's executable keeps a UUID of its own, which changes with each
-  build. The two executables never share a UUID.
-- A development build of the app has its own bundle id and its own pinned UUID.
-  So it never shares a Local Network row with a release.
+  notarised and stapled, as Koine is. This signing identity stays the same in
+  every release, and the release checks it.
+- Each executable keeps the UUID that its link gives it, so the UUID changes
+  with each build. Nothing edits a UUID. The app and the Host CLI never share a
+  UUID.
+- A development build of the app has its own bundle id. So it never shares a
+  Local Network row with a release.
 - The formula `testanyware` stays the Host CLI on macOS and on Linux. One
   release tag versions the formula and the cask together.
 - The cask keeps the quarantine attribute, as Koine's does. Its `uninstall quit:`
@@ -174,8 +174,17 @@ ADR-0020 records the choices of this section and their trade-offs.
   and never the VM state.
 
 On an upgrade, Homebrew quits the app, replaces the bundle, carries the approval
-of the first start to the new copy, and opens it again. The pinned UUID keeps the
-Local Network grant. Each VM keeps running while the app is down.
+of the first start to the new copy, and opens it again. Each VM keeps running
+while the app is down. The unchanged signing identity keeps the app's one Local
+Network row in System Settings.
+
+The new executable UUID makes macOS evaluate the grant again. In the
+measurements, the first connection after such a change failed for about 2 s. The
+5 s retry of a guest stream covers that.
+
+One change in three also raised the alert again. Then a person allows
+TestAnyware once more. Until then, each guest connection fails with the denial
+and its remedy, and no command waits. The owner accepts this cost of an upgrade.
 
 ```mermaid
 sequenceDiagram
@@ -193,7 +202,13 @@ sequenceDiagram
   H->>A2: open -b dev.antony.TestAnyware
   A2->>V: adoption
   A2->>M: first connection to a guest
-  M-->>A2: allowed: same pinned executable UUID (ADR-0020)
+  M-->>A2: new executable UUID: evaluate the grant again (ADR-0020)
+  alt the grant holds
+    M-->>A2: refused for about 2 s, then allowed within the retry
+  else macOS raises the alert again
+    M-->>P: Local Network alert
+    A2-->>P: commands fail with local_network_denied until a person allows it
+  end
 ```
 
 An existing user of TestAnyware takes one new step: the setup above.
@@ -245,6 +260,11 @@ Each lifecycle request carries the options that the Host CLI parsed, and the
 state and data directories that it resolved. The app never reads a
 setting from the environment of a client.
 
+The app answers `GET /v1/status` for any protocol range and any directories.
+That request changes nothing, and `doctor` needs it to report a mismatch. The
+response keeps the app's build, protocol range and directories in the same
+fields in every protocol version.
+
 A guest stream carries the guest protocol's bytes unchanged, in both
 directions:
 
@@ -256,6 +276,23 @@ directions:
 - A half-close passes through. Each relay buffer has an upper bound.
 - The app sets no timeout of its own on an open stream. The Host CLI's own
   timeouts stay as they are.
+
+The agent client leaves reqwest, because a reqwest connector can return only
+reqwest's own connection type. The agent client speaks HTTP/1.1 through hyper's
+client connection, which takes any byte stream (ADR-0004). It does so on every
+host, on a TCP connection or on a guest stream. It keeps each behaviour of
+today:
+
+- Each request opens its own connection, and the client closes it after the
+  response. No connection serves two requests.
+- The timeout covers the whole request, from the dial to the last byte of the
+  body. A timeout for one request, such as the one of `exec`, replaces it.
+- An upload or a download streams its body, and nothing holds the whole file
+  (ADR-0001).
+- Each failure keeps its code. A failed dial is `CONNECTION_REFUSED` with its
+  errno. A timeout is `CONNECTION_TIMEOUT`, and a connection that ends early is
+  `CONNECTION_DROPPED`. A status or an error body from the agent maps as today.
+- The client follows no redirect. No In-VM agent sends one.
 
 ```mermaid
 sequenceDiagram
@@ -333,7 +370,7 @@ flowchart TD
   start(["Start here: the app starts"]):::start --> read["Read each sidecar in the state directory"]
   read --> ident{"Does the meta record an identity<br/>for each process?"}
   ident -- "yes" --> match{"Do pid, start time and<br/>boot session all match?"}
-  ident -- "no (an older sidecar)" --> legacy["Adopt for streams only.<br/>Stop by name, never by signal"]
+  ident -- "no (an older sidecar)" --> legacy["Adopt for streams only.<br/>Stop by name or through the<br/>control sockets, never by signal"]
   match -- "all match" --> adopt["Adopt: serve streams,<br/>signal only these processes"]
   match -- "the process is gone" --> gone["Report the VM as stopped.<br/>Leave its sidecars for vm stop"]
   match -- "the pid names another process" --> doubt["Not adopted: report the reason,<br/>signal nothing"]
@@ -346,14 +383,38 @@ The rules of adoption:
 - The meta records the pid, the start time and the boot session UUID of each
   process that it names. The app sends a signal to a process only when all
   three match. It writes the meta atomically.
+- The meta of a QEMU guest also records its session directory. That directory
+  holds the monitor socket and the control socket of swtpm.
+- swtpm ends when its QEMU ends. The app starts swtpm with the option that ends
+  it when its control connection closes. A start that fails before QEMU connects
+  stops swtpm through its control socket.
 - An older meta records no identity. The app serves the streams of such a
   VM, but it sends a signal to none of its processes. It stops a tart guest by
-  name with `tart stop`, and a QEMU guest through its monitor socket.
+  name with `tart stop` and `tart delete`, and the VNC keeper then ends itself
+  (ADR-0018).
+- An older meta records no session directory either. The app looks for it by
+  the VM id, as the older Host CLI named it. It looks first in its own
+  temporary directory, and then in `/tmp`, which a starter with no `TMPDIR` used.
+  A starter with another `TMPDIR` put it elsewhere, and the app does not find it.
 - A failed adoption never stops, kills or starts a VM again. The app
   reports the VM as not adopted, with the reason, in `GET /v1/status` and in its
   menu. The VM keeps running.
 - The app serves its socket before it probes the survivors. So a survivor
   that answers nothing never delays the app.
+
+An older QEMU guest stops through its control sockets, and never by a signal:
+
+- When its monitor answers, the app sends `quit`. An orderly exit of QEMU also
+  ends its swtpm.
+- When the control socket of swtpm still answers after QEMU is gone, the app
+  sends swtpm its shutdown command on that socket.
+- The stop succeeds when neither socket answers and no process holds the
+  clone's disk, within a bounded wait. Then the app removes the clone and
+  session directories, and both sidecars.
+- Otherwise the app removes nothing. The sidecars stay, so that a later
+  `vm stop` can try again. The stop fails with `VM_STOP_FAILED`, and its details
+  name what still answers or holds the disk. The remedy says to quit that QEMU
+  by hand, and then to run `vm stop` again.
 
 ### Version skew
 
@@ -372,13 +433,18 @@ error names both builds and both ranges, and one remedy:
 
 A client never restarts the app, so no client stops an app that other
 clients use. When the builds differ and the ranges overlap, the command
-proceeds. `doctor` then reports both builds, and whether the running app is older
+proceeds. The Host CLI then writes one notice line to stderr, in both output
+modes. The notice names both builds and the remedy from the table above.
+
+The notice changes neither stdout nor the JSON envelope. The progress lines of
+`vm start --wait` use stderr in the same way. `--quiet` does not suppress the
+notice. `doctor` also reports both builds, and whether the running app is older
 than its bundle on disk.
 
 ```mermaid
 flowchart TD
   s(["Start here: a request<br/>with the CLI's protocol range"]):::start --> o{"Do the ranges<br/>overlap?"}
-  o -- "yes" --> ok["Serve. If the builds differ,<br/>doctor reports both"]
+  o -- "yes" --> ok["Serve. If the builds differ,<br/>a notice on stderr names both"]
   o -- "no" --> who{"Which side<br/>is older?"}
   who -- "the app; its<br/>bundle is newer" --> r1["APP_INCOMPATIBLE:<br/>quit TestAnyware,<br/>open it again"]
   who -- "the app and<br/>its bundle" --> r2["APP_INCOMPATIBLE:<br/>brew upgrade --cask<br/>testanyware-app"]
@@ -404,14 +470,15 @@ connection that it makes to a guest:
   `local_network_denied` or `host_unreachable`.
 
 The remedy names the app: allow TestAnyware in System Settings, Privacy &
-Security, Local Network, which a person does once. Before that grant, the first
-guest connection raises the alert, and the command fails in about 8 s with this
-remedy. It does not wait for a person to answer.
+Security, Local Network. A person does this once, and again when an upgrade
+asks (ADR-0020). Before that grant, the first guest connection raises the
+alert, and the command fails in about 8 s with this remedy. It does not wait
+for a person to answer.
 
 ```mermaid
 flowchart TD
   s(["Start here: the app dials<br/>a guest for a stream"]):::start --> r{"What did the<br/>dial give?"}
-  r -- "connected" --> ok["Relay the stream.<br/>Record: allowed"]
+  r -- "connected" --> ok["Relay the stream.<br/>Record allowed only for<br/>an attached network"]
   r -- "refused or<br/>timeout" --> e1["The error<br/>of today"]
   r -- "unreachable" --> w{"Under 5 s since<br/>the first try?"}
   w -- "yes: dial again" --> r
@@ -421,9 +488,13 @@ flowchart TD
   classDef start fill:#1f2937,stroke:#111827,color:#ffffff,font-weight:bold
 ```
 
-The app keeps its last observation of the grant for `doctor` and its menu.
-It is allowed after a guest connection succeeds, denied after `nc` proves a
-denial, and not yet seen before either.
+The app keeps its last observation of the grant for `doctor` and its menu,
+with the destination and the time of the dial that made it. Only a dial to a
+network that one of the host's interfaces attaches, other than loopback, changes
+the observation. The tart guest subnet is such a network. A dial of that kind
+that connects records allowed, and a denial that `nc` proves records denied. A
+dial to loopback, or beyond the attached networks, leaves the observation as it
+was. Before the first dial of that kind, the observation is not yet seen.
 
 ### Configuration
 
@@ -452,11 +523,16 @@ reports the error in its menu and through `doctor`. The Host CLI refuses to run
 with a file that fails, with `CONFIG_INVALID`, the file, the line and the
 message.
 
+`doctor` is the one command that runs with a file that fails. Its `config`
+check fails with the `CONFIG_INVALID` error object. Its other checks use the
+values that resolve without the file.
+
 Each request names the directories that the Host CLI resolved. When they differ
 from the app's directories, the command fails with `APP_INCOMPATIBLE` and
 `details.cause` `directories`. The error names both pairs of directories. Its
 remedy names `config.rhai`, the variable that differs, and a restart of the app
-when the app evaluated an older file.
+when the app evaluated an older file. The one exception is `GET /v1/status`,
+which `doctor` sends.
 
 ```mermaid
 flowchart TD
@@ -489,7 +565,10 @@ Each existing code keeps its meaning and its exit code.
   observation, the configuration, each VM that was not adopted, and whether the
   directories match. Each failing item carries a remedy. On a Linux or Windows
   host, the check reports that it does not apply. A `config` check on every host
-  reports the Host CLI's own evaluation of the file.
+  reports the Host CLI's own evaluation of the file. A configuration error, a
+  directory mismatch and a protocol mismatch are each a failing check in the
+  report, not an error envelope. As today, a failing check makes `doctor` exit
+  with 1.
 - **`llm-instructions`** gains a section on the TestAnyware app. It covers the
   one-time setup by a person, and the rule that a client never starts the app.
   It also covers each error above with its remedy, and golden creation from
@@ -504,6 +583,13 @@ Each existing code keeps its meaning and its exit code.
 the guest itself, through SSH, RFB and the agent, and it does not use the app.
 On a macOS host it needs a context with Local Network access, such as
 Terminal. Under herdr it fails as it does today.
+
+Golden creation sends no request, so the app cannot compare its directories.
+So on a macOS host, golden creation compares them itself, before it starts. It
+resolves the directories that the app resolves: those of `config.rhai`, else
+the built-in defaults, with no flag and no variable. When its own directories
+differ, it fails with `APP_INCOMPATIBLE`, `details.cause` `directories` and the
+same remedy. This check needs no running app.
 
 ### Linux and Windows hosts
 
@@ -525,6 +611,12 @@ are wrong today:
   variable first.
 - The list of error codes in the command surface omits `AGENT_INVALID_JSON`,
   which the agent client returns.
+- `docs/architecture/cli-design-contract.md` binds the command surface. Its
+  amendment for the Local Network denial says that the remedy is to run
+  testanyware from an app with Local Network access. On a macOS host, the
+  remedy names the TestAnyware app instead (ADR-0019). The contract's catalogue
+  of error codes also gains the codes of "New error codes" above. The dated
+  research documents stay as evidence, unchanged.
 
 ## Requirements
 
@@ -591,10 +683,18 @@ When the app starts, it SHALL adopt each VM that its identity rules allow.
 - **WHEN** a meta records a pid whose start time differs from the live process
 - **THEN** the app reports the VM as not adopted and signals nothing
 
+#### Scenario: An older QEMU guest that does not stop
+
+- **WHEN** `vm stop` names a QEMU guest of an older meta, and its monitor does
+  not answer while a process holds its disk
+- **THEN** the stop fails with `VM_STOP_FAILED`, signals nothing, and keeps the
+  sidecars and the clone
+
 ### Requirement: A version mismatch is never silent
 
 When the protocol ranges do not overlap, the command SHALL fail with
-`APP_INCOMPATIBLE` and a remedy.
+`APP_INCOMPATIBLE` and a remedy. When the builds differ and the ranges overlap,
+the Host CLI SHALL write a notice to stderr.
 
 #### Scenario: The running app is older than its bundle
 
@@ -602,6 +702,13 @@ When the protocol ranges do not overlap, the command SHALL fail with
   disk is newer
 - **THEN** the command fails, names both builds, and says to quit and open
   TestAnyware
+
+#### Scenario: Builds that differ, with ranges that overlap
+
+- **WHEN** the Host CLI's build differs from the running app's, and their
+  protocol ranges overlap
+- **THEN** the command succeeds with the stdout of today, and one line on stderr
+  names both builds and the remedy
 
 ### Requirement: A Local Network denial names the app
 
@@ -616,15 +723,26 @@ remedy SHALL name the TestAnyware app.
   `local_network_denied` in about 8 s after the guest's address appears, and the
   remedy names TestAnyware
 
-### Requirement: The grant survives an upgrade
+#### Scenario: A loopback connection after a denial
 
-A cask upgrade of the app SHALL keep the Local Network grant.
+- **WHEN** the app proved a denial on a tart guest, and a stream to a loopback
+  endpoint then connects
+- **THEN** the grant observation stays denied, with the destination and the time
+  of the denial
+
+### Requirement: An upgrade keeps the app's identity
+
+A cask upgrade of the app SHALL keep its bundle id and its signing identity.
+After an upgrade, no command SHALL wait for a person.
 
 #### Scenario: An upgrade through Homebrew
 
 - **WHEN** `brew upgrade --cask testanyware-app` installs a new release, and a
   command then reaches a tart guest
-- **THEN** no alert appears, and the first connection succeeds
+- **THEN** no "downloaded from the Internet" dialog appears, and System Settings
+  shows one TestAnyware row
+- **AND** the command succeeds within the retry of a guest stream, or it fails
+  with `local_network_denied` and a remedy that names TestAnyware
 
 ### Requirement: One configuration file
 
@@ -633,14 +751,38 @@ The Host CLI and the app SHALL evaluate `config.rhai` with one evaluator.
 #### Scenario: A file that fails
 
 - **WHEN** `config.rhai` has a syntax error
-- **THEN** each command fails with `CONFIG_INVALID` and the line, and the app
-  runs with its defaults and shows the error in its menu
+- **THEN** each command except `doctor` fails with `CONFIG_INVALID` and the
+  line, and the app runs with its defaults and shows the error in its menu
 
 #### Scenario: Directories that differ
 
 - **WHEN** the Host CLI resolves a state directory that differs from the app's
 - **THEN** the command fails with `APP_INCOMPATIBLE`, `details.cause`
   `directories`, both directories and the remedy
+
+#### Scenario: Golden creation with directories that differ
+
+- **WHEN** `vm create-golden` runs on a macOS host with `XDG_DATA_HOME` set to a
+  directory other than the default, and `config.rhai` names no `data_dir`
+- **THEN** it fails with `APP_INCOMPATIBLE` and `details.cause` `directories`
+  before it starts, whether the app runs or not
+
+### Requirement: doctor reports the failures that it diagnoses
+
+`doctor` SHALL report a configuration error, a directory mismatch and a
+protocol mismatch as failing checks, and it SHALL exit with 1.
+
+#### Scenario: doctor with a file that fails
+
+- **WHEN** `config.rhai` has a syntax error, and a person runs `doctor`
+- **THEN** its `config` check fails with the `CONFIG_INVALID` error object, and
+  its `app` check still reports the running app
+
+#### Scenario: doctor with directories that differ
+
+- **WHEN** the Host CLI's state directory differs from the app's, and a person
+  runs `doctor`
+- **THEN** its `app` check fails, names both directories and gives the remedy
 
 ### Requirement: Linux and Windows hosts keep the direct path
 
@@ -664,28 +806,42 @@ The human agreed these three seams in `plan-k1`.
   and a synthetic RFB server. The test writes the sidecars that name them.
 
   This seam covers guest streams, a half-close, a large transfer and `vm list`.
-  It covers adoption from sidecars, the version handshake, and the uid and
-  directory checks. It also covers the directory refusal, the configuration
-  errors, and how each error maps to the envelope.
+  It covers adoption from sidecars, the version handshake, the skew notice, and
+  the uid and directory checks. It also covers the directory refusal, the
+  configuration errors and how each error maps to the envelope. It covers
+  `doctor` with a file that fails, and with directories that differ. The agent
+  client runs here on guest streams, and its existing tests run it on TCP.
 - **The existing seams of pure functions and injected probes**, for decisions
   inside the app. These are adoption by identity, the skew decision and
-  the Local Network diagnosis of a guest stream. They also include the order of
-  configuration sources and the checks of the socket path.
+  the Local Network diagnosis of a guest stream. They also include the grant
+  observation and the stop of an older QEMU guest. The last are the order of
+  configuration sources, the directory check of golden creation and the checks
+  of the socket path.
 - **The existing Taskfile live checks**, for three runs on this Mac:
   - The herdr acceptance run. From a herdr session, a macOS guest starts. An
     agent, screen, input and file command each act on it, and it stops. Each
     step goes through the app.
-  - The grant survives an upgrade. Release N is installed and allowed, then the
-    cask installs release N+1, and the first connection succeeds with no alert.
+  - An upgrade keeps the app's identity. Release N is installed and allowed,
+    then the cask installs release N+1. The first command to a tart guest
+    succeeds, or it fails with the denial that names TestAnyware. After a person
+    allows the app again, the command succeeds, and System Settings shows one
+    TestAnyware row.
   - VMs survive a quit of the app, and the app adopts them when it opens again.
 
 ## Open risks
 
 - **The release build.** The probe was not notarised, quarantined or installed
-  in `/Applications`. The live check of an upgrade proves the release build.
-- **The one unexplained alert.** At one upgrade with a new UUID, macOS raised the
-  alert again. A pinned UUID avoided it, but each row of the measurements ran
-  once.
+  in `/Applications`. Nobody measured whether notarisation changes what an
+  upgrade does to the grant. The live check of an upgrade proves the release
+  build.
+- **An alert after an upgrade.** At one upgrade in three with a new UUID, macOS
+  raised the alert again, and nothing explains which one. Each row of the
+  measurements ran once. The owner accepts that a person may allow the app
+  again after an update (ADR-0020).
+- **A client's `TART_HOME`.** tart reads this variable to find its storage, and
+  so its macOS goldens. The app runs tart with its own environment, so a
+  client's `TART_HOME` reaches only golden creation. TestAnyware documents no
+  such variable, and nothing checks it.
 - **Homebrew's approval carry-over.** Homebrew 7.0.9 copies the approval of the
   first start when the signing identity stays the same. Nobody has tested it
   with a TestAnyware release.

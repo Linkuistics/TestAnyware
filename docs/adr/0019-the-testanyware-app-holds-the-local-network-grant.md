@@ -53,7 +53,8 @@ golden creation (ADR-0004). So it diagnoses each denial:
   with cause `local_network_denied` or `host_unreachable`. A new executable UUID
   gave a refusal of about 2 s in the measurements, and the retry covers it.
 - **The remedy** says to allow TestAnyware in System Settings, Privacy &
-  Security, Local Network. A person does this once.
+  Security, Local Network. A person does this once, and again when an upgrade
+  asks (ADR-0020).
 
 A QEMU guest is on loopback and never asks. Golden creation keeps the direct
 path, so it needs a context with Local Network access, such as Terminal.
@@ -80,8 +81,8 @@ an injected oracle, so unit tests drive the rules with scripted probe results.
 
 ## Consequences
 
-- After a person allows the alert once, an agent under herdr reaches each guest
-  through the app. ADR-0020 keeps that grant across upgrades.
+- After a person allows the alert, an agent under herdr reaches each guest
+  through the app. An upgrade can ask for the grant again (ADR-0020).
 - Before the grant, a command fails about 8 s after the guest's address appears,
   and the error names the app. The command does not wait for a person.
 - The diagnosis spawns `nc` only on a failing connection. It needs no new

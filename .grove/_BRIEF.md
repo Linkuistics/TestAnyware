@@ -17,9 +17,11 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
 - VMs outlive the app, and the app adopts them when it starts again.
 - Each command, flag, environment variable, VM id, exit code and `--json` field
   keeps its meaning.
-- After the one-time setup, an agent never waits for a human while the app
-  runs. macOS starts the app at login, as it starts Koine, and a client never
-  starts it. When the app is not running, a command fails and names the remedy.
+- After the setup, an agent never waits for a human while the app runs. An
+  upgrade can ask a person to allow the app again, and until then a command
+  fails and names that remedy. macOS starts the app at login, as it starts
+  Koine, and a client never starts it. When the app is not running, a command
+  fails and names the remedy.
 - Only the user who runs the app can reach it.
 - One optional Rhai file, `~/.config/testanyware/config.rhai`, configures the
   app and the Host CLI.
@@ -29,8 +31,8 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
 - A version mismatch between the CLI and the running app is never silent.
 - A tagged release, published to `linkuistics/taps`, installs the signed app
   with the CLI.
-- On this Mac, after the one-time grant, the herdr acceptance run passes, and
-  the grant survives an upgrade of the app.
+- On this Mac, after the grant, the herdr acceptance run passes. An upgrade of
+  the app keeps its signing identity and its one Local Network row.
 
 ## Decomposition
 
@@ -46,7 +48,7 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
 - ADRs in this area:
   - ADR-0004: each command opens its own guest connections.
   - ADR-0019: the app holds the Local Network grant.
-  - ADR-0020: one executable UUID, and a cask.
+  - ADR-0020: one signing identity, and a cask.
   - ADR-0021: one Rhai file.
 - ADRs a session here also reads: ADR-0009 (verification harness), ADR-0010
   (host-side framebuffer) and ADR-0018 (VNC keeper).
@@ -65,8 +67,8 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
     fakes on loopback: a wiremock In-VM agent and a synthetic RFB server.
   - The existing seams of pure functions and injected probes, for decisions
     inside the app such as adoption.
-  - The existing Taskfile live checks, for the herdr acceptance run and for the
-    grant that survives an upgrade.
+  - The existing Taskfile live checks, for the herdr acceptance run and for an
+    upgrade that keeps the app's identity.
 
 ## Notes
 

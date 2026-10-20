@@ -10,14 +10,17 @@ ends the work.
 
 - `docs/specs/testanyware-app.md` and the ADRs it cites.
 - The decision log of `plan-k1`.
+- The decision log of `vm-broker-design-k6`. It records the owner's choice on
+  upgrades and each correction of the reviewed design.
 
 ## Done when
 
 - The tree holds the increments in dependency order. Each increment leaves the
   product working, with a behaviour that a test or a live check proves.
 - A release leaf ends the work and publishes a tagged version to
-  `linkuistics/taps`. Before it publishes, the herdr acceptance run passes, and
-  the grant survives an upgrade of the app.
+  `linkuistics/taps`. Before it publishes, the herdr acceptance run passes. The
+  live check of an upgrade also passes: the app keeps its signing identity and
+  its one Local Network row.
 
 ## Notes
 

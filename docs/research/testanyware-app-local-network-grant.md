@@ -132,7 +132,10 @@ tart's VNC server listened on `*:<port>`, a wildcard IPv6 socket, while its
 
 ## Where the findings landed
 
-- ADR-0020 pins the UUID of the app's executable, from fact 3.
+- ADR-0020 keeps one signing identity for the app, from fact 3. It accepts that
+  a new UUID in each release makes macOS evaluate the grant again. The owner
+  rejected the pinned UUID and the stable launcher in leaf
+  `vm-broker-design-k6`.
 - ADR-0019 moves the Local Network diagnosis into the TestAnyware app, from facts 1
   and 2.
 - `docs/specs/testanyware-app.md` relies on fact 4 for the lifecycle of VMs.

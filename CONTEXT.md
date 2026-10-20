@@ -111,9 +111,10 @@ connections with `nc`, and the error names cause `local_network_denied`
 _Avoid_: "the agent is down" (it is up), and "firewall" (no firewall rule applies).
 
 **Local Network grant**:
-The user's one-time permission for the *TestAnyware app* to reach the local
-network, the tart guest subnet among it. macOS ties it to the app's main
-executable UUID, which stays the same in every release (ADR-0020).
+The user's permission for the *TestAnyware app* to reach the local network,
+the tart guest subnet among it. macOS ties it to the app's signing identity and
+its main executable UUID. The identity stays the same in every release, but the
+UUID changes, so an upgrade can ask the user again (ADR-0020).
 _Avoid_: "the permission" (Accessibility and Screen Recording are permissions
 too).
 

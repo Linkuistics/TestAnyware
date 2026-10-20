@@ -80,6 +80,10 @@ still pays one RFB handshake.
 
 - The Host CLI's protocol code is the same on every host. Only the connection
   under it differs: a TCP connection, or a guest stream.
+- The agent client leaves reqwest. A reqwest connector can return only
+  reqwest's own connection type, so it cannot carry a guest stream. The agent
+  client speaks HTTP/1.1 through hyper's client connection, which takes any
+  byte stream. It does so on every host.
 - A guest stream adds one relay hop and one bounded buffer. A stall of the relay
   shows as a stream that does not open, and the Host CLI's own timeouts bound
   it.
