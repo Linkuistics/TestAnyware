@@ -14,13 +14,13 @@ use testanyware_vm::capture::{
     capture_frame, capture_frame_physical, capture_frame_png, encode_png, CaptureError,
 };
 
-use crate::commands::connect_vnc;
+use crate::commands::{connect_vnc, exit_vnc_connect_error};
 use crate::output::{exit_code_for, print_error, print_success, OutputMode};
-use crate::resolve::{resolve_vnc, ConnectionOptions, ResolveError};
+use crate::resolve::{resolve_vnc_endpoint, ConnectionOptions, ResolveError};
 
 /// `testanyware screen size` — print the framebuffer dimensions.
 pub async fn run_screen_size(opts: ConnectionOptions, mode: OutputMode) {
-    let endpoint = match resolve_vnc(&opts) {
+    let endpoint = match resolve_vnc_endpoint(&opts) {
         Ok(e) => e,
         Err(err) => exit_resolve_error(err, mode),
     };
@@ -37,7 +37,7 @@ pub async fn run_screen_size(opts: ConnectionOptions, mode: OutputMode) {
                 }
             }
         }
-        Err(err) => exit_rfb_error(err, mode),
+        Err(err) => exit_vnc_connect_error(err, mode),
     }
 }
 
@@ -70,13 +70,13 @@ pub async fn run_screen_capture(
         None => None,
     };
 
-    let endpoint = match resolve_vnc(&opts) {
+    let endpoint = match resolve_vnc_endpoint(&opts) {
         Ok(e) => e,
         Err(err) => exit_resolve_error(err, mode),
     };
     let mut conn = match connect_vnc(&endpoint).await {
         Ok(c) => c,
-        Err(err) => exit_rfb_error(err, mode),
+        Err(err) => exit_vnc_connect_error(err, mode),
     };
 
     // Default crop is the full frame in the chosen coordinate space: logical
@@ -153,7 +153,7 @@ pub async fn run_screen_find_text(
     all: bool,
     mode: OutputMode,
 ) {
-    let endpoint = match resolve_vnc(&opts) {
+    let endpoint = match resolve_vnc_endpoint(&opts) {
         Ok(e) => e,
         Err(err) => exit_resolve_error(err, mode),
     };
@@ -162,7 +162,7 @@ pub async fn run_screen_find_text(
     // 1920×1080 OCR feed, not the raw 3840×2160 wire frame.
     let mut conn = match connect_vnc(&endpoint).await {
         Ok(c) => c,
-        Err(err) => exit_rfb_error(err, mode),
+        Err(err) => exit_vnc_connect_error(err, mode),
     };
 
     let engine = OcrEngine::detect();

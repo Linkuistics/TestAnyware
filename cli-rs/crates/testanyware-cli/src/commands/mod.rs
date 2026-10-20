@@ -20,7 +20,9 @@ pub mod viewer;
 pub mod vm;
 pub mod window;
 
-use testanyware_agent_client::{AgentClient, AgentConfig, AgentError};
+use testanyware_agent_client::{AgentClient, AgentConfig, AgentError, ConnectorFailure};
+use testanyware_app_client::AppClient;
+use testanyware_app_protocol::{AppError, StreamKind};
 use testanyware_rfb::{RfbConnection, RfbError};
 use tokio::io::{AsyncRead, AsyncWrite, BufReader};
 use tokio::net::TcpStream;
@@ -29,27 +31,86 @@ use crate::app_route;
 use crate::output::{exit_code_for, print_error, OutputMode};
 use crate::resolve::{
     app_socket_with_env, resolve_agent, resolve_agent_target_with_env, ConnectionOptions,
-    EnvProvider, ResolveError, ResolvedAgent, ResolvedVnc,
+    EnvProvider, ResolveError, ResolvedAgent, ResolvedVnc, VncEndpoint,
 };
+
+/// A byte stream that carries RFB: a TCP connection on the direct path, a guest stream of
+/// the TestAnyware app on the routed one. The RFB client is generic over its transport, so
+/// this one trait object is all the commands need to name.
+pub(crate) trait VncStream: AsyncRead + AsyncWrite + Unpin + Send + 'static {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> VncStream for T {}
+
+/// The RFB connection of every VNC command and of the viewer.
+pub(crate) type VncConnection = RfbConnection<BufReader<Box<dyn VncStream>>>;
+
+/// Why a VNC connection did not open: the RFB handshake failed, or the TestAnyware app
+/// refused to give a guest stream.
+#[derive(Debug)]
+pub(crate) enum VncConnectError {
+    Rfb(RfbError),
+    App(AppError),
+}
+
+impl std::fmt::Display for VncConnectError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VncConnectError::Rfb(err) => err.fmt(f),
+            VncConnectError::App(err) => write!(f, "{}: {}", err.code, err.message),
+        }
+    }
+}
+
+impl From<RfbError> for VncConnectError {
+    fn from(err: RfbError) -> Self {
+        VncConnectError::Rfb(err)
+    }
+}
+
+/// Print the error of a VNC connect and exit.
+pub(crate) fn exit_vnc_connect_error(err: VncConnectError, mode: OutputMode) -> ! {
+    match err {
+        VncConnectError::Rfb(err) => screen::exit_rfb_error(err, mode),
+        VncConnectError::App(err) => exit_connector_failure(&app_route::failure_of(err), mode),
+    }
+}
 
 /// Open an RFB connection to a resolved VNC endpoint and apply the HiDPI
 /// logical target the spec carried (ADR-0016 D2), if any.
 ///
-/// Every VNC consumer (`screen *`, `input *`, `record`) funnels its connect
+/// Every VNC consumer (`screen *`, `input *`, `record`, `viewer`) funnels its connect
 /// through here so the scale-aware surface is wired uniformly: a `@2x` VM's
 /// spec carries a [`logical`](ResolvedVnc::logical) target, which k5's
 /// connection downsamples reads to and scales pointer writes from. On the
 /// default 1× path `logical` is `None` and this is a plain connect.
-pub(crate) async fn connect_vnc(
-    endpoint: &ResolvedVnc,
-) -> Result<RfbConnection<BufReader<TcpStream>>, RfbError> {
-    let mut conn = RfbConnection::connect(
-        &endpoint.host,
-        endpoint.port,
-        endpoint.password.as_deref().map(str::as_bytes),
+///
+/// With a route, the transport is a guest stream from the TestAnyware app and the Host CLI
+/// dials nothing itself. Without one, it is a TCP connection to the endpoint, as before.
+pub(crate) async fn connect_vnc(endpoint: &VncEndpoint) -> Result<VncConnection, VncConnectError> {
+    let resolved = &endpoint.resolved;
+    let stream: Box<dyn VncStream> = match &endpoint.route {
+        Some(route) => {
+            let client = AppClient::new(route.socket.clone(), app_route::client_hello());
+            let stream = client
+                .open_stream(&route.target, StreamKind::Vnc)
+                .await
+                .map_err(VncConnectError::App)?;
+            Box::new(stream)
+        }
+        None => {
+            let stream = TcpStream::connect((resolved.host.as_str(), resolved.port))
+                .await
+                .map_err(RfbError::from)?;
+            // Disable Nagle so our small handshake messages flush promptly.
+            stream.set_nodelay(true).ok();
+            Box::new(stream)
+        }
+    };
+    let mut conn = RfbConnection::handshake(
+        BufReader::new(stream),
+        resolved.password.as_deref().map(str::as_bytes),
     )
     .await?;
-    apply_logical_target(&mut conn, endpoint);
+    apply_logical_target(&mut conn, resolved);
     Ok(conn)
 }
 
@@ -58,7 +119,7 @@ pub(crate) async fn connect_vnc(
 /// 1× — HiDPI did not take (a 1× host, or it didn't engage). The auto-detected
 /// `scale == 1` keeps that case *correct* (everything operates in 1×), never
 /// silently wrong; the warning makes it visible. Generic over the transport so
-/// the viewer (whose connect is cancellable, not via [`connect_vnc`]) shares it.
+/// the viewer shares it.
 pub(crate) fn apply_logical_target<T: AsyncRead + AsyncWrite + Unpin>(
     conn: &mut RfbConnection<T>,
     endpoint: &ResolvedVnc,
@@ -135,17 +196,7 @@ pub fn exit_agent_error(err: AgentError, mode: OutputMode) -> ! {
     // Its remedy wins, and where the app sends none the code keeps the remedy it has today.
     // The exit code is the one the code has today.
     if let AgentError::Connector(failure) = &err {
-        print_error(
-            mode,
-            &failure.code,
-            &failure.message,
-            failure
-                .remediation
-                .as_deref()
-                .or_else(|| remediation_for(&failure.code)),
-            failure.details.clone(),
-            exit_code_for(&failure.code),
-        );
+        exit_connector_failure(failure, mode);
     }
     let code = err.code();
     let raw = err.to_string();
@@ -169,6 +220,23 @@ pub fn exit_agent_error(err: AgentError, mode: OutputMode) -> ! {
         remediation_for(code),
         details,
         exit_code_for(code),
+    );
+}
+
+/// Print a failure that the TestAnyware app reported, in the envelope of the Host CLI, and
+/// exit. The app's remedy wins, and where it sends none the code keeps the remedy it has
+/// today. The exit code is the one the code has today.
+fn exit_connector_failure(failure: &ConnectorFailure, mode: OutputMode) -> ! {
+    print_error(
+        mode,
+        &failure.code,
+        &failure.message,
+        failure
+            .remediation
+            .as_deref()
+            .or_else(|| remediation_for(&failure.code)),
+        failure.details.clone(),
+        exit_code_for(&failure.code),
     );
 }
 

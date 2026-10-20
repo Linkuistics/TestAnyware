@@ -54,11 +54,11 @@ use std::time::Duration;
 
 use eframe::egui;
 use testanyware_rfb::keymap::{self, Platform};
-use testanyware_rfb::{RfbConnection, ServerEvent};
+use testanyware_rfb::ServerEvent;
 
 use crate::output::{print_error, OutputMode};
 use crate::resolve::{
-    resolve_platform_with_env, resolve_vnc, ConnectionOptions, EnvProvider, ResolveError,
+    resolve_platform_with_env, resolve_vnc_endpoint, ConnectionOptions, EnvProvider, ResolveError,
 };
 
 /// Trackpad/wheel `Point`-unit delta treated as one wheel line. egui emits
@@ -132,7 +132,7 @@ pub fn run_viewer(opts: ConnectionOptions) {
     // The resolved value is discarded: the RFB thread re-resolves on every
     // (re)connect from `opts`, so a spec rewritten between attempts (e.g. a
     // new VNC port after `vm start`) is picked up automatically (leaf 030).
-    if let Err(err) = resolve_vnc(&opts) {
+    if let Err(err) = resolve_vnc_endpoint(&opts) {
         exit_resolve_error(err);
     }
     // Keysym mapping is keyed on the *guest* platform (matching the `input`
@@ -312,7 +312,7 @@ async fn connect_and_stream(
     shutdown_rx: &mut tokio::sync::watch::Receiver<bool>,
     ctx: &egui::Context,
 ) -> StreamOutcome {
-    let endpoint = match resolve_vnc(opts) {
+    let endpoint = match resolve_vnc_endpoint(opts) {
         Ok(e) => e,
         Err(err) => {
             return StreamOutcome::Lost {
@@ -322,11 +322,10 @@ async fn connect_and_stream(
         }
     };
 
-    let connect = RfbConnection::connect(
-        &endpoint.host,
-        endpoint.port,
-        endpoint.password.as_deref().map(str::as_bytes),
-    );
+    // The connect applies the @2x logical target (ADR-0016 D2): the viewer then renders the
+    // downsampled logical frame and forwards clicks in logical coords (k5 scales
+    // ×2 on the wire), so the window shows 1920×1080 and clicks land correctly.
+    let connect = crate::commands::connect_vnc(&endpoint);
     let mut conn = tokio::select! {
         result = connect => match result {
             Ok(c) => c,
@@ -340,11 +339,6 @@ async fn connect_and_stream(
         // The connect may block on a dead host; let a window close abort it.
         _ = shutdown_rx.changed() => return StreamOutcome::Shutdown,
     };
-
-    // Apply the @2x logical target (ADR-0016 D2): the viewer then renders the
-    // downsampled logical frame and forwards clicks in logical coords (k5 scales
-    // ×2 on the wire), so the window shows 1920×1080 and clicks land correctly.
-    crate::commands::apply_logical_target(&mut conn, &endpoint);
 
     // Connected: clear any overlay so the live frame shows again.
     mark_connected(frame, ctx);

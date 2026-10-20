@@ -70,7 +70,7 @@ impl AgentConnector for AppAgentConnector {
 
 /// The app's error object as the failure that the agent client hands on. The Host CLI prints
 /// it in its own envelope, so the object keeps its code, message, remedy and details.
-fn failure_of(error: AppError) -> ConnectorFailure {
+pub(crate) fn failure_of(error: AppError) -> ConnectorFailure {
     ConnectorFailure {
         code: error.code,
         message: error.message,

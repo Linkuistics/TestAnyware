@@ -21,9 +21,9 @@ use testanyware_rfb::{RfbConnection, ServerEvent};
 use testanyware_video::{new_encoder, VideoCodec, VideoEncoderConfig};
 
 use crate::commands::screen::{exit_rfb_error, parse_region};
-use crate::commands::{connect_vnc, exit_resolve_error};
+use crate::commands::{connect_vnc, exit_resolve_error, exit_vnc_connect_error};
 use crate::output::{exit_code_for, print_error, print_success, OutputMode};
-use crate::resolve::{resolve_vnc, ConnectionOptions};
+use crate::resolve::{resolve_vnc_endpoint, ConnectionOptions};
 
 /// The hard cap on a recording's length, matching the Swift recorder's
 /// server-side 300s limit. `--duration 0` means "record up to this cap".
@@ -105,13 +105,13 @@ pub async fn run_screen_record(
         return;
     }
 
-    let endpoint = match resolve_vnc(&opts) {
+    let endpoint = match resolve_vnc_endpoint(&opts) {
         Ok(e) => e,
         Err(err) => exit_resolve_error(err, mode),
     };
     let mut conn = match connect_vnc(&endpoint).await {
         Ok(c) => c,
-        Err(err) => exit_rfb_error(err, mode),
+        Err(err) => exit_vnc_connect_error(err, mode),
     };
 
     // Framebuffer-update requests are always issued in *logical* coordinates;

@@ -6,13 +6,14 @@
 //! land later, with the embedded viewer.
 
 use serde_json::json;
-use testanyware_rfb::{InputError, KeymapError, Platform, RfbConnection, RfbError};
+use testanyware_rfb::{InputError, KeymapError, Platform, RfbError};
 
 use crate::commands::window::resolve_window_offset;
+use crate::commands::{exit_vnc_connect_error, VncConnection};
 use crate::output::{print_error, print_success, OutputMode};
 use crate::resolve::{
-    resolve_platform_with_env, resolve_vnc, ConnectionOptions, EnvProvider, ResolveError,
-    ResolvedVnc,
+    resolve_platform_with_env, resolve_vnc_endpoint, ConnectionOptions, EnvProvider,
+    ResolveError, VncEndpoint,
 };
 
 /// Connect to the resolved VNC endpoint, or print a typed error and exit.
@@ -23,14 +24,14 @@ use crate::resolve::{
 pub(crate) async fn connect_or_exit(
     opts: &ConnectionOptions,
     mode: OutputMode,
-) -> RfbConnection<tokio::io::BufReader<tokio::net::TcpStream>> {
-    let endpoint: ResolvedVnc = match resolve_vnc(opts) {
+) -> VncConnection {
+    let endpoint: VncEndpoint = match resolve_vnc_endpoint(opts) {
         Ok(e) => e,
         Err(err) => exit_resolve_error(err, mode),
     };
     match crate::commands::connect_vnc(&endpoint).await {
         Ok(c) => c,
-        Err(err) => exit_rfb_error(err, mode),
+        Err(err) => exit_vnc_connect_error(err, mode),
     }
 }
 

@@ -37,10 +37,10 @@ tasks:
       - cargo test -p testanyware-app-protocol -p testanyware-app -p testanyware-app-client
 
   app:routing-test:
-    desc: Run the real host CLI binary against the real app executable and fake guests (TESTANYWARE_APP_SOCKET routing; macOS or Linux host)
+    desc: Run the real host CLI binary against the real app executable and fake guests, agent and VNC (TESTANYWARE_APP_SOCKET routing; macOS or Linux host)
     dir: '{{.CLI_DIR}}'
     cmds:
-      - cargo test -p testanyware-cli --test app-agent-routing
+      - cargo test -p testanyware-cli --test app-agent-routing --test app-vnc-routing
 
   cli:clippy:
     desc: Lint cli-rs (clippy has pre-existing warnings in testanyware-rfb and two large-Err sites, so this reports and never gates)

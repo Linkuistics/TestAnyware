@@ -19,12 +19,14 @@
 #![allow(dead_code)] // Each test file uses part of the harness.
 #![cfg(unix)]
 
-use std::net::SocketAddr;
+use std::io::{Read, Write};
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
@@ -236,16 +238,31 @@ impl TestApp {
 
     /// Write the spec file of a VM whose In-VM agent is on loopback.
     pub fn add_vm(&self, id: &str, agent: SocketAddr) {
-        // The app reads the spec as `testanyware_vm::spec::VmSpec`, which requires a `vnc`
-        // section. Nothing listens on this one: the agent commands never use it.
-        let spec = json!({
-            "agent": { "host": agent.ip().to_string(), "port": agent.port() },
-            "vnc": { "host": "127.0.0.1", "port": 1 },
-            "platform": "macos",
-        });
+        self.write_spec(id, Some(agent), None);
+    }
+
+    /// Write the spec file of a VM whose VNC server is on loopback. The VM has no agent.
+    /// `password` and `logical` are what the spec holds for them, as `vm start` writes it.
+    pub fn add_vnc_vm(&self, id: &str, vnc: &FakeRfb, logical: Option<(u32, u32)>) {
+        self.write_spec(id, None, Some((vnc, logical)));
+    }
+
+    /// The path that `--connect` takes: a spec file outside the state directory.
+    pub fn connect_spec(&self, name: &str, vnc: &FakeRfb) -> PathBuf {
+        let path = self.root().join(name);
+        std::fs::write(&path, spec_json(None, Some((vnc, None))).to_string()).unwrap();
+        path
+    }
+
+    fn write_spec(
+        &self,
+        id: &str,
+        agent: Option<SocketAddr>,
+        vnc: Option<(&FakeRfb, Option<(u32, u32)>)>,
+    ) {
         std::fs::write(
             self.state_dir().join("vms").join(format!("{id}.json")),
-            spec.to_string(),
+            spec_json(agent, vnc).to_string(),
         )
         .unwrap();
     }
@@ -328,4 +345,227 @@ pub fn pattern(seed: u64, len: usize) -> Vec<u8> {
             (state >> 24) as u8
         })
         .collect()
+}
+
+/// The JSON of a spec file. The app reads it as `testanyware_vm::spec::VmSpec`, which requires
+/// a `vnc` section, so a VM with no VNC server gets a placeholder that nothing dials.
+fn spec_json(agent: Option<SocketAddr>, vnc: Option<(&FakeRfb, Option<(u32, u32)>)>) -> Value {
+    let mut spec = json!({ "platform": "macos" });
+    if let Some(agent) = agent {
+        spec["agent"] = json!({ "host": agent.ip().to_string(), "port": agent.port() });
+    }
+    match vnc {
+        Some((rfb, logical)) => {
+            spec["vnc"] = json!({ "host": rfb.addr.ip().to_string(), "port": rfb.addr.port() });
+            if let Some(password) = &rfb.password {
+                spec["vnc"]["password"] = json!(password);
+            }
+            if let Some((width, height)) = logical {
+                spec["logical"] = json!({ "width": width, "height": height });
+            }
+        }
+        None => spec["vnc"] = json!({ "host": "127.0.0.1", "port": 1 }),
+    }
+    spec
+}
+
+// ---- the synthetic RFB server ----
+
+/// What a guest received from an RFB client.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RfbEvent {
+    Key { down: bool, keysym: u32 },
+    Pointer { buttons: u8, x: u16, y: u16 },
+    UpdateRequest { incremental: bool, w: u16, h: u16 },
+}
+
+/// A synthetic RFB 3.8 server on loopback, for the VNC routing tests.
+///
+/// It offers security type None, or VNC authentication when it has a password. It answers
+/// every framebuffer update request with the whole frame as one Raw rectangle, and it records
+/// the key and pointer events it receives. The frame is the same on every connection, so a
+/// capture through the app and a capture on the direct path print the same bytes.
+pub struct FakeRfb {
+    pub addr: SocketAddr,
+    pub width: u16,
+    pub height: u16,
+    pub password: Option<String>,
+    accepted: Arc<AtomicUsize>,
+    events: Arc<Mutex<Vec<RfbEvent>>>,
+}
+
+impl FakeRfb {
+    pub fn start(width: u16, height: u16, password: Option<&str>) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind the fake RFB server");
+        let addr = listener.local_addr().unwrap();
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let password = password.map(str::to_string);
+        let (count, log, secret) = (Arc::clone(&accepted), Arc::clone(&events), password.clone());
+        std::thread::spawn(move || {
+            for conn in listener.incoming() {
+                let Ok(conn) = conn else { continue };
+                count.fetch_add(1, Ordering::SeqCst);
+                let (log, secret) = (Arc::clone(&log), secret.clone());
+                std::thread::spawn(move || {
+                    let _ = serve_rfb(conn, width, height, secret.as_deref(), &log);
+                });
+            }
+        });
+        FakeRfb {
+            addr,
+            width,
+            height,
+            password,
+            accepted,
+            events,
+        }
+    }
+
+    /// How many connections the server accepted.
+    pub fn accepted(&self) -> usize {
+        self.accepted.load(Ordering::SeqCst)
+    }
+
+    /// The events received so far, oldest first.
+    pub fn events(&self) -> Vec<RfbEvent> {
+        self.events.lock().unwrap().clone()
+    }
+
+    /// Wait until `wanted` events satisfy `done`, because the CLI may exit before the server
+    /// thread has read its last bytes.
+    pub fn wait_for(&self, done: impl Fn(&[RfbEvent]) -> bool) -> Vec<RfbEvent> {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let events = self.events();
+            if done(&events) || Instant::now() > deadline {
+                return events;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+}
+
+/// One pixel of the frame, in the BGRX layout that the client asks for.
+fn frame_pixel(x: u16, y: u16) -> [u8; 4] {
+    [(x * 4) as u8, (y * 5) as u8, ((x + y) * 3) as u8, 0]
+}
+
+fn serve_rfb(
+    mut conn: TcpStream,
+    width: u16,
+    height: u16,
+    password: Option<&str>,
+    log: &Mutex<Vec<RfbEvent>>,
+) -> std::io::Result<()> {
+    conn.set_read_timeout(Some(Duration::from_secs(10)))?;
+    conn.write_all(b"RFB 003.008\n")?;
+    let mut version = [0u8; 12];
+    conn.read_exact(&mut version)?;
+    let mut byte = [0u8; 1];
+    match password {
+        None => {
+            conn.write_all(&[1, 1])?; // one security type: None
+            conn.read_exact(&mut byte)?;
+        }
+        Some(password) => {
+            conn.write_all(&[1, 2])?; // one security type: VNC authentication
+            conn.read_exact(&mut byte)?;
+            let challenge: [u8; 16] = std::array::from_fn(|i| i as u8 * 7 + 1);
+            conn.write_all(&challenge)?;
+            let mut response = [0u8; 16];
+            conn.read_exact(&mut response)?;
+            let expected = testanyware_rfb::auth::vnc_authenticate(password.as_bytes(), &challenge);
+            if response != expected {
+                conn.write_all(&1u32.to_be_bytes())?;
+                return Ok(());
+            }
+        }
+    }
+    conn.write_all(&0u32.to_be_bytes())?; // SecurityResult: OK
+    conn.read_exact(&mut byte)?; // ClientInit
+
+    let mut init = Vec::new();
+    init.extend_from_slice(&width.to_be_bytes());
+    init.extend_from_slice(&height.to_be_bytes());
+    init.extend_from_slice(&testanyware_rfb::PixelFormat::rgba32_le().encode());
+    init.extend_from_slice(&4u32.to_be_bytes());
+    init.extend_from_slice(b"fake");
+    conn.write_all(&init)?;
+
+    // The frame is one Raw rectangle, in the layout the client set.
+    let mut update = vec![0u8, 0, 0, 1];
+    for value in [0u16, 0, width, height] {
+        update.extend_from_slice(&value.to_be_bytes());
+    }
+    update.extend_from_slice(&0i32.to_be_bytes()); // Raw
+    for y in 0..height {
+        for x in 0..width {
+            update.extend_from_slice(&frame_pixel(x, y));
+        }
+    }
+
+    let skip = |conn: &mut TcpStream, n: usize| -> std::io::Result<()> {
+        let mut sink = vec![0u8; n];
+        conn.read_exact(&mut sink)
+    };
+    loop {
+        if conn.read(&mut byte)? == 0 {
+            return Ok(());
+        }
+        match byte[0] {
+            0 => skip(&mut conn, 19)?, // SetPixelFormat
+            2 => {
+                // SetEncodings
+                let mut head = [0u8; 3];
+                conn.read_exact(&mut head)?;
+                skip(
+                    &mut conn,
+                    4 * u16::from_be_bytes([head[1], head[2]]) as usize,
+                )?;
+            }
+            3 => {
+                let mut body = [0u8; 9];
+                conn.read_exact(&mut body)?;
+                log.lock().unwrap().push(RfbEvent::UpdateRequest {
+                    incremental: body[0] != 0,
+                    w: u16::from_be_bytes([body[5], body[6]]),
+                    h: u16::from_be_bytes([body[7], body[8]]),
+                });
+                conn.write_all(&update)?;
+            }
+            4 => {
+                let mut body = [0u8; 7];
+                conn.read_exact(&mut body)?;
+                log.lock().unwrap().push(RfbEvent::Key {
+                    down: body[0] != 0,
+                    keysym: u32::from_be_bytes([body[3], body[4], body[5], body[6]]),
+                });
+            }
+            5 => {
+                let mut body = [0u8; 5];
+                conn.read_exact(&mut body)?;
+                log.lock().unwrap().push(RfbEvent::Pointer {
+                    buttons: body[0],
+                    x: u16::from_be_bytes([body[1], body[2]]),
+                    y: u16::from_be_bytes([body[3], body[4]]),
+                });
+            }
+            6 => {
+                // ClientCutText
+                let mut head = [0u8; 7];
+                conn.read_exact(&mut head)?;
+                skip(
+                    &mut conn,
+                    u32::from_be_bytes([head[3], head[4], head[5], head[6]]) as usize,
+                )?;
+            }
+            other => {
+                let _ = conn.shutdown(Shutdown::Both);
+                return Err(std::io::Error::other(format!(
+                    "unknown client message {other}"
+                )));
+            }
+        }
+    }
 }

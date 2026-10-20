@@ -402,6 +402,66 @@ pub fn resolve_agent_target_with_env(
     Err(ResolveError::NoConnectionSpecified)
 }
 
+/// Where a guest stream comes from: the app's socket and the target that its request names.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppRoute {
+    pub socket: PathBuf,
+    pub target: StreamTarget,
+}
+
+/// A resolved VNC endpoint, and the route through the app when routing is on.
+///
+/// The endpoint always carries the password and the HiDPI logical target, which only the
+/// spec holds. With a route, the connection comes from the app and the endpoint's
+/// host and port go unused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VncEndpoint {
+    pub resolved: ResolvedVnc,
+    pub route: Option<AppRoute>,
+}
+
+pub fn resolve_vnc_endpoint(opts: &ConnectionOptions) -> Result<VncEndpoint, ResolveError> {
+    resolve_vnc_endpoint_with_env(opts, &EnvProvider::process())
+}
+
+/// Resolve the VNC endpoint, and the route through the app when `TESTANYWARE_APP_SOCKET` is
+/// set. The order of the direct resolve holds: `--connect`, then `--vm`, then `--vnc`.
+///
+/// Unlike the agent, a VNC connection needs the password and the logical target of the spec,
+/// so the Host CLI reads the spec of a `--vm` id. It still routes by the id, and dials nothing.
+/// A `--connect` spec and a `--vnc` value become an explicit endpoint.
+pub fn resolve_vnc_endpoint_with_env(
+    opts: &ConnectionOptions,
+    env: &EnvProvider,
+) -> Result<VncEndpoint, ResolveError> {
+    let resolved = resolve_vnc_with_env(opts, env)?;
+    let Some(socket) = app_socket_with_env(env) else {
+        return Ok(VncEndpoint { resolved, route: None });
+    };
+    let target = match (&opts.connect, &opts.vm) {
+        (None, Some(id)) => {
+            // The app never decodes an id, and it answers any other id with `VM_NOT_FOUND`.
+            // The builder of the request path does not encode an id, so the Host CLI gives
+            // that answer itself.
+            if !is_plain_vm_id(id) {
+                return Err(ResolveError::VmNotFound {
+                    id: id.clone(),
+                    path: vms_dir(env)?.join(format!("{id}.json")),
+                });
+            }
+            StreamTarget::Vm { id: id.clone() }
+        }
+        _ => StreamTarget::Endpoint {
+            host: resolved.host.clone(),
+            port: resolved.port,
+        },
+    };
+    Ok(VncEndpoint {
+        resolved,
+        route: Some(AppRoute { socket, target }),
+    })
+}
+
 /// Test-friendly variant: the env provider is injected so the test suite
 /// can exercise the chain without poking at process-wide env vars.
 pub fn resolve_agent_with_env(
@@ -793,6 +853,105 @@ mod tests {
 
         let direct = parse_vnc_endpoint("host:5901").unwrap();
         assert_eq!(direct.logical, None);
+    }
+
+    fn write_vnc_spec(state_home: &std::path::Path, id: &str, body: serde_json::Value) {
+        let vms = state_home.join("testanyware").join("vms");
+        std::fs::create_dir_all(&vms).unwrap();
+        std::fs::write(vms.join(format!("{id}.json")), serde_json::to_vec(&body).unwrap()).unwrap();
+    }
+
+    #[test]
+    fn vnc_endpoint_has_no_route_without_the_app_socket() {
+        let opts = ConnectionOptions { vnc: Some("10.0.0.2:5901".into()), ..Default::default() };
+        let endpoint = resolve_vnc_endpoint_with_env(&opts, &env_with(&[])).unwrap();
+        assert_eq!(endpoint.route, None);
+        assert_eq!(endpoint.resolved.port, 5901);
+    }
+
+    #[test]
+    fn vnc_route_of_a_vm_id_keeps_the_id_and_the_spec_values() {
+        let dir = tempdir();
+        write_vnc_spec(
+            dir.path(),
+            "vm-hidpi",
+            serde_json::json!({
+                "vnc": { "host": "10.0.0.9", "port": 5900, "password": "pw" },
+                "logical": { "width": 1920, "height": 1080 }
+            }),
+        );
+        let env = env_with(&[
+            ("XDG_STATE_HOME", dir.path().to_str().unwrap()),
+            (APP_SOCKET_ENV, "/s/app.sock"),
+        ]);
+        let opts = ConnectionOptions { vm: Some("vm-hidpi".into()), ..Default::default() };
+        let endpoint = resolve_vnc_endpoint_with_env(&opts, &env).unwrap();
+        assert_eq!(
+            endpoint.route,
+            Some(AppRoute {
+                socket: PathBuf::from("/s/app.sock"),
+                target: StreamTarget::Vm { id: "vm-hidpi".into() },
+            })
+        );
+        assert_eq!(endpoint.resolved.password.as_deref(), Some("pw"));
+        assert_eq!(endpoint.resolved.logical, Some((1920, 1080)));
+    }
+
+    #[test]
+    fn vnc_route_of_a_vm_without_a_spec_is_vm_not_found() {
+        let dir = tempdir();
+        let env = env_with(&[
+            ("XDG_STATE_HOME", dir.path().to_str().unwrap()),
+            (APP_SOCKET_ENV, "/s/app.sock"),
+        ]);
+        let opts = ConnectionOptions { vm: Some("missing".into()), ..Default::default() };
+        let err = resolve_vnc_endpoint_with_env(&opts, &env).unwrap_err();
+        assert_eq!(err.code(), "VM_NOT_FOUND");
+    }
+
+    #[test]
+    fn vnc_route_of_a_vnc_flag_is_an_endpoint_with_the_default_port() {
+        let env = env_with(&[(APP_SOCKET_ENV, "/s/app.sock"), ("TESTANYWARE_VNC_PASSWORD", "pw")]);
+        let opts = ConnectionOptions { vnc: Some("10.0.0.2".into()), ..Default::default() };
+        let endpoint = resolve_vnc_endpoint_with_env(&opts, &env).unwrap();
+        assert_eq!(
+            endpoint.route.unwrap().target,
+            StreamTarget::Endpoint { host: "10.0.0.2".into(), port: 5900 }
+        );
+        assert_eq!(endpoint.resolved.password.as_deref(), Some("pw"));
+    }
+
+    #[test]
+    fn vnc_route_of_a_connect_spec_is_its_vnc_endpoint_and_wins_over_the_id() {
+        let dir = tempdir();
+        let path = dir.path().join("spec.json");
+        std::fs::write(&path, r#"{"vnc":{"host":"192.168.64.9","port":5905}}"#).unwrap();
+        let env = env_with(&[(APP_SOCKET_ENV, "/s/app.sock")]);
+        let opts = ConnectionOptions {
+            connect: Some(path.display().to_string()),
+            vm: Some("ignored".into()),
+            ..Default::default()
+        };
+        let endpoint = resolve_vnc_endpoint_with_env(&opts, &env).unwrap();
+        assert_eq!(
+            endpoint.route.unwrap().target,
+            StreamTarget::Endpoint { host: "192.168.64.9".into(), port: 5905 }
+        );
+    }
+
+    #[test]
+    fn vnc_route_of_an_id_that_is_not_plain_is_vm_not_found() {
+        let dir = tempdir();
+        // A spec that exists for the odd id would pass the direct resolve.
+        std::fs::create_dir_all(dir.path().join("testanyware")).unwrap();
+        write_vnc_spec(dir.path(), "a b", serde_json::json!({ "vnc": { "host": "h", "port": 1 } }));
+        let env = env_with(&[
+            ("XDG_STATE_HOME", dir.path().to_str().unwrap()),
+            (APP_SOCKET_ENV, "/s/app.sock"),
+        ]);
+        let opts = ConnectionOptions { vm: Some("a b".into()), ..Default::default() };
+        let err = resolve_vnc_endpoint_with_env(&opts, &env).unwrap_err();
+        assert_eq!(err.code(), "VM_NOT_FOUND");
     }
 
     #[test]
