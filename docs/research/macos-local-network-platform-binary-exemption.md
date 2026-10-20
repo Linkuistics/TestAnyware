@@ -71,3 +71,7 @@ macOS allows its app.
 `vm start` asks `/usr/bin/nc` after five unreachable probes and fails fast with
 `local_network_denied` when it connects. ADR-0019 records the decision and the
 relay it rejected.
+
+On a macOS host, the TestAnyware app now holds the Local Network grant, and it
+runs this diagnosis for its own connections. The measurements of a signed app
+started from herdr are in `testanyware-app-local-network-grant.md`.

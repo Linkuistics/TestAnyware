@@ -106,3 +106,92 @@ Prove each fact on this Mac before the spec relies on it:
     app, or the Host CLI too.
   - Where the file lives, and which process evaluates it.
   - How it sits beside the environment variables, whose meaning stays fixed.
+
+## Decisions (running log)
+
+**A signed app that `open` starts from herdr holds the Local Network grant.** A
+throwaway probe app tested this on 2026-10-20, on macOS 27.0.1. The probe was a
+signed LSUIElement bundle, `dev.antony.TestAnyware.probe`. An ad hoc copy of
+`nc` in this herdr shell got "No route to host", and the platform `nc` connected.
+
+`open` from this shell started the probe with `launchd` as its parent. Its first
+connections to the guest failed with errno 65, and the human allowed its alert.
+The retry in the same process then connected. Each later start from herdr
+connected at once. So facts 1 and 2 hold. The evidence goes into a research
+document beside the spec.
+
+**The app can start every guest process, and each one outlives the app.** The
+probe spawned `tart run`, the VNC keeper, a QEMU with HVF and an swtpm, each with
+`POSIX_SPAWN_SETSID`. Each child named the probe as its responsible process. Each
+kept running after the probe exited. So fact 4 holds. One side finding: tart's
+VNC listens on `*:<port>`, a wildcard socket, although its URL names
+`127.0.0.1`.
+
+**The grant follows the main executable's UUID, not the path.** Fact 3 was
+worded for a new Homebrew path. The probe measured each input apart:
+
+- A new main executable UUID at one path gave errno 65 once, then a connection
+  2 s later. This happened three times. One of the three raised the alert again.
+- The same executable with a new signature and version connected at once, with
+  no alert. So did the same build at a second path.
+- A launcher that stays the same, with a helper that changes, connected at once.
+- A new build whose UUID was set to the old value connected at once, with no
+  alert.
+
+System Settings showed one row for the app throughout. So the release pins the
+UUID of the app's executable to one value, and the path is free. The launcher
+split works too, but it costs a second process.
+
+**The TestAnyware app is a menu bar app, as Modaliser and Koine are.** The
+human said: "The TestAnyware app / router should be a menubar app like
+Modaliser and Koine." That also keeps it out of the background-only class,
+which the survey says never receives the alert.
+
+**Homebrew carries the approval of the first start across an upgrade.** Koine's
+release acceptance shows that a quarantined, notarised app asks "downloaded from
+the Internet" when `open` first starts it. Homebrew 7.0.9 copies the user's approval to
+the new copy when the signing identity is unchanged (`inherit_user_approval!` in
+`cask/quarantine.rb`). With `uninstall quit:`, it also quits the app during the
+upgrade and reopens it with `open -b`. So the cask keeps quarantine, as Koine
+does, and nothing strips it. Nobody has tested this with a TestAnyware release.
+
+**The app starts exactly as Koine does, and a client never starts it.** The
+human chose this over the recommended mix of a login item and a start by the
+CLI. Their words:
+
+<!-- tc: off because this is the human's message, quoted verbatim -->
+
+> I would rather launch TestAnyware not from LaunchServices, but have it launch
+> exactly Koine, which is the closest match.
+
+<!-- tc: on -->
+
+Koine is a login item through `SMAppService.mainApp`. The user starts it once
+and turns on its start at login during setup. macOS then starts it at each
+later login.
+
+So requirement 1 of `plan-k1` changes. While the app runs, an agent never waits
+for a human. After a quit or a crash, a command fails and names the remedy, and
+a human opens the app again. The root brief's done-when now says so.
+
+**One Rhai file configures the app and the Host CLI.** The human chose this
+over a file for the app alone. The file is `~/.config/testanyware/config.rhai`,
+and it is optional. Both processes evaluate it with one shared evaluator, so
+one file gives one value.
+
+**The app refuses directories that differ from its own.** The human chose
+this. The CLI sends the state and data directories that it resolved. If
+`XDG_STATE_HOME` or `XDG_DATA_HOME` make them differ from the app's, the
+command fails, names both, and names `config.rhai` as the remedy.
+
+**"TestAnyware app" is the one term, and "VM broker" goes under _Avoid_.** The
+human said: "I think the VM Broker and the TestAnyware app are the same thing."
+The app has one process, and serving guest traffic is all that it does apart
+from its menu. The human chose "TestAnyware app" over "VM broker". So the spec is
+`docs/specs/testanyware-app.md`, and the error codes stay `APP_*`. The handles
+of this grove's leaves keep their slugs, because a handle never changes.
+
+**The human agreed the spec, and chose a review ahead of planning.** On
+2026-10-20 the human agreed `docs/specs/testanyware-app.md`, ADR-0004, ADR-0019,
+ADR-0020 and ADR-0021. They chose the recommended option: a `review-design` leaf
+ahead of `vm-broker-increments-k4`, so that planning reads a reviewed design.

@@ -102,24 +102,54 @@ macOS Local Network privacy can refuse a process a route to a tart guest's
 host-only subnet (`192.168.64.0/24`) while the guest's agent is healthy. The
 refusal is `No route to host` (errno 65). Platform-signed tools such as
 `/usr/bin/nc` are exempt, and every other executable is subject to it, so the
-Host CLI can fail where `nc` connects. An agent harness runs under a background
-login service, so it has no app that the user can allow. `vm start`
-proves the denial with `nc` and fails with `VM_BOOT_TIMEOUT`, cause
-`local_network_denied` (ADR-0019).
+Host CLI can fail where `nc` connects.
+
+An agent harness runs under a background login service, so nothing in it can be
+allowed. On a macOS host the *TestAnyware app* holds the *Local Network grant*. It proves a denial of its own
+connections with `nc`, and the error names cause `local_network_denied`
+(ADR-0019).
 _Avoid_: "the agent is down" (it is up), and "firewall" (no firewall rule applies).
 
-**VM broker**:
-The process on a macOS host through which the *Host CLI* reaches guest VMs,
-instead of connecting to them itself. It runs inside the *TestAnyware app*
-(issue #8).
-_Avoid_: "the server" (the *In-VM agent* and the [[Host-side framebuffer]] are
-servers too), and "daemon".
+**Local Network grant**:
+The user's one-time permission for the *TestAnyware app* to reach the local
+network, the tart guest subnet among it. macOS ties it to the app's main
+executable UUID, which stays the same in every release (ADR-0020).
+_Avoid_: "the permission" (Accessibility and Screen Recording are permissions
+too).
 
 **TestAnyware app**:
-The signed macOS app bundle that runs the *VM broker* and holds its macOS
-permissions, Local Network among them. The user grants each permission to the
-app once.
-_Avoid_: "the server", and "the CLI" (the *Host CLI* is a client of the app).
+The signed menu bar app through which the *Host CLI* on a macOS host reaches
+guest VMs, instead of connecting to them itself. It holds the *Local Network
+grant*, runs the four lifecycle commands, and relays each *Guest stream*
+(ADR-0004). macOS starts it at login, and a client never starts it.
+_Avoid_: "VM broker" (an earlier name for the same thing), "router" and
+"daemon". Also avoid "the server" (the *In-VM agent* serves too) and "the CLI"
+(the *Host CLI* is a client of the app).
+
+**Guest stream**:
+One connection from the *Host CLI* to the *TestAnyware app*, which the app
+relays to one guest endpoint with the bytes unchanged. The endpoint is an
+*In-VM agent* or a [[Host-side framebuffer]].
+_Avoid_: "tunnel", and "forward" (a forward is QEMU's `hostfwd` port).
+
+**Direct path**:
+The *Host CLI* connecting to a guest itself, with no *TestAnyware app*. Linux
+and Windows hosts use it for every command, and golden creation uses it on every
+host.
+_Avoid_: "fallback" (on a macOS host, no other command falls back to it).
+
+**Adoption**:
+The *TestAnyware app* serving again a VM that it did not start in its current
+run. It first checks each recorded process by its pid, its start time and the
+boot session.
+_Avoid_: "reattach", and "recovery" (that is a boot of golden creation,
+ADR-0008).
+
+**TestAnyware configuration**:
+The optional Rhai script `~/.config/testanyware/config.rhai`, which the *Host
+CLI* and the *TestAnyware app* both evaluate (ADR-0021).
+_Avoid_: "settings file", and "the config" (QEMU and tart have configurations
+too).
 
 **Autounattend provisioning** (Windows golden creation):
 How the **Windows** Golden image is built — structurally unlike the macOS one.
@@ -179,6 +209,9 @@ VNC connection** open on a unix socket (with a PID file and idle timeout). It
 multiplexed this connection across CLI invocations. The Rust CLI **deliberately
 dropped** it (ADR-0004): every command opens its own short-lived RFB connection
 instead. The Swift `_server` tree was deleted with `cli/` on 2026-06-03.
+
+The *TestAnyware app* is not a Shared-VNC server. It relays each command's own
+connection, and it multiplexes nothing.
 
 Do not confuse the Shared-VNC server with the *OCR daemon*. The two are
 structurally unrelated: one multiplexes VNC, and the other hosts a Python OCR
@@ -340,3 +373,20 @@ Retina wire frame). Also avoid treating 2× as the default (it is opt-in).
 > **Maintainer:** The CLI design contract is the single source of truth, and
 > the Rust CLI — now *the* Host CLI — is built to satisfy it. The
 > `cli-contract.rs` integration test is the gate.
+>
+> **Dev:** On my Mac, an agent under herdr gets `APP_UNREACHABLE` for `vm list`.
+>
+> **Maintainer:** Then the TestAnyware app is not running. The CLI never starts
+> it, and it never takes the direct path on a Mac. Open the app, and turn on
+> "Start at Login".
+>
+> **Dev:** It runs now, but `vm start` fails with `local_network_denied`.
+>
+> **Maintainer:** The app has no Local Network grant yet. A person allows the
+> alert once. After that, each guest stream goes through the app, and an
+> upgrade keeps the grant.
+>
+> **Dev:** And the VMs that were running when I quit the app?
+>
+> **Maintainer:** They kept running. Adoption serves them again when the app
+> starts.

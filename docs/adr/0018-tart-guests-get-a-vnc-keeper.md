@@ -135,13 +135,12 @@ The keeper cannot disturb these clients. It asks for nothing exclusive, gets no
 updates and sends no input. The recovery driver runs only in golden creation,
 where no keeper runs.
 
-### What it changes in ADR-0004
+### How it fits ADR-0004
 
-ADR-0004 stands. The keeper multiplexes nothing, and no invocation attaches to
-it. Each command still opens its own connection. There is no socket, no idle
-timeout and no split into client and server. One sentence of ADR-0004 changes:
-the keeper is persistent, so "nothing persistent" became "nothing that commands
-talk to".
+The keeper multiplexes nothing, and no command attaches to it. Each command still
+opens its own connection, which the TestAnyware app relays on a macOS host
+(ADR-0004). The keeper is the one persistent connection to a guest, and it
+carries no traffic.
 
 ## Considered options
 
@@ -150,8 +149,10 @@ talk to".
   a user who remembers the recipe avoids it. The recipe stays documented for a
   tart guest that `vm start` did not start.
 - **A thread in a long-lived process.** No TestAnyware process lives as long as
-  the guest. Each command exits (ADR-0004), and the viewer is optional. A
-  process made for the purpose is the daemon that ADR-0004 dropped.
+  the guest. Each command exits, and the viewer is optional. The TestAnyware app
+  lives longer, but a guest outlives a quit or an upgrade of the app
+  (`docs/specs/testanyware-app.md`). A keeper thread would end with the app.
+  Its next connection, more than 60 seconds later, would crash tart.
 - **A wrapper around `tart run`.** The wrapper would be the parent of tart and
   hold the connection, so the two would share a lifetime. But the meta `pid`
   would then name the wrapper. The wrapper would also relay the tart log for the

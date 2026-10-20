@@ -3,12 +3,12 @@
 ## Goal
 
 Find the smallest independently useful working increments of the agreed design
-of the VM broker. Order them by dependency, and grow the tree. A release leaf
+of the TestAnyware app. Order them by dependency, and grow the tree. A release leaf
 ends the work.
 
 ## Context
 
-- `docs/specs/vm-broker.md` and the ADRs it cites.
+- `docs/specs/testanyware-app.md` and the ADRs it cites.
 - The decision log of `plan-k1`.
 
 ## Done when

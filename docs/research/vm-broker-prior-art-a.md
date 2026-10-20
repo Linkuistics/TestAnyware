@@ -894,3 +894,23 @@ Each one matched.
 - In this repository and on this Mac: the formula path of TestAnyware 2.3.0, the
   `koine` and `modaliser` casks of the tap, Koine's `docs/client-guide.md`, and
   `process.rs` and `keeper.rs`.
+
+## Where the findings landed
+
+The design leaf `vm-broker-design-k3` adopted these findings:
+
+- **Version skew (section 1)** in `docs/specs/testanyware-app.md`. The pair
+  compares a protocol range, refuses with a remedy, and keeps the floor low. The
+  owner chose the Koine model, in which no client starts the app, so no client
+  replaces an old app either.
+- **Start on demand (section 2)** in the same spec, in reverse. The owner chose
+  a login item, as Koine has, so a client never starts the app.
+- **Grant persistence (section 3)** in ADR-0020. A measurement on this Mac
+  separated the path from the executable UUID, and the UUID decided
+  (`docs/research/testanyware-app-local-network-grant.md`).
+- **Access control (section 4)** in the spec: a Unix socket in a 0700
+  directory, with a peer uid check and no TCP listener.
+- **Guest traffic (section 5)** in ADR-0004: one connection for each guest
+  stream, no multiplexing, and a half-close passed through.
+- **Adoption (section 6)** in the spec: an identity of pid, start time and boot
+  session, and an adoption that fails never stops a VM.
