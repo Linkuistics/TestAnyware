@@ -116,6 +116,7 @@ pub fn exit_code_for(code: &str) -> i32 {
     match code {
         // §5: 0 success — never reached here.
         "USAGE_ERROR"
+        | "CONFIG_INVALID"
         | "NO_CONNECTION_SPECIFIED"
         | "INVALID_PLATFORM"
         | "INVALID_ENDPOINT"
@@ -182,6 +183,7 @@ mod tests {
     #[test]
     fn exit_code_table_matches_contract_section_5() {
         assert_eq!(exit_code_for("USAGE_ERROR"), 2);
+        assert_eq!(exit_code_for("CONFIG_INVALID"), 2);
         assert_eq!(exit_code_for("VM_NOT_FOUND"), 3);
         assert_eq!(exit_code_for("ELEMENT_NOT_FOUND"), 3);
         assert_eq!(exit_code_for("TEXT_NOT_FOUND"), 3);

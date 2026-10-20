@@ -30,6 +30,7 @@ use testanyware_vm::qemu_profile::host_profile;
 use testanyware_vm::tpm::{decide_tpm_on_host, OmitReason, TpmDecision};
 
 use crate::commands::vm::{tpm_json, tpm_text};
+use crate::host_config::{self, ConfigStatus};
 use crate::output::{OutputMode, SCHEMA_VERSION};
 
 // =========================================================================
@@ -928,6 +929,66 @@ fn windows_tpm_lines(check: &TpmCheck) -> Vec<String> {
 }
 
 // =========================================================================
+// The `config` check: the Host CLI's own reading of `config.rhai` (ADR-0021).
+// =========================================================================
+
+/// Only a file that fails is a failing check. A file that is absent or switched off is the
+/// normal case, and a host that does not read the file has nothing to check.
+fn config_is_ok(status: &ConfigStatus) -> bool {
+    !matches!(status, ConfigStatus::Failed(_))
+}
+
+fn config_json(status: &ConfigStatus) -> Value {
+    match status {
+        ConfigStatus::NotApplicable => json!({
+            "status": "skip", "verdict": "not_applicable",
+            "reason": "config.rhai does not apply to this host: the Host CLI does not read it here.",
+        }),
+        ConfigStatus::Disabled => json!({
+            "status": "pass", "verdict": "disabled", "file": Value::Null,
+        }),
+        ConfigStatus::Absent { file } => json!({
+            "status": "pass", "verdict": "absent", "file": file,
+        }),
+        ConfigStatus::Loaded { file } => json!({
+            "status": "pass", "verdict": "loaded", "file": file,
+        }),
+        ConfigStatus::Failed(error) => json!({
+            "status": "fail", "verdict": "invalid", "file": error.file,
+            "error": testanyware_app_protocol::AppError::config_invalid(
+                &error.file, error.line, &error.message,
+            ),
+        }),
+    }
+}
+
+fn config_lines(status: &ConfigStatus) -> Vec<String> {
+    match status {
+        ConfigStatus::NotApplicable => {
+            vec!["  - not applicable: the Host CLI does not read config.rhai on this host".to_string()]
+        }
+        ConfigStatus::Disabled => vec!["  ✓ no file (TESTANYWARE_CONFIG=none, or no home directory)".to_string()],
+        ConfigStatus::Absent { file } => {
+            vec![format!("  ✓ no file at {} (the file is optional)", file.display())]
+        }
+        ConfigStatus::Loaded { file } => vec![format!("  ✓ {} evaluated", file.display())],
+        ConfigStatus::Failed(error) => {
+            let invalid = testanyware_app_protocol::AppError::config_invalid(
+                &error.file, error.line, &error.message,
+            );
+            let mut lines = vec![format!("  ✗ {} [{}]", invalid.message, invalid.code)];
+            if let Some(remedy) = invalid.remediation {
+                lines.push(format!("    remedy: {remedy}"));
+            }
+            lines.push(
+                "    the other checks ran with the values that resolve without the file".to_string(),
+            );
+            lines
+        }
+    }
+}
+
+// =========================================================================
 // Report assembly, JSON + text rendering.
 // =========================================================================
 
@@ -939,10 +1000,11 @@ struct DoctorReport {
     tools: Vec<ToolStatus>,
     provisioner: ProvisionerResult,
     windows_tpm: TpmCheck,
+    config: ConfigStatus,
 }
 
 impl DoctorReport {
-    fn gather() -> Self {
+    fn gather(config: ConfigStatus) -> Self {
         let brew = resolve_brew_prefix();
         let tools = gather_tool_statuses();
         DoctorReport {
@@ -955,14 +1017,20 @@ impl DoctorReport {
             provisioner: gather_provisioner(brew.as_deref(), &tools),
             tools,
             windows_tpm: classify_windows_tpm(decide_tpm_on_host(Platform::Windows, &host_profile())),
+            config,
         }
     }
 
     /// Overall health. Tool availability and script floors are advisory and
     /// do not flip this (matching the Swift `isOK` semantics). A Windows TPM
-    /// that would be omitted is advisory too; one that would be refused is not.
+    /// that would be omitted is advisory too; one that would be refused is not. A `config.rhai`
+    /// that fails is a blocking check (spec: "doctor reports the failures that it diagnoses").
     fn is_ok(&self) -> bool {
-        self.install.is_ok() && self.agents.is_ok() && self.scripts.is_ok() && self.windows_tpm.is_ok()
+        self.install.is_ok()
+            && self.agents.is_ok()
+            && self.scripts.is_ok()
+            && self.windows_tpm.is_ok()
+            && config_is_ok(&self.config)
     }
 
     fn to_json(&self) -> Value {
@@ -976,6 +1044,7 @@ impl DoctorReport {
                 "host_tools": self.tools_json(),
                 "script_tool_floors": self.provisioner_json(),
                 "windows_tpm": windows_tpm_json(&self.windows_tpm),
+                "config": config_json(&self.config),
             },
         })
     }
@@ -1103,6 +1172,10 @@ impl DoctorReport {
 
         lines.push("Windows guest TPM".to_string());
         lines.extend(windows_tpm_lines(&self.windows_tpm));
+        lines.push(String::new());
+
+        lines.push("Configuration file".to_string());
+        lines.extend(config_lines(&self.config));
 
         let mut text = lines.join("\n");
         text.push('\n');
@@ -1310,9 +1383,11 @@ fn pretty_source(source: &str) -> String {
 
 /// `testanyware doctor` entry point. Read-only: no `--dry-run` (contract
 /// §9.3). Emits the full report in both modes; exit 0 when healthy, 1 when a
-/// blocking check (install/agents/scripts, or a refused Windows TPM) fails.
+/// blocking check (install/agents/scripts, a refused Windows TPM, or a `config.rhai` that fails)
+/// fails. It is the one command that runs with a file that fails: the binary skips the refusal
+/// for it, and the other checks use the values that resolve without the file.
 pub fn run_doctor(mode: OutputMode) -> ! {
-    let report = DoctorReport::gather();
+    let report = DoctorReport::gather(host_config::init_from_process().status.clone());
     let ok = report.is_ok();
     match mode {
         OutputMode::Json => {
@@ -1669,6 +1744,133 @@ mod tests {
         let unobserved = text_of(Err(VmError::QemuFailed { detail: "qemu: not found".into() }));
         assert!(unobserved.starts_with("  ! could not check"), "{unobserved}");
         assert!(unobserved.contains("qemu: not found"), "{unobserved}");
+    }
+
+    // ---- the `config` check ----
+
+    fn every_config_status() -> Vec<(&'static str, ConfigStatus)> {
+        use testanyware_config::ConfigError;
+        let file = std::path::PathBuf::from("/h/.config/testanyware/config.rhai");
+        vec![
+            ("not_applicable", ConfigStatus::NotApplicable),
+            ("disabled", ConfigStatus::Disabled),
+            ("absent", ConfigStatus::Absent { file: file.clone() }),
+            ("loaded", ConfigStatus::Loaded { file: file.clone() }),
+            (
+                "invalid with a line",
+                ConfigStatus::Failed(ConfigError {
+                    file: file.clone(),
+                    line: Some(4),
+                    message: "syntax error: Unexpected ';'".into(),
+                }),
+            ),
+            (
+                "invalid without a line",
+                ConfigStatus::Failed(ConfigError {
+                    file,
+                    line: None,
+                    message: "unknown key `x`".into(),
+                }),
+            ),
+        ]
+    }
+
+    #[test]
+    fn only_a_file_that_fails_is_a_failing_config_check() {
+        for (name, status) in every_config_status() {
+            let failed = name.starts_with("invalid");
+            assert_eq!(config_is_ok(&status), !failed, "{name}");
+            assert_eq!(config_json(&status)["status"] == "fail", failed, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_file_that_fails_reports_the_config_invalid_error_object() {
+        let (_, status) = every_config_status().remove(4);
+        let body = config_json(&status);
+        assert_eq!(body["verdict"], "invalid");
+        assert_eq!(body["error"]["code"], "CONFIG_INVALID");
+        assert_eq!(
+            body["error"]["message"],
+            "/h/.config/testanyware/config.rhai:4: syntax error: Unexpected ';'"
+        );
+        assert_eq!(body["error"]["details"]["line"], 4);
+        let lines = config_lines(&status).join("\n");
+        assert!(lines.contains("CONFIG_INVALID"), "{lines}");
+        assert!(lines.contains("without the file"), "{lines}");
+    }
+
+    /// The report of `doctor` with a file that fails: not ok, so the command exits with 1, and
+    /// every other check is still in it.
+    #[test]
+    fn a_report_with_a_file_that_fails_is_not_ok_and_keeps_the_other_checks() {
+        let (_, failed) = every_config_status().remove(4);
+        let report = DoctorReport::gather(failed);
+        assert!(!report.is_ok());
+        let body = report.to_json();
+        assert_eq!(body["ok"], false);
+        let checks = body["checks"].as_object().unwrap();
+        for group in ["install_path", "bundled_agents", "bundled_scripts", "host_tools", "script_tool_floors", "windows_tpm"] {
+            assert!(checks[group]["status"].is_string(), "{group} must still run");
+        }
+        assert_eq!(checks["config"]["error"]["code"], "CONFIG_INVALID");
+        assert!(report.render_text().contains("Configuration file"));
+
+        // The same host with a file that loads has the config check pass. Its `ok` then rests on
+        // the other checks alone, which this test does not judge.
+        let (_, loaded) = every_config_status().remove(3);
+        let report = DoctorReport::gather(loaded);
+        assert_eq!(report.to_json()["checks"]["config"]["status"], "pass");
+    }
+
+    #[test]
+    fn a_host_that_does_not_read_the_file_says_that_the_check_does_not_apply() {
+        let body = config_json(&ConfigStatus::NotApplicable);
+        assert_eq!(body["status"], "skip");
+        assert_eq!(body["verdict"], "not_applicable");
+        assert!(body["reason"].as_str().unwrap().contains("does not apply"));
+        assert!(config_lines(&ConfigStatus::NotApplicable)[0].contains("not applicable"));
+    }
+
+    /// `doctor.json` requires the `config` group and declares each status, verdict and field.
+    #[test]
+    fn config_json_fits_the_doctor_schema() {
+        let schema: Value =
+            serde_json::from_str(include_str!("../../../../../docs/reference/cli-schemas/doctor.json"))
+                .unwrap();
+        let checks = &schema["properties"]["checks"];
+        assert!(checks["required"].as_array().unwrap().iter().any(|r| r == "config"));
+        let config = &checks["properties"]["config"];
+        let allowed = |key: &str| -> Vec<String> {
+            config["properties"][key]["enum"]
+                .as_array()
+                .unwrap_or_else(|| panic!("{key} enum"))
+                .iter()
+                .map(|v| v.as_str().unwrap().to_string())
+                .collect()
+        };
+        let (statuses, verdicts) = (allowed("status"), allowed("verdict"));
+        for (name, status) in every_config_status() {
+            let body = config_json(&status);
+            assert!(statuses.contains(&body["status"].as_str().unwrap().to_string()), "{name}");
+            assert!(verdicts.contains(&body["verdict"].as_str().unwrap().to_string()), "{name}");
+            for key in body.as_object().unwrap().keys() {
+                assert!(config["properties"].get(key).is_some(), "{name}: {key} not in schema");
+            }
+            for required in config["required"].as_array().unwrap() {
+                assert!(body.get(required.as_str().unwrap()).is_some(), "{name}: {required} missing");
+            }
+            if let Some(error) = body.get("error") {
+                for key in error["details"].as_object().unwrap().keys() {
+                    assert!(
+                        config["properties"]["error"]["properties"]["details"]["properties"]
+                            .get(key)
+                            .is_some(),
+                        "{name}: details.{key} not in schema"
+                    );
+                }
+            }
+        }
     }
 
     /// `doctor.json` declares the `windows_tpm` group and every status and

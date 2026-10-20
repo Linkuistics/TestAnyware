@@ -16,6 +16,7 @@ use testanyware_cli::commands::{
     record as record_cmds, screen as screen_cmds, viewer as viewer_cmds, vm as vm_cmds,
 };
 use testanyware_cli::discoverability::{run_capabilities, run_llm_instructions, run_schema};
+use testanyware_cli::host_config;
 use testanyware_cli::output::OutputMode;
 use testanyware_cli::resolve::ConnectionOptions as ResolveOptions;
 
@@ -2002,6 +2003,15 @@ async fn main() {
             std::process::exit(err.exit_code());
         }
     };
+    // The file `config.rhai` (ADR-0021). `doctor` is the one command that runs with a file that
+    // fails, and the internal keeper uses no setting, so a later edit of the file must not stop it.
+    let host = host_config::init_from_process();
+    if !matches!(cli.command, Command::Doctor { .. } | Command::VncKeeper { .. }) {
+        host_config::refuse_if_invalid(
+            host,
+            OutputMode::from_flags(host_config::json_requested(std::env::args().skip(1))),
+        );
+    }
     match cli.command {
         Command::Screen { action } => match action {
             ScreenAction::Capture(args) => run_screen_capture(args).await,

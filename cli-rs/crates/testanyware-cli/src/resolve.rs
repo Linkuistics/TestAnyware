@@ -583,6 +583,12 @@ pub fn parse_agent_endpoint(value: &str) -> Result<ResolvedAgent, ResolveError> 
 }
 
 fn vms_dir(env: &EnvProvider) -> Result<PathBuf, ResolveError> {
+    // The order of the sources: `XDG_STATE_HOME`, then the `state_dir` of `config.rhai`, then the
+    // host default (ADR-0021). The file's directory is the directory itself.
+    let variable_set = env.get("XDG_STATE_HOME").is_some_and(|value| !value.is_empty());
+    if let (false, Some(dir)) = (variable_set, env.file_state_dir.as_ref()) {
+        return Ok(dir.join("vms"));
+    }
     Ok(state_dir(env)?.join("testanyware").join("vms"))
 }
 
@@ -631,19 +637,29 @@ type EnvLookup = Box<dyn Fn(&str) -> Option<String> + Send + Sync>;
 
 pub struct EnvProvider {
     inner: EnvLookup,
+    /// The `state_dir` of `config.rhai`, where the Host CLI read a file that names one.
+    file_state_dir: Option<PathBuf>,
 }
 
 impl EnvProvider {
     pub fn process() -> Self {
         Self {
             inner: Box::new(|key| std::env::var(key).ok()),
+            file_state_dir: crate::host_config::file_state_dir(),
         }
     }
 
     pub fn from_map(map: std::collections::HashMap<String, String>) -> Self {
         Self {
             inner: Box::new(move |key| map.get(key).cloned()),
+            file_state_dir: None,
         }
+    }
+
+    /// This provider, with the `state_dir` of `config.rhai`.
+    pub fn with_file_state_dir(mut self, dir: Option<PathBuf>) -> Self {
+        self.file_state_dir = dir;
+        self
     }
 
     fn get(&self, key: &str) -> Option<String> {
@@ -1107,6 +1123,23 @@ mod tests {
             state_dir(&env).unwrap(),
             PathBuf::from("/Users/alice/.local/state")
         );
+    }
+
+    #[test]
+    fn vms_dir_follows_variable_then_file_then_default() {
+        let file = Some(PathBuf::from("/file/state"));
+        // No variable: the file's directory is the directory itself.
+        let env = env_with(&[("HOME", "/h")]).with_file_state_dir(file.clone());
+        assert_eq!(vms_dir(&env).unwrap(), PathBuf::from("/file/state/vms"));
+        // A variable beats the file, and `testanyware` is appended to it as before.
+        let env = env_with(&[("HOME", "/h"), ("XDG_STATE_HOME", "/xdg")]).with_file_state_dir(file.clone());
+        assert_eq!(vms_dir(&env).unwrap(), PathBuf::from("/xdg/testanyware/vms"));
+        // An empty variable counts as unset.
+        let env = env_with(&[("HOME", "/h"), ("XDG_STATE_HOME", "")]).with_file_state_dir(file);
+        assert_eq!(vms_dir(&env).unwrap(), PathBuf::from("/file/state/vms"));
+        // No file: the host default, as before.
+        let env = env_with(&[("HOME", "/h")]);
+        assert_eq!(vms_dir(&env).unwrap(), PathBuf::from("/h/.local/state/testanyware/vms"));
     }
 
     #[test]

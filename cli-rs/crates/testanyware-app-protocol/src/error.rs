@@ -11,6 +11,10 @@ use crate::version::ProtocolRange;
 /// Code for a request that the two sides cannot serve together.
 pub const APP_INCOMPATIBLE: &str = "APP_INCOMPATIBLE";
 
+/// Code for a `config.rhai` that fails to evaluate or names an unknown key. The Host CLI makes
+/// this error itself, and the app reports the same object for its own evaluation.
+pub const CONFIG_INVALID: &str = "CONFIG_INVALID";
+
 /// Code for a client that cannot reach the app on its socket. The Host CLI makes this error
 /// itself, because no app answered.
 pub const APP_UNREACHABLE: &str = "APP_UNREACHABLE";
@@ -90,6 +94,25 @@ impl AppError {
             remediation,
             details,
         }
+    }
+
+    /// `config.rhai` fails. The error names the file, the line (`null` for an error that no line
+    /// holds) and the message of the evaluator, and the remedy.
+    pub fn config_invalid(file: &std::path::Path, line: Option<usize>, message: &str) -> Self {
+        let place = match line {
+            Some(line) => format!("{}:{line}", file.display()),
+            None => file.display().to_string(),
+        };
+        Self::new(
+            CONFIG_INVALID,
+            format!("{place}: {message}"),
+            Some(format!(
+                "Fix {} or remove it. To run once without it, set TESTANYWARE_CONFIG=none. \
+                 `testanyware doctor` runs with a file that fails and reports this error.",
+                file.display()
+            )),
+            json!({ "file": file, "line": line, "message": message }),
+        )
     }
 
     /// The client cannot reach the app. The error names the socket and the cause.
@@ -219,6 +242,30 @@ mod tests {
             build: Some(build.into()),
             protocol_range: Some(ProtocolRange::new(min, max)),
         }
+    }
+
+    #[test]
+    fn config_invalid_names_the_file_the_line_and_the_message() {
+        let file = std::path::Path::new("/h/.config/testanyware/config.rhai");
+        let err = AppError::config_invalid(file, Some(3), "syntax error: Unexpected ';'");
+        assert_eq!(err.code, "CONFIG_INVALID");
+        assert_eq!(
+            err.message,
+            "/h/.config/testanyware/config.rhai:3: syntax error: Unexpected ';'"
+        );
+        assert_eq!(err.details["file"], "/h/.config/testanyware/config.rhai");
+        assert_eq!(err.details["line"], 3);
+        assert_eq!(err.details["message"], "syntax error: Unexpected ';'");
+        let remedy = err.remediation.unwrap();
+        assert!(remedy.contains("TESTANYWARE_CONFIG=none"), "{remedy}");
+        assert!(remedy.contains("config.rhai"), "{remedy}");
+    }
+
+    #[test]
+    fn config_invalid_without_a_line_has_a_null_line() {
+        let err = AppError::config_invalid(std::path::Path::new("/c.rhai"), None, "unknown key `x`");
+        assert_eq!(err.message, "/c.rhai: unknown key `x`");
+        assert!(err.details["line"].is_null());
     }
 
     #[test]

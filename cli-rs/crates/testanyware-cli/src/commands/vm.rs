@@ -10,7 +10,7 @@ use testanyware_vm::display_request::parse_display_request;
 use testanyware_vm::lifecycle::{Platform, VmLifecycle, VmStartOptions};
 use testanyware_vm::listing::{build_view, parse_filter, ListItem, ListView};
 use testanyware_vm::tpm::{OmitReason, TpmDecision};
-use testanyware_vm::{VmError, VmMeta, VmPaths};
+use testanyware_vm::{VmError, VmMeta};
 
 use testanyware_app_client::StartEnd;
 use testanyware_app_protocol::{
@@ -79,7 +79,7 @@ pub async fn run_vm_start(
     let mut opts = VmStartOptions::new(parsed, base, id, request, viewer);
     opts.keep_on_failure = keep_on_failure;
     opts.wait = wait.map(std::time::Duration::from_secs);
-    let paths = VmPaths::from_process_env();
+    let paths = crate::host_config::vm_paths();
 
     if dry_run {
         // Validate without side effects: the golden must exist in the
@@ -295,7 +295,7 @@ pub async fn run_vm_stop(id: Option<String>, mode: OutputMode, dry_run: bool) {
             2,
         );
     };
-    let paths = VmPaths::from_process_env();
+    let paths = crate::host_config::vm_paths();
     let meta_path = paths.meta_path(&id);
 
     if dry_run {
@@ -363,7 +363,7 @@ pub async fn run_vm_list(
             }
         }
         None => {
-            let listing = VmLifecycle::list(&VmPaths::from_process_env());
+            let listing = VmLifecycle::list(&crate::host_config::vm_paths());
             build_view(&listing, &filters, limit, all)
         }
     };
@@ -376,7 +376,7 @@ pub async fn run_vm_list(
 
 /// `testanyware vm delete`.
 pub async fn run_vm_delete(name: String, force: bool, mode: OutputMode, dry_run: bool) {
-    let paths = VmPaths::from_process_env();
+    let paths = crate::host_config::vm_paths();
 
     if dry_run {
         if let Err(err) = VmLifecycle::dry_run_validate_delete(&name, &paths) {
@@ -484,10 +484,9 @@ async fn run_vm_create_golden_macos(
     {
         use testanyware_vm::finalize::create_golden;
         use testanyware_vm::golden::GoldenOptions;
-        use testanyware_vm::VmPaths;
 
         let opts = GoldenOptions { version: version.clone(), name: name.clone() };
-        let paths = VmPaths::from_process_env();
+        let paths = crate::host_config::vm_paths();
         match create_golden(&opts, &paths).await {
             Ok(golden) => match mode {
                 OutputMode::Text => {
@@ -536,10 +535,9 @@ async fn run_vm_create_golden_windows(
         use std::path::Path;
         use testanyware_vm::golden::GoldenOptions;
         use testanyware_vm::golden_windows::create_golden_windows;
-        use testanyware_vm::VmPaths;
 
         let opts = GoldenOptions { version: version.clone(), name: name.clone() };
-        let paths = VmPaths::from_process_env();
+        let paths = crate::host_config::vm_paths();
         let iso_path = iso.as_deref().map(Path::new);
         match create_golden_windows(&opts, iso_path, &paths).await {
             Ok(golden) => match mode {
@@ -589,10 +587,9 @@ async fn run_vm_create_golden_linux(
     {
         use testanyware_vm::golden::GoldenOptions;
         use testanyware_vm::golden_linux::create_golden_linux;
-        use testanyware_vm::VmPaths;
 
         let opts = GoldenOptions { version: version.clone(), name: name.clone() };
-        let paths = VmPaths::from_process_env();
+        let paths = crate::host_config::vm_paths();
         match create_golden_linux(&opts, &paths).await {
             Ok(golden) => match mode {
                 OutputMode::Text => {

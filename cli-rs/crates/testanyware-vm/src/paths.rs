@@ -8,6 +8,13 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// The directories that `config.rhai` names. A directory that the file does not name is `None`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FileDirs {
+    pub state_dir: Option<PathBuf>,
+    pub data_dir: Option<PathBuf>,
+}
+
 /// Resolved VM-lifecycle directories.
 #[derive(Debug, Clone)]
 pub struct VmPaths {
@@ -42,15 +49,24 @@ impl VmPaths {
     ///     friends point at a real per-user dir instead of a bogus
     ///     `.local/...` under an empty home.
     pub fn from_env(env: &HashMap<String, String>) -> Self {
+        Self::from_env_and_file(env, &FileDirs::default())
+    }
+
+    /// [`Self::from_env`] with the directories of `config.rhai` (ADR-0021). The environment
+    /// variable beats the file, and the file beats the host default. A directory of the file is
+    /// the directory itself, so no `testanyware` is appended to it.
+    pub fn from_env_and_file(env: &HashMap<String, String>, file: &FileDirs) -> Self {
         let get = |k: &str| env.get(k).filter(|v| !v.is_empty()).cloned();
 
-        let state_dir = match get("XDG_STATE_HOME") {
-            Some(x) => PathBuf::from(x).join("testanyware"),
-            None => host_default_dir(&get, "state").join("testanyware"),
+        let state_dir = match (get("XDG_STATE_HOME"), &file.state_dir) {
+            (Some(x), _) => PathBuf::from(x).join("testanyware"),
+            (None, Some(dir)) => dir.clone(),
+            (None, None) => host_default_dir(&get, "state").join("testanyware"),
         };
-        let data_dir = match get("XDG_DATA_HOME") {
-            Some(x) => PathBuf::from(x).join("testanyware"),
-            None => host_default_dir(&get, "share").join("testanyware"),
+        let data_dir = match (get("XDG_DATA_HOME"), &file.data_dir) {
+            (Some(x), _) => PathBuf::from(x).join("testanyware"),
+            (None, Some(dir)) => dir.clone(),
+            (None, None) => host_default_dir(&get, "share").join("testanyware"),
         };
         let tmp_dir = host_tmp_dir(&get);
         Self { state_dir, data_dir, tmp_dir }
@@ -151,6 +167,37 @@ mod tests {
     fn empty_xdg_is_treated_as_unset() {
         let p = VmPaths::from_env(&env(&[("XDG_STATE_HOME", ""), ("HOME", "/h")]));
         assert_eq!(p.vms_dir(), PathBuf::from("/h/.local/state/testanyware/vms"));
+    }
+
+    #[test]
+    fn the_environment_beats_the_file_and_the_file_beats_the_default() {
+        let file = FileDirs {
+            state_dir: Some(PathBuf::from("/f/state")),
+            data_dir: Some(PathBuf::from("/f/data")),
+        };
+        // Neither variable: the file, with nothing appended.
+        let p = VmPaths::from_env_and_file(&env(&[("HOME", "/h")]), &file);
+        assert_eq!(p.state_dir(), std::path::Path::new("/f/state"));
+        assert_eq!(p.data_dir(), std::path::Path::new("/f/data"));
+        assert_eq!(p.vms_dir(), PathBuf::from("/f/state/vms"));
+        // One variable beats its own setting only.
+        let p = VmPaths::from_env_and_file(&env(&[("XDG_STATE_HOME", "/s"), ("HOME", "/h")]), &file);
+        assert_eq!(p.state_dir(), std::path::Path::new("/s/testanyware"));
+        assert_eq!(p.data_dir(), std::path::Path::new("/f/data"));
+        // An empty variable counts as unset.
+        let p = VmPaths::from_env_and_file(&env(&[("XDG_DATA_HOME", "")]), &file);
+        assert_eq!(p.data_dir(), std::path::Path::new("/f/data"));
+        // A file that names one directory leaves the other to the default.
+        let state_only = FileDirs { state_dir: Some(PathBuf::from("/f/state")), data_dir: None };
+        let p = VmPaths::from_env_and_file(&env(&[("HOME", "/h")]), &state_only);
+        assert_eq!(p.data_dir(), std::path::Path::new("/h/.local/share/testanyware"));
+    }
+
+    #[test]
+    fn no_file_resolves_as_before() {
+        let e = env(&[("XDG_STATE_HOME", "/s"), ("HOME", "/h")]);
+        let (a, b) = (VmPaths::from_env(&e), VmPaths::from_env_and_file(&e, &FileDirs::default()));
+        assert_eq!((a.state_dir(), a.data_dir()), (b.state_dir(), b.data_dir()));
     }
 
     #[test]

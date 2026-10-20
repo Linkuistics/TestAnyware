@@ -17,7 +17,7 @@ pub mod version;
 
 pub use error::{
     AppError, Peer, UnreachableCause, APP_INCOMPATIBLE, APP_NOT_INSTALLED, APP_UNREACHABLE,
-    SETUP_REMEDY,
+    CONFIG_INVALID, SETUP_REMEDY,
 };
 pub use hello::{ClientHello, Directories, ServerHello};
 pub use list::{ListRequest, LIST_PATH};

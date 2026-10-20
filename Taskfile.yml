@@ -48,6 +48,17 @@ tasks:
     cmds:
       - cargo test -p testanyware-cli --test app-agent-routing --test app-vnc-routing --test app-vm-list-routing --test app-vm-start-routing --test app-vm-stop-delete-routing --test app-version-skew
 
+  config:test:
+    desc: Test config.rhai (ADR-0021). The evaluator and its limits, the order of the sources with the activation switch on for any host, the doctor `config` check, and the real CLI binary against a file that fails. A macOS host runs the test that shows the file is ignored there
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - cargo test -p testanyware-config
+      - 'cargo test -p testanyware-vm --lib -- paths:: tools::'
+      - cargo test -p testanyware-vm --test configured_tools
+      - cargo test -p testanyware-app-protocol config_invalid
+      - 'cargo test -p testanyware-cli --lib -- host_config:: doctor:: resolve::'
+      - cargo test -p testanyware-cli --test config-file
+
   app:bundle-dev:
     desc: Build and sign the development bundle of the TestAnyware app, bundle id dev.antony.TestAnyware.dev (macOS host). Prints its path. The signing identity is the Developer ID of team TA43A4RUP3, and any other team is refused
     cmds:

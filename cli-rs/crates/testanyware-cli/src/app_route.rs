@@ -21,7 +21,6 @@ use testanyware_app_protocol::{
     ServerHello, StartRequest, StopResult, StreamKind, StreamTarget, APP_UNREACHABLE,
 };
 use testanyware_vm::listing::ListView;
-use testanyware_vm::paths::VmPaths;
 
 use crate::resolve::{default_app_socket_with_env, home_dir_with_env, EnvProvider, ResolvedAgent};
 
@@ -132,7 +131,7 @@ pub async fn start_vm(
 /// the directories it resolved. The app reads the VM records in the state directory, so the
 /// directory that goes here is the one the Host CLI reads its own records from.
 pub fn client_hello() -> ClientHello {
-    let paths = VmPaths::from_process_env();
+    let paths = crate::host_config::vm_paths();
     ClientHello::new(
         SUPPORTED_RANGE,
         env!("CARGO_PKG_VERSION"),

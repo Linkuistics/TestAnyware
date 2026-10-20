@@ -9,6 +9,7 @@
 pub mod app_route;
 pub mod commands;
 pub mod discoverability;
+pub mod host_config;
 pub mod output;
 pub mod resolve;
 pub mod surface;

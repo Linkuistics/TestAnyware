@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/testanyware-protocol",
     "crates/testanyware-app-protocol",
+    "crates/testanyware-config",
     "crates/testanyware-app",
     "crates/testanyware-app-client",
     "crates/testanyware-agent-client",
@@ -49,6 +50,10 @@ jpeg-decoder = "0.3"
 # dependency — keeps the `zig cc` cross-compile path clean.
 russh = "0.61"
 russh-sftp = "2.3"
+# The evaluator of config.rhai (ADR-0021). Pure Rust, so the cross-builds need no C toolchain.
+# `no_module` removes `import`, so a script cannot reach a file. `no_time` removes the clock.
+# Features: https://docs.rs/crate/rhai/1.26.1/features
+rhai = { version = "1.26.1", features = ["no_module", "no_time"] }
 
 # Workspace-wide release profile
 [profile.release]

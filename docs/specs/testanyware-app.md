@@ -690,7 +690,15 @@ CLI. Only `TESTANYWARE_CONFIG`, a variable for tests, names another file or
   it runs under an operation limit.
 - The script's value is a map of settings. In this delivery the settings are
   `tools`, with the locations of `tart`, `qemu-system-aarch64` and `swtpm`, and
-  `state_dir` and `data_dir`. An unknown key is an error.
+  `state_dir` and `data_dir`. An unknown key is an error, and so is an unknown
+  tool.
+- Each setting is a string that holds an absolute path. A relative path would mean
+  another place for each working directory. `state_dir` is the state directory
+  itself, the one that holds `vms/`. `data_dir` is the data directory itself, the
+  one that holds `golden/`. Neither is a replacement for `XDG_STATE_HOME` or
+  `XDG_DATA_HOME`. Those two get `testanyware` appended.
+- The Host CLI finds a tool that the file names at that location or not at all.
+  The search of the host does not stand in for a wrong location.
 - The app takes every setting. The Host CLI takes the directories on every host.
   It takes the tool locations where it runs the tools itself: on Linux and
   Windows hosts, and for golden creation.
@@ -705,9 +713,15 @@ reports the error in its menu and through `doctor`. The Host CLI refuses to run
 with a file that fails, with `CONFIG_INVALID`, the file, the line and the
 message.
 
+The error object of `CONFIG_INVALID` carries `details.file`, `details.line` and
+`details.message`. The line is `null` for a wrong type or an unknown key, because
+the script finishes before the evaluator reads its value. Its remedy names the
+file and `TESTANYWARE_CONFIG=none`.
+
 `doctor` is the one command that runs with a file that fails. Its `config`
 check fails with the `CONFIG_INVALID` error object. Its other checks use the
-values that resolve without the file.
+values that resolve without the file. The internal keeper that `vm start` spawns
+is not a command of the contract, and it ignores the file.
 
 Each request names the directories that the Host CLI resolved. When they differ
 from the app's directories, the command fails with `APP_INCOMPATIBLE` and

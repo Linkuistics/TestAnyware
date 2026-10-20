@@ -186,6 +186,7 @@ pub const ERROR_CODES: &[&str] = &[
     "APP_NOT_INSTALLED",
     "APP_UNREACHABLE",
     "APP_INCOMPATIBLE",
+    "CONFIG_INVALID",
     // §8.2
     "SCHEMA_NOT_FOUND",
 ];
