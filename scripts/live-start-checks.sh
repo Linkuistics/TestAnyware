@@ -17,11 +17,13 @@
 #       begin within MAX_BEGIN_SECS of the stop and reach a Healthy agent (or,
 #       in a shell Local Network privacy denies, a kept VM at the agent stage).
 #   live-start-checks.sh keep-on-failure
-#       An alive VM whose agent never becomes healthy (forced by pointing
-#       HTTP_PROXY at a closed port; stale, see check_keep_on_failure) must fail with
-#       VM_BOOT_TIMEOUT (exit 7, stage "agent"): torn down by default, kept
-#       and reclaimable by `vm stop` under --keep-on-failure. Takes ~2 min per
-#       case (the agent wait budget).
+#       An alive VM whose agent never becomes healthy must fail with VM_BOOT_TIMEOUT
+#       (exit 7, stage "agent"): torn down by default, kept and reclaimable by
+#       `vm stop` under --keep-on-failure. The fault is the test-mode argument
+#       --test-agent-port of the app: the check runs its own app in test mode, on a
+#       temporary socket and the real state and data directories, with the agent
+#       probes aimed at a port that refuses. Takes ~2 min per case (the agent wait
+#       budget).
 #   live-start-checks.sh qemu-death
 #       The QEMU arm (a Windows golden): `kill -9` of QEMU during the agent
 #       wait must end the start at once with QEMU_FAILED (exit 1), by default
@@ -51,7 +53,12 @@
 #       agent. Stops at the first failure and leaves that VM kept for
 #       inspection.
 #
+# On a macOS host every check starts its VMs through the TestAnyware app, so the app must be
+# running (the keep-on-failure check runs its own, in test mode). A check that ends a start by
+# a signal sees the app clean up a moment after the CLI has gone.
+#
 # Env: TESTANYWARE_BIN (default cli-rs/target/debug/testanyware),
+#      TESTANYWARE_APP_BIN (default cli-rs/target/debug/testanyware-app; keep-on-failure),
 #      MAX_REFUSAL_SECS (default 30; the slot-exhaustion latency bound),
 #      MAX_DENIAL_SECS (default 60; the local-network latency bound),
 #      MAX_BEGIN_SECS (default 15; how soon a waiting start must begin once a
@@ -59,9 +66,9 @@
 #      KILL_AFTER_SECS (default 15; how long a qemu-start waits before killing
 #      QEMU, so the start is in its agent wait), MAX_DEATH_SECS (default 10;
 #      how fast a killed QEMU must end the start).
-# Precondition: slot-exhaustion and keep-on-failure need no macOS VM running (the
-# limit is Apple's: two per Mac). reliability and local-network start one VM at a
-# time and need one free slot.
+# Precondition: slot-exhaustion needs no macOS VM running (the limit is Apple's: two per
+# Mac). keep-on-failure, reliability and local-network start one VM at a time and need one
+# free slot.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -81,8 +88,14 @@ readonly VMS_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/testanyware/vms"
 readonly CLONES_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/testanyware/clones"
 # Where QEMU's AF_UNIX sockets live (paths.rs `session_dir`).
 readonly SESSIONS_DIR="${TMPDIR:-/tmp}"
-# A port nothing listens on; used as a dead HTTP proxy to starve the agent probes.
-readonly DEAD_PROXY="http://127.0.0.1:9"
+readonly APP_BIN="${TESTANYWARE_APP_BIN:-$REPO_ROOT/cli-rs/target/debug/testanyware-app}"
+# A port nothing listens on, in the guest's address: the agent probes of keep-on-failure aim
+# there, so each is refused and the start stays in its agent wait.
+readonly DEAD_AGENT_PORT=9
+# How long the app may take to clean up after a start that ended, in seconds.
+readonly MAX_CLEANUP_SECS="${MAX_CLEANUP_SECS:-20}"
+APP_PID=""
+APP_DIR=""
 
 started_ids=()
 
@@ -99,6 +112,7 @@ pass() {
 # the VM's meta, so a clone that outlived its sidecars (the very failure these
 # checks exist to catch) is removed through tart directly.
 cleanup() {
+  [[ -z "$APP_PID" ]] || kill "$APP_PID" 2>/dev/null || true
   local id
   for id in ${started_ids[@]+"${started_ids[@]}"}; do
     "$BIN" vm stop "$id" >/dev/null 2>&1 || true
@@ -189,7 +203,12 @@ assert_eq() {
 }
 
 assert_vm_gone() {
-  local id="$1"
+  local id="$1" waited=0
+  # The app cleans up after the CLI has gone, so give it a moment.
+  while tart_names | grep -qx "$id" || [[ -e "$VMS_DIR/$id.json" || -e "$VMS_DIR/$id.meta.json" ]]; do
+    ((++waited <= MAX_CLEANUP_SECS)) || break
+    sleep 1
+  done
   tart_names | grep -qx "$id" && die "clone $id still exists"
   [[ ! -e "$VMS_DIR/$id.json" && ! -e "$VMS_DIR/$id.meta.json" ]] ||
     die "sidecars for $id still exist in $VMS_DIR"
@@ -406,31 +425,73 @@ check_slot_wait() {
   rm -f "$err_file" "$out_file"
 }
 
+# Run the app in test mode for this check. It serves a temporary socket, reads and writes the
+# real state and data directories (the CLI reads the same ones), finds the real tools, and
+# aims the agent probes of a start at a port that refuses. Sets APP_PID and APP_SOCKET.
+start_test_app() {
+  [[ -x "$APP_BIN" ]] || die "no app binary at $APP_BIN (run: cargo build -p testanyware-app)"
+  local state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/testanyware"
+  local data_dir="${XDG_DATA_HOME:-$HOME/.local/share}/testanyware"
+  # A short directory: a socket path has 103 bytes at most.
+  APP_DIR="$(mktemp -d /tmp/tawk.XXXXXX)"
+  chmod 700 "$APP_DIR"
+  APP_SOCKET="$APP_DIR/s.sock"
+  "$APP_BIN" --test-mode --socket "$APP_SOCKET" --state-dir "$state_dir" --data-dir "$data_dir" \
+    --test-agent-port "$DEAD_AGENT_PORT" 2>"$APP_DIR/app.log" &
+  APP_PID=$!
+  local waited=0
+  until [[ -S "$APP_SOCKET" ]]; do
+    kill -0 "$APP_PID" 2>/dev/null || die "the test app ended early: $(cat "$APP_DIR/app.log")"
+    ((++waited < 100)) || die "the test app never served"
+    sleep 0.1
+  done
+}
+
+stop_test_app() {
+  kill "$APP_PID" 2>/dev/null || true
+  wait "$APP_PID" 2>/dev/null || true
+  rm -rf "$APP_DIR"
+  APP_PID=""
+}
+
+# The last probe of the failed start was starved, not answered. The probes aim at a port that
+# nothing serves on the guest's address. A shell that macOS Local Network privacy allows sees
+# the guest refuse the connection. A shell it denies gets "no route to host" from the same
+# dial, and the app, which makes the dial, runs with the privacy of the shell that started it.
+# The check is about what a failed start leaves behind, so it takes either answer and says
+# which one it got.
+assert_probe_refused() {
+  local kind
+  kind="$(jq -r '.details.last_error.kind' <<<"$OUT")"
+  case "$kind" in
+    connection_refused | host_unreachable) pass "last probe error = $kind" ;;
+    *) die "last probe error: wanted connection_refused or host_unreachable, got '$kind' (output: $OUT)" ;;
+  esac
+}
+
 check_keep_on_failure() {
-  # The agent client moved from reqwest to hyper (agent-client-hyper-k7). hyper
-  # does not read HTTP_PROXY, so the dead proxy below no longer starves the
-  # agent probes and the start would succeed. Port this fault injection to a
-  # seam of the TestAnyware app before running the check again.
-  die "keep-on-failure: its HTTP_PROXY fault injection no longer works; see the comment in check_keep_on_failure"
-  require_no_running_vms
+  # One VM at a time, so one free slot is enough: another session's VM does not stop it.
+  require_free_slot
   local torn="testanyware-keepcheck-$$-torn" kept="testanyware-keepcheck-$$-kept"
 
   # Both ids are registered before the starts that may create them.
   started_ids+=("$torn" "$kept")
 
+  start_test_app
   echo "keep-on-failure: default failure tears the VM down (~2 min)"
-  run_failing_start env "HTTP_PROXY=$DEAD_PROXY" "$BIN" vm start --platform macos --id "$torn" --json
+  run_failing_start env "TESTANYWARE_APP_SOCKET=$APP_SOCKET" "$BIN" vm start --platform macos --id "$torn" --json
   assert_eq "exit code" 7 "$RC"
   assert_eq "error code" VM_BOOT_TIMEOUT "$(jq -r '.code' <<<"$OUT")"
   assert_eq "failed stage" agent "$(jq -r '.details.stage' <<<"$OUT")"
-  assert_eq "last probe error" connection_refused "$(jq -r '.details.last_error.kind' <<<"$OUT")"
+  assert_probe_refused
   assert_eq "kept" false "$(jq -r '.details.kept' <<<"$OUT")"
   assert_vm_gone "$torn"
 
   echo "keep-on-failure: --keep-on-failure leaves a reclaimable VM (~2 min)"
-  run_failing_start env "HTTP_PROXY=$DEAD_PROXY" "$BIN" vm start --platform macos --id "$kept" \
+  run_failing_start env "TESTANYWARE_APP_SOCKET=$APP_SOCKET" "$BIN" vm start --platform macos --id "$kept" \
     --keep-on-failure --json
   assert_eq "exit code" 7 "$RC"
+  assert_probe_refused
   assert_eq "kept" true "$(jq -r '.details.kept' <<<"$OUT")"
   assert_eq "kept VM state" running \
     "$(tart list --format json | jq -r --arg id "$kept" '.[] | select(.Name == $id) | .State')"
@@ -439,6 +500,7 @@ check_keep_on_failure() {
   pass "kept VM runs with both sidecars"
   "$BIN" vm stop "$kept" >/dev/null || die "vm stop could not reclaim $kept"
   assert_vm_gone "$kept"
+  stop_test_app
 }
 
 check_local_network() {

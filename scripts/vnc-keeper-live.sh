@@ -57,12 +57,14 @@ tart_state() {
 
 # The keeper pids, one per line, none if there is no keeper. With an id, only
 # that id's keeper. A process counts only when its program (the first word of
-# its command line) is `testanyware`: `pgrep -f _vnc-keeper` also matches any
-# shell whose command line mentions the text, such as the shell that runs this
-# script. `ps -o comm` is no help, because it cuts a long path short.
+# its command line) is `testanyware`, or `testanyware-app` when the TestAnyware app started the
+# VM (the app's bundle path may hold a space, so the match is on the text before the
+# command): `pgrep -f _vnc-keeper` also matches any shell whose command line mentions the
+# text, such as the shell that runs this script. `ps -o comm` is no help, because it cuts a
+# long path short.
 keeper_pids() {
   ps -axo pid=,args= |
-    awk -v key="_vnc-keeper --id ${1:-}" '$2 ~ /testanyware$/ && index($0, key) { print $1 }'
+    awk -v id="${1:-}" '$0 ~ ("testanyware(-app)? _vnc-keeper --id " id) { print $1 }'
 }
 
 # Start a clone with the CLI and set `clone_id`. It sets a variable and does not

@@ -27,6 +27,8 @@ pub mod qemu_profile;
 pub mod spec;
 /// The pure start-outcome decision behind `vm start`'s honest-failure rule.
 pub mod start_outcome;
+/// What one `vm start` runs on: the tools, the progress sink and the cancel token.
+pub mod start_context;
 pub mod tools;
 pub mod tpm;
 /// `russh`-backed SSH/SFTP provisioning helper for `vm create-golden`
@@ -95,5 +97,6 @@ pub use meta::{VmMeta, VmTool};
 pub use monitor::QemuMonitorClient;
 pub use paths::VmPaths;
 pub use qemu::{GoldenImage, QemuRunner};
+pub use start_context::{Progress, StartContext};
 pub use spec::{AgentEndpoint, VmSpec, VncEndpoint};
 pub use ssh::{ExecOutput, SshSession};

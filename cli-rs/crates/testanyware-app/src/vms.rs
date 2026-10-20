@@ -18,7 +18,7 @@ use crate::AppContext;
 
 /// The VM records of the app. The socket sessions of QEMU live under the temporary directory of
 /// the app's own process, where the app starts them.
-fn vm_paths(ctx: &AppContext) -> VmPaths {
+pub(crate) fn vm_paths(ctx: &AppContext) -> VmPaths {
     let directories = &ctx.identity.directories;
     VmPaths::new(
         directories.state_dir.clone(),

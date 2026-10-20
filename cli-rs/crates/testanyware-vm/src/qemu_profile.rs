@@ -30,6 +30,12 @@ pub struct QemuProfile {
 /// Swift `QEMURunner`; the Linux branches follow the same device model
 /// with KVM + the host architecture's firmware.
 pub fn host_profile() -> QemuProfile {
+    host_profile_in(&crate::tools::ToolSearch::from_process_path())
+}
+
+/// [`host_profile`], with the QEMU install found by `tools`.
+#[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // Only macOS derives a prefix.
+pub fn host_profile_in(tools: &crate::tools::ToolSearch) -> QemuProfile {
     #[cfg(target_os = "macos")]
     {
         // macOS hosts are Apple Silicon: aarch64 guests under HVF.
@@ -38,7 +44,7 @@ pub fn host_profile() -> QemuProfile {
             accelerator: "hvf",
             machine: "virt,highmem=on,gic-version=3",
             cpu: "host",
-            uefi_code_candidates: macos_uefi_candidates(),
+            uefi_code_candidates: macos_uefi_candidates(tools),
         }
     }
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
@@ -92,9 +98,9 @@ pub fn host_profile() -> QemuProfile {
 /// install prefix (`<prefix>/share/qemu/edk2-aarch64-code.fd`), as the
 /// Swift `QEMURunner.start` does, plus the standard Homebrew location.
 #[cfg(target_os = "macos")]
-fn macos_uefi_candidates() -> Vec<PathBuf> {
+fn macos_uefi_candidates(tools: &crate::tools::ToolSearch) -> Vec<PathBuf> {
     let mut out = Vec::new();
-    if let Some(bin) = which("qemu-system-aarch64") {
+    if let Some(bin) = tools.find("qemu-system-aarch64") {
         // <prefix>/bin/qemu-system-aarch64 → <prefix>/share/qemu/...
         if let Some(prefix) = bin.parent().and_then(Path::parent) {
             out.push(prefix.join("share/qemu/edk2-aarch64-code.fd"));

@@ -48,7 +48,7 @@ pub fn serial() -> MutexGuard<'static, ()> {
 
 /// The path of the app executable, built once for the test process. The executable sits in
 /// the directory of the CLI, and a profile other than `debug` is named by that directory.
-fn app_binary() -> &'static Path {
+pub fn app_binary() -> &'static Path {
     static APP: OnceLock<PathBuf> = OnceLock::new();
     APP.get_or_init(|| {
         let cli = Path::new(CLI);
@@ -224,13 +224,30 @@ impl TestApp {
         Self::spawn(app)
     }
 
+    /// [`Self::start_after`], with more arguments for the app, such as `--test-agent-port`.
+    pub fn start_after_with_args(prepare: impl FnOnce(&TestApp), args: &[String]) -> Self {
+        let app = Self::not_running();
+        prepare(&app);
+        Self::spawn_with(app, args)
+    }
+
+    /// The process id of the app.
+    pub fn pid(&self) -> u32 {
+        self.child.as_ref().expect("the app runs").id()
+    }
+
     /// Start the app on the default socket of the CLI's `HOME`, as the login item starts it.
     pub fn start_on_the_default_socket() -> Self {
         Self::spawn(Self::not_running_on_the_default_socket())
     }
 
-    fn spawn(mut app: Self) -> Self {
+    fn spawn(app: Self) -> Self {
+        Self::spawn_with(app, &[])
+    }
+
+    fn spawn_with(mut app: Self, extra: &[String]) -> Self {
         let mut child = Command::new(app_binary())
+            .args(extra)
             .args(["--test-mode", "--socket"])
             .arg(app.socket())
             .arg("--state-dir")

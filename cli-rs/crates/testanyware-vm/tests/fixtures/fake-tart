@@ -1,0 +1,71 @@
+#!/bin/bash
+# A fake `tart` for the start tests. It keeps its state in `state/` beside the script:
+#
+#   <name>.cloned   the VM exists
+#   <name>.running  the pid of its `tart run`, which stays up as `sleep`
+#   vnc-port        the port that `run` prints in its vnc:// line (default 9, which refuses)
+#   ip              what `ip` prints (default 127.0.0.1)
+#   full            if present, `run` refuses with the macOS guest limit message and exits 1
+#   stuck           if present, `stop` and `delete` do nothing, as a tart that cannot remove a VM
+#
+# The tests give it as the only tool directory, so no test runs the developer's own `tart`.
+set -u
+STATE="$(cd "$(dirname "$0")" && pwd)/state"
+mkdir -p "$STATE"
+cmd="${1:-}"
+shift || true
+
+alive() { [ -e "$STATE/$1.running" ] && kill -0 "$(cat "$STATE/$1.running")" 2>/dev/null; }
+
+case "$cmd" in
+  list)
+    first=1
+    printf '['
+    emit() {
+      [ "$first" = 1 ] || printf ','
+      first=0
+      printf '{"Name":"%s","State":"%s"}' "$1" "$2"
+    }
+    for golden in testanyware-golden-macos-27 testanyware-golden-linux-24.04; do emit "$golden" stopped; done
+    for f in "$STATE"/*.cloned; do
+      [ -e "$f" ] || continue
+      name="$(basename "$f" .cloned)"
+      if alive "$name"; then emit "$name" running; else emit "$name" stopped; fi
+    done
+    printf ']\n'
+    ;;
+  clone)
+    case "$1" in
+      testanyware-golden-macos-27 | testanyware-golden-linux-24.04) touch "$STATE/$2.cloned" ;;
+      *) echo "failed to clone $1: no such VM" >&2; exit 1 ;;
+    esac
+    ;;
+  set)
+    ;;
+  run)
+    name="$1"
+    if [ -e "$STATE/full" ]; then
+      echo "The number of VMs exceeds the system limit (other running VMs: holder-a, holder-b)" >&2
+      exit 1
+    fi
+    echo $$ >"$STATE/$name.running"
+    echo "vnc://:fakepw@127.0.0.1:$(cat "$STATE/vnc-port" 2>/dev/null || echo 9)..."
+    exec sleep 600
+    ;;
+  ip)
+    cat "$STATE/ip" 2>/dev/null || echo 127.0.0.1
+    ;;
+  stop)
+    [ -e "$STATE/stuck" ] && exit 0
+    if alive "$1"; then kill "$(cat "$STATE/$1.running")" 2>/dev/null; fi
+    rm -f "$STATE/$1.running"
+    ;;
+  delete)
+    [ -e "$STATE/stuck" ] && exit 0
+    rm -f "$STATE/$1.cloned" "$STATE/$1.running"
+    ;;
+  *)
+    echo "fake-tart: unknown command $cmd" >&2
+    exit 2
+    ;;
+esac

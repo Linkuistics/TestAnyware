@@ -12,10 +12,11 @@ use std::sync::Arc;
 use testanyware_agent_client::{
     AgentClient, AgentConfig, AgentConnector, BoxedStream, ConnectFuture, ConnectorFailure,
 };
-use testanyware_app_client::{AppClient, AppStream};
+use testanyware_app_client::{AppClient, AppStream, StartEnd};
 use testanyware_app_protocol::version::SUPPORTED_RANGE;
 use testanyware_app_protocol::{
-    AppError, ClientHello, Directories, ListRequest, StreamKind, StreamTarget, APP_UNREACHABLE,
+    AppError, ClientHello, Directories, ListRequest, StartRequest, StreamKind, StreamTarget,
+    APP_UNREACHABLE,
 };
 use testanyware_vm::listing::ListView;
 use testanyware_vm::paths::VmPaths;
@@ -83,6 +84,20 @@ pub async fn list_vms(socket: PathBuf, request: &ListRequest) -> Result<ListView
     let client = AppClient::new(socket, client_hello());
     client
         .get_json(&request.path_and_query())
+        .await
+        .map_err(|error| name_missing_install_here(error, client.socket()))
+}
+
+/// Ask the app to start a VM, and hand each progress line to `on_progress`. A failure to reach
+/// the app on the default socket says whether the app is installed, as for a guest stream.
+pub async fn start_vm(
+    socket: PathBuf,
+    request: &StartRequest,
+    on_progress: impl FnMut(&str),
+) -> Result<StartEnd, AppError> {
+    let client = AppClient::new(socket, client_hello());
+    client
+        .start_vm(request, on_progress)
         .await
         .map_err(|error| name_missing_install_here(error, client.socket()))
 }

@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
-use http_body_util::Full;
+use http_body_util::{BodyExt, Limited};
 use hyper::body::Incoming;
 use hyper::header::{HeaderValue, CONNECTION, CONTENT_TYPE, UPGRADE};
 use hyper::{Method, Request, Response, StatusCode};
@@ -20,6 +20,7 @@ use testanyware_vm::tools::ToolSearch;
 use tokio::net::UnixListener;
 
 use crate::access::peer_allowed;
+use crate::body::AppBody;
 use crate::gate::{check_request, AppIdentity};
 use crate::grant::GrantObservation;
 use crate::streams::{
@@ -40,6 +41,10 @@ pub struct AppContext {
     /// Where the app looks for `tart`, QEMU and the other tools it runs. The app has no shell
     /// environment, so it reads no `PATH`.
     pub tools: ToolSearch,
+    /// The port of the In-VM agent in a tart guest. A test moves it (`--test-agent-port`).
+    pub agent_port: u16,
+    /// The ids that are being started now, so that one id has one start at a time.
+    pub starts: crate::gate_start::StartGate,
 }
 
 impl AppContext {
@@ -50,12 +55,21 @@ impl AppContext {
             config_path,
             grant: Mutex::new(GrantObservation::NotYetSeen),
             tools: ToolSearch::builtin(),
+            agent_port: testanyware_vm::start_context::AGENT_PORT,
+            starts: crate::gate_start::StartGate::default(),
         }
     }
 
     /// The same context with another tool search. A test passes a directory of fake tools.
     pub fn with_tools(mut self, tools: ToolSearch) -> Self {
         self.tools = tools;
+        self
+    }
+
+    /// The same context with the agent probes and the agent endpoint of a start on another
+    /// port. A test points them at a fake agent, or at a port that refuses.
+    pub fn with_agent_port(mut self, port: u16) -> Self {
+        self.agent_port = port;
         self
     }
 }
@@ -105,7 +119,7 @@ fn is_transient(e: &std::io::Error) -> bool {
 async fn handle(
     ctx: Arc<AppContext>,
     mut req: Request<Incoming>,
-) -> Result<Response<Full<Bytes>>, Infallible> {
+) -> Result<Response<AppBody>, Infallible> {
     let hello =
         ClientHello::from_lookup(|name| req.headers().get(name).and_then(|v| v.to_str().ok()));
     let mut response = route(&ctx, &mut req, &hello).await;
@@ -123,7 +137,7 @@ async fn route(
     ctx: &Arc<AppContext>,
     req: &mut Request<Incoming>,
     hello: &ClientHello,
-) -> Response<Full<Bytes>> {
+) -> Response<AppBody> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
     // `doctor` needs the status of an app it cannot otherwise talk to, so this request
@@ -144,6 +158,9 @@ async fn route(
     }
     if path == LIST_PATH && method == Method::GET {
         return list_vms(ctx, req.uri().query()).await;
+    }
+    if path == LIST_PATH && method == Method::POST {
+        return start_vm(ctx, req).await;
     }
     match parse_stream_path(&path) {
         RouteMatch::Stream(target, kind) => match serve_stream(ctx, req, &target, kind).await {
@@ -173,7 +190,7 @@ async fn route(
 }
 
 /// Serve `GET /v1/vms`: the view that `vm list` prints, for the options that the Host CLI parsed.
-async fn list_vms(ctx: &Arc<AppContext>, query: Option<&str>) -> Response<Full<Bytes>> {
+async fn list_vms(ctx: &Arc<AppContext>, query: Option<&str>) -> Response<AppBody> {
     let request = match ListRequest::parse(query) {
         Ok(request) => request,
         Err(reason) => {
@@ -206,6 +223,31 @@ async fn list_vms(ctx: &Arc<AppContext>, query: Option<&str>) -> Response<Full<B
     }
 }
 
+/// The most bytes of a start request that the app reads. The options are far smaller.
+const START_BODY_LIMIT: usize = 64 * 1024;
+
+/// Serve `POST /v1/vms`: read the options that the Host CLI resolved, and answer with the
+/// events of the start. A request that cannot start anything fails before the stream, as a
+/// JSON error object.
+async fn start_vm(ctx: &Arc<AppContext>, req: &mut Request<Incoming>) -> Response<AppBody> {
+    let body = match Limited::new(req.body_mut(), START_BODY_LIMIT).collect().await {
+        Ok(collected) => collected.to_bytes(),
+        Err(e) => {
+            let err = AppError::new(
+                "USAGE_ERROR",
+                format!("The TestAnyware app cannot read the request to start a VM: {e}."),
+                None,
+                json!({ "method": "POST", "path": LIST_PATH }),
+            );
+            return error_response(StatusCode::BAD_REQUEST, &err);
+        }
+    };
+    match crate::start::parse_request(&body) {
+        Ok((_, options)) => crate::start::start_response(ctx, options),
+        Err(refusal) => error_response(refusal.status, &refusal.error),
+    }
+}
+
 /// Serve one guest stream: check the request, find and dial the guest, and upgrade. Every
 /// failure comes before the `101`, so the client reads an error object. After the `101`, the
 /// bytes pass unchanged until either side closes.
@@ -214,7 +256,7 @@ async fn serve_stream(
     req: &mut Request<Incoming>,
     target: &StreamTarget,
     kind: StreamKind,
-) -> Result<Response<Full<Bytes>>, ServeError> {
+) -> Result<Response<AppBody>, ServeError> {
     if req.method() != Method::GET {
         return Err(usage_error(
             StatusCode::METHOD_NOT_ALLOWED,
@@ -249,7 +291,7 @@ async fn serve_stream(
             Err(e) => eprintln!("testanyware-app: upgrade failed: {e}"),
         }
     });
-    let mut response = Response::new(Full::new(Bytes::new()));
+    let mut response = Response::new(AppBody::full(Bytes::new()));
     *response.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
     let headers = response.headers_mut();
     headers.insert(CONNECTION, HeaderValue::from_static("upgrade"));
@@ -282,12 +324,12 @@ fn usage_error(status: StatusCode, message: String, req: &Request<Incoming>) -> 
     )
 }
 
-fn error_response(status: StatusCode, err: &AppError) -> Response<Full<Bytes>> {
+fn error_response(status: StatusCode, err: &AppError) -> Response<AppBody> {
     json_response(status, serde_json::to_value(err).expect("error serialises"))
 }
 
-fn json_response(status: StatusCode, body: Value) -> Response<Full<Bytes>> {
-    let mut response = Response::new(Full::new(Bytes::from(body.to_string())));
+fn json_response(status: StatusCode, body: Value) -> Response<AppBody> {
+    let mut response = Response::new(AppBody::full(Bytes::from(body.to_string())));
     *response.status_mut() = status;
     response
         .headers_mut()

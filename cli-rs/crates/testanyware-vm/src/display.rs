@@ -22,6 +22,8 @@ use testanyware_agent_client::{AgentClient, AgentConfig, AgentError};
 use testanyware_protocol::ExecRequest;
 
 use crate::paths::VmPaths;
+use crate::start_context::Progress;
+use crate::tools::ToolSearch;
 
 /// The CoreGraphics switch helper, host-compiled with `swiftc` and uploaded to
 /// the guest. Embedded so the binary is self-contained (mirrors
@@ -82,16 +84,26 @@ pub fn parse_target(display: &str) -> Option<(u32, u32)> {
 /// Returns `true` only when the switch was confirmed applied (the guest's
 /// active mode now reports the target); every degraded path returns `false`,
 /// which the HiDPI caller uses to fall back to a 1× switch (ADR-0016).
-pub async fn apply(host: &str, port: u16, target: (u32, u32), scale: u32, paths: &VmPaths, id: &str) -> bool {
+#[allow(clippy::too_many_arguments)]
+pub async fn apply(
+    tools: &ToolSearch,
+    progress: &Progress,
+    host: &str,
+    port: u16,
+    target: (u32, u32),
+    scale: u32,
+    paths: &VmPaths,
+    id: &str,
+) -> bool {
     let (w, h) = target;
     if scale > 1 {
-        eprintln!("Setting guest display to {w}x{h} pt @ {scale}x (HiDPI, {}x{} px)...", w * scale, h * scale);
+        progress.line(&format!("Setting guest display to {w}x{h} pt @ {scale}x (HiDPI, {}x{} px)...", w * scale, h * scale));
     } else {
-        eprintln!("Setting guest display resolution to {w}x{h} px...");
+        progress.line(&format!("Setting guest display resolution to {w}x{h} px..."));
     }
 
-    let Some(swiftc) = crate::qemu_profile::which("swiftc") else {
-        eprintln!("  warning: swiftc not found — skipping resolution switch");
+    let Some(swiftc) = tools.find("swiftc") else {
+        progress.line("  warning: swiftc not found — skipping resolution switch");
         return false;
     };
 
@@ -105,7 +117,7 @@ pub async fn apply(host: &str, port: u16, target: (u32, u32), scale: u32, paths:
     ) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("  warning: could not stage display helper — skipping ({e})");
+            progress.line(&format!("  warning: could not stage display helper — skipping ({e})"));
             return false;
         }
     };
@@ -118,16 +130,16 @@ pub async fn apply(host: &str, port: u16, target: (u32, u32), scale: u32, paths:
     match compiled {
         Ok(out) if out.status.success() => {}
         _ => {
-            eprintln!("  warning: could not compile display helper — skipping resolution switch");
+            progress.line("  warning: could not compile display helper — skipping resolution switch");
             let _ = std::fs::remove_dir_all(&scratch);
             return false;
         }
     }
 
-    let outcome = switch_over_agent(host, port, &bin, w, h, scale).await;
+    let outcome = switch_over_agent(progress, host, port, &bin, w, h, scale).await;
     let applied = outcome.is_ok();
     if let Err(e) = outcome {
-        eprintln!("  warning: resolution switch failed (continuing): {e}");
+        progress.line(&format!("  warning: resolution switch failed (continuing): {e}"));
     }
     let _ = std::fs::remove_dir_all(&scratch);
     applied
@@ -140,6 +152,7 @@ pub async fn apply(host: &str, port: u16, target: (u32, u32), scale: u32, paths:
 /// deadline) while VF reconfigures — that is normal, not an error (ADR-0014
 /// Verification finding 4), so the switch must not be aborted underneath it.
 async fn switch_over_agent(
+    progress: &Progress,
     host: &str,
     port: u16,
     bin: &std::path::Path,
@@ -166,7 +179,7 @@ async fn switch_over_agent(
         // Surface the helper's confirmation line for the start log.
         let line = result.stdout.trim();
         if !line.is_empty() {
-            eprintln!("  {line}");
+            progress.line(&format!("  {line}"));
         }
         Ok(())
     } else {

@@ -23,6 +23,8 @@ testanyware-vm = { path = "../testanyware-vm" }
 clap = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
+# `CancellationToken` carries the end of a client's connection to the start that it asked for.
+tokio-util = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 # The app serves over HTTP/1.1 on a Unix socket (spec: "The protocol"). hyper-util

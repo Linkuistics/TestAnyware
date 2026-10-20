@@ -59,9 +59,12 @@ sequenceDiagram
 
 ### What holds the connection
 
-The keeper is the `testanyware` binary itself, run as the internal command
-`_vnc-keeper`. The contract hides each `_` command from `--help`. The arguments
-name the VM id, the VNC host and the VNC port.
+The keeper is the executable that starts the VM, run as the internal command
+`_vnc-keeper`. On a macOS host the TestAnyware app starts every VM, so the keeper
+is the app's own executable, which answers that command, and it always matches the
+build of the app that started it. The `testanyware` binary answers the same command
+too. The contract hides each `_` command from `--help`. The arguments name the VM id,
+the VNC host and the VNC port.
 
 The keeper connects and never writes a byte. It does no RFB handshake, so it
 never sends ClientInit, never claims a session and gets no framebuffer updates.
@@ -176,7 +179,7 @@ carries no traffic.
   2.40.1. A macOS clone survived 5 minutes with no other client, and a Linux
   clone survived 70 seconds. With the keeper killed, a macOS clone crashed after
   70 seconds, so the keeper is what protects the guest.
-- Each running tart guest has one more process (`testanyware _vnc-keeper`) and
+- Each running tart guest has one more process (`_vnc-keeper`) and
   one more socket. The meta gains an optional `keeper_pid`, and a meta without
   it still loads.
 - A tart guest that `vm start` did not start gets no keeper. The recipe in the

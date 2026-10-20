@@ -9,7 +9,8 @@ use crate::paths::VmPaths;
 use crate::preflight::check_kvm;
 use crate::process::{child_alive, pgrep_first, terminate};
 use crate::start_outcome::{exit_detail, read_log_tail};
-use crate::qemu_profile::{host_profile, resolve_uefi_code, which, QemuProfile};
+use crate::qemu_profile::{host_profile_in, resolve_uefi_code, which, QemuProfile};
+use crate::tools::ToolSearch;
 use crate::tpm::{self, tpm_state_source, TpmDecision, TpmStateSource, TpmWiring};
 
 /// A golden image discovered on disk.
@@ -201,6 +202,20 @@ async fn run_and_check(program: &str, args: &[String]) -> Result<(), VmError> {
     }
 }
 
+/// Run `swtpm socket ... --daemon` and wait for the foreground process, which exits once the
+/// daemon is up. The daemon is the child of a process in its own session that holds no descriptor
+/// of the caller, so the TestAnyware app cannot hand it a client socket (`detached::run_clean`).
+async fn run_swtpm(program: &str, args: &[String]) -> Result<(), VmError> {
+    let status = crate::detached::run_clean(program, args).await?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(VmError::QemuFailed {
+            detail: format!("{program} {} exited {status}", args.join(" ")),
+        })
+    }
+}
+
 /// First PID holding any `.qcow2` in `dir`, via `lsof -t`. Ports
 /// `QEMURunner.processHoldingQcow2`.
 fn process_holding_qcow2(dir: &Path) -> Option<i32> {
@@ -222,6 +237,15 @@ impl QemuRunner {
     /// detached, and discover the
     /// dynamic VNC/agent ports. Ports `QEMURunner.start`.
     pub async fn start(opts: &QemuStartOptions, paths: &VmPaths) -> Result<StartArtifacts, VmError> {
+        Self::start_in(&ToolSearch::from_process_path(), opts, paths).await
+    }
+
+    /// [`start`](Self::start), with QEMU, `qemu-img` and `swtpm` found by `tools`.
+    pub async fn start_in(
+        tools: &ToolSearch,
+        opts: &QemuStartOptions,
+        paths: &VmPaths,
+    ) -> Result<StartArtifacts, VmError> {
         // --- Preflight (host + KVM) --------------------------------------
         // Fail fast and loud on a Windows host: the local-QEMU launch below
         // (AF_UNIX monitor, Unix process/detach) is build-verified only
@@ -251,7 +275,7 @@ impl QemuRunner {
         // --- Clone the golden artefacts ----------------------------------
         let golden_qcow2 = golden_dir.join(format!("{}.qcow2", opts.base));
         let clone_qcow2 = clone_dir.join(format!("{}.qcow2", opts.id));
-        let qemu_img = which("qemu-img")
+        let qemu_img = tools.find("qemu-img")
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| "qemu-img".to_string());
         run_and_check(&qemu_img, &[
@@ -287,7 +311,7 @@ impl QemuRunner {
         }
 
         // --- Resolve UEFI firmware ---------------------------------------
-        let profile = host_profile();
+        let profile = host_profile_in(tools);
         let uefi_code = resolve_uefi_code(&profile.uefi_code_candidates).ok_or_else(|| {
             teardown(0, &clone_dir, &session);
             VmError::UefiNotFound {
@@ -303,10 +327,10 @@ impl QemuRunner {
         let monitor_socket = session.join("monitor.sock");
         let tpm = if opts.tpm.attaches() {
             let tpm_socket = session.join("swtpm-sock");
-            let swtpm = which("swtpm")
+            let swtpm = tools.find("swtpm")
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "swtpm".to_string());
-            run_and_check(&swtpm, &[
+            run_swtpm(&swtpm, &[
                 "socket".into(),
                 "--tpmstate".into(), format!("dir={}", clone_tpm_dir.display()),
                 "--ctrl".into(), format!("type=unixio,path={}", tpm_socket.display()),
@@ -332,7 +356,7 @@ impl QemuRunner {
             display: opts.display.clone(),
         };
         let args = build_qemu_args(&profile, &launch);
-        let qemu_bin = which(profile.qemu_binary)
+        let qemu_bin = tools.find(profile.qemu_binary)
             .map(|p| p.display().to_string())
             .unwrap_or_else(|| profile.qemu_binary.to_string());
         let log_path = clone_dir.join("qemu.log");
@@ -476,6 +500,7 @@ fn backing_file(qcow2: &Path) -> Option<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::qemu_profile::host_profile;
     use std::fs;
 
     #[test]

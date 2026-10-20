@@ -72,19 +72,26 @@ pub fn spawn_keeper(
     crate::detached::spawn_detached(program, &keeper_args(id, host, port), &log_path)
 }
 
-/// Start the keeper of `id` from this binary. A failure warns and returns
-/// `None`: the guest then runs as it does without a keeper (ADR-0018).
-pub fn start_keeper(id: &str, host: &str, port: u16, log_dir: &Path) -> Option<i32> {
+/// Start the keeper of `id` from this binary, which is the Host CLI or, in the TestAnyware
+/// app, the app's own executable: a keeper always matches the build that starts it. A failure
+/// warns and returns `None`: the guest then runs as it does without a keeper (ADR-0018).
+pub fn start_keeper(
+    id: &str,
+    host: &str,
+    port: u16,
+    log_dir: &Path,
+    progress: &crate::start_context::Progress,
+) -> Option<i32> {
     let spawned = std::env::current_exe()
         .map_err(|e| VmError::Io(format!("locate the testanyware binary: {e}")))
         .and_then(|exe| spawn_keeper(&exe.display().to_string(), id, host, port, log_dir));
     match spawned {
         Ok(pid) => Some(pid),
         Err(e) => {
-            eprintln!(
+            progress.line(&format!(
                 "  warning: could not start the VNC keeper ({e}); a command after a pause of \
                  60 s or more can crash the guest on a macOS 27 host"
-            );
+            ));
             None
         }
     }
@@ -100,6 +107,21 @@ pub fn stop_keeper(id: &str, pid: Option<i32>) {
     if is_keeper {
         crate::process::terminate(pid, Duration::from_millis(100), 10);
     }
+}
+
+/// The body of the hidden `_vnc-keeper` command, for the Host CLI and for the TestAnyware app,
+/// whose executable also answers that command. It holds one silent connection to `host:port`
+/// until the port goes away, and logs to stderr, which `vm start` points at `<id>.keeper.log`.
+/// Returns the exit code: 0 when it held a connection and the port then went away, 1 otherwise.
+pub async fn run(id: &str, host: &str, port: u16) -> i32 {
+    let started = Instant::now();
+    let mut log = |line: &str| eprintln!("[{id} +{}s] {line}", started.elapsed().as_secs());
+    let report = hold(host, port, KeeperPolicy::DEFAULT, &mut log).await;
+    log(&format!(
+        "exiting after {} connection(s), {} byte(s) discarded: {:?}",
+        report.connections, report.bytes_discarded, report.exit
+    ));
+    if report.ended_normally() { 0 } else { 1 }
 }
 
 /// The timings of the keeper loop.

@@ -36,6 +36,10 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 # x11 + wayland keep the Linux build green (verification rides a later leaf).
 eframe = { version = "0.34", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 
+[target.'cfg(unix)'.dev-dependencies]
+# The start tests signal the fake `tart run` and read the session of the detached children.
+nix = { workspace = true }
+
 [dev-dependencies]
 tempfile = { workspace = true }
 # The app routing tests (tests/app-agent-routing.rs) serve a fake In-VM agent with wiremock.

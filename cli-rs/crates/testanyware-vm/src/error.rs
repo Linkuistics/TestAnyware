@@ -138,8 +138,15 @@ impl fmt::Display for BootTimeout {
 }
 
 /// What to do when macOS Local Network privacy denies the process the guest
-/// subnet. The harness case needs its own sentence: a process that a launchd
-/// service started has no app that the user can allow.
+/// subnet. On a macOS host the process is the TestAnyware app, which starts every VM and
+/// holds the grant for every client (ADR-0019). The harness case needs its own sentence
+/// on other hosts: a process that a launchd service started has no app that the user can
+/// allow.
+#[cfg(target_os = "macos")]
+const LOCAL_NETWORK_REMEDY: &str =
+    "The guest answers a platform tool. Allow TestAnyware in System Settings, Privacy & \
+     Security, Local Network. A person does this once, and again when an upgrade of the app asks.";
+#[cfg(not(target_os = "macos"))]
 const LOCAL_NETWORK_REMEDY: &str =
     "The guest answers a platform tool. Run testanyware from an app that has \
      Local Network access. Allow that app in System Settings, Privacy & Security, Local Network. \
@@ -178,6 +185,11 @@ pub enum VmError {
 
     #[error("failed to spawn a child process: {detail}")]
     SpawnFailed { detail: String },
+
+    /// The client of the TestAnyware app closed its connection before the start ended, and the
+    /// app cleaned up as after a failed start. No client reads it, so it has no remedy.
+    #[error("the start of VM '{id}' was cancelled: the client closed its connection")]
+    StartCancelled { id: String },
 
     #[error("golden image '{name}' not found")]
     GoldenNotFound { name: String },
@@ -241,6 +253,7 @@ impl VmError {
             VmError::VmBootTimeout { .. } => "VM_BOOT_TIMEOUT",
             VmError::VmLimitReached(_) => "VM_LIMIT_REACHED",
             VmError::SpawnFailed { .. } => "SPAWN_FAILED",
+            VmError::StartCancelled { .. } => "START_CANCELLED",
             VmError::GoldenNotFound { .. } => "GOLDEN_NOT_FOUND",
             VmError::GoldenInUse { .. } => "GOLDEN_IN_USE",
             VmError::VmNotFound { .. } => "VM_NOT_FOUND",
@@ -341,7 +354,9 @@ impl VmError {
             VmError::GoldenInUse { name, clone_pids } => {
                 json!({ "golden_name": name, "clone_pids": clone_pids })
             }
-            VmError::VmNotFound { id } | VmError::VmStopFailed { id } => json!({ "vm_id": id }),
+            VmError::VmNotFound { id }
+            | VmError::VmStopFailed { id }
+            | VmError::StartCancelled { id } => json!({ "vm_id": id }),
             VmError::VmBootTimeout { id, timeout } => json!({
                 "vm_id": id,
                 "stage": timeout.stage.as_str(),
@@ -561,6 +576,34 @@ mod tests {
         let remedy = err.remediation().unwrap();
         assert!(remedy.contains("Local Network"), "{remedy}");
         assert!(remedy.contains("--keep-on-failure"), "the keep hint stays: {remedy}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn on_a_macos_host_the_denial_remedy_names_the_app() {
+        let err = VmError::VmBootTimeout {
+            id: "testanyware-abcd1234".into(),
+            timeout: Box::new(BootTimeout {
+                cause: Some(BootCause::LocalNetworkDenied),
+                ..match agent_timeout(false) {
+                    VmError::VmBootTimeout { timeout, .. } => *timeout,
+                    _ => unreachable!(),
+                }
+            }),
+        };
+        let remedy = err.remediation().unwrap();
+        assert!(
+            remedy.contains("Allow TestAnyware in System Settings, Privacy & Security, Local Network"),
+            "{remedy}"
+        );
+        assert!(!remedy.contains("agent harness"), "no advice for a harness that cannot allow anything: {remedy}");
+    }
+
+    #[test]
+    fn a_cancelled_start_has_its_own_code_and_names_the_vm() {
+        let err = VmError::StartCancelled { id: "vm1".into() };
+        assert_eq!(err.code(), "START_CANCELLED");
+        assert_eq!(err.details()["vm_id"], "vm1");
     }
 
     #[test]

@@ -356,6 +356,24 @@ version bump.
 >   spent only on refusals, and boot time after the slot is won does not count
 >   against it.
 
+> **Amendment 2026-10-20** (`app-vm-start-k27`, issue #8): on a macOS host,
+> `vm start` runs in the TestAnyware app, and the Host CLI sends it the options.
+> The app holds the Local Network grant, so an agent under a harness that macOS
+> refuses can start a guest.
+>
+> - The output does not change. The Host CLI prints the progress lines that the
+>   app sends to stderr, in both output modes, and then the same stdout, the same
+>   `--json` fields and the same exit codes.
+> - A `VM_BOOT_TIMEOUT` with `details.cause` `local_network_denied` has a remedy
+>   that names the app: allow TestAnyware in System Settings, Privacy & Security,
+>   Local Network. The direct path of a Linux or Windows host keeps its old text.
+> - SIGINT or SIGTERM of a waiting `vm start` ends the Host CLI as the signal
+>   would. The app sees the closed connection, cancels the start and removes the
+>   VM, its keeper and its sidecars. The removal ends a moment after the Host CLI
+>   has gone, not before. This holds for every start, not for `--wait` alone.
+> - A cancelled start removes the VM even under `--keep-on-failure`: nobody is
+>   left to reclaim a kept VM.
+
 ### 4.3 VNC capture
 
 | Code | When |

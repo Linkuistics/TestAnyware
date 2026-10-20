@@ -21,6 +21,8 @@ testanyware-rfb = { path = "../testanyware-rfb" }
 testanyware-ocr-client = { path = "../testanyware-ocr-client" }
 image = { version = "0.25", default-features = false, features = ["png"] }
 tokio = { workspace = true }
+# `CancellationToken` ends a start when the client of the TestAnyware app goes away.
+tokio-util = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -30,6 +32,9 @@ russh-sftp = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 nix = { workspace = true }
+# `posix_spawn` with `POSIX_SPAWN_CLOEXEC_DEFAULT` starts the detached children (`detached.rs`),
+# and `waitpid` reaps them. nix has neither flag.
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = { workspace = true }

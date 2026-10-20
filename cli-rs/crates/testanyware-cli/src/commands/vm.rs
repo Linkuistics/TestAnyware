@@ -12,11 +12,12 @@ use testanyware_vm::listing::{build_view, parse_filter, ListItem, ListView};
 use testanyware_vm::tpm::{OmitReason, TpmDecision};
 use testanyware_vm::{VmError, VmMeta, VmPaths};
 
-use testanyware_app_protocol::ListRequest;
+use testanyware_app_client::StartEnd;
+use testanyware_app_protocol::{AppError, ListRequest, StartRequest, StartResult, TpmReport};
 
 use crate::app_route;
 use crate::commands::exit_app_error;
-use crate::output::{print_error, print_success, OutputMode};
+use crate::output::{exit_code_for, print_error, print_success, OutputMode};
 use crate::resolve::{app_socket_with_env, ConnectionOptions, EnvProvider};
 
 // ---- handlers -----------------------------------------------------------
@@ -26,20 +27,7 @@ use crate::resolve::{app_socket_with_env, ConnectionOptions, EnvProvider};
 /// detached, with its output in `<id>.keeper.log`. Returns the exit code: 0
 /// when it held a connection and the port then went away, 1 otherwise.
 pub async fn run_vnc_keeper(id: String, host: String, port: u16) -> i32 {
-    let started = std::time::Instant::now();
-    let mut log = |line: &str| eprintln!("[{id} +{}s] {line}", started.elapsed().as_secs());
-    let report = testanyware_vm::keeper::hold(
-        &host,
-        port,
-        testanyware_vm::keeper::KeeperPolicy::DEFAULT,
-        &mut log,
-    )
-    .await;
-    log(&format!(
-        "exiting after {} connection(s), {} byte(s) discarded: {:?}",
-        report.connections, report.bytes_discarded, report.exit
-    ));
-    if report.ended_normally() { 0 } else { 1 }
+    testanyware_vm::keeper::run(&id, &host, port).await
 }
 
 /// `testanyware vm start`.
@@ -102,52 +90,136 @@ pub async fn run_vm_start(
         return;
     }
 
-    match VmLifecycle::start(&opts, &paths).await {
-        Ok(result) => {
-            // Text mode keeps stdout to the id alone, so the TPM decision goes
-            // to stderr; `--json` carries it in the envelope (`tpm`).
-            if let (OutputMode::Text, Some(tpm)) = (mode, result.tpm) {
-                eprintln!("{}", tpm_text(tpm));
-            }
-            // Capture the viewer endpoint before the envelope arm moves any
-            // `result` fields. The viewer resolves through `--connect` against
-            // the spec file `start` just wrote — the same chain `--vm` uses.
-            let viewer_connect = viewer.then(|| result.spec_path.display().to_string());
-            match mode {
-                OutputMode::Text => println!("{}", result.id),
-                OutputMode::Json => {
-                    let agent = result
-                        .spec
-                        .agent
-                        .as_ref()
-                        .map(|a| json!({ "host": a.host, "port": a.port }))
-                        .unwrap_or(Value::Null);
-                    let mut data = json!({
-                        "id": result.id,
-                        "platform": result.platform.as_str(),
-                        "base": opts.base,
-                        "vnc": { "host": result.spec.vnc.host, "port": result.spec.vnc.port },
-                        "agent": agent,
-                        "spec_path": result.spec_path.display().to_string(),
-                        "meta_path": result.meta_path.display().to_string(),
-                    });
-                    if let Some(tpm) = result.tpm {
-                        data["tpm"] = tpm_json(tpm);
-                    }
-                    print_success(data);
-                }
-            }
-            // Sugar (ADR-0005 Q2): the start envelope is already emitted, so
-            // an `--json` consumer has its data before this window blocks.
-            // Opening it inline (blocking-until-close) is acceptable for an
-            // explicit window request. Dry-run returns earlier, never here.
-            if let Some(connect) = viewer_connect {
-                let conn = ConnectionOptions { connect: Some(connect), ..Default::default() };
-                crate::commands::viewer::run_viewer(conn);
+    // On a macOS host, and with `TESTANYWARE_APP_SOCKET` set, the TestAnyware app starts the VM:
+    // it holds the Local Network grant, and the guest processes outlive the call. Elsewhere the
+    // Host CLI starts it. Both print the same lines, and then the same output.
+    let started = match app_socket_with_env(&EnvProvider::process()) {
+        Some(socket) => {
+            let request = StartRequest {
+                platform: opts.platform.as_str().to_string(),
+                base: opts.base.clone(),
+                id: opts.id.clone(),
+                display: opts.display.clone(),
+                logical: opts.logical,
+                keep_on_failure: opts.keep_on_failure,
+                wait_secs: opts.wait.map(|wait| wait.as_secs()),
+            };
+            match app_route::start_vm(socket, &request, |line| eprintln!("{line}")).await {
+                Ok(StartEnd::Started(result)) => Started::from_app(result, &opts.base),
+                // The app sends the code, the message, the remedy and the details of the
+                // direct command's error, so the output is the direct output.
+                Ok(StartEnd::Failed(error)) => exit_start_failure(error, mode),
+                Err(error) => exit_app_error(error, mode),
             }
         }
-        Err(err) => exit_vm_error(err, mode),
+        None => match VmLifecycle::start(&opts, &paths).await {
+            Ok(result) => Started::from_direct(&result, &opts.base),
+            Err(err) => exit_vm_error(err, mode),
+        },
+    };
+
+    // Text mode keeps stdout to the id alone, so the TPM decision goes
+    // to stderr; `--json` carries it in the envelope (`tpm`).
+    if let (OutputMode::Text, Some(tpm)) = (mode, started.tpm) {
+        eprintln!("{}", tpm_text(tpm));
     }
+    // The viewer resolves through `--connect` against the spec file `start` just
+    // wrote — the same chain `--vm` uses.
+    let viewer_connect = viewer.then(|| started.spec_path.clone());
+    match mode {
+        OutputMode::Text => println!("{}", started.id),
+        OutputMode::Json => print_success(started.json()),
+    }
+    // Sugar (ADR-0005 Q2): the start envelope is already emitted, so
+    // an `--json` consumer has its data before this window blocks.
+    // Opening it inline (blocking-until-close) is acceptable for an
+    // explicit window request. Dry-run returns earlier, never here.
+    if let Some(connect) = viewer_connect {
+        let conn = ConnectionOptions { connect: Some(connect), ..Default::default() };
+        crate::commands::viewer::run_viewer(conn);
+    }
+}
+
+/// What a successful `vm start` prints, whoever started the VM.
+struct Started {
+    id: String,
+    platform: String,
+    base: String,
+    vnc: (String, u16),
+    agent: Option<(String, u16)>,
+    spec_path: String,
+    meta_path: String,
+    tpm: Option<TpmDecision>,
+}
+
+impl Started {
+    fn from_direct(result: &testanyware_vm::lifecycle::VmStartResult, base: &str) -> Self {
+        Self {
+            id: result.id.clone(),
+            platform: result.platform.as_str().to_string(),
+            base: base.to_string(),
+            vnc: (result.spec.vnc.host.clone(), result.spec.vnc.port),
+            agent: result.spec.agent.as_ref().map(|a| (a.host.clone(), a.port)),
+            spec_path: result.spec_path.display().to_string(),
+            meta_path: result.meta_path.display().to_string(),
+            tpm: result.tpm,
+        }
+    }
+
+    fn from_app(result: StartResult, base: &str) -> Self {
+        Self {
+            id: result.id,
+            platform: result.platform,
+            base: base.to_string(),
+            vnc: (result.vnc.host, result.vnc.port),
+            agent: result.agent.map(|a| (a.host, a.port)),
+            spec_path: result.spec_path,
+            meta_path: result.meta_path,
+            tpm: result.tpm.map(tpm_decision),
+        }
+    }
+
+    /// The `data` of the `--json` envelope.
+    fn json(&self) -> Value {
+        let agent = self
+            .agent
+            .as_ref()
+            .map(|(host, port)| json!({ "host": host, "port": port }))
+            .unwrap_or(Value::Null);
+        let mut data = json!({
+            "id": self.id,
+            "platform": self.platform,
+            "base": self.base,
+            "vnc": { "host": self.vnc.0, "port": self.vnc.1 },
+            "agent": agent,
+            "spec_path": self.spec_path,
+            "meta_path": self.meta_path,
+        });
+        if let Some(tpm) = self.tpm {
+            data["tpm"] = tpm_json(tpm);
+        }
+        data
+    }
+}
+
+/// The TPM decision that the app reported, as the vm crate states it.
+fn tpm_decision(report: TpmReport) -> TpmDecision {
+    if report.attached {
+        TpmDecision::Attach { ppi_off: report.ppi_off.unwrap_or(false) }
+    } else {
+        match report.reason.as_deref() {
+            Some("host_cannot_supply_one") => TpmDecision::Omit(OmitReason::HostCannotSupplyOne),
+            _ => TpmDecision::Omit(OmitReason::GuestDoesNotNeedOne),
+        }
+    }
+}
+
+/// Print the error of a start that the app ran and that failed, and exit with the code that the
+/// error has today. The app sends exactly what the direct command prints, so no default remedy
+/// is added here.
+fn exit_start_failure(error: AppError, mode: OutputMode) -> ! {
+    let exit = exit_code_for(&error.code);
+    print_error(mode, &error.code, &error.message, error.remediation.as_deref(), error.details, exit);
 }
 
 fn emit_start_plan(opts: &VmStartOptions, tpm: Option<TpmDecision>, mode: OutputMode) {

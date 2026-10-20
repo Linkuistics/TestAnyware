@@ -381,10 +381,41 @@ is 400 for `INVALID_ENDPOINT` and for a request that lacks the upgrade headers.
 It is 405 for another method, and 500 for `IO_ERROR`. The Host CLI reads the
 code, never the status.
 
+`POST /v1/vms` carries the options as a JSON body: `platform`, `base`, `id`,
+`display`, `logical`, `keep_on_failure` and `wait_secs`. The Host CLI states
+the id and the base that it chose by default, so the app reads nothing from the
+environment of the client. `--viewer` is not an option of the request: the
+viewer runs in the Host CLI on a guest stream after the result. A request that
+the app cannot take fails before the stream, as an error object with its HTTP
+status. These are an unknown platform (`INVALID_PLATFORM`, 400), an id that is
+not a plain VM id, a base that is a path, and a body that does not read
+(`USAGE_ERROR`, 400).
+
+The response is `200` with `application/x-ndjson`. Each line is one JSON
+object with an `event` member:
+
+| `event` | Members | When |
+|---|---|---|
+| `progress` | `line` | Each line that `vm start` prints to stderr today, such as the slot-wait line and the display switch. The Host CLI prints it to stderr in both output modes. |
+| `result` | `data` | The start succeeded. `data` has `id`, `platform`, `vnc`, `agent`, `spec_path`, `meta_path` and, for QEMU, `tpm`, in the form that `vm start --json` prints. It ends the stream. |
+| `error` | `error` | The start failed. `error` is the object of the other routes, with the `code`, `message`, `remediation` and `details` that the direct command prints. The Host CLI prints it with the exit code of its table, and adds no default remedy. It ends the stream. |
+
+A stream that ends with neither event means that the app went away. The Host
+CLI then fails with `APP_UNREACHABLE`, cause `quitting`.
+
 When the client's connection closes before a `vm start` result, the app
 cancels the start and cleans up as it does after a failed start. `vm start
 --wait` waits for a macOS guest slot in the app, and a closed connection
-ends that wait.
+ends that wait. The app reads the cancel at each wait of the start: the slot
+wait, the stages of the boot and the agent wait. It reads the cancel after
+each step that runs to its end, such as `tart clone`. The cleanup removes the
+VM, its VNC keeper and its sidecars, and it ignores `--keep-on-failure`,
+because no client is left to reclaim a kept VM. A start that succeeded at the
+moment the client left is stopped again.
+
+The app runs each start on a thread of its own, with its own runtime, because
+a start calls tools that block. It installs no signal handler: a handler in the
+app would end the app. A start answers to the connection of its client only.
 
 ```mermaid
 sequenceDiagram
@@ -416,6 +447,14 @@ QEMU, swtpm and the VNC keeper detached in their own sessions, as `vm start` doe
 today. While the app runs, it reaps each of its children that exits. Each
 child outlives the app, as the measurements show. The app starts each VNC
 keeper from its own executable, so a keeper always matches the app's version.
+The executable answers the hidden command `_vnc-keeper` that the keeper runs.
+
+A detached child holds no descriptor of the app. On macOS a new socket gets
+close-on-exec in a second call, so a `fork` on another thread could hand a
+child a client socket that another thread has just accepted. The app starts
+`tart run`, QEMU, the keeper and `swtpm` with `posix_spawn` and
+`POSIX_SPAWN_CLOEXEC_DEFAULT`, which closes every descriptor that a file action
+does not name. A thread waits for each child, so none stays a zombie.
 
 The state directory stays the record of each VM, in the spec and meta sidecars
 of today. The app keeps no other VM state across a restart.
@@ -871,6 +910,10 @@ The human agreed these three seams in `plan-k1`.
   and a synthetic RFB server. The test writes the sidecars that name them.
 
   This seam covers guest streams, a half-close, a large transfer and `vm list`.
+  It covers `vm start` against a fake `tart`: a clone is a file, and a running VM
+  is a `sleep`. The test-mode argument `--test-agent-port` moves the agent port of
+  a start. It points the probes at a fake agent, or at a port that refuses, so
+  that a start stays in its agent wait until the test closes its connection.
   It covers adoption from sidecars, the version handshake, the skew notice, and
   the uid and directory checks. It also covers the directory refusal, the
   configuration errors and how each error maps to the envelope. It covers

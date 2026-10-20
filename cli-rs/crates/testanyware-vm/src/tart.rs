@@ -18,7 +18,6 @@ use serde::Deserialize;
 
 use crate::error::VmError;
 use crate::qemu::{platform_from_name, GoldenImage};
-use crate::qemu_profile::which;
 use crate::tools::ToolSearch;
 
 /// One `tart list --format json` row. tart capitalizes its keys.
@@ -185,12 +184,13 @@ pub async fn await_vnc_url(
 
 /// [`poll_ip`] for `vm start`: async and aware of `tart run` dying.
 pub async fn await_guest_ip(
+    tools: &ToolSearch,
     id: &str,
     attempts: u32,
     interval: Duration,
     alive: impl FnMut() -> bool,
 ) -> Polled<String> {
-    poll_until(attempts, interval, alive, || guest_ip_once(id)).await
+    poll_until(attempts, interval, alive, || guest_ip_once(tools, id)).await
 }
 
 // ---- live `tart`-invoking operations -----------------------------------
@@ -229,11 +229,7 @@ fn run_tart_in(tools: &ToolSearch, args: &[&str]) -> TartResult {
 }
 
 /// `tart list --format json` stdout, or `None` when tart is absent or the
-/// invocation fails. Ports `TartRunner.tartListJSON`.
-fn tart_list_json() -> Option<String> {
-    tart_list_json_in(&ToolSearch::from_process_path())
-}
-
+/// invocation fails, with `tart` found by `tools`. Ports `TartRunner.tartListJSON`.
 fn tart_list_json_in(tools: &ToolSearch) -> Option<String> {
     let r = run_tart_in(tools, &["list", "--format", "json"]);
     (r.exit_code == 0).then_some(r.stdout)
@@ -258,7 +254,12 @@ pub fn list_running_names_in(tools: &ToolSearch) -> Vec<String> {
 /// Whether a tart VM with `name` exists in any state. `false` when tart
 /// is absent. Ports `TartRunner.vmExists`.
 pub fn vm_exists(name: &str) -> bool {
-    tart_list_json().map(|j| parse_all_names(&j).iter().any(|n| n == name)).unwrap_or(false)
+    vm_exists_in(&ToolSearch::from_process_path(), name)
+}
+
+/// [`vm_exists`], with `tart` found by `tools`.
+pub fn vm_exists_in(tools: &ToolSearch, name: &str) -> bool {
+    tart_list_json_in(tools).map(|j| parse_all_names(&j).iter().any(|n| n == name)).unwrap_or(false)
 }
 
 /// Whether `name` is a tart golden image. Ports the tart arm of
@@ -269,7 +270,12 @@ pub fn golden_exists(name: &str) -> bool {
 
 /// `tart clone <base> <id>`. Ports `TartRunner.clone`.
 pub fn clone(base: &str, id: &str) -> Result<(), VmError> {
-    let r = run_tart(&["clone", base, id]);
+    clone_in(&ToolSearch::from_process_path(), base, id)
+}
+
+/// [`clone`], with `tart` found by `tools`.
+pub fn clone_in(tools: &ToolSearch, base: &str, id: &str) -> Result<(), VmError> {
+    let r = run_tart_in(tools, &["clone", base, id]);
     if r.exit_code == 0 {
         Ok(())
     } else {
@@ -322,7 +328,12 @@ pub(crate) fn resolve_display(requested: Option<&str>) -> &str {
 
 /// `tart set <id> --display <WxH>`. Ports `TartRunner.setDisplay`.
 pub fn set_display(id: &str, display: &str) -> Result<(), VmError> {
-    let r = run_tart(&["set", id, "--display", display]);
+    set_display_in(&ToolSearch::from_process_path(), id, display)
+}
+
+/// [`set_display`], with `tart` found by `tools`.
+pub fn set_display_in(tools: &ToolSearch, id: &str, display: &str) -> Result<(), VmError> {
+    let r = run_tart_in(tools, &["set", id, "--display", display]);
     if r.exit_code == 0 {
         Ok(())
     } else {
@@ -333,8 +344,13 @@ pub fn set_display(id: &str, display: &str) -> Result<(), VmError> {
 /// Best-effort `tart stop` then `tart delete` — both no-ops on an absent
 /// VM, so non-zero exits are ignored. Ports `TartRunner.removeExisting`.
 pub fn remove_existing(id: &str) {
-    let _ = run_tart(&["stop", id]);
-    let _ = run_tart(&["delete", id]);
+    remove_existing_in(&ToolSearch::from_process_path(), id);
+}
+
+/// [`remove_existing`], with `tart` found by `tools`.
+pub fn remove_existing_in(tools: &ToolSearch, id: &str) {
+    let _ = run_tart_in(tools, &["stop", id]);
+    let _ = run_tart_in(tools, &["delete", id]);
 }
 
 /// Best-effort `tart stop <id>` that **stops without deleting** (unlike
@@ -378,7 +394,12 @@ fn fresh_log_path(log_dir: &Path, id: &str) -> PathBuf {
 /// (see `fresh_log_path`). Returns the detached pid and the log path so the
 /// caller can poll for the VNC URL. Ports `TartRunner.runDetached`.
 pub fn run_detached(id: &str, log_dir: &Path) -> Result<(i32, PathBuf), VmError> {
-    run_detached_with(id, log_dir, &[])
+    run_detached_with(&ToolSearch::from_process_path(), id, log_dir, &[])
+}
+
+/// [`run_detached`], with `tart` found by `tools`.
+pub fn run_detached_in(tools: &ToolSearch, id: &str, log_dir: &Path) -> Result<(i32, PathBuf), VmError> {
+    run_detached_with(tools, id, log_dir, &[])
 }
 
 /// Like [`run_detached`] but boots into **macOS Recovery**
@@ -388,15 +409,20 @@ pub fn run_detached(id: &str, log_dir: &Path) -> Result<(i32, PathBuf), VmError>
 /// over the provisioning layer. Ports the `--recovery` `tart run` in the
 /// script's `_recovery_boot_csrutil` (line 408).
 pub fn run_detached_recovery(id: &str, log_dir: &Path) -> Result<(i32, PathBuf), VmError> {
-    run_detached_with(id, log_dir, &["--recovery"])
+    run_detached_with(&ToolSearch::from_process_path(), id, log_dir, &["--recovery"])
 }
 
 /// Shared body for the detached `tart run` variants. `extra` flags are
 /// inserted before the always-on `--no-graphics --vnc-experimental` pair.
-fn run_detached_with(id: &str, log_dir: &Path, extra: &[&str]) -> Result<(i32, PathBuf), VmError> {
+fn run_detached_with(
+    tools: &ToolSearch,
+    id: &str,
+    log_dir: &Path,
+    extra: &[&str],
+) -> Result<(i32, PathBuf), VmError> {
     std::fs::create_dir_all(log_dir)
         .map_err(|e| VmError::Io(format!("create {}: {e}", log_dir.display())))?;
-    let tart = which("tart")
+    let tart = tools.find("tart")
         .ok_or_else(|| VmError::TartFailed { detail: "tart not found on PATH".into() })?;
     let log_path = fresh_log_path(log_dir, id);
     let mut args = vec!["run".to_string(), id.to_string()];
@@ -415,7 +441,7 @@ fn run_detached_with(id: &str, log_dir: &Path, extra: &[&str]) -> Result<(i32, P
 /// unset). Ports `TartRunner.pollIP`, hardened with the state gate.
 pub fn poll_ip(id: &str, attempts: u32, interval: Duration) -> Option<String> {
     for attempt in 0..attempts {
-        if let Some(ip) = guest_ip_once(id) {
+        if let Some(ip) = guest_ip_once(&ToolSearch::from_process_path(), id) {
             return Some(ip);
         }
         if attempt + 1 < attempts {
@@ -426,14 +452,14 @@ pub fn poll_ip(id: &str, attempts: u32, interval: Duration) -> Option<String> {
 }
 
 /// One IP probe, gated on the `tart list` state column (see [`poll_ip`]).
-fn guest_ip_once(id: &str) -> Option<String> {
-    let running = tart_list_json()
+fn guest_ip_once(tools: &ToolSearch, id: &str) -> Option<String> {
+    let running = tart_list_json_in(tools)
         .map(|j| decode_list(&j).iter().any(|vm| vm.name == id && vm.state.as_deref() == Some("running")))
         .unwrap_or(false);
     if !running {
         return None;
     }
-    let r = run_tart(&["ip", id]);
+    let r = run_tart_in(tools, &["ip", id]);
     let ip = r.stdout.trim();
     (r.exit_code == 0 && !ip.is_empty()).then(|| ip.to_string())
 }
@@ -464,8 +490,9 @@ impl TartRunner {
     /// after the clone exists, the clone is removed — a failed launch leaves no
     /// VM behind. Ports the pre-poll half of `VMLifecycle.startTart`.
     pub async fn launch(opts: &TartStartOptions, paths: &crate::paths::VmPaths) -> Result<TartLaunch, VmError> {
-        Self::prepare(opts, paths).await?;
-        Self::run(opts, paths)
+        let tools = ToolSearch::from_process_path();
+        Self::prepare_in(&tools, opts, paths).await?;
+        Self::run_in(&tools, opts, paths)
     }
 
     /// The clone half of [`launch`](Self::launch): reclaim a same-id leftover,
@@ -473,6 +500,15 @@ impl TartRunner {
     /// caller owns the clone from here and removes it if it never runs — which
     /// lets a `--wait` start run the one clone again after each refusal.
     pub async fn prepare(opts: &TartStartOptions, paths: &crate::paths::VmPaths) -> Result<(), VmError> {
+        Self::prepare_in(&ToolSearch::from_process_path(), opts, paths).await
+    }
+
+    /// [`prepare`](Self::prepare), with `tart` found by `tools`.
+    pub async fn prepare_in(
+        tools: &ToolSearch,
+        opts: &TartStartOptions,
+        paths: &crate::paths::VmPaths,
+    ) -> Result<(), VmError> {
         // A start in progress invalidates whatever the id's sidecars described
         // (a reclaimed prior run, or leftovers of a crash). Clear them now so
         // a launch that fails before the start settles cannot leave sidecars
@@ -480,27 +516,36 @@ impl TartRunner {
         crate::lifecycle::clear_sidecars(paths, &opts.id);
 
         // Reclaim a same-id VM left over from a prior run.
-        if vm_exists(&opts.id) {
-            remove_existing(&opts.id);
+        if vm_exists_in(tools, &opts.id) {
+            remove_existing_in(tools, &opts.id);
             tokio::time::sleep(Duration::from_secs(2)).await;
         }
 
-        clone(&opts.base, &opts.id)?;
+        clone_in(tools, &opts.base, &opts.id)?;
         // Always set a display: the user's value, or the TestAnyware default
         // (ADR-0013). Without `--display` tart would fall back to the unknown
         // Virtualization.framework default — off the vision distribution.
-        set_display(&opts.id, resolve_display(opts.display.as_deref())).inspect_err(|_| {
-            remove_existing(&opts.id);
+        set_display_in(tools, &opts.id, resolve_display(opts.display.as_deref())).inspect_err(|_| {
+            remove_existing_in(tools, &opts.id);
         })
     }
 
     /// The run half of [`launch`](Self::launch): start `tart run` detached on a
     /// prepared clone. A failed spawn removes the clone.
     pub fn run(opts: &TartStartOptions, paths: &crate::paths::VmPaths) -> Result<TartLaunch, VmError> {
-        match run_detached(&opts.id, &paths.vms_dir()) {
+        Self::run_in(&ToolSearch::from_process_path(), opts, paths)
+    }
+
+    /// [`run`](Self::run), with `tart` found by `tools`.
+    pub fn run_in(
+        tools: &ToolSearch,
+        opts: &TartStartOptions,
+        paths: &crate::paths::VmPaths,
+    ) -> Result<TartLaunch, VmError> {
+        match run_detached_in(tools, &opts.id, &paths.vms_dir()) {
             Ok((pid, log_path)) => Ok(TartLaunch { pid, log_path }),
             Err(err) => {
-                remove_existing(&opts.id);
+                remove_existing_in(tools, &opts.id);
                 Err(err)
             }
         }
@@ -510,14 +555,19 @@ impl TartRunner {
     /// the detached `tart run` pid. Returns `true` when the VM existed and
     /// is now gone. Ports the tart arm of `VMLifecycle.stop`.
     pub fn stop(id: &str, pid: i32) -> bool {
-        let existed = vm_exists(id);
+        Self::stop_in(&ToolSearch::from_process_path(), id, pid)
+    }
+
+    /// [`stop`](Self::stop), with `tart` found by `tools`.
+    pub fn stop_in(tools: &ToolSearch, id: &str, pid: i32) -> bool {
+        let existed = vm_exists_in(tools, id);
         if existed {
-            remove_existing(id);
+            remove_existing_in(tools, id);
         }
         if pid > 0 {
             crate::process::terminate(pid, Duration::from_millis(200), 10);
         }
-        existed && !vm_exists(id)
+        existed && !vm_exists_in(tools, id)
     }
 }
 

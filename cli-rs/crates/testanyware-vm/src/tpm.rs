@@ -16,7 +16,8 @@ use std::path::PathBuf;
 
 use crate::error::VmError;
 use crate::lifecycle::Platform;
-use crate::qemu_profile::{which, QemuProfile};
+use crate::qemu_profile::QemuProfile;
+use crate::tools::ToolSearch;
 
 /// Whether a guest gets a TPM, and if not, why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,14 +111,23 @@ pub fn decide_tpm(
 /// look for swtpm. The entry point `vm start`, `--dry-run` and Windows golden
 /// creation call, once, before cloning or booting anything.
 pub fn decide_tpm_on_host(platform: Platform, profile: &QemuProfile) -> Result<TpmDecision, VmError> {
-    decide_tpm(platform, profile.accelerator, || observe_host(profile.qemu_binary))
+    decide_tpm_on_host_in(&ToolSearch::from_process_path(), platform, profile)
+}
+
+/// [`decide_tpm_on_host`], with QEMU and swtpm found by `tools`.
+pub fn decide_tpm_on_host_in(
+    tools: &ToolSearch,
+    platform: Platform,
+    profile: &QemuProfile,
+) -> Result<TpmDecision, VmError> {
+    decide_tpm(platform, profile.accelerator, || observe_host(tools, profile.qemu_binary))
 }
 
 /// Read the host's QEMU binary and swtpm. A QEMU that cannot be run is
 /// `QemuFailed`, as the launch would report it — it is not "the host cannot
 /// supply a TPM", which is for a QEMU that ran and lacks the device.
-fn observe_host(qemu_binary: &str) -> Result<HostTpm, VmError> {
-    let qemu = which(qemu_binary)
+fn observe_host(tools: &ToolSearch, qemu_binary: &str) -> Result<HostTpm, VmError> {
+    let qemu = tools.find(qemu_binary)
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| qemu_binary.to_string());
     let output = std::process::Command::new(&qemu)
@@ -134,7 +144,7 @@ fn observe_host(qemu_binary: &str) -> Result<HostTpm, VmError> {
     let front_end = parse_front_end_probe(&text).ok_or_else(|| VmError::QemuFailed {
         detail: format!("{qemu} -device tpm-tis-device,help: unrecognised output: {}", text.trim()),
     })?;
-    Ok(HostTpm { front_end, swtpm_installed: which("swtpm").is_some() })
+    Ok(HostTpm { front_end, swtpm_installed: tools.find("swtpm").is_some() })
 }
 
 /// Parse the text of `<qemu> -machine none -device tpm-tis-device,help`.

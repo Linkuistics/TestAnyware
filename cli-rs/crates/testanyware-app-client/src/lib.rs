@@ -11,14 +11,14 @@
 use std::path::{Path, PathBuf};
 
 use bytes::Bytes;
-use http::header::{CONNECTION, HOST, UPGRADE};
+use http::header::{CONNECTION, CONTENT_TYPE, HOST, UPGRADE};
 use http::{Method, Request, StatusCode};
-use http_body_util::{BodyExt, Empty, Limited};
+use http_body_util::{BodyExt, Full, Limited};
 use hyper_util::rt::TokioIo;
 use serde::de::DeserializeOwned;
 use testanyware_app_protocol::{
-    validate_socket_path, AppError, ClientHello, StreamKind, StreamTarget, UnreachableCause,
-    STREAM_UPGRADE_TOKEN,
+    validate_socket_path, AppError, ClientHello, EventLines, StartEvent, StartRequest,
+    StartResult, StreamKind, StreamTarget, UnreachableCause, LIST_PATH, STREAM_UPGRADE_TOKEN,
 };
 
 /// A guest stream after the `101`: the bytes of the guest protocol, unchanged, in both
@@ -33,6 +33,15 @@ const DOCUMENT_BODY_LIMIT: usize = 16 * 1024 * 1024;
 
 const START_REMEDY: &str = "Open TestAnyware from /Applications, and turn on \"Start at Login\" \
     in its menu, so that macOS starts it at each login. The Host CLI never starts it.";
+
+/// How a `vm start` ended, when the app answered it. A request that the app could not take, and
+/// an app that went away, are errors of the call instead.
+#[derive(Debug, Clone, PartialEq)]
+pub enum StartEnd {
+    Started(StartResult),
+    /// The start failed. The error is the one that the direct command prints.
+    Failed(AppError),
+}
 
 /// Opens guest streams through the app on one socket.
 #[derive(Debug, Clone)]
@@ -70,7 +79,7 @@ impl AppClient {
             request = request.header(name, value);
         }
         let request = request
-            .body(Empty::<Bytes>::new())
+            .body(Full::new(Bytes::new()))
             .map_err(|e| internal(format!("the request for a guest stream is invalid: {e}")))?;
 
         let mut response = sender
@@ -101,7 +110,7 @@ impl AppClient {
             request = request.header(name, value);
         }
         let request = request
-            .body(Empty::<Bytes>::new())
+            .body(Full::new(Bytes::new()))
             .map_err(|e| internal(format!("the request for {path_and_query} is invalid: {e}")))?;
         let response = sender
             .send_request(request)
@@ -122,12 +131,68 @@ impl AppClient {
         })
     }
 
+    /// Ask the app to start a VM, and follow the events of the start. `on_progress` receives each
+    /// progress line while the start runs. The call ends with the result event or the error
+    /// event. Dropping the call, or ending the process, closes the connection, and the app then
+    /// cancels the start and cleans up.
+    pub async fn start_vm(
+        &self,
+        request: &StartRequest,
+        mut on_progress: impl FnMut(&str),
+    ) -> Result<StartEnd, AppError> {
+        let mut sender = self.connect(false).await?;
+        let body = serde_json::to_vec(request)
+            .map_err(|e| internal(format!("the request to start a VM does not serialise: {e}")))?;
+        let mut http_request = Request::builder()
+            .method(Method::POST)
+            .uri(LIST_PATH)
+            .header(HOST, "testanyware")
+            .header(CONTENT_TYPE, "application/json");
+        for (name, value) in self.hello.to_headers() {
+            http_request = http_request.header(name, value);
+        }
+        let http_request = http_request
+            .body(Full::new(Bytes::from(body)))
+            .map_err(|e| internal(format!("the request to start a VM is invalid: {e}")))?;
+        let response = sender
+            .send_request(http_request)
+            .await
+            .map_err(|e| self.connection_error(&e))?;
+        if response.status() != StatusCode::OK {
+            return Err(error_of(response).await);
+        }
+
+        let mut body = response.into_body();
+        let mut lines = EventLines::default();
+        while let Some(frame) = body.frame().await {
+            let frame = frame.map_err(|e| self.connection_error(&e))?;
+            let Ok(data) = frame.into_data() else { continue };
+            let events = lines.push(&data).map_err(|e| {
+                internal(format!(
+                    "The TestAnyware app sent a line of the start that does not read: {e}."
+                ))
+            })?;
+            for event in events {
+                match event {
+                    StartEvent::Progress { line } => on_progress(&line),
+                    StartEvent::Result { data } => return Ok(StartEnd::Started(data)),
+                    StartEvent::Error { error } => return Ok(StartEnd::Failed(error)),
+                }
+            }
+        }
+        // The stream ended with neither a result nor an error: the app went away mid-start.
+        Err(self.connection_ended(
+            UnreachableCause::Quitting,
+            "it closed the stream before the start ended",
+        ))
+    }
+
     /// Check the socket, connect to it and start the HTTP/1.1 connection. With `upgrades`, the
     /// connection can hand its stream over after a `101`.
     async fn connect(
         &self,
         upgrades: bool,
-    ) -> Result<hyper::client::conn::http1::SendRequest<Empty<Bytes>>, AppError> {
+    ) -> Result<hyper::client::conn::http1::SendRequest<Full<Bytes>>, AppError> {
         self.preflight()?;
         let socket = self.dial().await?;
         let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(socket))
@@ -595,5 +660,171 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.details["cause"], "not_running");
+    }
+
+    // ---- vm start ----
+
+    fn start_request() -> StartRequest {
+        StartRequest {
+            platform: "linux".into(),
+            base: "testanyware-golden-linux-24.04".into(),
+            id: "vm-1".into(),
+            display: None,
+            logical: None,
+            keep_on_failure: false,
+            wait_secs: None,
+        }
+    }
+
+    fn result_event() -> StartEvent {
+        use testanyware_app_protocol::HostPort;
+        StartEvent::Result {
+            data: StartResult {
+                id: "vm-1".into(),
+                platform: "linux".into(),
+                vnc: HostPort { host: "127.0.0.1".into(), port: 5900 },
+                agent: None,
+                spec_path: "/s".into(),
+                meta_path: "/m".into(),
+                tpm: None,
+            },
+        }
+    }
+
+    /// Answer one request with a chunked NDJSON response made of `chunks`, then end it (or close
+    /// the connection without the final chunk when `finish` is false). Returns the request.
+    #[cfg(unix)]
+    async fn answer_with_chunks(
+        path: &Path,
+        chunks: Vec<String>,
+        finish: bool,
+    ) -> tokio::task::JoinHandle<(String, Vec<u8>)> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::UnixListener::bind(path).unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).await.unwrap();
+                head.push(byte[0]);
+            }
+            let head = String::from_utf8(head).unwrap().to_ascii_lowercase();
+            let length: usize = head
+                .lines()
+                .find_map(|l| l.strip_prefix("content-length: "))
+                .map(|v| v.trim().parse().unwrap())
+                .unwrap_or(0);
+            let mut body = vec![0u8; length];
+            stream.read_exact(&mut body).await.unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\ncontent-type: application/x-ndjson\r\ntransfer-encoding: chunked\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            // The client leaves at the result event, so a later write may find the pipe closed.
+            for chunk in chunks {
+                let _ = stream
+                    .write_all(format!("{:x}\r\n{chunk}\r\n", chunk.len()).as_bytes())
+                    .await;
+                let _ = stream.flush().await;
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            }
+            if finish {
+                let _ = stream.write_all(b"0\r\n\r\n").await;
+            }
+            (head, body)
+        })
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_start_streams_its_progress_and_ends_with_the_result() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        let one = StartEvent::Progress { line: "one".into() }.to_line();
+        let two = StartEvent::Progress { line: "two".into() }.to_line();
+        let result = result_event().to_line();
+        // The second line is cut in the middle, as TCP may cut it.
+        let (two_a, two_b) = two.split_at(10);
+        let server = answer_with_chunks(
+            &path,
+            vec![one, two_a.to_string(), format!("{two_b}{result}")],
+            true,
+        )
+        .await;
+
+        let mut seen = Vec::new();
+        let end = client(&path)
+            .start_vm(&start_request(), |line| seen.push(line.to_string()))
+            .await
+            .unwrap();
+
+        assert_eq!(seen, ["one", "two"]);
+        assert_eq!(end, StartEnd::Started(match result_event() {
+            StartEvent::Result { data } => data,
+            _ => unreachable!(),
+        }));
+        let (head, body) = server.await.unwrap();
+        assert!(head.starts_with("post /v1/vms http/1.1"), "{head}");
+        assert!(head.contains("content-type: application/json"), "{head}");
+        assert!(head.contains("x-testanyware-protocol: 1-1"), "{head}");
+        assert!(head.contains("x-testanyware-state-dir: /s"), "{head}");
+        assert_eq!(serde_json::from_slice::<StartRequest>(&body).unwrap(), start_request());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_error_event_is_how_a_start_fails() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        let failed = StartEvent::Error {
+            error: AppError::new(
+                "VM_LIMIT_REACHED",
+                "limit",
+                Some("stop one".into()),
+                serde_json::json!({ "limit": 2 }),
+            ),
+        };
+        answer_with_chunks(&path, vec![failed.to_line()], true).await;
+        let end = client(&path).start_vm(&start_request(), |_| {}).await.unwrap();
+        let StartEnd::Failed(error) = end else { panic!("{end:?}") };
+        assert_eq!(error.code, "VM_LIMIT_REACHED");
+        assert_eq!(error.remediation.as_deref(), Some("stop one"));
+        assert_eq!(error.details["limit"], 2);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_stream_that_ends_without_a_result_is_an_app_that_went_away() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        let one = StartEvent::Progress { line: "one".into() }.to_line();
+        answer_with_chunks(&path, vec![one], false).await;
+        let err = client(&path).start_vm(&start_request(), |_| {}).await.unwrap_err();
+        assert_eq!(err.code, "APP_UNREACHABLE");
+        assert_eq!(err.details["cause"], "quitting", "{}", err.message);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_request_that_the_app_refuses_is_an_error_of_the_call() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        let object = serde_json::json!({
+            "code": "APP_INCOMPATIBLE", "message": "m", "remediation": "r", "details": {}
+        })
+        .to_string();
+        answer_once(
+            &path,
+            format!(
+                "HTTP/1.1 409 Conflict\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{object}",
+                object.len()
+            ),
+        )
+        .await;
+        let err = client(&path).start_vm(&start_request(), |_| {}).await.unwrap_err();
+        assert_eq!(err.code, "APP_INCOMPATIBLE");
     }
 }

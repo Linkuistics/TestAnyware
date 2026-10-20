@@ -20,14 +20,17 @@ use crate::qemu::{
 };
 use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
 use crate::tools::ToolSearch;
-use crate::qemu_profile::host_profile;
+use crate::qemu_profile::host_profile_in;
+use crate::start_context::{Progress, StartContext};
+#[cfg(target_os = "macos")]
+use crate::tart::TartRunner;
 #[cfg(target_os = "macos")]
 use crate::start_outcome::{next_slot_step, SlotWaitReporter, SlotWaitStep, SLOT_RETRY_INTERVAL};
 use crate::start_outcome::{
     decide_start, read_log_tail, AddressObservation, AgentObservation, Backend, BootObservation,
     Disposition, ProcessState, StartDecision, VncObservation,
 };
-use crate::tpm::{decide_tpm_on_host, TpmDecision};
+use crate::tpm::{decide_tpm_on_host_in, TpmDecision};
 
 /// Guest platform. Ports the `Platform` enum + extension in `VMTypes.swift`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,13 +167,26 @@ impl VmLifecycle {
     /// guests whose base is a tart golden, use the tart backend (macOS
     /// host only); Linux-on-qcow2 and Windows use QEMU. Ports
     /// `VMLifecycle.start` (backend dispatch) + `startQEMU` / `startTart`.
+    ///
+    /// This is the Host CLI's own start: tools from `PATH`, progress on stderr, and a
+    /// signal during `--wait` that cleans up. [`start_in`](Self::start_in) takes the
+    /// context of another caller.
     pub async fn start(opts: &VmStartOptions, paths: &VmPaths) -> Result<VmStartResult, VmError> {
+        Self::start_in(opts, &StartContext::direct(paths.clone())).await
+    }
+
+    /// [`start`](Self::start) on `ctx`. The TestAnyware app starts every VM of a macOS host
+    /// this way, for a client that may go away: cancelling `ctx.cancel` ends the start at its
+    /// next wait and cleans up as after a failed start, and then fails it with
+    /// [`VmError::StartCancelled`].
+    pub async fn start_in(opts: &VmStartOptions, ctx: &StartContext) -> Result<VmStartResult, VmError> {
+        let paths = &ctx.paths;
         std::fs::create_dir_all(paths.vms_dir())
             .map_err(|e| VmError::Io(format!("create {}: {e}", paths.vms_dir().display())))?;
 
         #[cfg(target_os = "macos")]
-        if wants_tart(opts.platform, &opts.base, paths) {
-            return Self::start_tart(opts, paths).await;
+        if wants_tart(opts.platform, &opts.base, paths, &ctx.tools) {
+            return Self::start_tart(opts, ctx).await;
         }
 
         // No tart backend reachable here: a macOS guest cannot be served.
@@ -182,8 +198,8 @@ impl VmLifecycle {
         // gate comes first so a Windows host reports `VM_HOST_UNSUPPORTED`
         // rather than failing to run the probe.
         crate::preflight::check_host_supports_local_qemu()?;
-        let tpm = decide_tpm_on_host(opts.platform, &host_profile())?;
-        Self::start_qemu(opts, paths, tpm).await
+        let tpm = decide_tpm_on_host_in(&ctx.tools, opts.platform, &host_profile_in(&ctx.tools))?;
+        Self::start_qemu(opts, ctx, tpm).await
     }
 
     /// Start a QEMU-backed VM (Windows, Linux-on-qcow2) end-to-end. The runner
@@ -194,11 +210,15 @@ impl VmLifecycle {
     /// is an error and the VM is torn down unless `keep_on_failure` keeps a
     /// still-running one. `tpm` is the decision `start` made for this guest.
     /// Ports `VMLifecycle.startQEMU`.
+    ///
+    /// A cancel is read after the launch, which tears itself down on its own failures, and
+    /// during the agent wait, which is the long stage.
     async fn start_qemu(
         opts: &VmStartOptions,
-        paths: &VmPaths,
+        ctx: &StartContext,
         tpm: TpmDecision,
     ) -> Result<VmStartResult, VmError> {
+        let paths = &ctx.paths;
         let qopts = QemuStartOptions {
             id: opts.id.clone(),
             base: opts.base.clone(),
@@ -210,10 +230,16 @@ impl VmLifecycle {
         // `QemuRunner::start` has just reclaimed.
         clear_sidecars(paths, &opts.id);
         // A failed launch has already torn its clone down.
-        let artifacts = QemuRunner::start(&qopts, paths).await?;
+        let artifacts = QemuRunner::start_in(&ctx.tools, &qopts, paths).await?;
         let pid = artifacts.pid;
-        let observation =
-            observe_qemu_boot(opts, &artifacts, move || child_alive(pid), QEMU_AGENT_POLLS).await;
+        if ctx.cancel.is_cancelled() {
+            return Err(abandon_qemu(opts, ctx, &artifacts));
+        }
+        let observation = tokio::select! {
+            biased;
+            observation = observe_qemu_boot(opts, &artifacts, move || child_alive(pid), QEMU_AGENT_POLLS) => observation,
+            _ = ctx.cancel.cancelled() => return Err(abandon_qemu(opts, ctx, &artifacts)),
+        };
 
         if let StartDecision::Failed { mut error, disposition } =
             decide_start(&observation, opts.keep_on_failure)
@@ -221,12 +247,17 @@ impl VmLifecycle {
             let vm = qemu_failed_vm(opts, &artifacts);
             let left_behind = settle_failed_start(
                 paths,
+                &ctx.progress,
                 &vm,
                 disposition,
                 || QemuRunner::stop(artifacts.pid, &artifacts.clone_dir, paths),
                 || artifacts.clone_dir.exists(),
             );
             record_left_behind(&mut error, left_behind);
+            // A VM kept for a client that has left can never be reclaimed.
+            if left_behind && ctx.cancel.is_cancelled() {
+                return Err(abandon_qemu(opts, ctx, &artifacts));
+            }
             return Err(error);
         }
 
@@ -244,6 +275,12 @@ impl VmLifecycle {
             QemuRunner::stop(artifacts.pid, &artifacts.clone_dir, paths);
             let _ = std::fs::remove_file(&spec_path);
         })?;
+
+        // The client left while the sidecars were written: nobody is told the id, so the
+        // VM is stopped again, not left running.
+        if ctx.cancel.is_cancelled() {
+            return Err(abandon_qemu(opts, ctx, &artifacts));
+        }
 
         Ok(VmStartResult {
             id: opts.id.clone(),
@@ -263,9 +300,12 @@ impl VmLifecycle {
     /// other outcome is an error and the VM is torn down unless
     /// `keep_on_failure` keeps a still-running one. Ports
     /// `VMLifecycle.startTart`.
+    ///
+    /// Everything after the clone can be cancelled at its next wait. The clone is a few
+    /// seconds of `tart` that run to their end, and the cancel is read after them.
     #[cfg(target_os = "macos")]
-    async fn start_tart(opts: &VmStartOptions, paths: &VmPaths) -> Result<VmStartResult, VmError> {
-        use crate::tart::{TartRunner, TartStartOptions};
+    async fn start_tart(opts: &VmStartOptions, ctx: &StartContext) -> Result<VmStartResult, VmError> {
+        use crate::tart::TartStartOptions;
 
         let topts = TartStartOptions {
             id: opts.id.clone(),
@@ -273,15 +313,42 @@ impl VmLifecycle {
             display: opts.display.clone(),
         };
         // A failed clone has already removed itself.
-        TartRunner::prepare(&topts, paths).await?;
-        let (pid, boot, decision) = Self::run_until_slot(opts, paths, &topts).await?;
+        TartRunner::prepare_in(&ctx.tools, &topts, &ctx.paths).await?;
+        let track = StartTrack::default();
+        if ctx.cancel.is_cancelled() {
+            return Err(abandon_tart(opts, ctx, &track));
+        }
+        let started = tokio::select! {
+            biased;
+            started = Self::start_tart_clone(opts, ctx, &topts, &track) => started,
+            _ = ctx.cancel.cancelled() => return Err(abandon_tart(opts, ctx, &track)),
+        };
+        // The client left as the start ended: nobody is told the id, so stop the VM again. A start
+        // that failed with `--keep-on-failure` left a VM that nobody can reclaim either.
+        if ctx.cancel.is_cancelled() {
+            return Err(abandon_tart(opts, ctx, &track));
+        }
+        started
+    }
+
+    /// The part of a tart start that follows the clone. `track` always names the processes
+    /// that exist, so a cancel can remove them from outside this future.
+    #[cfg(target_os = "macos")]
+    async fn start_tart_clone(
+        opts: &VmStartOptions,
+        ctx: &StartContext,
+        topts: &crate::tart::TartStartOptions,
+        track: &StartTrack,
+    ) -> Result<VmStartResult, VmError> {
+        let paths = &ctx.paths;
+        let (pid, boot, decision) = Self::run_until_slot(opts, ctx, topts, track).await?;
 
         let (vnc, ip) = match decision {
             StartDecision::Ready => match (boot.vnc.clone(), boot.ip.clone()) {
                 (Some(vnc), Some(ip)) => (vnc, ip),
                 // Ready implies both stages passed; refuse to invent an endpoint.
                 _ => {
-                    TartRunner::stop(&opts.id, pid);
+                    TartRunner::stop_in(&ctx.tools, &opts.id, pid);
                     return Err(VmError::TartFailed {
                         detail: "internal error: ready start without a VNC endpoint and guest IP".into(),
                     });
@@ -290,12 +357,13 @@ impl VmLifecycle {
             StartDecision::Failed { mut error, disposition } => {
                 let left_behind = settle_failed_start(
                     paths,
-                    &tart_failed_vm(opts, pid, &boot),
+                    &ctx.progress,
+                    &tart_failed_vm(opts, ctx.agent_port, pid, &boot),
                     disposition,
                     || {
-                        TartRunner::stop(&opts.id, pid);
+                        TartRunner::stop_in(&ctx.tools, &opts.id, pid);
                     },
-                    || crate::tart::vm_exists(&opts.id),
+                    || crate::tart::vm_exists_in(&ctx.tools, &opts.id),
                 );
                 record_left_behind(&mut error, left_behind);
                 return Err(error);
@@ -311,6 +379,7 @@ impl VmLifecycle {
         // started. Linux-on-tart honors the host-configured mode directly, so
         // the guest-side switch is macOS-only.
         if opts.platform == Platform::Macos {
+            let progress = &ctx.progress;
             match opts.logical {
                 // HiDPI @2x (ADR-0016 D3): select the guest's 2× Retina
                 // mode for the logical target (k4 finding 3) — *replacing*
@@ -319,7 +388,7 @@ impl VmLifecycle {
                 // old 1× selector would match the 1× mode and silently
                 // defeat HiDPI (k4 finding 4); suppression is load-bearing.
                 Some((lw, lh)) => {
-                    let applied = crate::display::apply(&ip, 8648, (lw, lh), 2, paths, &opts.id).await;
+                    let applied = crate::display::apply(&ctx.tools, progress, &ip, ctx.agent_port, (lw, lh), 2, paths, &opts.id).await;
                     // No 2× mode advertised ⇒ a 1× host (or HiDPI did not
                     // engage). Fall back to the 1× mode of the same logical
                     // size so the guest still reaches a sane 1920×1080
@@ -329,12 +398,12 @@ impl VmLifecycle {
                     // defeat HiDPI on a real Retina host (where the 2×
                     // switch succeeds first and skips this).
                     if !applied {
-                        eprintln!(
+                        progress.line(&format!(
                             "  HiDPI 2× switch did not apply — falling back to \
                              1× {lw}x{lh} (HiDPI needs a Retina host / the \
                              deferred deterministic mechanism, ADR-0016)"
-                        );
-                        crate::display::apply(&ip, 8648, (lw, lh), 1, paths, &opts.id).await;
+                        ));
+                        crate::display::apply(&ctx.tools, progress, &ip, ctx.agent_port, (lw, lh), 1, paths, &opts.id).await;
                     }
                 }
                 // Default 1× path (ADR-0014): force the 1920×1080-px
@@ -343,12 +412,12 @@ impl VmLifecycle {
                     let resolved = crate::tart::resolve_display(opts.display.as_deref());
                     match crate::display::parse_target(resolved) {
                         Some(target) => {
-                            crate::display::apply(&ip, 8648, target, 1, paths, &opts.id).await;
+                            crate::display::apply(&ctx.tools, progress, &ip, ctx.agent_port, target, 1, paths, &opts.id).await;
                         }
-                        None => eprintln!(
+                        None => progress.line(&format!(
                             "  warning: cannot derive a px target from display \
                              '{resolved}' — skipping macOS resolution switch"
-                        ),
+                        )),
                     }
                 }
             }
@@ -356,7 +425,7 @@ impl VmLifecycle {
 
         let spec = VmSpec {
             vnc: VncEndpoint { host: vnc.host.clone(), port: vnc.port, password: vnc.password.clone() },
-            agent: Some(AgentEndpoint { host: ip, port: 8648 }),
+            agent: Some(AgentEndpoint { host: ip, port: ctx.agent_port }),
             platform: opts.platform.as_str().to_string(),
             // Persist the HiDPI logical surface so every later short-lived
             // command connection presents it (ADR-0016 D2; ADR-0004 per-command
@@ -368,7 +437,7 @@ impl VmLifecycle {
         // tart is now running; a sidecar-write failure must tear it down
         // so it cannot survive untracked.
         spec.write_atomic(&spec_path).inspect_err(|_| {
-            TartRunner::stop(&opts.id, pid);
+            TartRunner::stop_in(&ctx.tools, &opts.id, pid);
         })?;
 
         // tart manages its own storage, so the meta carries no clone_dir;
@@ -384,7 +453,7 @@ impl VmLifecycle {
             keeper_pid: boot.keeper_pid,
         };
         meta.write_atomic(&meta_path).inspect_err(|_| {
-            TartRunner::stop(&opts.id, pid);
+            TartRunner::stop_in(&ctx.tools, &opts.id, pid);
             let _ = std::fs::remove_file(&spec_path);
         })?;
 
@@ -405,28 +474,28 @@ impl VmLifecycle {
     /// the same error as a start that never waited. Waiting and starting are
     /// one operation, so no other caller can take the freed slot in between.
     ///
-    /// A SIGINT or SIGTERM during a `--wait` start removes the clone, so an
+    /// A SIGINT or SIGTERM during a `--wait` start of the Host CLI removes the clone, so an
     /// interrupted wait leaks nothing, then ends the process the way the signal
-    /// would have.
+    /// would have. The app installs no handler: its caller leaving cancels the whole start.
     #[cfg(target_os = "macos")]
     async fn run_until_slot(
         opts: &VmStartOptions,
-        paths: &VmPaths,
+        ctx: &StartContext,
         topts: &crate::tart::TartStartOptions,
+        track: &StartTrack,
     ) -> Result<(i32, TartBoot, StartDecision), VmError> {
         let Some(timeout) = opts.wait else {
-            return Self::run_and_observe(opts, paths, topts, &std::cell::Cell::new(0)).await;
+            return Self::run_and_observe(opts, ctx, topts, track).await;
         };
-        let Some(mut stop) = StopSignals::install() else {
-            return Self::wait_for_slot(opts, paths, topts, timeout, &std::cell::Cell::new(0)).await;
+        let stop = if ctx.process_signals { StopSignals::install() } else { None };
+        let Some(mut stop) = stop else {
+            return Self::wait_for_slot(opts, ctx, topts, timeout, track).await;
         };
-        // The loop's current `tart run`, so an interrupt can stop it too.
-        let running = std::cell::Cell::new(0);
         let outcome = tokio::select! {
-            outcome = Self::wait_for_slot(opts, paths, topts, timeout, &running) => outcome,
+            outcome = Self::wait_for_slot(opts, ctx, topts, timeout, track) => outcome,
             caught = stop.caught() => {
-                crate::tart::TartRunner::stop(&opts.id, running.get());
-                clear_sidecars(paths, &opts.id);
+                crate::tart::TartRunner::stop_in(&ctx.tools, &opts.id, track.pid());
+                clear_sidecars(&ctx.paths, &opts.id);
                 StopSignals::end_like(caught)
             }
         };
@@ -439,15 +508,15 @@ impl VmLifecycle {
     #[cfg(target_os = "macos")]
     async fn wait_for_slot(
         opts: &VmStartOptions,
-        paths: &VmPaths,
+        ctx: &StartContext,
         topts: &crate::tart::TartStartOptions,
         timeout: Duration,
-        running: &std::cell::Cell<i32>,
+        track: &StartTrack,
     ) -> Result<(i32, TartBoot, StartDecision), VmError> {
         let waiting_since = Instant::now();
         let mut reporter = SlotWaitReporter::default();
         loop {
-            let (pid, boot, decision) = Self::run_and_observe(opts, paths, topts, running).await?;
+            let (pid, boot, decision) = Self::run_and_observe(opts, ctx, topts, track).await?;
             let StartDecision::Failed { error: VmError::VmLimitReached(limit), .. } = &decision else {
                 return Ok((pid, boot, decision));
             };
@@ -455,8 +524,11 @@ impl VmLifecycle {
             match next_slot_step(elapsed, timeout, SLOT_RETRY_INTERVAL) {
                 SlotWaitStep::GiveUp => return Ok((pid, boot, decision)),
                 SlotWaitStep::RetryAfter(pause) => {
+                    // The refused `tart run` has exited and been reaped, and its pid may be
+                    // another process's by the time a cancel reads it.
+                    track.pid.store(0, std::sync::atomic::Ordering::SeqCst);
                     if let Some(line) = reporter.note(limit, elapsed) {
-                        eprintln!("{line}");
+                        ctx.progress.line(&line);
                     }
                     tokio::time::sleep(pause).await;
                 }
@@ -465,18 +537,19 @@ impl VmLifecycle {
     }
 
     /// One `tart run` on the prepared clone and what its boot showed. The pid
-    /// goes into `running` as soon as there is one. A failed spawn has already
+    /// goes into `track` as soon as there is one. A failed spawn has already
     /// removed the clone.
     #[cfg(target_os = "macos")]
     async fn run_and_observe(
         opts: &VmStartOptions,
-        paths: &VmPaths,
+        ctx: &StartContext,
         topts: &crate::tart::TartStartOptions,
-        running: &std::cell::Cell<i32>,
+        track: &StartTrack,
     ) -> Result<(i32, TartBoot, StartDecision), VmError> {
-        let crate::tart::TartLaunch { pid, log_path } = crate::tart::TartRunner::run(topts, paths)?;
-        running.set(pid);
-        let boot = observe_tart_boot(opts, paths, pid, &log_path).await;
+        let crate::tart::TartLaunch { pid, log_path } =
+            crate::tart::TartRunner::run_in(&ctx.tools, topts, &ctx.paths)?;
+        track.pid.store(pid, std::sync::atomic::Ordering::SeqCst);
+        let boot = observe_tart_boot(opts, ctx, pid, &log_path, track).await;
         let decision = decide_start(&boot.observation, opts.keep_on_failure);
         Ok((pid, boot, decision))
     }
@@ -484,6 +557,13 @@ impl VmLifecycle {
     /// Stop a VM and remove its sidecars. Ports `VMLifecycle.stop`
     /// (QEMU branch). A `tart` meta returns `BackendUnsupported`.
     pub fn stop(id: &str, paths: &VmPaths) -> Result<(), VmError> {
+        Self::stop_with(id, paths, &ToolSearch::from_process_path())
+    }
+
+    /// [`stop`](Self::stop), with `tart` found by `tools`. The TestAnyware app stops a VM whose
+    /// client left as its start succeeded.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // Only tart is found by `tools`.
+    pub fn stop_with(id: &str, paths: &VmPaths, tools: &ToolSearch) -> Result<(), VmError> {
         let spec_path = paths.spec_path(id);
         let meta_path = paths.meta_path(id);
         if !meta_path.is_file() {
@@ -500,7 +580,7 @@ impl VmLifecycle {
                 // `tart stop` + `tart delete` the clone, SIGTERM the
                 // detached `tart run` pid. A VM that no longer exists is a
                 // stop failure (mirrors Swift `stop`'s `ok = false`).
-                let stopped = crate::tart::TartRunner::stop(id, meta.pid);
+                let stopped = crate::tart::TartRunner::stop_in(tools, id, meta.pid);
                 // The keeper ends itself once tart is gone (ADR-0018); this
                 // signal is the backstop, and only reaches a pid that is
                 // still this id's keeper.
@@ -576,7 +656,7 @@ impl VmLifecycle {
     /// macOS-only tart lookups) inside the crate, off the command layer.
     pub fn dry_run_validate_start(opts: &VmStartOptions, paths: &VmPaths) -> Result<StartPlan, VmError> {
         #[cfg(target_os = "macos")]
-        if wants_tart(opts.platform, &opts.base, paths) {
+        if wants_tart(opts.platform, &opts.base, paths, &ToolSearch::from_process_path()) {
             if !crate::tart::golden_exists(&opts.base) {
                 return Err(VmError::GoldenNotFound { name: opts.base.clone() });
             }
@@ -595,7 +675,7 @@ impl VmLifecycle {
             return Err(VmError::GoldenNotFound { name: opts.base.clone() });
         }
         crate::preflight::check_kvm()?;
-        let tpm = decide_tpm_on_host(opts.platform, &host_profile())?;
+        let tpm = decide_tpm_on_host_in(&ToolSearch::from_process_path(), opts.platform, &host_profile_in(&ToolSearch::from_process_path()))?;
         Ok(StartPlan { backend: "qemu", tpm: Some(tpm) })
     }
 
@@ -688,13 +768,13 @@ fn has_sidecars(paths: &VmPaths, id: &str) -> bool {
 /// that name is used (the kept-built `testanyware-golden-linux-24.04` is
 /// a tart VM). Windows always uses QEMU.
 #[cfg(target_os = "macos")]
-fn wants_tart(platform: Platform, base: &str, paths: &VmPaths) -> bool {
+fn wants_tart(platform: Platform, base: &str, paths: &VmPaths, tools: &ToolSearch) -> bool {
     match platform {
         Platform::Macos => true,
         Platform::Windows => false,
         Platform::Linux => {
             let qcow2 = paths.golden_dir().join(format!("{base}.qcow2"));
-            !qcow2.is_file() && crate::tart::vm_exists(base)
+            !qcow2.is_file() && crate::tart::vm_exists_in(tools, base)
         }
     }
 }
@@ -708,9 +788,6 @@ const VNC_POLLS: (u32, Duration) = (60, Duration::from_secs(1));
 const IP_POLLS: (u32, Duration) = (30, Duration::from_secs(2));
 #[cfg(target_os = "macos")]
 const AGENT_POLLS: (u32, Duration) = (60, Duration::from_secs(2));
-/// The agent's fixed port in the guest.
-#[cfg(target_os = "macos")]
-const AGENT_PORT: u16 = 8648;
 /// QEMU's agent wait: 120 probes 5 s apart. That is ten minutes when probes
 /// fail fast and about fourteen when each also spends its 2 s request timeout
 /// (observed live: 835 s). Deliberately long because Windows boots slowly; a
@@ -768,6 +845,78 @@ impl StopSignals {
     }
 }
 
+/// The processes of a tart start that exist now. The start future writes them as it makes them,
+/// and the cancel arm of [`VmLifecycle::start_tart`] reads them after it dropped the future.
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct StartTrack {
+    /// The `tart run` that is running, or 0.
+    pid: std::sync::atomic::AtomicI32,
+    /// The VNC keeper once it started, or 0.
+    keeper_pid: std::sync::atomic::AtomicI32,
+}
+
+#[cfg(target_os = "macos")]
+impl StartTrack {
+    fn pid(&self) -> i32 {
+        self.pid.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn keeper_pid(&self) -> Option<i32> {
+        Some(self.keeper_pid.load(std::sync::atomic::Ordering::SeqCst)).filter(|pid| *pid > 0)
+    }
+}
+
+/// Clean up a tart start that the client left, as after a failed start without
+/// `--keep-on-failure`: nobody can reclaim a kept VM, so the VM, its keeper and its sidecars go.
+///
+/// The cleanup is the teardown of a failed start: when the VM survives it, the meta is written
+/// so that `vm stop` can retry, and the sidecars are not dropped. The scratch directory of the
+/// display switch goes too: a cancel that arrives during the switch drops the future before it
+/// removes its own directory.
+#[cfg(target_os = "macos")]
+fn abandon_tart(opts: &VmStartOptions, ctx: &StartContext, track: &StartTrack) -> VmError {
+    let vm = FailedVm {
+        id: opts.id.clone(),
+        meta: VmMeta {
+            id: opts.id.clone(),
+            tool: VmTool::Tart,
+            pid: track.pid(),
+            clone_dir: None,
+            viewer_window_id: None,
+            keeper_pid: track.keeper_pid(),
+        },
+        spec: None,
+        manual_reclaim: format!("`tart stop {id}` and `tart delete {id}`", id = opts.id),
+    };
+    settle_failed_start(
+        &ctx.paths,
+        &ctx.progress,
+        &vm,
+        Disposition::Teardown,
+        || {
+            TartRunner::stop_in(&ctx.tools, &opts.id, track.pid());
+            crate::keeper::stop_keeper(&opts.id, track.keeper_pid());
+        },
+        || crate::tart::vm_exists_in(&ctx.tools, &opts.id),
+    );
+    let _ = std::fs::remove_dir_all(ctx.paths.vms_dir().join(format!("display-{}", opts.id)));
+    VmError::StartCancelled { id: opts.id.clone() }
+}
+
+/// [`abandon_tart`] for a QEMU start.
+fn abandon_qemu(opts: &VmStartOptions, ctx: &StartContext, artifacts: &StartArtifacts) -> VmError {
+    settle_failed_start(
+        &ctx.paths,
+        &ctx.progress,
+        &qemu_failed_vm(opts, artifacts),
+        Disposition::Teardown,
+        || QemuRunner::stop(artifacts.pid, &artifacts.clone_dir, &ctx.paths),
+        || artifacts.clone_dir.exists(),
+    );
+    VmError::StartCancelled { id: opts.id.clone() }
+}
+
 /// What a tart boot observed, plus the endpoints it found along the way.
 #[cfg(target_os = "macos")]
 struct TartBoot {
@@ -785,9 +934,10 @@ struct TartBoot {
 #[cfg(target_os = "macos")]
 async fn observe_tart_boot(
     opts: &VmStartOptions,
-    paths: &VmPaths,
+    ctx: &StartContext,
     pid: i32,
     log_path: &std::path::Path,
+    track: &StartTrack,
 ) -> TartBoot {
     use crate::tart::{await_guest_ip, await_vnc_url, Polled};
 
@@ -813,7 +963,14 @@ async fn observe_tart_boot(
             // crash it on a macOS 27 host. Start it as soon as tart prints the
             // URL, before the first VNC client of any kind. A failure warns;
             // the guest then runs without the protection.
-            keeper_pid = crate::keeper::start_keeper(&opts.id, &url.host, url.port, &paths.vms_dir());
+            keeper_pid = crate::keeper::start_keeper(
+                &opts.id,
+                &url.host,
+                url.port,
+                &ctx.paths.vms_dir(),
+                &ctx.progress,
+            );
+            track.keeper_pid.store(keeper_pid.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
             vnc = Some(url);
         }
         Polled::ProcessExited => {}
@@ -824,7 +981,7 @@ async fn observe_tart_boot(
 
     if vnc.is_some() {
         let stage_start = Instant::now();
-        match await_guest_ip(&opts.id, IP_POLLS.0, IP_POLLS.1, alive).await {
+        match await_guest_ip(&ctx.tools, &opts.id, IP_POLLS.0, IP_POLLS.1, alive).await {
             Polled::Found(found) => {
                 observation.address = AddressObservation::Found;
                 ip = Some(found);
@@ -840,12 +997,13 @@ async fn observe_tart_boot(
     if let Some(ip) = &ip {
         // The guest is on a host-only subnet, so macOS Local Network privacy may
         // deny this process while the agent is healthy (ADR-0019).
-        let wait = wait_for_agent_with_oracle(ip, AGENT_PORT, AGENT_POLLS.0, AGENT_POLLS.1, alive, || {
-            crate::local_network::platform_tool_reaches(ip, AGENT_PORT)
+        let port = ctx.agent_port;
+        let wait = wait_for_agent_with_oracle(ip, port, AGENT_POLLS.0, AGENT_POLLS.1, alive, || {
+            crate::local_network::platform_tool_reaches(ip, port)
         })
         .await;
         observation.agent = AgentObservation::Waited {
-            endpoint: format!("http://{ip}:{AGENT_PORT}/health"),
+            endpoint: format!("http://{ip}:{port}/health"),
             wait,
         };
     }
@@ -911,7 +1069,7 @@ struct FailedVm {
 
 /// The tart VM of a failed start, as far as the boot got.
 #[cfg(target_os = "macos")]
-fn tart_failed_vm(opts: &VmStartOptions, pid: i32, boot: &TartBoot) -> FailedVm {
+fn tart_failed_vm(opts: &VmStartOptions, agent_port: u16, pid: i32, boot: &TartBoot) -> FailedVm {
     FailedVm {
         id: opts.id.clone(),
         meta: VmMeta {
@@ -932,7 +1090,7 @@ fn tart_failed_vm(opts: &VmStartOptions, pid: i32, boot: &TartBoot) -> FailedVm 
             agent: boot
                 .ip
                 .as_ref()
-                .map(|ip| AgentEndpoint { host: ip.clone(), port: AGENT_PORT }),
+                .map(|ip| AgentEndpoint { host: ip.clone(), port: agent_port }),
             platform: opts.platform.as_str().to_string(),
             logical: opts.logical.map(|(w, h)| LogicalSize { width: w, height: h }),
         }),
@@ -1012,6 +1170,7 @@ fn record_left_behind(error: &mut VmError, left_behind: bool) {
 /// without tart or QEMU.
 fn settle_failed_start(
     paths: &VmPaths,
+    progress: &Progress,
     vm: &FailedVm,
     disposition: Disposition,
     teardown: impl FnOnce(),
@@ -1025,14 +1184,14 @@ fn settle_failed_start(
             Ok(()) => {
                 if let Some(spec) = &vm.spec {
                     if let Err(err) = spec.write_atomic(&spec_path) {
-                        eprintln!("warning: could not write the kept VM's spec: {err}");
+                        progress.line(&format!("warning: could not write the kept VM's spec: {err}"));
                     }
                 }
                 return true;
             }
-            Err(err) => eprintln!(
+            Err(err) => progress.line(&format!(
                 "warning: could not write the kept VM's meta, so `vm stop` could not reclaim it; tearing it down instead: {err}"
-            ),
+            )),
         }
     }
 
@@ -1044,17 +1203,17 @@ fn settle_failed_start(
     // The VM survived the teardown: keep the handle `vm stop` needs.
     match vm.meta.write_atomic(&meta_path) {
         Ok(()) => {
-            eprintln!(
+            progress.line(&format!(
                 "warning: could not remove the failed start's VM; reclaim it with `testanyware vm stop {}`",
                 vm.id
-            );
+            ));
             true
         }
         Err(err) => {
-            eprintln!(
+            progress.line(&format!(
                 "warning: could not remove the failed start's VM, and could not record it for `vm stop` ({err}); reclaim it by hand: {}",
                 vm.manual_reclaim
-            );
+            ));
             false
         }
     }
@@ -1380,6 +1539,7 @@ mod tests {
             let stopped = Cell::new(false);
             let left = settle_failed_start(
                 &paths,
+                &Progress::stderr(),
                 &vm(),
                 Disposition::Teardown,
                 || stopped.set(true),
@@ -1395,7 +1555,7 @@ mod tests {
             let paths = paths_in(dir.path());
             // No sidecars on disk: settlement must write the handle itself.
             std::fs::create_dir_all(paths.vms_dir()).unwrap();
-            let left = settle_failed_start(&paths, &vm(), Disposition::Teardown, || {}, || true);
+            let left = settle_failed_start(&paths, &Progress::stderr(), &vm(), Disposition::Teardown, || {}, || true);
             assert!(left, "a surviving VM must be reported as left behind");
             let meta = VmMeta::load(&paths.meta_path(ID)).expect("meta must survive for `vm stop`");
             assert_eq!((meta.id.as_str(), meta.pid, meta.tool), (ID, 4242, VmTool::Tart));
@@ -1408,7 +1568,7 @@ mod tests {
             // A regular file where the `vms` directory should be: no sidecar can be written.
             std::fs::create_dir_all(paths.vms_dir().parent().unwrap()).unwrap();
             std::fs::write(paths.vms_dir(), b"").unwrap();
-            let left = settle_failed_start(&paths, &vm(), Disposition::Teardown, || {}, || true);
+            let left = settle_failed_start(&paths, &Progress::stderr(), &vm(), Disposition::Teardown, || {}, || true);
             assert!(!left, "`vm stop` cannot find a VM with no meta");
         }
 
@@ -1419,6 +1579,7 @@ mod tests {
             std::fs::create_dir_all(paths.vms_dir()).unwrap();
             let left = settle_failed_start(
                 &paths,
+                &Progress::stderr(),
                 &vm(),
                 Disposition::Keep,
                 || panic!("a kept VM must not be torn down"),
@@ -1436,7 +1597,7 @@ mod tests {
             let paths = paths_in(dir.path());
             std::fs::create_dir_all(paths.vms_dir()).unwrap();
             let early = FailedVm { spec: None, ..vm() };
-            let left = settle_failed_start(&paths, &early, Disposition::Keep, || {}, || true);
+            let left = settle_failed_start(&paths, &Progress::stderr(), &early, Disposition::Keep, || {}, || true);
             assert!(left);
             assert!(paths.meta_path(ID).exists());
             assert!(!paths.spec_path(ID).exists(), "a spec cannot exist without a VNC endpoint");
@@ -1451,6 +1612,7 @@ mod tests {
             let stopped = Cell::new(false);
             let left = settle_failed_start(
                 &paths,
+                &Progress::stderr(),
                 &vm(),
                 Disposition::Keep,
                 || stopped.set(true),
@@ -1502,13 +1664,13 @@ mod tests {
                 ip: Some("192.168.64.9".into()),
                 keeper_pid: None,
             };
-            let failed = tart_failed_vm(&opts, 4242, &boot);
+            let failed = tart_failed_vm(&opts, crate::start_context::AGENT_PORT, 4242, &boot);
             assert_eq!(failed.meta.tool, VmTool::Tart);
             assert_eq!(failed.spec.unwrap().agent.unwrap().host, "192.168.64.9");
             boot.vnc = None;
             boot.ip = None;
             assert!(
-                tart_failed_vm(&opts, 4242, &boot).spec.is_none(),
+                tart_failed_vm(&opts, crate::start_context::AGENT_PORT, 4242, &boot).spec.is_none(),
                 "a spec cannot exist without a VNC endpoint"
             );
         }

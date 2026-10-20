@@ -20,3 +20,10 @@ Run `vm stop` and `vm delete` in the app.
 ## Notes
 
 - After this leaf, every lifecycle command except golden creation goes through the app on a macOS host.
+
+## Handed over by app-vm-start-k27
+
+- `VmLifecycle::stop_with(id, paths, tools)` already stops a VM with the app's tool search, and `TartRunner::stop_in` takes the search too. `stop` delegates to it. The start uses `stop_with` when its client left as it succeeded.
+- A start and a stop of one id should not overlap. The app serialises starts per id with `StartGate` (`testanyware-app/src/gate_start.rs`). A stop of an id that is starting is not gated yet.
+- The detached children are reaped by threads of `detached::spawn_detached`, and `child_alive` still works beside them (`ECHILD` falls back to the signal-0 probe).
+- Live checks that stop a VM by signal or `vm stop` see the app's cleanup a moment after the CLI has gone. `assert_vm_gone` in `scripts/live-start-checks.sh` polls for it.

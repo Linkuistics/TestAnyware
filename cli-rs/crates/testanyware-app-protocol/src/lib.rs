@@ -8,6 +8,7 @@ pub mod error;
 pub mod hello;
 pub mod list;
 pub mod socket;
+pub mod start;
 pub mod status;
 pub mod stream;
 pub mod version;
@@ -21,6 +22,9 @@ pub use list::{ListRequest, LIST_PATH};
 pub use socket::{
     default_socket_path, judge_socket_dir, validate_socket_path, SocketDirError, SocketPathError,
     SOCKET_PATH_MAX_BYTES,
+};
+pub use start::{
+    EventLines, HostPort, StartEvent, StartRequest, StartResult, TpmReport, START_CONTENT_TYPE,
 };
 pub use status::StatusResponse;
 pub use stream::{
