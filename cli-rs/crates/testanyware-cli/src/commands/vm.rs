@@ -853,6 +853,15 @@ mod tests {
         let errors = [
             VmError::VmNotFound { id: "v".into() },
             VmError::VmStopFailed { id: "v".into() },
+            VmError::VmStopBlocked {
+                id: "v".into(),
+                blockers: Box::new(testanyware_vm::legacy_stop::StopBlockers {
+                    monitor_socket: None,
+                    swtpm_socket: None,
+                    disk_holders: vec![1],
+                    disk_check_error: None,
+                }),
+            },
             VmError::GoldenNotFound { name: "g".into() },
             VmError::GoldenInUse { name: "g".into(), clone_pids: vec![1] },
             VmError::TartFailed { detail: "d".into() },

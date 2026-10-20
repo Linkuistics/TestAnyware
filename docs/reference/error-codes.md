@@ -35,7 +35,7 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | `VM_NOT_FOUND` | No VM with the given id. |
 | `VM_BOOT_TIMEOUT` | The VM is up but `vm start` stage (`vnc`, `guest-ip`, `agent`) never completed; `details` names the stage and the last probe error. Exit `7`. |
 | `VM_LIMIT_REACHED` | The macOS guest limit (two per Mac) is full; `details.holders` names the VMs. Try again later, or start with `--wait`; a `--wait` that ran out returns it too. Exit `6`. |
-| `VM_STOP_FAILED` | `vm stop` could not terminate the VM cleanly. |
+| `VM_STOP_FAILED` | `vm stop` could not terminate the VM cleanly. In the app, the stop of a QEMU guest started by an older release signals no process: `details` names the `monitor_socket` and `swtpm_socket` that still answer, the `disk_holders` (pids) that hold the clone's disk, and a `disk_check_error` when the app could not tell. The app removes nothing. Quit that QEMU by hand and run `vm stop` again. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
 | `GOLDEN_IN_USE` | `vm delete` refused — clones of the golden are running (use `--force`). |

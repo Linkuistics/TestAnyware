@@ -6,6 +6,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::health::ProbeError;
+use crate::legacy_stop::StopBlockers;
 
 /// The stage of a start that ran out of time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,6 +204,11 @@ pub enum VmError {
     #[error("VM '{id}' did not stop cleanly")]
     VmStopFailed { id: String },
 
+    /// The stop of an older QEMU guest, which signals nothing, found the guest still alive. The
+    /// blockers name what still answers or holds the disk. Its code is `VM_STOP_FAILED`.
+    #[error("VM '{id}' did not stop: {}", blockers.describe())]
+    VmStopBlocked { id: String, blockers: Box<StopBlockers> },
+
     #[error("no backend can serve platform '{platform}' (tart support is a later task)")]
     BackendUnsupported { platform: String },
 
@@ -257,7 +263,7 @@ impl VmError {
             VmError::GoldenNotFound { .. } => "GOLDEN_NOT_FOUND",
             VmError::GoldenInUse { .. } => "GOLDEN_IN_USE",
             VmError::VmNotFound { .. } => "VM_NOT_FOUND",
-            VmError::VmStopFailed { .. } => "VM_STOP_FAILED",
+            VmError::VmStopFailed { .. } | VmError::VmStopBlocked { .. } => "VM_STOP_FAILED",
             VmError::BackendUnsupported { .. } => "VM_BACKEND_UNSUPPORTED",
             VmError::HostUnsupported { .. } => "VM_HOST_UNSUPPORTED",
             VmError::InvalidPlatform { .. } => "INVALID_PLATFORM",
@@ -306,6 +312,10 @@ impl VmError {
             VmError::VmNotFound { .. } => {
                 Some("Run `testanyware vm list` to see running VMs.".into())
             }
+            VmError::VmStopBlocked { id, .. } => Some(format!(
+                "Quit that QEMU by hand, then run `testanyware vm stop {id}` again. \
+                 The app removed nothing, so the VM keeps its records."
+            )),
             VmError::BackendUnsupported { .. } => Some(
                 "QEMU serves linux and windows guests. macOS guests use the tart \
                  backend, which is not yet ported to the Rust CLI."
@@ -357,6 +367,7 @@ impl VmError {
             VmError::VmNotFound { id }
             | VmError::VmStopFailed { id }
             | VmError::StartCancelled { id } => json!({ "vm_id": id }),
+            VmError::VmStopBlocked { id, blockers } => blockers.details(id),
             VmError::VmBootTimeout { id, timeout } => json!({
                 "vm_id": id,
                 "stage": timeout.stage.as_str(),
@@ -421,6 +432,19 @@ mod tests {
         assert_eq!(VmError::GoldenInUse { name: "g".into(), clone_pids: vec![] }.code(), "GOLDEN_IN_USE");
         assert_eq!(VmError::VmNotFound { id: "v".into() }.code(), "VM_NOT_FOUND");
         assert_eq!(VmError::VmStopFailed { id: "v".into() }.code(), "VM_STOP_FAILED");
+        let blocked = VmError::VmStopBlocked {
+            id: "v".into(),
+            blockers: Box::new(StopBlockers {
+                monitor_socket: None,
+                swtpm_socket: None,
+                disk_holders: vec![9],
+                disk_check_error: None,
+            }),
+        };
+        assert_eq!(blocked.code(), "VM_STOP_FAILED");
+        assert_eq!(blocked.exit_code(), 1);
+        assert_eq!(blocked.details()["vm_id"], "v");
+        assert!(blocked.to_string().contains("process 9 still holds the clone's disk"));
         assert_eq!(VmError::BackendUnsupported { platform: "macos".into() }.code(), "VM_BACKEND_UNSUPPORTED");
         assert_eq!(VmError::HostUnsupported { detail: "x".into() }.code(), "VM_HOST_UNSUPPORTED");
         assert_eq!(VmError::InvalidPlatform { value: "bsd".into() }.code(), "INVALID_PLATFORM");

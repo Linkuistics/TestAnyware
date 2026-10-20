@@ -426,6 +426,10 @@ An id with no meta fails with `VM_NOT_FOUND`. A stop that cannot remove the VM f
 `VM_STOP_FAILED`, and it still removes the sidecars, as the direct command does.
 The identity guard of a signal comes with adoption.
 
+One guest is an exception. A QEMU guest whose meta records no identity stops
+through its control sockets and receives no signal. When that stop fails, it
+keeps the sidecars. The section "Lifecycle and adoption" gives the rules.
+
 A stop of an id waits while a start or another stop of that id runs. So a stop
 never races the cleanup of a start, and two stops never take one VM down together.
 A stop whose client leaves while it waits does not run.

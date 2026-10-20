@@ -91,7 +91,23 @@ fn session_dir(app: &TestApp, id: &str) -> PathBuf {
 
 /// A running QEMU VM whose process is `orphan`: its sidecars, its clone directory and its
 /// session directory. The meta names the orphan, so that a stop signals it and nothing else.
+/// The meta records an identity, so the VM keeps the stop of the direct path until
+/// `app-adoption-k30`. [`add_older_qemu_vm`] makes the VM of an older start.
 fn add_qemu_vm(app: &TestApp, id: &str, orphan: &Orphan) {
+    app.add_running_qemu_clone(id, "linux", 5901);
+    let meta = json!({
+        "id": id,
+        "tool": "qemu",
+        "pid": orphan.0,
+        "clone_dir": clone_dir(app, id),
+        "identity": { "start_time": 1, "boot_session": "test" },
+    });
+    std::fs::write(&sidecars(app, id)[1], meta.to_string()).unwrap();
+}
+
+/// A QEMU VM of an older start: its meta records no identity and no session directory. The meta
+/// names `orphan`, which the stop of an older VM must never signal.
+fn add_older_qemu_vm(app: &TestApp, id: &str, orphan: &Orphan) {
     app.add_running_qemu_clone(id, "linux", 5901);
     let meta = json!({
         "id": id,
@@ -301,7 +317,12 @@ fn a_qemu_meta_without_a_clone_directory_fails_the_stop_and_still_clears_the_rec
         // The meta of a pid that is no process: a corrupt record that names nothing to signal.
         std::fs::write(
             &sidecars(app, id)[1],
-            json!({ "id": id, "tool": "qemu", "pid": 0 }).to_string(),
+            // An identity keeps the stop of the direct path. A meta with none is an older meta.
+            json!({
+                "id": id, "tool": "qemu", "pid": 0,
+                "identity": { "start_time": 1, "boot_session": "test" },
+            })
+            .to_string(),
         )
         .unwrap();
     };
@@ -324,6 +345,146 @@ fn a_qemu_meta_without_a_clone_directory_fails_the_stop_and_still_clears_the_rec
     for sidecar in sidecars(&app, id) {
         assert!(!sidecar.exists(), "{} remains", sidecar.display());
     }
+}
+
+// ---- vm stop of an older QEMU guest ---------------------------------------------------------
+
+/// A process that holds `file` open, as QEMU holds its disk. Dropping it kills the process.
+struct DiskHolder(std::process::Child);
+
+impl DiskHolder {
+    fn open(file: &std::path::Path) -> Self {
+        let child = Command::new("sh")
+            .arg("-c")
+            .arg("exec 3<\"$1\"; exec sleep 600")
+            .arg("holder")
+            .arg(file)
+            .spawn()
+            .expect("run sh");
+        DiskHolder(child)
+    }
+
+    fn pid(&self) -> i64 {
+        i64::from(self.0.id())
+    }
+}
+
+impl Drop for DiskHolder {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn lsof_is_installed() -> bool {
+    let found = Command::new("lsof").arg("-v").output().is_ok();
+    if !found {
+        eprintln!("skipped: lsof is not installed");
+    }
+    found
+}
+
+#[test]
+fn an_older_qemu_guest_that_is_gone_is_removed_and_nothing_is_signalled() {
+    let _lock = serial();
+    let id = "testanyware-1a1a1a1a";
+    let orphan = Orphan::start();
+    let bystander = Orphan::start();
+    let app = TestApp::start_after(|app| add_older_qemu_vm(app, id, &orphan));
+
+    // The app-only stop: the direct path of a Linux or Windows host keeps its signal.
+    let out = app.cli(&["vm", "stop", id]);
+
+    assert_eq!(out.code(), 0, "{}", out.err());
+    assert_eq!(out.out(), format!("stopped {id}\n"));
+    assert!(
+        orphan.alive(),
+        "the stop of an older guest signalled the pid in its meta"
+    );
+    assert!(bystander.alive());
+    for sidecar in sidecars(&app, id) {
+        assert!(!sidecar.exists(), "{} remains", sidecar.display());
+    }
+    assert!(!clone_dir(&app, id).exists());
+    assert!(!session_dir(&app, id).exists());
+}
+
+#[test]
+fn an_older_qemu_guest_gets_quit_on_its_monitor_and_is_then_removed() {
+    let _lock = serial();
+    // A short id keeps the socket path within the 104 bytes of `sun_path`.
+    let id = "qmon";
+    let orphan = Orphan::start();
+    let app = TestApp::start_after(|app| add_older_qemu_vm(app, id, &orphan));
+
+    // A monitor that answers. It ends, as QEMU does, when it reads `quit`.
+    let socket = session_dir(&app, id).join("monitor.sock");
+    std::fs::remove_file(&socket).unwrap();
+    let listener = std::os::unix::net::UnixListener::bind(&socket).unwrap();
+    let monitor = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut lines = Vec::new();
+        loop {
+            let (mut stream, _) = listener.accept().unwrap();
+            // The app also connects only to look, and closes at once.
+            let mut text = String::new();
+            let _ = stream.read_to_string(&mut text);
+            if !text.is_empty() {
+                lines.push(text.trim().to_string());
+                // The listener drops here, so the socket stops answering.
+                return lines;
+            }
+        }
+    });
+
+    let out = app.cli(&["vm", "stop", id, "--json"]);
+
+    assert_eq!(out.code(), 0, "{}", out.err());
+    assert_eq!(out.json()["stopped"], true);
+    assert_eq!(monitor.join().unwrap(), ["quit"]);
+    assert!(orphan.alive(), "a signal reached the pid in the meta");
+    assert!(!sidecars(&app, id)[1].exists());
+    assert!(!clone_dir(&app, id).exists());
+}
+
+/// The scenario "An older QEMU guest that does not stop".
+#[test]
+fn an_older_qemu_guest_whose_disk_is_held_fails_and_keeps_everything() {
+    if !lsof_is_installed() {
+        return;
+    }
+    let _lock = serial();
+    let id = "testanyware-3c3c3c3c";
+    let orphan = Orphan::start();
+    let app = TestApp::start_after(|app| add_older_qemu_vm(app, id, &orphan));
+    let disk = clone_dir(&app, id).join(format!("{id}.qcow2"));
+    std::fs::write(&disk, b"disk").unwrap();
+    let holder = DiskHolder::open(&disk);
+    // `exec` replaces the shell, so the child's pid is the process that holds the file. Wait for
+    // the open to land before the stop looks.
+    std::thread::sleep(Duration::from_millis(300));
+
+    let out = app.cli(&["vm", "stop", id, "--json"]);
+
+    assert_eq!(out.code(), 1, "{}", out.err());
+    let envelope = out.json();
+    assert_eq!(envelope["ok"], false, "{envelope}");
+    assert_eq!(envelope["code"], "VM_STOP_FAILED");
+    assert_eq!(envelope["details"]["vm_id"], id);
+    assert_eq!(envelope["details"]["disk_holders"], json!([holder.pid()]));
+    assert!(
+        envelope["remediation"]
+            .as_str()
+            .is_some_and(|text| text.contains("Quit that QEMU by hand")),
+        "{envelope}"
+    );
+    assert!(orphan.alive(), "the stop signalled the pid in the meta");
+    assert!(holder.0.id() > 0);
+    for sidecar in sidecars(&app, id) {
+        assert!(sidecar.exists(), "{} was removed", sidecar.display());
+    }
+    assert!(disk.exists());
+    assert!(session_dir(&app, id).exists());
 }
 
 #[test]

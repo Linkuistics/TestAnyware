@@ -262,7 +262,7 @@ version bump.
 | `VM_NOT_FOUND` | `--vm <id>` resolved to a missing spec. |
 | `VM_BOOT_TIMEOUT` | `vm start`: the VM is alive but a start stage never completed — the VNC endpoint, the guest IP, or (the usual case) the agent never became a Healthy agent. `details` names the `stage` (`vnc`, `guest-ip`, `agent`), the polled `endpoint`, the `last_error` (kind, OS errno, text), the `attempts`, the `elapsed_secs`, the proven `cause` (`null`, or `local_network_denied`; see the §4.2 amendment of 2026-10-19) and whether the VM was `kept`. |
 | `VM_LIMIT_REACHED` | `vm start` was refused because the platform's concurrent-guest limit is full — Apple's macOS guest limit, two per Mac. A *try again later* condition: exit `6`. `details`: `platform`, `limit`, `holders` (the VMs holding the slots), `tart_error` (the backend's own line). A `--wait` start that ran out returns the same error. |
-| `VM_STOP_FAILED` | `vm stop` couldn't terminate the VM cleanly. |
+| `VM_STOP_FAILED` | `vm stop` couldn't terminate the VM cleanly. The app's stop of a QEMU guest that an older release started signals no process; it fails when a socket still answers or a process still holds the clone's disk, and `details` names `monitor_socket`, `swtpm_socket`, `disk_holders` and `disk_check_error`. The app removes nothing then, and the remedy says to quit that QEMU by hand and run `vm stop` again. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform on this host. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
 | `GOLDEN_IN_USE` | `vm delete` refused: running clones depend on the image. Use `--force`. |

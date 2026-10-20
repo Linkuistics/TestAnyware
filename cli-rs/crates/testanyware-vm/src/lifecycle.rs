@@ -12,6 +12,10 @@ use crate::health::wait_for_agent;
 use crate::health::wait_for_agent_with_oracle;
 use crate::id::generate_id;
 use crate::identity::{read_identity, read_optional_identity, ProcessIdentity, SystemProbe};
+use crate::legacy_stop::{
+    find_session_dir, is_older_qemu_meta, session_candidates, stop_through_sockets, LegacyStopProbes,
+    SettleWait,
+};
 use crate::meta::{VmMeta, VmTool};
 use crate::paths::VmPaths;
 use crate::process::{child_alive, process_alive};
@@ -608,6 +612,45 @@ impl VmLifecycle {
             Some(err) => Err(err),
             None => Ok(()),
         }
+    }
+
+    /// The stop of the TestAnyware app. A QEMU guest whose meta records no identity stops through
+    /// its control sockets and sends no signal to any process (spec: "Lifecycle and adoption").
+    /// Any other guest stops as [`stop_with`](Self::stop_with) stops it.
+    ///
+    /// The older guest's files go only after the stop has seen that neither socket answers and
+    /// no process holds the clone's disk. Otherwise nothing is removed, so a later stop can try
+    /// again.
+    pub fn stop_with_probes(
+        id: &str,
+        paths: &VmPaths,
+        tools: &ToolSearch,
+        probes: &impl LegacyStopProbes,
+        wait: SettleWait,
+    ) -> Result<(), VmError> {
+        let meta_path = paths.meta_path(id);
+        if !meta_path.is_file() {
+            return Err(VmError::VmNotFound { id: id.to_string() });
+        }
+        let meta = VmMeta::load(&meta_path)?;
+        if !is_older_qemu_meta(&meta) {
+            return Self::stop_with(id, paths, tools);
+        }
+        let clone_dir = match meta.clone_dir.as_deref().filter(|d| !d.is_empty()) {
+            Some(recorded) => PathBuf::from(recorded),
+            None => paths.clone_dir(id),
+        };
+        let session = find_session_dir(&session_candidates(id, &meta, paths));
+        stop_through_sockets(probes, wait, session.as_deref(), &clone_dir).map_err(|blockers| {
+            VmError::VmStopBlocked { id: id.to_string(), blockers: Box::new(blockers) }
+        })?;
+        let _ = std::fs::remove_dir_all(&clone_dir);
+        if let Some(session) = &session {
+            let _ = std::fs::remove_dir_all(session);
+        }
+        let _ = std::fs::remove_file(paths.spec_path(id));
+        let _ = std::fs::remove_file(&meta_path);
+        Ok(())
     }
 
     /// Delete a QEMU golden image by name. Refuses when running clones
@@ -1396,6 +1439,167 @@ mod tests {
         std::fs::create_dir_all(paths.vms_dir()).unwrap();
         let err = VmLifecycle::stop("testanyware-ghost", &paths).unwrap_err();
         assert!(matches!(err, VmError::VmNotFound { .. }));
+    }
+
+    mod older_qemu_stop {
+        use super::*;
+        use std::cell::RefCell;
+        use std::path::Path;
+
+        /// A guest whose sockets answer, and whose disk is held, until `quit` arrives.
+        struct Guest {
+            quit_works: bool,
+            alive: RefCell<bool>,
+            quits: RefCell<u32>,
+        }
+
+        impl Guest {
+            fn new(quit_works: bool) -> Self {
+                Self { quit_works, alive: RefCell::new(true), quits: RefCell::new(0) }
+            }
+        }
+
+        impl LegacyStopProbes for Guest {
+            fn socket_answers(&self, socket: &Path) -> bool {
+                *self.alive.borrow() && socket.ends_with("monitor.sock")
+            }
+            fn send_monitor_quit(&self, _socket: &Path) -> bool {
+                *self.quits.borrow_mut() += 1;
+                if self.quit_works {
+                    *self.alive.borrow_mut() = false;
+                }
+                true
+            }
+            fn send_swtpm_shutdown(&self, _socket: &Path) -> bool {
+                true
+            }
+            fn disk_holders(&self, _clone_dir: &Path) -> Result<Vec<i32>, String> {
+                Ok(if *self.alive.borrow() { vec![31337] } else { Vec::new() })
+            }
+            fn pause(&self, _interval: Duration) {}
+        }
+
+        const WAIT: SettleWait = SettleWait::looks(2);
+
+        struct Seeded {
+            _dir: tempfile::TempDir,
+            paths: VmPaths,
+            clone: PathBuf,
+            session: PathBuf,
+        }
+
+        /// An older QEMU meta whose pid is a real process, so a signal would show.
+        fn seed(pid: i32) -> Seeded {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = VmPaths::new(
+                dir.path().join("state"),
+                dir.path().join("data"),
+                dir.path().join("tmp"),
+            );
+            std::fs::create_dir_all(paths.vms_dir()).unwrap();
+            let id = "testanyware-0lde";
+            let clone = paths.clone_dir(id);
+            std::fs::create_dir_all(&clone).unwrap();
+            std::fs::write(clone.join(format!("{id}.qcow2")), b"disk").unwrap();
+            let session = paths.session_dir(id);
+            std::fs::create_dir_all(&session).unwrap();
+            std::fs::write(paths.spec_path(id), b"{}").unwrap();
+            let mut meta = VmMeta::new(id, VmTool::Qemu, pid);
+            meta.clone_dir = Some(clone.display().to_string());
+            meta.write_atomic(&paths.meta_path(id)).unwrap();
+            Seeded { _dir: dir, paths, clone, session }
+        }
+
+        fn stop(seeded: &Seeded, guest: &Guest) -> Result<(), VmError> {
+            VmLifecycle::stop_with_probes(
+                "testanyware-0lde",
+                &seeded.paths,
+                &ToolSearch::from_process_path(),
+                guest,
+                WAIT,
+            )
+        }
+
+        fn stranger() -> std::process::Child {
+            std::process::Command::new("sleep").arg("60").spawn().unwrap()
+        }
+
+        #[test]
+        fn a_guest_that_quits_is_removed_and_its_pid_is_not_signalled() {
+            let mut stranger = stranger();
+            let seeded = seed(stranger.id() as i32);
+            let guest = Guest::new(true);
+            stop(&seeded, &guest).unwrap();
+            assert_eq!(*guest.quits.borrow(), 1);
+            assert!(!seeded.clone.exists());
+            assert!(!seeded.session.exists());
+            assert!(!seeded.paths.spec_path("testanyware-0lde").exists());
+            assert!(!seeded.paths.meta_path("testanyware-0lde").exists());
+            // The old stop would have sent SIGTERM to this pid.
+            assert!(stranger.try_wait().unwrap().is_none(), "the process at the pid was signalled");
+            let _ = stranger.kill();
+            let _ = stranger.wait();
+        }
+
+        #[test]
+        fn a_guest_that_stays_keeps_every_file_and_its_pid_is_not_signalled() {
+            let mut stranger = stranger();
+            let seeded = seed(stranger.id() as i32);
+            let guest = Guest::new(false);
+            let err = stop(&seeded, &guest).unwrap_err();
+            let VmError::VmStopBlocked { blockers, .. } = &err else {
+                panic!("{err:?}");
+            };
+            assert_eq!(blockers.disk_holders, [31337]);
+            assert!(blockers.monitor_socket.is_some());
+            assert_eq!(err.code(), "VM_STOP_FAILED");
+            assert!(err.remediation().unwrap().contains("vm stop testanyware-0lde"));
+            assert_eq!(err.details()["disk_holders"], serde_json::json!([31337]));
+            assert!(seeded.clone.join("testanyware-0lde.qcow2").exists());
+            assert!(seeded.session.exists());
+            assert!(seeded.paths.spec_path("testanyware-0lde").exists());
+            assert!(seeded.paths.meta_path("testanyware-0lde").exists());
+            assert!(stranger.try_wait().unwrap().is_none(), "the process at the pid was signalled");
+            let _ = stranger.kill();
+            let _ = stranger.wait();
+        }
+
+        #[test]
+        fn the_session_of_an_older_guest_is_found_by_its_id_in_the_own_temp_dir() {
+            let seeded = seed(0);
+            let guest = Guest::new(true);
+            stop(&seeded, &guest).unwrap();
+            // The guest answered on the monitor of the session that was found, so it got `quit`.
+            assert_eq!(*guest.quits.borrow(), 1);
+        }
+
+        #[test]
+        fn a_meta_with_an_identity_keeps_the_stop_it_has() {
+            use crate::identity::ProcessIdentity;
+            let seeded = seed(0);
+            let mut meta = VmMeta::load(&seeded.paths.meta_path("testanyware-0lde")).unwrap();
+            meta.identity = Some(ProcessIdentity { start_time: 1, boot_session: "b".into() });
+            meta.write_atomic(&seeded.paths.meta_path("testanyware-0lde")).unwrap();
+            let guest = Guest::new(false);
+            // `pid: 0` skips the signal; the shared teardown removes the clone without a look.
+            stop(&seeded, &guest).unwrap();
+            assert_eq!(*guest.quits.borrow(), 0, "the identity path never asks the monitor");
+            assert!(!seeded.clone.exists());
+        }
+
+        #[test]
+        fn an_unknown_id_is_not_found() {
+            let seeded = seed(0);
+            let err = VmLifecycle::stop_with_probes(
+                "testanyware-ghost",
+                &seeded.paths,
+                &ToolSearch::from_process_path(),
+                &Guest::new(true),
+                WAIT,
+            )
+            .unwrap_err();
+            assert!(matches!(err, VmError::VmNotFound { .. }));
+        }
     }
 
     #[test]
