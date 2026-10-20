@@ -12,7 +12,7 @@ cli-rs/
 ├── Cargo.toml                           # workspace manifest
 ├── crates/
 │   ├── testanyware-protocol/            # serde wire types + formatters (no I/O)
-│   ├── testanyware-agent-client/        # HTTP client for in-VM agents (reqwest)
+│   ├── testanyware-agent-client/        # HTTP client for in-VM agents (hyper)
 │   ├── testanyware-rfb/                 # pure-Rust RFB/VNC client: capture + input
 │   ├── testanyware-ocr-client/          # OcrEngine seam; EasyOCR daemon bridge
 │   ├── testanyware-video/               # VideoEncoder seam; screen record

@@ -7,18 +7,36 @@
 //! `application/octet-stream` with the path in a percent-encoded `?path=`
 //! query parameter (ADR-0001) — no base64, no whole-file buffering on
 //! either end.
+//!
+//! The client speaks HTTP/1.1 through hyper's client connection over any
+//! byte stream (ADR-0004). The [`AgentConnector`] seam supplies the stream:
+//! a direct TCP connection by default, or a guest stream from the
+//! TestAnyware app.
+
+mod transport;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use futures_util::StreamExt;
+use bytes::Bytes;
+use futures_util::TryStreamExt;
+use http::header::{ACCEPT, CONNECTION, CONTENT_LENGTH, CONTENT_TYPE, HOST};
+use http::{Method, Request, Response};
+use http_body_util::combinators::UnsyncBoxBody;
+use http_body_util::{BodyExt, Full, StreamBody};
+use hyper::body::{Frame, Incoming};
+use hyper_util::rt::TokioIo;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
-use reqwest::StatusCode;
 use serde::Serialize;
 use thiserror::Error;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
+
+pub use http::StatusCode;
+use transport::{AbortOnDrop, Deadline};
+pub use transport::{AgentConnector, AgentStream, BoxedStream, ConnectFuture, TcpConnector};
 
 use testanyware_protocol::{
     ActionResponse, ElementQuery, ErrorResponse, ExecRequest, ExecResult, HealthResponse,
@@ -63,13 +81,16 @@ impl AgentConfig {
 /// `code()` returns the stable token the CLI surfaces in `--json` output.
 #[derive(Debug, Error)]
 pub enum AgentError {
-    /// Any failure to establish the TCP connection (refused, unreachable,
+    /// Any failure to establish the connection (refused, unreachable,
     /// ...) — the variant name predates the split. `message` is the whole
-    /// `source()` chain, since reqwest's own `Display` drops the OS cause;
-    /// `os_errno` is the raw errno found in that chain, so a caller can tell
-    /// "refused" from "no route to host" without parsing text.
+    /// `source()` chain, so it carries the OS cause; `os_errno` is the raw
+    /// errno found in that chain, so a caller can tell "refused" from
+    /// "no route to host" without parsing text.
     #[error("connection refused: {message}")]
-    ConnectionRefused { message: String, os_errno: Option<i32> },
+    ConnectionRefused {
+        message: String,
+        os_errno: Option<i32>,
+    },
 
     #[error("connection timed out: {0}")]
     Timeout(String),
@@ -149,26 +170,23 @@ fn map_wire_error(wire: &str) -> &'static str {
     }
 }
 
-impl From<reqwest::Error> for AgentError {
-    fn from(err: reqwest::Error) -> Self {
-        if err.is_timeout() {
-            AgentError::Timeout(err.to_string())
-        } else if err.is_connect() {
-            AgentError::ConnectionRefused {
-                message: error_chain(&err),
-                os_errno: os_errno_in_chain(&err),
-            }
-        } else if err.is_request() || err.is_body() {
-            AgentError::ConnectionDropped(err.to_string())
-        } else {
-            AgentError::Internal(err.to_string())
-        }
+/// A failed dial. The message names the endpoint and carries the OS cause.
+fn dial_error(host: &str, port: u16, err: &std::io::Error) -> AgentError {
+    AgentError::ConnectionRefused {
+        message: format!("failed to connect to {host}:{port}: {}", error_chain(err)),
+        os_errno: os_errno_in_chain(err),
     }
 }
 
-/// `err` and every `source()` beneath it, joined with `: `. reqwest's
-/// `Display` is only "error sending request for url (...)"; the cause (for a
-/// connect failure, `tcp connect error: ... (os error N)`) lives below it.
+/// A connection that failed after it opened: a hyper error, or a body that
+/// ended early.
+fn dropped(err: &(dyn std::error::Error + 'static)) -> AgentError {
+    AgentError::ConnectionDropped(error_chain(err))
+}
+
+/// `err` and every `source()` beneath it, joined with `: `. A wrapper's own
+/// `Display` often names only its layer; the cause (for a connect failure,
+/// `... (os error N)`) lives below it.
 fn error_chain(err: &(dyn std::error::Error + 'static)) -> String {
     let mut parts = vec![err.to_string()];
     let mut source = err.source();
@@ -183,7 +201,10 @@ fn error_chain(err: &(dyn std::error::Error + 'static)) -> String {
 fn os_errno_in_chain(err: &(dyn std::error::Error + 'static)) -> Option<i32> {
     let mut current: Option<&(dyn std::error::Error + 'static)> = Some(err);
     while let Some(e) = current {
-        if let Some(code) = e.downcast_ref::<std::io::Error>().and_then(|io| io.raw_os_error()) {
+        if let Some(code) = e
+            .downcast_ref::<std::io::Error>()
+            .and_then(|io| io.raw_os_error())
+        {
             return Some(code);
         }
         current = e.source();
@@ -191,27 +212,42 @@ fn os_errno_in_chain(err: &(dyn std::error::Error + 'static)) -> Option<i32> {
     None
 }
 
+/// The request body type: a buffered JSON payload or a streamed file.
+type RequestBody = UnsyncBoxBody<Bytes, std::io::Error>;
+
 /// Async HTTP client for the in-VM agent.
+///
+/// Each request opens its own connection through the [`AgentConnector`] and
+/// closes it after the response. The client never keeps a connection for a
+/// second request.
 pub struct AgentClient {
     config: AgentConfig,
-    http: reqwest::Client,
+    connector: Arc<dyn AgentConnector>,
+}
+
+/// A response whose headers have arrived, with the guard that keeps its
+/// connection alive until the body is read.
+struct Exchange {
+    response: Response<Incoming>,
+    _connection: AbortOnDrop,
 }
 
 impl AgentClient {
+    /// A client that dials the configured host and port over TCP.
     pub fn new(config: AgentConfig) -> Result<Self, AgentError> {
-        let http = reqwest::Client::builder()
-            .timeout(config.timeout)
-            .build()
-            .map_err(AgentError::from)?;
-        Ok(Self { config, http })
+        let connector = Arc::new(TcpConnector::new(config.host.clone(), config.port));
+        Ok(Self::with_connector(config, connector))
+    }
+
+    /// A client that gets each connection from `connector`. `config.host` and
+    /// `config.port` then only name the agent in the `Host` header and in
+    /// messages.
+    pub fn with_connector(config: AgentConfig, connector: Arc<dyn AgentConnector>) -> Self {
+        Self { config, connector }
     }
 
     pub fn config(&self) -> &AgentConfig {
         &self.config
-    }
-
-    pub fn http(&self) -> &reqwest::Client {
-        &self.http
     }
 
     fn url(&self, path: &str) -> String {
@@ -223,8 +259,8 @@ impl AgentClient {
     /// `%XX` (space → `%20`, never `+`) so the single wire form decodes
     /// identically across all three agent stacks — Hummingbird and ASP.NET
     /// parse the query per RFC 3986, while Python's `parse_qs` would read a
-    /// literal `+` as a space. `reqwest`'s own `.query()` (form-encoding)
-    /// would emit `+` for spaces and break that parity.
+    /// literal `+` as a space. Form-encoding would emit `+` for spaces and
+    /// break that parity.
     fn file_url(&self, endpoint: &str, guest_path: &str) -> String {
         let encoded = utf8_percent_encode(guest_path, NON_ALPHANUMERIC);
         format!("{}{}?path={}", self.config.base_url(), endpoint, encoded)
@@ -237,9 +273,18 @@ impl AgentClient {
     /// Probe `/health`. Returns the agent's structured health body.
     /// A non-2xx response surfaces as `HttpStatus`.
     pub async fn health(&self) -> Result<HealthResponse, AgentError> {
-        let response = self.http.get(self.url("/health")).send().await?;
-        check_status(&response)?;
-        let bytes = response.bytes().await?;
+        let deadline = Deadline::after(self.config.timeout);
+        let exchange = self
+            .open(
+                &deadline,
+                Method::GET,
+                &self.url("/health"),
+                None,
+                empty_body(),
+            )
+            .await?;
+        check_status(&exchange.response)?;
+        let bytes = read_body(&deadline, exchange).await?;
         decode_body(&bytes)
     }
 
@@ -272,10 +317,7 @@ impl AgentClient {
     // decodes the shared `ActionResponse`.
     // -----------------------------------------------------------------
 
-    pub async fn set_value(
-        &self,
-        request: &SetValueRequest,
-    ) -> Result<ActionResponse, AgentError> {
+    pub async fn set_value(&self, request: &SetValueRequest) -> Result<ActionResponse, AgentError> {
         self.post_json("/set-value", request).await
     }
 
@@ -294,10 +336,7 @@ impl AgentClient {
     // Window management actions (pure HTTP — no VNC).
     // -----------------------------------------------------------------
 
-    pub async fn window_focus(
-        &self,
-        request: &WindowTarget,
-    ) -> Result<ActionResponse, AgentError> {
+    pub async fn window_focus(&self, request: &WindowTarget) -> Result<ActionResponse, AgentError> {
         self.post_json("/window-focus", request).await
     }
 
@@ -315,10 +354,7 @@ impl AgentClient {
         self.post_json("/window-move", request).await
     }
 
-    pub async fn window_close(
-        &self,
-        request: &WindowTarget,
-    ) -> Result<ActionResponse, AgentError> {
+    pub async fn window_close(&self, request: &WindowTarget) -> Result<ActionResponse, AgentError> {
         self.post_json("/window-close", request).await
     }
 
@@ -334,20 +370,12 @@ impl AgentClient {
     // -----------------------------------------------------------------
 
     pub async fn exec(&self, request: &ExecRequest) -> Result<ExecResult, AgentError> {
-        // Per Swift parity: give the URLSession layer a few seconds of
-        // headroom past the agent's own deadline so a long-but-progressing
-        // exec is not aborted client-side.
-        let http_timeout = Duration::from_secs(request.timeout.max(0) as u64 + 10);
-        let response = self
-            .http
-            .post(self.url("/exec"))
-            .timeout(http_timeout)
-            .json(request)
-            .send()
-            .await?;
-        check_status(&response)?;
-        let bytes = response.bytes().await?;
-        decode_body(&bytes)
+        // Per Swift parity: give the transport a few seconds of headroom past
+        // the agent's own deadline so a long-but-progressing exec is not
+        // aborted client-side. This replaces the client's timeout for the
+        // one request.
+        let timeout = Duration::from_secs(request.timeout.max(0) as u64 + 10);
+        self.post_json_within("/exec", request, timeout).await
     }
 
     /// Stream `local` to the agent's `remote` path (ADR-0001). The file is
@@ -363,25 +391,41 @@ impl AgentClient {
             .await
             .map_err(|e| local_io(local, format!("failed to stat {}: {e}", local.display())))?
             .len();
+        self.upload_reader(remote, file, len).await
+    }
 
-        let body = reqwest::Body::wrap_stream(ReaderStream::new(file));
-        let response = self
-            .http
-            .post(self.file_url("/upload", remote))
-            .header(reqwest::header::CONTENT_TYPE, "application/octet-stream")
-            // Advertise the length explicitly. Without it, a streamed body is
-            // sent `Transfer-Encoding: chunked`, which Hummingbird and Kestrel
-            // decode but Python's `http.server` (the Linux agent) does not — it
-            // reads only `Content-Length` and would silently write a 0-byte
-            // file. We know the size, so frame the request with it (ADR-0001).
-            .header(reqwest::header::CONTENT_LENGTH, len)
-            .body(body)
-            .send()
+    /// Stream `len` bytes from `reader` to the agent's `remote` path. The
+    /// body is read in `UPLOAD_CHUNK` pieces as the connection takes them.
+    async fn upload_reader<R>(&self, remote: &str, reader: R, len: u64) -> Result<u64, AgentError>
+    where
+        R: AsyncRead + Send + Unpin + 'static,
+    {
+        let chunks = ReaderStream::with_capacity(reader, UPLOAD_CHUNK).map_ok(Frame::data);
+        let body = StreamBody::new(chunks).boxed_unsync();
+
+        let deadline = Deadline::after(self.config.timeout);
+        // Advertise the length explicitly. Without it, a streamed body is
+        // sent `Transfer-Encoding: chunked`, which Hummingbird and Kestrel
+        // decode but Python's `http.server` (the Linux agent) does not — it
+        // reads only `Content-Length` and would silently write a 0-byte
+        // file. We know the size, so frame the request with it (ADR-0001).
+        // hyper keeps an explicit `Content-Length` on a streamed body.
+        let exchange = self
+            .open(
+                &deadline,
+                Method::POST,
+                &self.file_url("/upload", remote),
+                Some(Payload {
+                    content_type: "application/octet-stream",
+                    length: Some(len),
+                }),
+                body,
+            )
             .await?;
-        if !response.status().is_success() {
-            return Err(error_from_response(response).await);
+        if !exchange.response.status().is_success() {
+            return Err(error_from_response(&deadline, exchange).await);
         }
-        let bytes = response.bytes().await?;
+        let bytes = read_body(&deadline, exchange).await?;
         let action: ActionResponse = decode_body(&bytes)?;
         if action.success {
             Ok(len)
@@ -399,17 +443,11 @@ impl AgentClient {
     /// unlinks the temp file, so `local` is never left truncated. Returns the
     /// number of bytes written.
     pub async fn download(&self, remote: &str, local: &Path) -> Result<u64, AgentError> {
-        let response = self
-            .http
-            .post(self.file_url("/download", remote))
-            .send()
-            .await?;
-        if !response.status().is_success() {
-            return Err(error_from_response(response).await);
-        }
+        let deadline = Deadline::after(self.config.timeout);
+        let exchange = self.open_download(&deadline, remote).await?;
 
         let (temp_path, mut temp_file) = create_temp_sibling(local).await?;
-        let outcome = stream_to_file(response, &mut temp_file, &temp_path).await;
+        let outcome = stream_to_writer(&deadline, exchange, &mut temp_file, &temp_path).await;
         // Drop the handle before rename/unlink so all bytes are flushed and,
         // on Windows, the file is not still open during the rename.
         drop(temp_file);
@@ -430,6 +468,28 @@ impl AgentClient {
         }
     }
 
+    /// Send the download request and return the exchange once the agent
+    /// answers with a success status.
+    async fn open_download(
+        &self,
+        deadline: &Deadline,
+        remote: &str,
+    ) -> Result<Exchange, AgentError> {
+        let exchange = self
+            .open(
+                deadline,
+                Method::POST,
+                &self.file_url("/download", remote),
+                None,
+                empty_body(),
+            )
+            .await?;
+        if !exchange.response.status().is_success() {
+            return Err(error_from_response(deadline, exchange).await);
+        }
+        Ok(exchange)
+    }
+
     // -----------------------------------------------------------------
     // Transport
     // -----------------------------------------------------------------
@@ -439,27 +499,156 @@ impl AgentClient {
         B: Serialize + ?Sized,
         R: serde::de::DeserializeOwned,
     {
-        let response = self
-            .http
-            .post(self.url(path))
-            .json(body)
-            .send()
+        self.post_json_within(path, body, self.config.timeout).await
+    }
+
+    /// POST `body` as JSON and decode the reply, all within `timeout`.
+    async fn post_json_within<B, R>(
+        &self,
+        path: &str,
+        body: &B,
+        timeout: Duration,
+    ) -> Result<R, AgentError>
+    where
+        B: Serialize + ?Sized,
+        R: serde::de::DeserializeOwned,
+    {
+        let json = serde_json::to_vec(body)
+            .map_err(|e| AgentError::Internal(format!("failed to encode request: {e}")))?;
+        let deadline = Deadline::after(timeout);
+        let exchange = self
+            .open(
+                &deadline,
+                Method::POST,
+                &self.url(path),
+                Some(Payload {
+                    content_type: "application/json",
+                    length: None,
+                }),
+                buffered_body(json),
+            )
             .await?;
-        check_status(&response)?;
-        let bytes = response.bytes().await?;
+        check_status(&exchange.response)?;
+        let bytes = read_body(&deadline, exchange).await?;
         decode_body(&bytes)
+    }
+
+    /// Dial, send one request and wait for the response headers. The request
+    /// asks the agent to close the connection, so no connection serves a
+    /// second request. A task drives the connection until the returned
+    /// `Exchange` is dropped.
+    async fn open(
+        &self,
+        deadline: &Deadline,
+        method: Method,
+        url: &str,
+        payload: Option<Payload>,
+        body: RequestBody,
+    ) -> Result<Exchange, AgentError> {
+        let request = self.request(method, url, payload, body)?;
+        deadline
+            .run("the request", async {
+                let stream = self
+                    .connector
+                    .connect()
+                    .await
+                    .map_err(|e| dial_error(&self.config.host, self.config.port, &e))?;
+                let (mut sender, connection) =
+                    hyper::client::conn::http1::handshake(TokioIo::new(stream))
+                        .await
+                        .map_err(|e| dropped(&e))?;
+                let driver = AbortOnDrop(tokio::spawn(async move {
+                    // The request sees a failed connection as its own error.
+                    let _ = connection.await;
+                }));
+                let response = sender
+                    .send_request(request)
+                    .await
+                    .map_err(|e| dropped(&e))?;
+                Ok(Exchange {
+                    response,
+                    _connection: driver,
+                })
+            })
+            .await
+    }
+
+    /// The HTTP/1.1 request for `url`: origin-form target, with the headers
+    /// that every request carries.
+    fn request(
+        &self,
+        method: Method,
+        url: &str,
+        payload: Option<Payload>,
+        body: RequestBody,
+    ) -> Result<Request<RequestBody>, AgentError> {
+        let uri: http::Uri = url
+            .parse()
+            .map_err(|e| AgentError::Internal(format!("invalid request URL {url}: {e}")))?;
+        let target = uri.path_and_query().map(|t| t.as_str()).unwrap_or("/");
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(target)
+            .header(HOST, format!("{}:{}", self.config.host, self.config.port))
+            .header(ACCEPT, "*/*")
+            .header(CONNECTION, "close");
+        if let Some(payload) = payload {
+            builder = builder.header(CONTENT_TYPE, payload.content_type);
+            if let Some(length) = payload.length {
+                builder = builder.header(CONTENT_LENGTH, length);
+            }
+        }
+        builder
+            .body(body)
+            .map_err(|e| AgentError::Internal(format!("invalid request: {e}")))
     }
 }
 
-/// Promote a non-2xx response to an `AgentError`. The body is consumed for
-/// diagnostic context; if it parses as the structured error envelope
-/// (`{error, details}`), that variant is preferred.
-fn check_status(response: &reqwest::Response) -> Result<(), AgentError> {
+/// Size of the pieces in which an upload reads its source.
+const UPLOAD_CHUNK: usize = 64 * 1024;
+
+/// Content headers of a request that has a body.
+struct Payload {
+    content_type: &'static str,
+    /// Set for a streamed body whose size is known. A buffered body gets its
+    /// length from hyper.
+    length: Option<u64>,
+}
+
+fn empty_body() -> RequestBody {
+    buffered_body(Vec::new())
+}
+
+fn buffered_body(bytes: Vec<u8>) -> RequestBody {
+    Full::new(Bytes::from(bytes))
+        .map_err(|never| match never {})
+        .boxed_unsync()
+}
+
+/// Read the rest of the body into memory, inside the request's deadline.
+async fn read_body(deadline: &Deadline, exchange: Exchange) -> Result<Bytes, AgentError> {
+    let Exchange {
+        response,
+        _connection,
+    } = exchange;
+    deadline
+        .run("reading the response", async {
+            response
+                .into_body()
+                .collect()
+                .await
+                .map(|collected| collected.to_bytes())
+                .map_err(|e| dropped(&e))
+        })
+        .await
+}
+
+/// Promote a non-2xx response to an `AgentError` from its status alone. The
+/// caller that wants the body uses `error_from_response` instead.
+fn check_status(response: &Response<Incoming>) -> Result<(), AgentError> {
     if response.status().is_success() {
         Ok(())
     } else {
-        // The `bytes()` call would consume the response, so we stash the
-        // status now and let the caller consume the body to attach detail.
         Err(AgentError::HttpStatus {
             status: response.status(),
             body: String::new(),
@@ -471,11 +660,11 @@ fn check_status(response: &reqwest::Response) -> Result<(), AgentError> {
 /// `{error, details}` envelope (how the agents report `upload_failed` /
 /// `download_failed`) is preferred; otherwise the raw body is attached to an
 /// `HttpStatus` for diagnostics.
-async fn error_from_response(response: reqwest::Response) -> AgentError {
-    let status = response.status();
-    let bytes = match response.bytes().await {
+async fn error_from_response(deadline: &Deadline, exchange: Exchange) -> AgentError {
+    let status = exchange.response.status();
+    let bytes = match read_body(deadline, exchange).await {
         Ok(b) => b,
-        Err(e) => return AgentError::from(e),
+        Err(e) => return e,
     };
     match serde_json::from_slice::<ErrorResponse>(&bytes) {
         Ok(err) => AgentError::Wire {
@@ -523,19 +712,36 @@ async fn create_temp_sibling(dest: &Path) -> Result<(PathBuf, tokio::fs::File), 
     Ok((temp_path, file))
 }
 
-/// Drain the response body into `file`, returning the byte count. HTTP/stream
+/// Drain the response body into `writer`, returning the byte count. Stream
 /// errors map to transport `AgentError`s; local write failures map to
-/// `LocalIo` against `temp_path`.
-async fn stream_to_file(
-    response: reqwest::Response,
-    file: &mut tokio::fs::File,
+/// `LocalIo` against `temp_path`. Each chunk is written before the next one
+/// is read, so the body is never held whole.
+async fn stream_to_writer<W>(
+    deadline: &Deadline,
+    exchange: Exchange,
+    writer: &mut W,
     temp_path: &Path,
-) -> Result<u64, AgentError> {
+) -> Result<u64, AgentError>
+where
+    W: AsyncWrite + Unpin,
+{
+    let Exchange {
+        response,
+        _connection,
+    } = exchange;
+    let mut body = response.into_body();
     let mut written: u64 = 0;
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        let chunk = chunk?;
-        file.write_all(&chunk).await.map_err(|e| {
+    loop {
+        let frame = deadline
+            .run("reading the response", async {
+                body.frame().await.transpose().map_err(|e| dropped(&e))
+            })
+            .await?;
+        let Some(frame) = frame else { break };
+        let Ok(chunk) = frame.into_data() else {
+            continue;
+        };
+        writer.write_all(&chunk).await.map_err(|e| {
             local_io(
                 temp_path,
                 format!("failed to write {}: {e}", temp_path.display()),
@@ -543,7 +749,7 @@ async fn stream_to_file(
         })?;
         written += chunk.len() as u64;
     }
-    file.flush().await.map_err(|e| {
+    writer.flush().await.map_err(|e| {
         local_io(
             temp_path,
             format!("failed to flush {}: {e}", temp_path.display()),
@@ -572,6 +778,9 @@ fn decode_body<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T, AgentE
         }
     }
 }
+
+#[cfg(test)]
+mod streaming_tests;
 
 #[cfg(test)]
 mod tests {
@@ -614,7 +823,7 @@ mod tests {
     #[test]
     fn client_builds() {
         let cfg = AgentConfig::new("localhost", 8648);
-        let client = AgentClient::new(cfg).expect("reqwest client should build");
+        let client = AgentClient::new(cfg).expect("client should build");
         assert_eq!(client.config().host, "localhost");
     }
 
@@ -657,7 +866,10 @@ mod tests {
         let bytes = br#"{"error":"download_failed","details":"file not found"}"#;
         let result: Result<ActionResponse, AgentError> = decode_body(bytes);
         match result {
-            Err(AgentError::Wire { wire_error, details }) => {
+            Err(AgentError::Wire {
+                wire_error,
+                details,
+            }) => {
                 assert_eq!(wire_error, "download_failed");
                 assert_eq!(details.as_deref(), Some("file not found"));
             }

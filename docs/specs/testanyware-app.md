@@ -293,6 +293,9 @@ today:
   errno. A timeout is `CONNECTION_TIMEOUT`, and a connection that ends early is
   `CONNECTION_DROPPED`. A status or an error body from the agent maps as today.
 - The client follows no redirect. No In-VM agent sends one.
+- The client reads no proxy variable. reqwest read `HTTP_PROXY`, and hyper does
+  not. The host reaches a guest endpoint directly, on the host or on a bridge.
+  A proxy has no part in that route.
 
 ```mermaid
 sequenceDiagram

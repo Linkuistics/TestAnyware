@@ -11,7 +11,11 @@ description = "HTTP client for the TestAnyware in-VM agent (port 8648)."
 testanyware-protocol = { path = "../testanyware-protocol" }
 serde = { workspace = true }
 serde_json = { workspace = true }
-reqwest = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+bytes = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
@@ -19,6 +23,7 @@ futures-util = { workspace = true }
 percent-encoding = { workspace = true }
 
 [dev-dependencies]
+hyper = { workspace = true, features = ["server"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 wiremock = { workspace = true }
 tempfile = { workspace = true }

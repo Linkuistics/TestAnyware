@@ -18,7 +18,7 @@
 #       in a shell Local Network privacy denies, a kept VM at the agent stage).
 #   live-start-checks.sh keep-on-failure
 #       An alive VM whose agent never becomes healthy (forced by pointing
-#       HTTP_PROXY at a closed port, which reqwest honours) must fail with
+#       HTTP_PROXY at a closed port; stale, see check_keep_on_failure) must fail with
 #       VM_BOOT_TIMEOUT (exit 7, stage "agent"): torn down by default, kept
 #       and reclaimable by `vm stop` under --keep-on-failure. Takes ~2 min per
 #       case (the agent wait budget).
@@ -407,6 +407,11 @@ check_slot_wait() {
 }
 
 check_keep_on_failure() {
+  # The agent client moved from reqwest to hyper (agent-client-hyper-k7). hyper
+  # does not read HTTP_PROXY, so the dead proxy below no longer starves the
+  # agent probes and the start would succeed. Port this fault injection to a
+  # seam of the TestAnyware app before running the check again.
+  die "keep-on-failure: its HTTP_PROXY fault injection no longer works; see the comment in check_keep_on_failure"
   require_no_running_vms
   local torn="testanyware-keepcheck-$$-torn" kept="testanyware-keepcheck-$$-kept"
 
