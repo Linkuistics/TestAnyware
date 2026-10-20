@@ -272,6 +272,20 @@ Each lifecycle request carries the options that the Host CLI parsed, and the
 state and data directories that it resolved. The app never reads a
 setting from the environment of a client.
 
+`GET /v1/vms` carries its options in the query: `limit=N`, `all=true`, and one
+`filter=field%3Dvalue` for each pair of `--filter`. A request with no `limit`
+fails with `USAGE_ERROR`, and so does an option that the listing does not
+know. The response is the view that `vm list` prints, as JSON: `items`,
+`returned`, `total` and `truncated`. The Host CLI prints the text and the
+`--json` output from that view, as it prints them from a view that it builds
+itself on a Linux or Windows host. The shared protocol crate holds the parser
+and the builder of the query.
+
+The app builds the view at each request, from the sidecars in its state
+directory, from the clones in its data directory and from `tart list`. It finds
+`tart` with its built-in tool search, and the QEMU session directories in the
+temporary directory of its own process.
+
 The app answers `GET /v1/status` for any protocol range and any directories.
 That request changes nothing, and `doctor` needs it to report a mismatch. The
 response keeps the app's build, protocol range and directories in the same

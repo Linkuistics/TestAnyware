@@ -13,9 +13,10 @@ use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
 use testanyware_app_protocol::hello::{BUILD_HEADER, PROTOCOL_HEADER};
 use testanyware_app_protocol::{
-    parse_stream_path, AppError, ClientHello, RouteMatch, StatusResponse, StreamKind, StreamTarget,
-    STREAM_UPGRADE_TOKEN,
+    parse_stream_path, AppError, ClientHello, ListRequest, RouteMatch, StatusResponse, StreamKind,
+    StreamTarget, LIST_PATH, STREAM_UPGRADE_TOKEN,
 };
+use testanyware_vm::tools::ToolSearch;
 use tokio::net::UnixListener;
 
 use crate::access::peer_allowed;
@@ -36,6 +37,9 @@ pub struct AppContext {
     /// The last observation of the Local Network grant. Only a dial to an attached network
     /// changes it.
     pub grant: Mutex<GrantObservation>,
+    /// Where the app looks for `tart`, QEMU and the other tools it runs. The app has no shell
+    /// environment, so it reads no `PATH`.
+    pub tools: ToolSearch,
 }
 
 impl AppContext {
@@ -45,7 +49,14 @@ impl AppContext {
             own_uid,
             config_path,
             grant: Mutex::new(GrantObservation::NotYetSeen),
+            tools: ToolSearch::builtin(),
         }
+    }
+
+    /// The same context with another tool search. A test passes a directory of fake tools.
+    pub fn with_tools(mut self, tools: ToolSearch) -> Self {
+        self.tools = tools;
+        self
     }
 }
 
@@ -109,7 +120,7 @@ async fn handle(
 }
 
 async fn route(
-    ctx: &AppContext,
+    ctx: &Arc<AppContext>,
     req: &mut Request<Incoming>,
     hello: &ClientHello,
 ) -> Response<Full<Bytes>> {
@@ -130,6 +141,9 @@ async fn route(
     }
     if let Err(err) = check_request(&ctx.identity, hello) {
         return error_response(StatusCode::CONFLICT, &err);
+    }
+    if path == LIST_PATH && method == Method::GET {
+        return list_vms(ctx, req.uri().query()).await;
     }
     match parse_stream_path(&path) {
         RouteMatch::Stream(target, kind) => match serve_stream(ctx, req, &target, kind).await {
@@ -155,6 +169,40 @@ async fn route(
             );
             error_response(StatusCode::NOT_FOUND, &err)
         }
+    }
+}
+
+/// Serve `GET /v1/vms`: the view that `vm list` prints, for the options that the Host CLI parsed.
+async fn list_vms(ctx: &Arc<AppContext>, query: Option<&str>) -> Response<Full<Bytes>> {
+    let request = match ListRequest::parse(query) {
+        Ok(request) => request,
+        Err(reason) => {
+            let err = AppError::new(
+                "USAGE_ERROR",
+                format!("The request for the VM listing is invalid: {reason}."),
+                None,
+                json!({ "method": "GET", "path": LIST_PATH, "query": query }),
+            );
+            return error_response(StatusCode::BAD_REQUEST, &err);
+        }
+    };
+    // `tart list` is a child process that can take a while, and it blocks its thread.
+    let blocking_ctx = Arc::clone(ctx);
+    match tokio::task::spawn_blocking(move || crate::vms::list_view(&blocking_ctx, &request)).await
+    {
+        Ok(view) => json_response(
+            StatusCode::OK,
+            serde_json::to_value(view).expect("the view serialises"),
+        ),
+        Err(e) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &AppError::new(
+                "INTERNAL",
+                format!("The VM listing failed inside the TestAnyware app: {e}."),
+                None,
+                Value::Null,
+            ),
+        ),
     }
 }
 

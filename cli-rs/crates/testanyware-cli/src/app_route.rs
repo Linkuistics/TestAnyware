@@ -1,4 +1,4 @@
-//! Routing of agent connections through the TestAnyware app (spec: "The protocol").
+//! Routing of agent connections and of `vm list` through the TestAnyware app (spec: "The protocol").
 //!
 //! On a macOS host, and on any host with `TESTANYWARE_APP_SOCKET` set, every command that uses
 //! the agent client gets each connection from the app as a guest stream, and the Host CLI dials
@@ -15,8 +15,9 @@ use testanyware_agent_client::{
 use testanyware_app_client::{AppClient, AppStream};
 use testanyware_app_protocol::version::SUPPORTED_RANGE;
 use testanyware_app_protocol::{
-    AppError, ClientHello, Directories, StreamKind, StreamTarget, APP_UNREACHABLE,
+    AppError, ClientHello, Directories, ListRequest, StreamKind, StreamTarget, APP_UNREACHABLE,
 };
+use testanyware_vm::listing::ListView;
 use testanyware_vm::paths::VmPaths;
 
 use crate::resolve::{default_app_socket_with_env, home_dir_with_env, EnvProvider, ResolvedAgent};
@@ -58,16 +59,32 @@ pub(crate) async fn open_stream(
     target: &StreamTarget,
     kind: StreamKind,
 ) -> Result<AppStream, AppError> {
-    client.open_stream(target, kind).await.map_err(|error| {
-        let env = EnvProvider::process();
-        name_missing_install(
-            error,
-            client.socket(),
-            &default_app_socket_with_env(&env),
-            &bundle_search_paths(&home_dir_with_env(&env)),
-            Path::exists,
-        )
-    })
+    client
+        .open_stream(target, kind)
+        .await
+        .map_err(|error| name_missing_install_here(error, client.socket()))
+}
+
+/// [`name_missing_install`] for this process: its environment and the file system.
+fn name_missing_install_here(error: AppError, socket: &Path) -> AppError {
+    let env = EnvProvider::process();
+    name_missing_install(
+        error,
+        socket,
+        &default_app_socket_with_env(&env),
+        &bundle_search_paths(&home_dir_with_env(&env)),
+        Path::exists,
+    )
+}
+
+/// Ask the app for the listing that `vm list` prints. A failure to reach the app on the default
+/// socket says whether the app is installed, as for a guest stream.
+pub async fn list_vms(socket: PathBuf, request: &ListRequest) -> Result<ListView, AppError> {
+    let client = AppClient::new(socket, client_hello());
+    client
+        .get_json(&request.path_and_query())
+        .await
+        .map_err(|error| name_missing_install_here(error, client.socket()))
 }
 
 /// What each request states about this Host CLI: the protocol range it speaks, its build, and

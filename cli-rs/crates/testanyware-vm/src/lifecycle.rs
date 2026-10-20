@@ -19,6 +19,7 @@ use crate::qemu::{
     StartArtifacts,
 };
 use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
+use crate::tools::ToolSearch;
 use crate::qemu_profile::host_profile;
 #[cfg(target_os = "macos")]
 use crate::start_outcome::{next_slot_step, SlotWaitReporter, SlotWaitStep, SLOT_RETRY_INTERVAL};
@@ -542,7 +543,7 @@ impl VmLifecycle {
         #[cfg(target_os = "macos")]
         if !qcow2.is_file() && crate::tart::golden_exists(name) {
             if !force {
-                let running = running_tart_clone_ids(paths);
+                let running = running_tart_clone_ids(paths, &ToolSearch::from_process_path());
                 if !running.is_empty() {
                     // tart cannot cheaply prove which clones back this
                     // image; warn via the in-use error (no pids) unless forced.
@@ -615,6 +616,13 @@ impl VmLifecycle {
     /// List goldens and running clones. Ports `VMCommand.List` (QEMU
     /// entries only). Running clones are enriched from their sidecars.
     pub fn list(paths: &VmPaths) -> VmListing {
+        Self::list_with(paths, &ToolSearch::from_process_path())
+    }
+
+    /// [`Self::list`], with the tools found by `tools`. The TestAnyware app lists with its
+    /// built-in search, because it has no shell environment.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // Only tart is found by `tools`.
+    pub fn list_with(paths: &VmPaths, tools: &ToolSearch) -> VmListing {
         let goldens = scan_golden_dir(&paths.golden_dir());
         let raw: Vec<RunningClone> =
             scan_clones_dir(&paths.clones_dir(), &session_root(paths));
@@ -631,8 +639,8 @@ impl VmLifecycle {
         let (goldens, running) = {
             let mut goldens = goldens;
             let mut running = running;
-            goldens.extend(crate::tart::list_goldens());
-            for id in running_tart_clone_ids(paths) {
+            goldens.extend(crate::tart::list_goldens_in(tools));
+            for id in running_tart_clone_ids(paths, tools) {
                 let clone = RunningClone { id, platform: "unknown".into(), backend: "tart" };
                 running.push(enrich_running(&clone, paths));
             }
@@ -664,8 +672,8 @@ fn tart_clone_ids(running: Vec<String>, has_sidecars: impl Fn(&str) -> bool) -> 
 
 /// The running tart clones, by [`tart_clone_ids`]'s rule. `[]` when tart is absent.
 #[cfg(target_os = "macos")]
-fn running_tart_clone_ids(paths: &VmPaths) -> Vec<String> {
-    tart_clone_ids(crate::tart::list_running_names(), |id| has_sidecars(paths, id))
+fn running_tart_clone_ids(paths: &VmPaths, tools: &ToolSearch) -> Vec<String> {
+    tart_clone_ids(crate::tart::list_running_names_in(tools), |id| has_sidecars(paths, id))
 }
 
 /// Whether `vm start` left a spec or meta sidecar for `id`.

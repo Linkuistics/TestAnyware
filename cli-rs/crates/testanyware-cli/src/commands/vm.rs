@@ -7,23 +7,17 @@
 use serde_json::{json, Value};
 
 use testanyware_vm::display_request::parse_display_request;
-use testanyware_vm::lifecycle::{Platform, VmLifecycle, VmListing, VmStartOptions};
+use testanyware_vm::lifecycle::{Platform, VmLifecycle, VmStartOptions};
+use testanyware_vm::listing::{build_view, parse_filter, ListItem, ListView};
 use testanyware_vm::tpm::{OmitReason, TpmDecision};
 use testanyware_vm::{VmError, VmMeta, VmPaths};
 
-use crate::output::{print_error, print_success, OutputMode};
-use crate::resolve::ConnectionOptions;
+use testanyware_app_protocol::ListRequest;
 
-/// A flattened `vm list` row, ready for JSON or text rendering.
-pub struct ListItem {
-    pub kind: &'static str,
-    pub name: String,
-    pub platform: String,
-    pub backend: &'static str,
-    pub pid: Option<i32>,
-    pub vnc: Option<String>,
-    pub agent: Option<String>,
-}
+use crate::app_route;
+use crate::commands::exit_app_error;
+use crate::output::{print_error, print_success, OutputMode};
+use crate::resolve::{app_socket_with_env, ConnectionOptions, EnvProvider};
 
 // ---- handlers -----------------------------------------------------------
 
@@ -272,25 +266,25 @@ pub async fn run_vm_list(
         ),
         None => Vec::new(),
     };
-    let paths = VmPaths::from_process_env();
-    let listing = VmLifecycle::list(&paths);
-    let items: Vec<ListItem> = listing_items(&listing)
-        .into_iter()
-        .filter(|item| filter_matches(item, &filters))
-        .collect();
-    let (shown, returned, total, truncated) = apply_limit(items, limit, all);
+    // On a macOS host, and with `TESTANYWARE_APP_SOCKET` set, the TestAnyware app builds the
+    // view from the VM records. Elsewhere the Host CLI builds it from the same code.
+    let view = match app_socket_with_env(&EnvProvider::process()) {
+        Some(socket) => {
+            let request = ListRequest { limit, all, filters };
+            match app_route::list_vms(socket, &request).await {
+                Ok(view) => view,
+                Err(error) => exit_app_error(error, mode),
+            }
+        }
+        None => {
+            let listing = VmLifecycle::list(&VmPaths::from_process_env());
+            build_view(&listing, &filters, limit, all)
+        }
+    };
 
     match mode {
-        OutputMode::Text => render_list_text(&shown, returned, total, truncated),
-        OutputMode::Json => {
-            let json_items: Vec<Value> = shown.iter().map(item_to_json).collect();
-            print_success(json!({
-                "items": json_items,
-                "returned": returned,
-                "total": total,
-                "truncated": truncated,
-            }));
-        }
+        OutputMode::Text => render_list_text(&view),
+        OutputMode::Json => print_success(list_json(&view)),
     }
 }
 
@@ -684,71 +678,6 @@ fn emit_windows_golden_plan(version: &str, name: &str, iso: Option<&str>, mode: 
 
 // ---- pure helpers (unit-tested) -----------------------------------------
 
-/// Flatten a `VmListing` into the unified row form.
-pub fn listing_items(listing: &VmListing) -> Vec<ListItem> {
-    let mut out = Vec::new();
-    for g in &listing.goldens {
-        out.push(ListItem {
-            kind: "golden",
-            name: g.name.clone(),
-            platform: g.platform.clone(),
-            backend: g.backend,
-            pid: None,
-            vnc: None,
-            agent: None,
-        });
-    }
-    for r in &listing.running {
-        out.push(ListItem {
-            kind: "running",
-            name: r.id.clone(),
-            platform: r.platform.clone(),
-            backend: r.backend,
-            pid: r.pid,
-            vnc: r.vnc.clone(),
-            agent: r.agent.clone(),
-        });
-    }
-    out
-}
-
-/// Parse `--filter` into `(field, value)` pairs. Errors on a pair lacking `=`.
-pub fn parse_filter(raw: &str) -> Result<Vec<(String, String)>, String> {
-    if raw.is_empty() {
-        return Ok(Vec::new());
-    }
-    let mut out = Vec::new();
-    for pair in raw.split(',') {
-        let (k, v) = pair
-            .split_once('=')
-            .ok_or_else(|| format!("'{pair}' is not a field=value pair"))?;
-        out.push((k.trim().to_string(), v.trim().to_string()));
-    }
-    Ok(out)
-}
-
-/// True if `item` satisfies every filter. Unknown fields never match.
-pub fn filter_matches(item: &ListItem, filters: &[(String, String)]) -> bool {
-    filters.iter().all(|(field, value)| match field.as_str() {
-        "kind" => item.kind == value,
-        "platform" => item.platform == *value,
-        "backend" => item.backend == value,
-        "name" => item.name == *value,
-        _ => false,
-    })
-}
-
-/// Apply the §9.4 list limit. Returns `(shown, returned, total, truncated)`.
-pub fn apply_limit<T>(items: Vec<T>, limit: usize, all: bool) -> (Vec<T>, usize, usize, bool) {
-    let total = items.len();
-    if all || total <= limit {
-        return (items, total, total, false);
-    }
-    let shown: Vec<T> = items.into_iter().take(limit).collect();
-    let returned = shown.len();
-    (shown, returned, total, true)
-}
-
 fn item_to_json(item: &ListItem) -> Value {
     json!({
         "kind": item.kind,
@@ -761,9 +690,21 @@ fn item_to_json(item: &ListItem) -> Value {
     })
 }
 
-fn render_list_text(items: &[ListItem], returned: usize, total: usize, truncated: bool) {
-    let goldens: Vec<&ListItem> = items.iter().filter(|i| i.kind == "golden").collect();
-    let running: Vec<&ListItem> = items.iter().filter(|i| i.kind == "running").collect();
+/// The `--json` payload of `vm list`.
+fn list_json(view: &ListView) -> Value {
+    let items: Vec<Value> = view.items.iter().map(item_to_json).collect();
+    json!({
+        "items": items,
+        "returned": view.returned,
+        "total": view.total,
+        "truncated": view.truncated,
+    })
+}
+
+fn render_list_text(view: &ListView) {
+    let (returned, total, truncated) = (view.returned, view.total, view.truncated);
+    let goldens: Vec<&ListItem> = view.items.iter().filter(|i| i.kind == "golden").collect();
+    let running: Vec<&ListItem> = view.items.iter().filter(|i| i.kind == "running").collect();
     println!("Golden images:");
     if goldens.is_empty() {
         println!("  (none)");
@@ -910,60 +851,5 @@ mod tests {
         assert!(plan[0].2.contains("testanyware-agent"));
         assert!(plan[1].2.contains("verify agent health"));
         assert!(plan[1].2.contains("clone to golden"));
-    }
-
-    #[test]
-    fn parse_filter_reads_comma_separated_pairs() {
-        let f = parse_filter("platform=windows,backend=qemu").unwrap();
-        assert_eq!(f, vec![
-            ("platform".to_string(), "windows".to_string()),
-            ("backend".to_string(), "qemu".to_string()),
-        ]);
-    }
-
-    #[test]
-    fn parse_filter_rejects_a_pair_without_equals() {
-        assert!(parse_filter("platform").is_err());
-        assert!(parse_filter("platform=windows,oops").is_err());
-    }
-
-    #[test]
-    fn parse_filter_empty_string_is_no_filters() {
-        assert_eq!(parse_filter("").unwrap(), Vec::<(String, String)>::new());
-    }
-
-    #[test]
-    fn filter_matches_compares_known_fields() {
-        let item = ListItem {
-            kind: "running",
-            name: "testanyware-aa".into(),
-            platform: "windows".into(),
-            backend: "qemu",
-            pid: Some(7),
-            vnc: None,
-            agent: None,
-        };
-        assert!(filter_matches(&item, &[("platform".into(), "windows".into())]));
-        assert!(!filter_matches(&item, &[("platform".into(), "linux".into())]));
-        assert!(filter_matches(&item, &[("kind".into(), "running".into())]));
-        // Unknown fields never match — surfaces a typo as an empty result.
-        assert!(!filter_matches(&item, &[("colour".into(), "blue".into())]));
-    }
-
-    #[test]
-    fn apply_limit_truncates_and_flags() {
-        let items: Vec<u8> = (0..150).collect();
-        let (shown, returned, total, truncated) = apply_limit(items.clone(), 100, false);
-        assert_eq!(returned, 100);
-        assert_eq!(total, 150);
-        assert!(truncated);
-        assert_eq!(shown.len(), 100);
-
-        let (shown_all, returned_all, total_all, truncated_all) =
-            apply_limit(items, 100, true);
-        assert_eq!(returned_all, 150);
-        assert_eq!(total_all, 150);
-        assert!(!truncated_all);
-        assert_eq!(shown_all.len(), 150);
     }
 }

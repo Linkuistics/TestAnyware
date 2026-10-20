@@ -114,7 +114,10 @@ fn app_command(socket: &Path, dirs: &Directories) -> Command {
         .arg("--state-dir")
         .arg(&dirs.state_dir)
         .arg("--data-dir")
-        .arg(&dirs.data_dir);
+        .arg(&dirs.data_dir)
+        // A directory with no tools in it, so that the app never runs the developer's `tart`.
+        .arg("--tool-dir")
+        .arg(dirs.data_dir.with_file_name("no-tools"));
     cmd
 }
 
@@ -404,7 +407,7 @@ fn every_response_carries_the_apps_range_and_build() {
         raw_request(&app.socket, "/v1/status", None),
         raw_request(&app.socket, "/v1/vms", Some(&hello((5, 6), &app.dirs))),
         raw_request(&app.socket, "/v1/vms", Some(&hello((1, 1), &other))),
-        raw_request(&app.socket, "/v1/vms", Some(&hello((1, 1), &app.dirs))),
+        raw_request(&app.socket, "/v1/no-such-route", Some(&hello((1, 1), &app.dirs))),
     ];
     let statuses: Vec<u16> = responses.iter().map(|r| r.status).collect();
     assert_eq!(statuses, [200, 409, 409, 404]);
@@ -513,8 +516,8 @@ fn an_overlapping_range_and_the_same_directories_pass_the_handshake() {
     let _serial = serial();
     let app = start();
 
-    // The range 1-3 overlaps the app's 1-1. No route exists yet, so the answer is a 404.
-    let resp = raw_request(&app.socket, "/v1/vms", Some(&hello((1, 3), &app.dirs)));
+    // The range 1-3 overlaps the app's 1-1. The path names no route, so the answer is a 404.
+    let resp = raw_request(&app.socket, "/v1/no-such-route", Some(&hello((1, 3), &app.dirs)));
 
     assert_eq!(resp.status, 404);
     assert_eq!(resp.json()["code"], "USAGE_ERROR");
@@ -532,4 +535,69 @@ fn the_handshake_guards_every_path_not_only_the_known_ones() {
     );
 
     assert_eq!(resp.status, 409);
+}
+
+// ---- GET /v1/vms ----
+
+#[test]
+fn the_listing_answers_a_request_that_states_a_limit() {
+    let _serial = serial();
+    let app = start();
+
+    let resp = raw_request(
+        &app.socket,
+        "/v1/vms?limit=100",
+        Some(&hello((1, 1), &app.dirs)),
+    );
+
+    assert_eq!(resp.status, 200, "{}", resp.body);
+    assert_eq!(resp.header("content-type"), Some("application/json"));
+    // No VM records exist, so the view has no rows. A macOS app that finds no tart in its tool
+    // directory lists no tart rows either.
+    let view = resp.json();
+    assert_eq!(view["items"], serde_json::json!([]));
+    assert_eq!(view["returned"], 0);
+    assert_eq!(view["total"], 0);
+    assert_eq!(view["truncated"], false);
+}
+
+#[test]
+fn a_listing_request_that_is_wrong_is_a_usage_error_that_names_the_part() {
+    let _serial = serial();
+    let app = start();
+
+    for (target, wrong) in [
+        ("/v1/vms", "no limit"),
+        ("/v1/vms?limit=ten", "limit 'ten'"),
+        ("/v1/vms?limit=1&filter=platform", "filter 'platform'"),
+        ("/v1/vms?limit=1&colour=blue", "'colour'"),
+    ] {
+        let resp = raw_request(&app.socket, target, Some(&hello((1, 1), &app.dirs)));
+        assert_eq!(resp.status, 400, "{target}: {}", resp.body);
+        let error = resp.json();
+        assert_eq!(error["code"], "USAGE_ERROR", "{target}");
+        assert!(
+            error["message"].as_str().unwrap().contains(wrong),
+            "{target}: {error}"
+        );
+    }
+}
+
+#[test]
+fn the_handshake_guards_the_listing() {
+    let _serial = serial();
+    let app = start();
+
+    let other = dirs_in(Path::new("/elsewhere"));
+    let resp = raw_request(
+        &app.socket,
+        "/v1/vms?limit=1",
+        Some(&hello((1, 1), &other)),
+    );
+    assert_eq!(resp.status, 409);
+    assert_eq!(resp.json()["details"]["cause"], "directories");
+
+    let resp = raw_request(&app.socket, "/v1/vms?limit=1", None);
+    assert_eq!(resp.status, 409);
+    assert_eq!(resp.json()["details"]["cause"], "protocol");
 }

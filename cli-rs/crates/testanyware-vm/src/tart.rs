@@ -19,6 +19,7 @@ use serde::Deserialize;
 use crate::error::VmError;
 use crate::qemu::{platform_from_name, GoldenImage};
 use crate::qemu_profile::which;
+use crate::tools::ToolSearch;
 
 /// One `tart list --format json` row. tart capitalizes its keys.
 #[derive(Debug, Deserialize)]
@@ -209,7 +210,12 @@ struct TartResult {
 /// Run `tart <args>` synchronously, capturing stdout/stderr. A missing
 /// binary yields `exit_code: -1`. Ports `TartRunner.runTart`.
 fn run_tart(args: &[&str]) -> TartResult {
-    let Some(tart) = which("tart") else {
+    run_tart_in(&ToolSearch::from_process_path(), args)
+}
+
+/// [`run_tart`], with `tart` found by `tools`.
+fn run_tart_in(tools: &ToolSearch, args: &[&str]) -> TartResult {
+    let Some(tart) = tools.find("tart") else {
         return TartResult { exit_code: -1, stdout: String::new(), stderr: "tart not found on PATH".into() };
     };
     match std::process::Command::new(tart).args(args).output() {
@@ -225,18 +231,28 @@ fn run_tart(args: &[&str]) -> TartResult {
 /// `tart list --format json` stdout, or `None` when tart is absent or the
 /// invocation fails. Ports `TartRunner.tartListJSON`.
 fn tart_list_json() -> Option<String> {
-    let r = run_tart(&["list", "--format", "json"]);
+    tart_list_json_in(&ToolSearch::from_process_path())
+}
+
+fn tart_list_json_in(tools: &ToolSearch) -> Option<String> {
+    let r = run_tart_in(tools, &["list", "--format", "json"]);
     (r.exit_code == 0).then_some(r.stdout)
 }
 
 /// tart goldens currently in the catalog. `[]` when tart is absent.
 pub fn list_goldens() -> Vec<GoldenImage> {
-    tart_list_json().map(|j| parse_goldens(&j)).unwrap_or_default()
+    list_goldens_in(&ToolSearch::from_process_path())
 }
 
-/// Names of every running tart VM, goldens included. `[]` when tart is absent.
-pub fn list_running_names() -> Vec<String> {
-    tart_list_json().map(|j| parse_running_names(&j)).unwrap_or_default()
+/// [`list_goldens`], with `tart` found by `tools`.
+pub fn list_goldens_in(tools: &ToolSearch) -> Vec<GoldenImage> {
+    tart_list_json_in(tools).map(|j| parse_goldens(&j)).unwrap_or_default()
+}
+
+/// Names of every running tart VM, goldens included, with `tart` found by `tools`. `[]` when
+/// tart is absent.
+pub fn list_running_names_in(tools: &ToolSearch) -> Vec<String> {
+    tart_list_json_in(tools).map(|j| parse_running_names(&j)).unwrap_or_default()
 }
 
 /// Whether a tart VM with `name` exists in any state. `false` when tart

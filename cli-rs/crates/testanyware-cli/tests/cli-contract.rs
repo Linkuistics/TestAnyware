@@ -40,6 +40,10 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
+// A macOS host sends `vm list` to the TestAnyware app, so a test of its envelope needs one.
+#[cfg(unix)]
+mod common;
+
 /// Path to the binary under test, set by Cargo for integration tests of a
 /// crate that declares a `[[bin]]` target.
 const BIN: &str = env!("CARGO_BIN_EXE_testanyware");
@@ -893,14 +897,23 @@ fn vm_start_dry_run_accepts_wait_bare_or_bounded_and_rejects_a_non_number() {
 /// §3.1 + §3.5: `vm list --json` emits the truncation envelope.
 #[test]
 fn vm_list_json_emits_truncation_envelope() {
-    let dir = tempfile::tempdir().unwrap();
-    let out = run_env(
-        &["vm", "list", "--json"],
-        &[
-            ("XDG_STATE_HOME", dir.path().to_str().unwrap()),
-            ("XDG_DATA_HOME", dir.path().to_str().unwrap()),
-        ],
-    );
+    // The app serves the listing from a temporary state directory. Elsewhere the CLI reads it.
+    #[cfg(unix)]
+    let out = {
+        let _lock = common::serial();
+        common::TestApp::start().cli(&["vm", "list", "--json"])
+    };
+    #[cfg(not(unix))]
+    let out = {
+        let dir = tempfile::tempdir().unwrap();
+        run_env(
+            &["vm", "list", "--json"],
+            &[
+                ("XDG_STATE_HOME", dir.path().to_str().unwrap()),
+                ("XDG_DATA_HOME", dir.path().to_str().unwrap()),
+            ],
+        )
+    };
     assert!(out.status.success(), "`vm list --json` exited non-zero");
     let body: serde_json::Value =
         serde_json::from_slice(&out.stdout).expect("vm list --json must parse");

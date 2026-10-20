@@ -225,6 +225,12 @@ pub fn exit_agent_error(err: AgentError, mode: OutputMode) -> ! {
 /// Print a failure that the TestAnyware app reported, in the envelope of the Host CLI, and
 /// exit. The app's remedy wins, and where it sends none the code keeps the remedy it has
 /// today. The exit code is the one the code has today.
+/// Print an error that the TestAnyware app sent, or that the Host CLI made on the way to it, and
+/// exit with the code that the error has today.
+pub(crate) fn exit_app_error(error: AppError, mode: OutputMode) -> ! {
+    exit_connector_failure(&app_route::failure_of(error), mode)
+}
+
 fn exit_connector_failure(failure: &ConnectorFailure, mode: OutputMode) -> ! {
     print_error(
         mode,

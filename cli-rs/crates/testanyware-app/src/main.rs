@@ -32,6 +32,8 @@ use testanyware_app::{serve, AppContext};
 use testanyware_app_protocol::version::SUPPORTED_RANGE;
 #[cfg(unix)]
 use testanyware_app_protocol::Directories;
+#[cfg(unix)]
+use testanyware_vm::tools::ToolSearch;
 
 #[cfg(unix)]
 #[derive(Parser)]
@@ -56,6 +58,9 @@ struct Args {
     /// The configuration path. Nothing reads it yet.
     #[arg(long, requires = "test_mode")]
     config: Option<PathBuf>,
+    /// A directory to search for tools such as `tart`, in place of the built-in search. May repeat.
+    #[arg(long = "tool-dir", requires = "test_mode")]
+    tool_dirs: Vec<PathBuf>,
 }
 
 /// Where the app serves and which directories it holds VM records in.
@@ -65,6 +70,8 @@ struct Paths {
     state_dir: PathBuf,
     data_dir: PathBuf,
     config: Option<PathBuf>,
+    /// Where the app looks for the tools it runs.
+    tools: ToolSearch,
 }
 
 #[cfg(unix)]
@@ -76,6 +83,11 @@ fn main() -> ExitCode {
             state_dir,
             data_dir,
             config: args.config,
+            tools: if args.tool_dirs.is_empty() {
+                ToolSearch::builtin()
+            } else {
+                ToolSearch::new(args.tool_dirs)
+            },
         },
         (true, ..) => {
             eprintln!("testanyware-app: test mode needs --socket, --state-dir and --data-dir.");
@@ -116,7 +128,7 @@ fn main() -> ExitCode {
         },
         own_uid,
         paths.config,
-    ));
+    ).with_tools(paths.tools));
     eprintln!("testanyware-app: serving on {}", paths.socket.display());
 
     if args.test_mode {
@@ -169,6 +181,8 @@ fn app_paths() -> Option<Paths> {
         state_dir: vm_paths.state_dir().to_path_buf(),
         data_dir: vm_paths.data_dir().to_path_buf(),
         config: None,
+        // The app has no shell environment, so it reads no `PATH`.
+        tools: ToolSearch::builtin(),
     })
 }
 

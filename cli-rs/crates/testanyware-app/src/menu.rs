@@ -40,6 +40,14 @@ impl LoginItemStatus {
     }
 }
 
+/// A running VM, as one line of the menu.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MenuVm {
+    pub id: String,
+    pub platform: String,
+    pub backend: String,
+}
+
 /// Everything the menu depends on.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MenuState {
@@ -47,6 +55,8 @@ pub struct MenuState {
     /// Does the app serve its socket now?
     pub serving: bool,
     pub local_network: LocalNetworkState,
+    /// The running VMs, or `None` when the listing did not answer in time.
+    pub running_vms: Option<Vec<MenuVm>>,
     pub login: LoginItemStatus,
     /// The error text of the last failed `register()` or `unregister()`.
     pub login_problem: Option<String>,
@@ -90,6 +100,20 @@ pub const LOCAL_NETWORK_SETTINGS_URL: &str =
 /// The title of the Quit item. The text tells the person what a quit leaves behind.
 pub const QUIT_TITLE: &str = "Quit TestAnyware (each VM keeps running)";
 
+/// The lines for the running VMs: a heading and one line for each VM, or one line that says why
+/// there is no list.
+fn running_vm_entries(running: Option<&[MenuVm]>) -> Vec<MenuEntry> {
+    match running {
+        None => vec![MenuEntry::Text("Running VMs: no answer from the listing".to_string())],
+        Some([]) => vec![MenuEntry::Text("No VMs running".to_string())],
+        Some(vms) => std::iter::once(MenuEntry::Text("Running VMs:".to_string()))
+            .chain(vms.iter().map(|vm| {
+                MenuEntry::Text(format!("  {} ({}, {})", vm.id, vm.platform, vm.backend))
+            }))
+            .collect(),
+    }
+}
+
 pub fn build_menu(state: &MenuState) -> Vec<MenuEntry> {
     let mut menu = vec![
         MenuEntry::Text(format!("TestAnyware {}", state.version)),
@@ -115,12 +139,14 @@ pub fn build_menu(state: &MenuState) -> Vec<MenuEntry> {
             action: MenuAction::OpenLocalNetworkSettings,
         },
         MenuEntry::Separator,
-        MenuEntry::Switch {
-            title: "Start at Login".to_string(),
-            on: state.login.is_registered(),
-            action: MenuAction::ToggleStartAtLogin,
-        },
     ];
+    menu.extend(running_vm_entries(state.running_vms.as_deref()));
+    menu.push(MenuEntry::Separator);
+    menu.push(MenuEntry::Switch {
+        title: "Start at Login".to_string(),
+        on: state.login.is_registered(),
+        action: MenuAction::ToggleStartAtLogin,
+    });
     if state.login == LoginItemStatus::RequiresApproval {
         menu.push(MenuEntry::Text(
             "Start at Login requires approval in System Settings".to_string(),
@@ -152,8 +178,17 @@ mod tests {
             version: "1.2.3".to_string(),
             serving: true,
             local_network: LocalNetworkState::NotYetSeen,
+            running_vms: Some(Vec::new()),
             login: LoginItemStatus::NotRegistered,
             login_problem: None,
+        }
+    }
+
+    fn vm(id: &str, platform: &str, backend: &str) -> MenuVm {
+        MenuVm {
+            id: id.to_string(),
+            platform: platform.to_string(),
+            backend: backend.to_string(),
         }
     }
 
@@ -281,6 +316,51 @@ mod tests {
         });
         assert!(texts(&menu).contains(&"Operation not permitted"));
         assert!(!texts(&build_menu(&state())).contains(&"Operation not permitted"));
+    }
+
+    #[test]
+    fn menu_says_that_no_vm_runs() {
+        assert!(texts(&build_menu(&state())).contains(&"No VMs running"));
+    }
+
+    #[test]
+    fn menu_lists_each_running_vm_under_a_heading() {
+        let menu = build_menu(&MenuState {
+            running_vms: Some(vec![
+                vm("testanyware-aa", "macos", "tart"),
+                vm("testanyware-bb", "windows", "qemu"),
+            ]),
+            ..state()
+        });
+        let lines = texts(&menu);
+        let heading = lines.iter().position(|t| *t == "Running VMs:").expect("a heading");
+        assert_eq!(
+            lines[heading + 1..heading + 3],
+            ["  testanyware-aa (macos, tart)", "  testanyware-bb (windows, qemu)"]
+        );
+        assert!(!lines.contains(&"No VMs running"));
+    }
+
+    #[test]
+    fn menu_says_so_when_the_listing_does_not_answer() {
+        let menu = build_menu(&MenuState {
+            running_vms: None,
+            ..state()
+        });
+        assert!(texts(&menu).iter().any(|t| t.starts_with("Running VMs: no answer")));
+    }
+
+    #[test]
+    fn the_running_vms_come_after_the_local_network_and_before_the_login_switch() {
+        let menu = build_menu(&MenuState {
+            running_vms: Some(vec![vm("testanyware-aa", "macos", "tart")]),
+            ..state()
+        });
+        let at = |wanted: &dyn Fn(&MenuEntry) -> bool| menu.iter().position(wanted).unwrap();
+        let pane = at(&|e| matches!(e, MenuEntry::Action { action: MenuAction::OpenLocalNetworkSettings, .. }));
+        let vms = at(&|e| matches!(e, MenuEntry::Text(t) if t == "Running VMs:"));
+        let login = at(&|e| matches!(e, MenuEntry::Switch { action: MenuAction::ToggleStartAtLogin, .. }));
+        assert!(pane < vms && vms < login, "{menu:?}");
     }
 
     #[test]

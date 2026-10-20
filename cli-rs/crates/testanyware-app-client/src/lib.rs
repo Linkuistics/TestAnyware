@@ -15,6 +15,7 @@ use http::header::{CONNECTION, HOST, UPGRADE};
 use http::{Method, Request, StatusCode};
 use http_body_util::{BodyExt, Empty, Limited};
 use hyper_util::rt::TokioIo;
+use serde::de::DeserializeOwned;
 use testanyware_app_protocol::{
     validate_socket_path, AppError, ClientHello, StreamKind, StreamTarget, UnreachableCause,
     STREAM_UPGRADE_TOKEN,
@@ -26,6 +27,9 @@ pub type AppStream = TokioIo<hyper::upgrade::Upgraded>;
 
 /// The most bytes of an error body that the client reads. An error object is far smaller.
 const ERROR_BODY_LIMIT: usize = 64 * 1024;
+
+/// The most bytes of a document that the client reads. A listing of thousands of VMs is smaller.
+const DOCUMENT_BODY_LIMIT: usize = 16 * 1024 * 1024;
 
 const START_REMEDY: &str = "Open TestAnyware from /Applications, and turn on \"Start at Login\" \
     in its menu, so that macOS starts it at each login. The Host CLI never starts it.";
@@ -55,18 +59,7 @@ impl AppClient {
         target: &StreamTarget,
         kind: StreamKind,
     ) -> Result<AppStream, AppError> {
-        self.preflight()?;
-        let socket = self.dial().await?;
-        let (mut sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(socket))
-            .await
-            .map_err(|e| self.connection_error(&e))?;
-        // `with_upgrades` lets the connection hand its stream over after the `101`. This
-        // task ends when it has done so, or when the request fails.
-        // https://docs.rs/hyper/1.9.0/hyper/upgrade/index.html
-        tokio::spawn(async move {
-            let _ = connection.with_upgrades().await;
-        });
-
+        let mut sender = self.connect(true).await?;
         let mut request = Request::builder()
             .method(Method::GET)
             .uri(target.path(kind))
@@ -90,19 +83,67 @@ impl AppClient {
                 .map_err(|e| self.connection_error(&e))?;
             return Ok(TokioIo::new(upgraded));
         }
-        let status = response.status();
-        let body = Limited::new(response.into_body(), ERROR_BODY_LIMIT)
+        Err(error_of(response).await)
+    }
+
+    /// Ask the app for a JSON document with `GET path_and_query`, and read it as a `T`. An error
+    /// object that the app sends in place of the document is the error.
+    pub async fn get_json<T: DeserializeOwned>(
+        &self,
+        path_and_query: &str,
+    ) -> Result<T, AppError> {
+        let mut sender = self.connect(false).await?;
+        let mut request = Request::builder()
+            .method(Method::GET)
+            .uri(path_and_query)
+            .header(HOST, "testanyware");
+        for (name, value) in self.hello.to_headers() {
+            request = request.header(name, value);
+        }
+        let request = request
+            .body(Empty::<Bytes>::new())
+            .map_err(|e| internal(format!("the request for {path_and_query} is invalid: {e}")))?;
+        let response = sender
+            .send_request(request)
+            .await
+            .map_err(|e| self.connection_error(&e))?;
+        if response.status() != StatusCode::OK {
+            return Err(error_of(response).await);
+        }
+        let body = Limited::new(response.into_body(), DOCUMENT_BODY_LIMIT)
             .collect()
             .await
-            .map(|collected| collected.to_bytes())
-            .unwrap_or_default();
-        Err(
-            serde_json::from_slice::<AppError>(&body).unwrap_or_else(|_| {
-                internal(format!(
-                    "The TestAnyware app answered HTTP {status} without an error object."
-                ))
-            }),
-        )
+            .map_err(|e| self.connection_ended(UnreachableCause::SocketError, e))?
+            .to_bytes();
+        serde_json::from_slice(&body).map_err(|e| {
+            internal(format!(
+                "The TestAnyware app answered {path_and_query} with a document that does not read: {e}."
+            ))
+        })
+    }
+
+    /// Check the socket, connect to it and start the HTTP/1.1 connection. With `upgrades`, the
+    /// connection can hand its stream over after a `101`.
+    async fn connect(
+        &self,
+        upgrades: bool,
+    ) -> Result<hyper::client::conn::http1::SendRequest<Empty<Bytes>>, AppError> {
+        self.preflight()?;
+        let socket = self.dial().await?;
+        let (sender, connection) = hyper::client::conn::http1::handshake(TokioIo::new(socket))
+            .await
+            .map_err(|e| self.connection_error(&e))?;
+        // The task ends when the connection does. `with_upgrades` lets a guest stream take the
+        // connection over after the `101`.
+        // https://docs.rs/hyper/1.9.0/hyper/upgrade/index.html
+        tokio::spawn(async move {
+            if upgrades {
+                let _ = connection.with_upgrades().await;
+            } else {
+                let _ = connection.await;
+            }
+        });
+        Ok(sender)
     }
 
     /// The checks that need no connection: the length of the socket path, and the owner and
@@ -205,6 +246,10 @@ impl AppClient {
         } else {
             UnreachableCause::SocketError
         };
+        self.connection_ended(cause, err)
+    }
+
+    fn connection_ended(&self, cause: UnreachableCause, err: impl std::fmt::Display) -> AppError {
         AppError::unreachable(
             cause,
             &self.socket,
@@ -215,6 +260,22 @@ impl AppClient {
             START_REMEDY,
         )
     }
+}
+
+/// The error object in a response that is no success. A body that is no error object becomes
+/// `INTERNAL`.
+async fn error_of(response: hyper::Response<hyper::body::Incoming>) -> AppError {
+    let status = response.status();
+    let body = Limited::new(response.into_body(), ERROR_BODY_LIMIT)
+        .collect()
+        .await
+        .map(|collected| collected.to_bytes())
+        .unwrap_or_default();
+    serde_json::from_slice::<AppError>(&body).unwrap_or_else(|_| {
+        internal(format!(
+            "The TestAnyware app answered HTTP {status} without an error object."
+        ))
+    })
 }
 
 /// Whether the app closed the connection: hyper reports an incomplete message or a closed
@@ -436,5 +497,103 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.code, "INTERNAL");
         assert!(err.message.contains("500"), "{}", err.message);
+    }
+
+    #[cfg(unix)]
+    async fn answer_once(path: &Path, reply: String) -> tokio::task::JoinHandle<String> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::UnixListener::bind(path).unwrap();
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).await.unwrap();
+                head.push(byte[0]);
+            }
+            stream.write_all(reply.as_bytes()).await.unwrap();
+            String::from_utf8(head).unwrap().to_ascii_lowercase()
+        })
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_document_is_read_after_a_request_that_states_the_hello() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        let body = r#"{"n":3}"#;
+        let server = answer_once(
+            &path,
+            format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}",
+                body.len()
+            ),
+        )
+        .await;
+        let document: serde_json::Value =
+            client(&path).get_json("/v1/vms?limit=1").await.unwrap();
+        assert_eq!(document["n"], 3);
+        let head = server.await.unwrap();
+        assert!(head.starts_with("get /v1/vms?limit=1 http/1.1"), "{head}");
+        assert!(head.contains("x-testanyware-protocol: 1-1"), "{head}");
+        assert!(head.contains("x-testanyware-state-dir: /s"), "{head}");
+        assert!(!head.contains("upgrade"), "a document asks for no upgrade: {head}");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn an_error_object_replaces_the_document() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        let object = serde_json::json!({
+            "code": "APP_INCOMPATIBLE",
+            "message": "m",
+            "remediation": "r",
+            "details": { "cause": "directories" }
+        })
+        .to_string();
+        answer_once(
+            &path,
+            format!(
+                "HTTP/1.1 409 Conflict\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{object}",
+                object.len()
+            ),
+        )
+        .await;
+        let err = client(&path)
+            .get_json::<serde_json::Value>("/v1/vms?limit=1")
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "APP_INCOMPATIBLE");
+        assert_eq!(err.details["cause"], "directories");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_document_that_does_not_read_becomes_internal() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        answer_once(
+            &path,
+            "HTTP/1.1 200 OK\r\ncontent-length: 3\r\n\r\nabc".to_string(),
+        )
+        .await;
+        let err = client(&path)
+            .get_json::<serde_json::Value>("/v1/vms?limit=1")
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, "INTERNAL");
+        assert!(err.message.contains("does not read"), "{}", err.message);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_missing_socket_fails_a_document_request_as_not_running() {
+        let dir = private_dir();
+        let err = client(&dir.path().join("testanyware.sock"))
+            .get_json::<serde_json::Value>("/v1/vms?limit=1")
+            .await
+            .unwrap_err();
+        assert_eq!(err.details["cause"], "not_running");
     }
 }

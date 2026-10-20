@@ -26,7 +26,11 @@ use crate::menu::{
     build_menu, LocalNetworkState, LoginItemStatus, MenuAction, MenuEntry, MenuState,
     LOCAL_NETWORK_SETTINGS_URL,
 };
+use crate::vms::running_vms_within;
 use crate::AppContext;
+
+/// How long a menu waits for the list of running VMs before it says there is none.
+const LISTING_PATIENCE: std::time::Duration = std::time::Duration::from_secs(2);
 
 /// What the shell reads from the rest of the app.
 pub struct ShellConfig {
@@ -161,6 +165,7 @@ impl Delegate {
             version: config.ctx.identity.build.clone(),
             serving: config.serving.load(Ordering::SeqCst),
             local_network: LocalNetworkState::from(&*grant),
+            running_vms: running_vms_within(&config.ctx, LISTING_PATIENCE),
             login: login_item_status(),
             login_problem: self.ivars().login_problem.borrow().clone(),
         }

@@ -150,6 +150,9 @@ impl FakeAgent {
 /// - `xdg-state/testanyware/vms/`: the VM spec files. The CLI reads them as `$XDG_STATE_HOME`,
 ///   and the app as its `--state-dir`.
 /// - `xdg-data/testanyware/`: the data directory.
+/// - `tools/`: the only directory where the app looks for tools such as `tart`. It starts empty,
+///   so no test finds the developer's own `tart`. A test adds a fake with [`TestApp::add_tool`].
+/// - `tmp/`: `TMPDIR` of the app and of the CLI, where QEMU keeps its session directories.
 pub struct TestApp {
     child: Option<Child>,
     tmp: TempDir,
@@ -201,6 +204,8 @@ impl TestApp {
         };
         std::fs::create_dir_all(app.state_dir().join("vms")).unwrap();
         std::fs::create_dir_all(app.data_dir()).unwrap();
+        std::fs::create_dir_all(app.tool_dir()).unwrap();
+        std::fs::create_dir_all(app.tmp_dir()).unwrap();
         std::fs::create_dir_all(app.socket_dir()).unwrap();
         std::fs::set_permissions(app.socket_dir(), std::fs::Permissions::from_mode(0o700)).unwrap();
         app
@@ -209,6 +214,14 @@ impl TestApp {
     /// Start the app on a fresh socket and fresh directories.
     pub fn start() -> Self {
         Self::spawn(Self::not_running())
+    }
+
+    /// Start the app after `prepare` has written what the app reads when it starts, such as a
+    /// fake tool.
+    pub fn start_after(prepare: impl FnOnce(&TestApp)) -> Self {
+        let app = Self::not_running();
+        prepare(&app);
+        Self::spawn(app)
     }
 
     /// Start the app on the default socket of the CLI's `HOME`, as the login item starts it.
@@ -224,6 +237,9 @@ impl TestApp {
             .arg(app.state_dir())
             .arg("--data-dir")
             .arg(app.data_dir())
+            .arg("--tool-dir")
+            .arg(app.tool_dir())
+            .env("TMPDIR", app.tmp_dir())
             .stderr(Stdio::null())
             .spawn()
             .expect("spawn the app");
@@ -274,6 +290,54 @@ impl TestApp {
 
     pub fn data_dir(&self) -> PathBuf {
         self.xdg_data_home().join("testanyware")
+    }
+
+    /// The directory that the app searches for tools.
+    pub fn tool_dir(&self) -> PathBuf {
+        self.root().join("tools")
+    }
+
+    /// `TMPDIR` of the app and of the CLI.
+    pub fn tmp_dir(&self) -> PathBuf {
+        self.root().join("tmp")
+    }
+
+    /// Put an executable shell script called `name` in the tool directory.
+    pub fn add_tool(&self, name: &str, script: &str) {
+        let path = self.tool_dir().join(name);
+        std::fs::write(&path, format!("#!/bin/sh\n{script}\n")).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// Write the sidecars of a VM that a `vm start` left, as the lifecycle code writes them. The
+    /// meta names the test process, which is alive.
+    pub fn add_sidecars(&self, id: &str, platform: &str, tool: &str, vnc_port: u16) {
+        let vms = self.state_dir().join("vms");
+        let spec = json!({
+            "platform": platform,
+            "vnc": { "host": "127.0.0.1", "port": vnc_port },
+            "agent": { "host": "127.0.0.1", "port": 8648 },
+        });
+        std::fs::write(vms.join(format!("{id}.json")), spec.to_string()).unwrap();
+        let meta = json!({ "id": id, "tool": tool, "pid": std::process::id() });
+        std::fs::write(vms.join(format!("{id}.meta.json")), meta.to_string()).unwrap();
+    }
+
+    /// Leave what `vm list` takes for a running QEMU clone: its clone directory, and a monitor
+    /// socket in its session directory. A file stands for the socket.
+    pub fn add_running_qemu_clone(&self, id: &str, platform: &str, vnc_port: u16) {
+        std::fs::create_dir_all(self.data_dir().join("clones").join(id)).unwrap();
+        let session = self.tmp_dir().join(format!("testanyware-{id}"));
+        std::fs::create_dir_all(&session).unwrap();
+        std::fs::write(session.join("monitor.sock"), b"").unwrap();
+        self.add_sidecars(id, platform, "qemu", vnc_port);
+    }
+
+    /// Leave a QEMU golden image, which is a `.qcow2` file in the data directory.
+    pub fn add_qemu_golden(&self, name: &str) {
+        let golden = self.data_dir().join("golden");
+        std::fs::create_dir_all(&golden).unwrap();
+        std::fs::write(golden.join(format!("{name}.qcow2")), b"x").unwrap();
     }
 
     /// Write the spec file of a VM whose In-VM agent is on loopback.
@@ -332,7 +396,8 @@ impl TestApp {
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("HOME", self.root())
             .env("XDG_STATE_HOME", self.xdg_state_home())
-            .env("XDG_DATA_HOME", self.xdg_data_home());
+            .env("XDG_DATA_HOME", self.xdg_data_home())
+            .env("TMPDIR", self.tmp_dir());
         for (key, value) in extra {
             command.env(key, value);
         }
