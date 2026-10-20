@@ -14,6 +14,7 @@ pub mod display_request;
 pub mod error;
 pub mod health;
 pub mod id;
+pub mod identity;
 pub mod keeper;
 pub mod lifecycle;
 pub mod listing;
@@ -25,6 +26,7 @@ pub mod process;
 pub mod qemu;
 pub mod qemu_profile;
 pub mod spec;
+pub mod swtpm;
 /// The pure start-outcome decision behind `vm start`'s honest-failure rule.
 pub mod start_outcome;
 /// What one `vm start` runs on: the tools, the progress sink and the cancel token.

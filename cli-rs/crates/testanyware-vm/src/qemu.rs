@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::error::VmError;
+use crate::identity::{read_identity, read_optional_identity, ProcessIdentity, SystemProbe};
 use crate::monitor::QemuMonitorClient;
 use crate::paths::VmPaths;
 use crate::preflight::check_kvm;
@@ -69,6 +70,15 @@ pub struct StartArtifacts {
     /// QEMU's stdout+stderr. It lives inside `clone_dir`, so read it before
     /// tearing the VM down.
     pub log_path: PathBuf,
+    /// The directory of the monitor socket and the swtpm control socket.
+    pub session_dir: PathBuf,
+    /// The identity of QEMU, read right after it started. `None` when the host cannot give one.
+    pub identity: Option<ProcessIdentity>,
+    /// The swtpm of a guest with a TPM. It ends when QEMU ends, but the meta records it, so a
+    /// reader can prove it before it signals it.
+    pub swtpm_pid: Option<i32>,
+    /// The identity of swtpm, read right after it started.
+    pub swtpm_identity: Option<ProcessIdentity>,
 }
 
 /// Classify a golden / clone name into a platform string. Ports
@@ -325,22 +335,21 @@ impl QemuRunner {
 
         // --- Start swtpm if the guest gets a TPM (sockets under $TMPDIR) -
         let monitor_socket = session.join("monitor.sock");
+        let mut swtpm_pid = None;
+        let mut swtpm_identity = None;
         let tpm = if opts.tpm.attaches() {
             let tpm_socket = session.join("swtpm-sock");
             let swtpm = tools.find("swtpm")
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "swtpm".to_string());
-            run_swtpm(&swtpm, &[
-                "socket".into(),
-                "--tpmstate".into(), format!("dir={}", clone_tpm_dir.display()),
-                "--ctrl".into(), format!("type=unixio,path={}", tpm_socket.display()),
-                "--tpm2".into(),
-                "--log".into(), "level=0".into(),
-                "--daemon".into(),
-            ])
-            .await
-            .inspect_err(|_| teardown(0, &clone_dir, &session))?;
+            let pid_file = crate::swtpm::pid_file(&session);
+            run_swtpm(&swtpm, &crate::swtpm::launch_args(&clone_tpm_dir, &tpm_socket, &pid_file))
+                .await
+                .inspect_err(|_| teardown(0, &clone_dir, &session))?;
             tokio::time::sleep(Duration::from_secs(1)).await;
+            // The second of waiting has passed, so the daemon has written its pid file.
+            swtpm_pid = crate::swtpm::read_pid(&pid_file);
+            swtpm_identity = read_optional_identity(&SystemProbe, swtpm_pid);
             opts.tpm.wiring(tpm_socket)
         } else {
             None
@@ -362,6 +371,8 @@ impl QemuRunner {
         let log_path = clone_dir.join("qemu.log");
         let pid = crate::detached::spawn_detached(&qemu_bin, &args, &log_path)
             .inspect_err(|_| teardown(0, &clone_dir, &session))?;
+        // Read the identity before anything else can end the process and free its pid.
+        let identity = read_identity(&SystemProbe, pid);
         tokio::time::sleep(Duration::from_secs(1)).await;
         // `child_alive`, not `process_alive`: the detached QEMU is still this
         // CLI's child, and an exited one lingers as a zombie that
@@ -403,7 +414,17 @@ impl QemuRunner {
             .await
             .unwrap_or(5900);
 
-        Ok(StartArtifacts { pid, vnc_port, agent_port, clone_dir, log_path })
+        Ok(StartArtifacts {
+            pid,
+            vnc_port,
+            agent_port,
+            clone_dir,
+            log_path,
+            session_dir: session,
+            identity,
+            swtpm_pid,
+            swtpm_identity,
+        })
     }
 
     /// Tear down a running QEMU VM. Public wrapper deriving the session
@@ -464,15 +485,19 @@ impl QemuRunner {
     }
 }
 
-/// Shared teardown: SIGTERM→SIGKILL the qemu pid, pgrep-kill the swtpm
-/// daemon by its TPM state-dir path, then remove the clone + session
+/// Shared teardown: SIGTERM→SIGKILL the qemu pid, shut swtpm down through its control socket,
+/// pgrep-kill any swtpm daemon left by its TPM state-dir path, then remove the clone + session
 /// dirs. Idempotent — `pid: 0` skips the qemu kill. Ports
 /// `QEMURunner.teardown`.
 pub fn teardown(pid: i32, clone_dir: &Path, session_dir: &Path) {
     if pid > 0 {
         terminate(pid, Duration::from_millis(100), 20);
     }
-    // swtpm has no registry: locate it by its --tpmstate dir and kill it.
+    // A start that failed before QEMU connected leaves a swtpm that waits for a first
+    // connection, so `terminate` has not ended it. Stop it through its control socket.
+    crate::swtpm::shutdown(&crate::swtpm::control_socket(session_dir), Duration::from_millis(500));
+    // A guest of an older start has a swtpm with no control connection to end it, and the
+    // control socket may be gone: locate it by its --tpmstate dir and kill it.
     let clone_name = clone_dir
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())

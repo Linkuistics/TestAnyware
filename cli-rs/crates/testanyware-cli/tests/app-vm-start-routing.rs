@@ -308,6 +308,34 @@ fn the_keeper_runs_from_the_apps_executable_and_the_detached_children_hold_no_ap
     }
 }
 
+#[test]
+fn a_started_vm_has_a_complete_meta() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    let out = fixture.start("start-5", &["--json"]);
+    assert_eq!(out.code(), 0, "{}", out.err());
+
+    let [_, meta_path] = fixture.sidecars("start-5");
+    let meta: Value = serde_json::from_slice(&std::fs::read(meta_path).unwrap()).unwrap();
+    let tart = fixture.tart_run_pid("start-5").unwrap();
+    let keeper = meta["keeper_pid"].as_i64().expect("the meta names the keeper") as i32;
+    assert_eq!(meta["pid"].as_i64(), Some(i64::from(tart)));
+
+    // Each process that the meta names has the identity that the host reads from it now.
+    for (pid, key) in [(tart, "identity"), (keeper, "keeper_identity")] {
+        let live = testanyware_vm::identity::read_identity(&testanyware_vm::identity::SystemProbe, pid)
+            .unwrap_or_else(|| panic!("the host reads the identity of {key} ({pid})"));
+        assert_eq!(meta[key]["start_time"].as_u64(), Some(live.start_time), "{key}: {meta}");
+        assert_eq!(meta[key]["boot_session"].as_str(), Some(live.boot_session.as_str()), "{key}");
+    }
+    assert!(meta.get("session_dir").is_none(), "a tart guest has no session directory: {meta}");
+    assert!(meta.get("swtpm_pid").is_none(), "a tart guest has no swtpm: {meta}");
+
+    // The `--json` envelope of the start keeps its fields.
+    let envelope: Value = serde_json::from_str(&out.out()).unwrap();
+    assert!(envelope.get("identity").is_none(), "the identity stays in the private meta");
+}
+
 fn nix_sid(pid: u32) -> i32 {
     nix::unistd::getsid(Some(nix::unistd::Pid::from_raw(pid as i32)))
         .map(|sid| sid.as_raw())

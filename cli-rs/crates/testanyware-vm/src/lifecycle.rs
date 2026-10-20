@@ -11,6 +11,7 @@ use crate::health::wait_for_agent;
 #[cfg(target_os = "macos")]
 use crate::health::wait_for_agent_with_oracle;
 use crate::id::generate_id;
+use crate::identity::{read_identity, read_optional_identity, ProcessIdentity, SystemProbe};
 use crate::meta::{VmMeta, VmTool};
 use crate::paths::VmPaths;
 use crate::process::{child_alive, process_alive};
@@ -443,14 +444,12 @@ impl VmLifecycle {
         // tart manages its own storage, so the meta carries no clone_dir;
         // `pid` is the detached `tart run` process tracked for `stop`.
         let meta = VmMeta {
-            id: opts.id.clone(),
-            tool: VmTool::Tart,
-            pid,
-            clone_dir: None,
-            viewer_window_id: None,
             // The keeper started in `observe_tart_boot`, before any VNC
             // client (ADR-0018). `vm stop` signals it as a backstop.
             keeper_pid: boot.keeper_pid,
+            identity: boot.identity.clone(),
+            keeper_identity: boot.keeper_identity.clone(),
+            ..VmMeta::new(opts.id.clone(), VmTool::Tart, pid)
         };
         meta.write_atomic(&meta_path).inspect_err(|_| {
             TartRunner::stop_in(&ctx.tools, &opts.id, pid);
@@ -866,6 +865,10 @@ struct StartTrack {
     pid: std::sync::atomic::AtomicI32,
     /// The VNC keeper once it started, or 0.
     keeper_pid: std::sync::atomic::AtomicI32,
+    /// The identity of the `tart run` that is running, read when it started.
+    identity: std::sync::Mutex<Option<ProcessIdentity>>,
+    /// The identity of the keeper, read when it started.
+    keeper_identity: std::sync::Mutex<Option<ProcessIdentity>>,
 }
 
 #[cfg(target_os = "macos")]
@@ -876,6 +879,14 @@ impl StartTrack {
 
     fn keeper_pid(&self) -> Option<i32> {
         Some(self.keeper_pid.load(std::sync::atomic::Ordering::SeqCst)).filter(|pid| *pid > 0)
+    }
+
+    fn identity(&self) -> Option<ProcessIdentity> {
+        self.identity.lock().ok().and_then(|identity| identity.clone())
+    }
+
+    fn keeper_identity(&self) -> Option<ProcessIdentity> {
+        self.keeper_identity.lock().ok().and_then(|identity| identity.clone())
     }
 }
 
@@ -891,12 +902,10 @@ fn abandon_tart(opts: &VmStartOptions, ctx: &StartContext, track: &StartTrack) -
     let vm = FailedVm {
         id: opts.id.clone(),
         meta: VmMeta {
-            id: opts.id.clone(),
-            tool: VmTool::Tart,
-            pid: track.pid(),
-            clone_dir: None,
-            viewer_window_id: None,
             keeper_pid: track.keeper_pid(),
+            identity: track.identity(),
+            keeper_identity: track.keeper_identity(),
+            ..VmMeta::new(opts.id.clone(), VmTool::Tart, track.pid())
         },
         spec: None,
         manual_reclaim: format!("`tart stop {id}` and `tart delete {id}`", id = opts.id),
@@ -937,6 +946,10 @@ struct TartBoot {
     ip: Option<String>,
     /// Pid of the VNC keeper (ADR-0018), or `None` if it could not start.
     keeper_pid: Option<i32>,
+    /// The identity of `tart run`, read as soon as it started.
+    identity: Option<ProcessIdentity>,
+    /// The identity of the keeper, read as soon as it started.
+    keeper_identity: Option<ProcessIdentity>,
 }
 
 /// Run the readiness stages in order — VNC URL, guest IP, agent health —
@@ -954,6 +967,10 @@ async fn observe_tart_boot(
     use crate::tart::{await_guest_ip, await_vnc_url, Polled};
 
     let alive = move || child_alive(pid);
+    // Read before the first wait: the process is the child that this start made, and nothing
+    // has had time to end it and free its pid.
+    let identity = read_identity(&SystemProbe, pid);
+    *track.identity.lock().unwrap_or_else(|e| e.into_inner()) = identity.clone();
     let mut observation = BootObservation {
         id: opts.id.clone(),
         backend: Backend::Tart,
@@ -966,6 +983,7 @@ async fn observe_tart_boot(
     let mut vnc = None;
     let mut ip = None;
     let mut keeper_pid = None;
+    let mut keeper_identity = None;
 
     let stage_start = Instant::now();
     match await_vnc_url(log_path, VNC_POLLS.0, VNC_POLLS.1, alive).await {
@@ -983,6 +1001,9 @@ async fn observe_tart_boot(
                 &ctx.progress,
             );
             track.keeper_pid.store(keeper_pid.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
+            keeper_identity = read_optional_identity(&SystemProbe, keeper_pid);
+            *track.keeper_identity.lock().unwrap_or_else(|e| e.into_inner()) =
+                keeper_identity.clone();
             vnc = Some(url);
         }
         Polled::ProcessExited => {}
@@ -1023,7 +1044,7 @@ async fn observe_tart_boot(
     if !child_alive(pid) {
         observation.process = ProcessState::Exited { log_tail: read_log_tail(log_path) };
     }
-    TartBoot { observation, vnc, ip, keeper_pid }
+    TartBoot { observation, vnc, ip, keeper_pid, identity, keeper_identity }
 }
 
 /// Wait for a launched QEMU's agent and record what was seen. The VNC and
@@ -1085,13 +1106,11 @@ fn tart_failed_vm(opts: &VmStartOptions, agent_port: u16, pid: i32, boot: &TartB
     FailedVm {
         id: opts.id.clone(),
         meta: VmMeta {
-            id: opts.id.clone(),
-            tool: VmTool::Tart,
-            pid,
-            clone_dir: None,
-            viewer_window_id: None,
             // A kept VM keeps its keeper; `vm stop` signals it later.
             keeper_pid: boot.keeper_pid,
+            identity: boot.identity.clone(),
+            keeper_identity: boot.keeper_identity.clone(),
+            ..VmMeta::new(opts.id.clone(), VmTool::Tart, pid)
         },
         spec: boot.vnc.as_ref().map(|vnc| VmSpec {
             vnc: VncEndpoint {
@@ -1146,15 +1165,15 @@ fn qemu_spec(opts: &VmStartOptions, artifacts: &StartArtifacts) -> VmSpec {
 /// The meta `vm stop` needs to reclaim a QEMU VM.
 fn qemu_meta(opts: &VmStartOptions, artifacts: &StartArtifacts) -> VmMeta {
     VmMeta {
-        id: opts.id.clone(),
-        tool: VmTool::Qemu,
-        pid: artifacts.pid,
         clone_dir: Some(artifacts.clone_dir.display().to_string()),
-        // `viewer_window_id` tracked the Swift CLI's *external* AppleScript
-        // viewer window; the Rust embedded viewer (ADR-0005) owns its window
-        // in-process, so this Swift-compat field is permanently null.
-        viewer_window_id: None,
-        keeper_pid: None,
+        // `viewer_window_id` tracked the Swift CLI's *external* AppleScript viewer window;
+        // the Rust embedded viewer (ADR-0005) owns its window in-process, so this
+        // Swift-compat field is permanently null.
+        identity: artifacts.identity.clone(),
+        swtpm_pid: artifacts.swtpm_pid,
+        swtpm_identity: artifacts.swtpm_identity.clone(),
+        session_dir: Some(artifacts.session_dir.display().to_string()),
+        ..VmMeta::new(opts.id.clone(), VmTool::Qemu, artifacts.pid)
     }
 }
 
@@ -1395,6 +1414,11 @@ mod tests {
             clone_dir: None,
             viewer_window_id: None,
             keeper_pid: None,
+            identity: None,
+            keeper_identity: None,
+            swtpm_pid: None,
+            swtpm_identity: None,
+            session_dir: None,
         };
         meta.write_atomic(&paths.meta_path(id)).unwrap();
 
@@ -1521,6 +1545,11 @@ mod tests {
                     clone_dir: None,
                     viewer_window_id: None,
                     keeper_pid: None,
+                    identity: None,
+                    keeper_identity: None,
+                    swtpm_pid: None,
+                    swtpm_identity: None,
+                    session_dir: None,
                 },
                 spec: Some(VmSpec {
                     vnc: VncEndpoint {
@@ -1675,6 +1704,8 @@ mod tests {
                 }),
                 ip: Some("192.168.64.9".into()),
                 keeper_pid: None,
+                identity: None,
+                keeper_identity: None,
             };
             let failed = tart_failed_vm(&opts, crate::start_context::AGENT_PORT, 4242, &boot);
             assert_eq!(failed.meta.tool, VmTool::Tart);
@@ -1723,8 +1754,16 @@ mod tests {
                 agent_port,
                 clone_dir: dir.path().join(ID),
                 log_path,
+                session_dir: dir.path().join("session"),
+                identity: Some(identity(100)),
+                swtpm_pid: Some(31338),
+                swtpm_identity: Some(identity(101)),
             };
             (dir, artifacts)
+        }
+
+        fn identity(start_time: u64) -> ProcessIdentity {
+            ProcessIdentity { start_time, boot_session: "boot-a".into() }
         }
 
         /// A loopback port with nothing listening on it.
@@ -1816,6 +1855,27 @@ mod tests {
             let agent = spec.agent.expect("the forward is known, healthy or not");
             assert_eq!((agent.host.as_str(), agent.port), ("localhost", 51234));
             assert_eq!(spec.platform, "windows");
+        }
+
+        #[test]
+        fn the_meta_of_a_qemu_guest_records_every_process_and_its_session_directory() {
+            let (_dir, art) = artifacts(51234, "");
+            let meta = qemu_meta(&opts(false), &art);
+            assert_eq!((meta.pid, meta.identity.clone()), (31337, Some(identity(100))));
+            assert_eq!((meta.swtpm_pid, meta.swtpm_identity.clone()), (Some(31338), Some(identity(101))));
+            assert_eq!(meta.session_dir, Some(art.session_dir.display().to_string()));
+            assert_eq!((meta.keeper_pid, meta.keeper_identity), (None, None));
+            // A VM that `vm stop` keeps after a failed start carries the same record.
+            assert_eq!(qemu_failed_vm(&opts(true), &art).meta, qemu_meta(&opts(true), &art));
+        }
+
+        #[test]
+        fn a_qemu_guest_without_a_tpm_records_no_swtpm() {
+            let (_dir, mut art) = artifacts(51234, "");
+            art.swtpm_pid = None;
+            art.swtpm_identity = None;
+            let json = serde_json::to_string(&qemu_meta(&opts(false), &art)).unwrap();
+            assert!(!json.contains("swtpm"), "{json}");
         }
 
         #[test]

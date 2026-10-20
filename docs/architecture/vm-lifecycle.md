@@ -29,6 +29,15 @@ Every running VM has exactly one JSON spec file at
 A sibling `<id>.meta.json` holds PID, backend, clone dir, and viewer
 window id — internal only, not for client consumption.
 
+The meta also records the identity of each process that it names: the `pid`, the
+keeper and, for a QEMU guest with a TPM, the `swtpm_pid`. The identity of a process
+is its start time and the UUID of the boot session (`identity`, `keeper_identity`
+and `swtpm_identity`). A recycled pid has another start time, so a reader signals a
+recorded pid only when the identity matches. The meta of a QEMU guest also records
+its `session_dir`, which holds the monitor socket and the swtpm control socket.
+A meta written before these fields exist has none of them, and a reader still
+accepts it.
+
 ## XDG paths
 
 Resolved by the path helpers in `cli-rs/crates/testanyware-vm/src/paths.rs`.
@@ -60,6 +69,10 @@ queries both backends and presents a unified view.
    copied. If the golden has none, the guest gets a fresh, empty state.
    `vm start` also spawns an `swtpm` (TPM 2.0) and wires it to QEMU as a
    `tpm-tis-device`. A guest that does not need a TPM gets none of these.
+   swtpm ends when its QEMU ends: `vm start` gives its control socket the
+   `terminate` option, which ends swtpm when the control connection closes.
+   A start that fails before QEMU connects stops swtpm with a shutdown command
+   on that socket.
    It needs no `swtpm` installed. `vm start` decides the TPM once, before
    it clones anything. It decides from what the QEMU binary of the host
    reports. The report comes from `qemu-system-aarch64 -machine none
