@@ -13,7 +13,7 @@ use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
 use testanyware_app_protocol::hello::{BUILD_HEADER, PROTOCOL_HEADER};
 use testanyware_app_protocol::{
-    parse_stream_path, AppError, ClientHello, ListRequest, RouteMatch, StatusResponse, StreamKind,
+    parse_end_path, parse_stream_path, AppError, ClientHello, EndRoute, ListRequest, RouteMatch, StatusResponse, StreamKind,
     StreamTarget, LIST_PATH, STREAM_UPGRADE_TOKEN,
 };
 use testanyware_vm::tools::ToolSearch;
@@ -162,6 +162,10 @@ async fn route(
     if path == LIST_PATH && method == Method::POST {
         return start_vm(ctx, req).await;
     }
+    match parse_end_path(&path) {
+        EndRoute::Neither => {}
+        end => return end_vm_or_golden(ctx, req, end).await,
+    }
     match parse_stream_path(&path) {
         RouteMatch::Stream(target, kind) => match serve_stream(ctx, req, &target, kind).await {
             Ok(response) => response,
@@ -177,7 +181,7 @@ async fn route(
             error_response(e.status, &e.error)
         }
         RouteMatch::NotAStreamRoute => {
-            // USAGE_ERROR is a code that exists. The lifecycle routes replace this `404`.
+            // USAGE_ERROR is a code that exists.
             let err = AppError::new(
                 "USAGE_ERROR",
                 format!("The TestAnyware app has no route for {method} {path}."),
@@ -186,6 +190,30 @@ async fn route(
             );
             error_response(StatusCode::NOT_FOUND, &err)
         }
+    }
+}
+
+/// Serve the route that stops a VM or deletes a golden. Both need `POST`.
+async fn end_vm_or_golden(
+    ctx: &Arc<AppContext>,
+    req: &mut Request<Incoming>,
+    route: EndRoute,
+) -> Response<AppBody> {
+    if req.method() != Method::POST {
+        let err = AppError::new(
+            "USAGE_ERROR",
+            format!("{} needs POST, not {}.", req.uri().path(), req.method()),
+            None,
+            json!({ "method": req.method().as_str(), "path": req.uri().path() }),
+        );
+        return error_response(StatusCode::METHOD_NOT_ALLOWED, &err);
+    }
+    match route {
+        EndRoute::Stop { id } => crate::stop_delete::stop_vm(ctx, id).await,
+        EndRoute::BadVmId(id) => crate::stop_delete::not_a_vm(&id),
+        EndRoute::Delete { name } => crate::stop_delete::delete_golden(ctx, req, name).await,
+        EndRoute::BadGoldenName(name) => crate::stop_delete::not_a_golden(&name),
+        EndRoute::Neither => unreachable!("the caller routes only the two end routes"),
     }
 }
 
@@ -324,11 +352,11 @@ fn usage_error(status: StatusCode, message: String, req: &Request<Incoming>) -> 
     )
 }
 
-fn error_response(status: StatusCode, err: &AppError) -> Response<AppBody> {
+pub(crate) fn error_response(status: StatusCode, err: &AppError) -> Response<AppBody> {
     json_response(status, serde_json::to_value(err).expect("error serialises"))
 }
 
-fn json_response(status: StatusCode, body: Value) -> Response<AppBody> {
+pub(crate) fn json_response(status: StatusCode, body: Value) -> Response<AppBody> {
     let mut response = Response::new(AppBody::full(Bytes::from(body.to_string())));
     *response.status_mut() = status;
     response

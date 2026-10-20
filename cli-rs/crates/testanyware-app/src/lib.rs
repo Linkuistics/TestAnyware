@@ -28,6 +28,8 @@ pub mod shell;
 #[cfg(unix)]
 pub mod start;
 #[cfg(unix)]
+pub mod stop_delete;
+#[cfg(unix)]
 pub mod streams;
 #[cfg(unix)]
 pub mod vms;

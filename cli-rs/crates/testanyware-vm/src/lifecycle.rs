@@ -615,22 +615,34 @@ impl VmLifecycle {
     /// depend on it unless `force`. Ports `VMLifecycle.delete` (QEMU
     /// branch; tart detection is backlog task 12).
     pub fn delete(name: &str, force: bool, paths: &VmPaths) -> Result<(), VmError> {
+        Self::delete_with(name, force, paths, &ToolSearch::from_process_path())
+    }
+
+    /// [`delete`](Self::delete), with `tart` found by `tools`. The TestAnyware app deletes with
+    /// its built-in search, because it has no shell environment.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // Only tart is found by `tools`.
+    pub fn delete_with(
+        name: &str,
+        force: bool,
+        paths: &VmPaths,
+        tools: &ToolSearch,
+    ) -> Result<(), VmError> {
         let golden_dir = paths.golden_dir();
         let qcow2 = golden_dir.join(format!("{name}.qcow2"));
 
         // A tart golden (macOS) takes precedence only when no qcow2 of the
         // same name exists — QEMU stays authoritative for its own images.
         #[cfg(target_os = "macos")]
-        if !qcow2.is_file() && crate::tart::golden_exists(name) {
+        if !qcow2.is_file() && crate::tart::golden_exists_in(tools, name) {
             if !force {
-                let running = running_tart_clone_ids(paths, &ToolSearch::from_process_path());
+                let running = running_tart_clone_ids(paths, tools);
                 if !running.is_empty() {
                     // tart cannot cheaply prove which clones back this
                     // image; warn via the in-use error (no pids) unless forced.
                     return Err(VmError::GoldenInUse { name: name.to_string(), clone_pids: vec![] });
                 }
             }
-            if !crate::tart::delete_golden(name) {
+            if !crate::tart::delete_golden_in(tools, name) {
                 return Err(VmError::TartFailed { detail: format!("tart delete {name} failed") });
             }
             return Ok(());
@@ -640,7 +652,7 @@ impl VmLifecycle {
             return Err(VmError::GoldenNotFound { name: name.to_string() });
         }
         if !force {
-            let pids = QemuRunner::running_clones_backed_by(name, paths);
+            let pids = QemuRunner::running_clones_backed_by_in(tools, name, paths);
             if !pids.is_empty() {
                 return Err(VmError::GoldenInUse { name: name.to_string(), clone_pids: pids });
             }

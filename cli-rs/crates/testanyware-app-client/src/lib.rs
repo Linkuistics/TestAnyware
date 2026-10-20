@@ -17,8 +17,9 @@ use http_body_util::{BodyExt, Full, Limited};
 use hyper_util::rt::TokioIo;
 use serde::de::DeserializeOwned;
 use testanyware_app_protocol::{
-    validate_socket_path, AppError, ClientHello, EventLines, StartEvent, StartRequest,
-    StartResult, StreamKind, StreamTarget, UnreachableCause, LIST_PATH, STREAM_UPGRADE_TOKEN,
+    delete_path, stop_path, validate_socket_path, AppError, ClientHello, DeleteRequest,
+    DeleteResult, EventLines, StartEvent, StartRequest, StartResult, StopResult, StreamKind,
+    StreamTarget, UnreachableCause, LIST_PATH, STREAM_UPGRADE_TOKEN,
 };
 
 /// A guest stream after the `101`: the bytes of the guest protocol, unchanged, in both
@@ -112,10 +113,16 @@ impl AppClient {
         let request = request
             .body(Full::new(Bytes::new()))
             .map_err(|e| internal(format!("the request for {path_and_query} is invalid: {e}")))?;
-        let response = sender
-            .send_request(request)
-            .await
-            .map_err(|e| self.connection_error(&e))?;
+        self.read_document(sender.send_request(request).await, path_and_query).await
+    }
+
+    /// The document in a response, or the error object that the app sent in its place.
+    async fn read_document<T: DeserializeOwned>(
+        &self,
+        response: Result<hyper::Response<hyper::body::Incoming>, hyper::Error>,
+        what: &str,
+    ) -> Result<T, AppError> {
+        let response = response.map_err(|e| self.connection_error(&e))?;
         if response.status() != StatusCode::OK {
             return Err(error_of(response).await);
         }
@@ -126,9 +133,48 @@ impl AppClient {
             .to_bytes();
         serde_json::from_slice(&body).map_err(|e| {
             internal(format!(
-                "The TestAnyware app answered {path_and_query} with a document that does not read: {e}."
+                "The TestAnyware app answered {what} with a document that does not read: {e}."
             ))
         })
+    }
+
+    /// Ask the app for a result with `POST path`, and read it as a `T`. `body` is the JSON body of
+    /// the request, if the route takes options. An error object that the app sends in place of
+    /// the result is the error.
+    pub async fn post_json<T: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: Option<&impl serde::Serialize>,
+    ) -> Result<T, AppError> {
+        let mut sender = self.connect(false).await?;
+        let body = match body {
+            Some(body) => serde_json::to_vec(body)
+                .map_err(|e| internal(format!("the request for {path} does not serialise: {e}")))?,
+            None => Vec::new(),
+        };
+        let mut request = Request::builder()
+            .method(Method::POST)
+            .uri(path)
+            .header(HOST, "testanyware")
+            .header(CONTENT_TYPE, "application/json");
+        for (name, value) in self.hello.to_headers() {
+            request = request.header(name, value);
+        }
+        let request = request
+            .body(Full::new(Bytes::from(body)))
+            .map_err(|e| internal(format!("the request for {path} is invalid: {e}")))?;
+        self.read_document(sender.send_request(request).await, path).await
+    }
+
+    /// Ask the app to stop the VM `id` and remove its sidecars, as `vm stop` does. The id must
+    /// be a plain id, which every id that `vm start` made is.
+    pub async fn stop_vm(&self, id: &str) -> Result<StopResult, AppError> {
+        self.post_json(&stop_path(id), None::<&DeleteRequest>).await
+    }
+
+    /// Ask the app to delete the golden image `name`, as `vm delete` does.
+    pub async fn delete_golden(&self, name: &str, force: bool) -> Result<DeleteResult, AppError> {
+        self.post_json(&delete_path(name), Some(&DeleteRequest { force })).await
     }
 
     /// Ask the app to start a VM, and follow the events of the start. `on_progress` receives each

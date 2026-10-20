@@ -9,6 +9,7 @@ pub mod hello;
 pub mod list;
 pub mod socket;
 pub mod start;
+pub mod stop_delete;
 pub mod status;
 pub mod stream;
 pub mod version;
@@ -27,6 +28,10 @@ pub use start::{
     EventLines, HostPort, StartEvent, StartRequest, StartResult, TpmReport, START_CONTENT_TYPE,
 };
 pub use status::StatusResponse;
+pub use stop_delete::{
+    delete_path, parse_end_path, stop_path, DeleteRequest, DeleteResult, EndRoute, StopResult,
+    GOLDEN_NAME_MAX_BYTES,
+};
 pub use stream::{
     is_plain_vm_id, parse_stream_path, RouteMatch, StreamKind, StreamTarget, STREAM_UPGRADE_TOKEN,
 };

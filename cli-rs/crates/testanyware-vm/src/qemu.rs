@@ -9,7 +9,7 @@ use crate::paths::VmPaths;
 use crate::preflight::check_kvm;
 use crate::process::{child_alive, pgrep_first, terminate};
 use crate::start_outcome::{exit_detail, read_log_tail};
-use crate::qemu_profile::{host_profile_in, resolve_uefi_code, which, QemuProfile};
+use crate::qemu_profile::{host_profile_in, resolve_uefi_code, QemuProfile};
 use crate::tools::ToolSearch;
 use crate::tpm::{self, tpm_state_source, TpmDecision, TpmStateSource, TpmWiring};
 
@@ -427,6 +427,16 @@ impl QemuRunner {
     /// PIDs of running clones whose backing qcow2 is `golden_name`. Ports
     /// `QEMURunner.runningClonesBacked`.
     pub fn running_clones_backed_by(golden_name: &str, paths: &VmPaths) -> Vec<i32> {
+        Self::running_clones_backed_by_in(&ToolSearch::from_process_path(), golden_name, paths)
+    }
+
+    /// [`running_clones_backed_by`](Self::running_clones_backed_by), with `qemu-img` found by
+    /// `tools`.
+    pub fn running_clones_backed_by_in(
+        tools: &ToolSearch,
+        golden_name: &str,
+        paths: &VmPaths,
+    ) -> Vec<i32> {
         let golden_qcow2 = paths.golden_dir().join(format!("{golden_name}.qcow2"));
         let Ok(entries) = std::fs::read_dir(paths.clones_dir()) else {
             return Vec::new();
@@ -443,7 +453,7 @@ impl QemuRunner {
                 if p.extension().and_then(|e| e.to_str()) != Some("qcow2") {
                     continue;
                 }
-                if backing_file(&p).as_deref() == Some(golden_qcow2.as_path()) {
+                if backing_file(tools, &p).as_deref() == Some(golden_qcow2.as_path()) {
                     if let Some(pid) = process_holding_qcow2(&dir) {
                         pids.push(pid);
                     }
@@ -481,8 +491,8 @@ pub fn teardown(pid: i32, clone_dir: &Path, session_dir: &Path) {
 
 /// `full-backing-filename` from `qemu-img info --output=json`. Ports
 /// `QEMURunner.backingFile`.
-fn backing_file(qcow2: &Path) -> Option<PathBuf> {
-    let qemu_img = which("qemu-img")?;
+fn backing_file(tools: &ToolSearch, qcow2: &Path) -> Option<PathBuf> {
+    let qemu_img = tools.find("qemu-img")?;
     let output = std::process::Command::new(qemu_img)
         .args(["info", "--output=json"])
         .arg(qcow2)

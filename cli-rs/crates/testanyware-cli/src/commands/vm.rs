@@ -13,7 +13,10 @@ use testanyware_vm::tpm::{OmitReason, TpmDecision};
 use testanyware_vm::{VmError, VmMeta, VmPaths};
 
 use testanyware_app_client::StartEnd;
-use testanyware_app_protocol::{AppError, ListRequest, StartRequest, StartResult, TpmReport};
+use testanyware_app_protocol::{
+    is_plain_vm_id, AppError, ListRequest, StartRequest, StartResult, TpmReport,
+    GOLDEN_NAME_MAX_BYTES,
+};
 
 use crate::app_route;
 use crate::commands::exit_app_error;
@@ -108,7 +111,7 @@ pub async fn run_vm_start(
                 Ok(StartEnd::Started(result)) => Started::from_app(result, &opts.base),
                 // The app sends the code, the message, the remedy and the details of the
                 // direct command's error, so the output is the direct output.
-                Ok(StartEnd::Failed(error)) => exit_start_failure(error, mode),
+                Ok(StartEnd::Failed(error)) => exit_answered_error(error, mode),
                 Err(error) => exit_app_error(error, mode),
             }
         }
@@ -214,10 +217,10 @@ fn tpm_decision(report: TpmReport) -> TpmDecision {
     }
 }
 
-/// Print the error of a start that the app ran and that failed, and exit with the code that the
+/// Print an error that the app sent for a lifecycle command, and exit with the code that the
 /// error has today. The app sends exactly what the direct command prints, so no default remedy
 /// is added here.
-fn exit_start_failure(error: AppError, mode: OutputMode) -> ! {
+fn exit_answered_error(error: AppError, mode: OutputMode) -> ! {
     let exit = exit_code_for(&error.code);
     print_error(mode, &error.code, &error.message, error.remediation.as_deref(), error.details, exit);
 }
@@ -294,11 +297,11 @@ pub async fn run_vm_stop(id: Option<String>, mode: OutputMode, dry_run: bool) {
     };
     let paths = VmPaths::from_process_env();
     let meta_path = paths.meta_path(&id);
-    if !meta_path.is_file() {
-        exit_vm_error(VmError::VmNotFound { id }, mode);
-    }
 
     if dry_run {
+        if !meta_path.is_file() {
+            exit_vm_error(VmError::VmNotFound { id }, mode);
+        }
         let pid = VmMeta::load(&meta_path).ok().map(|m| m.pid);
         let pid_str = pid.map_or_else(|| "unknown".to_string(), |p| p.to_string());
         match mode {
@@ -310,7 +313,18 @@ pub async fn run_vm_stop(id: Option<String>, mode: OutputMode, dry_run: bool) {
         return;
     }
 
-    match VmLifecycle::stop(&id, &paths) {
+    // On a macOS host, and with `TESTANYWARE_APP_SOCKET` set, the TestAnyware app stops the VM,
+    // because it started the VM's processes. Elsewhere the Host CLI stops it. Both print the same.
+    let outcome = match app_socket_with_env(&EnvProvider::process()) {
+        // An id that is no plain id names no VM, which is what the app would answer.
+        Some(_) if !is_plain_vm_id(&id) => Err(VmError::VmNotFound { id: id.clone() }),
+        Some(socket) => match app_route::stop_vm(socket, &id).await {
+            Ok(_) => Ok(()),
+            Err(error) => exit_answered_error(error, mode),
+        },
+        None => VmLifecycle::stop(&id, &paths),
+    };
+    match outcome {
         Ok(()) => match mode {
             OutputMode::Text => println!("stopped {id}"),
             OutputMode::Json => print_success(json!({ "id": id, "stopped": true })),
@@ -377,7 +391,21 @@ pub async fn run_vm_delete(name: String, force: bool, mode: OutputMode, dry_run:
         return;
     }
 
-    match VmLifecycle::delete(&name, force, &paths) {
+    // On a macOS host, and with `TESTANYWARE_APP_SOCKET` set, the TestAnyware app deletes the
+    // golden. Elsewhere the Host CLI deletes it. Both print the same.
+    let outcome = match app_socket_with_env(&EnvProvider::process()) {
+        // A name longer than a file name names no golden, which is what the app would answer.
+        // The path of such a request would be too long for an HTTP request line.
+        Some(_) if name.len() > GOLDEN_NAME_MAX_BYTES => {
+            Err(VmError::GoldenNotFound { name: name.clone() })
+        }
+        Some(socket) => match app_route::delete_golden(socket, &name, force).await {
+            Ok(_) => Ok(()),
+            Err(error) => exit_answered_error(error, mode),
+        },
+        None => VmLifecycle::delete(&name, force, &paths),
+    };
+    match outcome {
         Ok(()) => match mode {
             OutputMode::Text => println!("deleted {name}"),
             OutputMode::Json => print_success(json!({ "name": name, "deleted": true })),
@@ -816,6 +844,25 @@ fn exit_vm_error(err: VmError, mode: OutputMode) -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The app sends the code of a `VmError`, and the Host CLI maps the code back to an exit
+    /// code with its own table. The two must agree for every error that a stop or a delete can
+    /// make, or the routed command would exit with another code than the direct command.
+    #[test]
+    fn the_exit_code_of_a_code_matches_the_error_for_stop_and_delete() {
+        let errors = [
+            VmError::VmNotFound { id: "v".into() },
+            VmError::VmStopFailed { id: "v".into() },
+            VmError::GoldenNotFound { name: "g".into() },
+            VmError::GoldenInUse { name: "g".into(), clone_pids: vec![1] },
+            VmError::TartFailed { detail: "d".into() },
+            VmError::BackendUnsupported { platform: "macos (tart)".into() },
+            VmError::Io("m".into()),
+        ];
+        for err in errors {
+            assert_eq!(exit_code_for(err.code()), err.exit_code(), "{}", err.code());
+        }
+    }
 
     #[test]
     fn tpm_json_covers_every_answer() {

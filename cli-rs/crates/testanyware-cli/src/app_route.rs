@@ -15,8 +15,8 @@ use testanyware_agent_client::{
 use testanyware_app_client::{AppClient, AppStream, StartEnd};
 use testanyware_app_protocol::version::SUPPORTED_RANGE;
 use testanyware_app_protocol::{
-    AppError, ClientHello, Directories, ListRequest, StartRequest, StreamKind, StreamTarget,
-    APP_UNREACHABLE,
+    AppError, ClientHello, DeleteResult, Directories, ListRequest, StartRequest, StopResult,
+    StreamKind, StreamTarget, APP_UNREACHABLE,
 };
 use testanyware_vm::listing::ListView;
 use testanyware_vm::paths::VmPaths;
@@ -84,6 +84,30 @@ pub async fn list_vms(socket: PathBuf, request: &ListRequest) -> Result<ListView
     let client = AppClient::new(socket, client_hello());
     client
         .get_json(&request.path_and_query())
+        .await
+        .map_err(|error| name_missing_install_here(error, client.socket()))
+}
+
+/// Ask the app to stop a VM. A failure to reach the app on the default socket says whether the
+/// app is installed, as for a guest stream.
+pub async fn stop_vm(socket: PathBuf, id: &str) -> Result<StopResult, AppError> {
+    let client = AppClient::new(socket, client_hello());
+    client
+        .stop_vm(id)
+        .await
+        .map_err(|error| name_missing_install_here(error, client.socket()))
+}
+
+/// Ask the app to delete a golden image. A failure to reach the app on the default socket says
+/// whether the app is installed, as for a guest stream.
+pub async fn delete_golden(
+    socket: PathBuf,
+    name: &str,
+    force: bool,
+) -> Result<DeleteResult, AppError> {
+    let client = AppClient::new(socket, client_hello());
+    client
+        .delete_golden(name, force)
         .await
         .map_err(|error| name_missing_install_here(error, client.socket()))
 }

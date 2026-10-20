@@ -376,10 +376,11 @@ prints today, with the exit code that the code has today. Where the app sends no
 `CONNECTION_TIMEOUT`.
 
 The HTTP status is 502 for the first and 504 for the
-second. It is 404 for `VM_NOT_FOUND` and 409 for `NO_CONNECTION_SPECIFIED`. It
-is 400 for `INVALID_ENDPOINT` and for a request that lacks the upgrade headers.
-It is 405 for another method, and 500 for `IO_ERROR`. The Host CLI reads the
-code, never the status.
+second. It is 404 for `VM_NOT_FOUND` and for `GOLDEN_NOT_FOUND`. It is 409 for
+`NO_CONNECTION_SPECIFIED` and for `GOLDEN_IN_USE`. It is 400 for
+`INVALID_ENDPOINT` and for a request that lacks the upgrade headers.
+It is 405 for another method, and 500 for `IO_ERROR`, `VM_STOP_FAILED` and
+`TART_FAILED`. The Host CLI reads the code, never the status.
 
 `POST /v1/vms` carries the options as a JSON body: `platform`, `base`, `id`,
 `display`, `logical`, `keep_on_failure` and `wait_secs`. The Host CLI states
@@ -416,6 +417,33 @@ moment the client left is stopped again.
 The app runs each start on a thread of its own, with its own runtime, because
 a start calls tools that block. It installs no signal handler: a handler in the
 app would end the app. A start answers to the connection of its client only.
+
+`POST /v1/vms/{id}/stop` has no body. The app stops the VM as `vm stop` does
+today. It signals the processes that the meta records, removes the clone, and
+removes the sidecars. It answers `{"id": ..., "stopped": true}`.
+
+An id with no meta fails with `VM_NOT_FOUND`. A stop that cannot remove the VM fails with
+`VM_STOP_FAILED`, and it still removes the sidecars, as the direct command does.
+The identity guard of a signal comes with adoption.
+
+A stop of an id waits while a start or another stop of that id runs. So a stop
+never races the cleanup of a start, and two stops never take one VM down together.
+A stop whose client leaves while it waits does not run.
+
+`POST /v1/goldens/{name}/delete` has the JSON body `{"force": true}` or
+`{"force": false}`. It answers `{"name": ..., "deleted": true}`. A golden with
+running clones fails with `GOLDEN_IN_USE` unless `force` is true. A golden that
+does not exist fails with `GOLDEN_NOT_FOUND`.
+
+The Host CLI percent-encodes a golden name in the path. A golden may hold any
+character that a file name allows. The app decodes it. A decoded name
+fails with `GOLDEN_NOT_FOUND`, before the app looks at the disk. A name fails
+when it is empty, is `.` or `..`, holds `/` or NUL, or is longer than 255 bytes. For a name
+longer than 255 bytes, the Host CLI gives the same answer without a request.
+
+Both routes need `POST`. Each runs to its end when the client's connection
+closes. `--dry-run` of either command stays in the Host CLI and asks the app
+nothing.
 
 ```mermaid
 sequenceDiagram
@@ -910,6 +938,8 @@ The human agreed these three seams in `plan-k1`.
   and a synthetic RFB server. The test writes the sidecars that name them.
 
   This seam covers guest streams, a half-close, a large transfer and `vm list`.
+  It covers `vm stop` and `vm delete`: the VM's processes are `sleep` commands
+  that the test orphans, and a fake `tart` logs each call that it gets.
   It covers `vm start` against a fake `tart`: a clone is a file, and a running VM
   is a `sleep`. The test-mode argument `--test-agent-port` moves the agent port of
   a start. It points the probes at a fake agent, or at a port that refuses, so

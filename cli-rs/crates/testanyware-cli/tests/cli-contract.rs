@@ -928,12 +928,21 @@ fn vm_list_json_emits_truncation_envelope() {
 /// §4 + §5: vm error paths carry a stable code and the correct exit code.
 #[test]
 fn vm_commands_carry_stable_error_codes() {
-    // vm stop on a missing VM → VM_NOT_FOUND, exit 3.
-    let dir = tempfile::tempdir().unwrap();
-    let out = run_env(
-        &["vm", "stop", "testanyware-deadbeef", "--json"],
-        &[("XDG_STATE_HOME", dir.path().to_str().unwrap())],
-    );
+    // vm stop on a missing VM → VM_NOT_FOUND, exit 3. The app answers on Unix hosts, where the
+    // command is routed through it. Elsewhere the CLI reads the temporary state directory.
+    #[cfg(unix)]
+    let out = {
+        let _lock = common::serial();
+        common::TestApp::start().cli(&["vm", "stop", "testanyware-deadbeef", "--json"])
+    };
+    #[cfg(not(unix))]
+    let out = {
+        let dir = tempfile::tempdir().unwrap();
+        run_env(
+            &["vm", "stop", "testanyware-deadbeef", "--json"],
+            &[("XDG_STATE_HOME", dir.path().to_str().unwrap())],
+        )
+    };
     assert_eq!(out.status.code(), Some(3), "vm stop miss must exit 3");
     let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(body["code"], "VM_NOT_FOUND");
@@ -945,11 +954,19 @@ fn vm_commands_carry_stable_error_codes() {
     assert_eq!(body["code"], "INVALID_PLATFORM");
 
     // vm delete of an absent golden → GOLDEN_NOT_FOUND, exit 3.
-    let dir2 = tempfile::tempdir().unwrap();
-    let out = run_env(
-        &["vm", "delete", "testanyware-golden-ghost", "--json"],
-        &[("XDG_DATA_HOME", dir2.path().to_str().unwrap())],
-    );
+    #[cfg(unix)]
+    let out = {
+        let _lock = common::serial();
+        common::TestApp::start().cli(&["vm", "delete", "testanyware-golden-ghost", "--json"])
+    };
+    #[cfg(not(unix))]
+    let out = {
+        let dir2 = tempfile::tempdir().unwrap();
+        run_env(
+            &["vm", "delete", "testanyware-golden-ghost", "--json"],
+            &[("XDG_DATA_HOME", dir2.path().to_str().unwrap())],
+        )
+    };
     assert_eq!(out.status.code(), Some(3), "vm delete miss must exit 3");
     let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(body["code"], "GOLDEN_NOT_FOUND");

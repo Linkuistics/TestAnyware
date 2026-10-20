@@ -265,7 +265,12 @@ pub fn vm_exists_in(tools: &ToolSearch, name: &str) -> bool {
 /// Whether `name` is a tart golden image. Ports the tart arm of
 /// `VMLifecycle.delete`'s backend detection.
 pub fn golden_exists(name: &str) -> bool {
-    list_goldens().iter().any(|g| g.name == name)
+    golden_exists_in(&ToolSearch::from_process_path(), name)
+}
+
+/// [`golden_exists`], with `tart` found by `tools`.
+pub fn golden_exists_in(tools: &ToolSearch, name: &str) -> bool {
+    list_goldens_in(tools).iter().any(|g| g.name == name)
 }
 
 /// `tart clone <base> <id>`. Ports `TartRunner.clone`.
@@ -365,7 +370,12 @@ pub fn stop(id: &str) {
 /// `tart delete <name>` for a golden. `true` on success. Ports
 /// `TartRunner.deleteGolden`.
 pub fn delete_golden(name: &str) -> bool {
-    run_tart(&["delete", name]).exit_code == 0
+    delete_golden_in(&ToolSearch::from_process_path(), name)
+}
+
+/// [`delete_golden`], with `tart` found by `tools`.
+pub fn delete_golden_in(tools: &ToolSearch, name: &str) -> bool {
+    run_tart_in(tools, &["delete", name]).exit_code == 0
 }
 
 /// The per-run log path for `id`, with any prior run's log of the **same

@@ -43,10 +43,10 @@ tasks:
       - cargo test -p testanyware-app-protocol -p testanyware-app -p testanyware-app-client
 
   app:routing-test:
-    desc: Run the real host CLI binary against the real app executable and fake guests (agent, VNC) and a fake tart (vm list, vm start on a macOS host). Uses the default socket on a macOS host and TESTANYWARE_APP_SOCKET elsewhere (macOS or Linux host)
+    desc: Run the real host CLI binary against the real app executable and fake guests (agent, VNC) and a fake tart (vm list, vm start, vm stop and vm delete). Uses the default socket on a macOS host and TESTANYWARE_APP_SOCKET elsewhere (macOS or Linux host)
     dir: '{{.CLI_DIR}}'
     cmds:
-      - cargo test -p testanyware-cli --test app-agent-routing --test app-vnc-routing --test app-vm-list-routing --test app-vm-start-routing
+      - cargo test -p testanyware-cli --test app-agent-routing --test app-vnc-routing --test app-vm-list-routing --test app-vm-start-routing --test app-vm-stop-delete-routing
 
   app:bundle-dev:
     desc: Build and sign the development bundle of the TestAnyware app, bundle id dev.antony.TestAnyware.dev (macOS host). Prints its path. The signing identity is the Developer ID of team TA43A4RUP3, and any other team is refused
