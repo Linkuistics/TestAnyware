@@ -11,7 +11,7 @@ design.
 ## Context
 
 - Read the findings from the committed task record of `vm-broker-design-k5`.
-  Find its commit by that handle; do not treat its proposed corrections as
+  Find its commit by that handle. Do not treat its proposed corrections as
   requirements.
 - The producer is `vm-broker-design-k3`. Its decision log and `plan-k1` hold
   the owner's choices and their rationale.
