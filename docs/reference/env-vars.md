@@ -8,8 +8,8 @@ parent shell before calling `testanyware` or a script under
 
 | Name | Purpose | Default | Consumer |
 |------|---------|---------|----------|
-| `TESTANYWARE_VM_ID` | VM instance id; resolves to `$XDG_STATE_HOME/testanyware/vms/<id>.json` | unset | CLI (`testanyware` all subcommands); `provisioner/scripts/vm-stop.sh` fallback |
-| `TESTANYWARE_VNC` | VNC endpoint `host[:port]` (ad-hoc; no spec file needed). Lower priority than `TESTANYWARE_VM_ID` | unset | `ConnectionSpec.fromEnvironment()` |
+| `TESTANYWARE_VM_ID` | VM instance id. It resolves to `$XDG_STATE_HOME/testanyware/vms/<id>.json` | unset | CLI (`testanyware` all subcommands). `provisioner/scripts/vm-stop.sh` uses it as a fallback |
+| `TESTANYWARE_VNC` | VNC endpoint `host[:port]` (ad-hoc, no spec file needed). Lower priority than `TESTANYWARE_VM_ID` | unset | `ConnectionSpec.fromEnvironment()` |
 | `TESTANYWARE_VNC_PASSWORD` | VNC password used with `TESTANYWARE_VNC` | unset | `ConnectionSpec.fromEnvironment()` |
 | `TESTANYWARE_AGENT` | Agent HTTP endpoint `host[:port]`. Overrides the spec file's agent | unset | `ConnectionSpec.fromEnvironment()` |
 | `TESTANYWARE_PLATFORM` | Target platform: `macos`, `linux`, `windows` | unset | `ConnectionSpec.fromEnvironment()` |
@@ -17,7 +17,7 @@ parent shell before calling `testanyware` or a script under
 | `TESTANYWARE_OCR_PYTHON` | Override the Python interpreter used for the EasyOCR daemon | `python3` on PATH | `TestAnywareServer` OCR bridge |
 | `TESTANYWARE_VNC_DEBUG` | Set to `1` to emit verbose RFB/VNC protocol logging to stderr | `0` | `VNCCapture` |
 | `TESTANYWARE_VNC_ARD_REMAP` | Set to `1` to force Apple Remote Desktop keycode remapping (usually auto-detected) | `0` | `VNCInput` |
-| `TESTANYWARE_RFB_ENCODING` | **Internal / test-only.** Force the RFB client to advertise a single primary encoding — `zrle`, `tight`, or `raw` (plus CopyRect and the desktop-size/last-rect pseudo-encodings) — so the live-VM gate can make a real server exercise each decoder in isolation. Unrecognised value fails with `USAGE_ERROR` (exit 2). | unset (full `zrle`>`tight`>`copyrect`>`raw` preference) | `testanyware-rfb` (`RfbConnection::handshake`) |
+| `TESTANYWARE_RFB_ENCODING` | **Internal / test-only.** Force the RFB client to advertise one primary encoding: `zrle`, `tight`, or `raw`. CopyRect and the desktop-size and last-rect pseudo-encodings stay. The live-VM gate uses it to test each decoder alone against a real server. An unrecognised value fails with `USAGE_ERROR` (exit 2). | unset (full `zrle`>`tight`>`copyrect`>`raw` preference) | `testanyware-rfb` (`RfbConnection::handshake`) |
 | `TESTANYWARE_SKIP_INTEGRATION` | Set to `1` to skip all integration tests in `cli/Tests/IntegrationTests/` | `0` | `VNCIntegrationTests`, `VMLifecycleTests` |
 | `TESTANYWARE_SKIP_VIEWER_TEST` | Set to `1` to opt out of the viewer open/close integration test | `0` | `VMLifecycleTests` |
 | `TESTANYWARE_SERVER_URL` | Base URL for the collect-training-data helper against a running local server | `http://localhost:9100` | `vision/stages/icon-classification/training/collect-training-data.sh` |
@@ -33,7 +33,7 @@ ephemeral state it writes. Defaults are derived from `$HOME`.
 | `XDG_DATA_HOME` | `$HOME/.local/share` | `testanyware/golden/` (QEMU golden images), `testanyware/clones/<id>/` (per-clone QEMU working dirs), `testanyware/cache/` (Windows ISO cache) |
 
 macOS/Linux (tart) golden images live outside this tree, under tart's
-own managed location (`~/.tart/vms/`); only Windows (QEMU) goldens live
+own managed location (`~/.tart/vms/`). Only Windows (QEMU) goldens live
 under `$XDG_DATA_HOME/testanyware/golden/`.
 
 ## Connection resolution order

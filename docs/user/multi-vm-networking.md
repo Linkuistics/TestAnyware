@@ -39,8 +39,8 @@ testanyware vm stop "$vm3"
 
 ## Addressing a single VM from many shells
 
-If you want a subshell or CI step to pick up the VM a sibling step
-started, export the id into the environment or write it to disk.
+A subshell or CI step can pick up the VM that a sibling step started.
+For this, export the id into the environment or write it to disk.
 
 **Pattern 1 — environment variable (single shell tree):**
 
@@ -66,8 +66,8 @@ testanyware vm stop "$(cat .testanyware-vmid)"
 rm .testanyware-vmid
 ```
 
-The filename is arbitrary; pick one that fits the operation and
-`.gitignore` it.
+The filename is arbitrary. Pick one that fits the operation, and add it
+to `.gitignore`.
 
 ## Recovering the id after a shell exit
 
@@ -85,8 +85,8 @@ The filename (minus `.json`) is the id.
 
 No host ports are shared:
 
-- **VNC ports** are dynamically assigned per-VM (tart picks a free
-  high port; QEMU is configured with `-vnc 127.0.0.1:<auto>`). The
+- **VNC ports** are dynamically assigned per-VM. Tart picks a free
+  high port, and QEMU runs with `-vnc 127.0.0.1:<auto>`. The
   actual port is written into `<id>.json → vnc.port`.
 - **Agent port** is 8648 *inside the VM*. The host reaches it via
   `<vm-ip>:8648`, where `<vm-ip>` is allocated per VM by tart

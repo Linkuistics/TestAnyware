@@ -7,14 +7,14 @@ connection flags (resolved in order: `--connect` → `--vm` → explicit
 → error):
 
 - `--connect <path>` — Path to connection spec JSON file.
-- `--vm <id>` — VM instance id; resolves to
+- `--vm <id>` — VM instance id. It resolves to
   `$XDG_STATE_HOME/testanyware/vms/<id>.json`.
 - `--vnc <host:port>` — VNC endpoint (default port `5900`).
 - `--agent <host:port>` — Agent HTTP endpoint (default port `8648`).
 - `--platform <macos|windows|linux>` — Target platform.
 - `--version` / `-h, --help` — Standard flags on every subcommand.
 
-The tables below omit those five flags on each row; assume they are
+The tables below omit those five flags on each row. Assume they are
 always available.
 
 ---
@@ -189,7 +189,7 @@ testanyware input drag <from-x> <from-y> <to-x> <to-y> [--button <button>] [--st
 
 ## `testanyware exec`
 
-**Synopsis:** Execute a command on the VM via agent; captures stdout,
+**Synopsis:** Execute a command on the VM via agent. It captures stdout,
 stderr, and exit code.
 
 ```
@@ -197,7 +197,7 @@ testanyware exec <command> [--detach]
 ```
 
 - `<command>` — Command string.
-- `--detach` — Launch detached; return immediately without waiting.
+- `--detach` — Start the command detached, and return immediately without waiting.
 
 **Example:**
 ```bash
@@ -259,7 +259,7 @@ testanyware find-text [<text>] [--timeout <timeout>]
 ```
 
 - `<text>` — Text to search for (case-insensitive substring match). Omit
-  to return all recognized text.
+  to return all recognised text.
 - `--timeout <timeout>` — Wait up to N seconds for the text to appear.
 
 **Example:**
@@ -308,14 +308,14 @@ testanyware agent snapshot [--mode <mode>] [--window <window>] [--role <role>] [
 - `--depth <depth>` — Maximum tree depth.
 - `--open-menu <label>` — Click a menu-bar item by label via VNC before
   snapshotting. macOS menu submenus are lazy in the AX tree — they only
-  populate once the parent menu is open. The opened menu is left visible
-  after the snapshot; press `Escape` (`testanyware input key escape`) to
+  populate once the parent menu is open. The opened menu stays visible
+  after the snapshot. Press `Escape` (`testanyware input key escape`) to
   close it.
 - `--json` — Output raw JSON instead of formatted text.
 
 ### `testanyware agent inspect`
 
-**Synopsis:** Inspect a single element in detail (font, color, bounds).
+**Synopsis:** Inspect a single element in detail (font, colour, bounds).
 
 ```
 testanyware agent inspect [element-query] [--json]
@@ -348,7 +348,7 @@ testanyware agent focus [element-query]
 
 ### `testanyware agent show-menu`
 
-**Synopsis:** Show the context menu of an element.
+**Synopsis:** Open the context menu of an element.
 
 ```
 testanyware agent show-menu [element-query]
@@ -396,7 +396,7 @@ testanyware agent window-close --window <window>
 
 ### `testanyware agent window-minimize`
 
-**Synopsis:** Minimize a window.
+**Synopsis:** Minimise a window.
 
 ```
 testanyware agent window-minimize --window <window>
@@ -405,7 +405,7 @@ testanyware agent window-minimize --window <window>
 ### `testanyware agent wait`
 
 **Synopsis:** Wait for accessibility to be ready (agent reachable + AX
-initialized). Useful as the first step of a script after a fresh boot.
+initialised). Useful as the first step of a script after a fresh boot.
 
 ```
 testanyware agent wait [--window <window>] [--timeout <timeout>]
@@ -429,35 +429,38 @@ testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--disp
 
 - `--platform <platform>` — `macos`, `linux`, or `windows`. Default: `macos`.
 - `--base <base>` — Base image to clone from. Default: platform-specific
-  golden image (macOS: `testanyware-golden-macos-27`; pass
-  `testanyware-golden-macos-tahoe` for the macOS 26 golden).
+  golden image. For macOS it is `testanyware-golden-macos-27`. Pass
+  `testanyware-golden-macos-tahoe` for the macOS 26 golden.
 - `--id <id>` — VM instance id. Default: `testanyware-<hex8>`.
 - `--display <display>` — Display resolution (e.g. `1920x1080`).
 - `--viewer` — Open a VNC viewer after boot.
 - `--keep-on-failure` — If the start fails while its VM is still running,
   leave the VM and its sidecars for inspection (reclaim with `vm stop`)
-  instead of removing it. A VM whose backend process has exited is always
-  removed.
+  instead of deleting it. A VM whose backend process has exited is always
+  deleted.
 - `--wait[=<seconds>]` — If the macOS guest limit is full, wait for a slot
-  instead of failing at once, then start. Bare `--wait` waits up to 600 s; the
+  instead of failing at once, then start. Bare `--wait` waits up to 600 s. The
   value is in seconds and needs `=` (`--wait=300`). When the wait runs out the
   start fails with `VM_LIMIT_REACHED` (exit `6`), as it does without the flag.
-  While it waits, stderr names the VMs holding the slots; `--json` still prints
+  While it waits, stderr names the VMs holding the slots. `--json` still prints
   only the final result. The retries reuse one clone, and Ctrl-C or SIGTERM
-  removes it. Several waiters are not served in order.
+  deletes it. Several waiters are not served in order.
 
-On every backend (tart: macOS, Linux-on-tart; QEMU: Windows, Linux-on-qcow2) a
-start succeeds only once the guest's agent answers `/health`. Otherwise it
-exits non-zero: `7` `VM_BOOT_TIMEOUT` (stage, last probe error), `6`
-`VM_LIMIT_REACHED` (the macOS guest limit, two per Mac, is full — try again
-later) or `1` `TART_FAILED` / `QEMU_FAILED` (with the backend's log tail, as
-soon as its process exits).
+On every backend (tart for macOS and Linux-on-tart, QEMU for Windows and
+Linux-on-qcow2) a start succeeds only once the guest's agent answers `/health`. Otherwise it
+exits non-zero. The exit codes are:
+
+- `7` `VM_BOOT_TIMEOUT` (stage, last probe error).
+- `6` `VM_LIMIT_REACHED` (the macOS guest limit, two per Mac, is full — try
+  again later).
+- `1` `TART_FAILED` / `QEMU_FAILED` (with the backend's log tail, as soon as
+  its process exits).
 
 **TPM report:** a QEMU-backed start says whether the guest's TPM was attached
-or omitted, and why: a `tpm` object in `--json` (`{"attached": true,
-"ppi_off": ...}` or `{"attached": false, "reason": ...}`), a line on stderr in
-text mode (stdout stays the id). `--dry-run` reports it too. A tart-backed
-start (macOS, tart Linux) has no TPM decision and omits it.
+or omitted, and why. In `--json` it is a `tpm` object (`{"attached": true,
+"ppi_off": ...}` or `{"attached": false, "reason": ...}`). In text mode it is a
+line on stderr, and stdout stays the id. `--dry-run` reports it too. A
+tart-backed start (macOS, tart Linux) has no TPM decision and omits it.
 
 **Example:**
 ```bash
@@ -467,7 +470,7 @@ export TESTANYWARE_VM_ID="$vmid"
 
 ### `testanyware vm stop`
 
-**Synopsis:** Stop a VM and remove its spec file.
+**Synopsis:** Stop a VM and delete its spec file.
 
 ```
 testanyware vm stop [<id>]
@@ -487,7 +490,7 @@ testanyware vm list
 Lists the running VMs TestAnyware started, whatever their id. A running tart VM
 counts when its id starts with `testanyware-` or it has a spec or meta sidecar,
 so `vm start --id koine-verify-1` appears. A sidecar whose VM is not running is
-ignored, not listed as stale; `vm stop <id>` removes it.
+ignored, not listed as stale. `vm stop <id>` deletes it.
 
 ### `testanyware vm delete`
 
@@ -503,22 +506,24 @@ testanyware vm delete <name> [--force]
 ## `testanyware doctor`
 
 **Synopsis:** Diagnose the testanyware install. Reports the running binary,
-the on-PATH binary (`which testanyware`), and the Homebrew prefix; warns when
+the on-PATH binary (`which testanyware`), and the Homebrew prefix. It warns when
 the on-PATH path is not under the Homebrew prefix.
 
 The motivating hazard is a stale `/usr/local/bin/testanyware` dev symlink
 shadowing `/opt/homebrew/bin/testanyware` (PATH order picks the symlink, so
 the brew-installed CLI is silently ignored). The remediation hint targets
-the symlink itself, so following it removes the shadow without touching the
+the symlink itself, so following it clears the shadow without touching the
 brew install.
 
 It also reports the **Windows guest TPM** (ADR-0017): the decision
 `vm start --platform windows` and `vm create-golden --platform windows` make
-from this host's QEMU, without starting anything. The line says the TPM would
-be attached (`TPM attached`, or `TPM attached (PPI off)` under Apple's
-Hypervisor.framework with QEMU 11.1 or later), omitted because this host's
-QEMU cannot supply one, or refused because swtpm is missing (with the
-`brew install swtpm` remediation). If QEMU itself cannot be run, the line
+from this host's QEMU, without starting anything. The line says one of three
+things. The TPM would be attached (`TPM attached`, or `TPM attached (PPI off)`
+under Apple's Hypervisor.framework with QEMU 11.1 or later). Or it would be
+omitted, because this host's QEMU cannot supply one. Or the start would be
+refused, because swtpm is missing (with the `brew install swtpm` remediation).
+
+If QEMU itself cannot be run, the line
 warns that the host could not be checked. In `--json` it is
 `checks.windows_tpm`: the same `tpm` object `vm start` emits
 (`attached`, `ppi_off` or `reason`), plus a `status` of `pass`, `warn` or
@@ -528,8 +533,8 @@ warns that the host could not be checked. In `--json` it is
 testanyware doctor
 ```
 
-**Exit code:** `0` when the install is healthy or Homebrew is not installed;
-`1` when a shadow is detected, `testanyware` is not on PATH, or a Windows
+**Exit code:** `0` when the install is healthy or Homebrew is not installed.
+It is `1` when a shadow is detected, `testanyware` is not on PATH, or a Windows
 start would be refused for want of swtpm. A TPM that would be omitted is a
 warning and does not change the exit code.
 

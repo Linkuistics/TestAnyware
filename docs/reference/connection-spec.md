@@ -35,7 +35,7 @@ fields the host CLI resolves.
 
 Spec files written by VMs that started before SSH was disabled in the
 goldens may still contain a top-level `ssh` field. The decoder ignores
-unknown keys, so legacy specs continue to load; new specs do not emit it.
+unknown keys, so legacy specs continue to load. New specs do not emit it.
 
 ### Canonical writer / reader
 

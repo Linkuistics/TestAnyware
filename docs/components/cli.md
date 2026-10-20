@@ -2,7 +2,7 @@
 
 Rust Cargo workspace that produces the `testanyware` host-CLI binary. It
 orchestrates VM lifecycle and exposes a stable, scriptable surface over the
-in-VM agents (HTTP) and the VNC framebuffer (RFB). This is *the* Host CLI; the
+in-VM agents (HTTP) and the VNC framebuffer (RFB). This is *the* Host CLI. The
 original macOS-only Swift implementation under `cli/` was retired 2026-06-03
 (recoverable from git history).
 
@@ -34,7 +34,7 @@ cli-rs/
 | `crates/testanyware-cli/src/discoverability.rs` | `--json` envelope shape, help-text template enforcement, schema discovery. |
 | `crates/testanyware-vm/src/lifecycle.rs` | `vm start` / `stop` / `list` / `delete` / `create-golden` entry points. |
 | `crates/testanyware-rfb/src/input.rs`, `keymap.rs` | RFB input events + per-platform keymap (powers all `input *`). |
-| `crates/testanyware-protocol/src/lib.rs` | serde wire types — third copy of the agent protocol (alongside `agents/macos/`); kept in sync by the fixtures contract test. |
+| `crates/testanyware-protocol/src/lib.rs` | serde wire types — third copy of the agent protocol (alongside `agents/macos/`). The fixtures contract test keeps it in sync. |
 
 ## Build / test
 
@@ -58,9 +58,9 @@ cargo test  --test cli-contract          # the CLI design contract gate specific
 Native capability is selected per host via `#[cfg(target_os = ...)]` rather than
 a lowest-common-denominator everywhere:
 
-- **OCR** (`screen find-text`): Apple Vision on macOS; EasyOCR daemon
+- **OCR** (`screen find-text`): Apple Vision on macOS, and an EasyOCR daemon
   (`OcrChildBridge`) on Linux/Windows — the `OcrEngine` seam (ADR-0002).
-- **Video** (`screen record`): AVFoundation/VideoToolbox via `objc2` on macOS;
+- **Video** (`screen record`): AVFoundation/VideoToolbox via `objc2` on macOS, and
   `ffmpeg-next` on Linux/Windows — the `VideoEncoder` seam (ADR-0006).
 
 ## Common pitfalls
@@ -73,9 +73,9 @@ a lowest-common-denominator everywhere:
   `docs/architecture/cli-design-contract.md` (stable error codes, `--json` for
   data commands, `--dry-run` for mutating commands, the §7 help template,
   schema discovery). `cargo test --test cli-contract` enforces the offline
-  surface; happy-path checks that need a running VM live in `live-vm-gate.rs`.
+  surface. Happy-path checks that need a running VM live in `live-vm-gate.rs`.
 - **`testanyware-protocol` has sibling copies** — one here, one under
-  `agents/macos/`. They must stay in sync by hand; the fixtures contract test
+  `agents/macos/`. They must stay in sync by hand. The fixtures contract test
   catches wire-shape drift.
 - **First-run macOS Automation permission** still applies to
   `vm start --viewer` and `vm stop` paths that drive System Events. macOS binds

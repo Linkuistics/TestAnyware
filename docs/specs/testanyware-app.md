@@ -256,10 +256,11 @@ The headers are `X-Testanyware-Protocol` (a range such as `1-1`),
 `X-Testanyware-Data-Dir`. A directory value is percent-encoded. A response also
 carries `X-Testanyware-Bundle-Build`, the build of the app bundle on disk, when
 the app can read it. A cask upgrade replaces the bundle under a running app, so
-the app reads it again for each response. A request that
-states no range fails as one with a range that does not overlap. A request that
-states no directories fails as one with other directories. The app compares
-directories as the strings it receives and canonicalises none.
+the app reads it again for each response.
+
+A request that states no range fails as one with a range that does not overlap.
+A request that states no directories fails as one with other directories. The
+app compares directories as the strings it receives and canonicalises none.
 
 | Request | Command | Response |
 |---|---|---|
@@ -280,8 +281,8 @@ setting from the environment of a client.
 fails with `USAGE_ERROR`, and so does an option that the listing does not
 know. The response is the view that `vm list` prints, as JSON: `items`,
 `returned`, `total` and `truncated`. The Host CLI prints the text and the
-`--json` output from that view, as it prints them from a view that it builds
-itself on a Linux or Windows host. The shared protocol crate holds the parser
+`--json` output from that view. On a Linux or Windows host it prints them in the
+same way from a view that it builds itself. The shared protocol crate holds the parser
 and the builder of the query.
 
 The app builds the view at each request, from the sidecars in its state
@@ -398,18 +399,19 @@ It is 405 for another method, and 500 for `IO_ERROR`, `VM_STOP_FAILED` and
 `display`, `logical`, `keep_on_failure` and `wait_secs`. The Host CLI states
 the id and the base that it chose by default, so the app reads nothing from the
 environment of the client. `--viewer` is not an option of the request: the
-viewer runs in the Host CLI on a guest stream after the result. A request that
-the app cannot take fails before the stream, as an error object with its HTTP
-status. These are an unknown platform (`INVALID_PLATFORM`, 400), an id that is
-not a plain VM id, a base that is a path, and a body that does not read
-(`USAGE_ERROR`, 400).
+viewer runs in the Host CLI on a guest stream after the result.
+
+A request that the app cannot take fails before the stream, as an error object
+with its HTTP status. Four requests fail in this way. An unknown platform gives
+`INVALID_PLATFORM` (400). An id that is not a plain VM id, a base that is a
+path, and a body that does not read give `USAGE_ERROR` (400).
 
 The response is `200` with `application/x-ndjson`. Each line is one JSON
 object with an `event` member:
 
 | `event` | Members | When |
 |---|---|---|
-| `progress` | `line` | Each line that `vm start` prints to stderr today, such as the slot-wait line and the display switch. The Host CLI prints it to stderr in both output modes. |
+| `progress` | `line` | Each line that `vm start` prints to stderr today, such as the slot-wait line and the line about the resolution switch. The Host CLI prints it to stderr in both output modes. |
 | `result` | `data` | The start succeeded. `data` has `id`, `platform`, `vnc`, `agent`, `spec_path`, `meta_path` and, for QEMU, `tpm`, in the form that `vm start --json` prints. It ends the stream. |
 | `error` | `error` | The start failed. `error` is the object of the other routes, with the `code`, `message`, `remediation` and `details` that the direct command prints. The Host CLI prints it with the exit code of its table, and adds no default remedy. It ends the stream. |
 
@@ -497,7 +499,7 @@ keeper from its own executable, so a keeper always matches the app's version.
 The executable answers the hidden command `_vnc-keeper` that the keeper runs.
 
 A detached child holds no descriptor of the app. On macOS a new socket gets
-close-on-exec in a second call, so a `fork` on another thread could hand a
+close-on-exec in a second call. So a `fork` on another thread could hand a
 child a client socket that another thread has just accepted. The app starts
 `tart run`, QEMU, the keeper and `swtpm` with `posix_spawn` and
 `POSIX_SPAWN_CLOEXEC_DEFAULT`, which closes every descriptor that a file action
@@ -797,16 +799,31 @@ Each existing code keeps its meaning and its exit code.
   The `app` check holds one item for each fact above: `installed`, `running`,
   `login_item`, `local_network`, `configuration`, `adoption`, `directories`,
   `versions` and `bundle`. An item is `pass`, `warn`, `fail` or `skip`, and only
-  `fail` flips the check. These fail: no bundle while the app does not answer, an
-  app that does not answer, a login item that is off or waits for approval, a
-  denied grant, a configuration that failed, other directories, and ranges that
-  share no version. These warn: a bundle outside the two search paths while the app
-  answers, a grant not yet seen, a file that changed after the evaluation, VMs
-  that were not adopted or whose probes have not finished, builds that differ, and
-  an app older than its bundle. When the app does not answer, `installed` and
-  `running` report and every other item is `skip`. The remedy of a directory
-  mismatch and of a protocol mismatch is the one the commands give in the same
-  case. The schema `docs/reference/cli-schemas/doctor.json` documents each item.
+  `fail` flips the check.
+
+  These fail:
+
+  - no bundle while the app does not answer
+  - an app that does not answer
+  - a login item that is off or waits for approval
+  - a denied grant
+  - a configuration that failed
+  - other directories
+  - ranges that share no version
+
+  These warn:
+
+  - a bundle outside the two search paths while the app answers
+  - a grant not yet seen
+  - a file that changed after the evaluation
+  - VMs that were not adopted or whose probes have not finished
+  - builds that differ
+  - an app older than its bundle
+
+  When the app does not answer, `installed` and `running` report and every other
+  item is `skip`. The remedy of a directory mismatch and of a protocol mismatch is
+  the one the commands give in the same case. The schema
+  `docs/reference/cli-schemas/doctor.json` documents each item.
 - **`llm-instructions`** gains a section on the TestAnyware app. It covers the
   one-time setup by a person, and the rule that a client never starts the app.
   It also covers each error above with its remedy, and golden creation from
@@ -1046,10 +1063,12 @@ The human agreed these three seams in `plan-k1`.
   This seam covers guest streams, a half-close, a large transfer and `vm list`.
   It covers `vm stop` and `vm delete`: the VM's processes are `sleep` commands
   that the test orphans, and a fake `tart` logs each call that it gets.
+
   It covers `vm start` against a fake `tart`: a clone is a file, and a running VM
   is a `sleep`. The test-mode argument `--test-agent-port` moves the agent port of
-  a start. It points the probes at a fake agent, or at a port that refuses, so
-  that a start stays in its agent wait until the test closes its connection.
+  a start. It points the probes at a fake agent, or at a port that refuses.
+  A start then stays in its agent wait until the test closes its connection.
+
   It covers adoption from sidecars, the version handshake, the skew notice, and
   the uid and directory checks. It also covers the directory refusal, the
   configuration errors and how each error maps to the envelope. It covers

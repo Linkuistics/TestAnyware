@@ -12,7 +12,7 @@ public surface — `capabilities` lists them and `schema` references them.
 
 ## Host CLI error codes
 
-Grouped as in the contract (§4.1–§8.2). This table is a convenience copy; if it
+Grouped as in the contract (§4.1–§8.2). This table is a convenience copy. If it
 disagrees with `surface.rs`, `surface.rs` wins.
 
 ### §4.1 — Connection
@@ -33,17 +33,17 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | Code | When |
 |------|------|
 | `VM_NOT_FOUND` | No VM with the given id. |
-| `VM_BOOT_TIMEOUT` | The VM is up but `vm start` stage (`vnc`, `guest-ip`, `agent`) never completed; `details` names the stage and the last probe error. Exit `7`. |
-| `VM_LIMIT_REACHED` | The macOS guest limit (two per Mac) is full; `details.holders` names the VMs. Try again later, or start with `--wait`; a `--wait` that ran out returns it too. Exit `6`. |
-| `VM_STOP_FAILED` | `vm stop` could not terminate the VM cleanly. In the app, the stop of a QEMU guest started by an older release signals no process: `details` names the `monitor_socket` and `swtpm_socket` that still answer, the `disk_holders` (pids) that hold the clone's disk, and a `disk_check_error` when the app could not tell. The app removes nothing. Quit that QEMU by hand and run `vm stop` again. A meta with an identity whose pid now names another process also fails with this code. Nothing is signalled or removed, and `details` holds `pid`, `reason` (`start_time_differs`, `boot_session_differs` or `no_boot_session`), `detail` and `records`. Stop the VM by hand, then remove the two records. |
+| `VM_BOOT_TIMEOUT` | The VM is up, but a `vm start` stage (`vnc`, `guest-ip`, `agent`) never completed. `details` names the stage and the last probe error. Exit `7`. |
+| `VM_LIMIT_REACHED` | The macOS guest limit (two per Mac) is full. `details.holders` names the VMs. Try again later, or start with `--wait`. A `--wait` that ran out returns it too. Exit `6`. |
+| `VM_STOP_FAILED` | `vm stop` could not stop the VM cleanly. In the app, the stop of a QEMU guest started by an older release signals no process. `details` names the `monitor_socket` and `swtpm_socket` that still answer. It also names the `disk_holders` (pids) that hold the clone's disk, and a `disk_check_error` when the app could not tell. The app removes nothing. Quit that QEMU by hand and run `vm stop` again. A meta with an identity whose pid now names another process also fails with this code. Nothing is signalled or removed, and `details` holds `pid`, `reason` (`start_time_differs`, `boot_session_differs` or `no_boot_session`), `detail` and `records`. Stop the VM by hand, then remove the two records. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
 | `GOLDEN_IN_USE` | `vm delete` refused — clones of the golden are running (use `--force`). |
 | `GOLDEN_CREATE_FAILED` | `vm create-golden` aborted. |
 | `TART_FAILED` | A `tart` subprocess exited non-zero, or `tart run` exited before the guest was ready (`details.tart_error` is its log tail). |
-| `QEMU_FAILED` | `qemu-system-*` failed to launch or a QMP command errored. |
+| `QEMU_FAILED` | `qemu-system-*` failed to start or a QMP command errored. |
 | `KVM_PERMISSION_DENIED` | `/dev/kvm` not accessible (Linux host). |
-| `SWTPM_MISSING` | `swtpm` binary not found. Raised before anything is cloned, by the TPM decision, for a Windows guest (or Windows golden creation) on a host whose QEMU can supply a TPM; install it with `brew install swtpm`. Other guests never raise it. |
+| `SWTPM_MISSING` | `swtpm` binary not found. The TPM decision raises it before anything is cloned. It does so for a Windows guest (or Windows golden creation) on a host whose QEMU can supply a TPM. Install it with `brew install swtpm`. Other guests never raise it. |
 | `UEFI_NOT_FOUND` | UEFI firmware path missing. |
 | `SPAWN_FAILED` | Process spawn failed for a backend executable. |
 
@@ -72,7 +72,7 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | Code | When |
 |------|------|
 | `ELEMENT_NOT_FOUND` | Element query matched zero elements. |
-| `ELEMENT_AMBIGUOUS` | Query matched multiple elements; narrow it or pass `--index`. |
+| `ELEMENT_AMBIGUOUS` | Query matched multiple elements. Narrow it, or pass `--index`. |
 | `WINDOW_NOT_FOUND` | No window matched the `--window` filter. |
 | `ACTION_UNSUPPORTED` | Element matched but does not support the requested action. |
 | `EXEC_FAILED` | Process failed to spawn (exec itself). |
@@ -118,16 +118,16 @@ contract's §4.5 mapping table is authoritative for the translation.
 | `error` string | Emitted by | Meaning |
 |----------------|------------|---------|
 | `not_found` / `element_not_found` | `/inspect`, `/press`, `/set-value`, `/focus`, `/show-menu` | Element query matched zero elements. |
-| `ambiguous` / `multiple_matches` | Same endpoints | Query matched multiple elements; supply `--index N` or a more specific filter. |
+| `ambiguous` / `multiple_matches` | Same endpoints | Query matched multiple elements. Supply `--index N` or a more specific filter. |
 | `window_not_found` | `/window-*` endpoints | No window matched the `--window` filter. |
 | `action_unsupported` | `/press`, `/set-value`, etc. | Element matched but does not support the requested action. |
 | `accessibility_unavailable` | `/health`, `/snapshot`, `/wait` | OS-level accessibility disabled or not yet granted. |
 | `exec_failed` | `/exec` | Process failed to spawn (exit codes are returned inside the response, not as an error). |
 | `upload_failed` / `download_failed` | `/upload`, `/download` | File I/O error on the VM. |
 
-The agents don't all agree on a single canonical set of error strings — the
-host-side mapping compares by HTTP status first, then by `error` string as a
-best-effort diagnostic. Clients should tolerate unknown error strings.
+The agents do not share one canonical set of error strings. The host-side
+mapping compares the HTTP status first. Then it compares the `error` string as
+a best-effort diagnostic. Clients should tolerate unknown error strings.
 
 Exec output (`/exec`) is **not** an error: it always returns 2xx with
 `{success, message, stdout, stderr, exitCode}` so the caller can inspect the

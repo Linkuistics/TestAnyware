@@ -1,9 +1,9 @@
 # CLI Design Contract
 
 **Status:** Authoritative for the `testanyware` host CLI (`cli-rs/`). Every
-command must satisfy the shape described below; the `cli-contract.rs`
-integration test is the gate. (The original macOS-only Swift CLI was retired
-2026-06-03; §10 records the audit that drove the port.)
+command must satisfy the shape described below. The `cli-contract.rs`
+integration test is the gate. The original macOS-only Swift CLI was retired
+2026-06-03. §10 records the audit that drove the port.
 
 **Authority:** This document is referenced by name from the acceptance
 criteria of every command's work. Any deviation must be raised as a contract
@@ -15,6 +15,8 @@ amendment first.
 surface (the now-retired Swift CLI) and `docs/reference/error-codes.md`.
 
 ---
+
+<!-- tc: pending because the conversion has not reached sections 1 to 4.7 -->
 
 ## 1. Verb/noun convention
 
@@ -311,10 +313,12 @@ version bump.
 >   guest IP for tart, the loopback forward for QEMU), so commands against it
 >   report the real connection error.
 
+<!-- tc: on -->
+
 > **Amendment 2026-10-19** (`reliable-macos-start-k4`, issue #3, ADR-0019):
 > `VM_BOOT_TIMEOUT` at the agent stage gains `details.cause`. A tart guest is
-> on a host-only subnet, and macOS Local Network privacy can refuse this
-> process a route to it while the agent is healthy. The refusal is errno `65`
+> on a host-only subnet. macOS Local Network privacy can refuse this process a
+> route to it while the agent is healthy. The refusal is errno `65`
 > (`host_unreachable`), the same errno as a guest that has not answered ARP.
 >
 > - After five `host_unreachable` probes in a row, `vm start` asks the platform
@@ -329,6 +333,8 @@ version bump.
 > - A QEMU guest is on loopback and never asks.
 >
 > `vm start` does not route any agent call through `nc`.
+
+<!-- tc: pending because the conversion has not reached the later amendments of section 4.2 and sections 4.3 to 4.7 -->
 
 > **Amendment 2026-10-19** (`start-wait-for-slot-k6`, issue #3): `vm start`
 > gains `--wait[=<seconds>]` to wait out a full macOS guest limit.
@@ -445,11 +451,13 @@ strings surface as `code: AGENT_ERROR_UNKNOWN` with the wire string in
 > to catalogue the `--require-match` failure mode §10.1 already referenced.
 > It joins the `*_NOT_FOUND` family at exit code `3` (§5).
 
+<!-- tc: on -->
+
 ### 4.8 Catalogue exposure
 
 `testanyware capabilities --json` (see §8) MUST emit the full code
 catalogue in `error_codes`. Adding a new code in a release means the
-catalogue grows by one entry; agents can poll for additions.
+catalogue grows by one entry. Agents can poll for additions.
 
 ---
 
@@ -475,6 +483,8 @@ code is only `0` on a clean spawn AND a clean in-VM exit.
 codes it can produce (see §7).
 
 ---
+
+<!-- tc: pending because the conversion has not reached sections 6 to 8.2 -->
 
 ## 6. Identifier conventions
 
@@ -630,11 +640,13 @@ testanyware schema agent snapshot
 Exit `3` with `code: SCHEMA_NOT_FOUND` (catalogued in §4.7) when the
 command is unknown or has no declared schema.
 
+<!-- tc: on -->
+
 ### 8.3 `testanyware llm-instructions`
 
 **Required.** The full LLM usage guide for the binary, emitted as plain
-text on stdout. This command is the single source of truth: it embeds
-the repo-root `LLM_INSTRUCTIONS.md` at build time (`include_str!`), so an
+text on stdout. This command is the single source of truth. It embeds
+the repo-root `LLM_INSTRUCTIONS.md` at build time (`include_str!`). So an
 LLM agent that has only the installed binary — e.g. a Homebrew install
 with no source checkout — can read or prepend the complete reference.
 
@@ -646,19 +658,21 @@ It covers:
 - Command reference for `vm`, `agent`, `input`, `screen`, `file`.
 - End-to-end workflow recipes (discover-then-act, visual verification).
 - Common mistakes:
-  - "Don't parse text output; use `--json`."
-  - "Don't click stale pixel coordinates; re-snapshot or filter by window."
-  - "Don't poll `agent windows` in a tight loop; use `agent wait`."
+  - "Don't parse text output. Use `--json`."
+  - "Don't click stale pixel coordinates. Re-snapshot or filter by window."
+  - "Don't poll `agent windows` in a tight loop. Use `agent wait`."
 - Authentication and state assumptions.
 - JSON output, exit codes, and idempotency conventions.
 
 Every instruction MUST be runnable with only the installed binary — no
 source checkout, no repo-relative paths. Keep the guide lean enough to
-prepend as LLM context (well under 3000 tokens); if it must grow
+prepend as LLM context (well under 3000 tokens). If it must grow
 substantially, add `--topic <name>` / `--section <name>` flags rather
 than introducing subcommands.
 
 ---
+
+<!-- tc: pending because the conversion has not reached sections 9 to 9.4 -->
 
 ## 9. Behaviour invariants
 
@@ -724,6 +738,8 @@ element lists), and `screen find-text` (when no query is supplied)
 default to `--limit 100`. `--all` is required to opt into unbounded
 output. Truncation is signalled per §3.5.
 
+<!-- tc: on -->
+
 ### 9.5 Hidden state
 
 Any environment variable that influences behaviour MUST be listed in
@@ -732,6 +748,8 @@ under `env_vars`. Errors that result from a missing env var MUST name
 that env var in `remediation`.
 
 ---
+
+<!-- tc: pending because the conversion has not reached sections 10 to 12 -->
 
 ## 10. Gap report — Swift CLI vs. this contract (historical)
 
