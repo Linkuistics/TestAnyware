@@ -41,7 +41,22 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
 2. `vm-broker-design` (design): the spec of the TestAnyware app, and the
    rework of ADR-0004 and ADR-0019.
 3. `vm-broker-increments` (planning): the working increments of the agreed
-   design, which end with a release leaf.
+   design, which end with a release leaf. Planning cut them in this order:
+   - `agent-client-hyper`: the agent client runs on any byte stream. No
+     behaviour changes.
+   - `app-streams`: a headless app serves guest streams, and the Host CLI
+     routes agent and VNC connections through it when a test variable asks.
+   - `app-bundle`: the signed menu bar app, and macOS routes through it by
+     default. An agent under herdr can drive a guest that a person started.
+   - `app-lifecycle`: the four lifecycle commands run in the app. An agent
+     under herdr can start, drive and stop a macOS guest. The herdr acceptance
+     run passes on the development bundle.
+   - `app-adoption`: VMs outlive the app, and the app adopts them.
+   - `app-version-skew`: a mismatch is never silent.
+   - `app-configuration`: the Rhai file.
+   - `app-diagnostics`: `doctor`, the `llm-instructions` and the documents.
+   - `app-release`: the notarised cask, the upgrade check, the acceptance run
+     on the release build, and the publication.
 
 ## Pointers
 

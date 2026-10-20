@@ -1,0 +1,28 @@
+# app-vm-start-k27
+
+## Goal
+
+Run `vm start` in the app. The CLI sends the options and prints the progress and the result as it does today.
+
+## Context
+
+- `docs/specs/testanyware-app.md`, sections "The protocol", "Lifecycle and adoption" and "The Local Network diagnosis".
+- ADR-0017, ADR-0018 and ADR-0019.
+- The start, the health wait and the keeper code of the vm crate.
+- The amendment of the CLI contract for `vm start --wait`, which writes progress to stderr.
+
+## Done when
+
+- `POST /v1/vms` answers with progress events as NDJSON. A result event or an error event ends the stream.
+- The CLI prints the progress lines to stderr as today, and it prints the result with the same stdout and exit code. `--quiet` and `--json` keep their meaning.
+- The app spawns `tart run`, QEMU, swtpm and the keeper detached, each in its own session. The keeper runs from the app's own executable.
+- The app reaps each child that exits. A test shows that no zombie stays.
+- When the client closes its connection before the result, the app cancels the start and cleans up as after a failed start. `--wait` ends its wait for a slot.
+- The health wait keeps its rule of five `host_unreachable` probes and then the `nc` oracle. A denial ends the start with `VM_BOOT_TIMEOUT`, cause `local_network_denied`. The remedy names the TestAnyware app.
+- Unit tests cover the cancellation and the denial with scripted probes.
+- The leaf records one live start of a macOS guest through the app from Terminal.
+
+## Notes
+
+- Start `swtpm` as the direct path does today. The `terminate` option and the identity records come in `app-adoption-k14`.
+- The direct path of Linux and Windows hosts keeps its remedy text for a denial. The text names the app only on a macOS host.
