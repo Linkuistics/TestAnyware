@@ -42,6 +42,16 @@ tasks:
     cmds:
       - cargo test -p testanyware-cli --test app-agent-routing --test app-vnc-routing
 
+  app:bundle-dev:
+    desc: Build and sign the development bundle of the TestAnyware app, bundle id dev.antony.TestAnyware.dev (macOS host). Prints its path. The signing identity is the Developer ID of team TA43A4RUP3, and any other team is refused
+    cmds:
+      - scripts/build-app.sh dev
+
+  app:bundle-live:
+    desc: Live check on this Mac. Open the development bundle through LaunchServices, read GET /v1/status on the app socket, read the status item's menu, and quit it. Needs no guest and uses the real app socket, so quit a running app first
+    cmds:
+      - scripts/app-bundle-live.sh
+
   cli:clippy:
     desc: Lint cli-rs (clippy has pre-existing warnings in testanyware-rfb and two large-Err sites, so this reports and never gates)
     dir: '{{.CLI_DIR}}'
@@ -75,7 +85,7 @@ tasks:
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
-      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh
+      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh
     cmds:
       - shellcheck -x {{.SCRIPTS}}
       - shfmt -i 2 -ci -d {{.SCRIPTS}}

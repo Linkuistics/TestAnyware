@@ -894,6 +894,11 @@ The human agreed these three seams in `plan-k1`.
   with a TestAnyware release.
 - **A login item that waits for approval.** Koine never observed the status
   `requiresApproval`. `doctor` reports it with a remedy.
+- **No deep link to the Local Network row.** On macOS 27.0.1 no anchor of System
+  Settings reaches the row. The menu item "Open Local Network Settings…" opens
+  Privacy & Security, where the person selects Local Network. The Privacy
+  extension has anchors such as `Privacy_Camera` and none for Local Network.
+  The URL stays in one constant, so a later macOS release can improve the item.
 - **A silent stall of every stream.** This is the most frequent failure of a
   relay in the survey. One dial for each stream and the Host CLI's own timeouts bound it.
   This delivery adds no watchdog.

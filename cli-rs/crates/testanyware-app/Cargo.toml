@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "The TestAnyware app: serves guest streams on a Unix socket. This crate holds no AppKit code."
+description = "The TestAnyware app: serves guest streams on a Unix socket, behind a menu bar status item on macOS."
 
 [lib]
 name = "testanyware_app"
@@ -34,6 +34,14 @@ bytes = { workspace = true }
 # `user` gives geteuid, the uid that the peer check compares with. `net` gives getifaddrs,
 # which lists the networks that the host attaches.
 nix = { workspace = true, features = ["user", "net"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# The status item and the login item (ADR-0003: objc2 bindings, no Swift shim). Only the
+# `shell` module uses them, and Linux builds never compile them.
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSString", "NSURL", "NSError", "NSObject", "NSNotification", "NSThread"] }
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSResponder", "NSStatusBar", "NSStatusItem", "NSStatusBarButton", "NSButton", "NSControl", "NSView", "NSMenu", "NSMenuItem", "NSWorkspace", "NSImage", "NSRunningApplication"] }
+objc2-service-management = { version = "0.3", default-features = false, features = ["std", "SMAppService", "objc2", "objc2-foundation"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
