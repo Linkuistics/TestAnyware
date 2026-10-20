@@ -113,7 +113,8 @@ fn truncate(text: &str, max: usize) -> String {
     }
 }
 
-fn kind_from_errno(os_errno: Option<i32>) -> ProbeKind {
+/// The kind of a failed connect from its raw errno. The app's guest dial uses the same rule.
+pub fn kind_from_errno(os_errno: Option<i32>) -> ProbeKind {
     use std::io::ErrorKind;
     let Some(code) = os_errno else {
         return ProbeKind::Connect;

@@ -8,6 +8,7 @@ pub mod error;
 pub mod hello;
 pub mod socket;
 pub mod status;
+pub mod stream;
 pub mod version;
 
 pub use error::{AppError, Peer};
@@ -17,4 +18,7 @@ pub use socket::{
     SOCKET_PATH_MAX_BYTES,
 };
 pub use status::StatusResponse;
+pub use stream::{
+    is_plain_vm_id, parse_stream_path, RouteMatch, StreamKind, StreamTarget, STREAM_UPGRADE_TOKEN,
+};
 pub use version::ProtocolRange;

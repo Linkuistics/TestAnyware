@@ -272,6 +272,31 @@ That request changes nothing, and `doctor` needs it to report a mismatch. The
 response keeps the app's build, protocol range and directories in the same
 fields in every protocol version.
 
+A request for a guest stream is a `GET` that carries `Connection: Upgrade`,
+`Upgrade: testanyware-stream` and the headers of the handshake. A request that
+lacks the two upgrade headers, or uses another method, fails with `USAGE_ERROR`
+and dials nothing. The app checks the request, finds the endpoint and dials it.
+Only when the dial connects does it answer `101 Switching Protocols`, with the
+same two upgrade headers.
+
+The path grammar is exact, and the shared protocol crate holds both its parser
+and its builder:
+
+- A VM id has ASCII letters, digits, `.`, `-` and `_`, and it has no leading dot.
+  The app never decodes it. Any other id fails with `VM_NOT_FOUND`, and the app
+  does not look at the disk for it.
+- An endpoint is `host:port`, with the port from 1 to 65535. The host is a name
+  of letters, digits, `.`, `-` and `_`, or an address. An IPv6 address has
+  brackets, which a path encodes as `%5B` and `%5D`. The Host CLI resolves any
+  default port before it asks.
+
+For a VM, the app reads the spec in `vms/{id}.json` of its state directory. It
+takes the `agent` or the `vnc` endpoint from it. An id with no spec fails with
+`VM_NOT_FOUND`, and a spec with no `agent` section fails an agent stream with
+`NO_CONNECTION_SPECIFIED`. A spec that does not read fails with `IO_ERROR`. An
+endpoint that does not parse fails with `INVALID_ENDPOINT`. These codes and
+their messages are the ones that the Host CLI prints today.
+
 A guest stream carries the guest protocol's bytes unchanged, in both
 directions:
 
@@ -329,6 +354,12 @@ An error before the upgrade is a JSON object in the Host CLI's own vocabulary:
 prints today, with the exit code that the code has today. A failed dial is
 `CONNECTION_REFUSED` with its errno, and a dial that times out is
 `CONNECTION_TIMEOUT`.
+
+The HTTP status is 502 for the first and 504 for the
+second. It is 404 for `VM_NOT_FOUND` and 409 for `NO_CONNECTION_SPECIFIED`. It
+is 400 for `INVALID_ENDPOINT` and for a request that lacks the upgrade headers.
+It is 405 for another method, and 500 for `IO_ERROR`. The Host CLI reads the
+code, never the status.
 
 When the client's connection closes before a `vm start` result, the app
 cancels the start and cleans up as it does after a failed start. `vm start
@@ -477,7 +508,11 @@ connection that it makes to a guest:
 - **A guest stream** retries a `host_unreachable` dial for 5 s at most. A new
   executable UUID gave a refusal of about 2 s in the measurements. Then the app
   asks `nc`. The error is `CONNECTION_REFUSED`, with `details.cause`
-  `local_network_denied` or `host_unreachable`.
+  `local_network_denied` or `host_unreachable`. A try that fails with another
+  error ends the dial at once. The window counts from the first try, and a try
+  in progress runs to its end. So a denial takes about 8 s: three tries of
+  about 2 s, then `nc`. One try has a limit of 10 s, and a try that passes it is
+  `CONNECTION_TIMEOUT`.
 
 The remedy names the app: allow TestAnyware in System Settings, Privacy &
 Security, Local Network. A person does this once, and again when an upgrade

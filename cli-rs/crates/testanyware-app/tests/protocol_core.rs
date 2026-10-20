@@ -312,15 +312,15 @@ async fn the_app_closes_a_connection_whose_peer_uid_is_not_its_own() {
     let dirs = dirs_in(tmp.path());
 
     let ctx = |own_uid| {
-        Arc::new(testanyware_app::AppContext {
-            identity: AppIdentity {
+        Arc::new(testanyware_app::AppContext::new(
+            AppIdentity {
                 build: BUILD.into(),
                 protocol_range: ProtocolRange::new(1, 1),
                 directories: dirs.clone(),
             },
             own_uid,
-            config_path: None,
-        })
+            None,
+        ))
     };
 
     // Positive control: with the right uid the same request is answered.

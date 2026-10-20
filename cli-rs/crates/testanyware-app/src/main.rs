@@ -80,8 +80,8 @@ async fn main() -> ExitCode {
         }
     };
 
-    let ctx = Arc::new(AppContext {
-        identity: AppIdentity {
+    let ctx = Arc::new(AppContext::new(
+        AppIdentity {
             build: env!("CARGO_PKG_VERSION").to_string(),
             protocol_range: SUPPORTED_RANGE,
             directories: Directories {
@@ -90,8 +90,8 @@ async fn main() -> ExitCode {
             },
         },
         own_uid,
-        config_path: args.config,
-    });
+        args.config,
+    ));
     eprintln!("testanyware-app: serving on {}", socket.display());
 
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())

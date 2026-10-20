@@ -17,6 +17,12 @@ pub struct VmPaths {
 }
 
 impl VmPaths {
+    /// Directories that the caller resolved. The TestAnyware app takes them from its request
+    /// headers and its arguments, never from its own environment.
+    pub fn new(state_dir: PathBuf, data_dir: PathBuf, tmp_dir: PathBuf) -> Self {
+        Self { state_dir, data_dir, tmp_dir }
+    }
+
     /// Resolve from the process environment.
     pub fn from_process_env() -> Self {
         let env: HashMap<String, String> = std::env::vars().collect();

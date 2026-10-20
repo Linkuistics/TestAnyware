@@ -17,6 +17,9 @@ path = "src/main.rs"
 
 [dependencies]
 testanyware-app-protocol = { path = "../testanyware-app-protocol" }
+# `spec` and `paths` read the VM records in the state directory. `health` and `local_network`
+# hold the errno classification and the `nc` oracle that the dial reuses (ADR-0019).
+testanyware-vm = { path = "../testanyware-vm" }
 clap = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true }
@@ -28,8 +31,12 @@ hyper = { workspace = true, features = ["server"] }
 hyper-util = { workspace = true }
 http-body-util = { workspace = true }
 bytes = { workspace = true }
-# `user` gives geteuid, the uid that the peer check compares with.
-nix = { workspace = true, features = ["user"] }
+# `user` gives geteuid, the uid that the peer check compares with. `net` gives getifaddrs,
+# which lists the networks that the host attaches.
+nix = { workspace = true, features = ["user", "net"] }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# `test-util` pauses the clock, so the 5 s retry window runs in no time in a test.
+tokio = { workspace = true, features = ["test-util"] }
+wiremock = { workspace = true }

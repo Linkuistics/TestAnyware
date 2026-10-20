@@ -24,3 +24,5 @@ Route every VNC connection through a guest stream when `TESTANYWARE_APP_SOCKET` 
 
 - The VNC keeper (ADR-0018) holds one silent connection and carries no traffic. It stays outside this leaf.
 - After this leaf, no agent or VNC connection of the Host CLI is direct when the variable is set. Golden creation stays direct on every host.
+- `app-guest-streams-k23` has the synthetic RFB server (`FakeRfb` in `crates/testanyware-app/tests/guest_streams.rs`). It speaks the version, the security type None and `ServerInit`, then moves counted bytes. A capture, a key press and a recording need real framebuffer messages on top of it.
+- The app relays a half-close, so an RFB client that shuts down its write half still reads the rest of the guest's bytes.

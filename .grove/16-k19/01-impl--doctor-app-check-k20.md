@@ -23,3 +23,4 @@ Add the `app` check to `doctor`. The `config` check and the rule that `doctor` r
 ## Notes
 
 - The status request of `doctor` changes nothing in the app.
+- `app-guest-streams-k23` keeps the Local Network observation in `AppContext::grant`, an enum with `NotYetSeen`, `Allowed` and `Denied`. The last two carry the destination and the time. `GET /v1/status` does not report it yet. Add a field to `StatusResponse` (`testanyware-app-protocol/src/status.rs`) and fill it from `AppContext`. Older readers ignore unknown fields.
