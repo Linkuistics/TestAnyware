@@ -1,7 +1,20 @@
 #!/usr/bin/env bash
 #
-# Build the bundled tarball(s) for the current git tag and render the
-# Homebrew formula from scripts/templates/testanyware.rb.tmpl.
+# Build a release candidate of one local annotated tag: the bundled archives, the notarised
+# TestAnyware app, the Homebrew formula and cask, and a manifest that fixes the identity of the
+# build. Nothing is published.
+#
+#   release-build.sh vX.Y.Z
+#
+# The tag is an explicit input. Two candidate tags can exist at the same time, so nothing here
+# infers one with `git describe`. The build refuses unless the tag is local and annotated, HEAD is
+# the tag's commit and the tree is clean (scripts/release_candidate.py states the rule).
+#
+# In a jj checkout, tag the commit and make the working copy an empty child of it, so that git's
+# HEAD is the tagged commit:
+#   git tag -a vX.Y.Z -m "Release vX.Y.Z" <commit>    # jj makes lightweight tags only
+#   jj new <commit>
+# A change to code, scripts or build inputs after the tagged commit voids the candidate.
 #
 # Targets:
 #   - aarch64-apple-darwin            (native; the macOS host CLI)
@@ -50,12 +63,20 @@
 #     .exe (grove 220/070, ADR-0011 — EasyOCR is uninstallable on win-arm64), so
 #     nothing extra ships in the zip. ADR-0002 seam unchanged.
 #
-# Output: target/dist/
+# The TestAnyware app is built for the release channel (bundle id dev.antony.TestAnyware), signed
+# with the hardened runtime, notarised, stapled and archived as
+# testanyware-app-v<ver>-aarch64-apple-darwin.zip, which the cask downloads. Notarisation needs the
+# owner's credentials in the keychain (release-doctor.sh checks them).
+#
+# Output: target/candidates/<tag>/, one directory for each candidate. Building another tag keeps it.
 #   testanyware-v<ver>-<triple>.tar.xz   (one per macOS/Linux target)
 #   testanyware-v<ver>-<triple>.zip      (one per Windows target)
-#   testanyware.rb
+#   testanyware-app-v<ver>-aarch64-apple-darwin.zip   (the notarised app)
+#   testanyware.rb, testanyware-app.rb   (formula and cask, one version)
+#   manifest.json                        (tag, commit, sha256 of each file above)
 #
-# After this completes, inspect target/dist/ and run release-publish.sh.
+# After this completes, inspect the candidate and run the checks on it. release-publish.sh <tag>
+# publishes a recorded candidate.
 #
 # Tool floors picked up by `testanyware doctor` (when the doctor can locate
 # this script — i.e. running from a dev build inside the source tree):
@@ -68,8 +89,14 @@ set -euo pipefail
 IFS=$'\n\t'
 
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-readonly DIST_DIR="$REPO_ROOT/target/dist"
+readonly CANDIDATES_DIR="$REPO_ROOT/target/candidates"
 readonly TEMPLATE="$REPO_ROOT/scripts/templates/testanyware.rb.tmpl"
+readonly CASK_TEMPLATE="$REPO_ROOT/scripts/templates/testanyware-app.rb.tmpl"
+readonly CANDIDATE_PY="$REPO_ROOT/scripts/release_candidate.py"
+# Set in main() from the tag. DIST_DIR is the candidate's directory.
+DIST_DIR=""
+BUILD_REVISION=""
+APP_ZIP=""
 readonly CLI_RS="$REPO_ROOT/cli-rs"
 readonly CARGO_TOML="$CLI_RS/Cargo.toml"
 
@@ -122,20 +149,9 @@ die() {
 # and `capabilities`.version) reflects the tag. set_cli_version is called once
 # in main() before any build; restore_cli_version reverts Cargo.toml +
 # Cargo.lock on exit (including failure) so the tree returns to the dev version.
+# main() installs the trap after the gate: a refused run must not discard a person's own edits.
 restore_cli_version() {
   git -C "$REPO_ROOT" checkout -- "$CARGO_TOML" "$CLI_RS/Cargo.lock" 2>/dev/null || true
-}
-trap restore_cli_version EXIT
-
-require_clean_tagged_tree() {
-  [[ -z "$(git -C "$REPO_ROOT" status --porcelain)" ]] \
-    || die "working tree is dirty; commit or stash before releasing"
-  git -C "$REPO_ROOT" describe --tags --exact-match HEAD >/dev/null 2>&1 \
-    || die "HEAD is not a tagged commit; create one with 'git tag -a v<x.y.z> -m ...'"
-}
-
-read_version() {
-  git -C "$REPO_ROOT" describe --tags --abbrev=0 | sed 's/^v//'
 }
 
 # Helper functions whose stdout is captured via $(...) MUST send all progress
@@ -179,9 +195,7 @@ windows_bindgen_target() {
 build_cli() {
   local stage_bin="$1"
   echo "release-build: building CLI (testanyware, Rust, $MACOS_TARGET)" >&2
-  local git_describe
-  git_describe="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo unknown)"
-  TESTANYWARE_GIT_REVISION="$git_describe" \
+  TESTANYWARE_GIT_REVISION="$BUILD_REVISION" \
     cargo build --manifest-path "$CARGO_TOML" -p testanyware-cli --release >&2
   local bin_path="$CLI_RS/target/release/testanyware"
   [[ -f "$bin_path" ]] || die "CLI build did not produce $bin_path"
@@ -205,13 +219,11 @@ build_cli_cross_linux() {
   [[ -d "$sr/lib/pkgconfig" ]] \
     || die "ffmpeg sysroot for $triple not found at $sr/lib/pkgconfig (run release-doctor.sh)"
   echo "release-build: cross-building CLI for $triple (cargo-zigbuild)" >&2
-  local git_describe
-  git_describe="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo unknown)"
   (
     cd "$CLI_RS" \
     && PKG_CONFIG_ALLOW_CROSS=1 \
        PKG_CONFIG_LIBDIR="$sr/lib/pkgconfig" \
-       TESTANYWARE_GIT_REVISION="$git_describe" \
+       TESTANYWARE_GIT_REVISION="$BUILD_REVISION" \
        RUSTFLAGS="-C link-arg=-Wl,-rpath,\$ORIGIN/../lib -C link-arg=-L$sr/lib -C link-arg=-Wl,--no-as-needed -C link-arg=-lswresample -C link-arg=-Wl,--as-needed" \
        cargo zigbuild -p testanyware-cli --bin testanyware --target "$triple" --release >&2
   )
@@ -252,14 +264,12 @@ build_cli_cross_windows() {
     || die "ffmpeg sysroot for $triple not found at $sr/lib/pkgconfig (run release-doctor.sh)"
   local bindgen_target; bindgen_target="$(windows_bindgen_target "$triple")"
   echo "release-build: cross-building CLI for $triple (cargo-zigbuild)" >&2
-  local git_describe
-  git_describe="$(git -C "$REPO_ROOT" describe --tags --always --dirty 2>/dev/null || echo unknown)"
   (
     cd "$CLI_RS" \
     && PKG_CONFIG_ALLOW_CROSS=1 \
        PKG_CONFIG_LIBDIR="$sr/lib/pkgconfig" \
        BINDGEN_EXTRA_CLANG_ARGS="--target=$bindgen_target" \
-       TESTANYWARE_GIT_REVISION="$git_describe" \
+       TESTANYWARE_GIT_REVISION="$BUILD_REVISION" \
        cargo zigbuild -p testanyware-cli --bin testanyware --target "$triple" --release >&2
   )
   local bin_path="$CLI_RS/target/$triple/release/testanyware.exe"
@@ -424,30 +434,72 @@ sha256_of() {
 # Render the formula, substituting the version and every per-target sha.
 render_formula() {
   local version="$1" sha_darwin="$2" sha_linux_arm="$3" sha_linux_x86="$4"
-  sed \
-    -e "s|@VERSION@|${version}|g" \
-    -e "s|@SHA_AARCH64_APPLE_DARWIN@|${sha_darwin}|g" \
-    -e "s|@SHA_AARCH64_LINUX@|${sha_linux_arm}|g" \
-    -e "s|@SHA_X86_64_LINUX@|${sha_linux_x86}|g" \
-    "$TEMPLATE" >"$DIST_DIR/testanyware.rb"
+  "$CANDIDATE_PY" render --template "$TEMPLATE" --out "$DIST_DIR/testanyware.rb" \
+    "VERSION=$version" \
+    "SHA_AARCH64_APPLE_DARWIN=$sha_darwin" \
+    "SHA_AARCH64_LINUX=$sha_linux_arm" \
+    "SHA_X86_64_LINUX=$sha_linux_x86"
   echo "release-build: rendered $DIST_DIR/testanyware.rb"
 }
 
+# Render the cask of the app. It takes the version of the tag, as the formula does.
+render_cask() {
+  local version="$1" sha_app="$2"
+  "$CANDIDATE_PY" render --template "$CASK_TEMPLATE" --out "$DIST_DIR/testanyware-app.rb" \
+    "VERSION=$version" "SHA_APP=$sha_app"
+  echo "release-build: rendered $DIST_DIR/testanyware-app.rb"
+}
+
+# Build, sign, notarise and staple the release bundle of the app, and archive it as the zip
+# that the cask downloads. Sets APP_ZIP. Run after set_cli_version: build-app.sh reads the version
+# from cli-rs/Cargo.toml, and the app reports it as its build, so the app and the Host CLI of one
+# tag carry one version.
+#
+# main() calls this as a plain command, never inside $(...): bash does not carry `set -e` into a
+# command substitution, so a failed notarisation there would let the build run on to a candidate.
+build_app_archive() {
+  local version="$1"
+  local out="$DIST_DIR/staging/app"
+  local bundle
+  APP_ZIP="$DIST_DIR/testanyware-app-v${version}-aarch64-apple-darwin.zip"
+  echo "release-build: building the app bundle (release channel, $version)"
+  bundle="$(TESTANYWARE_APP_OUT="$out" "$REPO_ROOT/scripts/build-app.sh" release | tail -n1)"
+  [[ -d "$bundle" ]] || die "the app build did not produce a bundle"
+  "$REPO_ROOT/scripts/verify-app.sh" --identity-only --version "$version" "$bundle"
+  "$REPO_ROOT/scripts/notarize-app.sh" "$bundle" "$APP_ZIP"
+  "$REPO_ROOT/scripts/verify-app.sh" --version "$version" "$bundle"
+  [[ -f "$APP_ZIP" ]] || die "notarisation did not produce $APP_ZIP"
+}
+
 main() {
+  [[ $# -eq 1 ]] || die "usage: release-build.sh vX.Y.Z  (a local annotated tag)"
+  local tag="$1"
   cd "$REPO_ROOT"
+
+  # The gate refuses a missing or lightweight tag, a HEAD that the tag does not name, and a dirty tree.
+  local commit version
+  commit="$("$CANDIDATE_PY" gate-build --tag "$tag" --repo "$REPO_ROOT")" || exit 1
   "$REPO_ROOT/scripts/release-doctor.sh"
-  require_clean_tagged_tree
-  local version
-  version="$(read_version)"
-  echo "release-build: building testanyware v${version}"
+  trap restore_cli_version EXIT
+  version="${tag#v}"
+  BUILD_REVISION="$tag"
+  DIST_DIR="$CANDIDATES_DIR/$tag"
+
+  echo "release-build: building candidate $tag ($commit)"
   echo "release-build: targets: $MACOS_TARGET ${LINUX_TARGETS[*]} ${WINDOWS_TARGETS[*]}"
 
+  # Only this tag's directory is rebuilt. Another candidate keeps its own.
   rm -rf "$DIST_DIR"
   mkdir -p "$DIST_DIR/staging"
 
   # Version bump invalidates the cli crate fingerprint so option_env! re-reads
   # TESTANYWARE_GIT_REVISION on every (re)build below. Reverted by the trap.
   set_cli_version "$version"
+
+  # The app first: a rejected notarisation costs minutes, the cross builds cost much more.
+  build_app_archive "$version"
+  local sha_app
+  sha_app="$(sha256_of "$APP_ZIP")"
 
   local shared
   shared="$(build_shared_payload)"
@@ -467,11 +519,14 @@ main() {
     "${sha[$MACOS_TARGET]}" \
     "${sha[aarch64-unknown-linux-gnu]}" \
     "${sha[x86_64-unknown-linux-gnu]}"
+  render_cask "$version" "$sha_app"
 
   rm -rf "$DIST_DIR/staging"
+  "$CANDIDATE_PY" write --dir "$DIST_DIR" --tag "$tag" --commit "$commit"
+  "$CANDIDATE_PY" verify --dir "$DIST_DIR" --tag "$tag" --repo "$REPO_ROOT"
 
   echo
-  echo "release-build: artifacts in $DIST_DIR"
+  echo "release-build: candidate $tag in $DIST_DIR"
   ls -la "$DIST_DIR"
   echo
   echo "NOTE: the x86_64 triples (x86_64-unknown-linux-gnu, x86_64-pc-windows-gnu)"
@@ -484,7 +539,9 @@ main() {
   echo "      Windows.Media.Ocr engine compiled into the .exe (grove 220/070,"
   echo "      ADR-0011) — no OCR venv ships in the zip; nothing extra to bundle."
   echo
-  echo "Inspect, then run scripts/release-publish.sh"
+  echo "Nothing is published. The candidate is the one that the checks test and that"
+  echo "scripts/release-publish.sh $tag publishes. A change to code, scripts or build inputs"
+  echo "after commit $commit voids it."
 }
 
 main "$@"

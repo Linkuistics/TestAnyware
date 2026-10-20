@@ -302,13 +302,43 @@ tasks:
     cmds:
       - scripts/release-doctor.sh {{.CLI_ARGS}}
 
-  release:build:
-    desc: Build the release bundles for the current git tag (long; needs a clean tagged checkout)
+  release:candidate:
+    desc: 'Build a release candidate of a local annotated tag: TAG=vX.Y.Z. Builds the notarised app and its zip, the archives of every target, the formula, the cask and manifest.json in target/candidates/<tag>. The tree must be clean and HEAD must be the tagged commit (in a jj checkout: git tag -a vX.Y.Z -m "Release vX.Y.Z" <commit>, then jj new <commit>). Publishes nothing. Long, and needs the notary profile of release:doctor'
+    requires:
+      vars: [TAG]
     cmds:
-      - scripts/release-build.sh {{.CLI_ARGS}}
+      - scripts/release-build.sh {{.TAG}}
+
+  release:candidate-verify:
+    desc: 'Verify a built candidate, read-only: TAG=vX.Y.Z. The local tag must still name the commit of manifest.json, and each artifact must have its recorded sha256. Prints the tag, the commit and the hashes that the later checks record'
+    requires:
+      vars: [TAG]
+    cmds:
+      - scripts/release_candidate.py verify --dir target/candidates/{{.TAG}} --tag {{.TAG}}
+
+  release:app-verify:
+    desc: 'Verify the release identity of an app bundle: APP=<bundle>. Bundle id dev.antony.TestAnyware, team TA43A4RUP3, hardened runtime, codesign --verify, spctl --assess as Notarized Developer ID, stapler validate. A development bundle fails'
+    requires:
+      vars: [APP]
+    cmds:
+      - scripts/verify-app.sh {{.CLI_ARGS}} "{{.APP}}"
+
+  release:app-notarize:
+    desc: 'Notarise, staple and zip a signed release bundle: APP=<bundle> OUT=<zip>. release:candidate does this for a candidate. Needs the notary profile of release:doctor'
+    requires:
+      vars: [APP, OUT]
+    cmds:
+      - scripts/notarize-app.sh "{{.APP}}" "{{.OUT}}"
+
+  release:test:
+    desc: Test the release pipeline without Apple, GitHub or the cross builds. The tag gate, the manifest and the rendering (python unittest in a scratch repository), the cask template, the identity refusals of verify-app.sh on a signed bundle, and release-publish.sh against local bare repositories and a fake gh (macOS host)
+    cmds:
+      - scripts/tests/release-pipeline-test.sh
 
   release:publish:
-    desc: Publish what release:build produced - creates a GitHub Release and pushes the tap (outward-facing)
-    prompt: This publishes a GitHub Release and pushes the Homebrew tap. Continue?
+    desc: 'Publish a recorded candidate: TAG=vX.Y.Z. Pushes the existing local tag, creates the GitHub Release with the candidate archives, then pushes the formula and the cask to the tap. It never creates a tag and never rebuilds. Outward-facing'
+    prompt: This pushes a tag, publishes a GitHub Release and pushes the Homebrew tap. Continue?
+    requires:
+      vars: [TAG]
     cmds:
-      - scripts/release-publish.sh {{.CLI_ARGS}}
+      - scripts/release-publish.sh {{.TAG}}

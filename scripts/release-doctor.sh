@@ -180,6 +180,63 @@ check_ffmpeg_sysroots() {
   done
 }
 
+# --- Signing and notarisation of the TestAnyware app (ADR-0020) ------------
+# The release bundle is signed by the Developer ID of team TA43A4RUP3, notarised and stapled.
+# Both the identity and the notary profile are the owner's, in the keychain.
+
+readonly APP_TEAM_ID=TA43A4RUP3
+readonly APP_SIGNING_IDENTITY="${TESTANYWARE_SIGNING_IDENTITY:-Developer ID Application: Antony Blakey ($APP_TEAM_ID)}"
+readonly NOTARY_PROFILE="${TESTANYWARE_NOTARY_PROFILE:-testanyware-notary}"
+
+check_app_tools() {
+  local tool missing=0
+  for tool in codesign spctl ditto plutil; do
+    command -v "$tool" >/dev/null 2>&1 || { mark_fail "$tool: not on PATH"; missing=1; }
+  done
+  xcrun --find notarytool >/dev/null 2>&1 || { mark_fail "xcrun notarytool: not found"; missing=1; }
+  xcrun --find stapler >/dev/null 2>&1 || { mark_fail "xcrun stapler: not found"; missing=1; }
+  if (( missing )); then
+    remediation "install Xcode Command Line Tools (xcode-select --install) or Xcode 16+"
+    return
+  fi
+  mark_pass "app signing tools: codesign, spctl, ditto, plutil, notarytool, stapler"
+}
+
+check_app_signing_identity() {
+  local team=${APP_SIGNING_IDENTITY##*(}
+  team=${team%)}
+  if [[ "$team" != "$APP_TEAM_ID" ]]; then
+    mark_fail "signing identity \"$APP_SIGNING_IDENTITY\" is not of team $APP_TEAM_ID"
+    remediation "unset TESTANYWARE_SIGNING_IDENTITY; the app keeps one team in every release"
+    return
+  fi
+  if security find-identity -v -p codesigning 2>/dev/null | grep -qF "\"$APP_SIGNING_IDENTITY\""; then
+    mark_pass "signing identity: $APP_SIGNING_IDENTITY"
+  else
+    mark_fail "signing identity: no valid \"$APP_SIGNING_IDENTITY\" in the keychain"
+    remediation "install the Developer ID Application certificate of team $APP_TEAM_ID from developer.apple.com into the login keychain"
+  fi
+}
+
+check_notary_profile() {
+  if ! xcrun --find notarytool >/dev/null 2>&1; then
+    mark_fail "notary profile \"$NOTARY_PROFILE\": notarytool is not installed"
+    return
+  fi
+  local probe
+  probe="$(xcrun notarytool history --keychain-profile "$NOTARY_PROFILE" 2>&1 || true)"
+  if grep -q 'No Keychain password item found' <<<"$probe"; then
+    mark_fail "notary profile \"$NOTARY_PROFILE\": not in the keychain"
+    remediation "create an App Store Connect API key (Developer role) at https://appstoreconnect.apple.com/access/integrations/api, then: xcrun notarytool store-credentials \"$NOTARY_PROFILE\" --key AuthKey_<KEYID>.p8 --key-id <KEYID> --issuer <ISSUER-UUID>"
+    remediation "or name an existing profile of team $APP_TEAM_ID with TESTANYWARE_NOTARY_PROFILE"
+  elif grep -qiE '^error|unauthorized|could not|failed' <<<"$probe"; then
+    mark_fail "notary profile \"$NOTARY_PROFILE\": notarytool cannot use it: $(head -n1 <<<"$probe")"
+    remediation "check the network and the API key of the profile, or store the credentials again"
+  else
+    mark_pass "notary profile: $NOTARY_PROFILE"
+  fi
+}
+
 check_arch() {
   local arch
   arch="$(uname -m)"
@@ -203,6 +260,12 @@ main() {
   check_tar_xz
   check_zip
   check_gh_auth
+
+  echo
+  echo "release-doctor: signing and notarisation of the TestAnyware app"
+  check_app_tools
+  check_app_signing_identity
+  check_notary_profile
 
   echo
   echo "release-doctor: Linux + Windows cross-build prerequisites"

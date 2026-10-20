@@ -1,0 +1,32 @@
+cask "testanyware-app" do
+  version "@VERSION@"
+  sha256 "@SHA_APP@"
+
+  url "https://github.com/Linkuistics/TestAnyware/releases/download/v#{version}/testanyware-app-v#{version}-aarch64-apple-darwin.zip"
+  name "TestAnyware"
+  desc "Menu bar app through which the testanyware CLI reaches virtual machines"
+  homepage "https://github.com/Linkuistics/TestAnyware"
+
+  # The app reaches the guests for the Host CLI, which the formula installs.
+  depends_on arch: :arm64
+  depends_on formula: "linkuistics/taps/testanyware"
+
+  # The bundle is Developer ID signed, notarized and stapled, so Gatekeeper
+  # accepts the quarantined download as it stands. There is deliberately no
+  # postflight stripping com.apple.quarantine: one would hide a notarization
+  # failure instead of revealing it (ADR-0020).
+  app "TestAnyware.app"
+
+  # A Homebrew upgrade quits the running app, replaces the bundle and opens it
+  # again. The VMs keep running while the app is down, and the new app adopts them.
+  uninstall quit: "dev.antony.TestAnyware"
+
+  # The app's own directories only. The first holds the socket. The app writes no
+  # log today, and the second directory is where a later log file belongs. The VM
+  # state (~/.local/state/testanyware, ~/.local/share/testanyware) is never named
+  # here: a zap that deleted a golden image or a VM would destroy the user's work.
+  zap trash: [
+    "~/Library/Application Support/TestAnyware",
+    "~/Library/Logs/TestAnyware",
+  ]
+end
