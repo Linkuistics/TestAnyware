@@ -107,6 +107,13 @@ define_class!(
             unsafe { SMAppService::openSystemSettingsLoginItems() };
         }
 
+        #[unsafe(method(openConfigFile:))]
+        fn open_config_file(&self, _sender: Option<&AnyObject>) {
+            if let Some(file) = self.ivars().config.ctx.config.file() {
+                open_in_text_editor(file);
+            }
+        }
+
         #[unsafe(method(quitApp:))]
         fn quit_app(&self, _sender: Option<&AnyObject>) {
             // `terminate:` runs `applicationWillTerminate:`. The VMs are other processes and
@@ -169,6 +176,7 @@ impl Delegate {
             not_adopted: config.ctx.adoption.snapshot().not_adopted,
             login: login_item_status(),
             login_problem: self.ivars().login_problem.borrow().clone(),
+            configuration: config.ctx.config.status(&crate::config::stat_file),
         }
     }
 
@@ -236,6 +244,7 @@ fn selector(action: MenuAction) -> Sel {
         MenuAction::OpenLocalNetworkSettings => sel!(openLocalNetworkSettings:),
         MenuAction::ToggleStartAtLogin => sel!(toggleStartAtLogin:),
         MenuAction::OpenLoginItemsSettings => sel!(openLoginItemsSettings:),
+        MenuAction::OpenConfigFile => sel!(openConfigFile:),
         MenuAction::Quit => sel!(quitApp:),
     }
 }
@@ -249,6 +258,16 @@ fn login_item_status() -> LoginItemStatus {
         SMAppServiceStatus::NotFound => LoginItemStatus::NotFound,
         _ => LoginItemStatus::NotRegistered,
     }
+}
+
+/// Open a file in the person's default text editor. A `.rhai` file has no application of its
+/// own, so `NSWorkspace.open` would ask which one to use. `open -t` names the text editor.
+/// https://ss64.com/mac/open.html
+fn open_in_text_editor(file: &std::path::Path) {
+    let _ = std::process::Command::new("/usr/bin/open")
+        .arg("-t")
+        .arg(file)
+        .spawn();
 }
 
 fn open_url(url: &str) {

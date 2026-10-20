@@ -1,7 +1,10 @@
 //! The body of `GET /v1/status`.
 
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
+use crate::error::AppError;
 use crate::hello::Directories;
 use crate::version::ProtocolRange;
 
@@ -25,6 +28,42 @@ pub struct StatusResponse {
     /// What the app did with each VM it found when it started (spec: "Lifecycle and adoption").
     #[serde(default)]
     pub adoption: AdoptionStatus,
+    /// What the app made of `config.rhai` when it started (spec: "Configuration").
+    #[serde(default)]
+    pub configuration: ConfigurationStatus,
+}
+
+/// What a run of the app made of `config.rhai`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigurationState {
+    /// The run reads no file: `TESTANYWARE_CONFIG=none`, or no home directory to find it in.
+    #[default]
+    Disabled,
+    /// The file does not exist. It is optional.
+    Absent,
+    /// The file evaluated, and the app uses its settings.
+    Loaded,
+    /// The file failed. The app runs with its built-in defaults.
+    Failed,
+}
+
+/// The app's evaluation of `config.rhai`, which `doctor` shows. The app evaluates the file once,
+/// when it starts, so this describes that moment and not the file as it is now. The one
+/// exception is `changed_since_evaluation`, which compares the two.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConfigurationStatus {
+    pub state: ConfigurationState,
+    /// The file the app looked for. `None` when the run reads no file.
+    pub file: Option<PathBuf>,
+    /// When the app evaluated the file, in seconds since the Unix epoch. `None` when it read none.
+    pub evaluated_at: Option<u64>,
+    /// True when the file on disk is not the one the app evaluated: it was edited, it appeared
+    /// or it was removed. Only a restart of the app reads it again.
+    pub changed_since_evaluation: bool,
+    /// The `CONFIG_INVALID` object of a file that failed. It is the object that the Host CLI
+    /// reports for its own evaluation of the same file.
+    pub error: Option<AppError>,
 }
 
 /// The adoption results of the app's current run.
@@ -91,6 +130,16 @@ mod tests {
         assert_eq!(status.bundle_build, None);
         assert!(!status.older_than_bundle);
         assert!(!status.adoption.finished);
+        assert_eq!(status.configuration, ConfigurationStatus::default());
+    }
+
+    #[test]
+    fn the_states_of_the_configuration_serialise_as_snake_case_words() {
+        let status = ConfigurationStatus {
+            state: ConfigurationState::Failed,
+            ..ConfigurationStatus::default()
+        };
+        assert_eq!(serde_json::to_value(status).unwrap()["state"], "failed");
     }
 
     #[test]

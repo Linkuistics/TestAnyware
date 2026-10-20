@@ -15,6 +15,9 @@
 #      the terminal this step reports SKIP, and the run still passes.
 #   6. Quit through the Apple event that the Dock's Quit sends, and check that the process
 #      is gone and the socket file with it.
+#   7. Open the bundle again with TESTANYWARE_CONFIG naming a config.rhai that fails (ADR-0021),
+#      check that the status reports the CONFIG_INVALID error and that the menu shows the file,
+#      the error and an item that opens the file, and quit.
 #
 # The app uses the real socket, ~/Library/Application Support/TestAnyware/testanyware.sock,
 # because the bundle takes no arguments. Always quits the app that it started.
@@ -75,44 +78,87 @@ build=$(jq -r .build <<<"$body")
 [[ "$build" == "$version" ]] ||
   fail "the status says build \"$build\", and the bundle's version is \"$version\"."
 echo "app-bundle-live: ok   build $build matches the bundle"
+configuration=$(jq -r .configuration.state <<<"$body")
+case "$configuration" in
+  absent | loaded) ;;
+  *) fail "the status reports configuration \"$configuration\", and the user's own file is absent or it loads." ;;
+esac
+echo "app-bundle-live: ok   the status reports the configuration ($configuration)"
 pgrep -f "$bundle/Contents/MacOS/testanyware-app" >/dev/null ||
   fail "no process runs the bundle's executable."
 [[ "$(stat -f %Lp "$socket")" == 600 ]] || fail "the socket file is not mode 0600."
 [[ "$(stat -f %Lp "$(dirname "$socket")")" == 700 ]] || fail "the socket directory is not mode 0700."
 
 # 5
-menu=$(
+# AXCancel closes the menu. The Escape key does not, on macOS 27, and an open menu keeps the
+# app in its menu tracking loop, which handles no Apple event, so the quit in step 6 times out.
+read_menu() {
   osascript 2>/dev/null <<'EOF' || true
 tell application "System Events"
   tell process "testanyware-app"
     click menu bar item 1 of menu bar 1
     delay 0.4
     set t to title of every menu item of menu 1 of menu bar item 1 of menu bar 1
-    key code 53
+    perform action "AXCancel" of menu 1 of menu bar item 1 of menu bar 1
     return t
   end tell
 end tell
 EOF
-)
+}
+menu=$(read_menu)
 if [[ -z "$menu" ]]; then
   echo "app-bundle-live: SKIP the menu: System Events cannot read the status item (Accessibility grant?)"
 else
-  for want in "TestAnyware $version" "Serving its socket" "Local Network:" "Start at Login" "each VM keeps running"; do
+  for want in "TestAnyware $version" "Serving its socket" "Local Network:" "Start at Login" "Configuration:" "each VM keeps running"; do
     grep -qF "$want" <<<"$menu" || fail "the menu lacks \"$want\": $menu"
   done
-  echo "app-bundle-live: ok   the menu shows the version, the socket, the Local Network state, Start at Login and Quit"
+  echo "app-bundle-live: ok   the menu shows the version, the socket, the Local Network state, Start at Login, the configuration and Quit"
 fi
 
 # 6
-osascript -e "tell application id \"$bundle_id\" to quit" >/dev/null
-for _ in $(seq 1 25); do
-  pgrep -f "$bundle/Contents/MacOS/testanyware-app" >/dev/null || break
+quit_app() {
+  osascript -e "tell application id \"$bundle_id\" to quit" >/dev/null
+  for _ in $(seq 1 25); do
+    pgrep -f "$bundle/Contents/MacOS/testanyware-app" >/dev/null || break
+    sleep 0.2
+  done
+  if pgrep -f "$bundle/Contents/MacOS/testanyware-app" >/dev/null; then
+    fail "the app did not quit."
+  fi
+  started=0
+  [[ ! -e "$socket" ]] || fail "the socket file stays after a quit."
+}
+quit_app
+echo "app-bundle-live: ok   quit leaves no process and no socket file"
+
+# 7
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"; cleanup' EXIT
+printf 'let ok = 1;\nlet bad = ;\n' >"$scratch/config.rhai"
+open -n -g --env "TESTANYWARE_CONFIG=$scratch/config.rhai" "$bundle"
+started=1
+body=
+for _ in $(seq 1 50); do
+  if body=$(status 2>/dev/null); then break; fi
   sleep 0.2
 done
-if pgrep -f "$bundle/Contents/MacOS/testanyware-app" >/dev/null; then
-  fail "the app did not quit."
+[[ -n "$body" ]] || fail "no answer on the socket within 10 s with a config.rhai that fails."
+[[ "$(jq -r .configuration.state <<<"$body")" == failed ]] ||
+  fail "the status does not report the file as failed: $(jq -c .configuration <<<"$body")"
+[[ "$(jq -r .configuration.error.code <<<"$body")" == CONFIG_INVALID ]] ||
+  fail "the status carries no CONFIG_INVALID error: $(jq -c .configuration <<<"$body")"
+[[ "$(jq -r .configuration.error.details.line <<<"$body")" == 2 ]] ||
+  fail "the error does not name line 2: $(jq -c .configuration.error <<<"$body")"
+echo "app-bundle-live: ok   a config.rhai that fails runs the app on its defaults and the status reports the error"
+menu=$(read_menu)
+if [[ -z "$menu" ]]; then
+  echo "app-bundle-live: SKIP the menu of a failing config.rhai: System Events cannot read the status item"
+else
+  for want in "$scratch/config.rhai (failed)" "Error at line 2:" "Last evaluated:" "The app runs with its built-in defaults" "Open config.rhai"; do
+    grep -qF "$want" <<<"$menu" || fail "the menu lacks \"$want\": $menu"
+  done
+  echo "app-bundle-live: ok   the menu shows the file, the time of the evaluation, the error and an item that opens the file"
 fi
-started=0
-[[ ! -e "$socket" ]] || fail "the socket file stays after a quit."
-echo "app-bundle-live: ok   quit leaves no process and no socket file"
+quit_app
+echo "app-bundle-live: ok   the second quit leaves no process and no socket file"
 echo "app-bundle-live: PASS"

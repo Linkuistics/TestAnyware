@@ -23,6 +23,8 @@ use std::sync::Arc;
 #[cfg(unix)]
 use clap::Parser;
 #[cfg(unix)]
+use testanyware_app::config::{stat_file, AppConfig};
+#[cfg(unix)]
 use testanyware_app::gate::AppIdentity;
 #[cfg(unix)]
 use testanyware_app::listener::{bind_socket, BindError};
@@ -32,6 +34,8 @@ use testanyware_app::{serve, AppContext};
 use testanyware_app_protocol::version::SUPPORTED_RANGE;
 #[cfg(unix)]
 use testanyware_app_protocol::{Directories, ProtocolRange};
+#[cfg(unix)]
+use testanyware_config::{locate, ConfigLocation};
 #[cfg(unix)]
 use testanyware_vm::tools::ToolSearch;
 
@@ -55,7 +59,9 @@ struct Args {
     /// The data directory.
     #[arg(long, requires = "test_mode")]
     data_dir: Option<PathBuf>,
-    /// The configuration path. Nothing reads it yet.
+    /// The `config.rhai` to evaluate. Without it, a test mode run reads no file, so that a
+    /// developer's own file never reaches a test. The file beats `--state-dir` and `--data-dir`,
+    /// as it beats the built-in defaults of the app.
     #[arg(long, requires = "test_mode")]
     config: Option<PathBuf>,
     /// A directory to search for tools such as `tart`, in place of the built-in search. May repeat.
@@ -103,10 +109,12 @@ enum Command {
 #[cfg(unix)]
 struct Paths {
     socket: PathBuf,
+    /// The built-in directories. `config.rhai` beats them.
     state_dir: PathBuf,
     data_dir: PathBuf,
-    config: Option<PathBuf>,
-    /// Where the app looks for the tools it runs.
+    /// The file the app evaluates, if any.
+    config: ConfigLocation,
+    /// Where the app looks for the tools it runs, before `config.rhai` locates any.
     tools: ToolSearch,
 }
 
@@ -121,7 +129,9 @@ fn main() -> ExitCode {
             socket,
             state_dir,
             data_dir,
-            config: args.config,
+            config: args
+                .config
+                .map_or(ConfigLocation::Disabled, ConfigLocation::File),
             tools: if args.tool_dirs.is_empty() {
                 ToolSearch::builtin()
             } else {
@@ -156,6 +166,18 @@ fn main() -> ExitCode {
         }
     };
 
+    // The app evaluates the file once, here. A restart reloads it. A file that fails leaves the
+    // built-in directories and tools, and the menu and the status show the error.
+    let config = AppConfig::evaluate_now(&paths.config);
+    if let Some(error) = config.status(&stat_file).error {
+        eprintln!("testanyware-app: {}", error.message);
+    }
+    let directories = config.directories(Directories {
+        state_dir: paths.state_dir,
+        data_dir: paths.data_dir,
+    });
+    let tools = config.tool_search(paths.tools);
+
     let ctx = Arc::new(
         AppContext::new(
             AppIdentity {
@@ -163,19 +185,16 @@ fn main() -> ExitCode {
                     .build
                     .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
                 protocol_range: args.protocol_range.unwrap_or(SUPPORTED_RANGE),
-                directories: Directories {
-                    state_dir: paths.state_dir,
-                    data_dir: paths.data_dir,
-                },
+                directories,
             },
             own_uid,
-            paths.config,
+            config,
         )
         .with_bundle(match args.bundle_build {
             Some(build) => testanyware_app::bundle::BundleSource::Fixed(Some(build)),
             None => testanyware_app::bundle::BundleSource::this_process(),
         })
-        .with_tools(paths.tools)
+        .with_tools(tools)
         .with_agent_port(
             args.agent_port
                 .unwrap_or(testanyware_vm::start_context::AGENT_PORT),
@@ -250,7 +269,9 @@ fn app_paths() -> Option<Paths> {
         socket: default_socket_path(&home),
         state_dir: vm_paths.state_dir().to_path_buf(),
         data_dir: vm_paths.data_dir().to_path_buf(),
-        config: None,
+        // The app's environment is the one the login item gives it. `TESTANYWARE_CONFIG` is the
+        // variable for tests that names another file, or none.
+        config: locate(&|key| std::env::var(key).ok()),
         // The app has no shell environment, so it reads no `PATH`.
         tools: ToolSearch::builtin(),
     })

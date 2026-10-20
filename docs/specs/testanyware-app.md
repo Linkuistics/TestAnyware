@@ -713,6 +713,25 @@ reports the error in its menu and through `doctor`. The Host CLI refuses to run
 with a file that fails, with `CONFIG_INVALID`, the file, the line and the
 message.
 
+`GET /v1/status` holds the field `configuration`:
+
+- `state` is `loaded`, `absent` (no file at the place the app looked), `failed`
+  or `disabled` (`TESTANYWARE_CONFIG=none`, or no home directory).
+- `file` is the path the app looked for, or `null` for `disabled`.
+- `evaluated_at` is the time of the evaluation, in seconds since the Unix epoch,
+  or `null` for `disabled`.
+- `changed_since_evaluation` is true when the file on disk is not the one the app
+  evaluated. The app compares the length and the modification time of the file
+  that it saw just before it read the text. An edit, a new file and a removed
+  file each count. Only a restart of the app reads the file again.
+- `error` is the `CONFIG_INVALID` object of a file that failed, and `null`
+  otherwise.
+
+The menu shows the file, the time of the last evaluation and any error, which
+names the line when Rhai places one. When the file changed since the evaluation,
+the menu says to quit and open TestAnyware. An item opens the file in the text
+editor when a file is there, whether it evaluated or failed.
+
 The error object of `CONFIG_INVALID` carries `details.file`, `details.line` and
 `details.message`. The line is `null` for a wrong type or an unknown key, because
 the script finishes before the evaluator reads its value. Its remedy names the

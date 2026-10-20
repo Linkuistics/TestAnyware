@@ -322,7 +322,7 @@ async fn the_app_closes_a_connection_whose_peer_uid_is_not_its_own() {
                 directories: dirs.clone(),
             },
             own_uid,
-            None,
+            testanyware_app::config::AppConfig::disabled(),
         ))
     };
 

@@ -1,7 +1,7 @@
 //! The checks that every request except `GET /v1/status` passes before it is served.
 
 use testanyware_app_protocol::{
-    decide, AppError, ClientHello, Decision, Directories, Peer, ProtocolRange,
+    decide, AppError, ClientHello, ConfigurationStatus, Decision, Directories, Peer, ProtocolRange,
 };
 
 /// What the app is, as the checks see it.
@@ -15,11 +15,13 @@ pub struct AppIdentity {
 /// Check the protocol range first, then the directories. Return the protocol version that
 /// the pair uses. A client that states no range, or no directories, fails like one that
 /// states other values. `bundle_build` is the build of the bundle on disk, which decides
-/// the remedy of a range that does not overlap.
+/// the remedy of a range that does not overlap. `configuration` states what the app made of
+/// `config.rhai`, and a directory mismatch calls it to word its remedy.
 pub fn check_request(
     app: &AppIdentity,
     hello: &ClientHello,
     bundle_build: Option<&str>,
+    configuration: &dyn Fn() -> ConfigurationStatus,
 ) -> Result<u32, AppError> {
     let app_peer = Peer {
         build: Some(app.build.clone()),
@@ -42,6 +44,7 @@ pub fn check_request(
         return Err(AppError::incompatible_directories(
             &app.directories,
             hello.directories.as_ref(),
+            &configuration(),
         ));
     }
     Ok(version)
@@ -58,6 +61,10 @@ mod tests {
         }
     }
 
+    fn none() -> ConfigurationStatus {
+        ConfigurationStatus::default()
+    }
+
     fn app() -> AppIdentity {
         AppIdentity {
             build: "1.0.0".into(),
@@ -69,13 +76,13 @@ mod tests {
     #[test]
     fn matching_request_uses_the_highest_common_version() {
         let hello = ClientHello::new(ProtocolRange::new(2, 4), "1.1.0", dirs("a"));
-        assert_eq!(check_request(&app(), &hello, None).unwrap(), 2);
+        assert_eq!(check_request(&app(), &hello, None, &none).unwrap(), 2);
     }
 
     #[test]
     fn disjoint_range_fails_with_cause_protocol() {
         let hello = ClientHello::new(ProtocolRange::new(3, 4), "2.0.0", dirs("a"));
-        let err = check_request(&app(), &hello, None).unwrap_err();
+        let err = check_request(&app(), &hello, None, &none).unwrap_err();
         assert_eq!(err.details["cause"], "protocol");
     }
 
@@ -83,7 +90,9 @@ mod tests {
     fn range_is_checked_before_directories() {
         let hello = ClientHello::new(ProtocolRange::new(3, 4), "2.0.0", dirs("other"));
         assert_eq!(
-            check_request(&app(), &hello, None).unwrap_err().details["cause"],
+            check_request(&app(), &hello, None, &none)
+                .unwrap_err()
+                .details["cause"],
             "protocol"
         );
     }
@@ -92,14 +101,16 @@ mod tests {
     fn other_directories_fail_with_cause_directories() {
         let hello = ClientHello::new(ProtocolRange::new(1, 1), "1.0.0", dirs("other"));
         assert_eq!(
-            check_request(&app(), &hello, None).unwrap_err().details["cause"],
+            check_request(&app(), &hello, None, &none)
+                .unwrap_err()
+                .details["cause"],
             "directories"
         );
     }
 
     #[test]
     fn a_silent_client_fails_on_the_range() {
-        let err = check_request(&app(), &ClientHello::default(), None).unwrap_err();
+        let err = check_request(&app(), &ClientHello::default(), None, &none).unwrap_err();
         assert_eq!(err.details["cause"], "protocol");
         assert_eq!(
             err.details["client"]["protocol_range"],
@@ -114,7 +125,9 @@ mod tests {
             ..ClientHello::new(ProtocolRange::new(1, 1), "1", dirs("a"))
         };
         assert_eq!(
-            check_request(&app(), &hello, None).unwrap_err().details["cause"],
+            check_request(&app(), &hello, None, &none)
+                .unwrap_err()
+                .details["cause"],
             "directories"
         );
     }
@@ -133,7 +146,7 @@ mod tests {
             (&older_cli, Some("2.0.0"), "upgrade_host_cli"),
         ];
         for (hello, bundle, remedy) in cases {
-            let err = check_request(&app(), hello, bundle).unwrap_err();
+            let err = check_request(&app(), hello, bundle, &none).unwrap_err();
             assert_eq!(err.details["remedy"], remedy, "{bundle:?}");
             assert!(err.remediation.is_some());
         }

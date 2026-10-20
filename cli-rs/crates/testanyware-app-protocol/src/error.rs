@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 
 use crate::hello::{ClientHello, Directories};
 use crate::skew::Remedy;
+use crate::status::{ConfigurationState, ConfigurationStatus};
 use crate::version::ProtocolRange;
 
 /// Code for a request that the two sides cannot serve together.
@@ -63,7 +64,7 @@ pub const SETUP_REMEDY: &str = "Set up the TestAnyware app once, as a person. \
 The Host CLI never starts the app.";
 
 /// An error that the app sends before an upgrade, as a JSON object.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AppError {
     pub code: String,
     pub message: String,
@@ -176,9 +177,15 @@ impl AppError {
         )
     }
 
-    /// The Host CLI resolved other directories than the app did. The error names both
-    /// pairs. The remedy names each environment variable that differs.
-    pub fn incompatible_directories(app: &Directories, client: Option<&Directories>) -> Self {
+    /// The Host CLI resolved other directories than the app did. The error names both pairs.
+    /// The remedy names each setting that differs, in its variable and in `config.rhai`, and
+    /// then what the app made of the file: a file that fails, or a file that changed after the
+    /// app evaluated it (spec: "Configuration").
+    pub fn incompatible_directories(
+        app: &Directories,
+        client: Option<&Directories>,
+        config: &ConfigurationStatus,
+    ) -> Self {
         let message = match client {
             Some(c) => format!(
                 "The Host CLI resolved state directory {} and data directory {}. \
@@ -195,17 +202,45 @@ impl AppError {
                 app.data_dir.display()
             ),
         };
-        let mut differing = Vec::new();
-        if client.map_or(true, |c| c.state_dir != app.state_dir) {
-            differing.push("XDG_STATE_HOME");
+        let state_differs = client.map_or(true, |c| c.state_dir != app.state_dir);
+        let data_differs = client.map_or(true, |c| c.data_dir != app.data_dir);
+        let mut variables = Vec::new();
+        let mut settings = Vec::new();
+        if state_differs {
+            variables.push("XDG_STATE_HOME");
+            settings.push("`state_dir`");
         }
-        if client.map_or(true, |c| c.data_dir != app.data_dir) {
-            differing.push("XDG_DATA_HOME");
+        if data_differs {
+            variables.push("XDG_DATA_HOME");
+            settings.push("`data_dir`");
         }
-        let remediation = format!(
-            "Make the Host CLI and the app resolve the same directories. Set or unset {}.",
-            differing.join(" and ")
+        let file = config
+            .file
+            .as_ref()
+            .map_or_else(|| "config.rhai".to_string(), |f| f.display().to_string());
+        let mut remediation = format!(
+            "Make the Host CLI and the app resolve the same directories. \
+             Set or unset {}, or name {} in config.rhai.",
+            variables.join(" and "),
+            settings.join(" and "),
         );
+        match (&config.state, &config.error) {
+            (ConfigurationState::Failed, error) => {
+                let why = error
+                    .as_ref()
+                    .and_then(|e| e.details["message"].as_str())
+                    .map_or(String::new(), |m| format!(": {m}"));
+                remediation.push_str(&format!(
+                    " The app runs with its built-in directories, because {file} fails{why}. \
+                     Fix the file, then quit and open TestAnyware."
+                ));
+            }
+            _ if config.changed_since_evaluation => remediation.push_str(&format!(
+                " The app evaluated an older {file}. \
+                 Quit and open TestAnyware, so that it reads the file as it is now."
+            )),
+            _ => {}
+        }
         Self::new(
             APP_INCOMPATIBLE,
             message,
@@ -263,7 +298,8 @@ mod tests {
 
     #[test]
     fn config_invalid_without_a_line_has_a_null_line() {
-        let err = AppError::config_invalid(std::path::Path::new("/c.rhai"), None, "unknown key `x`");
+        let err =
+            AppError::config_invalid(std::path::Path::new("/c.rhai"), None, "unknown key `x`");
         assert_eq!(err.message, "/c.rhai: unknown key `x`");
         assert!(err.details["line"].is_null());
     }
@@ -322,7 +358,11 @@ mod tests {
             state_dir: "/c/state".into(),
             data_dir: "/a/data".into(),
         };
-        let err = AppError::incompatible_directories(&app, Some(&client));
+        let err = AppError::incompatible_directories(
+            &app,
+            Some(&client),
+            &ConfigurationStatus::default(),
+        );
         assert_eq!(err.details["cause"], "directories");
         assert_eq!(err.details["app"]["state_dir"], "/a/state");
         assert_eq!(err.details["client"]["state_dir"], "/c/state");
@@ -336,6 +376,76 @@ mod tests {
         let remedy = err.remediation.unwrap();
         assert!(remedy.contains("XDG_STATE_HOME"));
         assert!(!remedy.contains("XDG_DATA_HOME"));
+        // The remedy also names the file's own setting, and only the one that differs.
+        assert!(remedy.contains("config.rhai"), "{remedy}");
+        assert!(
+            remedy.contains("`state_dir`") && !remedy.contains("`data_dir`"),
+            "{remedy}"
+        );
+    }
+
+    fn mismatch() -> (Directories, Directories) {
+        let app = Directories {
+            state_dir: "/a/state".into(),
+            data_dir: "/a/data".into(),
+        };
+        let client = Directories {
+            state_dir: "/c/state".into(),
+            data_dir: "/c/data".into(),
+        };
+        (app, client)
+    }
+
+    #[test]
+    fn directories_remedy_names_a_file_that_fails_and_why_the_app_ignores_it() {
+        let (app, client) = mismatch();
+        let file = std::path::Path::new("/h/.config/testanyware/config.rhai");
+        let config = ConfigurationStatus {
+            state: ConfigurationState::Failed,
+            file: Some(file.to_path_buf()),
+            error: Some(AppError::config_invalid(file, Some(2), "syntax error")),
+            ..ConfigurationStatus::default()
+        };
+        let remedy = AppError::incompatible_directories(&app, Some(&client), &config)
+            .remediation
+            .unwrap();
+        assert!(
+            remedy.contains("XDG_STATE_HOME and XDG_DATA_HOME"),
+            "{remedy}"
+        );
+        assert!(
+            remedy.contains("/h/.config/testanyware/config.rhai fails: syntax error"),
+            "{remedy}"
+        );
+        assert!(remedy.contains("quit and open TestAnyware"), "{remedy}");
+    }
+
+    #[test]
+    fn directories_remedy_asks_for_a_restart_when_the_app_evaluated_an_older_file() {
+        let (app, client) = mismatch();
+        let config = ConfigurationStatus {
+            state: ConfigurationState::Loaded,
+            file: Some("/h/config.rhai".into()),
+            changed_since_evaluation: true,
+            ..ConfigurationStatus::default()
+        };
+        let remedy = AppError::incompatible_directories(&app, Some(&client), &config)
+            .remediation
+            .unwrap();
+        assert!(
+            remedy.contains("evaluated an older /h/config.rhai"),
+            "{remedy}"
+        );
+        assert!(remedy.contains("Quit and open TestAnyware"), "{remedy}");
+        // A file that has not changed needs no restart.
+        let same = ConfigurationStatus {
+            changed_since_evaluation: false,
+            ..config
+        };
+        let remedy = AppError::incompatible_directories(&app, Some(&client), &same)
+            .remediation
+            .unwrap();
+        assert!(!remedy.contains("Quit and open"), "{remedy}");
     }
 
     #[test]

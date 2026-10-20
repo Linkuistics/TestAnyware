@@ -1,7 +1,6 @@
 //! Serve HTTP/1.1 on the socket.
 
 use std::convert::Infallible;
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
@@ -23,6 +22,7 @@ use tokio::net::UnixListener;
 use crate::access::peer_allowed;
 use crate::body::AppBody;
 use crate::bundle::BundleSource;
+use crate::config::{stat_file, AppConfig};
 use crate::gate::{check_request, AppIdentity};
 use crate::grant::GrantObservation;
 use crate::streams::{
@@ -38,8 +38,9 @@ pub struct AppContext {
     pub bundle: BundleSource,
     /// The uid of the user who runs the app. A peer with another uid gets no service.
     pub own_uid: u32,
-    /// The configuration path of the run. Nothing reads it yet: the configuration leaf does.
-    pub config_path: Option<PathBuf>,
+    /// What the app made of `config.rhai` when it started. A restart of the app reads the file
+    /// again.
+    pub config: AppConfig,
     /// The last observation of the Local Network grant. Only a dial to an attached network
     /// changes it.
     pub grant: Mutex<GrantObservation>,
@@ -57,12 +58,12 @@ pub struct AppContext {
 }
 
 impl AppContext {
-    pub fn new(identity: AppIdentity, own_uid: u32, config_path: Option<PathBuf>) -> Self {
+    pub fn new(identity: AppIdentity, own_uid: u32, config: AppConfig) -> Self {
         Self {
             identity,
             bundle: BundleSource::this_process(),
             own_uid,
-            config_path,
+            config,
             grant: Mutex::new(GrantObservation::NotYetSeen),
             tools: ToolSearch::builtin(),
             agent_port: testanyware_vm::start_context::AGENT_PORT,
@@ -180,13 +181,20 @@ async fn route(
             older_than_bundle: older_than_bundle(&ctx.identity.build, bundle_build.as_deref()),
             bundle_build,
             adoption: ctx.adoption.snapshot(),
+            configuration: ctx.config.status(&stat_file),
         };
         return json_response(
             StatusCode::OK,
             serde_json::to_value(body).expect("status serialises"),
         );
     }
-    if let Err(err) = check_request(&ctx.identity, hello, ctx.bundle.build().as_deref()) {
+    if let Err(err) = check_request(
+        &ctx.identity,
+        hello,
+        ctx.bundle.build().as_deref(),
+        // Read the file only for a request that fails on its directories.
+        &|| ctx.config.status(&stat_file),
+    ) {
         return error_response(StatusCode::CONFLICT, &err);
     }
     if path == LIST_PATH && method == Method::GET {

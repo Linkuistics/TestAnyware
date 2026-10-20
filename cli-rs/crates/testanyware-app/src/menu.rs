@@ -1,7 +1,7 @@
 //! What the status item's menu shows, as a pure function of the app's state (spec: "The TestAnyware
 //! app"). The AppKit shell turns these entries into menu items and holds no decision of its own.
 
-use testanyware_app_protocol::NotAdoptedVm;
+use testanyware_app_protocol::{ConfigurationState, ConfigurationStatus, NotAdoptedVm};
 
 use crate::grant::GrantObservation;
 
@@ -64,6 +64,8 @@ pub struct MenuState {
     pub login: LoginItemStatus,
     /// The error text of the last failed `register()` or `unregister()`.
     pub login_problem: Option<String>,
+    /// What the app made of `config.rhai` when it started.
+    pub configuration: ConfigurationStatus,
 }
 
 /// What a click on a menu item does.
@@ -73,6 +75,8 @@ pub enum MenuAction {
     /// Register the app as a login item when it is not one, and unregister it when it is.
     ToggleStartAtLogin,
     OpenLoginItemsSettings,
+    /// Open `config.rhai` in the person's text editor.
+    OpenConfigFile,
     Quit,
 }
 
@@ -108,7 +112,9 @@ pub const QUIT_TITLE: &str = "Quit TestAnyware (each VM keeps running)";
 /// there is no list.
 fn running_vm_entries(running: Option<&[MenuVm]>) -> Vec<MenuEntry> {
     match running {
-        None => vec![MenuEntry::Text("Running VMs: no answer from the listing".to_string())],
+        None => vec![MenuEntry::Text(
+            "Running VMs: no answer from the listing".to_string(),
+        )],
         Some([]) => vec![MenuEntry::Text("No VMs running".to_string())],
         Some(vms) => std::iter::once(MenuEntry::Text("Running VMs:".to_string()))
             .chain(vms.iter().map(|vm| {
@@ -127,10 +133,86 @@ fn not_adopted_entries(not_adopted: &[NotAdoptedVm]) -> Vec<MenuEntry> {
         .chain(std::iter::once(MenuEntry::Text(
             "Not adopted (the app signals nothing):".to_string(),
         )))
-        .chain(not_adopted.iter().map(|vm| {
-            MenuEntry::Text(format!("  {}: {}", vm.id, vm.reason.replace('_', " ")))
-        }))
+        .chain(
+            not_adopted
+                .iter()
+                .map(|vm| MenuEntry::Text(format!("  {}: {}", vm.id, vm.reason.replace('_', " ")))),
+        )
         .collect()
+}
+
+/// A time in seconds since the Unix epoch, as `2025-10-09 08:53:20 UTC`. The menu is a pure
+/// function, so it does not ask the host for a time zone.
+pub fn format_utc(seconds: u64) -> String {
+    let (days, rest) = (seconds / 86_400, seconds % 86_400);
+    // Days since 1970-01-01 to a civil date, by Howard Hinnant's algorithm.
+    // https://howardhinnant.github.io/date_algorithms.html#civil_from_days
+    let shifted = days as i64 + 719_468;
+    let era = shifted.div_euclid(146_097);
+    let day_of_era = shifted.rem_euclid(146_097);
+    let year_of_era =
+        (day_of_era - day_of_era / 1_460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_index = (5 * day_of_year + 2) / 153;
+    let day = day_of_year - (153 * month_index + 2) / 5 + 1;
+    let month = if month_index < 10 {
+        month_index + 3
+    } else {
+        month_index - 9
+    };
+    let year = year_of_era + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02} {:02}:{:02}:{:02} UTC",
+        rest / 3_600,
+        rest % 3_600 / 60,
+        rest % 60
+    )
+}
+
+/// The lines for `config.rhai`: the file, when the app evaluated it and any error. A file that
+/// is there gets an item that opens it.
+fn configuration_entries(configuration: &ConfigurationStatus) -> Vec<MenuEntry> {
+    let file = configuration
+        .file
+        .as_ref()
+        .map_or_else(String::new, |f| f.display().to_string());
+    let mut entries = vec![MenuEntry::Text(match configuration.state {
+        ConfigurationState::Disabled => "Configuration: no file is read".to_string(),
+        ConfigurationState::Absent => format!("Configuration: no file at {file}"),
+        ConfigurationState::Loaded => format!("Configuration: {file}"),
+        ConfigurationState::Failed => format!("Configuration: {file} (failed)"),
+    })];
+    if let Some(seconds) = configuration.evaluated_at {
+        entries.push(MenuEntry::Text(format!(
+            "Last evaluated: {}",
+            format_utc(seconds)
+        )));
+    }
+    if let Some(error) = &configuration.error {
+        let message = error.details["message"].as_str().unwrap_or(&error.message);
+        entries.push(MenuEntry::Text(match error.details["line"].as_u64() {
+            Some(line) => format!("Error at line {line}: {message}"),
+            None => format!("Error: {message}"),
+        }));
+        entries.push(MenuEntry::Text(
+            "The app runs with its built-in defaults".to_string(),
+        ));
+    }
+    if configuration.changed_since_evaluation {
+        entries.push(MenuEntry::Text(
+            "The file changed since then. Quit and open TestAnyware to read it".to_string(),
+        ));
+    }
+    if matches!(
+        configuration.state,
+        ConfigurationState::Loaded | ConfigurationState::Failed
+    ) {
+        entries.push(MenuEntry::Action {
+            title: "Open config.rhai".to_string(),
+            action: MenuAction::OpenConfigFile,
+        });
+    }
+    entries
 }
 
 pub fn build_menu(state: &MenuState) -> Vec<MenuEntry> {
@@ -180,6 +262,8 @@ pub fn build_menu(state: &MenuState) -> Vec<MenuEntry> {
         menu.push(MenuEntry::Text(problem.clone()));
     }
     menu.push(MenuEntry::Separator);
+    menu.extend(configuration_entries(&state.configuration));
+    menu.push(MenuEntry::Separator);
     menu.push(MenuEntry::Action {
         title: QUIT_TITLE.to_string(),
         action: MenuAction::Quit,
@@ -202,7 +286,160 @@ mod tests {
             not_adopted: Vec::new(),
             login: LoginItemStatus::NotRegistered,
             login_problem: None,
+            configuration: ConfigurationStatus::default(),
         }
+    }
+
+    fn loaded() -> ConfigurationStatus {
+        ConfigurationStatus {
+            state: ConfigurationState::Loaded,
+            file: Some("/h/.config/testanyware/config.rhai".into()),
+            evaluated_at: Some(1_760_000_000),
+            ..ConfigurationStatus::default()
+        }
+    }
+
+    fn failed(line: Option<usize>) -> ConfigurationStatus {
+        let file = std::path::PathBuf::from("/h/.config/testanyware/config.rhai");
+        ConfigurationStatus {
+            state: ConfigurationState::Failed,
+            error: Some(testanyware_app_protocol::AppError::config_invalid(
+                &file,
+                line,
+                "syntax error: Unexpected ';'",
+            )),
+            file: Some(file),
+            evaluated_at: Some(1_760_000_000),
+            ..ConfigurationStatus::default()
+        }
+    }
+
+    fn opens_the_file(menu: &[MenuEntry]) -> bool {
+        menu.iter().any(|e| {
+            matches!(
+                e,
+                MenuEntry::Action {
+                    action: MenuAction::OpenConfigFile,
+                    ..
+                }
+            )
+        })
+    }
+
+    #[test]
+    fn menu_shows_the_file_the_time_of_its_evaluation_and_an_item_that_opens_it() {
+        let menu = build_menu(&MenuState {
+            configuration: loaded(),
+            ..state()
+        });
+        let lines = texts(&menu);
+        assert!(lines.contains(&"Configuration: /h/.config/testanyware/config.rhai"));
+        assert!(lines.contains(&"Last evaluated: 2025-10-09 08:53:20 UTC"));
+        assert!(opens_the_file(&menu));
+        assert!(!lines.iter().any(|t| t.starts_with("Error")));
+    }
+
+    #[test]
+    fn menu_shows_the_error_of_a_file_that_fails_with_its_line() {
+        let menu = build_menu(&MenuState {
+            configuration: failed(Some(3)),
+            ..state()
+        });
+        let lines = texts(&menu);
+        assert!(lines.contains(&"Configuration: /h/.config/testanyware/config.rhai (failed)"));
+        assert!(lines.contains(&"Error at line 3: syntax error: Unexpected ';'"));
+        assert!(lines.contains(&"The app runs with its built-in defaults"));
+        // A file that fails is still a file a person must be able to open.
+        assert!(opens_the_file(&menu));
+    }
+
+    #[test]
+    fn menu_shows_an_error_with_no_line_without_one() {
+        let menu = build_menu(&MenuState {
+            configuration: failed(None),
+            ..state()
+        });
+        assert!(texts(&menu).contains(&"Error: syntax error: Unexpected ';'"));
+    }
+
+    #[test]
+    fn menu_offers_no_item_to_open_a_file_that_is_not_there() {
+        for configuration in [
+            ConfigurationStatus::default(),
+            ConfigurationStatus {
+                state: ConfigurationState::Absent,
+                file: Some("/h/config.rhai".into()),
+                evaluated_at: Some(1),
+                ..ConfigurationStatus::default()
+            },
+        ] {
+            let menu = build_menu(&MenuState {
+                configuration,
+                ..state()
+            });
+            assert!(!opens_the_file(&menu));
+            assert!(texts(&menu)
+                .iter()
+                .any(|t| t.starts_with("Configuration: no file")));
+        }
+    }
+
+    #[test]
+    fn menu_asks_for_a_restart_when_the_file_changed_since_the_evaluation() {
+        let changed = ConfigurationStatus {
+            changed_since_evaluation: true,
+            ..loaded()
+        };
+        let menu = build_menu(&MenuState {
+            configuration: changed,
+            ..state()
+        });
+        assert!(texts(&menu)
+            .iter()
+            .any(|t| t.contains("Quit and open TestAnyware")));
+        let quiet = build_menu(&MenuState {
+            configuration: loaded(),
+            ..state()
+        });
+        assert!(!texts(&quiet)
+            .iter()
+            .any(|t| t.contains("Quit and open TestAnyware")));
+    }
+
+    #[test]
+    fn the_configuration_comes_after_the_login_switch_and_before_quit() {
+        let menu = build_menu(&MenuState {
+            configuration: loaded(),
+            ..state()
+        });
+        let login = menu
+            .iter()
+            .position(|e| {
+                matches!(
+                    e,
+                    MenuEntry::Switch {
+                        action: MenuAction::ToggleStartAtLogin,
+                        ..
+                    }
+                )
+            })
+            .unwrap();
+        let file = menu
+            .iter()
+            .position(|e| matches!(e, MenuEntry::Text(t) if t.starts_with("Configuration:")))
+            .unwrap();
+        assert!(login < file && file < menu.len() - 1, "{menu:?}");
+    }
+
+    #[test]
+    fn format_utc_reads_known_instants() {
+        assert_eq!(format_utc(0), "1970-01-01 00:00:00 UTC");
+        assert_eq!(format_utc(951_782_400), "2000-02-29 00:00:00 UTC");
+        assert_eq!(format_utc(1_760_000_000), "2025-10-09 08:53:20 UTC");
+        assert_eq!(
+            format_utc(1_760_000_000 + 86_399),
+            "2025-10-10 08:53:19 UTC"
+        );
     }
 
     fn vm(id: &str, platform: &str, backend: &str) -> MenuVm {
@@ -354,10 +591,16 @@ mod tests {
             ..state()
         });
         let lines = texts(&menu);
-        let heading = lines.iter().position(|t| *t == "Running VMs:").expect("a heading");
+        let heading = lines
+            .iter()
+            .position(|t| *t == "Running VMs:")
+            .expect("a heading");
         assert_eq!(
             lines[heading + 1..heading + 3],
-            ["  testanyware-aa (macos, tart)", "  testanyware-bb (windows, qemu)"]
+            [
+                "  testanyware-aa (macos, tart)",
+                "  testanyware-bb (windows, qemu)"
+            ]
         );
         assert!(!lines.contains(&"No VMs running"));
     }
@@ -368,7 +611,9 @@ mod tests {
             running_vms: None,
             ..state()
         });
-        assert!(texts(&menu).iter().any(|t| t.starts_with("Running VMs: no answer")));
+        assert!(texts(&menu)
+            .iter()
+            .any(|t| t.starts_with("Running VMs: no answer")));
     }
 
     #[test]
@@ -378,9 +623,25 @@ mod tests {
             ..state()
         });
         let at = |wanted: &dyn Fn(&MenuEntry) -> bool| menu.iter().position(wanted).unwrap();
-        let pane = at(&|e| matches!(e, MenuEntry::Action { action: MenuAction::OpenLocalNetworkSettings, .. }));
+        let pane = at(&|e| {
+            matches!(
+                e,
+                MenuEntry::Action {
+                    action: MenuAction::OpenLocalNetworkSettings,
+                    ..
+                }
+            )
+        });
         let vms = at(&|e| matches!(e, MenuEntry::Text(t) if t == "Running VMs:"));
-        let login = at(&|e| matches!(e, MenuEntry::Switch { action: MenuAction::ToggleStartAtLogin, .. }));
+        let login = at(&|e| {
+            matches!(
+                e,
+                MenuEntry::Switch {
+                    action: MenuAction::ToggleStartAtLogin,
+                    ..
+                }
+            )
+        });
         assert!(pane < vms && vms < login, "{menu:?}");
     }
 

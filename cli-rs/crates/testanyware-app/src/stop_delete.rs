@@ -198,7 +198,7 @@ mod tests {
             },
             // The server compares the uid of each peer with this one.
             nix::unistd::geteuid().as_raw(),
-            None,
+            crate::config::AppConfig::disabled(),
         ))
     }
 
