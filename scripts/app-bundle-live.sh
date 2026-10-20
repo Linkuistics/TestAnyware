@@ -15,10 +15,14 @@
 #      the terminal this step reports SKIP, and the run still passes.
 #   6. Quit through the Apple event that the Dock's Quit sends, and check that the process
 #      is gone and the socket file with it.
+#      Between 4 and 5, check that the app and golden creation name the same directories
+#      (golden-directory-check): the Host CLI at an XDG_DATA_HOME that the app cannot have is
+#      refused by the app and by golden creation, with the same app directories.
 #   7. Open the bundle again with TESTANYWARE_CONFIG naming a config.rhai that fails (ADR-0021),
 #      check that the status reports the CONFIG_INVALID error and that the menu shows the file,
 #      the error and an item that opens the file, and quit.
 #
+# Needs the Host CLI at TESTANYWARE_BIN (default cli-rs/target/debug/testanyware).
 # The app uses the real socket, ~/Library/Application Support/TestAnyware/testanyware.sock,
 # because the bundle takes no arguments. Always quits the app that it started.
 
@@ -27,6 +31,7 @@ IFS=$'\n\t'
 trap 'echo "app-bundle-live: error on line $LINENO" >&2' ERR
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cli=${TESTANYWARE_BIN:-$root/cli-rs/target/debug/testanyware}
 socket="$HOME/Library/Application Support/TestAnyware/testanyware.sock"
 readonly bundle_id=dev.antony.TestAnyware.dev
 
@@ -45,7 +50,8 @@ cleanup() {
     pkill -f "TestAnyware Dev.app/Contents/MacOS" 2>/dev/null || true
   fi
 }
-trap cleanup EXIT
+scratch=$(mktemp -d)
+trap 'rm -rf "$scratch"; cleanup' EXIT
 
 # 1
 if status >/dev/null 2>&1; then
@@ -88,6 +94,24 @@ pgrep -f "$bundle/Contents/MacOS/testanyware-app" >/dev/null ||
   fail "no process runs the bundle's executable."
 [[ "$(stat -f %Lp "$socket")" == 600 ]] || fail "the socket file is not mode 0600."
 [[ "$(stat -f %Lp "$(dirname "$socket")")" == 700 ]] || fail "the socket directory is not mode 0700."
+
+# 4b
+# The Host CLI moves its data directory with XDG_DATA_HOME, which beats config.rhai, and the app
+# has no such variable. The app refuses an ordinary command on that, and golden creation, which
+# sends the app no request, must refuse with the same directories for the app.
+[[ -x "$cli" ]] || fail "no Host CLI at $cli (task cli:build)."
+other=$scratch/other-data
+refused=$(XDG_DATA_HOME=$other "$cli" vm list --json 2>/dev/null || true)
+golden=$(XDG_DATA_HOME=$other "$cli" vm create-golden --platform macos --json 2>/dev/null || true)
+for answer in "$refused" "$golden"; do
+  [[ "$(jq -r .code <<<"$answer")" == APP_INCOMPATIBLE && "$(jq -r .details.cause <<<"$answer")" == directories ]] ||
+    fail "a command at XDG_DATA_HOME=$other is not refused with APP_INCOMPATIBLE and cause directories: $answer"
+done
+[[ "$(jq -c .details.app <<<"$refused")" == "$(jq -c .details.app <<<"$golden")" ]] ||
+  fail "the app names $(jq -c .details.app <<<"$refused"), and golden creation expects $(jq -c .details.app <<<"$golden")."
+[[ "$(jq -r .details.client.data_dir <<<"$golden")" == "$other/testanyware" ]] ||
+  fail "golden creation does not name its own data directory: $golden"
+echo "app-bundle-live: ok   golden creation expects the directories that the app holds ($(jq -c .details.app <<<"$golden"))"
 
 # 5
 # AXCancel closes the menu. The Escape key does not, on macOS 27, and an open menu keeps the
@@ -132,8 +156,6 @@ quit_app
 echo "app-bundle-live: ok   quit leaves no process and no socket file"
 
 # 7
-scratch=$(mktemp -d)
-trap 'rm -rf "$scratch"; cleanup' EXIT
 printf 'let ok = 1;\nlet bad = ;\n' >"$scratch/config.rhai"
 open -n -g --env "TESTANYWARE_CONFIG=$scratch/config.rhai" "$bundle"
 started=1

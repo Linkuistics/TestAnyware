@@ -485,6 +485,8 @@ async fn run_vm_create_golden_macos(
         use testanyware_vm::finalize::create_golden;
         use testanyware_vm::golden::GoldenOptions;
 
+        // The app cannot compare the directories of a command that sends it no request.
+        crate::host_config::refuse_golden_if_directories_differ(mode);
         let opts = GoldenOptions { version: version.clone(), name: name.clone() };
         let paths = crate::host_config::vm_paths();
         match create_golden(&opts, &paths).await {
@@ -536,6 +538,8 @@ async fn run_vm_create_golden_windows(
         use testanyware_vm::golden::GoldenOptions;
         use testanyware_vm::golden_windows::create_golden_windows;
 
+        // The app cannot compare the directories of a command that sends it no request.
+        crate::host_config::refuse_golden_if_directories_differ(mode);
         let opts = GoldenOptions { version: version.clone(), name: name.clone() };
         let paths = crate::host_config::vm_paths();
         let iso_path = iso.as_deref().map(Path::new);
@@ -588,6 +592,8 @@ async fn run_vm_create_golden_linux(
         use testanyware_vm::golden::GoldenOptions;
         use testanyware_vm::golden_linux::create_golden_linux;
 
+        // The app cannot compare the directories of a command that sends it no request.
+        crate::host_config::refuse_golden_if_directories_differ(mode);
         let opts = GoldenOptions { version: version.clone(), name: name.clone() };
         let paths = crate::host_config::vm_paths();
         match create_golden_linux(&opts, &paths).await {

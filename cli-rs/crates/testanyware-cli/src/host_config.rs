@@ -15,8 +15,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-use testanyware_app_protocol::AppError;
-use testanyware_config::{load, locate, Activation, ConfigError, Loaded};
+use testanyware_app_protocol::{AppError, ConfigurationState, ConfigurationStatus, Directories};
+use testanyware_config::{load, locate, Activation, Config, ConfigError, ConfigLocation, Loaded, CONFIG_ENV};
 use testanyware_vm::paths::{FileDirs, VmPaths};
 
 use crate::output::{exit_code_for, print_error, OutputMode};
@@ -49,6 +49,19 @@ pub struct HostConfig {
     pub file_dirs: FileDirs,
     /// The tool locations that the file names. Empty without a usable file.
     pub tools: Vec<(String, PathBuf)>,
+    /// What the TestAnyware app resolves for this user, for the directory check of golden
+    /// creation. `None` where the switch is off, or where there is no home directory.
+    pub app: Option<AppView>,
+}
+
+/// The directories that the app resolves, and the file they come from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AppView {
+    pub directories: Directories,
+    /// The file that the app reads, whether or not it exists.
+    pub file: PathBuf,
+    /// True when that file exists and evaluates, so that it named the directories.
+    pub file_loaded: bool,
 }
 
 impl HostConfig {
@@ -82,13 +95,7 @@ pub fn resolve(
     } else {
         (ConfigStatus::NotApplicable, None)
     };
-    let file_dirs = config
-        .as_ref()
-        .map(|c| FileDirs {
-            state_dir: c.state_dir.clone(),
-            data_dir: c.data_dir.clone(),
-        })
-        .unwrap_or_default();
+    let file_dirs = config.as_ref().map(dirs_of).unwrap_or_default();
     let tools = config
         .as_ref()
         .map(|c| {
@@ -104,7 +111,81 @@ pub fn resolve(
         paths: VmPaths::from_env_and_file(env, &file_dirs),
         file_dirs,
         tools,
+        app: activation.is_active().then(|| app_view(env, read)).flatten(),
     }
+}
+
+fn dirs_of(config: &Config) -> FileDirs {
+    FileDirs {
+        state_dir: config.state_dir.clone(),
+        data_dir: config.data_dir.clone(),
+    }
+}
+
+/// The directories that the app resolves for the user in `env`: those of `config.rhai`, else the
+/// built-in defaults of the app. The app has no shell environment, so no flag and no variable
+/// reaches this, `TESTANYWARE_CONFIG` included: it names the file of a test, and the app of a
+/// person reads the default one. A file that fails leaves the app on its built-in directories.
+fn app_view(
+    env: &HashMap<String, String>,
+    read: &dyn Fn(&Path) -> io::Result<String>,
+) -> Option<AppView> {
+    let home = env.get("HOME").filter(|home| !home.is_empty())?;
+    let ConfigLocation::File(file) = locate(&|key| {
+        (key != CONFIG_ENV).then(|| env.get(key).cloned()).flatten()
+    }) else {
+        return None;
+    };
+    let loaded = match load(&ConfigLocation::File(file.clone()), read) {
+        Ok(Loaded::Present { config, .. }) => Some(config),
+        _ => None,
+    };
+    let builtin = VmPaths::builtin_for_home(Path::new(home));
+    let named = loaded.as_ref().map(dirs_of).unwrap_or_default();
+    Some(AppView {
+        directories: Directories {
+            state_dir: named
+                .state_dir
+                .unwrap_or_else(|| builtin.state_dir().to_path_buf()),
+            data_dir: named
+                .data_dir
+                .unwrap_or_else(|| builtin.data_dir().to_path_buf()),
+        },
+        file,
+        file_loaded: loaded.is_some(),
+    })
+}
+
+/// Golden creation sends no request, so the app cannot compare its directories with the Host
+/// CLI's. On a host that runs the app, golden creation compares them itself before it starts. It
+/// needs no running app, because the app's directories follow from `config.rhai` and its
+/// built-in defaults alone (spec: "Golden creation keeps its direct path"). A host with no app
+/// passes `runs_the_app` as false and the check does nothing.
+pub fn check_golden_directories(host: &HostConfig, runs_the_app: bool) -> Result<(), AppError> {
+    let Some(app) = host.app.as_ref().filter(|_| runs_the_app) else {
+        return Ok(());
+    };
+    let client = Directories {
+        state_dir: host.paths.state_dir().to_path_buf(),
+        data_dir: host.paths.data_dir().to_path_buf(),
+    };
+    if client == app.directories {
+        return Ok(());
+    }
+    let configuration = ConfigurationStatus {
+        state: if app.file_loaded {
+            ConfigurationState::Loaded
+        } else {
+            ConfigurationState::Absent
+        },
+        file: Some(app.file.clone()),
+        ..ConfigurationStatus::default()
+    };
+    Err(AppError::incompatible_directories(
+        &app.directories,
+        Some(&client),
+        &configuration,
+    ))
 }
 
 static HOST: OnceLock<HostConfig> = OnceLock::new();
@@ -157,15 +238,28 @@ pub fn json_requested(args: impl IntoIterator<Item = String>) -> bool {
 /// Every command except `doctor` refuses to run with a file that fails: `CONFIG_INVALID`, exit 2.
 pub fn refuse_if_invalid(host: &HostConfig, mode: OutputMode) {
     if let Some(error) = host.invalid() {
-        print_error(
-            mode,
-            &error.code,
-            &error.message,
-            error.remediation.as_deref(),
-            error.details.clone(),
-            exit_code_for(&error.code),
-        );
+        exit_with(&error, mode);
     }
+}
+
+/// Golden creation on a macOS host fails with `APP_INCOMPATIBLE` before it starts when its
+/// directories differ from the app's.
+pub fn refuse_golden_if_directories_differ(mode: OutputMode) {
+    let Some(host) = current() else { return };
+    if let Err(error) = check_golden_directories(host, cfg!(target_os = "macos")) {
+        exit_with(&error, mode);
+    }
+}
+
+fn exit_with(error: &AppError, mode: OutputMode) -> ! {
+    print_error(
+        mode,
+        &error.code,
+        &error.message,
+        error.remediation.as_deref(),
+        error.details.clone(),
+        exit_code_for(&error.code),
+    )
 }
 
 #[cfg(test)]
@@ -226,11 +320,144 @@ mod tests {
     }
 
     #[test]
-    fn the_switch_is_on_for_linux_and_windows_hosts_and_off_for_macos() {
+    fn the_switch_is_on_for_every_host() {
+        assert!(Activation::for_this_host().is_active());
+    }
+
+    // ---- the directory check of golden creation ----
+
+    fn check(
+        env: &[(&str, &str)],
+        file: Option<&str>,
+        runs_the_app: bool,
+    ) -> Result<(), AppError> {
+        let read = |path: &Path| match file {
+            Some(text) => file_with(FILE, text)(path),
+            None => no_file(path),
+        };
+        let host = resolve(Activation::Active, &self::env(env), &read);
+        check_golden_directories(&host, runs_the_app)
+    }
+
+    #[test]
+    fn golden_passes_when_nothing_moves_a_directory() {
+        assert!(check(&[("HOME", "/h")], None, true).is_ok());
+    }
+
+    #[test]
+    fn golden_passes_when_it_reads_the_file_that_the_app_reads() {
+        assert!(check(&[("HOME", "/h")], Some(SETTINGS), true).is_ok());
+    }
+
+    #[test]
+    fn golden_passes_when_a_variable_names_the_directory_that_the_file_names() {
+        let env = [("HOME", "/h"), ("XDG_STATE_HOME", "/f/s")];
+        // The state directory of the file is `/f/state`, so `/f/s/testanyware` differs.
+        assert!(check(&env, Some(SETTINGS), true).is_err());
+        let file = r#"#{ state_dir: "/f/s/testanyware" }"#;
+        assert!(check(&env, Some(file), true).is_ok());
+    }
+
+    #[test]
+    fn golden_fails_on_a_data_home_that_the_file_does_not_name() {
+        // The scenario of the spec: XDG_DATA_HOME is set, and the file names no data_dir.
+        let env = [("HOME", "/h"), ("XDG_DATA_HOME", "/elsewhere")];
+        let error = check(&env, Some(r#"#{ state_dir: "/f/state" }"#), true).unwrap_err();
+        assert_eq!(error.code, "APP_INCOMPATIBLE");
+        assert_eq!(error.details["cause"], "directories");
         assert_eq!(
-            Activation::for_this_host().is_active(),
-            !cfg!(target_os = "macos")
+            error.details["client"]["data_dir"],
+            "/elsewhere/testanyware"
         );
+        assert_eq!(error.details["client"]["state_dir"], "/f/state");
+        assert_eq!(
+            error.details["app"]["data_dir"],
+            "/h/.local/share/testanyware"
+        );
+        assert_eq!(error.details["app"]["state_dir"], "/f/state");
+        let remedy = error.remediation.unwrap();
+        assert!(remedy.contains("XDG_DATA_HOME"), "{remedy}");
+        assert!(!remedy.contains("XDG_STATE_HOME"), "{remedy}");
+        assert!(remedy.contains("config.rhai"), "{remedy}");
+        // The message names both pairs.
+        for needle in ["/elsewhere/testanyware", "/f/state", "/h/.local/share/testanyware"] {
+            assert!(error.message.contains(needle), "{needle}: {}", error.message);
+        }
+    }
+
+    #[test]
+    fn golden_fails_when_a_variable_beats_the_file() {
+        let env = [("HOME", "/h"), ("XDG_STATE_HOME", "/x")];
+        let error = check(&env, Some(SETTINGS), true).unwrap_err();
+        assert_eq!(error.details["client"]["state_dir"], "/x/testanyware");
+        assert_eq!(error.details["app"]["state_dir"], "/f/state");
+    }
+
+    #[test]
+    fn the_app_side_of_golden_uses_no_variable() {
+        // The app has no shell environment. `TESTANYWARE_CONFIG` names the file of a test, so it
+        // moves the file of the Host CLI and leaves the file of the app where it was.
+        let other = "/o/other.rhai";
+        let read = |path: &Path| {
+            if path == Path::new(other) {
+                Ok(r#"#{ state_dir: "/o/state" }"#.to_string())
+            } else {
+                file_with(FILE, SETTINGS)(path)
+            }
+        };
+        let host = resolve(
+            Activation::Active,
+            &env(&[("HOME", "/h"), ("TESTANYWARE_CONFIG", other), ("XDG_DATA_HOME", "/x")]),
+            &read,
+        );
+        let app = host.app.as_ref().unwrap();
+        assert_eq!(app.file, PathBuf::from(FILE));
+        assert_eq!(app.directories.state_dir, PathBuf::from("/f/state"));
+        assert_eq!(app.directories.data_dir, PathBuf::from("/f/data"));
+        // The Host CLI reads the other file, so the two disagree and golden says so.
+        assert_eq!(host.paths.state_dir(), Path::new("/o/state"));
+        assert!(check_golden_directories(&host, true).is_err());
+    }
+
+    #[test]
+    fn golden_expects_the_built_in_directories_of_an_app_whose_file_fails() {
+        let host = resolve(
+            Activation::Active,
+            &env(&[("HOME", "/h")]),
+            &file_with(FILE, "#{ nope: 1 }"),
+        );
+        // Every command except `doctor` refuses before golden gets here. The view still says
+        // what the app does with such a file.
+        let app = host.app.as_ref().unwrap();
+        assert_eq!(
+            app.directories.state_dir,
+            PathBuf::from("/h/.local/state/testanyware")
+        );
+        assert!(!app.file_loaded);
+        assert!(host.invalid().is_some());
+    }
+
+    #[test]
+    fn golden_does_not_run_the_check_on_a_host_without_the_app() {
+        let env = [("HOME", "/h"), ("XDG_DATA_HOME", "/elsewhere")];
+        assert!(check(&env, None, true).is_err());
+        assert!(check(&env, None, false).is_ok());
+    }
+
+    #[test]
+    fn golden_has_no_app_to_compare_with_when_the_switch_is_off_or_there_is_no_home() {
+        let read = |_: &Path| -> io::Result<String> { panic!("an inactive host reads no file") };
+        let host = resolve(
+            Activation::Inactive,
+            &env(&[("HOME", "/h"), ("XDG_DATA_HOME", "/x")]),
+            &read,
+        );
+        assert!(host.app.is_none());
+        assert!(check_golden_directories(&host, true).is_ok());
+
+        let host = resolve(Activation::Active, &env(&[]), &no_file);
+        assert!(host.app.is_none());
+        assert!(check_golden_directories(&host, true).is_ok());
     }
 
     // ---- the order of the sources: environment variable, file, default ----
@@ -334,14 +561,19 @@ mod tests {
         );
         assert_eq!(host.paths.data_dir(), Path::new("/o/data"));
 
-        // `none` reads nothing, even where the default file would fail.
-        let read = |_: &Path| -> io::Result<String> { panic!("`none` reads no file") };
+        // `none` makes the Host CLI read no file, even where the default file would fail. The
+        // one read that remains is the app's view of the default file, for the golden check.
+        let read = |path: &Path| -> io::Result<String> {
+            assert_eq!(path, Path::new(FILE), "`none` reads no file for the Host CLI");
+            Ok("let a = ;".to_string())
+        };
         let host = resolve(
             Activation::Active,
             &env(&[("HOME", "/h"), ("TESTANYWARE_CONFIG", "none")]),
             &read,
         );
         assert_eq!(host.status, ConfigStatus::Disabled);
+        assert!(host.invalid().is_none());
     }
 
     // ---- every error ----

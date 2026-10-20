@@ -103,7 +103,7 @@
         },
         "config": {
           "type": "object",
-          "description": "The Host CLI's own evaluation of ~/.config/testanyware/config.rhai (or the file that TESTANYWARE_CONFIG names). `pass`: the file evaluated (`loaded`), the file does not exist (`absent`, the file is optional), or TESTANYWARE_CONFIG=none (`disabled`). `skip`: the Host CLI does not read the file on this host (`not_applicable`). `fail`: the file fails (`invalid`), and `error` is the CONFIG_INVALID error object. `doctor` is the one command that runs with a file that fails; its other checks use the values that resolve without the file.",
+          "description": "The Host CLI's own evaluation of ~/.config/testanyware/config.rhai (or the file that TESTANYWARE_CONFIG names). `pass`: the file evaluated (`loaded`), the file does not exist (`absent`, the file is optional), or TESTANYWARE_CONFIG=none (`disabled`). `skip`: the Host CLI does not read the file (`not_applicable`). Every host reads the file today, so no host reports this. `fail`: the file fails (`invalid`), and `error` is the CONFIG_INVALID error object. `doctor` is the one command that runs with a file that fails; its other checks use the values that resolve without the file.",
           "required": ["status", "verdict"],
           "additionalProperties": false,
           "properties": {

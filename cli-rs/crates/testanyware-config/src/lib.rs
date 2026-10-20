@@ -17,10 +17,10 @@ pub use location::{load, locate, ConfigLocation, Loaded, CONFIG_ENV, DEFAULT_REL
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-/// Whether a host reads the file. This is the one switch (spec "Configuration"): the Host CLI
-/// reads the file on a Linux or Windows host, and a macOS host ignores it until the app reads it
-/// too, so that the two never disagree about the directories. A parameter of the pure functions
-/// carries it, so a test turns it on for any host.
+/// Whether a host reads the file. This is the one switch (spec "Configuration"). The Host CLI
+/// reads the file on every host, a macOS host included, because the app reads it too and the two
+/// never disagree about the directories. A parameter of the pure functions carries the switch, so
+/// a test turns it off for any host.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Activation {
     Active,
@@ -28,14 +28,9 @@ pub enum Activation {
 }
 
 impl Activation {
-    /// The switch of the host this binary runs on. `golden-directory-check-k34` turns it on for
-    /// macOS by deleting the `macos` arm.
+    /// The switch of the host this binary runs on. It is on for every host.
     pub const fn for_this_host() -> Self {
-        if cfg!(target_os = "macos") {
-            Activation::Inactive
-        } else {
-            Activation::Active
-        }
+        Activation::Active
     }
 
     pub const fn is_active(self) -> bool {

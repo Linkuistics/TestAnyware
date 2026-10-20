@@ -231,6 +231,39 @@ impl TestApp {
         Self::spawn_with(app, args)
     }
 
+    /// Start the app with a `config.rhai` that `text` returns, at the default place of the CLI's
+    /// `HOME` (see [`Self::config_file`]). The app reads it with `--config`, and the CLI finds it
+    /// by its default location, so the two read one file.
+    pub fn start_with_config(text: impl FnOnce(&TestApp) -> String) -> Self {
+        Self::spawn_with_config(Self::not_running(), text)
+    }
+
+    /// As [`Self::start_with_config`], for an app that is not running: the CLI finds the file and
+    /// nothing answers on the socket.
+    pub fn not_running_with_config(text: impl FnOnce(&TestApp) -> String) -> Self {
+        let app = Self::not_running();
+        app.write_config(&text(&app));
+        app
+    }
+
+    fn spawn_with_config(app: Self, text: impl FnOnce(&TestApp) -> String) -> Self {
+        app.write_config(&text(&app));
+        let args = ["--config".to_string(), app.config_file().display().to_string()];
+        Self::spawn_with(app, &args)
+    }
+
+    /// The default `config.rhai` of the CLI: `$HOME/.config/testanyware/config.rhai`, where `HOME`
+    /// is the root of the test.
+    pub fn config_file(&self) -> PathBuf {
+        self.root().join(".config").join("testanyware").join("config.rhai")
+    }
+
+    pub fn write_config(&self, text: &str) {
+        let file = self.config_file();
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(file, text).unwrap();
+    }
+
     /// The process id of the app.
     pub fn pid(&self) -> u32 {
         self.child.as_ref().expect("the app runs").id()
@@ -406,15 +439,28 @@ impl TestApp {
     /// Run the CLI with `extra` in its environment. The CLI sees none of the environment of
     /// the test, so no `TESTANYWARE_*` variable of the developer leaks in.
     pub fn cli_with(&self, args: &[&str], extra: &[(&str, &str)]) -> Output {
+        self.cli_in(args, extra, true)
+    }
+
+    /// As [`Self::cli_with`], with neither `XDG_STATE_HOME` nor `XDG_DATA_HOME`, so that the
+    /// directories of the CLI come from `config.rhai` and the host default.
+    pub fn cli_without_xdg(&self, args: &[&str], extra: &[(&str, &str)]) -> Output {
+        self.cli_in(args, extra, false)
+    }
+
+    fn cli_in(&self, args: &[&str], extra: &[(&str, &str)], xdg: bool) -> Output {
         let mut command = Command::new(CLI);
         command
             .args(args)
             .env_clear()
             .env("PATH", std::env::var_os("PATH").unwrap_or_default())
             .env("HOME", self.root())
-            .env("XDG_STATE_HOME", self.xdg_state_home())
-            .env("XDG_DATA_HOME", self.xdg_data_home())
             .env("TMPDIR", self.tmp_dir());
+        if xdg {
+            command
+                .env("XDG_STATE_HOME", self.xdg_state_home())
+                .env("XDG_DATA_HOME", self.xdg_data_home());
+        }
         for (key, value) in extra {
             command.env(key, value);
         }

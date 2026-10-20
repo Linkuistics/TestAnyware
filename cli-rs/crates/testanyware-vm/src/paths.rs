@@ -30,6 +30,15 @@ impl VmPaths {
         Self { state_dir, data_dir, tmp_dir }
     }
 
+    /// The built-in directories of the TestAnyware app: the host default under `home`, with no
+    /// environment variable. The app has no shell environment, and `config.rhai` is the one way
+    /// to move its directories (spec "Configuration"). The app and the directory check of golden
+    /// creation both take their defaults from here, so the two cannot disagree about them.
+    pub fn builtin_for_home(home: &std::path::Path) -> Self {
+        let env = HashMap::from([("HOME".to_string(), home.to_string_lossy().into_owned())]);
+        Self::from_env(&env)
+    }
+
     /// Resolve from the process environment.
     pub fn from_process_env() -> Self {
         let env: HashMap<String, String> = std::env::vars().collect();
@@ -161,6 +170,13 @@ mod tests {
         let p = VmPaths::from_env(&env(&[("HOME", "/Users/alice")]));
         assert_eq!(p.vms_dir(), PathBuf::from("/Users/alice/.local/state/testanyware/vms"));
         assert_eq!(p.golden_dir(), PathBuf::from("/Users/alice/.local/share/testanyware/golden"));
+    }
+
+    #[test]
+    fn the_builtin_directories_of_the_app_come_from_home_alone() {
+        let p = VmPaths::builtin_for_home(std::path::Path::new("/Users/alice"));
+        assert_eq!(p.state_dir(), std::path::Path::new("/Users/alice/.local/state/testanyware"));
+        assert_eq!(p.data_dir(), std::path::Path::new("/Users/alice/.local/share/testanyware"));
     }
 
     #[test]

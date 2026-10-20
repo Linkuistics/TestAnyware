@@ -62,6 +62,10 @@ TestAnyware app and the Host CLI. Both evaluate it with one shared evaluator.**
   so the cross-builds of the Host CLI need no C toolchain for it.
 - A user who sets `XDG_STATE_HOME` on macOS also sets `state_dir` in the file, or
   each command fails with the remedy.
+- Golden creation sends no request, so on a macOS host it compares its directories
+  with the app's itself, before it starts. It takes the app's directories from the
+  file and from the built-in defaults under `HOME`. The app takes its defaults from
+  `HOME` alone, so the two agree without a running app.
 - An edit of the file reaches the app only after a restart of the app. `doctor`
   reports when the app evaluated an older file.
 - A test names another file, or none, through `TESTANYWARE_CONFIG`.

@@ -253,8 +253,8 @@ fn run_headless(
     code
 }
 
-/// The user's own directories: the socket in Application Support, and the VM records where the
-/// Host CLI reads them from, since the handshake compares the two.
+/// The user's own directories: the socket in Application Support, and the built-in directories of
+/// the VM records, which `config.rhai` can replace.
 #[cfg(target_os = "macos")]
 fn app_paths() -> Option<Paths> {
     use testanyware_app_protocol::default_socket_path;
@@ -264,7 +264,9 @@ fn app_paths() -> Option<Paths> {
         eprintln!("testanyware-app: HOME is not set.");
         return None;
     };
-    let vm_paths = VmPaths::from_process_env();
+    // The built-in directories come from HOME alone, as the directory check of golden creation
+    // assumes. `config.rhai` is the one way to move them.
+    let vm_paths = VmPaths::builtin_for_home(&home);
     Some(Paths {
         socket: default_socket_path(&home),
         state_dir: vm_paths.state_dir().to_path_buf(),
