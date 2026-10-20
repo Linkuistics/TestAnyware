@@ -52,8 +52,10 @@ as an egui `TextureHandle` with partial updates for changed rectangles.
 runtime** owns the `RfbConnection`. eframe runs on the process main thread. The
 RFB thread runs a `tokio::select!` loop:
 
-- `next_message()` → copy the framebuffer RGBA into a shared slot, then call
-  `egui::Context::request_repaint()`;
+- `readable()` → read the message with `next_message()`, copy the framebuffer RGBA
+  into a shared slot, then call `egui::Context::request_repaint()`. Only the wait for
+  a first byte is raced: a `select!` that dropped `next_message()` halfway would lose
+  the bytes it had read;
 - `input_rx.recv()` → `key_event` / `pointer_event`;
 - an interval tick (or post-update) → `request_framebuffer_update(incremental =
   true, full rect)` to keep the stream flowing;

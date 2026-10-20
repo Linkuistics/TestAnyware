@@ -357,21 +357,34 @@ async fn connect_and_stream(
 
     loop {
         tokio::select! {
-            msg = conn.next_message() => match msg {
-                Ok(ServerEvent::FramebufferUpdated { rectangles }) if rectangles > 0 => {
-                    let fb = conn.framebuffer();
-                    update_slot(frame, fb.width(), fb.height(), fb.rgba());
-                    productive = true;
-                    ctx.request_repaint();
+            // Only the wait for the first byte races input and the poll: a cancelled
+            // `next_message` would drop the bytes it had read. The message is read to its end
+            // below, with the window close as the only way out of it, which abandons the
+            // connection anyway.
+            ready = conn.readable() => {
+                let msg = match ready {
+                    Ok(()) => tokio::select! {
+                        msg = conn.next_message() => msg,
+                        _ = shutdown_rx.changed() => return StreamOutcome::Shutdown,
+                    },
+                    Err(err) => Err(err),
+                };
+                match msg {
+                    Ok(ServerEvent::FramebufferUpdated { rectangles }) if rectangles > 0 => {
+                        let fb = conn.framebuffer();
+                        update_slot(frame, fb.width(), fb.height(), fb.rgba());
+                        productive = true;
+                        ctx.request_repaint();
+                    }
+                    Ok(_) => {} // no-op update / bell / cut-text: ignore
+                    Err(err) => {
+                        return StreamOutcome::Lost {
+                            reason: format!("Connection lost: {err}"),
+                            productive,
+                        };
+                    }
                 }
-                Ok(_) => {} // no-op update / bell / cut-text: ignore
-                Err(err) => {
-                    return StreamOutcome::Lost {
-                        reason: format!("Connection lost: {err}"),
-                        productive,
-                    };
-                }
-            },
+            }
             Some(input) = input_rx.recv() => {
                 let result = match input {
                     ViewerInput::Key { keysym, down } => conn.key_event(keysym, down).await,

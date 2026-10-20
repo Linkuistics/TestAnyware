@@ -17,7 +17,7 @@
 use std::time::Duration;
 
 use testanyware_rfb::{Framebuffer, RfbConnection, RfbError, ServerEvent};
-use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::io::{AsyncBufRead, AsyncRead, AsyncWrite};
 
 /// Upper bound on how long [`capture_frame`] waits for the server to answer a
 /// full-frame request before returning the framebuffer it already holds.
@@ -54,7 +54,7 @@ pub enum CaptureError {
 /// until real pixels arrive — identical to the loop it replaces.
 pub async fn capture_frame<T>(conn: &mut RfbConnection<T>) -> Result<Framebuffer, RfbError>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + AsyncBufRead + Unpin,
 {
     refresh_full_frame(conn).await?;
     Ok(conn.framebuffer().into_owned())
@@ -67,7 +67,7 @@ where
 /// this is equivalent to [`capture_frame`].
 pub async fn capture_frame_physical<T>(conn: &mut RfbConnection<T>) -> Result<Framebuffer, RfbError>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + AsyncBufRead + Unpin,
 {
     refresh_full_frame(conn).await?;
     Ok(conn.physical_framebuffer().clone())
@@ -81,20 +81,24 @@ where
 /// both the logical and `--physical` read-outs above.
 async fn refresh_full_frame<T>(conn: &mut RfbConnection<T>) -> Result<(), RfbError>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + AsyncBufRead + Unpin,
 {
     let (w, h) = conn.framebuffer_size();
     conn.request_framebuffer_update(false, 0, 0, w as u16, h as u16)
         .await?;
     loop {
-        // Bound each read: a static screen may yield no further messages after
-        // a no-op update, which would otherwise hang the drain indefinitely.
-        match tokio::time::timeout(CAPTURE_MSG_TIMEOUT, conn.next_message()).await {
-            Ok(Ok(ServerEvent::FramebufferUpdated { rectangles })) if rectangles > 0 => break,
-            Ok(Ok(_)) => continue,
-            Ok(Err(e)) => return Err(e),
+        // Bound the wait for each message: a static screen may yield no further messages
+        // after a no-op update, which would otherwise hang the drain indefinitely. Only the
+        // wait for the first byte is bounded. A timeout that cancelled `next_message` halfway
+        // would drop the bytes it had read, and the caller reuses this connection.
+        match tokio::time::timeout(CAPTURE_MSG_TIMEOUT, conn.readable()).await {
             // No message within the window — return the frame we already hold.
             Err(_elapsed) => break,
+            Ok(ready) => ready?,
+        }
+        match conn.next_message().await? {
+            ServerEvent::FramebufferUpdated { rectangles } if rectangles > 0 => break,
+            _ => continue,
         }
     }
     Ok(())
@@ -105,7 +109,7 @@ where
 /// `wait_for_text`.
 pub async fn capture_frame_png<T>(conn: &mut RfbConnection<T>) -> Result<Vec<u8>, CaptureError>
 where
-    T: AsyncRead + AsyncWrite + Unpin,
+    T: AsyncRead + AsyncWrite + AsyncBufRead + Unpin,
 {
     let fb = capture_frame(conn).await?;
     let (w, h) = (fb.width(), fb.height());

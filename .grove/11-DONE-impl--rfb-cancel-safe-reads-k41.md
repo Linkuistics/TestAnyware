@@ -21,3 +21,11 @@ Make the reads of the RFB client safe to cancel. A timer that wins a `select!` m
 - One cheap shape: a readiness call such as `RfbConnection::readable()` that only waits for the buffered reader to hold a byte (`fill_buf` is safe to cancel). The loops race the timers against that call and then await `next_message` outside the `select!`, so a message is always read to its end. Another shape moves the parse onto a buffer that survives a cancel. Pick the smaller one.
 - `testanyware-vm/src/capture.rs` wraps `next_message` in `tokio::time::timeout`. A timeout ends that capture with an error, so a lost byte does no harm there. Check that this stays true.
 - This leaf is outside the grove's goal. It sits here because the recording through the app depends on it. The human can prune it or move it with `leaf-insert`.
+
+## Decisions (running log)
+
+- Shape: `RfbConnection::readable()` over `fill_buf`, the smaller one. It sits in an impl block bounded by `AsyncBufRead`, so the generic transports of the other tests keep working. Every real transport is a `BufReader`. Source: tokio 1.52.1 documents `fill_buf` as cancel-safe, and the call cites it.
+- The loops race `readable()` and await `next_message()` outside the race. The viewer keeps the shutdown signal racing the read, because shutdown drops the connection anyway. `screen record` has no such race: a server that stalls inside a message holds the sampler until the read ends or fails.
+- `capture.rs` did not stay harmless, against the note above. A timeout there ends the wait with `Ok` and the held frame, and `RecoverySession` reuses the connection. A timeout inside a message would have corrupted the next read. The timeout now wraps `readable()` only.
+- The test is `testanyware-rfb/tests/cancel_safe_fixture.rs`. It failed on the old shape (a lost byte), and passes now. The routing test failed 1 in 30 runs on the old shape with `unexpected message type 240` at 64 by 48, and 0 in 30 on the new one.
+- ADR-0005 states the viewer loop as design, so its bullet now names `readable()`.

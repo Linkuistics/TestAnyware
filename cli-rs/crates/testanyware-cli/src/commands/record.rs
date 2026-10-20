@@ -189,7 +189,9 @@ pub async fn run_screen_record(
 /// the encoder. Returns the number of frames appended. A frame the encoder
 /// drops under backpressure still counts as a tick but not as an appended
 /// frame, so the count reflects what actually landed in the file.
-async fn capture_loop<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
+async fn capture_loop<
+    T: tokio::io::AsyncRead + tokio::io::AsyncWrite + tokio::io::AsyncBufRead + Unpin,
+>(
     conn: &mut RfbConnection<T>,
     encoder: &mut dyn testanyware_video::VideoEncoder,
     crop: (u32, u32, u32, u32),
@@ -212,8 +214,13 @@ async fn capture_loop<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin>(
     loop {
         tokio::select! {
             // Apply server updates in place; `framebuffer()` then reflects them.
-            // The `ServerEvent` itself is unused — only its side effect matters.
-            msg = conn.next_message() => { msg?; }
+            // The `ServerEvent` itself is unused — only its side effect matters. Only the wait
+            // for the first byte races the timers: a timer that cancelled `next_message`
+            // halfway would drop the bytes it had read, so the message is read to its end here.
+            ready = conn.readable() => {
+                ready?;
+                conn.next_message().await?;
+            }
             _ = poll.tick() => {
                 conn.request_framebuffer_update(true, 0, 0, log_w as u16, log_h as u16).await?;
             }

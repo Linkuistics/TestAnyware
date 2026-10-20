@@ -14,8 +14,6 @@ use common::{serial, FakeRfb, OutputExt, RfbEvent, TestApp};
 const VM: &str = "testanyware-feed0002";
 const WIDTH: u16 = 64;
 const HEIGHT: u16 = 48;
-/// The side of the square frame of the recording test.
-const RECORD_SIDE: u16 = 16;
 
 /// A synthetic RFB server, and an app that serves its VM.
 struct Fixture {
@@ -26,11 +24,7 @@ struct Fixture {
 impl Fixture {
     /// The fakes start first, and the app spawns once (see the rules in `common`).
     fn new(password: Option<&str>, logical: Option<(u32, u32)>) -> Self {
-        Self::sized(WIDTH, HEIGHT, password, logical)
-    }
-
-    fn sized(width: u16, height: u16, password: Option<&str>, logical: Option<(u32, u32)>) -> Self {
-        let rfb = FakeRfb::start(width, height, password);
+        let rfb = FakeRfb::start(WIDTH, HEIGHT, password);
         let app = TestApp::start();
         app.add_vnc_vm(VM, &rfb, logical);
         Fixture { rfb, app }
@@ -249,13 +243,8 @@ fn a_connect_spec_goes_through_the_app_as_an_endpoint() {
 #[test]
 fn a_recording_through_the_app_matches_the_direct_recording() {
     // The encoder is the native one of macOS (ADR-0006); other hosts report that they lack it.
-    //
-    // The frame is small on purpose. The recorder reads server messages inside a `select!`
-    // that also fires its timers, and a read that a timer cancels halfway loses its bytes. A
-    // slow server breaks the direct path the same way, so the defect is not the app's.
-    // An update of this size crosses each hop in one piece. See `rfb-cancel-safe-reads-k41`.
     let _lock = serial();
-    let fixture = Fixture::sized(RECORD_SIDE, RECORD_SIDE, None, None);
+    let fixture = Fixture::new(None, None);
     let output = fixture.app.root().join("rec.mp4");
     let output = output.to_str().unwrap();
     let args = [
@@ -291,7 +280,7 @@ fn a_recording_through_the_app_matches_the_direct_recording() {
         assert!(!direct[field].is_null(), "no field {field} in {direct}");
         assert_eq!(routed[field], direct[field], "field {field}");
     }
-    assert_eq!(routed["width"], u32::from(RECORD_SIDE));
+    assert_eq!(routed["width"], u32::from(WIDTH));
     assert!(routed["frames"].as_u64().unwrap() > 0, "{routed}");
     assert!(direct_size > 0 && routed_size > 0);
 }

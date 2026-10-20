@@ -6,7 +6,9 @@
 
 use std::borrow::Cow;
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
+use tokio::io::{
+    AsyncBufRead, AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
+};
 use tokio::net::TcpStream;
 
 use crate::auth::vnc_authenticate;
@@ -376,6 +378,11 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
     }
 
     /// Read one server message and apply it to internal state.
+    ///
+    /// **Not cancel-safe.** A message takes several reads, and a future that is dropped
+    /// between them has consumed bytes that it cannot give back. A caller that races this
+    /// against a timer, an input channel or a shutdown signal in a `select!` waits for
+    /// [`readable`](Self::readable) in the race, and awaits this call after the `select!`.
     pub async fn next_message(&mut self) -> Result<ServerEvent, RfbError> {
         let mut tag = [0u8; 1];
         self.transport.read_exact(&mut tag).await?;
@@ -482,6 +489,21 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
         Ok(ServerEvent::FramebufferUpdated {
             rectangles: applied,
         })
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite + AsyncBufRead + Unpin> RfbConnection<T> {
+    /// Wait until the transport holds a byte of the next server message, or ends.
+    ///
+    /// Cancel-safe, so it is the call to race in a `select!`. It returns when
+    /// [`next_message`](Self::next_message) can start, and that call then reads the message
+    /// to its end. At the end of the stream it returns too, and `next_message` reports the
+    /// end as an error.
+    pub async fn readable(&mut self) -> Result<(), RfbError> {
+        // fill_buf reads nothing out of the buffer, so a dropped call loses no data:
+        // https://docs.rs/tokio/1.52.1/tokio/io/trait.AsyncBufReadExt.html#method.fill_buf
+        self.transport.fill_buf().await?;
+        Ok(())
     }
 }
 
