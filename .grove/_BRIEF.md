@@ -51,12 +51,14 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
    - `app-lifecycle`: the four lifecycle commands run in the app. An agent
      under herdr can start, drive and stop a macOS guest. The herdr acceptance
      run passes on the development bundle.
-   - `app-adoption`: VMs outlive the app, and the app adopts them.
+   - `app-adoption`: VMs outlive the app, and the app adopts them. The safe stop of an older QEMU guest lands before the signal guard.
    - `app-version-skew`: a mismatch is never silent.
-   - `app-configuration`: the Rhai file.
+   - `app-configuration`: the Rhai file. Linux and Windows hosts read it first, with the `doctor` exception. A macOS host reads it last, when the app reads it too.
    - `app-diagnostics`: `doctor`, the `llm-instructions` and the documents.
-   - `app-release`: the notarised cask, the upgrade check, the acceptance run
-     on the release build, and the publication.
+   - `app-release`: the notarised cask and a release candidate, then three
+     checks and one publication. The checks are the Linux and Windows runtime
+     check, the upgrade check and the acceptance run on the candidate. The
+     publication ships that same candidate.
 
 ## Pointers
 
@@ -84,6 +86,8 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
     inside the app such as adoption.
   - The existing Taskfile live checks, for the herdr acceptance run and for an
     upgrade that keeps the app's identity.
+  - The existing Linux and Windows host harnesses of ADR-0009, for the runtime
+    proof of the direct path on the release candidate.
 
 ## Notes
 

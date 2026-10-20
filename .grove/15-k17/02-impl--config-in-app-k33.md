@@ -21,4 +21,5 @@ Make the app evaluate `config.rhai` when it starts, and use every setting.
 
 ## Notes
 
+- The Host CLI of a macOS host does not read the file until `golden-directory-check-k34`. The tests set the directories of the CLI with its environment variables and flags.
 - Replace the interim remedy of `app-protocol-core-k9` that names only the variable.

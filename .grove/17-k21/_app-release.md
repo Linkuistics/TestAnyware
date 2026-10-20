@@ -9,15 +9,26 @@ Ship the app. A tagged release publishes the signed, notarised app as a cask in 
 - The release pipeline builds the app bundle for the release channel. It signs, notarises and staples the bundle, and it refuses a bundle id or a team other than `dev.antony.TestAnyware` and `TA43A4RUP3`.
 - The cask `testanyware-app` installs `TestAnyware.app` into `/Applications`. It depends on the formula and on Apple silicon. It keeps the quarantine attribute, and its `uninstall quit:` names the bundle id.
 - One tag versions the formula and the cask together.
+- A release candidate exists before any tag leaves this Mac. It has a manifest with its tag, its commit and the sha256 of each artifact.
+- The Linux and Windows host harnesses pass on the candidate binaries, as ADR-0009 requires.
 - The live check of an upgrade passes: the app keeps its signing identity and its one Local Network row.
-- The herdr acceptance run passes on the release bundle.
-- The release is published and installs on this Mac.
+- The herdr acceptance run passes on the release bundle of the candidate.
+- The release is published and installs on this Mac. It is the candidate that passed the checks.
 
 ## Decomposition
 
-1. `app-release-bundle`: the bundle, the notarisation, the cask and the pipeline.
-2. `upgrade-identity-check`: the live check of an upgrade.
-3. `release-publish`: the acceptance run on the release build, and the publication.
+1. `app-release-bundle`: the bundle, the notarisation, the cask, the pipeline and the release candidate.
+2. `non-macos-runtime-check`: the Linux and Windows harness runs on the candidate.
+3. `upgrade-identity-check`: the live check of an upgrade.
+4. `release-publish`: the acceptance run on the candidate, and the publication.
+
+## Candidate identity
+
+The build that passes the checks is the build that ships. A candidate is a build of a local tag, with a manifest of the tag, the commit and the artifact hashes. Local tags publish nothing.
+
+Each later check records the candidate that it tested. `release-publish-k37` publishes only that candidate. It pushes the existing tag and rebuilds nothing.
+
+A change to code, scripts or build inputs after the candidate commit voids the candidate. Rebuild it, and repeat the checks. A change to `.grove/` or to documents does not void it.
 
 ## Pointers
 

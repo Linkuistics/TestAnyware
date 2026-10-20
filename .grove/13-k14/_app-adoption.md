@@ -16,9 +16,13 @@ Keep VMs alive across the app, and let the app serve them again when it starts. 
 ## Decomposition
 
 1. `vm-process-identity`: record the identity, and start swtpm so that it ends with QEMU.
-2. `app-adoption`: the decision at start and the signal guard.
-3. `qemu-legacy-stop`: the stop of an older QEMU guest.
+2. `qemu-legacy-stop`: the stop of an older QEMU guest. It needs no identity, so it comes before the guard.
+3. `app-adoption`: the decision at start and the signal guard.
 4. `adoption-live-check`: the live proof.
+
+## Ordering rule
+
+The guard must never leave an older QEMU guest without a safe stop. The existing QEMU stop signals the process and deletes the clone without proof. So the safe stop of an older guest lands in step 2, before the guard of step 3 exists. Every step ends with a stop that is either as safe as today or safer.
 
 ## Pointers
 
