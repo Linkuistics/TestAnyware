@@ -27,4 +27,4 @@ Run `vm start` in the app. The CLI sends the options and prints the progress and
 - Start `swtpm` as the direct path does today. The `terminate` option and the identity records come in `app-adoption-k14`.
 - The direct path of Linux and Windows hosts keeps its remedy text for a denial. The text names the app only on a macOS host.
 - The app accepts client sockets and spawns `tart`, QEMU and `swtpm` from several threads. On macOS a new socket gets close-on-exec in a second call, so a spawn on another thread can hand a child that socket. `app-protocol-core-k9` saw this in its tests. Spawn the detached children so that they hold no client socket, for example from one thread that owns the spawning, and test that a detached child holds no socket of the app.
-
+- The `keep-on-failure` live check of `scripts/live-start-checks.sh` still has no fault. `cli-app-agent-routing-k24` could not port it: the check starts a real guest, and its fake guests are agents with no VM, while `vm start` stays direct until this leaf. A fault that starves the agent probes of a real start needs a hook on the app's start path, such as a test-mode argument. Add it here, and port the check.

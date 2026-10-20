@@ -17,6 +17,7 @@
 use std::path::PathBuf;
 
 use serde::Deserialize;
+use testanyware_app_protocol::{is_plain_vm_id, StreamTarget};
 use thiserror::Error;
 
 /// User-specified connection options. Mirrors clap's `ConnectionOptions`
@@ -350,6 +351,57 @@ pub fn resolve_agent(opts: &ConnectionOptions) -> Result<ResolvedAgent, ResolveE
     resolve_agent_with_env(opts, &EnvProvider::process())
 }
 
+/// The environment variable that names the TestAnyware app's socket. Today it exists for
+/// tests, and it turns routing through the app on.
+pub const APP_SOCKET_ENV: &str = "TESTANYWARE_APP_SOCKET";
+
+/// The socket of the TestAnyware app, when routing through the app is on. An empty value
+/// counts as unset, as the other `TESTANYWARE_*` variables do.
+pub fn app_socket_with_env(env: &EnvProvider) -> Option<PathBuf> {
+    env.get(APP_SOCKET_ENV)
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+}
+
+/// Resolve the connection options to the target of a guest stream, for the routing through
+/// the app. It follows the order of [`resolve_agent_with_env`], but a `--vm` id stays an id:
+/// the app reads the spec, so the Host CLI reads none and dials nothing. A `--connect` spec
+/// and an `--agent` value become an explicit endpoint, with any default port resolved,
+/// because the app requires `host:port`.
+pub fn resolve_agent_target_with_env(
+    opts: &ConnectionOptions,
+    env: &EnvProvider,
+) -> Result<StreamTarget, ResolveError> {
+    if let Some(path) = &opts.connect {
+        let spec_path = expand_tilde(path, env);
+        let agent = load_agent_from_spec(&spec_path)?;
+        return Ok(StreamTarget::Endpoint {
+            host: agent.host,
+            port: agent.port,
+        });
+    }
+    if let Some(id) = &opts.vm {
+        // The app never decodes an id, and it answers any other id with `VM_NOT_FOUND`.
+        // The builder of the request path does not encode an id, so the Host CLI gives
+        // that answer itself.
+        if !is_plain_vm_id(id) {
+            return Err(ResolveError::VmNotFound {
+                id: id.clone(),
+                path: vms_dir(env)?.join(format!("{id}.json")),
+            });
+        }
+        return Ok(StreamTarget::Vm { id: id.clone() });
+    }
+    if let Some(endpoint) = &opts.agent {
+        let agent = parse_agent_endpoint(endpoint)?;
+        return Ok(StreamTarget::Endpoint {
+            host: agent.host,
+            port: agent.port,
+        });
+    }
+    Err(ResolveError::NoConnectionSpecified)
+}
+
 /// Test-friendly variant: the env provider is injected so the test suite
 /// can exercise the chain without poking at process-wide env vars.
 pub fn resolve_agent_with_env(
@@ -539,6 +591,113 @@ mod tests {
     #[test]
     fn parse_endpoint_rejects_bad_port() {
         let err = parse_agent_endpoint("host:abc").expect_err("bad port");
+        assert_eq!(err.code(), "INVALID_ENDPOINT");
+    }
+
+    #[test]
+    fn app_socket_is_unset_when_the_variable_is_missing_or_empty() {
+        assert_eq!(app_socket_with_env(&env_with(&[])), None);
+        assert_eq!(
+            app_socket_with_env(&env_with(&[(APP_SOCKET_ENV, "")])),
+            None
+        );
+        assert_eq!(
+            app_socket_with_env(&env_with(&[(APP_SOCKET_ENV, "/s/app.sock")])),
+            Some(PathBuf::from("/s/app.sock"))
+        );
+    }
+
+    #[test]
+    fn target_of_a_vm_id_reads_no_spec() {
+        // The state directory does not exist, so a direct resolve would say VM_NOT_FOUND.
+        let opts = ConnectionOptions {
+            vm: Some("testanyware-abc".into()),
+            ..Default::default()
+        };
+        let target = resolve_agent_target_with_env(&opts, &env_with(&[("HOME", "/nowhere")]));
+        assert_eq!(
+            target.unwrap(),
+            StreamTarget::Vm {
+                id: "testanyware-abc".into()
+            }
+        );
+    }
+
+    #[test]
+    fn target_of_an_agent_flag_resolves_the_default_port() {
+        let opts = ConnectionOptions {
+            agent: Some("10.0.0.5".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_agent_target_with_env(&opts, &env_with(&[])).unwrap(),
+            StreamTarget::Endpoint {
+                host: "10.0.0.5".into(),
+                port: 8648
+            }
+        );
+    }
+
+    #[test]
+    fn target_of_a_connect_spec_is_its_agent_endpoint() {
+        let dir = tempdir();
+        let path = dir.path().join("spec.json");
+        std::fs::write(&path, r#"{"agent":{"host":"192.168.64.9","port":9001}}"#).unwrap();
+        let opts = ConnectionOptions {
+            connect: Some(path.display().to_string()),
+            vm: Some("ignored-because-connect-wins".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_agent_target_with_env(&opts, &env_with(&[])).unwrap(),
+            StreamTarget::Endpoint {
+                host: "192.168.64.9".into(),
+                port: 9001
+            }
+        );
+    }
+
+    #[test]
+    fn target_follows_the_precedence_of_the_direct_resolve() {
+        let opts = ConnectionOptions {
+            vm: Some("vm1".into()),
+            agent: Some("h:1".into()),
+            ..Default::default()
+        };
+        assert_eq!(
+            resolve_agent_target_with_env(&opts, &env_with(&[])).unwrap(),
+            StreamTarget::Vm { id: "vm1".into() }
+        );
+    }
+
+    #[test]
+    fn target_with_no_input_is_no_connection_specified() {
+        let err = resolve_agent_target_with_env(&ConnectionOptions::default(), &env_with(&[]))
+            .unwrap_err();
+        assert_eq!(err.code(), "NO_CONNECTION_SPECIFIED");
+    }
+
+    #[test]
+    fn target_of_an_id_that_is_not_plain_is_vm_not_found() {
+        for id in ["a b", "../evil", ".hidden", "a/b", "a%2Fb", ""] {
+            let opts = ConnectionOptions {
+                vm: Some(id.into()),
+                ..Default::default()
+            };
+            let err =
+                resolve_agent_target_with_env(&opts, &env_with(&[("HOME", "/h")])).unwrap_err();
+            assert_eq!(err.code(), "VM_NOT_FOUND", "id {id:?}");
+            assert_eq!(err.exit_code(), 3);
+        }
+    }
+
+    #[test]
+    fn target_of_a_bad_agent_endpoint_is_invalid_endpoint() {
+        let opts = ConnectionOptions {
+            agent: Some("host:notaport".into()),
+            ..Default::default()
+        };
+        let err = resolve_agent_target_with_env(&opts, &env_with(&[])).unwrap_err();
         assert_eq!(err.code(), "INVALID_ENDPOINT");
     }
 

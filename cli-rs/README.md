@@ -13,6 +13,9 @@ cli-rs/
 ├── crates/
 │   ├── testanyware-protocol/            # serde wire types + formatters (no I/O)
 │   ├── testanyware-agent-client/        # HTTP client for in-VM agents (hyper)
+│   ├── testanyware-app-protocol/        # types and rules the app and the CLI share
+│   ├── testanyware-app-client/          # the CLI's client of the app: guest streams
+│   ├── testanyware-app/                 # the TestAnyware app (test mode only so far)
 │   ├── testanyware-rfb/                 # pure-Rust RFB/VNC client: capture + input
 │   ├── testanyware-ocr-client/          # OcrEngine seam; EasyOCR daemon bridge
 │   ├── testanyware-video/               # VideoEncoder seam; screen record

@@ -123,7 +123,7 @@ pub const SYNONYM_ALIASES: &[(&[&str], &[&str])] = &[
 /// `SCHEMA_NOT_FOUND` code introduced by §8.2 for the `schema` command.
 ///
 /// Order: §4.1 (auth/connection), §4.2 (vm), §4.3 (vnc), §4.4 (record),
-/// §4.5 (agent), §4.6 (generic), §8.2 (schema).
+/// §4.5 (agent), §4.6 (generic), §8.2 (schema), then the codes of the TestAnyware app.
 pub const ERROR_CODES: &[&str] = &[
     // §4.1
     "AUTH_REQUIRED",
@@ -182,6 +182,9 @@ pub const ERROR_CODES: &[&str] = &[
     "INTERNAL",
     // §4.7 (discoverability / not-found)
     "TEXT_NOT_FOUND",
+    // The TestAnyware app (spec: "New error codes")
+    "APP_UNREACHABLE",
+    "APP_INCOMPATIBLE",
     // §8.2
     "SCHEMA_NOT_FOUND",
 ];

@@ -22,6 +22,7 @@ use hyper_util::rt::TokioIo;
 use serde_json::json;
 use testanyware_agent_client::{
     AgentClient, AgentConfig, AgentConnector, AgentError, BoxedStream, ConnectFuture,
+    ConnectorFailure,
 };
 use testanyware_protocol::ExecRequest;
 use tokio::io::{duplex, AsyncReadExt, AsyncWriteExt, DuplexStream};
@@ -365,4 +366,35 @@ async fn an_error_body_maps_as_before_over_a_stream() {
         .await
         .expect_err("the agent refuses");
     assert_eq!(err.code(), "DOWNLOAD_FAILED");
+}
+
+/// A connector that fails with its own structured error.
+struct StructuredFailureConnector(ConnectorFailure);
+
+impl AgentConnector for StructuredFailureConnector {
+    fn connect(&self) -> ConnectFuture {
+        let failure = self.0.clone();
+        Box::pin(async move { Err(failure.into()) })
+    }
+}
+
+#[tokio::test]
+async fn a_connector_failure_keeps_its_code_remedy_and_details() {
+    let failure = ConnectorFailure {
+        code: "VM_NOT_FOUND".into(),
+        message: "No spec found for VM id 'x'".into(),
+        remediation: Some("Run `testanyware vm list`.".into()),
+        details: json!({ "vm_id": "x" }),
+    };
+    let client = client_over(
+        Arc::new(StructuredFailureConnector(failure.clone())),
+        Duration::from_secs(5),
+    );
+    let err = client.health().await.expect_err("the dial fails");
+    assert_eq!(err.code(), "VM_NOT_FOUND");
+    assert_eq!(err.to_string(), failure.message);
+    match err {
+        AgentError::Connector(got) => assert_eq!(got, failure),
+        other => panic!("expected AgentError::Connector, got {other:?}"),
+    }
 }

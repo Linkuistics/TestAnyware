@@ -56,6 +56,11 @@ impl VmPaths {
         Self { state_dir, data_dir, tmp_dir }
     }
 
+    /// The directory that holds `vms/`: `$XDG_STATE_HOME/testanyware`.
+    pub fn state_dir(&self) -> &std::path::Path { &self.state_dir }
+    /// The directory that holds `golden/` and `clones/`: `$XDG_DATA_HOME/testanyware`.
+    pub fn data_dir(&self) -> &std::path::Path { &self.data_dir }
+
     pub fn vms_dir(&self) -> PathBuf { self.state_dir.join("vms") }
     pub fn golden_dir(&self) -> PathBuf { self.data_dir.join("golden") }
     pub fn clones_dir(&self) -> PathBuf { self.data_dir.join("clones") }

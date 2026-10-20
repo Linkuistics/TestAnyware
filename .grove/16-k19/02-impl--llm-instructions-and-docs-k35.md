@@ -23,3 +23,5 @@ Describe the app in the `llm-instructions` command, and correct the documents th
 ## Notes
 
 - The documents are prose. Follow the writing rules of this repository for each file that this leaf edits.
+- `cli-app-agent-routing-k24` added `APP_UNREACHABLE` and `APP_INCOMPATIBLE` to `ERROR_CODES` in `surface.rs`, and it updated the table "New error codes" of the spec. The causes of `APP_UNREACHABLE` are `not_running`, `unsafe_socket_directory`, `quitting`, `socket_path_too_long` and `socket_error`. The catalogue of the CLI contract and the `llm-instructions` still lack them.
+- `TESTANYWARE_APP_SOCKET` is a variable for tests in this increment, and it turns the routing on. `app-bundle-k10` makes macOS route by default. Describe the variable only as far as a person needs it.

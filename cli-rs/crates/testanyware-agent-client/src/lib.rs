@@ -36,7 +36,9 @@ use tokio_util::io::ReaderStream;
 
 pub use http::StatusCode;
 use transport::{AbortOnDrop, Deadline};
-pub use transport::{AgentConnector, AgentStream, BoxedStream, ConnectFuture, TcpConnector};
+pub use transport::{
+    AgentConnector, AgentStream, BoxedStream, ConnectFuture, ConnectorFailure, TcpConnector,
+};
 
 use testanyware_protocol::{
     ActionResponse, ElementQuery, ErrorResponse, ExecRequest, ExecResult, HealthResponse,
@@ -122,6 +124,11 @@ pub enum AgentError {
         details: Option<String>,
     },
 
+    /// The connector failed with its own structured error, and the client keeps its code,
+    /// remedy and details. The TestAnyware app reports a failed dial this way.
+    #[error("{}", .0.message)]
+    Connector(ConnectorFailure),
+
     #[error("internal client error: {0}")]
     Internal(String),
 }
@@ -135,8 +142,9 @@ fn details_suffix(details: &Option<String>) -> String {
 
 impl AgentError {
     /// Stable §4 code token surfaced in `--json` output.
-    pub fn code(&self) -> &'static str {
+    pub fn code(&self) -> &str {
         match self {
+            AgentError::Connector(failure) => &failure.code,
             AgentError::ConnectionRefused { .. } => "CONNECTION_REFUSED",
             AgentError::Timeout(_) => "CONNECTION_TIMEOUT",
             AgentError::ConnectionDropped(_) => "CONNECTION_DROPPED",
@@ -170,8 +178,15 @@ fn map_wire_error(wire: &str) -> &'static str {
     }
 }
 
-/// A failed dial. The message names the endpoint and carries the OS cause.
+/// A failed dial. The message names the endpoint and carries the OS cause. A connector's own
+/// structured failure passes through unchanged.
 fn dial_error(host: &str, port: u16, err: &std::io::Error) -> AgentError {
+    if let Some(failure) = err
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<ConnectorFailure>())
+    {
+        return AgentError::Connector(failure.clone());
+    }
     AgentError::ConnectionRefused {
         message: format!("failed to connect to {host}:{port}: {}", error_chain(err)),
         os_errno: os_errno_in_chain(err),

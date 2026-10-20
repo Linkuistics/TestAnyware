@@ -25,8 +25,12 @@ use testanyware_rfb::{RfbConnection, RfbError};
 use tokio::io::{AsyncRead, AsyncWrite, BufReader};
 use tokio::net::TcpStream;
 
+use crate::app_route;
 use crate::output::{exit_code_for, print_error, OutputMode};
-use crate::resolve::{resolve_agent, ConnectionOptions, ResolveError, ResolvedAgent, ResolvedVnc};
+use crate::resolve::{
+    app_socket_with_env, resolve_agent, resolve_agent_target_with_env, ConnectionOptions,
+    EnvProvider, ResolveError, ResolvedAgent, ResolvedVnc,
+};
 
 /// Open an RFB connection to a resolved VNC endpoint and apply the HiDPI
 /// logical target the spec carried (ADR-0016 D2), if any.
@@ -73,7 +77,18 @@ pub(crate) fn apply_logical_target<T: AsyncRead + AsyncWrite + Unpin>(
 
 /// Resolve the connection options to an `AgentClient`. On failure, print
 /// the §3.4 error envelope (or text-mode equivalent) and exit.
+///
+/// With `TESTANYWARE_APP_SOCKET` set, the client gets every connection from the TestAnyware
+/// app, and the Host CLI dials nothing itself. Without it, the client dials the guest
+/// directly, as before.
 pub fn build_agent_client(opts: &ConnectionOptions, mode: OutputMode) -> AgentClient {
+    let env = EnvProvider::process();
+    if let Some(socket) = app_socket_with_env(&env) {
+        return match resolve_agent_target_with_env(opts, &env) {
+            Ok(target) => app_route::agent_client(socket, target),
+            Err(err) => exit_resolve_error(err, mode),
+        };
+    }
     let resolved = match resolve_agent(opts) {
         Ok(r) => r,
         Err(err) => exit_resolve_error(err, mode),
@@ -86,6 +101,15 @@ pub fn build_agent_client(opts: &ConnectionOptions, mode: OutputMode) -> AgentCl
 }
 
 pub fn build_agent_client_with_endpoint(endpoint: ResolvedAgent, mode: OutputMode) -> AgentClient {
+    if let Some(socket) = app_socket_with_env(&EnvProvider::process()) {
+        return app_route::agent_client(
+            socket,
+            testanyware_app_protocol::StreamTarget::Endpoint {
+                host: endpoint.host,
+                port: endpoint.port,
+            },
+        );
+    }
     match AgentClient::new(AgentConfig::new(endpoint.host, endpoint.port)) {
         Ok(c) => c,
         Err(err) => exit_agent_error(err, mode),
@@ -107,6 +131,22 @@ pub fn exit_resolve_error(err: ResolveError, mode: OutputMode) -> ! {
 }
 
 pub fn exit_agent_error(err: AgentError, mode: OutputMode) -> ! {
+    // A failure that the TestAnyware app reported comes with its own message and details.
+    // Its remedy wins, and where the app sends none the code keeps the remedy it has today.
+    // The exit code is the one the code has today.
+    if let AgentError::Connector(failure) = &err {
+        print_error(
+            mode,
+            &failure.code,
+            &failure.message,
+            failure
+                .remediation
+                .as_deref()
+                .or_else(|| remediation_for(&failure.code)),
+            failure.details.clone(),
+            exit_code_for(&failure.code),
+        );
+    }
     let code = err.code();
     let raw = err.to_string();
     let message = friendly_message_for(code, &err).unwrap_or(raw);

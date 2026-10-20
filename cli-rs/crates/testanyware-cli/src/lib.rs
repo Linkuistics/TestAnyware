@@ -6,6 +6,7 @@
 //! The crate keeps its `[[bin]]` target unchanged — adding `lib.rs` does
 //! not displace the binary; cargo builds both.
 
+pub mod app_route;
 pub mod commands;
 pub mod discoverability;
 pub mod output;

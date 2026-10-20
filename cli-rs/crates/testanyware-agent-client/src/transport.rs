@@ -35,6 +35,32 @@ pub trait AgentConnector: Send + Sync + 'static {
     fn connect(&self) -> ConnectFuture;
 }
 
+/// A structured failure that a connector reports in its own words: a `code`, a message, a
+/// remedy and details. A connector wraps it in an `io::Error` through the `From` impl below,
+/// and the client hands it on as [`crate::AgentError::Connector`] with the code intact. The
+/// TestAnyware app answers a dial with such an object (spec: "The protocol").
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConnectorFailure {
+    pub code: String,
+    pub message: String,
+    pub remediation: Option<String>,
+    pub details: serde_json::Value,
+}
+
+impl std::fmt::Display for ConnectorFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ConnectorFailure {}
+
+impl From<ConnectorFailure> for io::Error {
+    fn from(failure: ConnectorFailure) -> Self {
+        io::Error::other(failure)
+    }
+}
+
 /// The default connector: a direct TCP connection, as every host used before
 /// the TestAnyware app.
 #[derive(Debug, Clone)]

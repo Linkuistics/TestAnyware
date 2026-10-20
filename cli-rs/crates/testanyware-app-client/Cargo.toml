@@ -1,0 +1,26 @@
+[package]
+name = "testanyware-app-client"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The Host CLI's client of the TestAnyware app: opens a guest stream on the app's Unix socket."
+
+[dependencies]
+testanyware-app-protocol = { path = "../testanyware-app-protocol" }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+hyper = { workspace = true }
+hyper-util = { workspace = true }
+http = { workspace = true }
+http-body-util = { workspace = true }
+bytes = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+# `user` gives geteuid, the uid that the socket directory check compares with.
+nix = { workspace = true, features = ["user"] }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

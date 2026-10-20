@@ -11,7 +11,7 @@ pub mod status;
 pub mod stream;
 pub mod version;
 
-pub use error::{AppError, Peer};
+pub use error::{AppError, Peer, UnreachableCause, APP_INCOMPATIBLE, APP_UNREACHABLE};
 pub use hello::{ClientHello, Directories};
 pub use socket::{
     default_socket_path, judge_socket_dir, validate_socket_path, SocketDirError, SocketPathError,

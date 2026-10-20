@@ -13,6 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 testanyware-protocol = { path = "../testanyware-protocol" }
+testanyware-app-protocol = { path = "../testanyware-app-protocol" }
+testanyware-app-client = { path = "../testanyware-app-client" }
 testanyware-agent-client = { path = "../testanyware-agent-client" }
 testanyware-rfb = { path = "../testanyware-rfb" }
 testanyware-vm = { path = "../testanyware-vm" }
@@ -36,6 +38,8 @@ eframe = { version = "0.34", default-features = false, features = ["wgpu", "defa
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# The app routing tests (tests/app-agent-routing.rs) serve a fake In-VM agent with wiremock.
+wiremock = { workspace = true }
 # The Linux verification harness (tests/linux-host-harness.rs, ADR-0009) is
 # an async test: it drives the `russh` `SshSession` for provisioning (and, in
 # `020`, the in-process host→golden forward). The normal `tokio` dep above

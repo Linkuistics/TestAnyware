@@ -223,7 +223,8 @@ directory belongs to the user and has mode 0700.
 - The Host CLI checks the owner and the mode of the directory before it
   connects. It refuses an unsafe directory with `APP_UNREACHABLE`.
 - The socket path has 103 bytes at most. The app and the Host CLI refuse a
-  longer path. Neither one truncates it.
+  longer path. Neither one truncates it. The Host CLI fails with
+  `APP_UNREACHABLE` and cause `socket_path_too_long`.
 - On each connection that it accepts, the app reads the peer's uid from the
   kernel. It closes the connection unless the uid is its own.
 - Before it binds, the app removes a socket file that no process answers. A
@@ -351,7 +352,8 @@ sequenceDiagram
 An error before the upgrade is a JSON object in the Host CLI's own vocabulary:
 `code`, `message`, `remediation` and `details`, with `details.cause` and
 `details.errno` where they apply. The Host CLI prints it in the envelope that it
-prints today, with the exit code that the code has today. A failed dial is
+prints today, with the exit code that the code has today. Where the app sends no
+`remediation`, the Host CLI adds the remedy that the code has today. A failed dial is
 `CONNECTION_REFUSED` with its errno, and a dial that times out is
 `CONNECTION_TIMEOUT`.
 
@@ -596,7 +598,7 @@ flowchart TD
 | Code | Exit | When |
 |---|---|---|
 | `APP_NOT_INSTALLED` | 1 | No TestAnyware app is installed on a macOS host. The remedy is the setup |
-| `APP_UNREACHABLE` | 1 | Nothing answers on the app's socket. `details.cause` is `not_running`, `unsafe_socket_directory` or `quitting` |
+| `APP_UNREACHABLE` | 1 | The Host CLI cannot use the app's socket. `details.cause` is `not_running` (the socket is missing or refuses the connection), `unsafe_socket_directory`, `quitting` (the app closed the connection before it answered), `socket_path_too_long` or `socket_error` (another failure, with `details.errno` where there is one) |
 | `APP_INCOMPATIBLE` | 1 | `details.cause` is `protocol` or `directories` |
 | `CONFIG_INVALID` | 2 | `config.rhai` fails to evaluate, or it names an unknown key |
 

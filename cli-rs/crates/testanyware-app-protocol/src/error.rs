@@ -10,6 +10,39 @@ use crate::version::ProtocolRange;
 /// Code for a request that the two sides cannot serve together.
 pub const APP_INCOMPATIBLE: &str = "APP_INCOMPATIBLE";
 
+/// Code for a client that cannot reach the app on its socket. The Host CLI makes this error
+/// itself, because no app answered.
+pub const APP_UNREACHABLE: &str = "APP_UNREACHABLE";
+
+/// Why a client cannot reach the app. `details.cause` of an `APP_UNREACHABLE` error holds
+/// the name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnreachableCause {
+    /// Nothing answers on the socket: the file is missing or refuses the connection.
+    NotRunning,
+    /// The owner or the mode of the socket directory is unsafe.
+    UnsafeSocketDirectory,
+    /// The app accepted the connection and closed it before it answered.
+    Quitting,
+    /// The socket path has more bytes than a socket address holds.
+    SocketPathTooLong,
+    /// Another failure of the socket or of the connection. `details.errno` or the message
+    /// names it.
+    SocketError,
+}
+
+impl UnreachableCause {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotRunning => "not_running",
+            Self::UnsafeSocketDirectory => "unsafe_socket_directory",
+            Self::Quitting => "quitting",
+            Self::SocketPathTooLong => "socket_path_too_long",
+            Self::SocketError => "socket_error",
+        }
+    }
+}
+
 /// An error that the app sends before an upgrade, as a JSON object.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppError {
@@ -42,6 +75,32 @@ impl AppError {
             remediation,
             details,
         }
+    }
+
+    /// The client cannot reach the app. The error names the socket and the cause.
+    pub fn unreachable(
+        cause: UnreachableCause,
+        socket: &std::path::Path,
+        message: impl Into<String>,
+        remediation: impl Into<String>,
+    ) -> Self {
+        Self::new(
+            APP_UNREACHABLE,
+            message,
+            Some(remediation.into()),
+            json!({ "cause": cause.as_str(), "socket": socket }),
+        )
+    }
+
+    /// Add one field to `details`.
+    pub fn with_detail(mut self, key: &str, value: impl Serialize) -> Self {
+        if let Value::Object(map) = &mut self.details {
+            map.insert(
+                key.to_string(),
+                serde_json::to_value(value).unwrap_or(Value::Null),
+            );
+        }
+        self
     }
 
     /// The two protocol ranges share no version. The error names both builds and both
@@ -185,6 +244,46 @@ mod tests {
         let remedy = err.remediation.unwrap();
         assert!(remedy.contains("XDG_STATE_HOME"));
         assert!(!remedy.contains("XDG_DATA_HOME"));
+    }
+
+    #[test]
+    fn unreachable_names_the_cause_and_the_socket() {
+        let err = AppError::unreachable(
+            UnreachableCause::NotRunning,
+            std::path::Path::new("/s/testanyware.sock"),
+            "Nothing answers.",
+            "Start the app.",
+        )
+        .with_detail("errno", 2);
+        assert_eq!(err.code, "APP_UNREACHABLE");
+        assert_eq!(err.details["cause"], "not_running");
+        assert_eq!(err.details["socket"], "/s/testanyware.sock");
+        assert_eq!(err.details["errno"], 2);
+        assert_eq!(err.remediation.as_deref(), Some("Start the app."));
+    }
+
+    #[test]
+    fn each_unreachable_cause_has_its_spec_name() {
+        use UnreachableCause::*;
+        let names: Vec<_> = [
+            NotRunning,
+            UnsafeSocketDirectory,
+            Quitting,
+            SocketPathTooLong,
+            SocketError,
+        ]
+        .map(UnreachableCause::as_str)
+        .into();
+        assert_eq!(
+            names,
+            [
+                "not_running",
+                "unsafe_socket_directory",
+                "quitting",
+                "socket_path_too_long",
+                "socket_error"
+            ]
+        );
     }
 
     #[test]
