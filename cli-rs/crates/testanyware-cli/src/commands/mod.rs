@@ -21,7 +21,6 @@ pub mod vm;
 pub mod window;
 
 use testanyware_agent_client::{AgentClient, AgentConfig, AgentError, ConnectorFailure};
-use testanyware_app_client::AppClient;
 use testanyware_app_protocol::{AppError, StreamKind};
 use testanyware_rfb::{RfbConnection, RfbError};
 use tokio::io::{AsyncRead, AsyncWrite, BufReader};
@@ -89,7 +88,7 @@ pub(crate) async fn connect_vnc(endpoint: &VncEndpoint) -> Result<VncConnection,
     let resolved = &endpoint.resolved;
     let stream: Box<dyn VncStream> = match &endpoint.route {
         Some(route) => {
-            let client = AppClient::new(route.socket.clone(), app_route::client_hello());
+            let client = app_route::app_client(route.socket.clone());
             let stream = app_route::open_stream(&client, &route.target, StreamKind::Vnc)
                 .await
                 .map_err(VncConnectError::App)?;

@@ -12,6 +12,8 @@ pub mod adoption;
 #[cfg(unix)]
 pub mod body;
 #[cfg(unix)]
+pub mod bundle;
+#[cfg(unix)]
 pub mod dial;
 #[cfg(unix)]
 pub mod gate;

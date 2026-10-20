@@ -253,7 +253,10 @@ Every response carries the app's protocol range and build version.
 
 The headers are `X-Testanyware-Protocol` (a range such as `1-1`),
 `X-Testanyware-Build`, and, on a request, `X-Testanyware-State-Dir` and
-`X-Testanyware-Data-Dir`. A directory value is percent-encoded. A request that
+`X-Testanyware-Data-Dir`. A directory value is percent-encoded. A response also
+carries `X-Testanyware-Bundle-Build`, the build of the app bundle on disk, when
+the app can read it. A cask upgrade replaces the bundle under a running app, so
+the app reads it again for each response. A request that
 states no range fails as one with a range that does not overlap. A request that
 states no directories fails as one with other directories. The app compares
 directories as the strings it receives and canonicalises none.
@@ -579,8 +582,10 @@ Protocol versions are integers. The first release states the range 1 to 1 on
 both sides. When the two ranges overlap, the pair uses the highest common
 version.
 
-When the ranges do not overlap, the command fails with `APP_INCOMPATIBLE`. The
-error names both builds and both ranges, and one remedy:
+When the ranges do not overlap, the command fails with `APP_INCOMPATIBLE`, cause
+`protocol`. The error names both builds and both ranges, and one remedy. The
+remedy is the `remediation` of the error, and `details.remedy` holds its name
+(`quit_and_open_app`, `upgrade_cask` or `upgrade_host_cli`):
 
 | Situation | Remedy in the error |
 |---|---|
@@ -595,8 +600,24 @@ modes. The notice names both builds and the remedy from the table above.
 
 The notice changes neither stdout nor the JSON envelope. The progress lines of
 `vm start --wait` use stderr in the same way. `--quiet` does not suppress the
-notice. `doctor` also reports both builds, and whether the running app is older
-than its bundle on disk.
+notice. One command writes the notice once, however many connections it opens.
+`doctor` also reports both builds, and whether the running app is older than its
+bundle on disk.
+
+One pure function decides, from the two ranges, the two builds and the build of
+the bundle on disk. The app calls it to refuse a request, and the Host CLI calls
+it on each response. The older side is the one with the lower range, or, when the
+ranges overlap, the one with the lower build. A side that states no range is the
+older one. When a build is missing or is no version, the app is the side to
+change.
+
+A bundle build that is missing or unreadable never counts as newer than
+the running app. The remedy is then the cask upgrade. That upgrade quits the
+app and opens it again.
+
+`GET /v1/status` holds `bundle_build`, the build of the bundle on disk or `null`,
+and `older_than_bundle`, which is true when that build is newer than the running
+app's.
 
 ```mermaid
 flowchart TD

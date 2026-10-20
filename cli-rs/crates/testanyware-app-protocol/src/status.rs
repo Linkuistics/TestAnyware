@@ -14,6 +14,14 @@ pub struct StatusResponse {
     pub build: String,
     pub protocol_range: ProtocolRange,
     pub directories: Directories,
+    /// The build of the app bundle on disk now, or `None` when the app runs from no bundle or
+    /// cannot read its `Info.plist`. A cask upgrade replaces the bundle under a running app.
+    #[serde(default)]
+    pub bundle_build: Option<String>,
+    /// True when the running app is older than its bundle on disk, so that quitting and opening
+    /// TestAnyware gives the newer build (spec: "Version skew").
+    #[serde(default)]
+    pub older_than_bundle: bool,
     /// What the app did with each VM it found when it started (spec: "Lifecycle and adoption").
     #[serde(default)]
     pub adoption: AdoptionStatus,
@@ -80,6 +88,8 @@ mod tests {
         }"#;
         let status: StatusResponse = serde_json::from_str(body).unwrap();
         assert_eq!(status.adoption, AdoptionStatus::default());
+        assert_eq!(status.bundle_build, None);
+        assert!(!status.older_than_bundle);
         assert!(!status.adoption.finished);
     }
 

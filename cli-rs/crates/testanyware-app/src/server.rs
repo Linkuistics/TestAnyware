@@ -11,16 +11,18 @@ use hyper::header::{HeaderValue, CONNECTION, CONTENT_TYPE, UPGRADE};
 use hyper::{Method, Request, Response, StatusCode};
 use hyper_util::rt::TokioIo;
 use serde_json::{json, Value};
-use testanyware_app_protocol::hello::{BUILD_HEADER, PROTOCOL_HEADER};
+use testanyware_app_protocol::hello::{BUILD_HEADER, BUNDLE_BUILD_HEADER, PROTOCOL_HEADER};
 use testanyware_app_protocol::{
-    parse_end_path, parse_stream_path, AppError, ClientHello, EndRoute, ListRequest, RouteMatch, StatusResponse, StreamKind,
-    StreamTarget, LIST_PATH, STREAM_UPGRADE_TOKEN,
+    older_than_bundle, parse_end_path, parse_stream_path, AppError, ClientHello, EndRoute,
+    ListRequest, RouteMatch, StatusResponse, StreamKind, StreamTarget, LIST_PATH,
+    STREAM_UPGRADE_TOKEN,
 };
 use testanyware_vm::tools::ToolSearch;
 use tokio::net::UnixListener;
 
 use crate::access::peer_allowed;
 use crate::body::AppBody;
+use crate::bundle::BundleSource;
 use crate::gate::{check_request, AppIdentity};
 use crate::grant::GrantObservation;
 use crate::streams::{
@@ -31,6 +33,9 @@ use crate::streams::{
 #[derive(Debug)]
 pub struct AppContext {
     pub identity: AppIdentity,
+    /// Where the build of the bundle on disk comes from. A cask upgrade replaces the bundle
+    /// under a running app, so each request reads it afresh.
+    pub bundle: BundleSource,
     /// The uid of the user who runs the app. A peer with another uid gets no service.
     pub own_uid: u32,
     /// The configuration path of the run. Nothing reads it yet: the configuration leaf does.
@@ -55,6 +60,7 @@ impl AppContext {
     pub fn new(identity: AppIdentity, own_uid: u32, config_path: Option<PathBuf>) -> Self {
         Self {
             identity,
+            bundle: BundleSource::this_process(),
             own_uid,
             config_path,
             grant: Mutex::new(GrantObservation::NotYetSeen),
@@ -64,6 +70,12 @@ impl AppContext {
             adoption: crate::adoption::AdoptionLog::default(),
             probe_deadline: crate::adoption::PROBE_DEADLINE,
         }
+    }
+
+    /// The same context with another source of the bundle build. A test forges one.
+    pub fn with_bundle(mut self, bundle: BundleSource) -> Self {
+        self.bundle = bundle;
+        self
     }
 
     /// The same context with another deadline for the probes of adoption.
@@ -142,6 +154,11 @@ async fn handle(
         header_value(&ctx.identity.protocol_range.to_string()),
     );
     headers.insert(BUILD_HEADER, header_value(&ctx.identity.build));
+    // The bundle on disk may be newer than this app. A client needs the build to word the
+    // remedy of a skew, and an app with no bundle states none.
+    if let Some(bundle_build) = ctx.bundle.build() {
+        headers.insert(BUNDLE_BUILD_HEADER, header_value(&bundle_build));
+    }
     Ok(response)
 }
 
@@ -155,10 +172,13 @@ async fn route(
     // `doctor` needs the status of an app it cannot otherwise talk to, so this request
     // skips the checks and changes nothing.
     if method == Method::GET && path == "/v1/status" {
+        let bundle_build = ctx.bundle.build();
         let body = StatusResponse {
             build: ctx.identity.build.clone(),
             protocol_range: ctx.identity.protocol_range,
             directories: ctx.identity.directories.clone(),
+            older_than_bundle: older_than_bundle(&ctx.identity.build, bundle_build.as_deref()),
+            bundle_build,
             adoption: ctx.adoption.snapshot(),
         };
         return json_response(
@@ -166,7 +186,7 @@ async fn route(
             serde_json::to_value(body).expect("status serialises"),
         );
     }
-    if let Err(err) = check_request(&ctx.identity, hello) {
+    if let Err(err) = check_request(&ctx.identity, hello, ctx.bundle.build().as_deref()) {
         return error_response(StatusCode::CONFLICT, &err);
     }
     if path == LIST_PATH && method == Method::GET {

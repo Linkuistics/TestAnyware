@@ -19,7 +19,7 @@ use serde::de::DeserializeOwned;
 use testanyware_app_protocol::{
     delete_path, stop_path, validate_socket_path, AppError, ClientHello, DeleteRequest,
     DeleteResult, EventLines, StartEvent, StartRequest, StartResult, StopResult, StreamKind,
-    StreamTarget, UnreachableCause, LIST_PATH, STREAM_UPGRADE_TOKEN,
+    ServerHello, StreamTarget, UnreachableCause, LIST_PATH, STREAM_UPGRADE_TOKEN,
 };
 
 /// A guest stream after the `101`: the bytes of the guest protocol, unchanged, in both
@@ -44,18 +44,57 @@ pub enum StartEnd {
     Failed(AppError),
 }
 
+/// What a caller does with the build, the range and the bundle build that each response states.
+type ResponseObserver = std::sync::Arc<dyn Fn(&ServerHello) + Send + Sync>;
+
 /// Opens guest streams through the app on one socket.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct AppClient {
     socket: PathBuf,
     hello: ClientHello,
+    observer: Option<ResponseObserver>,
+}
+
+impl std::fmt::Debug for AppClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppClient")
+            .field("socket", &self.socket)
+            .field("hello", &self.hello)
+            .field("observer", &self.observer.is_some())
+            .finish()
+    }
 }
 
 impl AppClient {
     /// A client for the app on `socket`. `hello` is what each request states about the Host
     /// CLI: its protocol range, its build and the directories it resolved.
     pub fn new(socket: PathBuf, hello: ClientHello) -> Self {
-        Self { socket, hello }
+        Self {
+            socket,
+            hello,
+            observer: None,
+        }
+    }
+
+    /// Call `observer` with what each response of the app states, whatever the response is:
+    /// a document, a refusal or a switch to a guest stream. The Host CLI uses it to notice a
+    /// build that differs from its own.
+    pub fn with_response_observer(
+        mut self,
+        observer: impl Fn(&ServerHello) + Send + Sync + 'static,
+    ) -> Self {
+        self.observer = Some(std::sync::Arc::new(observer));
+        self
+    }
+
+    /// Hand the observer what `headers` state.
+    fn observe(&self, headers: &http::HeaderMap) {
+        if let Some(observer) = &self.observer {
+            let hello = ServerHello::from_lookup(|name| {
+                headers.get(name).and_then(|value| value.to_str().ok())
+            });
+            observer(&hello);
+        }
     }
 
     pub fn socket(&self) -> &Path {
@@ -87,6 +126,7 @@ impl AppClient {
             .send_request(request)
             .await
             .map_err(|e| self.connection_error(&e))?;
+        self.observe(response.headers());
         if response.status() == StatusCode::SWITCHING_PROTOCOLS {
             let upgraded = hyper::upgrade::on(&mut response)
                 .await
@@ -123,6 +163,7 @@ impl AppClient {
         what: &str,
     ) -> Result<T, AppError> {
         let response = response.map_err(|e| self.connection_error(&e))?;
+        self.observe(response.headers());
         if response.status() != StatusCode::OK {
             return Err(error_of(response).await);
         }
@@ -204,6 +245,7 @@ impl AppClient {
             .send_request(http_request)
             .await
             .map_err(|e| self.connection_error(&e))?;
+        self.observe(response.headers());
         if response.status() != StatusCode::OK {
             return Err(error_of(response).await);
         }
@@ -417,7 +459,7 @@ fn internal(message: String) -> AppError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use testanyware_app_protocol::{Directories, ProtocolRange};
+    use testanyware_app_protocol::{Directories, ProtocolRange, ServerHello};
 
     fn client(socket: &Path) -> AppClient {
         AppClient::new(
@@ -872,5 +914,94 @@ mod tests {
         .await;
         let err = client(&path).start_vm(&start_request(), |_| {}).await.unwrap_err();
         assert_eq!(err.code, "APP_INCOMPATIBLE");
+    }
+
+    /// A client whose observer records each hello that a response states.
+    #[cfg(unix)]
+    fn observed(path: &Path) -> (AppClient, std::sync::Arc<std::sync::Mutex<Vec<ServerHello>>>) {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let sink = std::sync::Arc::clone(&seen);
+        let client = client(path).with_response_observer(move |hello| {
+            sink.lock().unwrap().push(hello.clone());
+        });
+        (client, seen)
+    }
+
+    const STATED: &str = "x-testanyware-protocol: 1-2\r\nx-testanyware-build: 1.0.0\r\n\
+                          x-testanyware-bundle-build: 1.1.0\r\n";
+
+    fn stated() -> ServerHello {
+        ServerHello {
+            protocol_range: Some(ProtocolRange::new(1, 2)),
+            build: Some("1.0.0".into()),
+            bundle_build: Some("1.1.0".into()),
+        }
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_observer_sees_what_a_document_response_states() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        answer_once(
+            &path,
+            format!("HTTP/1.1 200 OK\r\n{STATED}content-length: 2\r\n\r\n{{}}"),
+        )
+        .await;
+        let (client, seen) = observed(&path);
+        client.get_json::<serde_json::Value>("/v1/vms?limit=1").await.unwrap();
+        assert_eq!(*seen.lock().unwrap(), [stated()]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_observer_sees_what_an_error_response_states() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        let object = serde_json::json!({ "code": "APP_INCOMPATIBLE", "message": "m" }).to_string();
+        answer_once(
+            &path,
+            format!(
+                "HTTP/1.1 409 Conflict\r\n{STATED}content-type: application/json\r\n\
+                 content-length: {}\r\n\r\n{object}",
+                object.len()
+            ),
+        )
+        .await;
+        let (client, seen) = observed(&path);
+        let err = client.start_vm(&start_request(), |_| {}).await.unwrap_err();
+        assert_eq!(err.code, "APP_INCOMPATIBLE");
+        assert_eq!(*seen.lock().unwrap(), [stated()]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn the_observer_sees_the_refusal_of_a_guest_stream() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        let object = serde_json::json!({ "code": "VM_NOT_FOUND", "message": "m" }).to_string();
+        answer_once(
+            &path,
+            format!(
+                "HTTP/1.1 404 Not Found\r\n{STATED}content-length: {}\r\n\r\n{object}",
+                object.len()
+            ),
+        )
+        .await;
+        let (client, seen) = observed(&path);
+        let err = client.open_stream(&target(), StreamKind::Agent).await.err().unwrap();
+        assert_eq!(err.code, "VM_NOT_FOUND");
+        assert_eq!(*seen.lock().unwrap(), [stated()]);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_response_without_headers_gives_an_empty_hello() {
+        let dir = private_dir();
+        let path = dir.path().join("testanyware.sock");
+        answer_once(&path, "HTTP/1.1 200 OK\r\ncontent-length: 2\r\n\r\n{}".to_string()).await;
+        let (client, seen) = observed(&path);
+        client.get_json::<serde_json::Value>("/v1/vms?limit=1").await.unwrap();
+        assert_eq!(*seen.lock().unwrap(), [ServerHello::default()]);
     }
 }

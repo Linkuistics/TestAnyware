@@ -31,7 +31,7 @@ use testanyware_app::{serve, AppContext};
 #[cfg(unix)]
 use testanyware_app_protocol::version::SUPPORTED_RANGE;
 #[cfg(unix)]
-use testanyware_app_protocol::Directories;
+use testanyware_app_protocol::{Directories, ProtocolRange};
 #[cfg(unix)]
 use testanyware_vm::tools::ToolSearch;
 
@@ -68,6 +68,16 @@ struct Args {
     /// The deadline of each probe of an adopted VM, in milliseconds, in place of the default.
     #[arg(long = "test-probe-deadline-ms", requires = "test_mode")]
     probe_deadline_ms: Option<u64>,
+    /// The build that the app states in place of its own, so that a test forges a skew.
+    #[arg(long = "test-build", requires = "test_mode")]
+    build: Option<String>,
+    /// The protocol range that the app states in place of its own, as `MIN-MAX`.
+    #[arg(long = "test-protocol-range", requires = "test_mode")]
+    protocol_range: Option<ProtocolRange>,
+    /// The build of the bundle on disk, in place of the one that the executable's own bundle
+    /// holds. A test mode run has no bundle, so without this the app states none.
+    #[arg(long = "test-bundle-build", requires = "test_mode")]
+    bundle_build: Option<String>,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -146,24 +156,35 @@ fn main() -> ExitCode {
         }
     };
 
-    let ctx = Arc::new(AppContext::new(
-        AppIdentity {
-            build: env!("CARGO_PKG_VERSION").to_string(),
-            protocol_range: SUPPORTED_RANGE,
-            directories: Directories {
-                state_dir: paths.state_dir,
-                data_dir: paths.data_dir,
+    let ctx = Arc::new(
+        AppContext::new(
+            AppIdentity {
+                build: args
+                    .build
+                    .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
+                protocol_range: args.protocol_range.unwrap_or(SUPPORTED_RANGE),
+                directories: Directories {
+                    state_dir: paths.state_dir,
+                    data_dir: paths.data_dir,
+                },
             },
-        },
-        own_uid,
-        paths.config,
-    )
-    .with_tools(paths.tools)
-    .with_agent_port(args.agent_port.unwrap_or(testanyware_vm::start_context::AGENT_PORT))
-    .with_probe_deadline(
-        args.probe_deadline_ms
-            .map_or(testanyware_app::adoption::PROBE_DEADLINE, std::time::Duration::from_millis),
-    ));
+            own_uid,
+            paths.config,
+        )
+        .with_bundle(match args.bundle_build {
+            Some(build) => testanyware_app::bundle::BundleSource::Fixed(Some(build)),
+            None => testanyware_app::bundle::BundleSource::this_process(),
+        })
+        .with_tools(paths.tools)
+        .with_agent_port(
+            args.agent_port
+                .unwrap_or(testanyware_vm::start_context::AGENT_PORT),
+        )
+        .with_probe_deadline(args.probe_deadline_ms.map_or(
+            testanyware_app::adoption::PROBE_DEADLINE,
+            std::time::Duration::from_millis,
+        )),
+    );
     eprintln!("testanyware-app: serving on {}", paths.socket.display());
 
     if args.test_mode {

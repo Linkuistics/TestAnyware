@@ -6,7 +6,9 @@
 //! agent client runs its HTTP/1.1 on that stream as it runs it on a TCP connection, so the
 //! output of a command does not change.
 
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use testanyware_agent_client::{
@@ -15,8 +17,8 @@ use testanyware_agent_client::{
 use testanyware_app_client::{AppClient, AppStream, StartEnd};
 use testanyware_app_protocol::version::SUPPORTED_RANGE;
 use testanyware_app_protocol::{
-    AppError, ClientHello, DeleteResult, Directories, ListRequest, StartRequest, StopResult,
-    StreamKind, StreamTarget, APP_UNREACHABLE,
+    decide, AppError, ClientHello, Decision, DeleteResult, Directories, ListRequest, Peer,
+    ServerHello, StartRequest, StopResult, StreamKind, StreamTarget, APP_UNREACHABLE,
 };
 use testanyware_vm::listing::ListView;
 use testanyware_vm::paths::VmPaths;
@@ -81,7 +83,7 @@ fn name_missing_install_here(error: AppError, socket: &Path) -> AppError {
 /// Ask the app for the listing that `vm list` prints. A failure to reach the app on the default
 /// socket says whether the app is installed, as for a guest stream.
 pub async fn list_vms(socket: PathBuf, request: &ListRequest) -> Result<ListView, AppError> {
-    let client = AppClient::new(socket, client_hello());
+    let client = app_client(socket);
     client
         .get_json(&request.path_and_query())
         .await
@@ -91,7 +93,7 @@ pub async fn list_vms(socket: PathBuf, request: &ListRequest) -> Result<ListView
 /// Ask the app to stop a VM. A failure to reach the app on the default socket says whether the
 /// app is installed, as for a guest stream.
 pub async fn stop_vm(socket: PathBuf, id: &str) -> Result<StopResult, AppError> {
-    let client = AppClient::new(socket, client_hello());
+    let client = app_client(socket);
     client
         .stop_vm(id)
         .await
@@ -105,7 +107,7 @@ pub async fn delete_golden(
     name: &str,
     force: bool,
 ) -> Result<DeleteResult, AppError> {
-    let client = AppClient::new(socket, client_hello());
+    let client = app_client(socket);
     client
         .delete_golden(name, force)
         .await
@@ -119,7 +121,7 @@ pub async fn start_vm(
     request: &StartRequest,
     on_progress: impl FnMut(&str),
 ) -> Result<StartEnd, AppError> {
-    let client = AppClient::new(socket, client_hello());
+    let client = app_client(socket);
     client
         .start_vm(request, on_progress)
         .await
@@ -141,6 +143,54 @@ pub fn client_hello() -> ClientHello {
     )
 }
 
+/// A client of the app on `socket` that states the hello of this Host CLI. Each response that it
+/// reads goes through the version check: when the app's build differs from this one and the
+/// ranges overlap, the Host CLI writes one notice line to stderr (spec: "Version skew").
+pub fn app_client(socket: PathBuf) -> AppClient {
+    AppClient::new(socket, client_hello()).with_response_observer(observe_response)
+}
+
+/// Whether this process has written its notice. One command opens many connections, and it
+/// writes the notice once.
+static NOTICE_WRITTEN: AtomicBool = AtomicBool::new(false);
+
+fn observe_response(app: &ServerHello) {
+    if let Some(line) = skew_notice(&this_cli(), app) {
+        write_notice_once(&NOTICE_WRITTEN, &line, &mut std::io::stderr());
+    }
+}
+
+/// This Host CLI as the version check sees it.
+fn this_cli() -> Peer {
+    Peer {
+        build: Some(env!("CARGO_PKG_VERSION").to_string()),
+        protocol_range: Some(SUPPORTED_RANGE),
+    }
+}
+
+/// The notice line for what a response states, or `None` when the pair needs none. A pair
+/// whose ranges do not overlap needs none here: the app has refused the request, and the error
+/// of the refusal carries the remedy.
+fn skew_notice(cli: &Peer, app: &ServerHello) -> Option<String> {
+    let app_peer = Peer {
+        build: app.build.clone(),
+        protocol_range: app.protocol_range,
+    };
+    match decide(cli, &app_peer, app.bundle_build.as_deref()) {
+        Decision::ServeWithNotice(notice) => Some(notice.line()),
+        Decision::Serve | Decision::Fail(_) => None,
+    }
+}
+
+/// Write `line` to `out` unless `written` says an earlier call did. The line goes to stderr
+/// whatever the output mode is, and no option suppresses it.
+fn write_notice_once(written: &AtomicBool, line: &str, out: &mut impl Write) {
+    if !written.swap(true, Ordering::SeqCst) {
+        // A closed stderr is no reason to fail the command.
+        let _ = writeln!(out, "{line}");
+    }
+}
+
 /// An agent client whose every connection is a guest stream of the app on `socket`.
 pub fn agent_client(socket: PathBuf, target: StreamTarget) -> AgentClient {
     // The config only names the agent in the `Host` header and in messages. A VM is named by
@@ -150,7 +200,7 @@ pub fn agent_client(socket: PathBuf, target: StreamTarget) -> AgentClient {
         StreamTarget::Endpoint { host, port } => (host.clone(), *port),
     };
     let connector = AppAgentConnector {
-        client: AppClient::new(socket, client_hello()),
+        client: app_client(socket),
         target,
     };
     AgentClient::with_connector(AgentConfig::new(host, port), Arc::new(connector))
@@ -310,5 +360,50 @@ mod tests {
         let dirs = hello.directories.expect("directories");
         assert!(dirs.state_dir.ends_with("testanyware"));
         assert!(dirs.data_dir.ends_with("testanyware"));
+    }
+
+    fn cli(build: &str) -> Peer {
+        Peer {
+            build: Some(build.into()),
+            protocol_range: Some(SUPPORTED_RANGE),
+        }
+    }
+
+    fn app(build: &str, bundle: Option<&str>) -> ServerHello {
+        ServerHello {
+            protocol_range: Some(SUPPORTED_RANGE),
+            build: Some(build.into()),
+            bundle_build: bundle.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn equal_builds_give_no_notice() {
+        assert_eq!(skew_notice(&cli("1.0.0"), &app("1.0.0", Some("2.0.0"))), None);
+    }
+
+    #[test]
+    fn builds_that_differ_give_a_line_with_both_builds_and_the_remedy() {
+        let line = skew_notice(&cli("1.1.0"), &app("1.0.0", Some("1.1.0"))).unwrap();
+        assert!(line.contains("1.1.0") && line.contains("1.0.0"), "{line}");
+        assert!(line.contains("Quit TestAnyware from its menu"), "{line}");
+        assert!(!line.contains('\n'));
+        let line = skew_notice(&cli("1.0.0"), &app("1.1.0", None)).unwrap();
+        assert!(line.contains("brew upgrade testanyware"), "{line}");
+    }
+
+    #[test]
+    fn a_response_that_states_nothing_gives_no_notice() {
+        assert_eq!(skew_notice(&cli("1.0.0"), &ServerHello::default()), None);
+    }
+
+    #[test]
+    fn the_line_is_written_once_whatever_the_number_of_responses() {
+        let written = AtomicBool::new(false);
+        let mut out = Vec::new();
+        for _ in 0..3 {
+            write_notice_once(&written, "one notice", &mut out);
+        }
+        assert_eq!(String::from_utf8(out).unwrap(), "one notice\n");
     }
 }

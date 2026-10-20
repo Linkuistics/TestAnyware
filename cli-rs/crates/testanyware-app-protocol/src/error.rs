@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::hello::{ClientHello, Directories};
+use crate::skew::Remedy;
 use crate::version::ProtocolRange;
 
 /// Code for a request that the two sides cannot serve together.
@@ -132,9 +133,9 @@ impl AppError {
         self
     }
 
-    /// The two protocol ranges share no version. The error names both builds and both
-    /// ranges. The remedy table belongs to the version-skew leaf, so there is no remedy here.
-    pub fn incompatible_protocol(app: &Peer, client: &Peer) -> Self {
+    /// The two protocol ranges share no version. The error names both builds and both ranges,
+    /// and one remedy of the table in the spec ("Version skew").
+    pub fn incompatible_protocol(app: &Peer, client: &Peer, remedy: Remedy) -> Self {
         Self::new(
             APP_INCOMPATIBLE,
             format!(
@@ -142,8 +143,13 @@ impl AppError {
                 describe(app),
                 describe(client)
             ),
-            None,
-            json!({ "cause": "protocol", "app": app, "client": client }),
+            Some(remedy.text().to_string()),
+            json!({
+                "cause": "protocol",
+                "remedy": remedy.word(),
+                "app": app,
+                "client": client,
+            }),
         )
     }
 
@@ -217,7 +223,11 @@ mod tests {
 
     #[test]
     fn protocol_error_names_both_builds_and_both_ranges() {
-        let err = AppError::incompatible_protocol(&peer("1.0.0", 1, 1), &peer("2.0.0", 2, 3));
+        let err = AppError::incompatible_protocol(
+            &peer("1.0.0", 1, 1),
+            &peer("2.0.0", 2, 3),
+            Remedy::UpgradeCask,
+        );
         assert_eq!(err.code, "APP_INCOMPATIBLE");
         assert_eq!(err.details["cause"], "protocol");
         assert_eq!(err.details["app"]["build"], "1.0.0");
@@ -237,6 +247,11 @@ mod tests {
                 err.message
             );
         }
+        assert_eq!(err.details["remedy"], "upgrade_cask");
+        assert_eq!(
+            err.remediation.as_deref(),
+            Some("Run `brew upgrade --cask testanyware-app`.")
+        );
     }
 
     #[test]
@@ -244,6 +259,7 @@ mod tests {
         let err = AppError::incompatible_protocol(
             &peer("1.0.0", 1, 1),
             &Peer::from(&ClientHello::default()),
+            Remedy::UpgradeHostCli,
         );
         assert_eq!(err.details["client"]["protocol_range"], Value::Null);
         assert_eq!(err.details["client"]["build"], Value::Null);

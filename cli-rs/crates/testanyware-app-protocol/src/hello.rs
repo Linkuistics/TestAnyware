@@ -11,6 +11,9 @@ use crate::version::ProtocolRange;
 pub const PROTOCOL_HEADER: &str = "x-testanyware-protocol";
 /// Header of a request and of a response: the sender's build version.
 pub const BUILD_HEADER: &str = "x-testanyware-build";
+/// Header of a response: the build of the app bundle on disk, which a person may have replaced
+/// since the app started. A response omits it when the app has no bundle to read.
+pub const BUNDLE_BUILD_HEADER: &str = "x-testanyware-bundle-build";
 /// Header of a request: the state directory the Host CLI resolved.
 pub const STATE_DIR_HEADER: &str = "x-testanyware-state-dir";
 /// Header of a request: the data directory the Host CLI resolved.
@@ -90,6 +93,42 @@ impl ClientHello {
     }
 }
 
+/// What the app states in the headers of each response.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ServerHello {
+    pub protocol_range: Option<ProtocolRange>,
+    pub build: Option<String>,
+    /// The build of the bundle on disk. `None` when the app states none.
+    pub bundle_build: Option<String>,
+}
+
+impl ServerHello {
+    /// Read the hello from response headers. `get` returns the value of a header by its
+    /// lower-case name.
+    pub fn from_lookup<'a>(get: impl Fn(&str) -> Option<&'a str>) -> Self {
+        Self {
+            protocol_range: get(PROTOCOL_HEADER).and_then(|v| v.parse().ok()),
+            build: get(BUILD_HEADER).map(str::to_string),
+            bundle_build: get(BUNDLE_BUILD_HEADER).map(str::to_string),
+        }
+    }
+
+    /// The response headers that state this hello. A `None` field gives no header.
+    pub fn to_headers(&self) -> Vec<(&'static str, String)> {
+        let mut headers = Vec::new();
+        if let Some(range) = self.protocol_range {
+            headers.push((PROTOCOL_HEADER, range.to_string()));
+        }
+        if let Some(build) = &self.build {
+            headers.push((BUILD_HEADER, build.clone()));
+        }
+        if let Some(build) = &self.bundle_build {
+            headers.push((BUNDLE_BUILD_HEADER, build.clone()));
+        }
+        headers
+    }
+}
+
 fn encode_path(path: &std::path::Path) -> String {
     utf8_percent_encode(&path.to_string_lossy(), PATH_LITERAL).to_string()
 }
@@ -133,6 +172,29 @@ mod tests {
         let headers = hello.to_headers();
         assert!(headers.iter().all(|(_, v)| v.is_ascii()));
         assert_eq!(lookup(&headers), hello);
+    }
+
+    #[test]
+    fn the_server_hello_round_trips_through_headers() {
+        let hello = ServerHello {
+            protocol_range: Some(ProtocolRange::new(1, 2)),
+            build: Some("1.2.3".into()),
+            bundle_build: Some("1.3.0".into()),
+        };
+        let headers = hello.to_headers();
+        assert_eq!(
+            ServerHello::from_lookup(|n| headers
+                .iter()
+                .find(|(k, _)| *k == n)
+                .map(|(_, v)| v.as_str())),
+            hello
+        );
+    }
+
+    #[test]
+    fn a_server_hello_without_headers_is_empty() {
+        assert_eq!(ServerHello::from_lookup(|_| None), ServerHello::default());
+        assert!(ServerHello::default().to_headers().is_empty());
     }
 
     #[test]

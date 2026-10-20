@@ -7,10 +7,11 @@
 pub mod error;
 pub mod hello;
 pub mod list;
+pub mod skew;
 pub mod socket;
 pub mod start;
-pub mod stop_delete;
 pub mod status;
+pub mod stop_delete;
 pub mod stream;
 pub mod version;
 
@@ -18,8 +19,9 @@ pub use error::{
     AppError, Peer, UnreachableCause, APP_INCOMPATIBLE, APP_NOT_INSTALLED, APP_UNREACHABLE,
     SETUP_REMEDY,
 };
-pub use hello::{ClientHello, Directories};
+pub use hello::{ClientHello, Directories, ServerHello};
 pub use list::{ListRequest, LIST_PATH};
+pub use skew::{decide, older_than_bundle, Decision, Notice, Remedy};
 pub use socket::{
     default_socket_path, judge_socket_dir, validate_socket_path, SocketDirError, SocketPathError,
     SOCKET_PATH_MAX_BYTES,
