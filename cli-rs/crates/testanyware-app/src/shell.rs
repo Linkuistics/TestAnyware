@@ -166,6 +166,7 @@ impl Delegate {
             serving: config.serving.load(Ordering::SeqCst),
             local_network: LocalNetworkState::from(&*grant),
             running_vms: running_vms_within(&config.ctx, LISTING_PATIENCE),
+            not_adopted: config.ctx.adoption.snapshot().not_adopted,
             login: login_item_status(),
             login_problem: self.ivars().login_problem.borrow().clone(),
         }

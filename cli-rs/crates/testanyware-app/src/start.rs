@@ -19,6 +19,7 @@ use testanyware_app_protocol::{
     START_CONTENT_TYPE,
 };
 use testanyware_vm::display_request::DisplayRequest;
+use testanyware_vm::legacy_stop::{SettleWait, SystemProbes};
 use testanyware_vm::lifecycle::{Platform, VmLifecycle, VmStartOptions, VmStartResult};
 use testanyware_vm::tpm::{OmitReason, TpmDecision};
 use testanyware_vm::{Progress, StartContext, VmError};
@@ -131,6 +132,19 @@ fn tpm_report(decision: TpmDecision) -> TpmReport {
 
 /// The final event of a start, or `None` for a start that the client cancelled: nobody reads
 /// it.
+/// Stop the VM that a start made, as the app stops any VM: a process receives a signal only when
+/// its identity matches the meta (spec: "Lifecycle and adoption"). A start that could not read
+/// an identity left a meta with none, and that VM stops by name or through its sockets.
+fn stop_without_proof(id: &str, start_ctx: &StartContext) -> Result<(), VmError> {
+    VmLifecycle::stop_with_probes(
+        id,
+        &start_ctx.paths,
+        &start_ctx.tools,
+        &SystemProbes,
+        SettleWait::DEFAULT,
+    )
+}
+
 fn final_event(result: Result<VmStartResult, VmError>) -> Option<StartEvent> {
     match result {
         Ok(result) => Some(StartEvent::Result {
@@ -201,13 +215,13 @@ pub fn start_response(ctx: &Arc<AppContext>, options: VmStartOptions) -> Respons
                             None => true,
                         };
                         if let (false, Some(vm)) = (delivered, started) {
-                            let _ = VmLifecycle::stop_with(&vm, &start_ctx.paths, &start_ctx.tools);
+                            let _ = stop_without_proof(&vm, &start_ctx);
                         }
                         return;
                     }
                     Err(_) => {
                         // A panic skipped every cleanup of the start. Remove what the id left.
-                        let _ = VmLifecycle::stop_with(&id, &start_ctx.paths, &start_ctx.tools);
+                        let _ = stop_without_proof(&id, &start_ctx);
                         #[cfg(target_os = "macos")]
                         testanyware_vm::tart::remove_existing_in(&start_ctx.tools, &id);
                         Some(StartEvent::Error {

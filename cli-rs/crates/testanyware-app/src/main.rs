@@ -65,6 +65,9 @@ struct Args {
     /// endpoint of its spec. A fake agent listens on it, or nothing does and each probe is refused.
     #[arg(long = "test-agent-port", requires = "test_mode")]
     agent_port: Option<u16>,
+    /// The deadline of each probe of an adopted VM, in milliseconds, in place of the default.
+    #[arg(long = "test-probe-deadline-ms", requires = "test_mode")]
+    probe_deadline_ms: Option<u64>,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -154,7 +157,13 @@ fn main() -> ExitCode {
         },
         own_uid,
         paths.config,
-    ).with_tools(paths.tools).with_agent_port(args.agent_port.unwrap_or(testanyware_vm::start_context::AGENT_PORT)));
+    )
+    .with_tools(paths.tools)
+    .with_agent_port(args.agent_port.unwrap_or(testanyware_vm::start_context::AGENT_PORT))
+    .with_probe_deadline(
+        args.probe_deadline_ms
+            .map_or(testanyware_app::adoption::PROBE_DEADLINE, std::time::Duration::from_millis),
+    ));
     eprintln!("testanyware-app: serving on {}", paths.socket.display());
 
     if args.test_mode {
@@ -184,6 +193,8 @@ fn run_headless(
     ctx: Arc<AppContext>,
     socket: PathBuf,
 ) -> ExitCode {
+    // The socket is served by the select below, so adoption starts after the app can answer.
+    runtime.spawn(testanyware_app::adoption::run(Arc::clone(&ctx)));
     let code = runtime.block_on(async {
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -241,6 +252,7 @@ fn run_menu_bar_app(
     use std::sync::atomic::{AtomicBool, Ordering};
 
     let serving = Arc::new(AtomicBool::new(true));
+    runtime.spawn(testanyware_app::adoption::run(Arc::clone(&ctx)));
     runtime.spawn({
         let ctx = Arc::clone(&ctx);
         let serving = Arc::clone(&serving);

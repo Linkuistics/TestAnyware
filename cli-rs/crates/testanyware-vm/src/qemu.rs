@@ -514,6 +514,26 @@ pub fn teardown(pid: i32, clone_dir: &Path, session_dir: &Path) {
     }
 }
 
+/// [`teardown`] for a guest whose processes the caller proved by their identity. It signals
+/// `qemu` and `swtpm` when they are `Some`, and no other process: it does not look for a swtpm by
+/// its command line. A swtpm that no QEMU connected to ends through its control socket, which
+/// needs no signal.
+pub fn teardown_verified(qemu: Option<i32>, swtpm: Option<i32>, clone_dir: &Path, session_dir: &Path) {
+    if let Some(pid) = qemu {
+        terminate(pid, Duration::from_millis(100), 20);
+    }
+    crate::swtpm::shutdown(&crate::swtpm::control_socket(session_dir), Duration::from_millis(500));
+    if let Some(pid) = swtpm {
+        terminate(pid, Duration::from_millis(200), 5);
+    }
+    if clone_dir.exists() {
+        let _ = std::fs::remove_dir_all(clone_dir);
+    }
+    if session_dir.exists() {
+        let _ = std::fs::remove_dir_all(session_dir);
+    }
+}
+
 /// `full-backing-filename` from `qemu-img info --output=json`. Ports
 /// `QEMURunner.backingFile`.
 fn backing_file(tools: &ToolSearch, qcow2: &Path) -> Option<PathBuf> {

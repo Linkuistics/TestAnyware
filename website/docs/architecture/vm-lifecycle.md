@@ -98,11 +98,29 @@ queries both backends and presents a unified view.
 
 1. Look up `<id>.meta.json` for the backend, clone dir, and viewer
    window id.
-2. Send the backend-specific stop. For tart, run `tart stop <clone-id>`
+2. Compare each recorded process with the live one. The meta records the
+   pid, the start time and the boot session of the VM, the keeper and swtpm.
+   A process receives a signal only on a full match. When the pid of the VM
+   names another process, the stop signals nothing and removes nothing. It
+   fails with `VM_STOP_FAILED`.
+3. Send the backend-specific stop. For tart, run `tart stop <clone-id>`
    then `tart delete <clone-id>`, then signal the VNC keeper if it still
-   runs. For QEMU, send QMP quit, then SIGKILL as needed.
-3. Close the viewer window if one was opened (AppleScript).
-4. Remove the clone dir (QEMU) and both JSON files.
+   runs and matches. For QEMU, signal the matching QEMU and swtpm.
+4. Close the viewer window if one was opened (AppleScript).
+5. Remove the clone dir (QEMU) and both JSON files.
+
+A meta with no identity comes from an older release. The Host CLI on a Linux
+or Windows host stops it as before. The TestAnyware app signals no process of
+it. The app stops a tart guest by name and a QEMU guest through its monitor and
+swtpm sockets.
+
+## Adoption
+
+When the TestAnyware app starts, it reads each meta and decides for each VM.
+It adopts a VM whose main process matches its record. It reports a VM whose
+process is gone as stopped. It reports a VM whose pid names another process as
+not adopted, and it signals nothing. `GET /v1/status` and the status item list
+each VM that the app did not adopt, with the reason.
 
 ## VNC keeper
 

@@ -6,6 +6,8 @@
 /// CLI's `screen find-text` and the macOS recovery driver share it. **Not**
 /// macOS-gated.
 pub mod capture;
+/// The decision at the start of the app, and the proof that guards every signal.
+pub mod adoption;
 pub mod detached;
 /// Parse the `--display` flag, separating the HiDPI `@2x` opt-in (ADR-0016 D3)
 /// from the backend display value. Pure + **not** macOS-gated so the CLI

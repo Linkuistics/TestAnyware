@@ -1,12 +1,14 @@
 //! The TestAnyware app, without its window.
 //!
-//! The library holds the socket, its safety checks, the protocol, the guest streams, the VM listing and the VM start. The server
+//! The library holds the socket, its safety checks, the protocol, the guest streams, the VM listing, the VM start and the adoption of VMs at the start of the app. The server
 //! code has no AppKit code. Only the `shell` module, on macOS, touches AppKit: it shows the status
 //! item and the login switch that the `menu` module describes (spec: "The TestAnyware app").
 //! The executable in test mode runs the server and nothing else.
 
 #[cfg(unix)]
 pub mod access;
+#[cfg(unix)]
+pub mod adoption;
 #[cfg(unix)]
 pub mod body;
 #[cfg(unix)]

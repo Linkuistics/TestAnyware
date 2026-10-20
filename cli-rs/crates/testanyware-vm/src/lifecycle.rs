@@ -6,15 +6,15 @@ use std::time::Duration;
 #[cfg(target_os = "macos")]
 use std::time::Instant;
 
-use crate::error::VmError;
+use crate::adoption::{decide, verified_pid, Adoption};
+use crate::error::{StopUnproven, VmError};
 use crate::health::wait_for_agent;
 #[cfg(target_os = "macos")]
 use crate::health::wait_for_agent_with_oracle;
 use crate::id::generate_id;
-use crate::identity::{read_identity, read_optional_identity, ProcessIdentity, SystemProbe};
+use crate::identity::{read_identity, read_optional_identity, ProcessIdentity, ProcessProbe, SystemProbe};
 use crate::legacy_stop::{
-    find_session_dir, is_older_qemu_meta, session_candidates, stop_through_sockets, LegacyStopProbes,
-    SettleWait,
+    find_session_dir, session_candidates, stop_through_sockets, LegacyStopProbes, SettleWait,
 };
 use crate::meta::{VmMeta, VmTool};
 use crate::paths::VmPaths;
@@ -565,14 +565,130 @@ impl VmLifecycle {
 
     /// [`stop`](Self::stop), with `tart` found by `tools`. The TestAnyware app stops a VM whose
     /// client left as its start succeeded.
-    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // Only tart is found by `tools`.
+    ///
+    /// A meta with an identity signals a process only when its pid, start time and boot session
+    /// all match (spec: "Lifecycle and adoption"). When the pid names another process, the stop
+    /// signals nothing, removes nothing and fails. A meta with no identity keeps the stop it
+    /// always had: the direct path of the Host CLI on a Linux or Windows host.
     pub fn stop_with(id: &str, paths: &VmPaths, tools: &ToolSearch) -> Result<(), VmError> {
-        let spec_path = paths.spec_path(id);
+        let meta = Self::meta_to_stop(id, paths)?;
+        match decide(&meta, &SystemProbe) {
+            Adoption::Legacy => Self::stop_by_pid(id, &meta, paths, tools),
+            decided => Self::stop_proven(id, &meta, decided, paths, tools, &SystemProbe),
+        }
+    }
+
+    /// The stop of the TestAnyware app. It sends a signal only to a process whose pid, start time
+    /// and boot session all match the meta. A meta with no identity gets no signal at all:
+    /// a QEMU guest stops through its control sockets, and a tart guest stops by name with
+    /// `tart stop` and `tart delete` (spec: "Lifecycle and adoption").
+    ///
+    /// An older QEMU guest's files go only after the stop has seen that neither socket answers
+    /// and no process holds the clone's disk. Otherwise nothing is removed, so a later stop can
+    /// try again. A pid that names another process fails the stop in the same way.
+    pub fn stop_with_probes(
+        id: &str,
+        paths: &VmPaths,
+        tools: &ToolSearch,
+        probes: &(impl LegacyStopProbes + ?Sized),
+        wait: SettleWait,
+    ) -> Result<(), VmError> {
+        Self::stop_app(id, paths, tools, &SystemProbe, probes, wait)
+    }
+
+    /// [`stop_with_probes`](Self::stop_with_probes), with the live processes observed by `process`.
+    pub(crate) fn stop_app(
+        id: &str,
+        paths: &VmPaths,
+        tools: &ToolSearch,
+        process: &impl ProcessProbe,
+        probes: &(impl LegacyStopProbes + ?Sized),
+        wait: SettleWait,
+    ) -> Result<(), VmError> {
+        let meta = Self::meta_to_stop(id, paths)?;
+        match decide(&meta, process) {
+            Adoption::Legacy => Self::stop_without_signal(id, &meta, paths, tools, probes, wait),
+            decided => Self::stop_proven(id, &meta, decided, paths, tools, process),
+        }
+    }
+
+    fn meta_to_stop(id: &str, paths: &VmPaths) -> Result<VmMeta, VmError> {
         let meta_path = paths.meta_path(id);
         if !meta_path.is_file() {
             return Err(VmError::VmNotFound { id: id.to_string() });
         }
-        let meta = VmMeta::load(&meta_path)?;
+        VmMeta::load(&meta_path)
+    }
+
+    /// The stop of a meta with an identity. `adoption` is the decision for `meta`, never `Legacy`.
+    /// Each process gets a signal only on a full match, which this reads again now.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // Only tart is found by `tools`.
+    fn stop_proven(
+        id: &str,
+        meta: &VmMeta,
+        adoption: Adoption,
+        paths: &VmPaths,
+        tools: &ToolSearch,
+        process: &impl ProcessProbe,
+    ) -> Result<(), VmError> {
+        let spec_path = paths.spec_path(id);
+        let meta_path = paths.meta_path(id);
+        if let Adoption::Doubt { pid, mismatch } = adoption {
+            return Err(VmError::VmStopUnproven {
+                id: id.to_string(),
+                unproven: Box::new(StopUnproven {
+                    pid,
+                    mismatch,
+                    records: vec![
+                        spec_path.display().to_string(),
+                        meta_path.display().to_string(),
+                    ],
+                }),
+            });
+        }
+        let main = verified_pid(process, Some(meta.pid), meta.identity.as_ref());
+        let keeper = verified_pid(process, meta.keeper_pid, meta.keeper_identity.as_ref());
+        let swtpm = verified_pid(process, meta.swtpm_pid, meta.swtpm_identity.as_ref());
+        let stop_error = match meta.tool {
+            #[cfg(target_os = "macos")]
+            VmTool::Tart => {
+                // A pid of 0 skips the signal, so a gone process receives none.
+                let stopped = crate::tart::TartRunner::stop_in(tools, id, main.unwrap_or(0));
+                crate::keeper::stop_keeper(id, keeper);
+                if stopped {
+                    None
+                } else {
+                    Some(VmError::VmStopFailed { id: id.to_string() })
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            VmTool::Tart => Some(VmError::BackendUnsupported { platform: "macos (tart)".into() }),
+            VmTool::Qemu => match meta.clone_dir.as_deref().filter(|d| !d.is_empty()) {
+                Some(clone_dir) => {
+                    let clone_dir = std::path::Path::new(clone_dir);
+                    let session = meta.session_dir.as_deref().filter(|d| !d.is_empty()).map_or_else(
+                        || paths.session_dir(&clone_dir_id(clone_dir)),
+                        PathBuf::from,
+                    );
+                    crate::qemu::teardown_verified(main, swtpm, clone_dir, &session);
+                    None
+                }
+                None => Some(VmError::VmStopFailed { id: id.to_string() }),
+            },
+        };
+        let _ = std::fs::remove_file(&spec_path);
+        let _ = std::fs::remove_file(&meta_path);
+        match stop_error {
+            Some(err) => Err(err),
+            None => Ok(()),
+        }
+    }
+
+    /// The stop of a meta with no identity, by the pid and the pgrep backstop it always had.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // Only tart is found by `tools`.
+    fn stop_by_pid(id: &str, meta: &VmMeta, paths: &VmPaths, tools: &ToolSearch) -> Result<(), VmError> {
+        let spec_path = paths.spec_path(id);
+        let meta_path = paths.meta_path(id);
         // A corrupt qemu meta (no clone_dir) leaves nothing to tear down,
         // but the sidecars must still be removed so `vm stop` is
         // self-healing — mirrors Swift `VMLifecycle.stop`, which sets
@@ -614,33 +730,52 @@ impl VmLifecycle {
         }
     }
 
-    /// The stop of the TestAnyware app. A QEMU guest whose meta records no identity stops through
-    /// its control sockets and sends no signal to any process (spec: "Lifecycle and adoption").
-    /// Any other guest stops as [`stop_with`](Self::stop_with) stops it.
-    ///
-    /// The older guest's files go only after the stop has seen that neither socket answers and
-    /// no process holds the clone's disk. Otherwise nothing is removed, so a later stop can try
-    /// again.
-    pub fn stop_with_probes(
+    /// The app's stop of a meta with no identity. It sends no signal to any process.
+    #[cfg_attr(not(target_os = "macos"), allow(unused_variables))] // Only tart is found by `tools`.
+    fn stop_without_signal(
         id: &str,
+        meta: &VmMeta,
         paths: &VmPaths,
         tools: &ToolSearch,
-        probes: &impl LegacyStopProbes,
+        probes: &(impl LegacyStopProbes + ?Sized),
         wait: SettleWait,
     ) -> Result<(), VmError> {
-        let meta_path = paths.meta_path(id);
-        if !meta_path.is_file() {
-            return Err(VmError::VmNotFound { id: id.to_string() });
+        if meta.tool == VmTool::Qemu {
+            return Self::stop_older_qemu(id, meta, paths, probes, wait);
         }
-        let meta = VmMeta::load(&meta_path)?;
-        if !is_older_qemu_meta(&meta) {
-            return Self::stop_with(id, paths, tools);
+        // A tart guest stops by name. A pid of 0 skips the signal, and the keeper, which has no
+        // identity either, ends itself once tart is gone (ADR-0018).
+        #[cfg(target_os = "macos")]
+        let stop_error = if crate::tart::TartRunner::stop_in(tools, id, 0) {
+            None
+        } else {
+            Some(VmError::VmStopFailed { id: id.to_string() })
+        };
+        #[cfg(not(target_os = "macos"))]
+        let stop_error = Some(VmError::BackendUnsupported { platform: "macos (tart)".into() });
+        let _ = std::fs::remove_file(paths.spec_path(id));
+        let _ = std::fs::remove_file(paths.meta_path(id));
+        match stop_error {
+            Some(err) => Err(err),
+            None => Ok(()),
         }
+    }
+
+    /// The stop of an older QEMU guest, through its control sockets (spec: "Lifecycle and
+    /// adoption"). The guest's files go only after it has seen that neither socket answers and
+    /// no process holds the clone's disk.
+    fn stop_older_qemu(
+        id: &str,
+        meta: &VmMeta,
+        paths: &VmPaths,
+        probes: &(impl LegacyStopProbes + ?Sized),
+        wait: SettleWait,
+    ) -> Result<(), VmError> {
         let clone_dir = match meta.clone_dir.as_deref().filter(|d| !d.is_empty()) {
             Some(recorded) => PathBuf::from(recorded),
             None => paths.clone_dir(id),
         };
-        let session = find_session_dir(&session_candidates(id, &meta, paths));
+        let session = find_session_dir(&session_candidates(id, meta, paths));
         stop_through_sockets(probes, wait, session.as_deref(), &clone_dir).map_err(|blockers| {
             VmError::VmStopBlocked { id: id.to_string(), blockers: Box::new(blockers) }
         })?;
@@ -649,7 +784,7 @@ impl VmLifecycle {
             let _ = std::fs::remove_dir_all(session);
         }
         let _ = std::fs::remove_file(paths.spec_path(id));
-        let _ = std::fs::remove_file(&meta_path);
+        let _ = std::fs::remove_file(paths.meta_path(id));
         Ok(())
     }
 
@@ -1293,6 +1428,14 @@ fn settle_failed_start(
     }
 }
 
+/// The VM id that a clone directory is named after.
+fn clone_dir_id(clone_dir: &std::path::Path) -> String {
+    clone_dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
 /// The `$TMPDIR` root for socket session dirs — `session_dir` of any id
 /// shares the same parent, so the parent of an arbitrary id's session dir
 /// is that root.
@@ -1599,6 +1742,178 @@ mod tests {
             )
             .unwrap_err();
             assert!(matches!(err, VmError::VmNotFound { .. }));
+        }
+    }
+
+    /// The stop of a QEMU meta with an identity: a signal goes only to a process that matches.
+    mod proven_qemu_stop {
+        use super::*;
+        use crate::meta::VmTool;
+        use std::path::Path;
+
+        /// The live processes of a fake host: a start time for each pid it knows.
+        struct Host(HashMap<i32, u64>);
+
+        impl ProcessProbe for Host {
+            fn start_time(&self, pid: i32) -> Option<u64> {
+                self.0.get(&pid).copied()
+            }
+            fn boot_session(&self) -> Option<String> {
+                Some("boot-a".into())
+            }
+        }
+
+        /// The identity path asks no socket and no disk.
+        struct NoSockets;
+
+        impl LegacyStopProbes for NoSockets {
+            fn socket_answers(&self, _: &Path) -> bool {
+                panic!("the identity path asked a socket");
+            }
+            fn send_monitor_quit(&self, _: &Path) -> bool {
+                panic!("the identity path sent quit");
+            }
+            fn send_swtpm_shutdown(&self, _: &Path) -> bool {
+                panic!("the identity path sent a shutdown");
+            }
+            fn disk_holders(&self, _: &Path) -> Result<Vec<i32>, String> {
+                panic!("the identity path asked for the disk holders");
+            }
+            fn pause(&self, _: Duration) {}
+        }
+
+        const ID: &str = "testanyware-1dd0";
+
+        fn identity(start_time: u64) -> ProcessIdentity {
+            ProcessIdentity { start_time, boot_session: "boot-a".into() }
+        }
+
+        struct Seeded {
+            _dir: tempfile::TempDir,
+            paths: VmPaths,
+            clone: PathBuf,
+            session: PathBuf,
+        }
+
+        /// A QEMU meta that records the identity (start time 100) of `qemu`, and of `swtpm` when
+        /// there is one.
+        fn seed(qemu: i32, swtpm: Option<i32>) -> Seeded {
+            let dir = tempfile::tempdir().unwrap();
+            let paths = VmPaths::new(
+                dir.path().join("state"),
+                dir.path().join("data"),
+                dir.path().join("tmp"),
+            );
+            std::fs::create_dir_all(paths.vms_dir()).unwrap();
+            let clone = paths.clone_dir(ID);
+            std::fs::create_dir_all(&clone).unwrap();
+            let session = paths.session_dir(ID);
+            std::fs::create_dir_all(&session).unwrap();
+            std::fs::write(paths.spec_path(ID), b"{}").unwrap();
+            let mut meta = VmMeta::new(ID, VmTool::Qemu, qemu);
+            meta.clone_dir = Some(clone.display().to_string());
+            meta.session_dir = Some(session.display().to_string());
+            meta.identity = Some(identity(100));
+            meta.swtpm_pid = swtpm;
+            meta.swtpm_identity = swtpm.map(|_| identity(100));
+            meta.write_atomic(&paths.meta_path(ID)).unwrap();
+            Seeded { _dir: dir, paths, clone, session }
+        }
+
+        fn stop(seeded: &Seeded, host: &Host) -> Result<(), VmError> {
+            VmLifecycle::stop_app(
+                ID,
+                &seeded.paths,
+                &ToolSearch::from_process_path(),
+                host,
+                &NoSockets,
+                SettleWait::looks(1),
+            )
+        }
+
+        fn sleeper() -> std::process::Child {
+            std::process::Command::new("sleep").arg("60").spawn().unwrap()
+        }
+
+        /// `terminate` reaps the child it signals, so ask the system rather than the `Child`.
+        fn alive(child: &mut std::process::Child) -> bool {
+            process_alive(child.id() as i32)
+        }
+
+        #[test]
+        fn a_reused_pid_signals_nothing_removes_nothing_and_fails_with_a_remedy() {
+            let mut stranger = sleeper();
+            let seeded = seed(stranger.id() as i32, None);
+            // The process at the pid started at 999, and the meta recorded 100.
+            let host = Host(HashMap::from([(stranger.id() as i32, 999)]));
+            let err = stop(&seeded, &host).unwrap_err();
+            assert!(matches!(err, VmError::VmStopUnproven { .. }), "{err:?}");
+            assert_eq!(err.code(), "VM_STOP_FAILED");
+            assert_eq!(err.exit_code(), 1);
+            assert_eq!(err.details()["reason"], "start_time_differs");
+            assert_eq!(err.details()["pid"], stranger.id());
+            let remedy = err.remediation().unwrap();
+            assert!(remedy.contains(&ID.to_string()) && remedy.contains(".meta.json"), "{remedy}");
+            assert!(alive(&mut stranger), "the stranger at the pid was signalled");
+            assert!(seeded.clone.exists(), "the clone was removed");
+            assert!(seeded.session.exists(), "the session directory was removed");
+            assert!(seeded.paths.spec_path(ID).exists());
+            assert!(seeded.paths.meta_path(ID).exists());
+            let _ = stranger.kill();
+            let _ = stranger.wait();
+        }
+
+        #[test]
+        fn a_matching_process_receives_the_signal_and_the_vm_is_removed() {
+            let mut qemu = sleeper();
+            let seeded = seed(qemu.id() as i32, None);
+            let host = Host(HashMap::from([(qemu.id() as i32, 100)]));
+            stop(&seeded, &host).unwrap();
+            // `terminate` reaps the child, so a signalled child has an exit status now.
+            assert!(!alive(&mut qemu), "the matching process was not signalled");
+            assert!(!seeded.clone.exists());
+            assert!(!seeded.session.exists());
+            assert!(!seeded.paths.meta_path(ID).exists());
+            assert!(!seeded.paths.spec_path(ID).exists());
+        }
+
+        #[test]
+        fn a_process_that_is_gone_is_not_signalled_and_its_records_are_cleaned_up() {
+            let mut bystander = sleeper();
+            let seeded = seed(bystander.id() as i32, None);
+            // The host knows no process at the pid, as for a process that exited.
+            stop(&seeded, &Host(HashMap::new())).unwrap();
+            assert!(alive(&mut bystander), "a gone process is never signalled");
+            assert!(!seeded.clone.exists());
+            assert!(!seeded.paths.meta_path(ID).exists());
+            let _ = bystander.kill();
+            let _ = bystander.wait();
+        }
+
+        #[test]
+        fn a_swtpm_pid_that_names_another_process_is_not_signalled_beside_a_matching_qemu() {
+            let mut qemu = sleeper();
+            let mut stranger = sleeper();
+            let seeded = seed(qemu.id() as i32, Some(stranger.id() as i32));
+            let host = Host(HashMap::from([(qemu.id() as i32, 100), (stranger.id() as i32, 555)]));
+            stop(&seeded, &host).unwrap();
+            assert!(!alive(&mut qemu), "the matching QEMU was not signalled");
+            assert!(alive(&mut stranger), "the swtpm pid that names a stranger was signalled");
+            assert!(!seeded.clone.exists());
+            let _ = stranger.kill();
+            let _ = stranger.wait();
+        }
+
+        #[test]
+        fn the_direct_stop_gives_a_reused_pid_the_same_refusal() {
+            // `stop_with` reads the real host. A start time of 1 µs/tick matches no live process,
+            // so the pid of this test process is a stranger to the meta.
+            let seeded = seed(std::process::id() as i32, None);
+            let err = VmLifecycle::stop_with(ID, &seeded.paths, &ToolSearch::from_process_path())
+                .unwrap_err();
+            assert!(matches!(err, VmError::VmStopUnproven { .. }), "{err:?}");
+            assert!(seeded.clone.exists());
+            assert!(seeded.paths.meta_path(ID).exists());
         }
     }
 

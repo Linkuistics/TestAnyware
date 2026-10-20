@@ -45,6 +45,10 @@ pub struct AppContext {
     pub agent_port: u16,
     /// The ids that are being started now, so that one id has one start at a time.
     pub starts: crate::gate_start::StartGate,
+    /// What the app did with each VM it found when it started.
+    pub adoption: crate::adoption::AdoptionLog,
+    /// How long a probe of an adopted VM may take. A test shortens it.
+    pub probe_deadline: std::time::Duration,
 }
 
 impl AppContext {
@@ -57,7 +61,15 @@ impl AppContext {
             tools: ToolSearch::builtin(),
             agent_port: testanyware_vm::start_context::AGENT_PORT,
             starts: crate::gate_start::StartGate::default(),
+            adoption: crate::adoption::AdoptionLog::default(),
+            probe_deadline: crate::adoption::PROBE_DEADLINE,
         }
+    }
+
+    /// The same context with another deadline for the probes of adoption.
+    pub fn with_probe_deadline(mut self, deadline: std::time::Duration) -> Self {
+        self.probe_deadline = deadline;
+        self
     }
 
     /// The same context with another tool search. A test passes a directory of fake tools.
@@ -147,6 +159,7 @@ async fn route(
             build: ctx.identity.build.clone(),
             protocol_range: ctx.identity.protocol_range,
             directories: ctx.identity.directories.clone(),
+            adoption: ctx.adoption.snapshot(),
         };
         return json_response(
             StatusCode::OK,

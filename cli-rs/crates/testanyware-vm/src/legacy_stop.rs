@@ -20,13 +20,22 @@ use crate::paths::VmPaths;
 /// The directory that a starter with no `TMPDIR` used for its session directories.
 const FALLBACK_TMP_DIR: &str = "/tmp";
 
-/// True when `meta` is the meta of a QEMU guest that records no identity at all. The app stops
-/// such a guest through its sockets. A meta with an identity keeps its other stop.
+/// True when `meta` is the meta of a QEMU guest that records no identity for QEMU itself. The app
+/// stops such a guest through its sockets. A meta with an identity keeps its other stop.
 pub fn is_older_qemu_meta(meta: &VmMeta) -> bool {
-    meta.tool == VmTool::Qemu
-        && meta.identity.is_none()
-        && meta.keeper_identity.is_none()
-        && meta.swtpm_identity.is_none()
+    meta.tool == VmTool::Qemu && crate::adoption::decide(meta, &NoProcesses) == crate::adoption::Adoption::Legacy
+}
+
+/// A host with no process at all. The decision of a meta with no identity does not look at one.
+struct NoProcesses;
+
+impl crate::identity::ProcessProbe for NoProcesses {
+    fn start_time(&self, _pid: i32) -> Option<u64> {
+        None
+    }
+    fn boot_session(&self) -> Option<String> {
+        None
+    }
 }
 
 /// What the host answers about the sockets and the disk of one guest.
@@ -156,7 +165,7 @@ pub fn find_session_dir(candidates: &[PathBuf]) -> Option<PathBuf> {
 
 /// Look at the guest now.
 fn observe(
-    probes: &impl LegacyStopProbes,
+    probes: &(impl LegacyStopProbes + ?Sized),
     monitor: Option<&Path>,
     swtpm: Option<&Path>,
     clone_dir: &Path,
@@ -179,7 +188,7 @@ fn observe(
 
 /// Look until `done` holds for what is seen, or the wait ends. Returns the last look.
 fn settle(
-    probes: &impl LegacyStopProbes,
+    probes: &(impl LegacyStopProbes + ?Sized),
     wait: SettleWait,
     mut look: impl FnMut() -> StopBlockers,
     done: impl Fn(&StopBlockers) -> bool,
@@ -209,7 +218,7 @@ fn settle(
 /// Nothing here sends a signal, and nothing here removes a file. The caller removes the guest's
 /// files when this returns `Ok`.
 pub fn stop_through_sockets(
-    probes: &impl LegacyStopProbes,
+    probes: &(impl LegacyStopProbes + ?Sized),
     wait: SettleWait,
     session_dir: Option<&Path>,
     clone_dir: &Path,
@@ -625,11 +634,14 @@ mod tests {
             start_time: 1,
             boot_session: "b".into(),
         };
-        for with in [
-            VmMeta {
-                identity: Some(identity.clone()),
-                ..older.clone()
-            },
+        let with = VmMeta {
+            identity: Some(identity.clone()),
+            ..older.clone()
+        };
+        assert!(!is_older_qemu_meta(&with));
+        // The main process decides. A meta with a helper's identity and none for QEMU proves
+        // nothing about QEMU, so it gets the stop that signals nothing.
+        for helper_only in [
             VmMeta {
                 keeper_identity: Some(identity.clone()),
                 ..older.clone()
@@ -639,7 +651,7 @@ mod tests {
                 ..older.clone()
             },
         ] {
-            assert!(!is_older_qemu_meta(&with));
+            assert!(is_older_qemu_meta(&helper_only));
         }
     }
 

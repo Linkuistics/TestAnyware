@@ -424,7 +424,10 @@ removes the sidecars. It answers `{"id": ..., "stopped": true}`.
 
 An id with no meta fails with `VM_NOT_FOUND`. A stop that cannot remove the VM fails with
 `VM_STOP_FAILED`, and it still removes the sidecars, as the direct command does.
-The identity guard of a signal comes with adoption.
+The app signals a process only when its pid, start time and boot session all match
+the meta. When the pid names another process, the stop signals nothing and removes
+nothing. It fails with `VM_STOP_FAILED`, and its details name the pid and the reason.
+The remedy says how to stop the VM by hand and which two records to remove.
 
 One guest is an exception. A QEMU guest whose meta records no identity stops
 through its control sockets and receives no signal. When that stop fails, it
@@ -528,11 +531,33 @@ The rules of adoption:
   the VM id, as the older Host CLI named it. It looks first in its own
   temporary directory, and then in `/tmp`, which a starter with no `TMPDIR` used.
   A starter with another `TMPDIR` put it elsewhere, and the app does not find it.
+- The app reads each sidecar in the state directory and decides for each VM. A meta
+  that records no identity is an older meta. The app reports a VM whose process is
+  gone as stopped. It reports a VM whose pid, start time or boot session differs as
+  in doubt. Otherwise the app adopts the VM.
+- The decision looks at the main process. The app compares the keeper and swtpm again
+  at the moment of each signal, so a decision never authorises a later signal.
+- The app probes the agent and the VNC banner of each adopted VM, each with a
+  deadline of 8 seconds. A probe that gets no answer in time reports "not
+  answering". That is never a statement that the guest is dead.
+- The app does not probe the VNC port of a tart guest that no live keeper holds.
+  The VNC server of macOS 27 aborts tart when a client connects 60 seconds or more
+  after the last one left (ADR-0018). The probe reports "not probed".
+- `vm stop` signals a process only on a full match of the pid, the start time and
+  the boot session. This holds on the direct path too, for a meta with an identity.
+  When the identity does not match, `vm stop` signals nothing. It removes neither
+  the clone, the session directory nor the sidecars. It fails with `VM_STOP_FAILED`.
 - A failed adoption never stops, kills or starts a VM again. The app
   reports the VM as not adopted, with the reason, in `GET /v1/status` and in its
   menu. The VM keeps running.
 - The app serves its socket before it probes the survivors. So a survivor
   that answers nothing never delays the app.
+- `GET /v1/status` holds the field `adoption`. Its `finished` member is false until
+  every probe ends. Its `adopted` list names each VM with `legacy`, `agent` and
+  `vnc`, and each answer is `pending`, `answering`, `not_answering` or `not_probed`.
+  Its `not_adopted` list names each VM with a `reason` and a `detail`. The reasons are
+  `process_gone`, `start_time_differs`, `boot_session_differs`, `no_boot_session` and
+  `meta_unreadable`. A client that needs the results asks again until `finished` is true.
 
 An older QEMU guest stops through its control sockets, and never by a signal:
 

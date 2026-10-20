@@ -5,8 +5,18 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use crate::adoption::Mismatch;
 use crate::health::ProbeError;
 use crate::legacy_stop::StopBlockers;
+
+/// What a stop found when the pid in the meta did not name the recorded process.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StopUnproven {
+    pub pid: i32,
+    pub mismatch: Mismatch,
+    /// The records that the stop kept: the spec and the meta.
+    pub records: Vec<String>,
+}
 
 /// The stage of a start that ran out of time.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,6 +219,11 @@ pub enum VmError {
     #[error("VM '{id}' did not stop: {}", blockers.describe())]
     VmStopBlocked { id: String, blockers: Box<StopBlockers> },
 
+    /// The stop found that the pid in the meta names another process, so it signalled nothing and
+    /// removed nothing. Its code is `VM_STOP_FAILED`.
+    #[error("VM '{id}' did not stop: the recorded pid {} is not proven to be its process, because {}", unproven.pid, unproven.mismatch.describe())]
+    VmStopUnproven { id: String, unproven: Box<StopUnproven> },
+
     #[error("no backend can serve platform '{platform}' (tart support is a later task)")]
     BackendUnsupported { platform: String },
 
@@ -263,7 +278,9 @@ impl VmError {
             VmError::GoldenNotFound { .. } => "GOLDEN_NOT_FOUND",
             VmError::GoldenInUse { .. } => "GOLDEN_IN_USE",
             VmError::VmNotFound { .. } => "VM_NOT_FOUND",
-            VmError::VmStopFailed { .. } | VmError::VmStopBlocked { .. } => "VM_STOP_FAILED",
+            VmError::VmStopFailed { .. }
+            | VmError::VmStopBlocked { .. }
+            | VmError::VmStopUnproven { .. } => "VM_STOP_FAILED",
             VmError::BackendUnsupported { .. } => "VM_BACKEND_UNSUPPORTED",
             VmError::HostUnsupported { .. } => "VM_HOST_UNSUPPORTED",
             VmError::InvalidPlatform { .. } => "INVALID_PLATFORM",
@@ -315,6 +332,13 @@ impl VmError {
             VmError::VmStopBlocked { id, .. } => Some(format!(
                 "Quit that QEMU by hand, then run `testanyware vm stop {id}` again. \
                  The app removed nothing, so the VM keeps its records."
+            )),
+            VmError::VmStopUnproven { id, unproven } => Some(format!(
+                "Signalled nothing, because killing a stranger is worse than leaving a VM. \
+                 If the VM still runs, stop it by hand (`tart stop {id}` and `tart delete {id}` \
+                 for a tart guest, or quit its QEMU). Then remove {} and run \
+                 `testanyware vm list` to confirm that it is gone.",
+                unproven.records.join(" and ")
             )),
             VmError::BackendUnsupported { .. } => Some(
                 "QEMU serves linux and windows guests. macOS guests use the tart \
@@ -368,6 +392,11 @@ impl VmError {
             | VmError::VmStopFailed { id }
             | VmError::StartCancelled { id } => json!({ "vm_id": id }),
             VmError::VmStopBlocked { id, blockers } => blockers.details(id),
+            VmError::VmStopUnproven { id, unproven } => {
+                let mut details = crate::adoption::doubt_details(id, unproven.pid, &unproven.mismatch);
+                details["records"] = json!(unproven.records);
+                details
+            }
             VmError::VmBootTimeout { id, timeout } => json!({
                 "vm_id": id,
                 "stage": timeout.stage.as_str(),

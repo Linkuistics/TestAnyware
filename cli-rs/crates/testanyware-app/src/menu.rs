@@ -1,6 +1,8 @@
 //! What the status item's menu shows, as a pure function of the app's state (spec: "The TestAnyware
 //! app"). The AppKit shell turns these entries into menu items and holds no decision of its own.
 
+use testanyware_app_protocol::NotAdoptedVm;
+
 use crate::grant::GrantObservation;
 
 /// What the app last learned about the Local Network grant, without the dial that taught it.
@@ -57,6 +59,8 @@ pub struct MenuState {
     pub local_network: LocalNetworkState,
     /// The running VMs, or `None` when the listing did not answer in time.
     pub running_vms: Option<Vec<MenuVm>>,
+    /// The VMs that the app found at its start and did not adopt.
+    pub not_adopted: Vec<NotAdoptedVm>,
     pub login: LoginItemStatus,
     /// The error text of the last failed `register()` or `unregister()`.
     pub login_problem: Option<String>,
@@ -114,6 +118,21 @@ fn running_vm_entries(running: Option<&[MenuVm]>) -> Vec<MenuEntry> {
     }
 }
 
+/// The lines for the VMs the app did not adopt. The heading says what the app did about them.
+fn not_adopted_entries(not_adopted: &[NotAdoptedVm]) -> Vec<MenuEntry> {
+    if not_adopted.is_empty() {
+        return Vec::new();
+    }
+    std::iter::once(MenuEntry::Separator)
+        .chain(std::iter::once(MenuEntry::Text(
+            "Not adopted (the app signals nothing):".to_string(),
+        )))
+        .chain(not_adopted.iter().map(|vm| {
+            MenuEntry::Text(format!("  {}: {}", vm.id, vm.reason.replace('_', " ")))
+        }))
+        .collect()
+}
+
 pub fn build_menu(state: &MenuState) -> Vec<MenuEntry> {
     let mut menu = vec![
         MenuEntry::Text(format!("TestAnyware {}", state.version)),
@@ -141,6 +160,7 @@ pub fn build_menu(state: &MenuState) -> Vec<MenuEntry> {
         MenuEntry::Separator,
     ];
     menu.extend(running_vm_entries(state.running_vms.as_deref()));
+    menu.extend(not_adopted_entries(&state.not_adopted));
     menu.push(MenuEntry::Separator);
     menu.push(MenuEntry::Switch {
         title: "Start at Login".to_string(),
@@ -179,6 +199,7 @@ mod tests {
             serving: true,
             local_network: LocalNetworkState::NotYetSeen,
             running_vms: Some(Vec::new()),
+            not_adopted: Vec::new(),
             login: LoginItemStatus::NotRegistered,
             login_problem: None,
         }
@@ -361,6 +382,27 @@ mod tests {
         let vms = at(&|e| matches!(e, MenuEntry::Text(t) if t == "Running VMs:"));
         let login = at(&|e| matches!(e, MenuEntry::Switch { action: MenuAction::ToggleStartAtLogin, .. }));
         assert!(pane < vms && vms < login, "{menu:?}");
+    }
+
+    #[test]
+    fn menu_names_each_vm_that_was_not_adopted_with_its_reason() {
+        let none = build_menu(&state());
+        assert!(!texts(&none).iter().any(|t| t.starts_with("Not adopted")));
+
+        let menu = build_menu(&MenuState {
+            not_adopted: vec![NotAdoptedVm {
+                id: "testanyware-aa".into(),
+                reason: "start_time_differs".into(),
+                detail: "d".into(),
+            }],
+            ..state()
+        });
+        let lines = texts(&menu);
+        let heading = lines
+            .iter()
+            .position(|t| *t == "Not adopted (the app signals nothing):")
+            .expect("the heading");
+        assert_eq!(lines[heading + 1], "  testanyware-aa: start time differs");
     }
 
     #[test]

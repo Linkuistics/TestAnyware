@@ -91,8 +91,9 @@ fn session_dir(app: &TestApp, id: &str) -> PathBuf {
 
 /// A running QEMU VM whose process is `orphan`: its sidecars, its clone directory and its
 /// session directory. The meta names the orphan, so that a stop signals it and nothing else.
-/// The meta records an identity, so the VM keeps the stop of the direct path until
-/// `app-adoption-k30`. [`add_older_qemu_vm`] makes the VM of an older start.
+/// The meta records the identity of the orphan as the host reads it now, so the stop may signal
+/// the orphan. [`add_older_qemu_vm`] makes the VM of an older start, and [`add_reused_pid_vm`] a VM
+/// whose pid names another process.
 fn add_qemu_vm(app: &TestApp, id: &str, orphan: &Orphan) {
     app.add_running_qemu_clone(id, "linux", 5901);
     let meta = json!({
@@ -100,8 +101,25 @@ fn add_qemu_vm(app: &TestApp, id: &str, orphan: &Orphan) {
         "tool": "qemu",
         "pid": orphan.0,
         "clone_dir": clone_dir(app, id),
-        "identity": { "start_time": 1, "boot_session": "test" },
+        "identity": identity_of(orphan),
     });
+    std::fs::write(&sidecars(app, id)[1], meta.to_string()).unwrap();
+}
+
+/// The identity of `orphan` as the host reads it now.
+fn identity_of(orphan: &Orphan) -> serde_json::Value {
+    let identity = testanyware_vm::identity::read_identity(&testanyware_vm::identity::SystemProbe, orphan.0)
+        .expect("the identity of a live process");
+    serde_json::to_value(identity).unwrap()
+}
+
+/// A QEMU VM whose meta records an identity that the process at its pid does not have, as after
+/// the system reused the pid.
+fn add_reused_pid_vm(app: &TestApp, id: &str, stranger: &Orphan) {
+    add_qemu_vm(app, id, stranger);
+    let mut meta: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&sidecars(app, id)[1]).unwrap()).unwrap();
+    meta["identity"]["start_time"] = json!(meta["identity"]["start_time"].as_u64().unwrap() + 1);
     std::fs::write(&sidecars(app, id)[1], meta.to_string()).unwrap();
 }
 
@@ -217,6 +235,28 @@ fn a_stop_signals_the_vm_and_removes_what_it_left() {
     }
     assert!(!clone_dir(&app, id).exists());
     assert!(!session_dir(&app, id).exists());
+}
+
+#[test]
+fn a_qemu_guest_whose_pid_names_another_process_is_not_stopped_and_keeps_everything() {
+    let _lock = serial();
+    let id = "testanyware-dddd4444";
+    let stranger = Orphan::start();
+    let app = TestApp::start_after(|app| add_reused_pid_vm(app, id, &stranger));
+
+    let out = app.cli(&["vm", "stop", id, "--json"]);
+
+    assert_eq!(out.code(), 1, "{}", out.err());
+    let error = out.json();
+    assert_eq!(error["code"], "VM_STOP_FAILED", "{error}");
+    assert_eq!(error["details"]["pid"], stranger.0, "{error}");
+    assert!(error["remediation"].as_str().is_some(), "{error}");
+    assert!(stranger.alive(), "the stop signalled the process at a reused pid");
+    for sidecar in sidecars(&app, id) {
+        assert!(sidecar.exists(), "{} was removed", sidecar.display());
+    }
+    assert!(clone_dir(&app, id).exists());
+    assert!(session_dir(&app, id).exists());
 }
 
 #[test]
@@ -626,6 +666,73 @@ mod tart_stop {
     }
 
     #[test]
+    fn an_older_tart_guest_stops_by_name_and_its_pid_is_not_signalled() {
+        let _lock = serial();
+        let orphan = Orphan::start();
+        let app = TestApp::start_after(|app| {
+            add_fake_tart(app);
+            add_tart_vm(app, ID, "running");
+            app.add_sidecars(ID, "macos", "tart", 5902);
+            // The meta of an older start: a pid, a keeper pid, and no identity.
+            std::fs::write(
+                &sidecars(app, ID)[1],
+                json!({ "id": ID, "tool": "tart", "pid": orphan.0, "keeper_pid": orphan.0 })
+                    .to_string(),
+            )
+            .unwrap();
+        });
+
+        let out = app.cli(&["vm", "stop", ID]);
+
+        assert_eq!(out.code(), 0, "{}", out.err());
+        assert!(!tart_has(&app, ID));
+        let calls = tart_calls(&app);
+        assert!(calls.contains(&format!("stop {ID}")), "{calls:?}");
+        assert!(calls.contains(&format!("delete {ID}")), "{calls:?}");
+        assert!(orphan.alive(), "the stop of an older guest signalled the pid in its meta");
+        for sidecar in sidecars(&app, ID) {
+            assert!(!sidecar.exists(), "{} remains", sidecar.display());
+        }
+    }
+
+    #[test]
+    fn a_tart_guest_whose_pid_names_another_process_is_not_stopped() {
+        let _lock = serial();
+        let stranger = Orphan::start();
+        let app = TestApp::start_after(|app| {
+            add_fake_tart(app);
+            add_tart_vm(app, ID, "running");
+            app.add_sidecars(ID, "macos", "tart", 5902);
+            let mut identity = identity_of(&stranger);
+            identity["start_time"] = json!(identity["start_time"].as_u64().unwrap() + 1);
+            std::fs::write(
+                &sidecars(app, ID)[1],
+                json!({ "id": ID, "tool": "tart", "pid": stranger.0, "identity": identity })
+                    .to_string(),
+            )
+            .unwrap();
+        });
+
+        let out = app.cli(&["vm", "stop", ID, "--json"]);
+
+        assert_eq!(out.code(), 1, "{}", out.err());
+        let error = out.json();
+        assert_eq!(error["code"], "VM_STOP_FAILED", "{error}");
+        assert!(error["remediation"].as_str().is_some_and(|r| r.contains(ID)), "{error}");
+        assert_eq!(error["details"]["reason"], "start_time_differs", "{error}");
+        assert!(stranger.alive(), "the stop signalled the process at a reused pid");
+        assert!(tart_has(&app, ID), "the stop deleted the clone without proof");
+        assert!(
+            !tart_calls(&app).iter().any(|c| c.starts_with("stop ") || c.starts_with("delete ")),
+            "{:?}",
+            tart_calls(&app)
+        );
+        for sidecar in sidecars(&app, ID) {
+            assert!(sidecar.exists(), "{} was removed", sidecar.display());
+        }
+    }
+
+    #[test]
     fn a_stop_signals_the_recorded_tart_process_only() {
         let _lock = serial();
         let orphan = Orphan::start();
@@ -636,7 +743,8 @@ mod tart_stop {
             app.add_sidecars(ID, "macos", "tart", 5902);
             std::fs::write(
                 &sidecars(app, ID)[1],
-                json!({ "id": ID, "tool": "tart", "pid": orphan.0 }).to_string(),
+                json!({ "id": ID, "tool": "tart", "pid": orphan.0, "identity": identity_of(&orphan) })
+                    .to_string(),
             )
             .unwrap();
         });

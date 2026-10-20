@@ -27,7 +27,7 @@ pub use socket::{
 pub use start::{
     EventLines, HostPort, StartEvent, StartRequest, StartResult, TpmReport, START_CONTENT_TYPE,
 };
-pub use status::StatusResponse;
+pub use status::{AdoptedVm, AdoptionStatus, NotAdoptedVm, ProbeAnswer, StatusResponse};
 pub use stop_delete::{
     delete_path, parse_end_path, stop_path, DeleteRequest, DeleteResult, EndRoute, StopResult,
     GOLDEN_NAME_MAX_BYTES,
