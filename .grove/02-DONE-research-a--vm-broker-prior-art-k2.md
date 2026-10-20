@@ -52,3 +52,15 @@ it around the six questions below.
 - The fallback to beat is a plain Unix socket in a directory with mode 0700,
   with a version check on each connection.
 - Stay inside the six questions. The human asked for focus and no rabbit holes.
+
+## Decisions (running log)
+
+**The configuration requirement goes to the design leaf.** During this session the human
+asked that the configuration be code, as in Ravel, but in Rhai. It is a design input,
+not a question of this survey. So the Notes of `vm-broker-design-k3` now quote it and
+list the points that its spec settles.
+
+**The survey names two routes that macOS offers, and recommends neither.** TN3179
+exempts `launchd` daemons and root from Local Network privacy. Since macOS 15.5, two
+system defaults can also exempt a network. The human chose the app in `plan-k1`. The
+design still needs to know of both routes, so section 3 of the survey states them.

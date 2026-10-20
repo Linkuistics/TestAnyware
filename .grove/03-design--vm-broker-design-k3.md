@@ -87,3 +87,22 @@ Prove each fact on this Mac before the spec relies on it:
   agreed design.
 - If the spec needs an adversarial read, cut its review with `leaf-insert`
   ahead of `vm-broker-increments-k4`. Then planning reads a reviewed design.
+- On 2026-10-20 the human added a requirement during `vm-broker-prior-art-k2`.
+  Their words:
+
+  <!-- tc: off because this is the human's message, quoted verbatim -->
+
+  > BTW: the configuration should be like the ravel configuration mechanism
+  > (i.e. code), but using Rhai (which is what I want to change Ravel to)
+
+  <!-- tc: on -->
+
+  Ravel reads an owner policy that is code: a TypeScript file that a worker
+  evaluates (`ravel start-session --config ./policy.ts`). TestAnyware has no
+  configuration file today. It reads the environment variables in
+  `docs/reference/env-vars.md` and the XDG directories. The spec settles these
+  points, and asks the human where the answer is not clear:
+  - What the Rhai configuration configures: the VM broker and the TestAnyware
+    app, or the Host CLI too.
+  - Where the file lives, and which process evaluates it.
+  - How it sits beside the environment variables, whose meaning stays fixed.
