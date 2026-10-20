@@ -27,7 +27,8 @@ pub type AppStream = TokioIo<hyper::upgrade::Upgraded>;
 /// The most bytes of an error body that the client reads. An error object is far smaller.
 const ERROR_BODY_LIMIT: usize = 64 * 1024;
 
-const START_REMEDY: &str = "Start the TestAnyware app. The Host CLI never starts it.";
+const START_REMEDY: &str = "Open TestAnyware from /Applications, and turn on \"Start at Login\" \
+    in its menu, so that macOS starts it at each login. The Host CLI never starts it.";
 
 /// Opens guest streams through the app on one socket.
 #[derive(Debug, Clone)]

@@ -183,6 +183,7 @@ pub const ERROR_CODES: &[&str] = &[
     // §4.7 (discoverability / not-found)
     "TEXT_NOT_FOUND",
     // The TestAnyware app (spec: "New error codes")
+    "APP_NOT_INSTALLED",
     "APP_UNREACHABLE",
     "APP_INCOMPATIBLE",
     // §8.2

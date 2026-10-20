@@ -90,8 +90,7 @@ pub(crate) async fn connect_vnc(endpoint: &VncEndpoint) -> Result<VncConnection,
     let stream: Box<dyn VncStream> = match &endpoint.route {
         Some(route) => {
             let client = AppClient::new(route.socket.clone(), app_route::client_hello());
-            let stream = client
-                .open_stream(&route.target, StreamKind::Vnc)
+            let stream = app_route::open_stream(&client, &route.target, StreamKind::Vnc)
                 .await
                 .map_err(VncConnectError::App)?;
             Box::new(stream)
@@ -139,9 +138,9 @@ pub(crate) fn apply_logical_target<T: AsyncRead + AsyncWrite + Unpin>(
 /// Resolve the connection options to an `AgentClient`. On failure, print
 /// the §3.4 error envelope (or text-mode equivalent) and exit.
 ///
-/// With `TESTANYWARE_APP_SOCKET` set, the client gets every connection from the TestAnyware
-/// app, and the Host CLI dials nothing itself. Without it, the client dials the guest
-/// directly, as before.
+/// On a macOS host, and with `TESTANYWARE_APP_SOCKET` set, the client gets every connection
+/// from the TestAnyware app, and the Host CLI dials nothing itself. On a Linux or Windows
+/// host without the variable, the client dials the guest directly, as before.
 pub fn build_agent_client(opts: &ConnectionOptions, mode: OutputMode) -> AgentClient {
     let env = EnvProvider::process();
     if let Some(socket) = app_socket_with_env(&env) {

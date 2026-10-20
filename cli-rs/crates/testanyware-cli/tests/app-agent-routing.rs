@@ -1,19 +1,25 @@
 //! The agent commands routed through the TestAnyware app (spec: "The protocol").
 //!
 //! Each test runs the real `testanyware` binary against the real `testanyware-app` executable
-//! in its test mode, with a wiremock In-VM agent on loopback as the guest. `TESTANYWARE_APP_SOCKET`
-//! turns the routing on. A command through the app must print what the same command prints
-//! on the direct path, and it must dial nothing itself.
+//! in its test mode, with a wiremock In-VM agent on loopback as the guest. A macOS host routes
+//! each command through the app, by `TESTANYWARE_APP_SOCKET` or by the default socket. A
+//! command through the app must print what the same command printed on the direct path, and it
+//! must dial nothing itself.
+//!
+//! A macOS host has no direct path any more, so the output that it printed is frozen in this
+//! file as the oracle. A Linux or Windows host keeps the direct path, and there each routed run
+//! is compared with a direct run too.
 
 #![cfg(unix)]
 
 mod common;
 
-use std::net::TcpListener;
+use std::io::{Read, Write};
+use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 
-use common::{pattern, serial, FakeAgent, OutputExt, TestApp};
+use common::{pattern, serial, FakeAgent, OutputExt, TestApp, HOST_GOES_DIRECT};
 use serde_json::json;
 use wiremock::ResponseTemplate;
 
@@ -75,50 +81,92 @@ impl Fixture {
     }
 }
 
-/// Run `args` on both paths and require the same output. Returns the stdout.
-fn same_on_both_paths(fixture: &Fixture, args: &[&str]) -> String {
+/// `agent snapshot --vm` as the direct path printed it.
+const SNAPSHOT_TEXT: &str = "\"Fake Window\" (window) 800x600 [focused] app:\"FakeApp\"\n";
+
+/// A `--json` output: sorted keys, two-space indent and a final newline.
+fn pretty(value: serde_json::Value) -> String {
+    format!("{}\n", serde_json::to_string_pretty(&value).unwrap())
+}
+
+fn snapshot_json() -> String {
+    pretty(json!({
+        "ok": true,
+        "schema_version": "1.0",
+        "windows": [{
+            "appName": "FakeApp",
+            "focused": true,
+            "positionX": 10.0,
+            "positionY": 20.0,
+            "sizeHeight": 600.0,
+            "sizeWidth": 800.0,
+            "title": "Fake Window",
+            "windowType": "window"
+        }]
+    }))
+}
+
+/// Run `args` through the app and require `expected` on stdout and nothing on stderr. The
+/// guest must receive a request, so the app relayed it.
+///
+/// `expected` is the output that the direct path printed. Where a host still has the direct
+/// path, a direct run must print it too.
+fn routed_prints(fixture: &Fixture, args: &[&str], expected: &str) {
     let before = fixture.agent.request_count();
-    let direct = fixture.app.cli_direct(args);
-    let after_direct = fixture.agent.request_count();
     let routed = fixture.app.cli(args);
     let after_routed = fixture.agent.request_count();
-
-    assert_eq!(direct.code(), 0, "direct {args:?}: {}", direct.err());
     assert_eq!(routed.code(), 0, "routed {args:?}: {}", routed.err());
-    assert_eq!(routed.out(), direct.out(), "stdout of {args:?}");
-    assert_eq!(routed.err(), direct.err(), "stderr of {args:?}");
+    assert_eq!(routed.out(), expected, "stdout of {args:?}");
+    assert_eq!(routed.err(), "", "stderr of {args:?}");
     assert!(
-        !direct.out().is_empty(),
-        "{args:?} printed nothing, so the comparison is empty"
-    );
-    // Both runs reached the guest, so the app relayed the routed one.
-    assert!(
-        after_direct > before,
-        "the direct run did not reach the fake agent"
-    );
-    assert!(
-        after_routed > after_direct,
+        after_routed > before,
         "the routed run did not reach the fake agent"
     );
-    routed.out()
+
+    if HOST_GOES_DIRECT {
+        let direct = fixture.app.cli_default(args);
+        assert_eq!(direct.code(), 0, "direct {args:?}: {}", direct.err());
+        assert_eq!(direct.out(), expected, "direct stdout of {args:?}");
+        assert_eq!(direct.err(), "", "direct stderr of {args:?}");
+        assert!(
+            fixture.agent.request_count() > after_routed,
+            "the direct run did not reach the fake agent"
+        );
+    }
+}
+
+/// One request that the test itself sends to a guest, as a command that dials it would.
+fn dial_guest(addr: SocketAddr) -> String {
+    let mut stream = TcpStream::connect(addr).expect("the guest accepts a dial");
+    stream
+        .write_all(b"GET /health HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
+        .unwrap();
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).unwrap();
+    reply
 }
 
 #[test]
 fn agent_snapshot_through_the_app_prints_the_direct_output() {
     let _lock = serial();
     let fixture = Fixture::new();
-    let text = same_on_both_paths(&fixture, &["agent", "snapshot", "--vm", VM]);
-    assert!(text.contains("Fake Window"), "{text}");
-    same_on_both_paths(&fixture, &["agent", "snapshot", "--vm", VM, "--json"]);
-    same_on_both_paths(&fixture, &["agent", "health", "--vm", VM]);
+    routed_prints(&fixture, &["agent", "snapshot", "--vm", VM], SNAPSHOT_TEXT);
+    routed_prints(
+        &fixture,
+        &["agent", "snapshot", "--vm", VM, "--json"],
+        &snapshot_json(),
+    );
+    routed_prints(&fixture, &["agent", "health", "--vm", VM], "OK\n");
 }
 
 #[test]
 fn a_routed_vm_command_never_reads_the_spec_so_it_cannot_dial() {
     let _lock = serial();
     let fixture = Fixture::new();
-    let direct = fixture.app.cli_direct(&["agent", "health", "--vm", VM]);
-    assert_eq!(direct.code(), 0, "{}", direct.err());
+    if HOST_GOES_DIRECT {
+        let direct = fixture.app.cli_default(&["agent", "health", "--vm", VM]);
+        assert_eq!(direct.code(), 0, "{}", direct.err());
+    }
     let routed = fixture.app.cli(&["agent", "health", "--vm", VM]);
     assert_eq!(routed.code(), 0, "{}", routed.err());
 
@@ -132,20 +180,36 @@ fn a_routed_vm_command_never_reads_the_spec_so_it_cannot_dial() {
         .into_iter()
         .map(|r| r.host.unwrap_or_default())
         .collect();
-    assert_eq!(
-        hosts,
-        [fixture.endpoint(), format!("{VM}:8648")],
-        "the Host header of the direct run, then of the routed run"
-    );
+    let mut expected = vec![];
+    if HOST_GOES_DIRECT {
+        expected.push(fixture.endpoint());
+    }
+    expected.push(format!("{VM}:8648"));
+    assert_eq!(hosts, expected, "the Host header of each run");
 }
 
 #[test]
 fn agent_exec_through_the_app_prints_the_direct_output() {
     let _lock = serial();
     let fixture = Fixture::new();
-    let text = same_on_both_paths(&fixture, &["exec", "echo hello", "--vm", VM]);
-    assert_eq!(text, "hello from the guest\n");
-    same_on_both_paths(&fixture, &["exec", "echo hello", "--vm", VM, "--json"]);
+    routed_prints(
+        &fixture,
+        &["exec", "echo hello", "--vm", VM],
+        "hello from the guest\n",
+    );
+    routed_prints(
+        &fixture,
+        &["exec", "echo hello", "--vm", VM, "--json"],
+        &pretty(json!({
+            "command": "echo hello",
+            "exit_code": 0,
+            "ok": true,
+            "schema_version": "1.0",
+            "stderr": "",
+            "stdout": "hello from the guest\n",
+            "timed_out": false
+        })),
+    );
 }
 
 #[test]
@@ -155,14 +219,21 @@ fn file_upload_and_download_through_the_app_print_the_direct_output() {
     let local = fixture.app.root().join("up.bin");
     std::fs::write(&local, pattern(1, 100_000)).unwrap();
     let local = local.to_str().unwrap();
-    let text = same_on_both_paths(
+    routed_prints(
         &fixture,
         &["file", "upload", local, "/tmp/up.bin", "--vm", VM],
+        &format!("Uploaded {local} \u{2192} /tmp/up.bin\n"),
     );
-    assert!(text.starts_with("Uploaded"), "{text}");
-    same_on_both_paths(
+    routed_prints(
         &fixture,
         &["file", "upload", local, "/tmp/up.bin", "--vm", VM, "--json"],
+        &pretty(json!({
+            "bytes": 100_000,
+            "local": local,
+            "ok": true,
+            "remote": "/tmp/up.bin",
+            "schema_version": "1.0"
+        })),
     );
 
     fixture.agent.mount(
@@ -172,11 +243,11 @@ fn file_upload_and_download_through_the_app_print_the_direct_output() {
     );
     let saved = fixture.app.root().join("down.bin");
     let saved = saved.to_str().unwrap();
-    let text = same_on_both_paths(
+    routed_prints(
         &fixture,
         &["file", "download", "/tmp/down.bin", saved, "--vm", VM],
+        &format!("Downloaded /tmp/down.bin \u{2192} {saved}\n"),
     );
-    assert!(text.starts_with("Downloaded"), "{text}");
     assert_eq!(std::fs::read(saved).unwrap(), pattern(2, 70_000));
 }
 
@@ -240,8 +311,11 @@ fn an_explicit_agent_endpoint_goes_through_the_app() {
     let fixture = Fixture::new();
     // No VM spec is involved: the app dials the endpoint that the request names.
     let endpoint = fixture.endpoint();
-    let text = same_on_both_paths(&fixture, &["agent", "snapshot", "--agent", &endpoint]);
-    assert!(text.contains("Fake Window"), "{text}");
+    routed_prints(
+        &fixture,
+        &["agent", "snapshot", "--agent", &endpoint],
+        SNAPSHOT_TEXT,
+    );
     // The default port is resolved by the CLI, because the app requires `host:port`. The fake
     // is not on 8648, so the request must fail at the guest, not at the app's grammar.
     let default_port = fixture
@@ -266,9 +340,10 @@ fn a_connect_spec_goes_through_the_app_as_an_endpoint() {
         json!({ "agent": { "host": addr.ip().to_string(), "port": addr.port() } }).to_string(),
     )
     .unwrap();
-    same_on_both_paths(
+    routed_prints(
         &fixture,
         &["agent", "health", "--connect", spec.to_str().unwrap()],
+        "OK\n",
     );
 }
 
@@ -290,10 +365,8 @@ fn the_vm_id_from_the_environment_goes_through_the_app() {
     assert_eq!(fixture.agent.request_count(), 1);
 }
 
-#[test]
-fn without_the_variable_the_cli_dials_the_guest_itself() {
-    let _lock = serial();
-    // The app does not run. An empty variable counts as unset, so the command still works.
+/// A fake agent that answers `/health`, as the guest of the tests of the default.
+fn healthy_agent() -> FakeAgent {
     let agent = FakeAgent::start();
     agent.mount(
         "GET",
@@ -301,8 +374,19 @@ fn without_the_variable_the_cli_dials_the_guest_itself() {
         ResponseTemplate::new(200)
             .set_body_json(json!({ "accessible": true, "platform": "macos" })),
     );
+    agent
+}
+
+/// On a Linux or Windows host, a command without the variable dials the guest itself, as it
+/// did before the app (spec: "Linux and Windows hosts keep the direct path"). No app runs.
+#[cfg(not(target_os = "macos"))]
+#[test]
+fn a_linux_or_windows_host_without_the_variable_dials_the_guest_itself() {
+    let _lock = serial();
+    let agent = healthy_agent();
     let app = TestApp::not_running();
     let endpoint = agent.addr().to_string();
+    // An empty variable counts as unset.
     for extra in [vec![], vec![("TESTANYWARE_APP_SOCKET", "")]] {
         let out = app.cli_with(&["agent", "health", "--agent", &endpoint], &extra);
         assert_eq!(out.code(), 0, "{}", out.err());
@@ -311,25 +395,173 @@ fn without_the_variable_the_cli_dials_the_guest_itself() {
     assert_eq!(agent.request_count(), 2);
 }
 
+/// On a macOS host, a command without the variable goes to the default socket of the app, in
+/// Application Support under `HOME`, for each way to name a guest.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_macos_host_without_the_variable_uses_the_default_socket_of_the_app() {
+    let _lock = serial();
+    let agent = healthy_agent();
+    let app = TestApp::start_on_the_default_socket();
+    app.add_vm(VM, agent.addr());
+    assert!(app
+        .socket()
+        .ends_with("Library/Application Support/TestAnyware/testanyware.sock"));
+    let endpoint = agent.addr().to_string();
+
+    // An empty variable counts as unset.
+    for extra in [vec![], vec![("TESTANYWARE_APP_SOCKET", "")]] {
+        let out = app.cli_with(&["agent", "health", "--vm", VM], &extra);
+        assert_eq!(out.code(), 0, "{}", out.err());
+        assert_eq!(out.out(), "OK\n");
+    }
+    let out = app.cli_default(&["agent", "health", "--agent", &endpoint]);
+    assert_eq!(out.code(), 0, "{}", out.err());
+    assert_eq!(agent.request_count(), 3);
+
+    // The proof of routing: the Host CLI named the VM by its id, so it read no spec, and
+    // the app dialed the guest. A CLI that dialed the guest would have named its address.
+    let hosts: Vec<_> = agent
+        .received()
+        .into_iter()
+        .map(|r| r.host.unwrap_or_default())
+        .collect();
+    assert_eq!(hosts[..2], [format!("{VM}:8648"), format!("{VM}:8648")]);
+    assert_eq!(hosts[2], endpoint);
+}
+
+#[test]
+fn the_variable_overrides_the_default_socket() {
+    let _lock = serial();
+    let agent = healthy_agent();
+    // An app serves on the named socket. Nothing serves on the default one.
+    let app = TestApp::start();
+    app.add_vm(VM, agent.addr());
+    let out = app.cli(&["agent", "health", "--vm", VM]);
+    assert_eq!(out.code(), 0, "{}", out.err());
+    assert_eq!(out.out(), "OK\n");
+    if cfg!(target_os = "macos") {
+        let default = app.cli_default(&["agent", "health", "--vm", VM, "--json"]);
+        assert_eq!(default.code(), 1, "{}", default.out());
+        assert_eq!(
+            agent.request_count(),
+            1,
+            "the default socket reached the guest"
+        );
+    }
+}
+
+/// The error that a macOS host gives when no app answers on the default socket, and the app
+/// bundle is where the test puts it.
+#[cfg(target_os = "macos")]
+fn default_socket_error(app: &TestApp, endpoint: &str) -> serde_json::Value {
+    let out = app.cli_default(&["agent", "health", "--agent", endpoint, "--json"]);
+    assert_eq!(out.code(), 1, "{}", out.out());
+    out.json()
+}
+
+/// A macOS host never connects to the guest itself, with or without the app. No command
+/// starts the app either (spec: "No client starts the app").
+#[cfg(target_os = "macos")]
+#[test]
+fn a_macos_host_without_an_app_fails_and_dials_nothing() {
+    let _lock = serial();
+    let agent = healthy_agent();
+    let endpoint = agent.addr().to_string();
+
+    // Positive control: this guest answers a dial, so a CLI that fell back to one would
+    // succeed.
+    assert!(dial_guest(agent.addr()).starts_with("HTTP/1.1 200"));
+    assert_eq!(agent.request_count(), 1);
+
+    // No bundle in the user's Applications. The test cannot remove `/Applications`, so the
+    // expected code follows what that directory holds on this machine.
+    let app = TestApp::not_running_on_the_default_socket();
+    let envelope = default_socket_error(&app, &endpoint);
+    let installed = std::path::Path::new("/Applications/TestAnyware.app").exists();
+    assert_eq!(
+        envelope["code"],
+        if installed {
+            "APP_UNREACHABLE"
+        } else {
+            "APP_NOT_INSTALLED"
+        },
+        "{envelope}"
+    );
+    assert_eq!(envelope["ok"], false);
+    assert!(
+        !app.socket().exists(),
+        "the CLI started or created something on the socket"
+    );
+
+    // The app is installed in the user's Applications and does not run: unreachable, with the
+    // cause and the remedy of the setup.
+    std::fs::create_dir_all(app.root().join("Applications/TestAnyware.app")).unwrap();
+    let envelope = default_socket_error(&app, &endpoint);
+    assert_eq!(envelope["code"], "APP_UNREACHABLE", "{envelope}");
+    assert_eq!(envelope["details"]["cause"], "not_running");
+    let remedy = envelope["remediation"].as_str().unwrap();
+    assert!(remedy.contains("Start at Login"), "{remedy}");
+    assert!(remedy.contains("never starts"), "{remedy}");
+
+    assert_eq!(
+        agent.request_count(),
+        1,
+        "the CLI dialed the guest after it found no app"
+    );
+}
+
+/// The remedy of a missing app is the setup, whole. The cask does not exist yet, so the text
+/// says that the release provides it.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_missing_app_names_the_five_steps_of_the_setup() {
+    if std::path::Path::new("/Applications/TestAnyware.app").exists() {
+        eprintln!("skipped: this machine has the app in /Applications");
+        return;
+    }
+    let _lock = serial();
+    let app = TestApp::not_running_on_the_default_socket();
+    let envelope = default_socket_error(&app, "127.0.0.1:1");
+    assert_eq!(envelope["code"], "APP_NOT_INSTALLED", "{envelope}");
+    assert_eq!(
+        envelope["details"]["socket"],
+        app.socket().to_str().unwrap()
+    );
+    let searched = envelope["details"]["searched"].as_array().unwrap();
+    assert_eq!(searched[0], "/Applications/TestAnyware.app");
+    let remedy = envelope["remediation"].as_str().unwrap();
+    for step in [
+        "1. Install the cask with `brew install --cask linkuistics/taps/testanyware-app`",
+        "The release provides the cask",
+        "2. Open TestAnyware from /Applications",
+        "3. Answer the \"downloaded from the Internet\" dialog with Open",
+        "4. Turn on \"Start at Login\"",
+        "5. Allow the Local Network alert",
+    ] {
+        assert!(remedy.contains(step), "{step} missing from {remedy}");
+    }
+    // The text mode names the problem and gives the hint, and the exit code is the same.
+    let text = app.cli_default(&["agent", "health", "--agent", "127.0.0.1:1"]);
+    assert_eq!(text.code(), 1);
+    assert!(text.err().contains("is not installed"), "{}", text.err());
+    assert!(text.err().contains("hint:"), "{}", text.err());
+}
+
 #[test]
 fn a_missing_app_fails_with_not_running_and_dials_nothing() {
     let _lock = serial();
-    let agent = FakeAgent::start();
-    agent.mount(
-        "GET",
-        "/health",
-        ResponseTemplate::new(200)
-            .set_body_json(json!({ "accessible": true, "platform": "macos" })),
-    );
+    let agent = healthy_agent();
     let app = TestApp::not_running();
     let endpoint = agent.addr().to_string();
     let args = ["agent", "health", "--agent", &endpoint, "--json"];
 
-    // The guest answers a direct dial, so a CLI that fell back to it would succeed.
-    let direct = app.cli_direct(&args);
-    assert_eq!(direct.code(), 0, "positive control: {}", direct.err());
+    // Positive control: the guest answers a dial, so a CLI that fell back to one would succeed.
+    assert!(dial_guest(agent.addr()).starts_with("HTTP/1.1 200"));
     assert_eq!(agent.request_count(), 1);
 
+    // The socket is named, so the Host CLI does not judge the install places: the app that
+    // it expected there is not running.
     let routed = app.cli(&args);
     assert_eq!(routed.code(), 1, "{}", routed.out());
     let envelope = routed.json();
@@ -404,9 +636,10 @@ fn errors_of_the_app_reach_the_envelope_with_the_exit_code_of_the_code() {
 
     // VM_NOT_FOUND exits 3 on both paths.
     let args = ["agent", "health", "--vm", "testanyware-absent", "--json"];
-    let direct = fixture.app.cli_direct(&args);
     let routed = fixture.app.cli(&args);
-    assert_eq!(direct.code(), 3);
+    if HOST_GOES_DIRECT {
+        assert_eq!(fixture.app.cli_default(&args).code(), 3);
+    }
     assert_eq!(routed.code(), 3, "{}", routed.out());
     assert_eq!(routed.json()["code"], "VM_NOT_FOUND");
     assert_eq!(routed.json()["ok"], false);
@@ -425,11 +658,13 @@ fn errors_of_the_app_reach_the_envelope_with_the_exit_code_of_the_code() {
     drop(closed);
     fixture.app.add_vm("testanyware-closed", closed_addr);
     let args = ["agent", "health", "--vm", "testanyware-closed", "--json"];
-    let direct = fixture.app.cli_direct(&args);
     let routed = fixture.app.cli(&args);
-    assert_eq!(direct.code(), 1);
+    if HOST_GOES_DIRECT {
+        let direct = fixture.app.cli_default(&args);
+        assert_eq!(direct.code(), 1);
+        assert_eq!(direct.json()["code"], "CONNECTION_REFUSED");
+    }
     assert_eq!(routed.code(), 1, "{}", routed.out());
-    assert_eq!(direct.json()["code"], "CONNECTION_REFUSED");
     assert_eq!(routed.json()["code"], "CONNECTION_REFUSED");
     assert!(
         routed.json()["details"]["errno"].is_number(),
@@ -448,7 +683,9 @@ fn errors_of_the_app_reach_the_envelope_with_the_exit_code_of_the_code() {
     )
     .unwrap();
     let args = ["agent", "health", "--vm", "testanyware-noagent", "--json"];
-    assert_eq!(fixture.app.cli_direct(&args).code(), 2);
+    if HOST_GOES_DIRECT {
+        assert_eq!(fixture.app.cli_default(&args).code(), 2);
+    }
     let routed = fixture.app.cli(&args);
     assert_eq!(routed.code(), 2, "{}", routed.out());
     assert_eq!(routed.json()["code"], "NO_CONNECTION_SPECIFIED");

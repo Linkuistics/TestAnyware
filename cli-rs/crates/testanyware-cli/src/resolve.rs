@@ -17,7 +17,7 @@
 use std::path::PathBuf;
 
 use serde::Deserialize;
-use testanyware_app_protocol::{is_plain_vm_id, StreamTarget};
+use testanyware_app_protocol::{default_socket_path, is_plain_vm_id, StreamTarget};
 use thiserror::Error;
 
 /// User-specified connection options. Mirrors clap's `ConnectionOptions`
@@ -351,16 +351,44 @@ pub fn resolve_agent(opts: &ConnectionOptions) -> Result<ResolvedAgent, ResolveE
     resolve_agent_with_env(opts, &EnvProvider::process())
 }
 
-/// The environment variable that names the TestAnyware app's socket. Today it exists for
-/// tests, and it turns routing through the app on.
+/// The environment variable that names the TestAnyware app's socket. It overrides the default
+/// socket, and tests use it to reach an app in its test mode. It also turns routing on for a
+/// host that has no default socket, such as a Linux host under test.
 pub const APP_SOCKET_ENV: &str = "TESTANYWARE_APP_SOCKET";
 
-/// The socket of the TestAnyware app, when routing through the app is on. An empty value
-/// counts as unset, as the other `TESTANYWARE_*` variables do.
+/// The socket of the TestAnyware app on this host, when guest connections go through the app.
+/// An empty value of the variable counts as unset, as the other `TESTANYWARE_*` variables do.
+///
+/// A macOS host always has a socket: the variable, else the default one in Application
+/// Support. No command falls back to a direct connection there (spec: "How the app starts").
+/// A Linux or Windows host has one only when the variable names it.
 pub fn app_socket_with_env(env: &EnvProvider) -> Option<PathBuf> {
-    env.get(APP_SOCKET_ENV)
+    app_socket_for_host(env, cfg!(target_os = "macos"))
+}
+
+/// [`app_socket_with_env`] for a named kind of host, so a test shows the Linux and Windows
+/// behaviour on any machine.
+pub fn app_socket_for_host(env: &EnvProvider, macos_host: bool) -> Option<PathBuf> {
+    let named = env
+        .get(APP_SOCKET_ENV)
         .filter(|value| !value.is_empty())
-        .map(PathBuf::from)
+        .map(PathBuf::from);
+    if named.is_some() || !macos_host {
+        return named;
+    }
+    Some(default_app_socket_with_env(env))
+}
+
+/// The default socket of the app: `~/Library/Application Support/TestAnyware/testanyware.sock`.
+/// With no `HOME` the path is relative, as the paths of the VM records are, and the socket
+/// check names it in its error.
+pub fn default_app_socket_with_env(env: &EnvProvider) -> PathBuf {
+    default_socket_path(&home_dir_with_env(env))
+}
+
+/// The home directory of the user, from `HOME`. An unset `HOME` gives an empty path.
+pub fn home_dir_with_env(env: &EnvProvider) -> PathBuf {
+    PathBuf::from(env.get("HOME").unwrap_or_default())
 }
 
 /// Resolve the connection options to the target of a guest stream, for the routing through
@@ -424,8 +452,8 @@ pub fn resolve_vnc_endpoint(opts: &ConnectionOptions) -> Result<VncEndpoint, Res
     resolve_vnc_endpoint_with_env(opts, &EnvProvider::process())
 }
 
-/// Resolve the VNC endpoint, and the route through the app when `TESTANYWARE_APP_SOCKET` is
-/// set. The order of the direct resolve holds: `--connect`, then `--vm`, then `--vnc`.
+/// Resolve the VNC endpoint, and the route through the app on a macOS host or when
+/// `TESTANYWARE_APP_SOCKET` is set. The order of the direct resolve holds: `--connect`, then `--vm`, then `--vnc`.
 ///
 /// Unlike the agent, a VNC connection needs the password and the logical target of the spec,
 /// so the Host CLI reads the spec of a `--vm` id. It still routes by the id, and dials nothing.
@@ -434,8 +462,17 @@ pub fn resolve_vnc_endpoint_with_env(
     opts: &ConnectionOptions,
     env: &EnvProvider,
 ) -> Result<VncEndpoint, ResolveError> {
+    resolve_vnc_endpoint_for_host(opts, env, cfg!(target_os = "macos"))
+}
+
+/// [`resolve_vnc_endpoint_with_env`] for a named kind of host.
+pub fn resolve_vnc_endpoint_for_host(
+    opts: &ConnectionOptions,
+    env: &EnvProvider,
+    macos_host: bool,
+) -> Result<VncEndpoint, ResolveError> {
     let resolved = resolve_vnc_with_env(opts, env)?;
-    let Some(socket) = app_socket_with_env(env) else {
+    let Some(socket) = app_socket_for_host(env, macos_host) else {
         return Ok(VncEndpoint { resolved, route: None });
     };
     let target = match (&opts.connect, &opts.vm) {
@@ -655,16 +692,48 @@ mod tests {
     }
 
     #[test]
-    fn app_socket_is_unset_when_the_variable_is_missing_or_empty() {
-        assert_eq!(app_socket_with_env(&env_with(&[])), None);
+    fn a_macos_host_without_the_variable_uses_the_default_socket() {
+        let env = env_with(&[("HOME", "/Users/me")]);
         assert_eq!(
-            app_socket_with_env(&env_with(&[(APP_SOCKET_ENV, "")])),
-            None
+            app_socket_for_host(&env, true),
+            Some(PathBuf::from(
+                "/Users/me/Library/Application Support/TestAnyware/testanyware.sock"
+            ))
         );
+        // An empty value counts as unset, as the other variables do.
+        let env = env_with(&[("HOME", "/Users/me"), (APP_SOCKET_ENV, "")]);
         assert_eq!(
-            app_socket_with_env(&env_with(&[(APP_SOCKET_ENV, "/s/app.sock")])),
-            Some(PathBuf::from("/s/app.sock"))
+            app_socket_for_host(&env, true),
+            Some(default_app_socket_with_env(&env))
         );
+    }
+
+    #[test]
+    fn the_variable_overrides_the_default_socket_on_every_host() {
+        let env = env_with(&[("HOME", "/Users/me"), (APP_SOCKET_ENV, "/s/app.sock")]);
+        for macos_host in [true, false] {
+            assert_eq!(
+                app_socket_for_host(&env, macos_host),
+                Some(PathBuf::from("/s/app.sock"))
+            );
+        }
+    }
+
+    #[test]
+    fn a_linux_or_windows_host_has_no_socket_unless_the_variable_names_one() {
+        // Only these two inputs decide whether a host routes. A host that is not macOS gets
+        // no default socket, so each of its commands keeps the direct path of today.
+        let env = env_with(&[("HOME", "/home/me")]);
+        assert_eq!(app_socket_for_host(&env, false), None);
+        let env = env_with(&[("HOME", "/home/me"), (APP_SOCKET_ENV, "")]);
+        assert_eq!(app_socket_for_host(&env, false), None);
+    }
+
+    #[test]
+    fn a_macos_host_without_a_home_names_a_relative_socket_instead_of_going_direct() {
+        let socket = app_socket_for_host(&env_with(&[]), true).expect("a macOS host routes");
+        assert!(socket.is_relative(), "{}", socket.display());
+        assert!(socket.ends_with("TestAnyware/testanyware.sock"));
     }
 
     #[test]
@@ -862,11 +931,26 @@ mod tests {
     }
 
     #[test]
-    fn vnc_endpoint_has_no_route_without_the_app_socket() {
+    fn vnc_endpoint_has_no_route_on_a_linux_host_without_the_app_socket() {
         let opts = ConnectionOptions { vnc: Some("10.0.0.2:5901".into()), ..Default::default() };
-        let endpoint = resolve_vnc_endpoint_with_env(&opts, &env_with(&[])).unwrap();
+        // A Linux or Windows host keeps the direct path.
+        let endpoint = resolve_vnc_endpoint_for_host(&opts, &env_with(&[]), false).unwrap();
         assert_eq!(endpoint.route, None);
         assert_eq!(endpoint.resolved.port, 5901);
+    }
+
+    #[test]
+    fn a_macos_host_routes_a_vnc_endpoint_through_the_default_socket() {
+        let opts = ConnectionOptions { vnc: Some("10.0.0.2:5901".into()), ..Default::default() };
+        let env = env_with(&[("HOME", "/Users/me")]);
+        let endpoint = resolve_vnc_endpoint_for_host(&opts, &env, true).unwrap();
+        assert_eq!(
+            endpoint.route,
+            Some(AppRoute {
+                socket: default_app_socket_with_env(&env),
+                target: StreamTarget::Endpoint { host: "10.0.0.2".into(), port: 5901 },
+            })
+        );
     }
 
     #[test]

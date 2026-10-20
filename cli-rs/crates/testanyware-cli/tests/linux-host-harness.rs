@@ -18,6 +18,15 @@
 //! leaf) into the HUT and proves `screen find-text` resolves through it on
 //! aarch64-linux. All three bands now run green in one invocation.
 //!
+//! ## The TestAnyware app
+//!
+//! On a macOS host, each command that reaches a guest goes through the TestAnyware app, as
+//! `docs/specs/testanyware-app.md` says. `vm start`, `vm stop` and the other lifecycle
+//! commands stay direct. So run this test from Terminal with the app running and its Local
+//! Network alert allowed (`task app:bundle-dev`, then `open -n -g` on the bundle it prints).
+//! Without the app, each agent and VNC command fails with `APP_NOT_INSTALLED` or
+//! `APP_UNREACHABLE`. This test needs a guest, and it has not run since the default changed.
+//!
 //! ## How to run
 //!
 //! ```text

@@ -218,6 +218,10 @@ An existing user of TestAnyware takes one new step: the setup above.
 The socket is `~/Library/Application Support/TestAnyware/testanyware.sock`. Its
 directory belongs to the user and has mode 0700.
 
+On a macOS host, the Host CLI uses this socket unless `TESTANYWARE_APP_SOCKET` names
+another one, which tests do. It builds the path from `HOME`. On a Linux or Windows
+host, the Host CLI uses a socket only when that variable names one.
+
 - The app creates the directory with that mode. It refuses to serve when another
   user owns the directory, or when its mode admits anyone else.
 - The Host CLI checks the owner and the mode of the directory before it
@@ -597,7 +601,7 @@ flowchart TD
 
 | Code | Exit | When |
 |---|---|---|
-| `APP_NOT_INSTALLED` | 1 | No TestAnyware app is installed on a macOS host. The remedy is the setup |
+| `APP_NOT_INSTALLED` | 1 | Nothing answers on the default socket, and `/Applications` and `~/Applications` hold no `TestAnyware.app`. `details.searched` lists both paths. The remedy is the setup. A socket that `TESTANYWARE_APP_SOCKET` names never gives this error, because that app need not be in either place |
 | `APP_UNREACHABLE` | 1 | The Host CLI cannot use the app's socket. `details.cause` is `not_running` (the socket is missing or refuses the connection), `unsafe_socket_directory`, `quitting` (the app closed the connection before it answered), `socket_path_too_long` or `socket_error` (another failure, with `details.errno` where there is one) |
 | `APP_INCOMPATIBLE` | 1 | `details.cause` is `protocol` or `directories` |
 | `CONFIG_INVALID` | 2 | `config.rhai` fails to evaluate, or it names an unknown key |

@@ -43,6 +43,20 @@ impl UnreachableCause {
     }
 }
 
+/// Code for a macOS host that has no TestAnyware app bundle. The Host CLI makes this error
+/// itself, from a socket that nothing answers and a bundle that no search path holds.
+pub const APP_NOT_INSTALLED: &str = "APP_NOT_INSTALLED";
+
+/// The one-time setup, as the remedy of a missing or silent app (spec: "How the app starts").
+/// A person does it. No client does.
+pub const SETUP_REMEDY: &str = "Set up the TestAnyware app once, as a person. \
+1. Install the cask with `brew install --cask linkuistics/taps/testanyware-app`. The release provides the cask. \
+2. Open TestAnyware from /Applications. \
+3. Answer the \"downloaded from the Internet\" dialog with Open. \
+4. Turn on \"Start at Login\" in the app's menu. \
+5. Allow the Local Network alert when it appears. \
+The Host CLI never starts the app.";
+
 /// An error that the app sends before an upgrade, as a JSON object.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppError {
@@ -89,6 +103,21 @@ impl AppError {
             message,
             Some(remediation.into()),
             json!({ "cause": cause.as_str(), "socket": socket }),
+        )
+    }
+
+    /// No TestAnyware app bundle exists on the host, and nothing answers on `socket`. The
+    /// error names the places that the Host CLI searched.
+    pub fn not_installed(socket: &std::path::Path, searched: &[std::path::PathBuf]) -> Self {
+        Self::new(
+            APP_NOT_INSTALLED,
+            format!(
+                "The TestAnyware app is not installed, and nothing answers on {}. \
+                 Every guest connection on a macOS host goes through the app.",
+                socket.display()
+            ),
+            Some(SETUP_REMEDY.to_string()),
+            json!({ "socket": socket, "searched": searched }),
         )
     }
 

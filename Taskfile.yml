@@ -37,7 +37,7 @@ tasks:
       - cargo test -p testanyware-app-protocol -p testanyware-app -p testanyware-app-client
 
   app:routing-test:
-    desc: Run the real host CLI binary against the real app executable and fake guests, agent and VNC (TESTANYWARE_APP_SOCKET routing; macOS or Linux host)
+    desc: Run the real host CLI binary against the real app executable and fake guests, agent and VNC (the default socket on a macOS host, TESTANYWARE_APP_SOCKET elsewhere; macOS or Linux host)
     dir: '{{.CLI_DIR}}'
     cmds:
       - cargo test -p testanyware-cli --test app-agent-routing --test app-vnc-routing
@@ -51,6 +51,15 @@ tasks:
     desc: Live check on this Mac. Open the development bundle through LaunchServices, read GET /v1/status on the app socket, read the status item's menu, and quit it. Needs no guest and uses the real app socket, so quit a running app first
     cmds:
       - scripts/app-bundle-live.sh
+
+  app:routing-live:
+    desc: 'Live check on this Mac, from a herdr session: with no variable set, agent snapshot, screen capture, input move and a file transfer reach a running guest through the app, and the CLI has no direct path (task app:routing-live VM=<id>). A person first starts the guest in Terminal (testanyware vm start --platform macos --id <id>) and allows the Local Network alert once. Starts the development bundle when no app answers, and quits only that one'
+    deps: [cli:build]
+    preconditions:
+      - sh: test -n "{{.VM}}"
+        msg: 'name the guest that a person started in Terminal: task app:routing-live VM=<id>'
+    cmds:
+      - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/app-routing-live.sh {{.VM | shellQuote}}
 
   cli:clippy:
     desc: Lint cli-rs (clippy has pre-existing warnings in testanyware-rfb and two large-Err sites, so this reports and never gates)
@@ -85,7 +94,7 @@ tasks:
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
-      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh
+      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh
     cmds:
       - shellcheck -x {{.SCRIPTS}}
       - shfmt -i 2 -ci -d {{.SCRIPTS}}

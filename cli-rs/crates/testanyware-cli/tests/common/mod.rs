@@ -153,7 +153,13 @@ impl FakeAgent {
 pub struct TestApp {
     child: Option<Child>,
     tmp: TempDir,
+    /// Where the app serves, or would serve.
+    socket: PathBuf,
 }
+
+/// Whether this host keeps the direct path to a guest. A Linux or Windows host does. A macOS host
+/// has none, so on it a command without `TESTANYWARE_APP_SOCKET` goes to the default socket.
+pub const HOST_GOES_DIRECT: bool = cfg!(not(target_os = "macos"));
 
 impl Drop for TestApp {
     fn drop(&mut self) {
@@ -169,7 +175,30 @@ impl TestApp {
     /// nothing on the socket.
     pub fn not_running() -> Self {
         let tmp = tempfile::tempdir().expect("a temporary directory");
-        let app = TestApp { child: None, tmp };
+        Self::not_running_on(tmp, |root| root.join("run").join("testanyware.sock"))
+    }
+
+    /// As [`Self::not_running`], with the socket at the default path of the CLI's `HOME`: the
+    /// socket that a command uses when `TESTANYWARE_APP_SOCKET` is unset on a macOS host.
+    ///
+    /// The default path adds 58 bytes to `HOME`, and a socket path has 103 bytes at most. The
+    /// temporary directory of macOS is too long for that, so `HOME` is a short directory in
+    /// `/tmp`, as a user's own is.
+    pub fn not_running_on_the_default_socket() -> Self {
+        let tmp = tempfile::Builder::new()
+            .prefix("taw")
+            .tempdir_in("/tmp")
+            .expect("a short temporary directory");
+        Self::not_running_on(tmp, testanyware_app_protocol::default_socket_path)
+    }
+
+    fn not_running_on(tmp: TempDir, socket: impl FnOnce(&Path) -> PathBuf) -> Self {
+        let socket = socket(tmp.path());
+        let app = TestApp {
+            child: None,
+            tmp,
+            socket,
+        };
         std::fs::create_dir_all(app.state_dir().join("vms")).unwrap();
         std::fs::create_dir_all(app.data_dir()).unwrap();
         std::fs::create_dir_all(app.socket_dir()).unwrap();
@@ -179,7 +208,15 @@ impl TestApp {
 
     /// Start the app on a fresh socket and fresh directories.
     pub fn start() -> Self {
-        let mut app = Self::not_running();
+        Self::spawn(Self::not_running())
+    }
+
+    /// Start the app on the default socket of the CLI's `HOME`, as the login item starts it.
+    pub fn start_on_the_default_socket() -> Self {
+        Self::spawn(Self::not_running_on_the_default_socket())
+    }
+
+    fn spawn(mut app: Self) -> Self {
         let mut child = Command::new(app_binary())
             .args(["--test-mode", "--socket"])
             .arg(app.socket())
@@ -210,11 +247,14 @@ impl TestApp {
     }
 
     pub fn socket_dir(&self) -> PathBuf {
-        self.root().join("run")
+        self.socket
+            .parent()
+            .expect("a socket has a directory")
+            .to_path_buf()
     }
 
     pub fn socket(&self) -> PathBuf {
-        self.socket_dir().join("testanyware.sock")
+        self.socket.clone()
     }
 
     /// `$XDG_STATE_HOME` of the CLI.
@@ -275,8 +315,10 @@ impl TestApp {
         )
     }
 
-    /// Run the CLI as before the app: the variable is unset, so it dials the guest itself.
-    pub fn cli_direct(&self, args: &[&str]) -> Output {
+    /// Run the CLI with no `TESTANYWARE_APP_SOCKET`. A Linux or Windows host then dials the guest
+    /// itself, as before the app. A macOS host has no direct path, so the command goes to the
+    /// default socket of `HOME` (see [`HOST_GOES_DIRECT`]).
+    pub fn cli_default(&self, args: &[&str]) -> Output {
         self.cli_with(args, &[])
     }
 

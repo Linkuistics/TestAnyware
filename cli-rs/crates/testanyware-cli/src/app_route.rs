@@ -1,22 +1,74 @@
 //! Routing of agent connections through the TestAnyware app (spec: "The protocol").
 //!
-//! With `TESTANYWARE_APP_SOCKET` set, every command that uses the agent client gets each
-//! connection from the app as a guest stream, and the Host CLI dials nothing itself. The
+//! On a macOS host, and on any host with `TESTANYWARE_APP_SOCKET` set, every command that uses
+//! the agent client gets each connection from the app as a guest stream, and the Host CLI dials
+//! nothing itself. The
 //! agent client runs its HTTP/1.1 on that stream as it runs it on a TCP connection, so the
 //! output of a command does not change.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use testanyware_agent_client::{
     AgentClient, AgentConfig, AgentConnector, BoxedStream, ConnectFuture, ConnectorFailure,
 };
-use testanyware_app_client::AppClient;
+use testanyware_app_client::{AppClient, AppStream};
 use testanyware_app_protocol::version::SUPPORTED_RANGE;
-use testanyware_app_protocol::{AppError, ClientHello, Directories, StreamKind, StreamTarget};
+use testanyware_app_protocol::{
+    AppError, ClientHello, Directories, StreamKind, StreamTarget, APP_UNREACHABLE,
+};
 use testanyware_vm::paths::VmPaths;
 
-use crate::resolve::ResolvedAgent;
+use crate::resolve::{default_app_socket_with_env, home_dir_with_env, EnvProvider, ResolvedAgent};
+
+/// The name of the app bundle that the cask installs (spec: "Packaging and identity").
+const BUNDLE_NAME: &str = "TestAnyware.app";
+
+/// The places where a person installs the app: the cask's `/Applications`, and the user's own
+/// `Applications` directory.
+pub fn bundle_search_paths(home: &Path) -> Vec<PathBuf> {
+    vec![
+        PathBuf::from("/Applications").join(BUNDLE_NAME),
+        home.join("Applications").join(BUNDLE_NAME),
+    ]
+}
+
+/// Name the missing install. Nothing answers on `socket`, and no search path holds a bundle,
+/// so the error is `APP_NOT_INSTALLED` instead of `APP_UNREACHABLE`. This holds for the
+/// default socket only. A socket that a person named, such as that of a development bundle,
+/// is an app that the Host CLI has no reason to look for in `/Applications`.
+fn name_missing_install(
+    error: AppError,
+    socket: &Path,
+    default_socket: &Path,
+    searched: &[PathBuf],
+    exists: impl Fn(&Path) -> bool,
+) -> AppError {
+    let not_running = error.code == APP_UNREACHABLE && error.details["cause"] == "not_running";
+    if not_running && socket == default_socket && !searched.iter().any(|path| exists(path)) {
+        return AppError::not_installed(socket, searched);
+    }
+    error
+}
+
+/// Open a guest stream through the app. A failure to reach the app on the default socket
+/// says whether the app is installed.
+pub(crate) async fn open_stream(
+    client: &AppClient,
+    target: &StreamTarget,
+    kind: StreamKind,
+) -> Result<AppStream, AppError> {
+    client.open_stream(target, kind).await.map_err(|error| {
+        let env = EnvProvider::process();
+        name_missing_install(
+            error,
+            client.socket(),
+            &default_app_socket_with_env(&env),
+            &bundle_search_paths(&home_dir_with_env(&env)),
+            Path::exists,
+        )
+    })
+}
 
 /// What each request states about this Host CLI: the protocol range it speaks, its build, and
 /// the directories it resolved. The app reads the VM records in the state directory, so the
@@ -59,8 +111,7 @@ impl AgentConnector for AppAgentConnector {
         let client = self.client.clone();
         let target = self.target.clone();
         Box::pin(async move {
-            client
-                .open_stream(&target, StreamKind::Agent)
+            open_stream(&client, &target, StreamKind::Agent)
                 .await
                 .map(|stream| Box::new(stream) as BoxedStream)
                 .map_err(|error| failure_of(error).into())
@@ -96,6 +147,103 @@ mod tests {
         assert_eq!(failure.message, "m");
         assert_eq!(failure.remediation.as_deref(), Some("r"));
         assert_eq!(failure.details["errno"], 61);
+    }
+
+    fn unreachable(cause: &str) -> AppError {
+        AppError::new(
+            "APP_UNREACHABLE",
+            "m",
+            Some("r".into()),
+            json!({ "cause": cause, "socket": "/h/s.sock" }),
+        )
+    }
+
+    fn search() -> Vec<PathBuf> {
+        bundle_search_paths(Path::new("/Users/me"))
+    }
+
+    #[test]
+    fn the_search_paths_are_the_cask_and_the_users_applications() {
+        assert_eq!(
+            search(),
+            [
+                PathBuf::from("/Applications/TestAnyware.app"),
+                PathBuf::from("/Users/me/Applications/TestAnyware.app"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_silent_default_socket_and_no_bundle_is_not_installed() {
+        let socket = Path::new("/h/s.sock");
+        let error = name_missing_install(
+            unreachable("not_running"),
+            socket,
+            socket,
+            &search(),
+            |_| false,
+        );
+        assert_eq!(error.code, "APP_NOT_INSTALLED");
+        assert_eq!(error.details["socket"], "/h/s.sock");
+        assert_eq!(
+            error.details["searched"][0],
+            "/Applications/TestAnyware.app"
+        );
+        let remedy = error.remediation.expect("the setup");
+        for step in [
+            "brew install --cask linkuistics/taps/testanyware-app",
+            "/Applications",
+            "Start at Login",
+            "Local Network",
+        ] {
+            assert!(remedy.contains(step), "{step} missing from {remedy}");
+        }
+        assert!(remedy.contains("release provides the cask"), "{remedy}");
+    }
+
+    #[test]
+    fn a_bundle_in_either_place_keeps_the_error_unreachable() {
+        let socket = Path::new("/h/s.sock");
+        for present in search() {
+            let error = name_missing_install(
+                unreachable("not_running"),
+                socket,
+                socket,
+                &search(),
+                |path| path == present,
+            );
+            assert_eq!(error.code, "APP_UNREACHABLE", "{}", present.display());
+        }
+    }
+
+    #[test]
+    fn a_named_socket_is_never_judged_by_the_install_places() {
+        let error = name_missing_install(
+            unreachable("not_running"),
+            Path::new("/tmp/dev/s.sock"),
+            Path::new("/h/s.sock"),
+            &search(),
+            |_| false,
+        );
+        assert_eq!(error.code, "APP_UNREACHABLE");
+    }
+
+    #[test]
+    fn only_a_silent_socket_can_mean_a_missing_install() {
+        let socket = Path::new("/h/s.sock");
+        for cause in [
+            "unsafe_socket_directory",
+            "quitting",
+            "socket_path_too_long",
+            "socket_error",
+        ] {
+            let error =
+                name_missing_install(unreachable(cause), socket, socket, &search(), |_| false);
+            assert_eq!(error.code, "APP_UNREACHABLE", "{cause}");
+        }
+        let other = AppError::new("VM_NOT_FOUND", "m", None, json!({}));
+        let error = name_missing_install(other, socket, socket, &search(), |_| false);
+        assert_eq!(error.code, "VM_NOT_FOUND");
     }
 
     #[test]
