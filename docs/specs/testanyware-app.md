@@ -246,6 +246,13 @@ The app speaks HTTP/1.1 on its socket, under the path prefix `/v1`. Every
 request carries the Host CLI's protocol range and build version in its headers.
 Every response carries the app's protocol range and build version.
 
+The headers are `X-Testanyware-Protocol` (a range such as `1-1`),
+`X-Testanyware-Build`, and, on a request, `X-Testanyware-State-Dir` and
+`X-Testanyware-Data-Dir`. A directory value is percent-encoded. A request that
+states no range fails as one with a range that does not overlap. A request that
+states no directories fails as one with other directories. The app compares
+directories as the strings it receives and canonicalises none.
+
 | Request | Command | Response |
 |---|---|---|
 | `GET /v1/status` | `doctor` | The app's state: versions, executable path, directories, configuration, Local Network observation, login item status and adoption results |

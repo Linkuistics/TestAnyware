@@ -27,3 +27,7 @@ Add the client side of the protocol to the Host CLI. When `TESTANYWARE_APP_SOCKE
 
 - Write the harness for reuse. The leaves `cli-app-vnc-routing-k25`, `app-vm-list-k13` and later leaves build on it.
 - Add `APP_UNREACHABLE` and `APP_INCOMPATIBLE` to the error catalogue of the code. The documents come in `llm-instructions-and-docs-k35`.
+- `app-protocol-core-k9` left the rules in the crate `testanyware-app-protocol`: `validate_socket_path` (103 bytes), `check_socket_dir`, `ClientHello::to_headers` and `AppError`. Call them. The Host CLI's refusal of a longer socket path is this leaf's to wire.
+- A harness that spawns the app must not spawn from two threads at once. On macOS a concurrent spawn can hand a child a listener or a pipe that a sibling opened, and tests then hang or read stale sockets. `crates/testanyware-app/tests/protocol_core.rs` shows the lock that fixed it.
+- Port the `keep-on-failure` live check of `scripts/live-start-checks.sh` here, if the fake guests give it a fault to inject. `agent-client-hyper-k7` broke the old fault (a dead `HTTP_PROXY`).
+
