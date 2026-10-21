@@ -271,7 +271,9 @@ check_qemu_healthy_start() {
   port="$(jq -r '.agent.port // empty' <<<"$OUT")"
   [[ -n "$port" ]] || die "the start succeeded without an agent endpoint: $OUT"
   pass "the start names its agent at localhost:$port"
-  curl -fsS --max-time 10 "http://localhost:$port/health" >/dev/null ||
+  # The app dials the endpoint that the VM's spec records, which is the one the start named. The
+  # id is the only name this script gives the VM: the shell of a check makes no guest dial.
+  "$BIN" agent health --vm "$ok" --json >/dev/null ||
     die "the agent named by the start does not answer /health"
   pass "that agent answers /health"
   "$BIN" vm stop "$ok" >/dev/null || die "vm stop could not reclaim $ok"
@@ -627,7 +629,7 @@ main() {
       check_qemu_death
       ;;
     qemu-start)
-      require_tools curl pgrep
+      require_tools pgrep
       check_qemu_death
       check_qemu_healthy_start
       ;;

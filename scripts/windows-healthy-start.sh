@@ -49,9 +49,11 @@ host=$(jq -r '.agent.host // empty' "$work/start.json")
 port=$(jq -r '.agent.port // empty' "$work/start.json")
 [[ -n $host && -n $port ]] || fail "the start reported no agent endpoint (the agent never answered)"
 
-# Healthy means /health answers 2xx with a body; accessible may be either value.
-curl -fsS --max-time 10 "http://$host:$port/health" >"$work/health.json" ||
-  fail "GET http://$host:$port/health did not answer"
+# Healthy means /health answers 2xx with a body; accessible may be either value. The app dials
+# the endpoint that the VM's spec records, which is the one the start reported. The id is the
+# only name this script gives the VM: the shell makes no guest dial of its own.
+"$cli" agent health --vm "$id" --json >"$work/health.json" ||
+  fail "agent health --vm $id did not answer"
 
 # The report says whether the TPM was attached; a Windows guest on this host must have one.
 [[ $(jq -r '.tpm.attached' "$work/start.json") == true ]] ||

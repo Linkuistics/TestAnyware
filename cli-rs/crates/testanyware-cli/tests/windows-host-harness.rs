@@ -14,8 +14,8 @@
 //!
 //! The node decided (grove 220, "standalone duplicate") **not** to extract a
 //! shared module: this file is self-contained and duplicates `190`'s machinery
-//! verbatim where it is platform-agnostic (the in-process host→golden TCP
-//! forward, the band driver, the macOS-golden endpoint, `find_text_hit`), and
+//! where it is platform-agnostic (the in-process host→golden forward, the band
+//! driver, `find_text_hit`), and
 //! adapts it where the Windows guest genuinely differs from the Linux one. The
 //! five real divergences, all flowing from "QEMU Win11-ARM64 guest" vs "tart
 //! Ubuntu guest":
@@ -24,15 +24,16 @@
 //!      CLI-managed QEMU+swtpm clone), exactly like the macOS golden is
 //!      launched — *not* a manual `tart::clone` of a stock image. So the HUT
 //!      uses the golden-launch pattern, not the Linux tart-`Hut` pattern.
-//!   2. **Provisioning channel** — the reuse seam. Linux ssh ([`russh`]) →
-//!      Windows **in-VM agent** `/upload` + `/exec` ([`AgentChannel`]). Windows
-//!      ships no sshd, so the agent is the only in-guest control channel. The
-//!      agent also exposes `/download`, so this harness reads build artifacts
-//!      (PNG/MP4) straight back to the host rather than re-encoding them
-//!      in-guest with `od` as the minimal ssh seam forced `190` to.
+//!   2. **Provisioning channel** — the reuse seam. The Windows **in-VM agent**
+//!      `/upload` + `/exec` + `/download` ([`AgentChannel`]). Windows ships no
+//!      sshd, so the agent is the only in-guest control channel. The agent
+//!      client takes each connection from the TestAnyware app, as a guest stream
+//!      by the HUT's id, so this process dials no guest. The `/download` call
+//!      reads build artifacts (PNG/MP4) straight back to the host.
 //!   3. **Host-gateway** — a QEMU user-mode (slirp) guest reaches the host at
-//!      the **fixed gateway `10.0.2.2`** ([`QEMU_HOST_GATEWAY`]); there is no
-//!      `ip route` discovery step as on tart's bridged NAT.
+//!      the **fixed gateway `10.0.2.2`** ([`QEMU_HOST_GATEWAY`]), and slirp
+//!      delivers it to the host's loopback. There is no `ip route` discovery
+//!      step as on tart's bridged NAT.
 //!   4. **Invocation** — `"C:\…\testanyware.exe" <args>` with the ffmpeg DLLs
 //!      **co-located beside the .exe** (Windows searches the image's own
 //!      directory for DLLs); no `LD_LIBRARY_PATH`. Per-case env rides as
@@ -60,12 +61,29 @@
 //!
 //! ## The TestAnyware app
 //!
-//! On a macOS host, each command that reaches a guest goes through the TestAnyware app, as
-//! `docs/specs/testanyware-app.md` says. `vm start`, `vm stop` and the other lifecycle
-//! commands stay direct. So run this test from Terminal with the app running and its Local
-//! Network alert allowed (`task app:bundle-dev`, then `open -n -g` on the bundle it prints).
-//! Without the app, each agent and VNC command fails with `APP_NOT_INSTALLED` or
-//! `APP_UNREACHABLE`. This test needs a guest, and it has not run since the default changed.
+//! On a macOS host, this test dials no guest. The app is the only process that does, as
+//! `docs/specs/testanyware-app.md` ("How the host harnesses reach their guests") says:
+//!
+//!   * `vm start` and `vm stop` run in the app, for the Windows HUT and the macOS golden.
+//!   * The agent client of [`AgentChannel`] opens a guest stream of the app for each
+//!     connection, by the HUT's id ([`agent_client_with_timeout`]).
+//!   * The forward binds `127.0.0.1`, because slirp delivers the HUT's `10.0.2.2` there.
+//!     For each connection that it accepts, it opens a guest stream by the golden's id, of
+//!     the agent kind or the VNC kind ([`open_guest_stream`]). It reads the golden's spec
+//!     only for the VNC password ([`golden_vnc_password`]).
+//!
+//! So the test needs the app running with its Local Network alert allowed (`task
+//! app:bundle-dev`, then `open -n -g` on the bundle it prints). It needs no Terminal. Without
+//! the app, a step fails with `APP_NOT_INSTALLED` or `APP_UNREACHABLE`.
+//!
+//! The forward has no peer check. During a manual run, another local user can connect to the
+//! forward on loopback, and through it reach the golden's agent and VNC. The owner accepted
+//! this bounded exception on 2026-10-21 (spec, "How the host harnesses reach their guests").
+//! It applies only to a manual run of this harness. No release runs it. The forward lives
+//! for one run, and it reaches only the two endpoints of the one golden.
+//!
+//! The QEMU HUT also forwards its own agent on every interface during a run. That exposure
+//! is wider, and the spec's "Open risks" names it.
 //!
 //! ## How to run
 //!
@@ -78,10 +96,10 @@
 //! cargo zigbuild -p testanyware-cli --bin testanyware \
 //!   --target aarch64-pc-windows-gnullvm --release
 //!
-//! # 2. run the harness. It boots the Windows agent-golden as a QEMU HUT,
-//! #    agent-provisions the cross binary + ffmpeg DLLs, brings up a macOS golden
-//! #    (`testanyware vm start --platform macos`), forwards the golden's agent +
-//! #    VNC through the host, and runs all three bands (endpoint-free,
+//! # 2. run the harness, with the app running. It boots the Windows agent-golden
+//! #    as a QEMU HUT, agent-provisions the cross binary + ffmpeg DLLs, brings up
+//! #    a macOS golden (`testanyware vm start --platform macos`), forwards the
+//! #    golden's agent + VNC through the app, and runs all three bands (endpoint-free,
 //! #    endpoint-driven, and OCR via the native in-process engine):
 //! TESTANYWARE_WINDOWS_HARNESS=1 cargo test -p testanyware-cli \
 //!   --test windows-host-harness -- --ignored windows_host_harness
@@ -123,13 +141,17 @@
 // only place a plain `cargo test` ever runs (no Windows CI). So the whole file,
 // including the offline unit tests, compiles and runs only on the macOS host.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
-use testanyware_agent_client::{AgentClient, AgentConfig};
+use testanyware_agent_client::AgentClient;
+use testanyware_app_protocol::{StreamKind, StreamTarget};
+use testanyware_cli::app_route::{agent_client_with_timeout, open_guest_stream};
+use testanyware_cli::resolve::{app_socket_with_env, EnvProvider};
 use testanyware_protocol::ExecRequest;
 use testanyware_vm::{ExecOutput, VmPaths, VmSpec};
 use tokio::net::{TcpListener, TcpStream};
@@ -213,8 +235,8 @@ const DIST_PREFIX_GUEST: &str = r"C:\Users\Public\taw-dist";
 /// The address a QEMU user-mode (slirp) guest uses to reach the **host**. slirp
 /// always presents the host as the network's gateway at `10.0.2.2` and proxies
 /// guest→`10.0.2.2` to the host loopback, so anything the harness binds on the
-/// host (the [`PortForward`]s, on `0.0.0.0`) is reachable from the guest here.
-/// This is the Windows analogue of the Linux harness's `parse_default_gateway`
+/// host (the [`PortForward`]s, on `127.0.0.1`) is reachable from the guest here.
+/// This is the Windows analogue of the Linux harness's `parse_default_route`
 /// over `ip route` — but a fixed constant, because slirp's gateway is fixed
 /// (qemu.rs wires plain `-netdev user,…`, no custom net range).
 const QEMU_HOST_GATEWAY: &str = "10.0.2.2";
@@ -356,11 +378,9 @@ fn looks_like_missing_dll(stderr: &str, exit_code: i32) -> bool {
 // Provisioning channel seam (the node's reuse seam — the 2nd impl lives here)
 // ---------------------------------------------------------------------------
 
-/// The in-guest control channel. The Linux harness uses ssh; this is the
-/// **second impl** the node exists to write: the in-VM agent's HTTP surface.
-/// Richer than the minimal ssh seam — the agent natively offers `download`, so
-/// artifact checks read files straight back to the host instead of re-encoding
-/// them in-guest.
+/// The in-guest control channel: the in-VM agent's HTTP surface, which the Linux harness
+/// uses too. The agent natively offers `download`, so artifact checks read files straight
+/// back to the host instead of re-encoding them in-guest.
 #[allow(async_fn_in_trait)] // private test trait, single static-dispatch impl
 trait ProvisionChannel {
     /// Run `cmd` (a `cmd.exe` command line) to completion via the agent's
@@ -379,9 +399,27 @@ trait ProvisionChannel {
 /// process tree and returns exit `-1` past this.
 const EXEC_TIMEOUT_SECS: i64 = 1800;
 
-/// Agent-backed channel over the in-VM agent's HTTP client.
+/// The timeout of one request of the agent client: a little more than [`EXEC_TIMEOUT_SECS`],
+/// so the agent's own ceiling fires first. A long upload needs it too.
+const AGENT_REQUEST_TIMEOUT: Duration = Duration::from_secs(1860);
+
+/// Agent-backed channel over the in-VM agent's HTTP client. The client takes each connection
+/// from the TestAnyware app, as a guest stream by the HUT's id, so the test process dials no
+/// guest.
 struct AgentChannel {
     client: AgentClient,
+}
+
+impl AgentChannel {
+    /// A channel to the agent of the VM `id`, through the app on this host. `timeout` is the
+    /// timeout of one request.
+    fn to_vm(id: &str, timeout: Duration) -> Result<Self, String> {
+        let socket = app_socket_with_env(&EnvProvider::process())
+            .ok_or("this host has no TestAnyware app socket")?;
+        let client =
+            agent_client_with_timeout(socket, StreamTarget::Vm { id: id.to_string() }, timeout);
+        Ok(Self { client })
+    }
 }
 
 impl ProvisionChannel for AgentChannel {
@@ -497,19 +535,6 @@ impl Drop for VmGuard {
             Err(e) => eprintln!("[{}] WARNING: vm stop {} failed to spawn: {e}", self.label, self.id),
         }
     }
-}
-
-/// Read a VM's host-reachable agent endpoint from its per-VM spec. For the
-/// Windows HUT this is `127.0.0.1:<hostfwd-port>` — the dynamic host port QEMU
-/// forwards to the in-guest agent's `:8648` (qemu.rs `hostfwd=tcp::0-:8648`).
-fn agent_endpoint(id: &str) -> Result<(String, u16), String> {
-    let spec_path = VmPaths::from_process_env().spec_path(id);
-    let spec = VmSpec::load(&spec_path)
-        .map_err(|e| format!("load spec {}: {e}", spec_path.display()))?;
-    let a = spec.agent.ok_or_else(|| {
-        format!("spec {} has no agent endpoint (agent unreachable at start?)", spec_path.display())
-    })?;
-    Ok((a.host, a.port))
 }
 
 /// Poll the HUT agent's `/health` until it reports accessible. `vm start`
@@ -742,8 +767,8 @@ fn endpoint_free_cases() -> Vec<BandCase> {
 }
 
 // ---------------------------------------------------------------------------
-// The macOS golden endpoint + the in-process host→golden TCP forward
-// (duplicated from the Linux harness — platform-agnostic machinery)
+// The macOS golden + the in-process host→golden forward, which opens guest
+// streams of the app (as in the Linux harness)
 // ---------------------------------------------------------------------------
 
 /// Platform of the golden whose endpoint the forward targets. macOS is the only
@@ -753,34 +778,14 @@ fn golden_platform() -> String {
     std::env::var("TESTANYWARE_WINDOWS_HARNESS_GOLDEN").unwrap_or_else(|_| "macos".into())
 }
 
-/// The golden's host-reachable endpoints, read from its per-VM spec.
-struct GoldenEndpoints {
-    agent: SocketAddr,
-    vnc: SocketAddr,
-    vnc_password: Option<String>,
-}
-
-/// Read the golden's per-VM spec (written by `vm start`) and resolve its agent +
-/// VNC endpoints to host-reachable [`SocketAddr`]s. The forward splices to these.
-async fn golden_endpoints(id: &str) -> Result<GoldenEndpoints, String> {
+/// Read the VNC password from the golden's per-VM spec (written by `vm start`). It is the only
+/// field of the spec that the harness reads: the app reaches the golden's endpoints itself, and
+/// the Host CLI reads the spec for the password in the same way for `--vm`.
+fn golden_vnc_password(id: &str) -> Result<String, String> {
     let spec_path = VmPaths::from_process_env().spec_path(id);
     let spec = VmSpec::load(&spec_path)
         .map_err(|e| format!("load golden spec {}: {e}", spec_path.display()))?;
-    let agent_spec = spec.agent.ok_or_else(|| {
-        format!("golden spec {} has no agent endpoint (agent unreachable at start?)", spec_path.display())
-    })?;
-    let agent = to_socket_addr(&agent_spec.host, agent_spec.port).await?;
-    let vnc = to_socket_addr(&spec.vnc.host, spec.vnc.port).await?;
-    Ok(GoldenEndpoints { agent, vnc, vnc_password: spec.vnc.password })
-}
-
-/// Resolve `host:port` (an IP for tart goldens) to a single [`SocketAddr`].
-async fn to_socket_addr(host: &str, port: u16) -> Result<SocketAddr, String> {
-    tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|e| format!("resolve {host}:{port}: {e}"))?
-        .next()
-        .ok_or_else(|| format!("no address resolved for {host}:{port}"))
+    Ok(spec.vnc.password.unwrap_or_default())
 }
 
 /// Whether a snapshot shows the Finder menu bar with a `File` item — the
@@ -827,11 +832,24 @@ async fn wait_for_golden_ready(id: &str, timeout: Duration) -> Result<(), String
     }
 }
 
-/// An in-process tokio TCP proxy: binds `0.0.0.0:0` on the host and splices each
-/// inbound connection to `target` (a golden endpoint). Bound on `0.0.0.0` so a
-/// guest reaching it via [`QEMU_HOST_GATEWAY`] (slirp → host loopback) connects.
-/// Dropping it aborts the accept loop, so no listener leaks across tests. This is
-/// the same pure-Rust forward the Linux harness uses, reused unchanged.
+/// Where a forward listens and what each accepted connection becomes.
+struct ForwardPlan {
+    /// The address that the HUT dials. For the QEMU HUT it is the host's loopback.
+    bind: IpAddr,
+    /// The socket of the TestAnyware app.
+    socket: PathBuf,
+    /// The guest that each accepted connection reaches, by id.
+    target: StreamTarget,
+    kind: StreamKind,
+}
+
+/// An in-process tokio listener. It binds `127.0.0.1:0`, which slirp delivers the HUT's
+/// [`QEMU_HOST_GATEWAY`] to. For each accepted connection it opens a guest stream of the
+/// TestAnyware app by the golden's id and splices the two. The test process dials no guest, so
+/// it needs no Local Network access: accepting needs none, and the dial belongs to the app
+/// (TN3179). It has no peer check: during a manual run, another local user can reach it, which
+/// the owner accepted (see the module docs). Dropping it aborts the accept loop, so no
+/// listener leaks across tests. It lives for one harness run.
 struct PortForward {
     local_port: u16,
     shutdown: watch::Sender<bool>,
@@ -840,17 +858,22 @@ struct PortForward {
 }
 
 impl PortForward {
-    async fn spawn(label: &'static str, target: SocketAddr) -> Result<Self, String> {
-        let listener = TcpListener::bind(("0.0.0.0", 0u16))
+    async fn spawn(label: &'static str, plan: ForwardPlan) -> Result<Self, String> {
+        let listener = TcpListener::bind(SocketAddr::new(plan.bind, 0))
             .await
-            .map_err(|e| format!("bind forward [{label}]: {e}"))?;
+            .map_err(|e| format!("bind forward [{label}] on {}: {e}", plan.bind))?;
         let local_port = listener
             .local_addr()
             .map_err(|e| format!("local_addr [{label}]: {e}"))?
             .port();
         let (tx, rx) = watch::channel(false);
-        let accept_task = tokio::spawn(forward_accept_loop(label, listener, target, rx));
-        eprintln!("[forward] {label}: 0.0.0.0:{local_port} -> {target}");
+        eprintln!(
+            "[forward] {label}: {}:{local_port} -> {:?} {} stream of the app",
+            plan.bind,
+            plan.target,
+            plan.kind.as_str(),
+        );
+        let accept_task = tokio::spawn(forward_accept_loop(label, listener, plan, rx));
         Ok(Self { local_port, shutdown: tx, accept_task, label })
     }
 }
@@ -867,17 +890,19 @@ impl Drop for PortForward {
 async fn forward_accept_loop(
     label: &'static str,
     listener: TcpListener,
-    target: SocketAddr,
+    plan: ForwardPlan,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    let plan = Arc::new(plan);
     loop {
         tokio::select! {
             _ = shutdown.changed() => break,
             accepted = listener.accept() => match accepted {
                 Ok((inbound, peer)) => {
                     let sd = shutdown.clone();
+                    let plan = Arc::clone(&plan);
                     tokio::spawn(async move {
-                        if let Err(e) = forward_splice(inbound, target, sd).await {
+                        if let Err(e) = forward_splice(inbound, &plan, sd).await {
                             eprintln!("[forward] {label} conn from {peer}: {e}");
                         }
                     });
@@ -891,22 +916,49 @@ async fn forward_accept_loop(
     }
 }
 
-/// Connect to `target` and `copy_bidirectional` until either side EOFs or
-/// shutdown fires.
+/// Open a guest stream of the app for the plan's target and kind, then `copy_bidirectional`
+/// until either side EOFs or shutdown fires.
 async fn forward_splice(
     mut inbound: TcpStream,
-    target: SocketAddr,
+    plan: &ForwardPlan,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), String> {
-    let mut outbound = TcpStream::connect(target)
+    let mut outbound = open_guest_stream(plan.socket.clone(), &plan.target, plan.kind)
         .await
-        .map_err(|e| format!("connect {target}: {e}"))?;
+        .map_err(|e| {
+            format!(
+                "guest stream {:?} {}: {} ({}){}",
+                plan.target,
+                plan.kind.as_str(),
+                e.message,
+                e.code,
+                e.remediation.map(|r| format!(" {r}")).unwrap_or_default(),
+            )
+        })?;
     tokio::select! {
         r = tokio::io::copy_bidirectional(&mut inbound, &mut outbound) => {
             r.map(|_| ()).map_err(|e| format!("splice: {e}"))
         }
         _ = shutdown.changed() => Ok(()),
     }
+}
+
+/// The plan of a forward to the golden `golden_id`. The QEMU HUT reaches the host on its
+/// loopback, so the forward binds `127.0.0.1` and never every interface.
+fn forward_plan(socket: PathBuf, golden_id: &str, kind: StreamKind) -> ForwardPlan {
+    ForwardPlan {
+        bind: IpAddr::V4(Ipv4Addr::LOCALHOST),
+        socket,
+        target: StreamTarget::Vm { id: golden_id.to_string() },
+        kind,
+    }
+}
+
+/// [`forward_plan`] for the app on this host.
+fn forward_plan_here(golden_id: &str, kind: StreamKind) -> Result<ForwardPlan, String> {
+    let socket = app_socket_with_env(&EnvProvider::process())
+        .ok_or("this host has no TestAnyware app socket")?;
+    Ok(forward_plan(socket, golden_id, kind))
 }
 
 // ---------------------------------------------------------------------------
@@ -990,8 +1042,7 @@ fn endpoint_driven_input_cases(vnc_ep: &str, vnc_password: &str) -> Vec<BandCase
 // --- bespoke file-producing checks (download the artifact back to the host) --
 
 /// Download an in-guest file to a fresh host temp path and return its bytes.
-/// The agent's `/download` makes this far simpler than the Linux harness's
-/// `stat`/`od`-over-ssh dance.
+/// The agent's `/download` returns the bytes in one call.
 async fn fetch_guest_file(ch: &impl ProvisionChannel, remote: &str) -> Result<Vec<u8>, String> {
     let dir = tempfile::tempdir().map_err(|e| format!("tempdir: {e}"))?;
     let local = dir.path().join("artifact.bin");
@@ -1160,15 +1211,8 @@ async fn windows_host_harness() {
     // ---- Bring up the Windows HUT (the agent-golden, via the host CLI) -----
     let hut_id = start_vm("windows").await;
     let _hut_guard = VmGuard { id: hut_id.clone(), label: "hut" };
-    let (agent_host, agent_port) =
-        agent_endpoint(&hut_id).unwrap_or_else(|e| panic!("reading the HUT agent endpoint failed: {e}"));
-    eprintln!("[hut] agent at {agent_host}:{agent_port}");
-    let channel = AgentChannel {
-        client: AgentClient::new(
-            AgentConfig::new(agent_host, agent_port).with_timeout(Duration::from_secs(1860)),
-        )
-        .unwrap_or_else(|e| panic!("building the HUT agent client failed: {e}")),
-    };
+    let channel = AgentChannel::to_vm(&hut_id, AGENT_REQUEST_TIMEOUT)
+        .unwrap_or_else(|e| panic!("building the HUT agent client failed: {e}"));
     wait_for_hut_agent(&channel, Duration::from_secs(180))
         .await
         .unwrap_or_else(|e| panic!("HUT agent readiness wait failed: {e}"));
@@ -1251,23 +1295,25 @@ async fn windows_host_harness() {
     wait_for_golden_ready(&golden_id, Duration::from_secs(300))
         .await
         .unwrap_or_else(|e| panic!("golden readiness wait failed: {e}"));
-    let endpoints = golden_endpoints(&golden_id)
-        .await
-        .unwrap_or_else(|e| panic!("reading the golden endpoints failed: {e}"));
+    let vnc_pw = golden_vnc_password(&golden_id)
+        .unwrap_or_else(|e| panic!("reading the golden VNC password failed: {e}"));
 
     let gateway = QEMU_HOST_GATEWAY;
     eprintln!("[forward] guest reaches the host at the slirp gateway {gateway}");
 
-    let agent_fwd = PortForward::spawn("agent", endpoints.agent)
+    let agent_plan = forward_plan_here(&golden_id, StreamKind::Agent)
+        .unwrap_or_else(|e| panic!("agent forward plan failed: {e}"));
+    let agent_fwd = PortForward::spawn("agent", agent_plan)
         .await
         .unwrap_or_else(|e| panic!("agent forward setup failed: {e}"));
-    let vnc_fwd = PortForward::spawn("vnc", endpoints.vnc)
+    let vnc_plan = forward_plan_here(&golden_id, StreamKind::Vnc)
+        .unwrap_or_else(|e| panic!("vnc forward plan failed: {e}"));
+    let vnc_fwd = PortForward::spawn("vnc", vnc_plan)
         .await
         .unwrap_or_else(|e| panic!("vnc forward setup failed: {e}"));
 
     let agent_ep = format!("{gateway}:{}", agent_fwd.local_port);
     let vnc_ep = format!("{gateway}:{}", vnc_fwd.local_port);
-    let vnc_pw = endpoints.vnc_password.clone().unwrap_or_default();
 
     // Order: agent HTTP, then read-only screen (size/capture/record/find-text),
     // then the mutating input family last (read-before-write).
@@ -1364,15 +1410,8 @@ async fn windows_dist_zip_smoke() {
     // path as the main harness; no macOS golden (endpoint-free only).
     let hut_id = start_vm("windows").await;
     let _hut_guard = VmGuard { id: hut_id.clone(), label: "hut" };
-    let (agent_host, agent_port) =
-        agent_endpoint(&hut_id).unwrap_or_else(|e| panic!("reading the HUT agent endpoint failed: {e}"));
-    eprintln!("[hut] agent at {agent_host}:{agent_port}");
-    let channel = AgentChannel {
-        client: AgentClient::new(
-            AgentConfig::new(agent_host, agent_port).with_timeout(Duration::from_secs(600)),
-        )
-        .unwrap_or_else(|e| panic!("building the HUT agent client failed: {e}")),
-    };
+    let channel = AgentChannel::to_vm(&hut_id, Duration::from_secs(600))
+        .unwrap_or_else(|e| panic!("building the HUT agent client failed: {e}"));
     wait_for_hut_agent(&channel, Duration::from_secs(180))
         .await
         .unwrap_or_else(|e| panic!("HUT agent readiness wait failed: {e}"));
@@ -1450,6 +1489,19 @@ mod helper_tests {
 
     fn out(stdout: &str, stderr: &str, code: i32) -> ExecOutput {
         ExecOutput { stdout: stdout.into(), stderr: stderr.into(), exit_code: code }
+    }
+
+    #[test]
+    fn a_forward_plan_binds_loopback_and_reaches_the_golden_by_id() {
+        for kind in [StreamKind::Agent, StreamKind::Vnc] {
+            let plan = forward_plan(PathBuf::from("/app.sock"), "testanyware-1234", kind);
+            // Loopback only: the QEMU HUT's gateway is delivered there, and no other interface listens.
+            assert_eq!(plan.bind, IpAddr::V4(Ipv4Addr::LOCALHOST));
+            assert!(!plan.bind.is_unspecified());
+            assert_eq!(plan.target, StreamTarget::Vm { id: "testanyware-1234".into() });
+            assert_eq!(plan.kind, kind);
+            assert_eq!(plan.socket, PathBuf::from("/app.sock"));
+        }
     }
 
     #[test]
