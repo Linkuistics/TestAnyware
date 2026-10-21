@@ -28,9 +28,12 @@ inside the bridge's 15 s first-call deadline.
 
 ## Provisioning recipe (Linux aarch64 HUT)
 
-This is what `cli-rs/.../tests/linux-host-harness.rs` does at run time into a
-throwaway VM clone (never baked into an image). `<run>` is the staging dir
-(e.g. `/home/admin/taw`):
+This is what `cli-rs/.../tests/linux-host-harness.rs` does at run time. The
+HUT is the Linux golden `testanyware-golden-linux-24.04`, which the harness
+starts through the TestAnyware app (`vm start --platform linux`). The harness
+runs each step through the In-VM agent of the HUT, as `admin`, who has
+passwordless `sudo`. The venv is never baked into an image. `<run>` is the
+staging dir (e.g. `/home/admin/taw`):
 
 ```sh
 # 1. venv tooling (stock Ubuntu 24.04 ships python3 but not the venv module)
@@ -53,12 +56,9 @@ PYTHONPATH=<run> \
   testanyware screen find-text File --vnc <gw>:<port> --json
 ```
 
-The harness caches the built venv + `~/.EasyOCR` model cache as a host-side
-tarball keyed by arch, re-extracting it to the identical absolute path on
-later runs (the HUT is always user `admin`, home `/home/admin`, so the venv's
-absolute paths stay valid) to skip the torch download. The same recipe and
-module are reused by the deferred Windows harness — only the provisioning
-channel differs (ssh → in-VM agent).
+The harness builds the venv again on each run and keeps no cache of it. The
+Windows harness uses the same recipe and module through the same kind of
+channel, the In-VM agent of its HUT.
 
 `TESTANYWARE_OCR_PYTHON` is the documented interpreter override
 (`docs/reference/env-vars.md`); without it the CLI's `resolve_interpreter()`

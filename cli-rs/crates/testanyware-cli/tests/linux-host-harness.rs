@@ -21,11 +21,29 @@
 //! ## The TestAnyware app
 //!
 //! On a macOS host, each command that reaches a guest goes through the TestAnyware app, as
-//! `docs/specs/testanyware-app.md` says. `vm start`, `vm stop` and the other lifecycle
-//! commands stay direct. So run this test from Terminal with the app running and its Local
-//! Network alert allowed (`task app:bundle-dev`, then `open -n -g` on the bundle it prints).
-//! Without the app, each agent and VNC command fails with `APP_NOT_INSTALLED` or
-//! `APP_UNREACHABLE`. This test needs a guest, and it has not run since the default changed.
+//! `docs/specs/testanyware-app.md` says. The harness reaches its test VM the same way:
+//!
+//! * The host-under-test (HUT) is the Linux golden `testanyware-golden-linux-24.04`. The
+//!   harness starts it with `vm start --platform linux --json`, so the app runs the start.
+//!   `vm stop` ends it.
+//! * The harness provisions the HUT through its In-VM agent ([`AgentChannel`]). The agent
+//!   client takes each connection from the app, as a guest stream by the HUT's id. The harness
+//!   uses no SSH and no tart clone of a stock image.
+//! * The HUT must be a tart guest. A same-named qcow2 makes `vm start` choose QEMU. So after
+//!   the start the harness reads the HUT's `backend` from `vm list --json` ([`check_hut_backend`]).
+//!   When the backend is not `tart`, the harness stops the HUT, opens no forward and fails. The
+//!   message names the qcow2 as the cause.
+//! * The Linux golden is a desktop image, so it holds libraries that a server image lacks. A
+//!   library that only a desktop has could hide a missing dependency of the binary. So before it
+//!   stages anything, the harness reads the libraries that the binary and the bundled libraries
+//!   need ([`unbundled_needs`]). It fails on any library that is neither bundled nor in the C
+//!   runtime ([`C_RUNTIME_SONAMES`]).
+//!
+//! The forward to the macOS golden has not changed. It still dials the golden from the test
+//! process. So run this test from Terminal with the app running and its Local Network alert
+//! allowed (`task app:bundle-dev`, then `open -n -g` on the bundle it prints). Without the app,
+//! each agent command fails with `APP_NOT_INSTALLED` or `APP_UNREACHABLE`. From a session that
+//! has no Local Network access, the run stops at the forward, after the HUT bands.
 //!
 //! ## How to run
 //!
@@ -37,9 +55,9 @@
 //! cargo zigbuild -p testanyware-cli --bin testanyware \
 //!   --target aarch64-unknown-linux-gnu --release
 //!
-//! # 2. run the harness. It clones a stock Ubuntu ARM64 HUT, brings up a macOS
-//! #    golden (`testanyware vm start --platform macos`), forwards the golden's
-//! #    agent + VNC through the host, and runs both bands:
+//! # 2. run the harness. It starts the Linux golden as the HUT (`testanyware vm
+//! #    start --platform linux`), brings up a macOS golden (`--platform macos`),
+//! #    forwards the golden's agent + VNC through the host, and runs both bands:
 //! TESTANYWARE_LINUX_HARNESS=1 cargo test -p testanyware-cli \
 //!   --test linux-host-harness -- --ignored linux_host_harness
 //! ```
@@ -113,16 +131,17 @@
 //! ## Reuse seam (for the deferred Windows harness)
 //!
 //! Built once here, swapped there: the **provisioning channel**
-//! ([`ProvisionChannel`]) — Linux uses ssh ([`SshChannel`]); the Windows leaf
-//! adds an agent (`file upload`/`exec`) impl, since Windows ships no sshd.
+//! ([`ProvisionChannel`]). `linux_host_harness` uses the agent channel
+//! ([`AgentChannel`]), as the Windows harness does. [`SshChannel`] stays for
+//! `linux_dist_install_layout`, until that test moves to the same HUT.
 //! Shared unchanged: the band driver ([`run_band`]) and the band classifier.
 
 #![cfg(target_os = "macos")]
-// The harness clones a stock OCI image via `testanyware_vm::tart` directly
-// (`vm start` only starts goldens), and `tart` is macOS-host only. So the whole
-// file — including the offline unit tests — compiles and runs only on the macOS
-// host, which is also the only place a "plain cargo test" ever runs (no Linux
-// CI; local release on an arm64 Mac).
+// `linux_dist_install_layout` still clones a stock OCI image via
+// `testanyware_vm::tart` directly, and `tart` is macOS-host only. The forward and
+// the golden also need a macOS host. So the whole file — including the offline unit
+// tests — compiles and runs only on the macOS host, which is also the only place a
+// "plain cargo test" ever runs (no Linux CI; local release on an arm64 Mac).
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -132,6 +151,11 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
+use testanyware_agent_client::AgentClient;
+use testanyware_app_protocol::StreamTarget;
+use testanyware_cli::app_route::agent_client_with_timeout;
+use testanyware_cli::resolve::{app_socket_with_env, EnvProvider};
+use testanyware_protocol::ExecRequest;
 use testanyware_vm::{tart, ExecOutput, SshSession, VmPaths, VmSpec};
 
 // ---------------------------------------------------------------------------
@@ -179,8 +203,19 @@ const REQUIRED_SONAMES: &[&str] = &[
     "libswresample.so.6",
 ];
 
-/// Absolute in-guest dir the binary + `.so`s are provisioned into. The Cirrus
-/// Ubuntu image's first user is `admin` with home `/home/admin`.
+/// The libraries of the C runtime. A shipped binary may need these without bundling them.
+/// [`unbundled_needs`] accepts them.
+const C_RUNTIME_SONAMES: &[&str] = &[
+    "libc.so.6",
+    "libm.so.6",
+    "libpthread.so.0",
+    "libdl.so.2",
+    "libgcc_s.so.1",
+    "ld-linux-aarch64.so.1",
+];
+
+/// Absolute in-guest dir the binary + `.so`s are provisioned into. The Linux
+/// golden's agent runs as `admin` with home `/home/admin`.
 const RUN_DIR: &str = "/home/admin/taw";
 
 // ---------------------------------------------------------------------------
@@ -256,7 +291,13 @@ fn parse_json(out: &ExecOutput) -> Result<Value, String> {
 /// Returns the parsed body for further field checks.
 fn expect_ok_envelope(out: &ExecOutput) -> Result<Value, String> {
     if out.exit_code != 0 {
-        return Err(format!("exit {} (want 0); stderr: {}", out.exit_code, out.stderr.trim()));
+        // With `--json` the CLI prints its error object on stdout and leaves stderr empty.
+        return Err(format!(
+            "exit {} (want 0); stderr: {}; stdout: {}",
+            out.exit_code,
+            out.stderr.trim(),
+            tail(&out.stdout),
+        ));
     }
     let body = parse_json(out)?;
     if body.get("ok").and_then(Value::as_bool) != Some(true) {
@@ -277,13 +318,92 @@ fn looks_like_missing_shared_object(stderr: &str) -> bool {
         || (s.contains(".so") && s.contains("no such file"))
 }
 
+/// The libraries that an ELF file needs at load time, read from `objdump -p` output: the
+/// second token of each `NEEDED` line.
+fn parse_needed(objdump_output: &str) -> Vec<String> {
+    objdump_output
+        .lines()
+        .filter_map(|line| {
+            let mut tokens = line.split_whitespace();
+            if tokens.next() == Some("NEEDED") {
+                tokens.next().map(str::to_string)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Check what each staged file needs at load time. A file passes when every library it needs
+/// is bundled with it or is in the C runtime. The Linux golden is a desktop image, so a run
+/// cannot show that a server image has a library that is neither. The check also fails when a
+/// file lists no needs. A shared library or a dynamic binary always needs the C runtime, so an
+/// empty list means that the tool did not read an ELF file, and every file would pass.
+fn check_library_needs(files: &[(String, Vec<String>)], bundled: &[&str]) -> Result<(), String> {
+    let mut problems = Vec::new();
+    for (file, needs) in files {
+        if needs.is_empty() {
+            problems.push(format!("{file}: objdump listed no needed libraries"));
+        }
+        for lib in needs {
+            let known = bundled.contains(&lib.as_str()) || C_RUNTIME_SONAMES.contains(&lib.as_str());
+            if !known {
+                problems.push(format!("{file} needs {lib}"));
+            }
+        }
+    }
+    if problems.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "the library check of the staged files failed. Each file may need only the bundled \
+         libraries and the C runtime ({}), because a desktop HUT would hide any other:\n  - {}",
+        C_RUNTIME_SONAMES.join(", "),
+        problems.join("\n  - "),
+    ))
+}
+
+/// Read the needs of the binary and of every bundled library with the host's `objdump -p`,
+/// then check them. It runs before the HUT starts, so a bad bundle costs no boot.
+fn check_staged_libraries() -> Result<(), String> {
+    let mut paths = vec![linux_bin_path()];
+    paths.extend(REQUIRED_SONAMES.iter().map(|soname| ffmpeg_lib_dir().join(soname)));
+    let mut files = Vec::new();
+    for path in paths {
+        if !path.exists() {
+            return Err(format!(
+                "{} not found — cross-build the binary and stage the ffmpeg bundle first \
+                 (see the module docs)",
+                path.display(),
+            ));
+        }
+        let out = Command::new("objdump")
+            .arg("-p")
+            .arg(&path)
+            .output()
+            .map_err(|e| format!("run `objdump -p {}`: {e}", path.display()))?;
+        if !out.status.success() {
+            return Err(format!(
+                "`objdump -p {}` exited {:?}: {}",
+                path.display(),
+                out.status.code(),
+                String::from_utf8_lossy(&out.stderr).trim(),
+            ));
+        }
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        files.push((name, parse_needed(&String::from_utf8_lossy(&out.stdout))));
+    }
+    check_library_needs(&files, REQUIRED_SONAMES)
+}
+
 // ---------------------------------------------------------------------------
 // Provisioning channel seam (the node's reuse seam — Windows adds a 2nd impl)
 // ---------------------------------------------------------------------------
 
-/// The in-guest control channel. Linux uses ssh ([`SshChannel`]); the deferred
-/// Windows harness adds an agent-backed impl (`file upload` + `exec`) without
-/// touching [`run_band`]. Kept minimal: exec a command, upload a file.
+/// The in-guest control channel. `linux_host_harness` uses the In-VM agent
+/// ([`AgentChannel`], as the Windows harness does). `linux_dist_install_layout`
+/// still uses ssh ([`SshChannel`]) until it moves to the same HUT. Kept minimal:
+/// exec a command, upload a file.
 #[allow(async_fn_in_trait)] // private test trait, single static-dispatch impl
 trait ProvisionChannel {
     /// Run `cmd` to completion, returning its captured streams + exit code.
@@ -309,6 +429,59 @@ impl ProvisionChannel for SshChannel {
     }
 }
 
+/// In-guest process timeout ceiling (seconds) for one `/exec`. Generous so the slow
+/// provisioning steps (`pip install` of torch, the EasyOCR model warm) complete. The agent
+/// kills the process tree and returns exit `-1` past this.
+const EXEC_TIMEOUT_SECS: i64 = 1800;
+
+/// The timeout of one request of the agent client: a little more than [`EXEC_TIMEOUT_SECS`],
+/// so the agent's own ceiling fires first. A long upload needs it too.
+const AGENT_REQUEST_TIMEOUT: Duration = Duration::from_secs(1860);
+
+/// Agent-backed channel. The client takes each connection from the TestAnyware app, as a guest
+/// stream by the HUT's id, so the test process dials no guest.
+struct AgentChannel {
+    client: AgentClient,
+}
+
+impl AgentChannel {
+    /// A channel to the agent of the VM `id`, through the app on this host.
+    fn to_vm(id: &str) -> Result<Self, String> {
+        let socket = app_socket_with_env(&EnvProvider::process())
+            .ok_or("this host has no TestAnyware app socket")?;
+        let client = agent_client_with_timeout(
+            socket,
+            StreamTarget::Vm { id: id.to_string() },
+            AGENT_REQUEST_TIMEOUT,
+        );
+        Ok(Self { client })
+    }
+}
+
+impl ProvisionChannel for AgentChannel {
+    async fn exec(&self, cmd: &str) -> Result<ExecOutput, String> {
+        let request = ExecRequest {
+            command: cmd.to_string(),
+            timeout: EXEC_TIMEOUT_SECS,
+            detach: false,
+        };
+        let result = self
+            .client
+            .exec(&request)
+            .await
+            .map_err(|e| format!("agent exec `{cmd}`: {e}"))?;
+        Ok(ExecOutput { stdout: result.stdout, stderr: result.stderr, exit_code: result.exit_code })
+    }
+
+    async fn upload(&self, local: &Path, remote: &str) -> Result<(), String> {
+        self.client
+            .upload(remote, local)
+            .await
+            .map(|_| ())
+            .map_err(|e| format!("agent upload {} -> {remote}: {e}", local.display()))
+    }
+}
+
 /// Run a channel command and require exit 0 — for provisioning steps (`mkdir`,
 /// `chmod`) whose failure should abort, unlike a band case's soft assertion.
 async fn exec_ok(ch: &impl ProvisionChannel, cmd: &str) -> Result<(), String> {
@@ -324,8 +497,12 @@ async fn exec_ok(ch: &impl ProvisionChannel, cmd: &str) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// HUT lifecycle — a throwaway stock Ubuntu ARM64 clone with a teardown guard
+// The tart clone of a stock Ubuntu image — kept for `linux_dist_install_layout`
 // ---------------------------------------------------------------------------
+//
+// `linux_host_harness` no longer uses this clone, `provision_ssh` or `SshChannel`. Its HUT is
+// the Linux golden, started through the app. `linux_dist_install_layout` still needs them, so
+// they stay until `dist-layout-golden-hut` moves that test to the same HUT.
 
 /// The stock base image cloned for each HUT (already pulled locally).
 const HUT_BASE: &str = "ghcr.io/cirruslabs/ubuntu:24.04";
@@ -375,7 +552,8 @@ impl Drop for Hut {
 }
 
 // ---------------------------------------------------------------------------
-// Provisioning: ssh in, install pubkey, key-auth, stage the binary + ffmpeg
+// Provisioning: ssh in and install a pubkey (`linux_dist_install_layout` only), then
+// stage the binary + ffmpeg over any channel
 // ---------------------------------------------------------------------------
 
 /// Provision the HUT over ssh and return a key-authed [`SshChannel`] plus the
@@ -783,32 +961,33 @@ struct GoldenEndpoints {
     vnc_password: Option<String>,
 }
 
-/// Stops the golden via `vm stop <id>` on drop, so a panicking endpoint-driven
-/// check never leaks a running golden (the `010` `Hut` guard's macOS-side twin).
-struct GoldenGuard {
+/// Stops a VM via `vm stop <id>` on drop, so a panicking check never leaks a running VM. It
+/// guards the HUT and the macOS golden alike. The `label` names the VM in the log.
+struct VmGuard {
     id: String,
+    label: &'static str,
 }
 
-impl Drop for GoldenGuard {
+impl Drop for VmGuard {
     fn drop(&mut self) {
         match Command::new(HOST_BIN).args(["vm", "stop", &self.id, "--json"]).output() {
-            Ok(o) if o.status.success() => eprintln!("[golden] stopped {}", self.id),
+            Ok(o) if o.status.success() => eprintln!("[{}] stopped {}", self.label, self.id),
             Ok(o) => eprintln!(
-                "[golden] WARNING: vm stop {} exited {:?}: {}",
+                "[{}] WARNING: vm stop {} exited {:?}: {}",
+                self.label,
                 self.id,
                 o.status.code(),
                 String::from_utf8_lossy(&o.stderr),
             ),
-            Err(e) => eprintln!("[golden] WARNING: vm stop {} failed to spawn: {e}", self.id),
+            Err(e) => eprintln!("[{}] WARNING: vm stop {} failed to spawn: {e}", self.label, self.id),
         }
     }
 }
 
-/// Start the golden via `vm start --platform <p> --json` and return its id. The
-/// caller wraps the id in a [`GoldenGuard`] *before* any further fallible step.
-async fn start_golden_vm() -> String {
-    let platform = golden_platform();
-    let out = host_run(&["vm", "start", "--platform", &platform, "--json"]).await;
+/// Start a VM via `vm start --platform <p> --json` and return its id. The caller wraps the id
+/// in a [`VmGuard`] *before* any further fallible step.
+async fn start_vm(platform: &str, label: &str) -> String {
+    let out = host_run(&["vm", "start", "--platform", platform, "--json"]).await;
     assert!(
         out.status.success(),
         "`vm start --platform {platform}` exited {:?}\nstdout: {}\nstderr: {}",
@@ -824,8 +1003,62 @@ async fn start_golden_vm() -> String {
         .and_then(Value::as_str)
         .expect("vm start --json must return an id")
         .to_string();
-    eprintln!("[golden] started {id}");
+    eprintln!("[{label}] started {id}");
     id
+}
+
+/// Start the macOS golden whose endpoints the forward reaches.
+async fn start_golden_vm() -> String {
+    start_vm(&golden_platform(), "golden").await
+}
+
+/// The platform of the HUT. The HUT is the Linux golden.
+const HUT_PLATFORM: &str = "linux";
+
+/// The tart golden that `vm start --platform linux` starts.
+const HUT_GOLDEN: &str = "testanyware-golden-linux-24.04";
+
+/// Check the `backend` of the HUT in the parsed output of `vm list --json`. The HUT is a tart
+/// guest. A qcow2 of the golden's name in the golden directory makes `vm start` choose QEMU, and
+/// the harness does not change that choice. So a backend other than `tart` fails the run, and the
+/// message names the qcow2 as the cause.
+fn check_hut_backend(list: &Value, id: &str) -> Result<(), String> {
+    let row = list
+        .get("items")
+        .and_then(Value::as_array)
+        .and_then(|items| {
+            items.iter().find(|item| {
+                item.get("kind").and_then(Value::as_str) == Some("running")
+                    && item.get("name").and_then(Value::as_str) == Some(id)
+            })
+        })
+        .ok_or_else(|| format!("`vm list` shows no running VM {id}; got: {list}"))?;
+    match row.get("backend").and_then(Value::as_str) {
+        Some("tart") => Ok(()),
+        Some(other) => Err(format!(
+            "the HUT {id} runs on the {other} backend, and it must run on tart. A qcow2 named \
+             {HUT_GOLDEN}.qcow2 in the golden directory ({}) makes `vm start --platform linux` \
+             choose QEMU over the tart golden. Move that file away, then run again.",
+            VmPaths::from_process_env().golden_dir().display(),
+        )),
+        None => Err(format!("the `vm list` row of {id} has no `backend`; got: {row}")),
+    }
+}
+
+/// Read the HUT's `backend` from `vm list --json` and check it.
+async fn hut_backend_is_tart(id: &str) -> Result<(), String> {
+    let filter = format!("kind=running,name={id}");
+    let out = host_run(&["vm", "list", "--all", "--filter", &filter, "--json"]).await;
+    if !out.status.success() {
+        return Err(format!(
+            "`vm list` exited {:?}: {}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr).trim(),
+        ));
+    }
+    let list: Value = serde_json::from_slice(&out.stdout)
+        .map_err(|e| format!("`vm list` stdout not JSON ({e})"))?;
+    check_hut_backend(&list, id)
 }
 
 /// Read the golden's per-VM spec (written by `vm start`) and resolve its agent +
@@ -1126,8 +1359,8 @@ fn tail(s: &str) -> String {
 /// mean a `download` op the Windows agent impl must also carry — deferred.
 async fn provision_ocr(ch: &impl ProvisionChannel) -> Result<String, String> {
     // 1. venv tooling. Stock Ubuntu 24.04 ships python3 but not the venv module.
-    //    `sudo -n` fails fast if the image lacks passwordless sudo (Cirrus cloud
-    //    images grant it) instead of hanging on a password prompt.
+    //    `sudo -n` fails fast if the image lacks passwordless sudo (the Linux
+    //    golden's `admin` has it) instead of hanging on a password prompt.
     eprintln!("[ocr] apt: installing python3-venv …");
     exec_ok(ch, "sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq").await?;
     exec_ok(
@@ -1136,12 +1369,14 @@ async fn provision_ocr(ch: &impl ProvisionChannel) -> Result<String, String> {
     )
     .await?;
 
-    // 2. build the venv + install easyocr (the slow step — torch download).
+    // 2. build the venv + install easyocr (the slow step — torch download). `--no-cache-dir`
+    //    because the Linux golden's clone has 17 GB for `/`, with 8.8 GB free. Pip's cache of
+    //    the torch wheels (3 GB) beside the installed venv fills it ("No space left on device").
     eprintln!("[ocr] creating venv + pip install easyocr (pulls torch; minutes) …");
     exec_ok(ch, &format!("python3 -m venv {OCR_VENV_DIR}")).await?;
     exec_ok(ch, &format!("{OCR_VENV_PYTHON} -m pip install --quiet --upgrade pip")).await?;
     let pip = ch
-        .exec(&format!("{OCR_VENV_PYTHON} -m pip install --quiet easyocr"))
+        .exec(&format!("{OCR_VENV_PYTHON} -m pip install --quiet --no-cache-dir easyocr"))
         .await?;
     if pip.exit_code != 0 {
         return Err(format!(
@@ -1256,20 +1491,29 @@ async fn check_find_text(
 async fn linux_host_harness() {
     if !gate_enabled() {
         eprintln!(
-            "linux_host_harness: skipped — set TESTANYWARE_LINUX_HARNESS=1 to clone a \
-             stock Ubuntu ARM64 HUT and verify the aarch64 cross binary."
+            "linux_host_harness: skipped — set TESTANYWARE_LINUX_HARNESS=1 to start the Linux \
+             golden as the HUT and verify the aarch64 cross binary."
         );
         return;
     }
 
-    // tart drives the HUT lifecycle; run_detached/poll_ip block, which is fine
-    // for a serial test on a multi-thread runtime.
-    let hut = Hut::launch().unwrap_or_else(|e| panic!("HUT launch failed: {e}"));
-    let _guard = &hut; // dropped at scope end → stop + delete
+    // The libraries of the staged files, read before the HUT starts: a bad bundle costs no boot.
+    check_staged_libraries().unwrap_or_else(|e| panic!("library check failed: {e}"));
+    eprintln!("[libs] the binary and the bundled libraries need only bundled libraries and the C runtime");
 
-    let (channel, _keydir) = provision_ssh(&hut.ip)
+    // The HUT is the Linux golden, started through the app. The guard stops it on any exit,
+    // so a failed backend check or a panicking band never leaks the VM.
+    let hut_id = start_vm(HUT_PLATFORM, "hut").await;
+    let _hut_guard = VmGuard { id: hut_id.clone(), label: "hut" };
+    hut_backend_is_tart(&hut_id)
         .await
-        .unwrap_or_else(|e| panic!("provisioning failed: {e}"));
+        .unwrap_or_else(|e| panic!("HUT backend check failed: {e}"));
+    eprintln!("[hut] {hut_id} runs on tart");
+
+    // The agent client takes its connections from the app, by the HUT's id. `vm start` has
+    // already waited for the agent's health.
+    let channel = AgentChannel::to_vm(&hut_id)
+        .unwrap_or_else(|e| panic!("building the HUT agent channel failed: {e}"));
     stage_binary(&channel)
         .await
         .unwrap_or_else(|e| panic!("staging the cross binary failed: {e}"));
@@ -1351,7 +1595,7 @@ async fn linux_host_harness() {
     // failures are collected so one red case never masks the rest.
     eprintln!("\nlinux_host_harness: bringing up the {} golden + forward…", golden_platform());
     let golden_id = start_golden_vm().await;
-    let _golden_guard = GoldenGuard { id: golden_id.clone() };
+    let _golden_guard = VmGuard { id: golden_id.clone(), label: "golden" };
 
     wait_for_golden_ready(&golden_id, Duration::from_secs(120))
         .await
@@ -1506,7 +1750,7 @@ async fn stage_dist_binary(ch: &impl ProvisionChannel) -> Result<(), String> {
 /// easyocr (resolving torch et al.), then `pip install --no-deps` the uploaded
 /// `ocr_analyzer` project so `python -m ocr_analyzer` resolves from the venv's
 /// own site-packages with no `PYTHONPATH`. Pre-warms the EasyOCR models so the
-/// daemon's first recognize lands inside the bridge's 15s deadline.
+/// daemon's first recognize lands inside the bridge's 15s first-call deadline.
 async fn provision_dist_venv(ch: &impl ProvisionChannel) -> Result<(), String> {
     let venv = format!("{DIST_PREFIX}/libexec/venv");
     let py = format!("{venv}/bin/python");
@@ -1657,7 +1901,7 @@ async fn linux_dist_install_layout() {
         golden_platform()
     );
     let golden_id = start_golden_vm().await;
-    let _golden_guard = GoldenGuard { id: golden_id.clone() };
+    let _golden_guard = VmGuard { id: golden_id.clone(), label: "golden" };
     wait_for_golden_ready(&golden_id, Duration::from_secs(120))
         .await
         .unwrap_or_else(|e| panic!("golden readiness wait failed: {e}"));
@@ -1744,6 +1988,8 @@ mod helper_tests {
     #[test]
     fn expect_ok_envelope_rejects_nonzero_exit_and_bad_shape() {
         assert!(expect_ok_envelope(&out("{}", "boom", 1)).is_err(), "nonzero exit");
+        let error = expect_ok_envelope(&out(r#"{"error":{"code":"OCR_TIMEOUT"}}"#, "", 7)).unwrap_err();
+        assert!(error.contains("OCR_TIMEOUT"), "the error object on stdout is kept: {error}");
         assert!(expect_ok_envelope(&out(r#"{"ok":false,"schema_version":"1"}"#, "", 0)).is_err(), "ok:false");
         assert!(expect_ok_envelope(&out(r#"{"ok":true}"#, "", 0)).is_err(), "no schema_version");
         assert!(expect_ok_envelope(&out("not json", "", 0)).is_err(), "non-JSON");
@@ -1905,6 +2151,113 @@ mod helper_tests {
             "detections": [{ "text": "Profile", "x": 0, "y": 0, "width": 50, "height": 16, "confidence": 1 }]
         });
         assert!(find_text_hit(&substr).is_ok(), "case-insensitive substring match");
+    }
+
+    const OBJDUMP_OUTPUT: &str = "\
+/x/testanyware:\tfile format elf64-littleaarch64\n\
+\n\
+Dynamic Section:\n\
+  NEEDED       libavutil.so.60\n\
+  NEEDED       libm.so.6\n\
+  NEEDED       libc.so.6\n\
+  SONAME       libtestanyware.so\n\
+  RUNPATH      $ORIGIN/../lib\n";
+
+    fn needs(file: &str, libs: &[&str]) -> (String, Vec<String>) {
+        (file.to_string(), libs.iter().map(|l| l.to_string()).collect())
+    }
+
+    #[test]
+    fn parses_the_needed_lines_of_objdump() {
+        assert_eq!(
+            parse_needed(OBJDUMP_OUTPUT),
+            ["libavutil.so.60", "libm.so.6", "libc.so.6"],
+            "SONAME and RUNPATH are not needs"
+        );
+        assert!(parse_needed("").is_empty());
+        assert!(parse_needed("a: file format Mach-O 64-bit arm64\n").is_empty());
+    }
+
+    #[test]
+    fn the_c_runtime_is_the_agreed_list() {
+        assert_eq!(
+            C_RUNTIME_SONAMES,
+            [
+                "libc.so.6",
+                "libm.so.6",
+                "libpthread.so.0",
+                "libdl.so.2",
+                "libgcc_s.so.1",
+                "ld-linux-aarch64.so.1",
+            ]
+        );
+    }
+
+    #[test]
+    fn bundled_libraries_and_the_c_runtime_pass_the_library_check() {
+        let files = [
+            needs("testanyware", &["libavutil.so.60", "libm.so.6", "libc.so.6"]),
+            needs("libavutil.so.60", &["libc.so.6", "ld-linux-aarch64.so.1", "libgcc_s.so.1"]),
+        ];
+        assert_eq!(check_library_needs(&files, &["libavutil.so.60"]), Ok(()));
+    }
+
+    #[test]
+    fn a_library_that_is_neither_bundled_nor_in_the_c_runtime_fails_the_library_check() {
+        // `libz.so.1` is on every desktop image and on no promise of a server image.
+        let files = [
+            needs("testanyware", &["libavutil.so.60", "libc.so.6"]),
+            needs("libavutil.so.60", &["libz.so.1", "libc.so.6"]),
+        ];
+        let error = check_library_needs(&files, &["libavutil.so.60"]).unwrap_err();
+        assert!(error.contains("libavutil.so.60 needs libz.so.1"), "{error}");
+        assert!(!error.contains("testanyware needs"), "only the failing file is named: {error}");
+        // The C++ runtime is not in the C runtime of this list.
+        let cxx = [needs("testanyware", &["libstdc++.so.6"])];
+        assert!(check_library_needs(&cxx, &[]).is_err());
+    }
+
+    #[test]
+    fn a_file_with_no_listed_needs_fails_the_library_check() {
+        let files = [needs("testanyware", &[])];
+        let error = check_library_needs(&files, &[]).unwrap_err();
+        assert!(error.contains("listed no needed libraries"), "{error}");
+    }
+
+    fn list_with(backend: &str) -> Value {
+        serde_json::json!({
+            "ok": true,
+            "items": [
+                { "kind": "golden", "name": "testanyware-golden-linux-24.04", "backend": "tart" },
+                { "kind": "running", "name": "testanyware-aaaa0001", "backend": "qemu" },
+                { "kind": "running", "name": "testanyware-bbbb0002", "backend": backend },
+            ]
+        })
+    }
+
+    #[test]
+    fn a_hut_on_tart_passes_the_backend_check() {
+        assert_eq!(check_hut_backend(&list_with("tart"), "testanyware-bbbb0002"), Ok(()));
+    }
+
+    #[test]
+    fn a_hut_on_qemu_fails_the_backend_check_and_names_the_qcow2() {
+        let error = check_hut_backend(&list_with("qemu"), "testanyware-bbbb0002").unwrap_err();
+        assert!(error.contains("qemu backend"), "{error}");
+        assert!(error.contains("testanyware-golden-linux-24.04.qcow2"), "{error}");
+    }
+
+    #[test]
+    fn the_backend_check_reads_the_row_of_the_hut_only() {
+        // Another running VM is on QEMU, and the HUT is on tart: the HUT passes.
+        assert_eq!(check_hut_backend(&list_with("tart"), "testanyware-bbbb0002"), Ok(()));
+        // A golden of the same name is not a running VM.
+        assert!(check_hut_backend(&list_with("tart"), "testanyware-golden-linux-24.04").is_err());
+        assert!(check_hut_backend(&list_with("tart"), "testanyware-0000dead").is_err());
+        let no_backend = serde_json::json!({
+            "items": [{ "kind": "running", "name": "testanyware-bbbb0002" }]
+        });
+        assert!(check_hut_backend(&no_backend, "testanyware-bbbb0002").is_err());
     }
 
     #[test]

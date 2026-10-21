@@ -20,9 +20,10 @@ The Linux host harness reaches every guest through the app. It dials no guest fr
 Each leaf leaves the harness green when a person runs it from Terminal, as it is today. Each demonstrates one new fact on its own.
 
 1. `harness-golden-hut`: the HUT is the Linux golden, and the agent channel provisions it. This is the first step off the stock image and off SSH.
-2. `harness-ocr-library-check`: the harness checks the native libraries of the OCR venv after it provisions them. It is small, and it stands apart from the forward.
-3. `harness-golden-forward`: the forward opens guest streams. After this leaf, `linux_host_harness` passes from an agent session. This is the demonstration of the increment, and it is what `non-macos-runtime-check-k40` needs. `task release:linux-harness` runs only this test.
-4. `dist-layout-golden-hut`: `linux_dist_install_layout` moves to the same HUT, channel and forward. The unblock does not wait for it.
+2. `harness-ocr-recognizer`: the OCR band finds `File` on the golden. The leaf pins the Python packages, because the newest ones crash or misread on this Mac's Linux guest. `harness-golden-hut` found the fault. It was cut ahead of the next leaves because they need a passing OCR band.
+3. `harness-ocr-library-check`: the harness checks the native libraries of the OCR venv after it provisions them. It is small, and it stands apart from the forward.
+4. `harness-golden-forward`: the forward opens guest streams. After this leaf, `linux_host_harness` passes from an agent session. This is the demonstration of the increment, and it is what `non-macos-runtime-check-k40` needs. `task release:linux-harness` runs only this test.
+5. `dist-layout-golden-hut`: `linux_dist_install_layout` moves to the same HUT, channel and forward. The unblock does not wait for it.
 
 The split follows the harness, not the code. The new `app_route` functions have no caller until leaf 1 uses them, so they stay in leaf 1.
 

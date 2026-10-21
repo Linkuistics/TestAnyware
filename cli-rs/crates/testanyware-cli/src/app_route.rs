@@ -10,6 +10,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Duration;
 
 use testanyware_agent_client::{
     AgentClient, AgentConfig, AgentConnector, BoxedStream, ConnectFuture, ConnectorFailure,
@@ -232,8 +233,37 @@ fn write_notice_once(written: &AtomicBool, line: &str, out: &mut impl Write) {
     }
 }
 
+/// Open one guest stream of `kind` to `target` through the app on `socket`. The host harnesses
+/// use it, so a test process dials no guest and builds no request itself. A failure to reach
+/// the app on the default socket says whether the app is installed, as for the other requests.
+pub async fn open_guest_stream(
+    socket: PathBuf,
+    target: &StreamTarget,
+    kind: StreamKind,
+) -> Result<AppStream, AppError> {
+    open_stream(&app_client(socket), target, kind).await
+}
+
 /// An agent client whose every connection is a guest stream of the app on `socket`.
 pub fn agent_client(socket: PathBuf, target: StreamTarget) -> AgentClient {
+    agent_client_with_config(socket, target, |config| config)
+}
+
+/// [`agent_client`] with the timeout of each request set by the caller. A long upload or a
+/// long `exec` call needs more than the default of the agent client.
+pub fn agent_client_with_timeout(
+    socket: PathBuf,
+    target: StreamTarget,
+    timeout: Duration,
+) -> AgentClient {
+    agent_client_with_config(socket, target, |config| config.with_timeout(timeout))
+}
+
+fn agent_client_with_config(
+    socket: PathBuf,
+    target: StreamTarget,
+    configure: impl FnOnce(AgentConfig) -> AgentConfig,
+) -> AgentClient {
     // The config only names the agent in the `Host` header and in messages. A VM is named by
     // its id, because the Host CLI does not read its spec on this route.
     let (host, port) = match &target {
@@ -244,7 +274,7 @@ pub fn agent_client(socket: PathBuf, target: StreamTarget) -> AgentClient {
         client: app_client(socket),
         target,
     };
-    AgentClient::with_connector(AgentConfig::new(host, port), Arc::new(connector))
+    AgentClient::with_connector(configure(AgentConfig::new(host, port)), Arc::new(connector))
 }
 
 /// Gets each agent connection from the app.
