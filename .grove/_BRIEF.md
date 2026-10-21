@@ -61,6 +61,7 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
      checks and one publication. The checks are the Linux and Windows runtime
      check, the upgrade check and the acceptance run on the candidate. The
      publication ships that same candidate.
+4. `app-all-guest-traffic` (design, then planning): on a macOS host, the harness traffic goes through the app too. Only golden creation stays direct. Planning cut two increments before `app-release`: `harness-guest-streams`, which unblocks the Linux runtime check, and `remaining-direct-dials`. It cut `candidate-rebuild` inside `app-release`.
 
 ## Pointers
 

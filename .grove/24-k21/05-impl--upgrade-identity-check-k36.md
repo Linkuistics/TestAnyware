@@ -13,7 +13,7 @@ Prove on this Mac that a cask upgrade keeps the identity of the app, with the re
 
 ## Done when
 
-- The upgrade runs from release N to release N+1. N+1 is the release candidate that `app-release-bundle-k22` made. N is a throwaway candidate with its own local tag and a lower version. The leaf does not rebuild N+1.
+- The upgrade runs from release N to release N+1. N+1 is the release candidate that `candidate-rebuild-k53` made. N is a throwaway candidate with its own local tag and a lower version. The leaf does not rebuild N+1.
 - A Taskfile live check installs N and then N+1 of the cask from a local tap with the local artifacts. Nothing is published.
 - After the upgrade, no "downloaded from the Internet" dialog appears, and System Settings shows one TestAnyware row.
 - The first command to a tart guest succeeds within the retry, or it fails with `local_network_denied` and a remedy that names TestAnyware. After a person allows the app again, the command succeeds.

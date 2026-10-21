@@ -2,13 +2,14 @@
 
 ## Goal
 
-Run the Linux runtime harness on the release candidate. The agent client and the configuration changed on every host, so this check proves that the direct path still works. The release ships no Windows host binary, so no Windows harness runs here.
+Run the Linux runtime harness on the release candidate that `candidate-rebuild-k53` builds. The agent client and the configuration changed on every host, so this check proves that the direct path still works. The release ships no Windows host binary, so no Windows harness runs here.
 
 ## Context
 
 - The root brief: Linux and Windows hosts keep the direct path of today. The owner has since decided to stop shipping the Windows host binary. The leaf `release-without-windows-host` makes that change.
 - ADR-0009, Decision and Consequences. Never ship a binary that the harness has not run green. The aarch64 Linux build gets the full runtime check. The x86_64 Linux build is build-only, by an accepted limit.
-- `app-release-bundle-k22`, which builds the candidate and its manifest.
+- `candidate-rebuild-k53`, which builds the candidate and its manifest that this leaf runs on. It keeps the tag `v2.4.0` and moves it to a new commit. The commit `8a7ad3f3` and the hashes in the decision log below belong to the void candidate.
+- `app-release-bundle-k22`, which made the pipeline and the first candidate.
 - `agent-client-hyper-k7` and `config-evaluator-cli-k18`, which changed the code that this leaf proves.
 - The harness `cli-rs/crates/testanyware-cli/tests/linux-host-harness.rs`. It is an ignored test, so `task cli:test` does not run it.
 
@@ -41,3 +42,4 @@ Run the Linux runtime harness on the release candidate. The agent client and the
 - **The owner's words on Windows.** Linux and Windows hosts should operate identically. The owner is not interested in driving TestAnyware from a Windows host, and a later delivery will use WSL for it. Windows VMs stay needed as guests. This does not decide whether the Windows host harness stays in this check. The Done-when of this leaf and ADR-0009 are unchanged, so the Windows run stays until the owner says to drop it.
 - **Golden creation is a manual operation.** The owner said that `vm create-golden` stays direct, and that a person or an LLM runs it from a `.command` file on macOS. This leaf does not need it, because the goldens exist. The design leaf `app-all-guest-traffic-k42` records the same words.
 - **The owner decided to stop shipping the Windows host binary.** The owner's words: "let's stop shipping the windows host binary". The Windows in-VM agent and Windows VMs stay. This leaf lost its Windows half. I removed the Taskfile task `release:windows-harness`, which this leaf created, and I rewrote the Goal, the Context and the Done-when above. The Windows harness source `windows-host-harness.rs` is unchanged. The new leaf `release-without-windows-host` removes the Windows host targets from the pipeline and corrects ADR-0009 and the briefs. It runs before this leaf, because it changes build inputs and the candidate needs one rebuild for all the changes.
+- **The candidate changed.** `app-all-guest-traffic-increments-k45` cut the increments of the design `app-all-guest-traffic-k42`. They run before this leaf, and so do `release-without-windows-host-k44` and `candidate-rebuild-k53`. The candidate `v2.4.0` of commit `8a7ad3f3` is void, and the hashes above describe it. This leaf runs on the candidate that `candidate-rebuild-k53` records. The Linux harness then needs no Local Network access in the test process, because `harness-guest-streams-k47` moved every guest dial into the app. A session can run `task release:linux-harness TAG=v2.4.0` from an agent session once a person has allowed the app.

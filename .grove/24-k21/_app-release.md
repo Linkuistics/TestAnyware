@@ -10,17 +10,19 @@ Ship the app. A tagged release publishes the signed, notarised app as a cask in 
 - The cask `testanyware-app` installs `TestAnyware.app` into `/Applications`. It depends on the formula and on Apple silicon. It keeps the quarantine attribute, and its `uninstall quit:` names the bundle id.
 - One tag versions the formula and the cask together.
 - A release candidate exists before any tag leaves this Mac. It has a manifest with its tag, its commit and the sha256 of each artifact.
-- The Linux and Windows host harnesses pass on the candidate binaries, as ADR-0009 requires.
+- The Linux host harness passes on the candidate binary, as ADR-0009 requires. The release ships no Windows host binary.
 - The live check of an upgrade passes: the app keeps its signing identity and its one Local Network row.
 - The herdr acceptance run passes on the release bundle of the candidate.
 - The release is published and installs on this Mac. It is the candidate that passed the checks.
 
 ## Decomposition
 
-1. `app-release-bundle`: the bundle, the notarisation, the cask, the pipeline and the release candidate.
-2. `non-macos-runtime-check`: the Linux and Windows harness runs on the candidate.
-3. `upgrade-identity-check`: the live check of an upgrade.
-4. `release-publish`: the acceptance run on the candidate, and the publication.
+1. `app-release-bundle`: the bundle, the notarisation, the cask, the pipeline and the first release candidate.
+2. `release-without-windows-host`: the release stops shipping the Windows host binary.
+3. `candidate-rebuild`: the candidate again. The guest-traffic increments and the previous leaf voided the first one.
+4. `non-macos-runtime-check`: the Linux harness runs on the new candidate.
+5. `upgrade-identity-check`: the live check of an upgrade.
+6. `release-publish`: the acceptance run on the candidate, and the publication.
 
 ## Candidate identity
 
