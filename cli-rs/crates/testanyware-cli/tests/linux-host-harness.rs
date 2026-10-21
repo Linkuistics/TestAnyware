@@ -1326,6 +1326,25 @@ async fn check_record(
 const OCR_VENV_DIR: &str = "/home/admin/taw/venv";
 const OCR_VENV_PYTHON: &str = "/home/admin/taw/venv/bin/python";
 
+/// The torch pair of the OCR venv. Written once here: the harness never installs torch unpinned.
+///
+/// Evidence, from the Linux golden on this Mac (the guest CPU passes SME and SME2 through).
+/// The newest packages of 2026-10-21 (torch 2.14.1, numpy 2.5.4, opencv-python-headless
+/// 5.0.0.93, scipy 1.18.1) die with `SIGILL` in the text recogniser of `easyocr/recognition.py`
+/// on any frame that holds text. torch 2.6.0 with torchvision 0.21.0 runs, but reads `Finder`
+/// and then garbage (`LE=I`, confidence 0.0), so it never finds `File`. torch 2.12.0 with
+/// torchvision 0.27.0 finds `File` at confidence 1.0. Those are the versions that PyPI offered
+/// on 2026-06-04, the date of the last green OCR band. With torch at 2.12.0, the newest numpy,
+/// opencv-python-headless and scipy read the same frame correctly, so only torch is pinned.
+/// Pin both torch packages: torchvision must match the torch minor version.
+const OCR_TORCH_PINS: &str = "torch==2.12.0 torchvision==0.27.0";
+
+/// The `pip install` that builds the OCR venv. `--no-cache-dir` because a clone of the Linux
+/// golden has 8.8 GB free, and pip's cache of the torch wheels fills it.
+fn ocr_pip_install_command(python: &str) -> String {
+    format!("{python} -m pip install --quiet --no-cache-dir {EASYOCR_PIN} {OCR_TORCH_PINS}")
+}
+
 /// The `ocr_analyzer` package's Python sources (the channel does single-file
 /// uploads and the package is three small files). `__main__` is the `-m` entry.
 const OCR_MODULE_FILES: &[&str] = &["__init__.py", "daemon.py", "__main__.py"];
@@ -1372,12 +1391,10 @@ async fn provision_ocr(ch: &impl ProvisionChannel) -> Result<String, String> {
     // 2. build the venv + install easyocr (the slow step — torch download). `--no-cache-dir`
     //    because the Linux golden's clone has 17 GB for `/`, with 8.8 GB free. Pip's cache of
     //    the torch wheels (3 GB) beside the installed venv fills it ("No space left on device").
-    eprintln!("[ocr] creating venv + pip install easyocr (pulls torch; minutes) …");
+    eprintln!("[ocr] creating venv + pip install {EASYOCR_PIN} {OCR_TORCH_PINS} (minutes) …");
     exec_ok(ch, &format!("python3 -m venv {OCR_VENV_DIR}")).await?;
     exec_ok(ch, &format!("{OCR_VENV_PYTHON} -m pip install --quiet --upgrade pip")).await?;
-    let pip = ch
-        .exec(&format!("{OCR_VENV_PYTHON} -m pip install --quiet --no-cache-dir easyocr"))
-        .await?;
+    let pip = ch.exec(&ocr_pip_install_command(OCR_VENV_PYTHON)).await?;
     if pip.exit_code != 0 {
         return Err(format!(
             "pip install easyocr exited {} — aarch64-linux CPU torch wheels exist on PyPI, \
@@ -1472,14 +1489,19 @@ async fn check_find_text(
     ];
     let args = ["screen", "find-text", "File", "--vnc", vnc_ep, "--timeout", "20", "--json"];
     let cmd = build_invocation(run_dir, &envs, &args);
+    // The first call starts the daemon cold, so the elapsed time is the cold start plus one
+    // capture and one read. The bridge's first-call deadline is 15 s.
+    let started = Instant::now();
     let out = ch.exec(&cmd).await?;
+    let elapsed = started.elapsed();
     let body = expect_ok_envelope(&out).map_err(|e| {
         format!(
             "{e}\n  ↑ an OCR_* error means the daemon mis-launched: check the venv at \
              {venv_python} and that PYTHONPATH={run_dir} exposes `ocr_analyzer`."
         )
     })?;
-    find_text_hit(&body)
+    let note = find_text_hit(&body)?;
+    Ok(format!("{note}; the cold daemon answered in {:.1} s", elapsed.as_secs_f64()))
 }
 
 // ---------------------------------------------------------------------------
@@ -2107,6 +2129,22 @@ mod helper_tests {
         let mp4 = parse_od_hex("00 00 00 20 66 74 79 70");
         assert_eq!(&mp4[4..8], b"ftyp");
         assert!(parse_od_hex("").is_empty());
+    }
+
+    #[test]
+    fn the_ocr_install_command_carries_both_pins() {
+        let cmd = ocr_pip_install_command("/v/bin/python");
+        assert_eq!(
+            cmd,
+            "/v/bin/python -m pip install --quiet --no-cache-dir easyocr==1.7.2 \
+             torch==2.12.0 torchvision==0.27.0"
+        );
+        // The pins are `==` pins: an unpinned or ranged torch fails here.
+        for pin in OCR_TORCH_PINS.split(' ') {
+            assert!(pin.contains("=="), "{pin} is not an exact pin");
+            assert!(cmd.contains(pin), "{pin} is missing from: {cmd}");
+        }
+        assert!(cmd.contains(EASYOCR_PIN));
     }
 
     #[test]

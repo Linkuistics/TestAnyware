@@ -40,10 +40,12 @@ staging dir (e.g. `/home/admin/taw`):
 sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv
 
 # 2. build the venv and install EasyOCR (pulls torch — large, slow on first run;
-#    aarch64-linux CPU wheels exist on PyPI)
+#    aarch64-linux CPU wheels exist on PyPI). The harness pins torch: on the
+#    Linux golden on an Apple silicon Mac, the newest torch dies with SIGILL and
+#    torch 2.6.0 reads garbage. The pin is OCR_TORCH_PINS in linux-host-harness.rs.
 python3 -m venv <run>/venv
 <run>/venv/bin/pip install --upgrade pip
-<run>/venv/bin/pip install easyocr
+<run>/venv/bin/pip install easyocr==1.7.2 torch==2.12.0 torchvision==0.27.0
 
 # 3. drop the module beside the venv and pre-download the EasyOCR models
 #    (Reader() fetches CRAFT detector + recognizer on first construction)
