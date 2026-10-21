@@ -10,14 +10,17 @@ and the later checks verify one with it.
       Refuse unless the tag is local and annotated, HEAD is the tag's commit, and the tree is clean.
       Print the commit.
   release_candidate.py write --dir DIR --tag vX.Y.Z --commit SHA
-      Write DIR/manifest.json for every file in DIR.
+      Write DIR/manifest.json for every file in DIR. Refuse a Windows host archive.
   release_candidate.py verify --dir DIR --tag vX.Y.Z [--repo DIR]
       Refuse unless the tag still names the manifest's commit and each artifact has its recorded
-      sha256. Print the candidate.
+      sha256. Refuse a Windows host archive. Print the candidate.
   release_candidate.py render --template FILE --out FILE KEY=VALUE...
       Replace each @KEY@ in the template. Refuse an @KEY@ that no argument names.
 
 Nothing here infers a tag. Two candidate tags can exist at the same time.
+
+No release ships a Windows host binary (ADR-0009). The Windows in-VM agent travels inside the
+macOS and Linux archives, so no artifact of a candidate is named for a Windows target.
 """
 
 import argparse
@@ -32,6 +35,8 @@ MANIFEST = "manifest.json"
 SCHEMA = 1
 TAG_PATTERN = re.compile(r"^v(\d+\.\d+\.\d+)$")
 PLACEHOLDER = re.compile(r"@([A-Z0-9_]+)@")
+# A Windows host archive: testanyware-v<ver>-<arch>-pc-windows-<abi>.<ext>.
+WINDOWS_HOST_ARCHIVE = re.compile(r"^testanyware-v.*-pc-windows-")
 DEFAULT_REPO = Path(__file__).resolve().parent.parent
 
 
@@ -106,6 +111,15 @@ def artifact_names(directory: Path) -> list[str]:
     )
 
 
+def refuse_windows_host_archive(directory: Path, names: list[str]) -> None:
+    for name in names:
+        if WINDOWS_HOST_ARCHIVE.match(name):
+            raise Refusal(
+                f"{directory} holds {name}, a Windows host archive. No release ships a Windows "
+                "host binary (ADR-0009). Remove it and build the candidate again."
+            )
+
+
 def write_manifest(directory: Path, tag: str, commit: str) -> dict:
     version = version_of(tag)
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
@@ -113,6 +127,7 @@ def write_manifest(directory: Path, tag: str, commit: str) -> dict:
     names = artifact_names(directory)
     if not names:
         raise Refusal(f"{directory} holds no artifact.")
+    refuse_windows_host_archive(directory, names)
     manifest = {
         "schema": SCHEMA,
         "tag": tag,
@@ -144,6 +159,7 @@ def verify_candidate(repo: Path, directory: Path, tag: str) -> dict:
         )
     recorded = manifest["artifacts"]
     present = artifact_names(directory)
+    refuse_windows_host_archive(directory, present)
     for name in sorted(set(recorded) - set(present)):
         raise Refusal(f"the artifact {name} is missing from {directory}.")
     for name in sorted(set(present) - set(recorded)):

@@ -8,10 +8,14 @@ Accepted. First recorded on 2026-06-04. Reworked in grove `gh-issue-8`, leaf
 `app-all-guest-traffic-k42`, when both HUTs became goldens that the TestAnyware
 app starts. The spec of the app's area is `docs/specs/testanyware-app.md`.
 
+Amended on 2026-10-21, in leaf `release-without-windows-host-k44`: no release
+ships a Windows host binary, and no release runs the Windows harness.
+
 ## Context
 
-Tier 2 of the `rust-cli-port` grove ships the `testanyware` host CLI for Linux
-and Windows. The Swift CLI was macOS-only. An arm64 Mac cross-compiles the CLI
+Tier 2 of the `rust-cli-port` grove built the `testanyware` host CLI for Linux
+and Windows. The Swift CLI was macOS-only. A release now ships the Linux build
+and no Windows build (see the Decision). An arm64 Mac cross-compiles the CLI
 locally with `cargo-zigbuild`, and the `080` spike proved that toolchain. A green
 cross-*build* does not prove that the binary *runs* on the target. These parts
 can fail only at run time, on the target OS and arch:
@@ -31,8 +35,8 @@ Two facts shape the design:
    `qemu-system-aarch64` and swtpm. The `080` spike built **x86_64** binaries.
    An x86_64 ELF or PE cannot run on an ARM64 guest. So only **aarch64** builds
    can run in a guest here. This is why the distribution matrix makes
-   `aarch64-pc-windows-*` first-class: it is the *only* Windows build that the
-   harness can run. x86_64 Windows runs only on real x86_64 Windows.
+   `aarch64-unknown-linux-gnu` first-class: it is the *only* Linux build that the
+   harness can run. x86_64 Linux runs only on a real x86_64 host.
 
 2. **No reliable guest-to-guest network.** Under NAT virtualisation, a guest's
    default gateway *is* the host. So the guest can reach anything that is bound
@@ -86,6 +90,15 @@ a guest stream through the TestAnyware app for each connection (ADR-0004).
   native x86_64 guest. The harness **logs** the gap in run-time coverage, and
   never treats it as covered.
 
+**No release ships a Windows host binary.** The owner decided this on
+2026-10-21. Driving TestAnyware from a Windows host is future work, and it will
+use WSL. The Windows harness stays in the source
+(`cli-rs/crates/testanyware-cli/tests/windows-host-harness.rs`) as a manual
+check, because the code that it tests still builds for a Windows target. No
+release runs it. Its distribution smoke, `windows_dist_zip_smoke`, tests an
+archive that no script builds any more. Windows VMs stay supported as guests:
+the release ships the Windows in-VM agent and the Windows goldens.
+
 ## Considered Options
 
 - **A deterministic stub endpoint on the host** (a fake agent HTTP server and a
@@ -106,6 +119,10 @@ a guest stream through the TestAnyware app for each connection (ADR-0004).
   SSH itself. In a session with no Local Network access, the denial of ADR-0019
   stopped it. To carry that SSH, the app would need a route to port 22 of a VM.
   It would also need to start a VM with no agent. The Linux golden now exists.
+- **Ship the Windows host binary** as a `.zip`, with the Windows harness as its
+  gate. This was the decision until 2026-10-21. Rejected now, because no one
+  drives TestAnyware from a Windows host today, and that host will use WSL.
+  Each release would build, and would need to gate, a binary that has no user.
 - **A distribution matrix of x86_64 only**, as the `080` spike built. Rejected.
   It leaves *nothing* that runs natively in a guest on this Mac. All run-time
   verification would then need slow QEMU TCG emulation or a real x86_64 box, so
@@ -114,16 +131,17 @@ a guest stream through the TestAnyware app for each connection (ADR-0004).
 
 ## Consequences
 
-- The **distribution target matrix has four triples**: `x86_64` and `aarch64`,
-  each with `linux-gnu` and `windows-{gnu,gnullvm}`. aarch64 is first-class,
-  because it is the arch that the harness can run natively. The Windows targets
-  use the `-gnu` and `-gnullvm` variants, which cross-compile easily. msvc cannot
-  cross-compile from a Mac.
+- The **distribution target matrix has three triples**: the native
+  `aarch64-apple-darwin` build, and `x86_64` and `aarch64` with `linux-gnu`. It
+  has no Windows triple. aarch64 is first-class, because it is the arch that the
+  harness can run natively.
 - **Each harness waits on its golden.** The Linux harness needs the Linux golden
   and the Windows harness needs the Windows golden. Both need a working agent in
   that golden, and a kept-built macOS golden to drive. The distribution of each
   OS trails that OS's host pass and harness. Never ship a binary that the
-  harness has not run green.
+  harness has not run green. A Windows host binary would need the Windows
+  harness green on the candidate, so while none ships, no release runs that
+  harness.
 - The two harnesses have one **harness machinery**. It is the forward to the
   golden, the driver of the three smoke bands, and the agent channel to the HUT.
   Each harness file holds its own copy of it.

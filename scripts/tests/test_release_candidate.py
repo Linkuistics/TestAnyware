@@ -134,6 +134,31 @@ class Candidate(unittest.TestCase):
         with self.assertRaisesRegex(rc.Refusal, "extra.zip, which the manifest does not record"):
             rc.verify_candidate(self.repo, directory, "v1.2.3")
 
+    def test_write_refuses_a_windows_host_archive(self):
+        directory = self.root / "candidates" / "v1.2.3"
+        directory.mkdir(parents=True)
+        (directory / "testanyware-v1.2.3-aarch64-apple-darwin.tar.xz").write_bytes(b"mac")
+        (directory / "testanyware-v1.2.3-aarch64-pc-windows-gnullvm.zip").write_bytes(b"win")
+        with self.assertRaisesRegex(rc.Refusal, "Windows host archive"):
+            rc.write_manifest(directory, "v1.2.3", self.first)
+        self.assertFalse((directory / rc.MANIFEST).exists())
+
+    def test_verify_refuses_a_windows_host_archive_that_appears_later(self):
+        git(self.repo, "tag", "-a", "v1.2.3", "-m", "r")
+        directory = self.candidate()
+        (directory / "testanyware-v1.2.3-x86_64-pc-windows-gnu.zip").write_bytes(b"win")
+        with self.assertRaisesRegex(rc.Refusal, "testanyware-v1.2.3-x86_64-pc-windows-gnu.zip, a Windows host archive"):
+            rc.verify_candidate(self.repo, directory, "v1.2.3")
+
+    def test_the_windows_agent_is_not_a_windows_host_archive(self):
+        # The Windows in-VM agent ships inside the macOS and Linux archives, never as an artifact.
+        directory = self.root / "candidates" / "v1.2.3"
+        directory.mkdir(parents=True)
+        (directory / "testanyware-v1.2.3-aarch64-unknown-linux-gnu.tar.xz").write_bytes(b"linux")
+        (directory / "testanyware-app-v1.2.3-aarch64-apple-darwin.zip").write_bytes(b"app")
+        manifest = rc.write_manifest(directory, "v1.2.3", self.first)
+        self.assertEqual(len(manifest["artifacts"]), 2)
+
     def test_verify_refuses_a_tag_that_names_another_commit(self):
         git(self.repo, "tag", "-a", "v1.2.3", "-m", "r")
         directory = self.candidate()

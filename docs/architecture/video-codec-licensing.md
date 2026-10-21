@@ -14,7 +14,7 @@ conversation:
 1. **Embedded library, not subprocess.** No shell-out to system
    `ffmpeg`. The encoder ships inside the `testanyware` binary.
 2. **Self-contained binary.** Static linking is preferred so the brew
-   bottle / Windows zip works without runtime codec downloads.
+   bottle works without runtime codec downloads.
 3. **Cross-platform.** macOS (arm64 + x86_64), Linux (x86_64 + arm64),
    Windows (arm64 priority, x86_64 nice-to-have).
 

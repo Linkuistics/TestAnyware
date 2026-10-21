@@ -42,11 +42,13 @@ three-way decision for the deferred Windows OCR band, owned by leaf
    document `screen find-text` as unsupported on win-arm64, deferring until a user
    needs it.
 
-The distribution context is decisive: `220/050` ships Windows as a **`.zip` of
-`testanyware.exe` + co-located ffmpeg DLLs**, no Homebrew, no installer. The
-relevant cost axis for option 1 is therefore **end-user runtime friction**, the
-same axis the minimal-images discipline weighs — and a Docker daemon on the user's
-host is a heavy ask layered onto a zip.
+The distribution context was decisive when this ADR was written: `220/050`
+shipped Windows as a **`.zip` of `testanyware.exe` + co-located ffmpeg DLLs**, no
+Homebrew, no installer. Since 2026-10-21 no release ships a Windows host binary
+(ADR-0009), but the reasoning holds for any Windows host build. The relevant cost
+axis for option 1 is **end-user runtime friction**, the same axis the
+minimal-images discipline weighs — and a Docker daemon on the user's host is a
+heavy ask layered onto a zip.
 
 A secondary, precedent-setting question rides along: *how* to call WinRT from Rust
 — the same FFI strategy choice ADR-0003 settled for macOS Vision, now recurring
@@ -85,8 +87,8 @@ implementation + the live harness OCR band land in work leaf
 
 ## Consequences
 
-- **Zero end-user runtime dependency.** WinRT OCR ships in Windows 10+; the
-  `220/050` zip stays a self-contained `.exe`+DLLs with nothing to install, pull,
+- **Zero end-user runtime dependency.** WinRT OCR ships in Windows 10+; a Windows
+  host build stays a self-contained `.exe`+DLLs with nothing to install, pull,
   or keep running. The Docker-Desktop-on-the-user's-machine cost of the container
   option is avoided.
 - **Uniform across both Windows arches.** `WindowsMediaOcr` works identically on

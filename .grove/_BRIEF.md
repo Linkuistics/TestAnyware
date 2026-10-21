@@ -13,7 +13,9 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
   included. Only `vm create-golden` stays direct.
 - When the app is unreachable, a command fails and says why. No command falls
   back to a direct connection on macOS.
-- Linux and Windows hosts keep the direct path of today.
+- Linux and Windows hosts keep the direct path of today. The release ships no Windows host
+  binary (the owner decided on 2026-10-21; a Windows host is future work and will use WSL). The
+  x86_64 Linux archive is build-verified only.
 - VMs outlive the app, and the app adopts them when it starts again.
 - Each command, flag, environment variable, VM id, exit code and `--json` field
   keeps its meaning.
@@ -58,9 +60,10 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
    - `app-configuration`: the Rhai file. Linux and Windows hosts read it first, with the `doctor` exception. A macOS host reads it last, when the app reads it too.
    - `app-diagnostics`: `doctor`, the `llm-instructions` and the documents.
    - `app-release`: the notarised cask and a release candidate, then three
-     checks and one publication. The checks are the Linux and Windows runtime
-     check, the upgrade check and the acceptance run on the candidate. The
-     publication ships that same candidate.
+     checks and one publication. The checks are the Linux runtime check, the
+     upgrade check and the acceptance run on the candidate. The publication
+     ships that same candidate. No Windows host binary ships, so no Windows
+     runtime check runs.
 4. `app-all-guest-traffic` (design, then planning): on a macOS host, the harness traffic goes through the app too. Only golden creation stays direct. Planning cut two increments before `app-release`: `harness-guest-streams`, which unblocks the Linux runtime check, and `remaining-direct-dials`. It cut `candidate-rebuild` inside `app-release`.
 
 ## Pointers
@@ -89,8 +92,9 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
     inside the app such as adoption.
   - The existing Taskfile live checks, for the herdr acceptance run and for an
     upgrade that keeps the app's identity.
-  - The existing Linux and Windows host harnesses of ADR-0009, for the runtime
-    proof of the direct path on the release candidate.
+  - The existing Linux host harness of ADR-0009, for the runtime proof of the
+    direct path on the release candidate. The Windows host harness stays in the
+    source as a manual check, and no release runs it.
 
 ## Notes
 

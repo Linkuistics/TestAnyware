@@ -10,7 +10,8 @@
 #   4. verify-app.sh on real signed bundles: a development bundle, a bundle of another team and a
 #      release bundle that is not notarised are refused. A release bundle passes the identity check.
 #   5. release-publish.sh against local bare repositories and a fake gh: the order of the steps, and
-#      each refusal before anything is pushed.
+#      each refusal before anything is pushed, a Windows host archive in the candidate included.
+#   6. release-build.sh stops when the app is not notarised, and its targets name no Windows host.
 
 # shellcheck disable=SC2015,SC2016  # SC2016: the stub bodies expand when the stub runs. SC2015: pass never fails, so `A && pass || fail` is an if-else here
 set -euo pipefail
@@ -131,7 +132,7 @@ make_scene() {
   local dir=$scene/repo/target/candidates/v1.2.3
   mkdir -p "$dir"
   echo mac >"$dir/testanyware-v1.2.3-aarch64-apple-darwin.tar.xz"
-  echo win >"$dir/testanyware-v1.2.3-aarch64-pc-windows-gnullvm.zip"
+  echo linux >"$dir/testanyware-v1.2.3-aarch64-unknown-linux-gnu.tar.xz"
   echo app >"$dir/testanyware-app-v1.2.3-aarch64-apple-darwin.zip"
   echo formula >"$dir/testanyware.rb"
   echo cask >"$dir/testanyware-app.rb"
@@ -173,16 +174,23 @@ grep -qE '^gh release create v1.2.3 --repo Linkuistics/TestAnyware --verify-tag 
   pass "gh creates the release for the tag and never makes one (--verify-tag)" || fail "gh arguments: $(cat "$scene/gh.log")"
 grep -qE "^tag-on-remote: [0-9a-f]{40}$" "$scene/gh.log" &&
   pass "the tag reached the remote before the release" || fail "the release came before the tag"
-for asset in testanyware-v1.2.3-aarch64-apple-darwin.tar.xz testanyware-v1.2.3-aarch64-pc-windows-gnullvm.zip \
+for asset in testanyware-v1.2.3-aarch64-apple-darwin.tar.xz testanyware-v1.2.3-aarch64-unknown-linux-gnu.tar.xz \
   testanyware-app-v1.2.3-aarch64-apple-darwin.zip; do
   grep -q "/$asset" "$scene/gh.log" && pass "release asset $asset" || fail "release lacks $asset"
 done
 grep -qE 'manifest.json|\.rb( |$)' "$scene/gh.log" && fail "the manifest or a formula became an asset" ||
   pass "only the archives are assets"
+grep -qE 'pc-windows' "$scene/gh.log" && fail "a Windows host archive became an asset" ||
+  pass "no Windows host archive is an asset"
 [[ "$(git -C "$scene/tap.git" rev-list --count main)" == 2 ]] && pass "the tap has one new commit" || fail "tap commits"
 [[ "$(git -C "$scene/tap.git" show main:Formula/testanyware.rb)" == formula ]] &&
   [[ "$(git -C "$scene/tap.git" show main:Casks/testanyware-app.rb)" == cask ]] &&
   pass "the formula and the cask are in that commit" || fail "the tap lacks the formula or the cask"
+
+make_scene windows-host
+echo win >"$scene/repo/target/candidates/v1.2.3/testanyware-v1.2.3-aarch64-pc-windows-gnullvm.zip"
+expect_refusal "a Windows host archive in a candidate" "Windows host archive" run_publish v1.2.3
+untouched "windows host"
 
 make_scene tampered
 echo changed >"$scene/repo/target/candidates/v1.2.3/testanyware-app-v1.2.3-aarch64-apple-darwin.zip"
@@ -246,6 +254,11 @@ git -C "$scene" -c user.name=t -c user.email=t@example.com tag -a v1.2.3 -m r
 status=0
 "$scene/scripts/release-build.sh" v1.2.3 >"$work/build.log" 2>&1 || status=$?
 ((status != 0)) && pass "a rejected notarisation fails the build" || fail "the build succeeded"
+targets=$(grep '^release-build: targets:' "$work/build.log" || true)
+[[ "$targets" == "release-build: targets: aarch64-apple-darwin aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu" ]] &&
+  pass "the build names the macOS and Linux targets" || fail "the targets line: ${targets:-missing}"
+grep -q 'pc-windows' "$work/build.log" && fail "the build names a Windows host target" ||
+  pass "the build names no Windows host target"
 grep -q "stub rejection" "$work/build.log" && pass "the rejection is shown" || fail "the rejection is not shown: $(cat "$work/build.log")"
 grep -qE 'building macOS agent|packaging|rendered' "$work/build.log" &&
   fail "the build ran on after the rejection" || pass "nothing was built after the rejection"

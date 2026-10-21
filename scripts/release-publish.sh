@@ -66,8 +66,8 @@ push_tag() {
 create_github_release() {
   local tag="$1" dir="$2"
   echo "release-publish: creating GitHub Release $tag"
-  # The archives are release assets: .tar.xz feed the formula, the app zip feeds the cask, and
-  # the Windows .zip are standalone. The rendered .rb files and the manifest go to the tap and stay local.
+  # The archives are release assets: .tar.xz feed the formula and the app zip feeds the cask.
+  # The rendered .rb files and the manifest go to the tap and stay local.
   local assets=() file
   for file in "$dir"/*.tar.xz "$dir"/*.zip; do
     [[ -f "$file" ]] && assets+=("$file")

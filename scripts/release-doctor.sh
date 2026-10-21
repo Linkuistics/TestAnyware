@@ -15,17 +15,13 @@ trap 'echo "release-doctor: error on line $LINENO" >&2' ERR
 
 # Cross-build config — kept in step with release-build.sh.
 readonly FFMPEG_SR_ROOT="${TESTANYWARE_FFMPEG_SR:-$HOME/.cache/taw-ffmpeg-sr}"
-readonly LINUX_RUST_TARGETS=("aarch64-unknown-linux-gnu" "x86_64-unknown-linux-gnu")
-readonly WINDOWS_RUST_TARGETS=("aarch64-pc-windows-gnullvm" "x86_64-pc-windows-gnu")
-# All cross targets that need an ffmpeg sysroot + a rustup std target staged.
-readonly CROSS_RUST_TARGETS=("${LINUX_RUST_TARGETS[@]}" "${WINDOWS_RUST_TARGETS[@]}")
+# The cross targets that need an ffmpeg sysroot + a rustup std target staged.
+readonly CROSS_RUST_TARGETS=("aarch64-unknown-linux-gnu" "x86_64-unknown-linux-gnu")
 # triple -> BtbN sysroot subdir (matches release-build.sh::ffmpeg_sysroot_for).
 ffmpeg_sysroot_dir() {
   case "$1" in
     aarch64-unknown-linux-gnu)   echo "$FFMPEG_SR_ROOT/aarch64-linux" ;;
     x86_64-unknown-linux-gnu)    echo "$FFMPEG_SR_ROOT/x86_64-linux" ;;
-    aarch64-pc-windows-gnullvm)  echo "$FFMPEG_SR_ROOT/aarch64-windows" ;;
-    x86_64-pc-windows-gnu)       echo "$FFMPEG_SR_ROOT/x86_64-windows" ;;
   esac
 }
 
@@ -100,16 +96,6 @@ check_tar_xz() {
     return
   fi
   mark_pass "tar + xz: available"
-}
-
-check_zip() {
-  # The Windows bundles ship as .zip (no Homebrew on Windows).
-  if ! command -v zip >/dev/null 2>&1; then
-    mark_fail "zip: not on PATH (needed to package the Windows bundles)"
-    remediation "zip ships with macOS; if missing, 'brew install zip'"
-    return
-  fi
-  mark_pass "zip: available"
 }
 
 check_gh_auth() {
@@ -267,7 +253,6 @@ main() {
   check_dotnet
   check_python3
   check_tar_xz
-  check_zip
   check_gh_auth
 
   echo
@@ -277,7 +262,7 @@ main() {
   check_notary_profile
 
   echo
-  echo "release-doctor: Linux + Windows cross-build prerequisites"
+  echo "release-doctor: Linux cross-build prerequisites"
   check_zig
   check_cargo_zigbuild
   check_rustup_cross_targets

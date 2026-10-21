@@ -97,7 +97,7 @@ it waits for frames.
   hazard and no main-thread carve-out in `main.rs`.
 - `eframe` and `wgpu` are a large new dependency tree. Its **binary-size and
   cross-compile cost must be revisited in the distribution leaves**: Homebrew
-  and the Windows zip, with releases built locally from `scripts/` and no CI.
+  (macOS and Linux), with releases built locally from `scripts/` and no CI.
   This ADR does not resolve that cost. It flags it.
   - **Binary size resolved (grove `120`, 2026-06-03):** the release-profile
     `testanyware` is **~15 MB** uncompressed. That build is thin-LTO with

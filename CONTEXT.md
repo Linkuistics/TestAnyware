@@ -261,7 +261,9 @@ that other invocations attached to). The viewer is a single standalone display.
 
 **Self-hosted verification harness**:
 The Tier-2 mechanism (ADR-0009) that proves the *cross-compiled* Host CLI
-actually runs on Linux/Windows. It runs the binary **inside a native-arch
+actually runs on Linux/Windows. A release runs only the Linux harness, because
+no release ships a Windows host binary. The Windows harness stays in the source
+for manual runs. It runs the binary **inside a native-arch
 (aarch64) guest**. It has the binary drive a real tart macOS Golden image's
 agent + VNC endpoint through a **port-forward in the harness's test process**.
 The guest only ever talks to the host gateway, which is the one reliable NAT
