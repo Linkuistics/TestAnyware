@@ -22,7 +22,9 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
   fails and names that remedy. macOS starts the app at login, as it starts
   Koine, and a client never starts it. When the app is not running, a command
   fails and names the remedy.
-- Only the user who runs the app can reach it.
+- Only the user who runs the app can reach it. The owner accepted one bounded
+  exception on 2026-10-21: the loopback forward of a manual Windows host
+  harness run (spec, "How the host harnesses reach their guests").
 - One optional Rhai file, `~/.config/testanyware/config.rhai`, configures the
   app and the Host CLI.
 - `testanyware doctor` reports whether the app is installed, running, allowed

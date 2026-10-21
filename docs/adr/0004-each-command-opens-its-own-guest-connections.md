@@ -32,7 +32,9 @@ The first rework left the tests that drive guests outside the app. On 2026-10-21
 the Linux host harness of ADR-0009 failed in an agent session. Its SSH to its
 test VM got `No route to host` (errno 65). The owner then set the rule: the app
 is the only point that knows where a VM runs and how to reach it. The owner kept
-golden creation direct, because a person or an LLM runs it from Terminal.
+golden creation direct, because a person or an LLM runs it from Terminal. The
+owner also kept the explicit endpoints of `--agent`, `--vnc` and `--connect`,
+because each flag keeps its meaning.
 
 The prior-art survey (`docs/research/vm-broker-prior-art-a.md`, section 5)
 found these failures in tools that carry guest traffic through a host process:
@@ -63,6 +65,10 @@ bytes unchanged.**
   records. The app has no route for another port of a VM. A stream to an
   explicit endpoint reaches the address that the user names with `--agent` or
   `--vnc`, or in the spec file of `--connect`.
+- The owner's rule covers each VM that the app holds. An explicit endpoint is
+  the one compatibility exception: the user names the address, and the app only
+  makes the connection. The app checks neither its port nor its protocol.
+  TestAnyware's own tests and scripts name a VM only by its id.
 - The app runs only the lifecycle commands: `vm start`, `vm stop`, `vm list`
   and `vm delete`. They own processes and state that outlive one command.
 - A test that drives a guest, such as a host harness of ADR-0009, gets each

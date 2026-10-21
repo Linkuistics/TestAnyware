@@ -40,10 +40,14 @@ code and `--json` field with its meaning.
 
 On a macOS host, a signed menu bar app, the TestAnyware app, holds the Local
 Network grant. Only the app and the processes that it starts dial a guest. The
-app is the only point that knows where a VM runs and how to reach it. The Host CLI never
-connects to a guest itself, and neither does a test that drives a guest. Each
-connects to the app on a Unix socket that only its user can open. Local Network
-privacy does not cover a Unix socket.
+app is the only point that knows where each of its VMs runs and how to reach it.
+An explicit endpoint is the one exception, which the owner kept for
+compatibility: its user names the address, and the app only makes the
+connection.
+
+The Host CLI never connects to a guest itself, and neither does a test that
+drives a guest. Each connects to the app on a Unix socket that only its user can
+open. Local Network privacy does not cover a Unix socket.
 
 The app runs the four lifecycle commands: `vm start`, `vm stop`, `vm list`
 and `vm delete`. For every other command, the Host CLI keeps all of its protocol
@@ -257,6 +261,16 @@ controls the host side. An explicit endpoint can name any address. So any
 process of the same user can reach any TCP address through the app's grant. That
 is the purpose under herdr, and the uid check limits it to the one user.
 
+The app checks neither the port nor the protocol of an explicit endpoint. A
+stream of the agent kind to port 22 relays its bytes to port 22. So only a
+stream by VM id is limited to the agent and the VNC endpoint of a VM.
+
+The forward of the Windows host harness is the one exception to the one-user
+rule. During a manual run, another local user can reach the macOS golden
+through it, by the harness's guest streams. The owner accepted this bounded
+exception on 2026-10-21, and "How the host harnesses reach their guests" states
+its limits.
+
 ### Guest traffic on a macOS host
 
 ADR-0004 records this decision. The owner's rule is that the app is the only
@@ -264,6 +278,11 @@ point that knows where a VM runs and how to reach it. So on a macOS host, only t
 app and the processes that it starts dial a guest. Golden creation is the one
 traffic that is an exception. Every other process reaches a guest through the
 app's socket.
+
+The rule covers each VM that the app holds. On 2026-10-21 the owner kept the
+explicit endpoints of `--agent`, `--vnc` and `--connect` as a compatibility
+exception. With one of them, the user names the address, and the app only makes
+the connection. TestAnyware's own tests and scripts name a VM only by its id.
 
 | Traffic | What dials the guest | How the client reaches the app |
 |---|---|---|
@@ -288,10 +307,13 @@ its direct path. The host harnesses reach their test VMs through the In-VM agent
 A stream by VM id reaches only an endpoint that the VM's spec records: its agent
 or its VNC endpoint. The path names no port, so a client cannot choose another
 port of the VM. An id with no spec in the state directory fails with
-`VM_NOT_FOUND`, and the app dials nothing. An explicit endpoint is the address
-that the user names with `--agent` or `--vnc`, or in the spec file of
-`--connect`. Those flags keep their meaning, so the app relays it as "The socket
-and access" above states.
+`VM_NOT_FOUND`, and the app dials nothing.
+
+An explicit endpoint is the address that the user names with `--agent` or
+`--vnc`, or in the spec file of `--connect`. Those flags keep their meaning, so
+the app relays it as "The socket and access" above states. The app checks
+neither its port nor its protocol. So only a stream by VM id is limited to the
+agent and the VNC endpoint.
 
 ```mermaid
 flowchart TD
@@ -908,6 +930,11 @@ reaches both VMs through the app:
 - The harness starts each VM with `vm start`, which the app runs, and stops it
   with `vm stop`. The Linux HUT is the Linux golden, and the Windows HUT is the
   Windows golden.
+- The Linux HUT is a tart guest. `vm start --platform linux` serves a same-named
+  qcow2 with QEMU instead, so after the start the harness reads the HUT's
+  `backend` from `vm list --json`. When it is not `tart`, the harness stops the
+  HUT and fails, and it names the qcow2 as the cause. It does not change how
+  `vm start` chooses a backend.
 - The harness provisions the HUT through its In-VM agent, with `exec`, `upload`
   and `download`. The agent client gets each connection as a guest stream by the
   HUT's id. No harness uses SSH.
@@ -928,24 +955,45 @@ rule as far as a listener can:
 - It binds only the address that the HUT dials, and never every interface. For
   a tart HUT, that is the host's address on the guest bridge, which is the
   HUT's default gateway. For a QEMU HUT, it is `127.0.0.1`, because QEMU's user
-  network delivers the gateway `10.0.2.2` to the host's loopback.
+  network delivers the gateway `10.0.2.2` to the host's loopback. The Linux HUT
+  is always tart, so only the Windows HUT is a QEMU HUT.
 - For a tart HUT, it accepts a connection only from the HUT's own address, the
   source address of the HUT's default route. It closes any other connection and
   opens no stream.
 - It lives for one harness run.
 
 During a run of the Windows harness, a process of another local user can reach
-the forward on loopback. No release runs the Windows harness, because the owner
-decided on 2026-10-21 to ship no Windows host binary. This design accepts the
-exposure as a visible trade-off, and the review of the design puts it to the
-owner.
+the forward on loopback. Through it, that process reaches the macOS golden's
+agent and VNC by the harness's own guest streams. The owner accepted this
+exception to the one-user rule on 2026-10-21, with these limits:
+
+- It applies only to a manual run of the Windows host harness. No release runs
+  that harness, because the owner decided on 2026-10-21 to ship no Windows host
+  binary.
+- The forward listens on loopback only, and only for one run.
+- It reaches only the agent and the VNC endpoint of the one macOS golden. It
+  cannot start a VM, name an endpoint or reach another VM.
+
+During the same run, QEMU forwards the Windows HUT's own agent on every
+interface. That exposure is wider, and "Open risks" already names it. Before
+this design, the forwards of both harnesses listened on `0.0.0.0`. A rejected
+option checked that the HUT's QEMU process owns each connection, through
+`/usr/sbin/lsof`. It costs more than the bounded exception, for a harness that
+no release runs.
 
 The Linux golden is a desktop image, so it holds libraries that a server lacks.
-Such a library could hide a dependency that a server cannot meet. So before it
-stages the binary, the Linux harness reads the shared libraries that the binary
-and its bundled libraries need at load time. It fails when one of them is
-neither a bundled library nor a part of the C runtime. The C runtime is `libc`,
-`libm`, `libpthread`, `libdl`, `libgcc_s` and the dynamic loader.
+Such a library could hide a dependency that a server cannot meet. So the Linux
+harness checks two sets of native libraries:
+
+- Before it stages the binary, it reads the shared libraries that the binary
+  and its bundled libraries need at load time. It fails when one of them is
+  neither a bundled library nor a part of the C runtime. The C runtime is
+  `libc`, `libm`, `libpthread`, `libdl`, `libgcc_s` and the dynamic loader.
+- After it provisions the OCR venv, it reads the shared libraries that each
+  native library in the venv needs at load time. It fails when one of them
+  resolves outside the venv and is not a part of the C or C++ runtime. The C++
+  runtime is `libstdc++`. The release's Linux formula installs EasyOCR into a
+  venv too. So this check keeps what the stock server proved for the OCR band.
 
 ```mermaid
 sequenceDiagram
@@ -1067,6 +1115,13 @@ traffic to a guest, except in golden creation.
   forward of the Linux host harness
 - **THEN** the forward closes the connection and opens no guest stream
 
+#### Scenario: A Linux HUT that QEMU serves
+
+- **WHEN** a same-named qcow2 makes `vm start --platform linux` choose QEMU for
+  the Linux host harness
+- **THEN** the harness stops the HUT, opens no forward, and fails with a message
+  that names the qcow2
+
 ### Requirement: No client starts the app
 
 The Host CLI SHALL never start the TestAnyware app.
@@ -1080,6 +1135,10 @@ The Host CLI SHALL never start the TestAnyware app.
 ### Requirement: Only the user who runs the app reaches it
 
 The app SHALL serve only connections whose peer uid is its own.
+
+The forward of the Windows host harness is the one exception that the owner
+accepted. During a manual run, another local user reaches the macOS golden
+through it. "How the host harnesses reach their guests" states its limits.
 
 #### Scenario: Another user connects
 
@@ -1248,9 +1307,10 @@ The human agreed these three seams in `plan-k1`.
   the Local Network diagnosis of a guest stream. They also include the grant
   observation and the stop of an older QEMU guest. The last are the order of
   configuration sources, the directory check of golden creation and the checks
-  of the socket path. The seam also holds three decisions of the host harnesses.
+  of the socket path. The seam also holds four decisions of the host harnesses.
   They are the address that the forward binds and its check of a connection's
-  address. The third is the check of the libraries that the Linux binary needs.
+  address. The others are the backend check of the Linux HUT, and the check of
+  the libraries that the Linux binary and the OCR venv need.
 - **The existing Taskfile live checks**, for four runs on this Mac:
   - The herdr acceptance run. From a herdr session, a macOS guest starts. An
     agent, screen, input and file command each act on it, and it stops. Each
@@ -1295,15 +1355,19 @@ The human agreed these three seams in `plan-k1`.
 - **Guest endpoints on every interface.** QEMU forwards the agent port with no
   host address, and tart's VNC listened on a wildcard socket in the
   measurements. The agent's `/exec` may be reachable from the LAN. This is not
-  the app's exposure, but it undermines the one-user boundary.
+  the app's exposure, but it undermines the one-user boundary. The Windows HUT
+  is such a guest during a run of the Windows host harness.
 - **Timeouts of today.** The agent client's total timeout of 30 s ends an
   `agent wait` or a file transfer that runs longer. A guest stream changes
   nothing about that.
 - **The Linux golden as the test VM.** The Linux host harness now needs the
-  Linux golden, which a person builds from Terminal. The library check covers
-  what the binary needs at load time. A library that the binary opens later with
-  `dlopen` is outside the check, as it was outside the stock image. No band of
-  the harness runs the embedded viewer, which opens the Vulkan stack in this way.
+  tart Linux golden, which a person builds from Terminal. The library checks
+  cover what the binary and the OCR venv need at load time. A library that
+  either opens later with `dlopen` is outside the checks. A run on the stock
+  server proved such a library of the OCR band too, and a run on the golden
+  cannot. No band of the harness runs the embedded viewer, which opens the
+  Vulkan stack in this way. The checks cover the wheels that the harness
+  installs, not the pinned set of the Linux formula.
 
 ## Out of scope
 

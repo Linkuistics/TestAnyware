@@ -58,6 +58,8 @@ a guest stream through the TestAnyware app for each connection (ADR-0004).
   provisioning channel:**
   - **The Linux HUT is the Linux golden.** The harness starts it with
     `vm start --platform linux`. The clones of the Linux golden run no `sshd`.
+    The HUT must be the tart golden. A same-named qcow2 makes the start choose
+    QEMU, and the harness then fails and names the qcow2.
   - **The Windows HUT is the Windows golden.** Windows ships no SSH server, so
     the agent is the only control channel in the guest.
   - The harness provisions each HUT through the **`file upload`, `exec` and
@@ -131,10 +133,18 @@ a guest stream through the TestAnyware app for each connection (ADR-0004).
   the binary, the Linux harness checks the shared libraries that the binary and
   its bundled libraries need at load time. Each must be a bundled library or a
   part of the C runtime.
+- **The same check covers the OCR venv.** The OCR band installs EasyOCR and its
+  native wheels in the HUT, as the Linux formula does on a user's host. After
+  it provisions the venv, the harness checks each native library in it. A
+  library that it needs from outside the venv must be a part of the C or C++
+  runtime.
 - **The forward binds only the address that the HUT dials.** For a tart HUT it
   accepts only the HUT's own address. For a QEMU HUT it listens on loopback,
-  where another local user can reach it during a run. The spec's section "How
-  the host harnesses reach their guests" states the rules.
+  where another local user can reach it during a run. Only the Windows HUT is a
+  QEMU HUT. The owner accepted this exposure on 2026-10-21 as a bounded
+  exception to the one-user rule, for manual runs of the Windows harness only.
+  The spec's section "How the host harnesses reach their guests" states the
+  rules and the limits.
 - **x86_64 run time stays unverified on this Mac** by construction. The gap is a
   logged and accepted limit. A real x86_64 host or emulation can close it later,
   if it earns its cost.

@@ -13,10 +13,11 @@ application through AppleScript. The Rust target is an **embedded viewer**. It
 is a real RFB client that renders a live `FramebufferUpdate` stream into the
 CLI's own window. It forwards mouse and keyboard input back to the guest.
 
-The viewer is the **only long-lived RFB consumer** in the Rust CLI. Every other
-command opens a short-lived connection for each invocation (ADR-0004). So the
-viewer is the first place that drives the `testanyware-rfb` client as a
-continuous loop rather than a one-shot.
+The viewer is the **first long-lived RFB consumer** in the Rust CLI. So it is
+the first place that drives the `testanyware-rfb` client as a continuous loop
+rather than a one-shot. `screen record` is the second long-lived consumer, a
+bounded one (ADR-0006). Every other command opens a short-lived connection for
+each invocation (ADR-0004).
 
 Three structural forces shaped the architecture:
 
