@@ -1,12 +1,14 @@
-# 4. Each command opens its own guest connections, and on macOS the TestAnyware app relays each one
+# 4. Each command opens its own guest connections, and on macOS only the TestAnyware app dials a guest
 
-Date: 2026-10-20
+Date: 2026-10-21
 
 ## Status
 
 Accepted. First recorded on 2026-05-31, when the Rust CLI dropped the shared-VNC
 server. Reworked in grove `gh-issue-8`, leaf `vm-broker-design-k3`, when the
-TestAnyware app arrived. The area's spec is `docs/specs/testanyware-app.md`.
+TestAnyware app arrived. Reworked again in leaf `app-all-guest-traffic-k42`, when
+the tests that drive guests moved to the app. The area's spec is
+`docs/specs/testanyware-app.md`.
 
 ## Context
 
@@ -26,6 +28,12 @@ traffic of every command. So the question is what crosses the boundary between
 the Host CLI and the app. Either the app relays the connections, or the app runs
 the commands.
 
+The first rework left the tests that drive guests outside the app. On 2026-10-21
+the Linux host harness of ADR-0009 failed in an agent session. Its SSH to its
+test VM got `No route to host` (errno 65). The owner then set the rule: the app
+is the only point that knows where a VM runs and how to reach it. The owner kept
+golden creation direct, because a person or an LLM runs it from Terminal.
+
 The prior-art survey (`docs/research/vm-broker-prior-art-a.md`, section 5)
 found these failures in tools that carry guest traffic through a host process:
 
@@ -40,9 +48,10 @@ found these failures in tools that carry guest traffic through a host process:
 ## Decision
 
 **The Host CLI keeps the protocol work of every command, and each command opens
-its own connections to the guest. On a macOS host, each of those connections is
-a guest stream, which the TestAnyware app relays to the guest with the bytes
-unchanged.**
+its own connections to the guest. On a macOS host, only the TestAnyware app and
+the processes that it starts dial a guest. Each connection of a command, and of a test
+that drives a guest, is a guest stream. The app relays it to the guest with the
+bytes unchanged.**
 
 - The agent client, the RFB client, OCR, the embedded viewer and `screen record`
   stay in the Host CLI. They run on a guest stream as they run on a TCP
@@ -50,13 +59,22 @@ unchanged.**
 - A guest stream is one connection to the app's Unix socket. The app opens one
   guest connection for it, and closes that connection when either side closes. A
   half-close passes through.
+- A stream by VM id reaches only the agent or the VNC endpoint that the VM's spec
+  records. The app has no route for another port of a VM. A stream to an
+  explicit endpoint reaches the address that the user names with `--agent` or
+  `--vnc`, or in the spec file of `--connect`.
 - The app runs only the lifecycle commands: `vm start`, `vm stop`, `vm list`
   and `vm delete`. They own processes and state that outlive one command.
+- A test that drives a guest, such as a host harness of ADR-0009, gets each
+  connection as a guest stream through the Host CLI's library. A forward in such
+  a test accepts on the host and opens a guest stream for each connection.
 - Nothing multiplexes two commands onto one guest connection, and no command
   attaches to a connection that another one holds. The VNC keeper (ADR-0018)
-  holds one silent connection, and it carries no traffic.
+  holds one silent connection, and it carries no traffic. The app starts the
+  keeper from its own executable.
 - On a Linux or Windows host, and in golden creation, each connection is a
-  direct TCP connection, as before.
+  direct TCP connection, as before. Golden creation is the one traffic on a
+  macOS host that the app does not carry.
 
 The handshake cost that the Shared-VNC server saved stays accepted. Each command
 still pays one RFB handshake.
@@ -75,6 +93,14 @@ still pays one RFB handshake.
 - **A loopback TCP forward for each VM.** Rejected. A TCP listener on loopback
   gives the app no peer credentials on macOS, and the survey's CVEs came from
   such listeners. A Unix socket with a peer uid check held up best.
+- **A stream by VM id to any port of the VM, for SSH.** Rejected. Its one client
+  would have been the Linux host harness, which now reaches its test VM through
+  the In-VM agent (ADR-0009). Golden creation, the other user of SSH, stays
+  direct. A route by id that named a port would give a client every port of
+  each VM, and no client needs that.
+- **A stream to an explicit endpoint, for a test VM that the test starts with
+  tart.** Rejected. It needs no new route, but the test would then know where
+  its VM runs, against the owner's rule.
 
 ## Consequences
 
@@ -87,6 +113,9 @@ still pays one RFB handshake.
 - A guest stream adds one relay hop and one bounded buffer. A stall of the relay
   shows as a stream that does not open, and the Host CLI's own timeouts bound
   it.
+- After a person allows the app, a session with no Local Network access of its
+  own can run the host harnesses. Golden creation, and the live tests of its
+  parts, still need Terminal or another context with that access.
 - **This does not retire the OCR daemon.** The Shared-VNC server and the OCR
   daemon are different problems. One multiplexed a VNC connection. The other
   keeps a Python EasyOCR process warm, because it takes seconds to start.

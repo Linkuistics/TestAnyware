@@ -119,24 +119,24 @@ _Avoid_: "the permission" (Accessibility and Screen Recording are permissions
 too).
 
 **TestAnyware app**:
-The signed menu bar app through which the *Host CLI* on a macOS host reaches
-guest VMs, instead of connecting to them itself. It holds the *Local Network
-grant*, runs the four lifecycle commands, and relays each *Guest stream*
-(ADR-0004). macOS starts it at login, and a client never starts it.
+The signed menu bar app through which every process on a macOS host reaches
+guest VMs, except golden creation. Only it and the processes that it starts dial
+a guest there. It holds the *Local Network grant*, runs the four lifecycle commands, and
+relays each *Guest stream* (ADR-0004). macOS starts it at login, and a client never starts it.
 _Avoid_: "VM broker" (an earlier name for the same thing), "router" and
 "daemon". Also avoid "the server" (the *In-VM agent* serves too) and "the CLI"
 (the *Host CLI* is a client of the app).
 
 **Guest stream**:
-One connection from the *Host CLI* to the *TestAnyware app*, which the app
-relays to one guest endpoint with the bytes unchanged. The endpoint is an
-*In-VM agent* or a [[Host-side framebuffer]].
+One connection to the *TestAnyware app* from its client, the *Host CLI* or a
+test that drives a guest. The app relays it to one guest endpoint with the bytes
+unchanged. The endpoint is an *In-VM agent* or a [[Host-side framebuffer]].
 _Avoid_: "tunnel", and "forward" (a forward is QEMU's `hostfwd` port).
 
 **Direct path**:
-The *Host CLI* connecting to a guest itself, with no *TestAnyware app*. Linux
-and Windows hosts use it for every command, and golden creation uses it on every
-host.
+A process connecting to a guest itself, with no *TestAnyware app*. Linux and
+Windows hosts use it for every command. Golden creation uses it on every host,
+and it is the only traffic on a macOS host that does.
 _Avoid_: "fallback" (on a macOS host, no other command falls back to it).
 
 **Adoption**:
@@ -263,23 +263,26 @@ that other invocations attached to). The viewer is a single standalone display.
 The Tier-2 mechanism (ADR-0009) that proves the *cross-compiled* Host CLI
 actually runs on Linux/Windows. It runs the binary **inside a native-arch
 (aarch64) guest**. It has the binary drive a real tart macOS Golden image's
-agent + VNC endpoint through a **macOS-host port-forward**. The guest only ever
-talks to the host gateway, which is the one reliable NAT edge.
+agent + VNC endpoint through a **port-forward in the harness's test process**.
+The guest only ever talks to the host gateway, which is the one reliable NAT
+edge. On a macOS host, the forward reaches the golden through the *TestAnyware
+app*.
 
 The harness verifies **aarch64** builds natively on the Apple-Silicon Mac.
 **x86_64** builds are build/link-verified only (no native x86_64 guest here),
-with the gap logged. It reuses the ADR-0007 `russh` provisioning on Linux. On
-Windows, it reuses the in-VM agent's `file`/`exec` surface (no SSH on Windows).
+with the gap logged. On Linux and on Windows, it provisions the HUT through the
+in-VM agent's `file`/`exec` surface.
 _Avoid_: conflating it with the live-VM gate (`tests/live-vm-gate.rs`), which
 runs the *macOS* CLI against a macOS golden. The harness is about *non-macOS*
 host binaries.
 
 **Host-under-test (HUT) VM**:
 The guest VM that *runs* the cross-compiled Host CLI in the self-hosted
-verification harness. It is the **host** being tested, not a driven target. So
-it needs **no in-VM agent** (the CLI drives a *separate* forwarded endpoint).
-The Linux HUT is stock tart Ubuntu ARM64 (ssh-provisioned). The Windows HUT is
-the Windows agent-golden (agent-provisioned, since Windows lacks SSH).
+verification harness. It is the **host** being tested, not a driven target: the
+CLI drives a *separate* forwarded endpoint. The HUT's own *In-VM agent* is only
+the harness's control channel into it. The Linux HUT is the Linux golden, and
+the Windows HUT is the Windows golden. On a macOS host, the *TestAnyware app*
+starts both.
 _Avoid_: confusing the HUT (runs the CLI) with the forwarded Golden image
 (provides the agent/VNC the CLI drives).
 

@@ -29,3 +29,10 @@ Doubts that the producer could not settle in its own session:
 - `vm create-golden` stays direct. Check that the design names it as the one direct traffic and says why.
 - The design voids the candidate `v2.4.0`. Check that it says which leaf rebuilds the candidate.
 - Check that each increment is small, ordered, and demonstrable on its own.
+
+Doubts that the producer `app-all-guest-traffic-k42` could not settle alone:
+
+- The design answers "a stream to port 22" with "no client needs one". The Linux HUT becomes the Linux golden, reached through its agent. Check that this keeps what ADR-0009 needs from the harness. The library check stands in for the stock image. Check that the check covers what the stock image covered, and that the open risk names the rest.
+- The route for an explicit endpoint still relays to any address of the same user. The owner's rule says that the app alone knows where a VM runs. Check that keeping `--agent`, `--vnc` and `--connect` with their meaning does not break that rule, or name the conflict for the owner.
+- The forward of the Windows harness listens on loopback, where another local user can connect during a run. Check that the spec states this exposure plainly enough for the owner to accept it.
+- The increments are in the planning leaf `app-all-guest-traffic-increments-k45`, not in the spec. Check them there.

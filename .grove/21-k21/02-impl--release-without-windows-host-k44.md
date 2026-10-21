@@ -16,7 +16,7 @@ Stop shipping the Windows host binary. The release then carries the macOS and Li
   - `scripts/release_candidate.py` and `scripts/templates/`: check whether the manifest or the formula names a Windows archive.
   - `Taskfile.yml`: `release:windows-harness` is already removed by `non-macos-runtime-check-k40`. Check for any other Windows host task or text.
   - `docs/adr/0009-self-hosted-host-cli-verification-harness.md`: it says Windows ships and that the Windows harness leads to distribution. It needs a correction and a new status line.
-  - `.grove/_BRIEF.md` and `.grove/20-k21/_app-release.md`: they say that Windows hosts keep the direct path and that the Windows harness runs on the candidate.
+  - `.grove/_BRIEF.md` and the brief of `app-release-k21` (`_app-release.md`): they say that Windows hosts keep the direct path and that the Windows harness runs on the candidate.
   - The README and the other documents: search them as well. Use the enumerate-then-classify method of `references/execute.md`, not a list of patterns.
 - `cli-rs/crates/testanyware-cli/tests/windows-host-harness.rs` stays as source. The owner did not ask to remove it, and the code that it tests still builds on a Windows target. State in ADR-0009 that no release runs it.
 

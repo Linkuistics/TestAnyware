@@ -1,10 +1,12 @@
 # 9. The cross-compiled host CLI is verified by running it inside native-arch guests driving a real golden through a host port-forward
 
-Date: 2026-06-04
+Date: 2026-10-21
 
 ## Status
 
-Accepted
+Accepted. First recorded on 2026-06-04. Reworked in grove `gh-issue-8`, leaf
+`app-all-guest-traffic-k42`, when both HUTs became goldens that the TestAnyware
+app starts. The spec of the app's area is `docs/specs/testanyware-app.md`.
 
 ## Context
 
@@ -48,20 +50,22 @@ not the endpoint.
 **A self-hosted verification harness runs the cross-compiled host CLI *inside* a
 native-arch (aarch64) guest.** The CLI drives the agent (`:8648`) and VNC of a
 real, kept-built tart macOS golden through a port-forward on the macOS host. The
-guest CLI targets `host-gateway:PORT`, and the host forwards (`socat` or
-`ssh -L`) to the golden.
+guest CLI targets `host-gateway:PORT`. A forward in the harness's own test
+process relays each connection to the golden. On a macOS host, the forward opens
+a guest stream through the TestAnyware app for each connection (ADR-0004).
 
-- **The host-under-test (HUT) VM and its provisioning channel differ by what the
-  guest OS offers:**
-  - **The Linux HUT is stock tart Ubuntu ARM64.** The harness provisions only
-    the cross binary into it, over **ssh**, and reuses the ADR-0007 `russh`
-    layer. Every Linux has `sshd`. So the Linux harness needs no agent and **no
-    Linux golden**, which is deferred. It is fully self-contained.
-  - **The Windows HUT is the Windows agent-golden.** The harness provisions it
-    through the **`file upload` and `exec` HTTP surface of the in-VM agent**.
-    Windows ships no SSH server, so the agent is the only control channel in the
-    guest. So the Windows harness depends on the Windows golden *and* on a
-    working Windows agent.
+- **The host-under-test (HUT) VM is a golden, and the in-VM agent is its
+  provisioning channel:**
+  - **The Linux HUT is the Linux golden.** The harness starts it with
+    `vm start --platform linux`. The clones of the Linux golden run no `sshd`.
+  - **The Windows HUT is the Windows golden.** Windows ships no SSH server, so
+    the agent is the only control channel in the guest.
+  - The harness provisions each HUT through the **`file upload`, `exec` and
+    `download` HTTP surface of the in-VM agent**. So each harness depends on its
+    golden *and* on a working agent of that golden.
+  - On a macOS host, the TestAnyware app starts each HUT and the macOS golden.
+    The test process reaches each agent by VM id, as a guest stream, and it
+    dials no guest (ADR-0004).
 
 - **The surface splits into three bands:**
   - **Endpoint-free smoke** (no target): `capabilities`, `schema`,
@@ -94,6 +98,12 @@ guest CLI targets `host-gateway:PORT`, and the host forwards (`socat` or
   localhost). It is self-contained and needs no host networking. Rejected: it
   needs the in-VM agent inside the HUT, which is outside this scope, and it is
   artificial.
+- **A stock tart Ubuntu image as the Linux HUT, provisioned over ssh.** This was
+  the decision until 2026-10-21. It needed no agent and no Linux golden, which
+  was then deferred. Rejected now, because the test process dialled the HUT's
+  SSH itself. In a session with no Local Network access, the denial of ADR-0019
+  stopped it. To carry that SSH, the app would need a route to port 22 of a VM.
+  It would also need to start a VM with no agent. The Linux golden now exists.
 - **A distribution matrix of x86_64 only**, as the `080` spike built. Rejected.
   It leaves *nothing* that runs natively in a guest on this Mac. All run-time
   verification would then need slow QEMU TCG emulation or a real x86_64 box, so
@@ -107,15 +117,24 @@ guest CLI targets `host-gateway:PORT`, and the host forwards (`socat` or
   because it is the arch that the harness can run natively. The Windows targets
   use the `-gnu` and `-gnullvm` variants, which cross-compile easily. msvc cannot
   cross-compile from a Mac.
-- **Linux verification leads, and Windows trails.** The Linux harness is
-  self-contained, with a stock image and ssh. The Windows harness waits on the
-  Windows golden and on a working Windows agent. The distribution of each OS
-  trails that OS's host pass and harness. Never ship a binary that the harness
-  has not run green.
-- The Linux harness builds the **harness machinery** once: the host port-forward
-  to a golden, the driver of the three smoke bands, and the russh provisioning.
-  The Windows harness **reuses** it, with ssh swapped for the agent as the
-  provisioning channel.
+- **Each harness waits on its golden.** The Linux harness needs the Linux golden
+  and the Windows harness needs the Windows golden. Both need a working agent in
+  that golden, and a kept-built macOS golden to drive. The distribution of each
+  OS trails that OS's host pass and harness. Never ship a binary that the
+  harness has not run green.
+- The two harnesses have one **harness machinery**. It is the forward to the
+  golden, the driver of the three smoke bands, and the agent channel to the HUT.
+  Each harness file holds its own copy of it.
+- **A check of the libraries takes the place of the stock image.** A stock
+  server proved by a run that the binary needs nothing that a server lacks. The
+  Linux golden is a desktop, so a run there cannot prove it. Before it stages
+  the binary, the Linux harness checks the shared libraries that the binary and
+  its bundled libraries need at load time. Each must be a bundled library or a
+  part of the C runtime.
+- **The forward binds only the address that the HUT dials.** For a tart HUT it
+  accepts only the HUT's own address. For a QEMU HUT it listens on loopback,
+  where another local user can reach it during a run. The spec's section "How
+  the host harnesses reach their guests" states the rules.
 - **x86_64 run time stays unverified on this Mac** by construction. The gap is a
   logged and accepted limit. A real x86_64 host or emulation can close it later,
   if it earns its cost.

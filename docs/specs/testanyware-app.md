@@ -3,11 +3,13 @@
 This spec describes the TestAnyware app on a macOS host. It covers how the app
 ships and starts, and who can reach it. It covers how the app
 carries guest traffic, keeps VMs and settles version skew. It also covers the
-configuration and what the commands report. Four ADRs record the decisions in
+configuration and what the commands report. Five ADRs record the decisions in
 this area that have a real trade-off, and this spec cites them:
 
-- ADR-0004: each command opens its own guest connections, and on macOS the
-  TestAnyware app relays each one.
+- ADR-0004: each command opens its own guest connections, and on macOS only the
+  TestAnyware app dials a guest.
+- ADR-0009: a harness runs the cross-compiled Host CLI inside native-arch
+  guests, and on a macOS host it reaches them through the TestAnyware app.
 - ADR-0019: the TestAnyware app holds the Local Network grant, and a denial is
   diagnosed where the connection is made.
 - ADR-0020: the TestAnyware app keeps one signing identity and ships as a cask.
@@ -15,8 +17,10 @@ this area that have a real trade-off, and this spec cites them:
 
 The evidence is in `docs/research/vm-broker-prior-art-a.md`, the survey, and in
 `docs/research/testanyware-app-local-network-grant.md`, the measurements on this
-Mac. The owner agreed this spec on 2026-10-20. Each graph diagram starts at its
-dark "Start here" node, and each sequence starts at its first message.
+Mac. The owner agreed this spec on 2026-10-20. On 2026-10-21 the owner set the
+rule that only the app dials a guest, and the leaf `app-all-guest-traffic-k42`
+applied it. Each graph diagram starts at its dark "Start here" node, and each
+sequence starts at its first message.
 
 ## Problem
 
@@ -25,7 +29,8 @@ guest's subnet. Only an exempt process, or one that the user allows, gets it.
 An agent harness such as herdr runs under a login service, and nothing in that context
 is an app that the user can allow. So an agent under herdr cannot start or drive
 a macOS guest. ADR-0019 made that failure fast and named its cause, but it could
-not remove the failure.
+not remove the failure. The host harnesses of ADR-0009 fail in the same way,
+because their test process dials its guests itself.
 
 TestAnyware has many client projects, and they use only its command surface.
 So a solution must keep every command, flag, environment variable, VM id, exit
@@ -34,9 +39,11 @@ code and `--json` field with its meaning.
 ## Solution
 
 On a macOS host, a signed menu bar app, the TestAnyware app, holds the Local
-Network grant. The Host CLI never connects to a guest itself. It connects to the
-app on a Unix socket that only its user can open. Local Network privacy does not
-cover a Unix socket.
+Network grant. Only the app and the processes that it starts dial a guest. The
+app is the only point that knows where a VM runs and how to reach it. The Host CLI never
+connects to a guest itself, and neither does a test that drives a guest. Each
+connects to the app on a Unix socket that only its user can open. Local Network
+privacy does not cover a Unix socket.
 
 The app runs the four lifecycle commands: `vm start`, `vm stop`, `vm list`
 and `vm delete`. For every other command, the Host CLI keeps all of its protocol
@@ -44,12 +51,14 @@ work. Each agent or VNC connection of the command becomes a guest stream. A
 guest stream is one connection to the app. The app relays it to one guest
 endpoint with the bytes unchanged.
 
-Golden creation keeps the direct path on every host. Linux and Windows hosts
-have no TestAnyware app, and they keep the direct path for every command.
+Golden creation keeps the direct path on every host. It is the one traffic on a
+macOS host that the app does not carry. Linux and Windows hosts have no
+TestAnyware app, and they keep the direct path for every command.
 
 ```mermaid
 flowchart TD
   cli["Start here: Host CLI<br/>(under herdr, Terminal, a script)"]:::start
+  tests["Host harness test process<br/>(through the Host CLI library)"]
   sock[("testanyware.sock<br/>0700 directory,<br/>peer uid check")]
   app["TestAnyware app<br/>(menu bar, holds the<br/>Local Network grant)"]
   state[("State directory:<br/>spec and meta sidecars")]
@@ -68,6 +77,7 @@ flowchart TD
   end
   golden["vm create-golden<br/>(direct path)"]
   cli -- "lifecycle requests,<br/>guest streams" --> sock --> app
+  tests -- "guest streams" --> sock
   app --> state
   app -- "spawns" --> guests
   app -- "relays" --> endpoints
@@ -246,6 +256,55 @@ It never opens a host file or a host socket for a client. Code in a guest never
 controls the host side. An explicit endpoint can name any address. So any
 process of the same user can reach any TCP address through the app's grant. That
 is the purpose under herdr, and the uid check limits it to the one user.
+
+### Guest traffic on a macOS host
+
+ADR-0004 records this decision. The owner's rule is that the app is the only
+point that knows where a VM runs and how to reach it. So on a macOS host, only the
+app and the processes that it starts dial a guest. Golden creation is the one
+traffic that is an exception. Every other process reaches a guest through the
+app's socket.
+
+| Traffic | What dials the guest | How the client reaches the app |
+|---|---|---|
+| The agent and VNC connections of a command, by `--vm`, `--agent`, `--vnc` or `--connect` | The app | A guest stream from the Host CLI |
+| `vm start`, `vm stop`, `vm list` and `vm delete`, with the health wait and the resolution switch | The app | A lifecycle request from the Host CLI |
+| The adoption probes and the Local Network diagnosis | The app | No client takes part |
+| The VNC keeper of a tart guest, on loopback | The keeper, which the app starts from its own executable | No client takes part |
+| The host harnesses of ADR-0009 | The app | Guest streams, through the Host CLI's library |
+| The live checks of the Taskfile | The app | Host CLI commands |
+| `vm create-golden`, with its SSH, RFB and agent connections, and the live tests of its parts | The Host CLI itself, on the direct path | No app takes part |
+
+The processes that the app starts are the VNC keepers and the platform
+`/usr/bin/nc` of the Local Network diagnosis. A live check may also ask
+`/usr/bin/nc` whether its own shell can dial a guest. That probe carries no
+traffic. It is a control, which shows whether a command went through the app.
+
+A client asks for a stream by VM id, or by an explicit endpoint, as "The
+protocol" below states. The app has no route for another port of a VM, such as
+the SSH port 22. No client needs one. Golden creation, the one user of SSH, keeps
+its direct path. The host harnesses reach their test VMs through the In-VM agent.
+
+A stream by VM id reaches only an endpoint that the VM's spec records: its agent
+or its VNC endpoint. The path names no port, so a client cannot choose another
+port of the VM. An id with no spec in the state directory fails with
+`VM_NOT_FOUND`, and the app dials nothing. An explicit endpoint is the address
+that the user names with `--agent` or `--vnc`, or in the spec file of
+`--connect`. Those flags keep their meaning, so the app relays it as "The socket
+and access" above states.
+
+```mermaid
+flowchart TD
+  s(["Start here: a process on a<br/>macOS host needs a guest"]):::start --> g{"Is it<br/>golden creation?"}
+  g -- "yes" --> direct["Dial the guest directly.<br/>Needs Local Network access,<br/>such as Terminal's"]
+  g -- "no" --> sock["Ask the app on testanyware.sock"]
+  sock --> t{"What does the<br/>request name?"}
+  t -- "a VM id" --> spec{"Does the state directory<br/>hold its spec?"}
+  spec -- "yes" --> ep["The app dials the agent or the<br/>VNC endpoint that the spec records"]
+  spec -- "no" --> nf["VM_NOT_FOUND.<br/>The app dials nothing"]
+  t -- "an explicit endpoint" --> named["The app dials the address<br/>that the user named"]
+  classDef start fill:#1f2937,stroke:#111827,color:#ffffff,font-weight:bold
+```
 
 ### The protocol
 
@@ -833,8 +892,80 @@ Each existing code keeps its meaning and its exit code.
   It also covers each error above with its remedy, and golden creation from
   Terminal.
 - **`vm start --json` and `vm list --json`** gain no field. Each field keeps its
-  meaning. An endpoint in them is the guest's own endpoint, which on a macOS host
-  only the app reaches.
+  meaning and its value. An endpoint in them is the guest's own endpoint, which
+  on a macOS host only the app dials. A client hands back the id with `--vm`, or
+  the endpoint with `--agent` or `--vnc`. The Host CLI routes either one through
+  the app. A client that dials the endpoint itself does so outside TestAnyware.
+  On a macOS host, that client's own process then meets the Local Network denial.
+
+### How the host harnesses reach their guests
+
+ADR-0009 records this decision. The Linux and Windows host harnesses run the
+cross-built Host CLI inside a test VM, the host-under-test (HUT). That CLI drives
+a macOS golden through a forward on the host. On a macOS host, each harness
+reaches both VMs through the app:
+
+- The harness starts each VM with `vm start`, which the app runs, and stops it
+  with `vm stop`. The Linux HUT is the Linux golden, and the Windows HUT is the
+  Windows golden.
+- The harness provisions the HUT through its In-VM agent, with `exec`, `upload`
+  and `download`. The agent client gets each connection as a guest stream by the
+  HUT's id. No harness uses SSH.
+- The forward accepts each connection of the HUT on the host. For each one, it
+  opens a guest stream by the golden's id, of the agent kind or the VNC kind. It
+  dials no guest. macOS needs no Local Network access to accept a connection
+  (Apple TN3179).
+- The harness reads the golden's spec only for the VNC password, as the Host
+  CLI does for `--vm`. It reads no endpoint from a spec.
+- The harness builds no request path and no header. The Host CLI's own library
+  builds the agent client and opens each guest stream. The `testanyware` binary
+  runs the same code, so the harness changes no flag, exit code or `--json`
+  field.
+
+The forward is the one TCP listener that this design adds. It keeps the one-user
+rule as far as a listener can:
+
+- It binds only the address that the HUT dials, and never every interface. For
+  a tart HUT, that is the host's address on the guest bridge, which is the
+  HUT's default gateway. For a QEMU HUT, it is `127.0.0.1`, because QEMU's user
+  network delivers the gateway `10.0.2.2` to the host's loopback.
+- For a tart HUT, it accepts a connection only from the HUT's own address, the
+  source address of the HUT's default route. It closes any other connection and
+  opens no stream.
+- It lives for one harness run.
+
+During a run of the Windows harness, a process of another local user can reach
+the forward on loopback. No release runs the Windows harness, because the owner
+decided on 2026-10-21 to ship no Windows host binary. This design accepts the
+exposure as a visible trade-off, and the review of the design puts it to the
+owner.
+
+The Linux golden is a desktop image, so it holds libraries that a server lacks.
+Such a library could hide a dependency that a server cannot meet. So before it
+stages the binary, the Linux harness reads the shared libraries that the binary
+and its bundled libraries need at load time. It fails when one of them is
+neither a bundled library nor a part of the C runtime. The C runtime is `libc`,
+`libm`, `libpthread`, `libdl`, `libgcc_s` and the dynamic loader.
+
+```mermaid
+sequenceDiagram
+  participant T as Harness test process
+  participant A as TestAnyware app
+  participant H as HUT (In-VM agent and the cross-built Host CLI)
+  participant G as macOS golden (In-VM agent)
+  T->>A: vm start (HUT, then golden), through the Host CLI
+  T->>A: GET /v1/vms/{hut}/agent, Upgrade
+  A->>H: TCP connect
+  A-->>T: 101 Switching Protocols
+  T->>H: upload the binary, exec the band, relayed unchanged
+  H->>T: TCP connect to the forward, on the HUT's gateway
+  T->>T: accept only the HUT's address
+  T->>A: GET /v1/vms/{golden}/agent, Upgrade
+  A->>G: TCP connect
+  A-->>T: 101 Switching Protocols
+  H->>G: HTTP request, relayed by the forward and by the app
+  G-->>H: HTTP response
+```
 
 ### Golden creation keeps its direct path
 
@@ -842,6 +973,13 @@ Each existing code keeps its meaning and its exit code.
 the guest itself, through SSH, RFB and the agent, and it does not use the app.
 On a macOS host it needs a context with Local Network access, such as
 Terminal. Under herdr it fails as it does today.
+
+It is the one traffic on a macOS host that the app does not carry. The owner
+keeps it direct, because golden creation is a manual operation. A person or an
+LLM runs it from a `.command` file, which Terminal opens, so it runs with
+Terminal's Local Network access. TestAnyware builds no helper for that file. The
+live tests of the parts of golden creation dial their guests directly too, and
+they also run from Terminal.
 
 Golden creation sends no request, so the app cannot compare its directories.
 So on a macOS host, golden creation compares them itself, before it starts. It
@@ -889,8 +1027,8 @@ were wrong. The implementation corrected them:
 
 ### Requirement: Every guest connection on a macOS host goes through the app
 
-The Host CLI SHALL open no connection to a guest on a macOS host, except in
-golden creation.
+On a macOS host, only the app and the processes that it starts SHALL carry
+traffic to a guest, except in golden creation.
 
 #### Scenario: An agent command from herdr
 
@@ -909,6 +1047,25 @@ golden creation.
 - **WHEN** any command that needs the app runs and nothing answers on its socket
 - **THEN** the command fails with `APP_UNREACHABLE`, names the remedy, and makes
   no direct connection
+
+#### Scenario: A stream to a VM that the app does not hold
+
+- **WHEN** a client asks for a stream by a VM id that has no spec in the state
+  directory
+- **THEN** the request fails with `VM_NOT_FOUND`, and the app dials nothing
+
+#### Scenario: The Linux host harness without a grant of its own
+
+- **WHEN** the Linux host harness runs from a session that has no Local Network
+  access, and a person allowed the app
+- **THEN** the harness passes, and its test process opens no connection to a
+  guest
+
+#### Scenario: A connection to the forward from another address
+
+- **WHEN** a process at an address other than the tart HUT's connects to the
+  forward of the Linux host harness
+- **THEN** the forward closes the connection and opens no guest stream
 
 ### Requirement: No client starts the app
 
@@ -1091,8 +1248,10 @@ The human agreed these three seams in `plan-k1`.
   the Local Network diagnosis of a guest stream. They also include the grant
   observation and the stop of an older QEMU guest. The last are the order of
   configuration sources, the directory check of golden creation and the checks
-  of the socket path.
-- **The existing Taskfile live checks**, for three runs on this Mac:
+  of the socket path. The seam also holds three decisions of the host harnesses.
+  They are the address that the forward binds and its check of a connection's
+  address. The third is the check of the libraries that the Linux binary needs.
+- **The existing Taskfile live checks**, for four runs on this Mac:
   - The herdr acceptance run. From a herdr session, a macOS guest starts. An
     agent, screen, input and file command each act on it, and it stops. Each
     step goes through the app.
@@ -1102,6 +1261,9 @@ The human agreed these three seams in `plan-k1`.
     allows the app again, the command succeeds, and System Settings shows one
     TestAnyware row.
   - VMs survive a quit of the app, and the app adopts them when it opens again.
+  - The Linux host harness passes from a session that has no Local Network
+    access of its own, with the app allowed. `release:linux-harness` runs it on
+    a candidate.
 
 ## Open risks
 
@@ -1137,13 +1299,22 @@ The human agreed these three seams in `plan-k1`.
 - **Timeouts of today.** The agent client's total timeout of 30 s ends an
   `agent wait` or a file transfer that runs longer. A guest stream changes
   nothing about that.
+- **The Linux golden as the test VM.** The Linux host harness now needs the
+  Linux golden, which a person builds from Terminal. The library check covers
+  what the binary needs at load time. A library that the binary opens later with
+  `dlopen` is outside the check, as it was outside the stock image. No band of
+  the harness runs the embedded viewer, which opens the Vulkan stack in this way.
 
 ## Out of scope
 
 - **Issues #7, #4 and #5:** the host-wide queue, leases, more hosts and
   placement. The app is the one point of admission on a host, and
   `config.rhai` can gain policy functions later. This delivery builds neither.
-- **Golden creation through the app.** The human kept it direct.
+- **Golden creation through the app.** The owner keeps it direct, because a
+  person or an LLM runs it from Terminal.
+- **A helper that writes and opens the `.command` file of golden creation.** It
+  is a later delivery, if the owner asks for it.
+- **A stream to another port of a VM, such as SSH.** No client needs one.
 - **The TestAnyware app on Linux or Windows hosts.** Those hosts have no Local Network
   privacy.
 - **A `launchd` daemon or a root helper.** TN3179 exempts both, but the human

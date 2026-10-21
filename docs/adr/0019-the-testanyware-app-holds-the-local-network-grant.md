@@ -1,11 +1,12 @@
 # 19. The TestAnyware app holds the Local Network grant, and a denial is diagnosed where the connection is made
 
-Date: 2026-10-20
+Date: 2026-10-21
 
 ## Status
 
 Accepted. First recorded in grove `gh-issue-3`, leaf `reliable-macos-start-k4`.
-Reworked in grove `gh-issue-8`, leaf `vm-broker-design-k3`. The evidence is
+Reworked in grove `gh-issue-8`, leaves `vm-broker-design-k3` and
+`app-all-guest-traffic-k42`. The evidence is
 `docs/research/macos-local-network-platform-binary-exemption.md` and
 `docs/research/testanyware-app-local-network-grant.md`. The area's spec is
 `docs/specs/testanyware-app.md`.
@@ -41,7 +42,9 @@ not cover. The process that makes a guest connection diagnoses its denial, and
 the remedy names the process that needs the grant.**
 
 The TestAnyware app makes every guest connection on a macOS host, except in
-golden creation (ADR-0004). So it diagnoses each denial:
+golden creation (ADR-0004). That includes the connections of the tests that
+drive guests, so a test needs no grant of its own. The app diagnoses each
+denial:
 
 - **In the health wait of `vm start`**, after five `host_unreachable` probes in
   a row, the app asks the platform `/usr/bin/nc` to connect to the same
@@ -82,7 +85,8 @@ an injected oracle, so unit tests drive the rules with scripted probe results.
 ## Consequences
 
 - After a person allows the alert, an agent under herdr reaches each guest
-  through the app. An upgrade can ask for the grant again (ADR-0020).
+  through the app, and it can run the host harnesses of ADR-0009. An upgrade
+  can ask for the grant again (ADR-0020).
 - Before the grant, a command fails about 8 s after the guest's address appears,
   and the error names the app. The command does not wait for a person.
 - The diagnosis spawns `nc` only on a failing connection. It needs no new
