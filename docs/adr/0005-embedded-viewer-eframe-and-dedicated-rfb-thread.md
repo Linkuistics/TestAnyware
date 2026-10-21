@@ -8,98 +8,108 @@ Accepted
 
 ## Context
 
-The Swift CLI's `vm start --viewer` launched an *external* interactive VNC
-application via AppleScript. The Rust target is an **embedded viewer**: a real
-RFB client rendering a live `FramebufferUpdate` stream into the CLI's own
-window and forwarding mouse/keyboard back to the guest. It is the **only
-long-lived RFB consumer** in the Rust CLI — every other command opens a
-short-lived per-invocation connection (ADR-0004) — so it is the first place the
-`testanyware-rfb` client is driven as a continuous loop rather than a one-shot.
+The Swift CLI's `vm start --viewer` opened an *external* interactive VNC
+application through AppleScript. The Rust target is an **embedded viewer**. It
+is a real RFB client that renders a live `FramebufferUpdate` stream into the
+CLI's own window. It forwards mouse and keyboard input back to the guest.
+
+The viewer is the **only long-lived RFB consumer** in the Rust CLI. Every other
+command opens a short-lived connection for each invocation (ADR-0004). So the
+viewer is the first place that drives the `testanyware-rfb` client as a
+continuous loop rather than a one-shot.
 
 Three structural forces shaped the architecture:
 
 1. **`RfbConnection` is async (tokio), single-owner `&mut self`.**
-   `next_message().await` blocks on the socket; `key_event`/`pointer_event`
+   `next_message().await` blocks on the socket. `key_event` and `pointer_event`
    write to it. Only one owner can hold it.
-2. **eframe must own the main OS thread.** `eframe::run_native` blocks, and
-   winit/NSApp require the platform event loop on the main thread (hard
-   requirement on macOS, the primary host).
-3. **The CLI is `#[tokio::main]`.** Command dispatch is `.await`ed and may be
-   polled on any worker thread, so the viewer command body is *not* guaranteed
-   to run on the main thread, and nesting `eframe::run_native` inside the global
+2. **eframe must own the main OS thread.** `eframe::run_native` blocks. winit
+   and NSApp require the platform event loop on the main thread. On macOS, the
+   primary host, this is a hard requirement.
+3. **The CLI is `#[tokio::main]`.** Command dispatch is `.await`ed, and any
+   worker thread may poll it. So the viewer command body is *not* guaranteed to
+   run on the main thread. Nesting `eframe::run_native` inside the global
    runtime invites main-thread and nested-runtime hazards.
 
 ## Decision
 
-**Surface.** The viewer is a dedicated top-level `testanyware viewer` command
-that resolves its VNC endpoint via the standard `--vm`/`--connect`/`--agent`
-options through `resolve_vnc(&opts)` — the same family as `screen` and `input`.
-It is long-lived and interactive, hence neither `mutating` nor `data_producing`
-in `surface.rs::CANONICAL_COMMANDS` and exempt from `--json`/`--dry-run` (it
-emits no data envelope). `vm start --viewer` is retained as **sugar**: after the
-VM is up and the `vm-start` envelope is emitted, it opens the viewer inline
-(blocking-until-close is acceptable for an explicit window request). This keeps
-the contract-bound `vm start` from being turned into a blocking interactive
-command as its canonical behaviour.
+**Surface.** The viewer is a dedicated top-level `testanyware viewer` command.
+It resolves its VNC endpoint from the standard `--vm`, `--connect` and `--agent`
+options through `resolve_vnc(&opts)`, as `screen` and `input` do. It is
+long-lived and interactive. So it is neither `mutating` nor `data_producing` in
+`surface.rs::CANONICAL_COMMANDS`. It emits no data envelope, so it is exempt
+from `--json` and `--dry-run`.
 
-**Stack.** `eframe` with the `wgpu` backend. Batteries-included eframe solves
-the window / winit event loop / main-thread / run-loop machinery; wgpu is chosen
-over glow for best HiDPI/Retina behaviour on macOS and a future-proof backend
-set (Metal/DX12/Vulkan) for the Windows/Linux roadmap. The framebuffer is shown
-as an egui `TextureHandle` with partial updates for changed rectangles.
+`vm start --viewer` stays as **sugar**. After the VM is up and `vm start` emits
+the `vm-start` envelope, it opens the viewer inline. It blocks until the window
+closes, which is acceptable for an explicit window request. This keeps the
+contract-bound `vm start` from becoming a blocking interactive command in its
+canonical behaviour.
 
-**Threading.** A **dedicated `std::thread` running its own current-thread tokio
-runtime** owns the `RfbConnection`. eframe runs on the process main thread. The
-RFB thread runs a `tokio::select!` loop:
+**Stack.** The viewer uses `eframe` with the `wgpu` backend. eframe includes the
+machinery for the window, the winit event loop, the main thread and the run
+loop. The decision takes wgpu over glow for the best HiDPI and Retina behaviour
+on macOS. Its backend set, Metal, DX12 and Vulkan, also covers the Windows and
+Linux roadmap. The viewer shows the framebuffer as an egui `TextureHandle`, with
+partial updates for changed rectangles.
 
-- `readable()` → read the message with `next_message()`, copy the framebuffer RGBA
-  into a shared slot, then call `egui::Context::request_repaint()`. Only the wait for
-  a first byte is raced: a `select!` that dropped `next_message()` halfway would lose
-  the bytes it had read;
-- `input_rx.recv()` → `key_event` / `pointer_event`;
-- an interval tick (or post-update) → `request_framebuffer_update(incremental =
-  true, full rect)` to keep the stream flowing;
-- a shutdown signal (window closed) → break and tear down.
+**Threading.** A **dedicated `std::thread` that runs its own current-thread
+tokio runtime** owns the `RfbConnection`. eframe runs on the process main
+thread. The RFB thread runs a `tokio::select!` loop:
 
-Handoff is `Arc<Mutex<FrameSlot>>` (latest RGBA + dimensions + dirty flag) for
-UI ← RFB, and an `mpsc` of input events for UI → RFB. `request_repaint()` from a
-`Context` clone held by the RFB thread is the wake mechanism, so eframe does not
-busy-poll at 60 fps waiting for frames.
+- `readable()` → read the message with `next_message()`, copy the framebuffer
+  RGBA into a shared slot, then call `egui::Context::request_repaint()`. The
+  loop races only the wait for a first byte. A `select!` that dropped
+  `next_message()` halfway would lose the bytes that it read.
+- `input_rx.recv()` → `key_event` / `pointer_event`.
+- An interval tick (or a post-update) → `request_framebuffer_update(incremental
+  = true, full rect)`, which keeps the stream flowing.
+- A shutdown signal (the window closed) → leave the loop and close the
+  connection.
+
+The handoff from RFB to UI is `Arc<Mutex<FrameSlot>>`, which holds the latest
+RGBA, the dimensions and a dirty flag. The handoff from UI to RFB is an `mpsc`
+of input events. The RFB thread holds a `Context` clone, and its
+`request_repaint()` wakes eframe. So eframe does not busy-poll at 60 fps while
+it waits for frames.
 
 ## Considered Options
 
-- **Reuse the global runtime, special-case the viewer in `main.rs`** to run
-  eframe on the main thread and spawn the RFB task on the existing runtime via a
-  `Handle`. Rejected: it still requires a `main.rs` carve-out to escape async
-  dispatch, and entangles the viewer's lifetime with the CLI's global runtime.
-- **Synchronous pump inside `update()`** — drive the connection with
-  non-blocking reads each frame, no background task. Rejected: couples paint
-  rate to socket I/O and risks stalling the UI thread on a slow read or a large
-  rectangle.
-- **glow instead of wgpu** — lighter dependency and cross-compile surface.
-  Rejected in favour of HiDPI quality and backend future-proofing; the
-  binary-size cost is deferred to the distribution leaves, not avoided.
+- **Reuse the global runtime, and special-case the viewer in `main.rs`.**
+  eframe would run on the main thread, and a `Handle` would spawn the RFB task
+  on the existing runtime. Rejected. It still requires a `main.rs` carve-out to
+  escape async dispatch. It also ties the viewer's lifetime to the CLI's global
+  runtime.
+- **A synchronous pump inside `update()`.** Each frame would drive the
+  connection with non-blocking reads, with no background task. Rejected. It
+  couples the paint rate to socket I/O. A slow read or a large rectangle can
+  stall the UI thread.
+- **glow instead of wgpu.** It has a lighter dependency and cross-compile
+  surface. Rejected in favour of HiDPI quality and a backend set for the later
+  platforms. The binary-size cost moves to the distribution leaves. The decision
+  does not avoid it.
 
 ## Consequences
 
-- One extra OS thread and a second (current-thread) tokio runtime, fully
-  isolated from the CLI's global runtime — no nested-runtime hazard, no
-  main-thread carve-out in `main.rs`.
-- `eframe`/`wgpu` are a substantial new dependency tree. Its **binary-size and
-  cross-compile cost must be revisited in the distribution leaves** (Homebrew +
-  Windows zip; releases built locally from `scripts/`, no CI). This ADR does not
-  resolve that cost — it flags it.
-  - **Binary-size resolved (grove `120`, 2026-06-03):** the release-profile
-    `testanyware` (thin-LTO, `strip = "symbols"`, aarch64-apple-darwin, wgpu→Metal)
-    is **~15 MB** uncompressed — well within normal Homebrew range and far smaller
-    in the xz tarball. wgpu is **kept**; no `glow` fallback needed. The
+- One extra OS thread and a second, current-thread tokio runtime. Both are
+  fully isolated from the CLI's global runtime. So there is no nested-runtime
+  hazard and no main-thread carve-out in `main.rs`.
+- `eframe` and `wgpu` are a large new dependency tree. Its **binary-size and
+  cross-compile cost must be revisited in the distribution leaves**: Homebrew
+  and the Windows zip, with releases built locally from `scripts/` and no CI.
+  This ADR does not resolve that cost. It flags it.
+  - **Binary size resolved (grove `120`, 2026-06-03):** the release-profile
+    `testanyware` is **~15 MB** uncompressed. That build is thin-LTO with
+    `strip = "symbols"`, for aarch64-apple-darwin, and wgpu uses Metal. The
+    size is well within the normal Homebrew range, and the xz tarball is far
+    smaller. wgpu **stays**, and no `glow` fallback is necessary. The
     cross-compile half stays open for Tier 2 (`zig cc`, grove `140`).
-- `Mutex<FrameSlot>` is the default handoff; a triple-buffer / `tokio::sync::
-  watch` is a known escape hatch if lock contention ever surfaces (unlikely at
-  VNC update rates).
-- The viewer is written **cross-platform** (no host-OS `#[cfg]` gates — the
-  stack is portable and guest-keysym mapping is already handled by
-  `keymap::Platform`), verified on macOS now; Windows/Linux verification rides
-  the later platform-host leaves.
-- Delivery is staged across three leaves (read-only render → input forwarding →
-  auto-reconnect + start-sugar); this ADR governs all three.
+- `Mutex<FrameSlot>` is the default handoff. A triple buffer or
+  `tokio::sync::watch` is a known escape hatch if lock contention ever appears.
+  That is unlikely at VNC update rates.
+- The viewer is **cross-platform**: it has no host-OS `#[cfg]` gates. The stack
+  is portable, and `keymap::Platform` already maps guest keysyms. It is
+  verified on macOS now. The later platform-host leaves carry the Windows and
+  Linux verification.
+- Three leaves deliver it in stages: a read-only render, then input forwarding,
+  then auto-reconnect and the start sugar. This ADR governs all three.
