@@ -38,6 +38,12 @@
 //!   stages anything, the harness reads the libraries that the binary and the bundled libraries
 //!   need ([`unbundled_needs`]). It fails on any library that is neither bundled nor in the C
 //!   runtime ([`C_RUNTIME_SONAMES`]).
+//! * The OCR venv has the same exposure. After `provision_ocr` builds it, the harness lists each
+//!   native library of the venv and reads what the loader resolves for it, with `ldd`
+//!   ([`check_venv_libraries`]). It fails on any needed library that resolves outside the venv and
+//!   is neither in the C runtime nor in [`SERVER_IMAGE_SONAMES`], the libraries that the stock
+//!   server image holds. The failure names the native library and the library it needs. It reads
+//!   as a failed OCR check (`screen-find-text`), so it does not mask the driven band.
 //!
 //! The forward to the macOS golden has not changed. It still dials the golden from the test
 //! process. So run this test from Terminal with the app running and its Local Network alert
@@ -1364,12 +1370,201 @@ fn tail(s: &str) -> String {
     chars[start..].iter().collect()
 }
 
+/// The libraries outside the venv that the OCR venv may need, besides the C runtime
+/// ([`C_RUNTIME_SONAMES`]). The stock server image `ghcr.io/cirruslabs/ubuntu:24.04` (Ubuntu
+/// 24.04.5) holds every one, as a probe of 2026-10-21 showed. So the desktop golden hides none of
+/// them. The first run of the check on the Linux golden found the libraries after the first:
+///
+/// * `libstdc++.so.6`: the C++ runtime, named by the brief of the check.
+/// * `librt.so.1`: a library of glibc. Wheels of numpy and the CUDA libraries of torch need it.
+/// * `libz.so.1`: `zlib1g`, a package of Priority `required`. The wheels of numpy, scipy, Pillow,
+///   OpenCV and cuDNN need it.
+/// * `libibverbs.so.1`, `libmlx5.so.1`, `libnl-3.so.200`, `libnl-route-3.so.200`: the needs of
+///   `nvidia/cu13/lib/libcufile_rdma.so.1`, a CUDA library that torch installs on aarch64 and
+///   that a CPU run never loads.
+///
+/// Add a library here only after the stock server image is shown to hold it.
+const SERVER_IMAGE_SONAMES: &[&str] = &[
+    "libstdc++.so.6",
+    "librt.so.1",
+    "libz.so.1",
+    "libibverbs.so.1",
+    "libmlx5.so.1",
+    "libnl-3.so.200",
+    "libnl-route-3.so.200",
+];
+
+/// One library that a native library needs, as `ldd` reports it. `resolved` is the path that
+/// the loader chose, or `None` when the loader found no file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedNeed {
+    soname: String,
+    resolved: Option<String>,
+}
+
+/// One native library of the venv with the `ldd` output of it. `statically_linked` is set when
+/// `ldd` printed `statically linked`, which it does for a shared object with no `NEEDED` entry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NativeLibrary {
+    path: String,
+    needs: Vec<ResolvedNeed>,
+    statically_linked: bool,
+}
+
+/// What a passing check read: the number of native libraries, and the number of needs for which
+/// the loader found no file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LibrariesRead {
+    libraries: usize,
+    unresolved: usize,
+}
+
+/// The in-guest command that lists the native libraries of the venv `venv_dir`. For each
+/// `*.so` and `*.so.*` file it prints a `FILE <path>` line, then the `ldd` output of the file.
+/// `ldd` reports what the loader resolves, with the `RUNPATH` of the file applied, where
+/// `readelf -d` lists only the names. The command ends with `true` because `ldd` exits non-zero
+/// on a file that is not an ELF file, and the parser reports that file.
+fn venv_library_listing_command(venv_dir: &str) -> String {
+    format!(
+        "find {venv_dir} -type f \\( -name '*.so' -o -name '*.so.*' \\) | sort | \
+         while IFS= read -r f; do printf 'FILE %s\\n' \"$f\"; ldd \"$f\" 2>&1; done; true"
+    )
+}
+
+/// One line of `ldd` output as a [`ResolvedNeed`]. The lines that name no library file are
+/// `None`: the virtual `linux-vdso.so.1`, `statically linked` and the warnings of `ldd`.
+fn parse_ldd_line(line: &str) -> Option<ResolvedNeed> {
+    let line = line.trim();
+    if let Some((soname, rest)) = line.split_once(" => ") {
+        let target = rest.split(" (0x").next().unwrap_or(rest).trim();
+        if target == "not found" {
+            return Some(ResolvedNeed { soname: soname.to_string(), resolved: None });
+        }
+        return target.starts_with('/').then(|| ResolvedNeed {
+            soname: soname.to_string(),
+            resolved: Some(target.to_string()),
+        });
+    }
+    // The loader itself has no `=>`: `/lib/ld-linux-aarch64.so.1 (0x…)`.
+    let path = line.split_whitespace().next().filter(|p| p.starts_with('/'))?;
+    let soname = path.rsplit('/').next().unwrap_or(path);
+    Some(ResolvedNeed { soname: soname.to_string(), resolved: Some(path.to_string()) })
+}
+
+/// The report of [`venv_library_listing_command`] as one entry per native library.
+fn parse_ldd_report(report: &str) -> Vec<NativeLibrary> {
+    let mut libraries: Vec<NativeLibrary> = Vec::new();
+    for line in report.lines() {
+        if let Some(path) = line.strip_prefix("FILE ") {
+            libraries.push(NativeLibrary {
+                path: path.to_string(),
+                needs: Vec::new(),
+                statically_linked: false,
+            });
+        } else if let Some(library) = libraries.last_mut() {
+            if line.trim() == "statically linked" {
+                library.statically_linked = true;
+            }
+            library.needs.extend(parse_ldd_line(line));
+        }
+    }
+    libraries
+}
+
+/// An absolute path without `.` and `..` segments. The loader prints a `RUNPATH` such as
+/// `$ORIGIN/../numpy.libs` unexpanded, so `<venv>/../elsewhere` must not read as inside `<venv>`.
+fn lexically_normalised(path: &str) -> String {
+    let mut parts: Vec<&str> = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop();
+            }
+            other => parts.push(other),
+        }
+    }
+    format!("/{}", parts.join("/"))
+}
+
+/// Whether `path` is a file below the directory `dir`.
+fn is_inside(dir: &str, path: &str) -> bool {
+    let dir = lexically_normalised(dir);
+    lexically_normalised(path).starts_with(&format!("{}/", dir.trim_end_matches('/')))
+}
+
+/// Check what the loader resolves for each native library of the venv `venv_dir`. A library
+/// that a native library needs passes when it resolves inside the venv, or is in the C runtime
+/// ([`C_RUNTIME_SONAMES`]), or is in [`SERVER_IMAGE_SONAMES`]. Any other library that resolves
+/// fails, because the desktop golden holds libraries that a server image lacks, and a run cannot
+/// show which of them the venv relies on.
+///
+/// A need for which the loader found no file does not fail. The file is on no image, so the
+/// desktop does not hide it, and the OCR band fails by itself if the daemon loads that library.
+/// The result counts these needs. A native library for which `ldd` listed nothing and did not
+/// print `statically linked` fails: it means that `ldd` read no ELF file.
+fn check_venv_library_needs(
+    libraries: &[NativeLibrary],
+    venv_dir: &str,
+) -> Result<LibrariesRead, String> {
+    if libraries.is_empty() {
+        return Err(format!("the venv {venv_dir} holds no native library, so the check read nothing"));
+    }
+    let mut problems = Vec::new();
+    let mut unresolved = 0;
+    for library in libraries {
+        let file = &library.path;
+        if library.needs.is_empty() && !library.statically_linked {
+            problems.push(format!("{file}: ldd listed no needed libraries"));
+        }
+        for need in &library.needs {
+            let allowed = C_RUNTIME_SONAMES.contains(&need.soname.as_str())
+                || SERVER_IMAGE_SONAMES.contains(&need.soname.as_str());
+            match &need.resolved {
+                None => unresolved += 1,
+                Some(path) if allowed || is_inside(venv_dir, path) => {}
+                Some(path) => problems.push(format!("{file} needs {}, resolved to {path}", need.soname)),
+            }
+        }
+    }
+    if problems.is_empty() {
+        return Ok(LibrariesRead { libraries: libraries.len(), unresolved });
+    }
+    Err(format!(
+        "the library check of the venv {venv_dir} failed. Each native library may need only \
+         libraries inside the venv, the C runtime ({}) and the libraries of the stock server image \
+         ({}), because the desktop golden would hide any other:\n  - {}",
+        C_RUNTIME_SONAMES.join(", "),
+        SERVER_IMAGE_SONAMES.join(", "),
+        problems.join("\n  - "),
+    ))
+}
+
+/// List the native libraries of the venv in the HUT, read what the loader resolves for each,
+/// and check it. The result counts what the check read. It takes the venv as a parameter so
+/// that `linux_dist_install_layout` can check its own venv.
+async fn check_venv_libraries(
+    ch: &impl ProvisionChannel,
+    venv_dir: &str,
+) -> Result<LibrariesRead, String> {
+    let out = ch.exec(&venv_library_listing_command(venv_dir)).await?;
+    if out.exit_code != 0 {
+        return Err(format!(
+            "the library listing of {venv_dir} exited {} (want 0); stderr: {}",
+            out.exit_code,
+            tail(&out.stderr),
+        ));
+    }
+    check_venv_library_needs(&parse_ldd_report(&out.stdout), venv_dir)
+}
+
 /// Provision a working EasyOCR daemon in the throwaway HUT and return the venv
 /// interpreter for `TESTANYWARE_OCR_PYTHON`. Steps: install venv tooling, build
 /// a venv with `easyocr` (pulls torch — minutes on first run, aarch64-linux CPU
 /// wheels exist on PyPI), upload the `ocr_analyzer` package, and **pre-download
 /// the EasyOCR models** so the daemon's first `readtext` lands inside the
-/// bridge's 15s first-call deadline rather than racing a model download.
+/// bridge's 15s first-call deadline rather than racing a model download. Right after the
+/// install, it checks the native libraries of the venv ([`check_venv_libraries`]).
 ///
 /// Built into a throwaway clone at run time, never baked into an image
 /// ([[minimal-images]]); the same recipe + module back the deferred Windows
@@ -1403,6 +1598,19 @@ async fn provision_ocr(ch: &impl ProvisionChannel) -> Result<String, String> {
             tail(&pip.stderr),
         ));
     }
+
+    // 2b. the library check. The golden is a desktop image, so a native library of the venv
+    //     could load there only because the desktop has a library that a server image lacks.
+    //     An error returns like a pip failure: the caller reports it as the OCR band result.
+    let libraries = check_venv_libraries(ch, OCR_VENV_DIR)
+        .await
+        .map_err(|e| format!("the OCR library check failed: {e}"))?;
+    eprintln!(
+        "[ocr] library check passed: read {} native libraries of the venv; each needs only \
+         libraries inside the venv, the C runtime or the stock server image ({} needs found no \
+         file)",
+        libraries.libraries, libraries.unresolved,
+    );
 
     // 3. upload the ocr_analyzer package, file by file.
     let mod_dir = ocr_module_dir();
@@ -2260,6 +2468,174 @@ Dynamic Section:\n\
         let files = [needs("testanyware", &[])];
         let error = check_library_needs(&files, &[]).unwrap_err();
         assert!(error.contains("listed no needed libraries"), "{error}");
+    }
+
+    const VENV: &str = "/home/admin/taw/venv";
+    const SITE: &str = "/home/admin/taw/venv/lib/python3.12/site-packages";
+
+    /// The `ldd` output of two native libraries, as the venv of the OCR band lists them. The
+    /// first needs a library that sits beside it in `torch.libs`, reached by a `RUNPATH` with `..`.
+    fn ldd_report_of_a_clean_venv() -> String {
+        format!(
+            "FILE {SITE}/torch/lib/libtorch_cpu.so\n\
+             \tlinux-vdso.so.1 (0x0000ffff9c5d0000)\n\
+             \tlibgomp-24e2ab19.so.1.0.0 => {SITE}/torch/lib/../../torch.libs/libgomp-24e2ab19.so.1.0.0 (0x0000ffff9a000000)\n\
+             \tlibstdc++.so.6 => /lib/aarch64-linux-gnu/libstdc++.so.6 (0x0000ffff99e00000)\n\
+             \tlibm.so.6 => /lib/aarch64-linux-gnu/libm.so.6 (0x0000ffff99d50000)\n\
+             \tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffff99ba0000)\n\
+             \t/lib/ld-linux-aarch64.so.1 (0x0000ffff9c590000)\n\
+             FILE {SITE}/numpy/_core/_multiarray_umath.cpython-312-aarch64-linux-gnu.so\n\
+             \tlinux-vdso.so.1 (0x0000ffff8c1e0000)\n\
+             \tlibscipy_openblas64_-5b2c1f0d.so => {SITE}/numpy/_core/../../numpy.libs/libscipy_openblas64_-5b2c1f0d.so (0x0000ffff88000000)\n\
+             \tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffff87e50000)\n\
+             \t/lib/ld-linux-aarch64.so.1 (0x0000ffff8c1a0000)\n"
+        )
+    }
+
+    #[test]
+    fn parses_the_lines_of_ldd() {
+        let need = |soname: &str, resolved: Option<&str>| {
+            Some(ResolvedNeed { soname: soname.into(), resolved: resolved.map(String::from) })
+        };
+        assert_eq!(
+            parse_ldd_line("\tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffff99ba0000)"),
+            need("libc.so.6", Some("/lib/aarch64-linux-gnu/libc.so.6")),
+        );
+        assert_eq!(
+            parse_ldd_line("\tlibz.so.1 => not found"),
+            need("libz.so.1", None),
+            "a library that the loader did not find"
+        );
+        assert_eq!(
+            parse_ldd_line("\t/lib/ld-linux-aarch64.so.1 (0x0000ffff9c590000)"),
+            need("ld-linux-aarch64.so.1", Some("/lib/ld-linux-aarch64.so.1")),
+            "the loader has no `=>`"
+        );
+        // Lines that name no library file.
+        assert_eq!(parse_ldd_line("\tlinux-vdso.so.1 (0x0000ffff9c5d0000)"), None);
+        assert_eq!(parse_ldd_line("\tlinux-vdso.so.1 =>  (0x0000ffff9c5d0000)"), None);
+        assert_eq!(parse_ldd_line("\tstatically linked"), None);
+        assert_eq!(parse_ldd_line("\tnot a dynamic executable"), None);
+        assert_eq!(parse_ldd_line(""), None);
+    }
+
+    #[test]
+    fn groups_the_ldd_output_by_native_library() {
+        let libraries = parse_ldd_report(&ldd_report_of_a_clean_venv());
+        assert_eq!(libraries.len(), 2);
+        assert_eq!(libraries[0].path, format!("{SITE}/torch/lib/libtorch_cpu.so"));
+        let names: Vec<&str> = libraries[0].needs.iter().map(|n| n.soname.as_str()).collect();
+        assert_eq!(
+            names,
+            ["libgomp-24e2ab19.so.1.0.0", "libstdc++.so.6", "libm.so.6", "libc.so.6", "ld-linux-aarch64.so.1"],
+            "the vdso line is not a library"
+        );
+        assert_eq!(libraries[1].needs.len(), 3);
+        assert!(!libraries[0].statically_linked);
+        // Output before the first `FILE` line belongs to no library.
+        assert!(parse_ldd_report("\tlibc.so.6 => /lib/libc.so.6 (0x1)\n").is_empty());
+    }
+
+    #[test]
+    fn a_venv_whose_libraries_resolve_inside_it_passes_the_ocr_library_check() {
+        let libraries = parse_ldd_report(&ldd_report_of_a_clean_venv());
+        assert_eq!(
+            check_venv_library_needs(&libraries, VENV),
+            Ok(LibrariesRead { libraries: 2, unresolved: 0 }),
+            "the C runtime, libstdc++ and the bundled libraries pass; the result counts the native libraries"
+        );
+    }
+
+    #[test]
+    fn the_libraries_of_the_stock_server_image_pass_the_ocr_library_check() {
+        // The needs that the first run on the Linux golden found: numpy, Pillow, the CUDA
+        // libraries of torch, and `libcufile_rdma`. The stock server image holds each one.
+        let report = format!(
+            "FILE {SITE}/numpy/_core/_multiarray_umath.cpython-312-aarch64-linux-gnu.so\n\
+             \tlibz.so.1 => /lib/aarch64-linux-gnu/libz.so.1 (0x1)\n\
+             \tlibrt.so.1 => /lib/aarch64-linux-gnu/librt.so.1 (0x2)\n\
+             FILE {SITE}/nvidia/cu13/lib/libcufile_rdma.so.1\n\
+             \tlibibverbs.so.1 => /lib/aarch64-linux-gnu/libibverbs.so.1 (0x3)\n\
+             \tlibmlx5.so.1 => /lib/aarch64-linux-gnu/libmlx5.so.1 (0x4)\n\
+             \tlibnl-3.so.200 => /lib/aarch64-linux-gnu/libnl-3.so.200 (0x5)\n\
+             \tlibnl-route-3.so.200 => /lib/aarch64-linux-gnu/libnl-route-3.so.200 (0x6)\n"
+        );
+        assert_eq!(
+            check_venv_library_needs(&parse_ldd_report(&report), VENV),
+            Ok(LibrariesRead { libraries: 2, unresolved: 0 })
+        );
+    }
+
+    #[test]
+    fn a_library_that_resolves_outside_the_venv_fails_the_ocr_library_check() {
+        // `libX11.so.6` is on a desktop image and on no promise of a server image.
+        let report = format!(
+            "{}FILE {SITE}/cv2/cv2.abi3.so\n\
+             \tlibX11.so.6 => /lib/aarch64-linux-gnu/libX11.so.6 (0x0000ffff7f000000)\n\
+             \tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x0000ffff7ee50000)\n",
+            ldd_report_of_a_clean_venv(),
+        );
+        let error = check_venv_library_needs(&parse_ldd_report(&report), VENV).unwrap_err();
+        assert!(error.contains(&format!("{SITE}/cv2/cv2.abi3.so needs libX11.so.6")), "{error}");
+        assert!(error.contains("/lib/aarch64-linux-gnu/libX11.so.6"), "the resolved path is named: {error}");
+        assert!(!error.contains("libtorch_cpu.so needs"), "only the failing library is named: {error}");
+    }
+
+    #[test]
+    fn a_need_that_the_loader_did_not_find_is_counted_and_does_not_fail_the_ocr_library_check() {
+        // `libcublas.so.13` is in the CUDA directory of the venv, but `libcusolverMg` has no
+        // `RUNPATH` that reaches it. No image holds the file, so the desktop does not hide it.
+        let report = format!(
+            "FILE {SITE}/nvidia/cu13/lib/libcusolverMg.so.12\n\
+             \tlibcublas.so.13 => not found\n\
+             \tlibc.so.6 => /lib/aarch64-linux-gnu/libc.so.6 (0x1)\n"
+        );
+        assert_eq!(
+            check_venv_library_needs(&parse_ldd_report(&report), VENV),
+            Ok(LibrariesRead { libraries: 1, unresolved: 1 })
+        );
+    }
+
+    #[test]
+    fn a_path_that_climbs_out_of_the_venv_is_outside_it() {
+        assert!(is_inside(VENV, &format!("{SITE}/torch/lib/../../torch.libs/libgomp.so.1")));
+        assert!(!is_inside(VENV, "/home/admin/taw/venv/../elsewhere/libgomp.so.1"));
+        assert!(!is_inside(VENV, "/home/admin/taw/venv-other/libgomp.so.1"), "a sibling with the same prefix");
+        assert!(!is_inside(VENV, "/lib/aarch64-linux-gnu/libX11.so.6"));
+        let report = format!("FILE {SITE}/a.so\n\tlibx.so.1 => {VENV}/../elsewhere/libx.so.1 (0x1)\n");
+        assert!(check_venv_library_needs(&parse_ldd_report(&report), VENV).is_err());
+    }
+
+    #[test]
+    fn a_venv_with_no_listed_library_fails_the_ocr_library_check() {
+        let error = check_venv_library_needs(&[], VENV).unwrap_err();
+        assert!(error.contains("holds no native library"), "{error}");
+        // A library for which ldd printed nothing: the tool did not read an ELF file.
+        let report = format!("FILE {SITE}/a.so\n\tnot a dynamic executable\n");
+        let error = check_venv_library_needs(&parse_ldd_report(&report), VENV).unwrap_err();
+        assert!(error.contains("a.so: ldd listed no needed libraries"), "{error}");
+    }
+
+    #[test]
+    fn a_shared_object_with_no_needs_passes_when_ldd_says_statically_linked() {
+        // `numpy/_core/_operand_flag_tests` and two more objects of the venv have no `NEEDED`.
+        let report = format!("FILE {SITE}/numpy/_core/_operand_flag_tests.so\n\tstatically linked\n");
+        let libraries = parse_ldd_report(&report);
+        assert!(libraries[0].statically_linked);
+        assert_eq!(
+            check_venv_library_needs(&libraries, VENV),
+            Ok(LibrariesRead { libraries: 1, unresolved: 0 })
+        );
+    }
+
+    #[test]
+    fn the_listing_command_lists_the_native_libraries_of_the_given_venv() {
+        let cmd = venv_library_listing_command("/home/admin/taw-dist/libexec/venv");
+        assert!(cmd.starts_with("find /home/admin/taw-dist/libexec/venv -type f "), "{cmd}");
+        assert!(cmd.contains("-name '*.so' -o -name '*.so.*'"), "{cmd}");
+        assert!(cmd.contains("printf 'FILE %s\\n'"), "{cmd}");
+        assert!(cmd.contains("ldd \"$f\" 2>&1"), "{cmd}");
+        assert!(!cmd.contains("LD_LIBRARY_PATH"), "the loader must resolve as the daemon would: {cmd}");
     }
 
     fn list_with(backend: &str) -> Value {

@@ -47,6 +47,12 @@ python3 -m venv <run>/venv
 <run>/venv/bin/pip install --upgrade pip
 <run>/venv/bin/pip install easyocr==1.7.2 torch==2.12.0 torchvision==0.27.0
 
+# 2b. the library check: read what the loader resolves for each native library of the
+#     venv. The check fails on a needed library that resolves outside the venv and is
+#     neither in the C runtime nor a library of the stock server image.
+find <run>/venv -type f \( -name '*.so' -o -name '*.so.*' \) | sort |
+  while IFS= read -r f; do printf 'FILE %s\n' "$f"; ldd "$f" 2>&1; done
+
 # 3. drop the module beside the venv and pre-download the EasyOCR models
 #    (Reader() fetches CRAFT detector + recognizer on first construction)
 #    ocr_analyzer/ → <run>/ocr_analyzer/
@@ -57,6 +63,19 @@ TESTANYWARE_OCR_PYTHON=<run>/venv/bin/python \
 PYTHONPATH=<run> \
   testanyware screen find-text File --vnc <gw>:<port> --json
 ```
+
+The library check keeps the boundary that the stock server image proved. The Linux
+golden is a desktop image. A native library of the venv could load there only because
+the desktop has a library that a server image lacks. A library may resolve outside the
+venv when it is in the C runtime (`libc.so.6`, `libm.so.6`, `libpthread.so.0`,
+`libdl.so.2`, `libgcc_s.so.1`, `ld-linux-aarch64.so.1`) or in `SERVER_IMAGE_SONAMES` of
+the harness. That list holds `libstdc++.so.6`, `librt.so.1`, `libz.so.1` and the four
+RDMA libraries that `libcufile_rdma.so.1` needs. A probe of the stock server image
+showed each one. Add a library to the list only after the same probe shows it.
+
+A failure names the native library and the library that it needs. The harness reports
+it as a failed OCR check (`screen-find-text`). A need for which the loader found no
+file does not fail the check. No image holds that file, so the desktop does not hide it.
 
 The harness builds the venv again on each run and keeps no cache of it. The
 Windows harness uses the same recipe and module through the same kind of
