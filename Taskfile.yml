@@ -316,6 +316,26 @@ tasks:
     cmds:
       - scripts/release_candidate.py verify --dir target/candidates/{{.TAG}} --tag {{.TAG}}
 
+  release:linux-harness:
+    desc: 'Run the Linux host harness of ADR-0009 on the aarch64 Linux binary of a candidate: TAG=vX.Y.Z (macOS host). Verifies the candidate, unpacks its archive into target/candidates/<tag>.checks/linux, and runs the ignored test with TESTANYWARE_LINUX_HARNESS=1, TESTANYWARE_LINUX_BIN and the ffmpeg libraries of the archive. Prints the sha256 of the archive and of the binary. The x86_64 builds are build-only, by an accepted limit. Needs the TestAnyware app running with its Local Network alert allowed, a free macOS guest slot and the network. A long run'
+    requires:
+      vars: [TAG]
+    cmds:
+      - scripts/release_candidate.py verify --dir target/candidates/{{.TAG}} --tag {{.TAG}}
+      - |
+        set -eu
+        set -o pipefail
+        out="$PWD/target/candidates/{{.TAG}}.checks/linux"
+        archive="$PWD/target/candidates/{{.TAG}}/testanyware-{{.TAG}}-aarch64-unknown-linux-gnu.tar.xz"
+        rm -rf "$out"
+        mkdir -p "$out"
+        tar -xJf "$archive" -C "$out" --strip-components=1
+        shasum -a 256 "$archive" "$out/bin/testanyware"
+        cd cli-rs
+        TESTANYWARE_LINUX_HARNESS=1 TESTANYWARE_LINUX_BIN="$out/bin/testanyware" TESTANYWARE_FFMPEG_LIB_DIR="$out/lib" \
+          cargo test -p testanyware-cli --test linux-host-harness -- --ignored --nocapture linux_host_harness 2>&1 | tee "$out/harness.log"
+        grep -q '^test result: ok. 1 passed' "$out/harness.log" || { echo "the Linux harness did not report 1 passed test" >&2; exit 1; }
+
   release:app-verify:
     desc: 'Verify the release identity of an app bundle: APP=<bundle>. Bundle id dev.antony.TestAnyware, team TA43A4RUP3, hardened runtime, codesign --verify, spctl --assess as Notarized Developer ID, stapler validate. A development bundle fails'
     requires:
