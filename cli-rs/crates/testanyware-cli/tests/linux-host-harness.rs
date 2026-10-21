@@ -28,7 +28,8 @@
 //!   `vm stop` ends it.
 //! * The harness provisions the HUT through its In-VM agent ([`AgentChannel`]). The agent
 //!   client takes each connection from the app, as a guest stream by the HUT's id. The harness
-//!   uses no SSH and no tart clone of a stock image.
+//!   uses no SSH and no tart clone of a stock image. `linux_dist_install_layout` has the same
+//!   HUT, channel and forward.
 //! * The HUT must be a tart guest. A same-named qcow2 makes `vm start` choose QEMU. So after
 //!   the start the harness reads the HUT's `backend` from `vm list --json` ([`check_hut_backend`]).
 //!   When the backend is not `tart`, the harness stops the HUT, opens no forward and fails. The
@@ -91,7 +92,7 @@
 //! via [`parse_default_route`] over `ip route show default`. The forward, the
 //! route discovery, the band driver, and the endpoint targeting are the shared
 //! machinery the deferred Windows harness reuses — only [`ProvisionChannel`]
-//! differs there (ssh → in-VM agent).
+//! differs there.
 //!
 //! Two independent guards keep the normal suite VM-free, mirroring
 //! `live-vm-gate.rs`: the test is `#[ignore]`d, and even under `--ignored` it
@@ -147,16 +148,14 @@
 //!
 //! Built once here, swapped there: the **provisioning channel**
 //! ([`ProvisionChannel`]). `linux_host_harness` uses the agent channel
-//! ([`AgentChannel`]), as the Windows harness does. [`SshChannel`] stays for
-//! `linux_dist_install_layout`, until that test moves to the same HUT.
+//! ([`AgentChannel`]), as the Windows harness does. `linux_dist_install_layout` uses it too.
 //! Shared unchanged: the band driver ([`run_band`]) and the band classifier.
 
 #![cfg(target_os = "macos")]
-// `linux_dist_install_layout` still clones a stock OCI image via
-// `testanyware_vm::tart` directly, and `tart` is macOS-host only. The forward and
-// the golden also need a macOS host. So the whole file — including the offline unit
-// tests — compiles and runs only on the macOS host, which is also the only place a
-// "plain cargo test" ever runs (no Linux CI; local release on an arm64 Mac).
+// The macOS golden and the TestAnyware app need a macOS host. So the whole file —
+// including the offline unit tests — compiles and runs only on the macOS host, which
+// is also the only place a "plain cargo test" ever runs (no Linux CI; local release
+// on an arm64 Mac).
 
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -172,7 +171,7 @@ use testanyware_app_protocol::{StreamKind, StreamTarget};
 use testanyware_cli::app_route::{agent_client_with_timeout, open_guest_stream};
 use testanyware_cli::resolve::{app_socket_with_env, EnvProvider};
 use testanyware_protocol::ExecRequest;
-use testanyware_vm::{tart, ExecOutput, SshSession, VmPaths, VmSpec};
+use testanyware_vm::{ExecOutput, VmPaths, VmSpec};
 
 // ---------------------------------------------------------------------------
 // Gating + config
@@ -413,36 +412,17 @@ fn check_staged_libraries() -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// Provisioning channel seam (the node's reuse seam — Windows adds a 2nd impl)
+// Provisioning channel seam
 // ---------------------------------------------------------------------------
 
-/// The in-guest control channel. `linux_host_harness` uses the In-VM agent
-/// ([`AgentChannel`], as the Windows harness does). `linux_dist_install_layout`
-/// still uses ssh ([`SshChannel`]) until it moves to the same HUT. Kept minimal:
-/// exec a command, upload a file.
+/// The in-guest control channel. Both tests use the In-VM agent ([`AgentChannel`], as the
+/// Windows harness does). Kept minimal: exec a command, upload a file.
 #[allow(async_fn_in_trait)] // private test trait, single static-dispatch impl
 trait ProvisionChannel {
     /// Run `cmd` to completion, returning its captured streams + exit code.
     async fn exec(&self, cmd: &str) -> Result<ExecOutput, String>;
     /// Upload `local` to absolute `remote`.
     async fn upload(&self, local: &Path, remote: &str) -> Result<(), String>;
-}
-
-/// ssh-backed channel over the ADR-0007 `russh` [`SshSession`].
-struct SshChannel {
-    session: SshSession,
-}
-
-impl ProvisionChannel for SshChannel {
-    async fn exec(&self, cmd: &str) -> Result<ExecOutput, String> {
-        self.session.exec(cmd).await.map_err(|e| format!("ssh exec `{cmd}`: {e}"))
-    }
-    async fn upload(&self, local: &Path, remote: &str) -> Result<(), String> {
-        self.session
-            .upload(local, remote)
-            .await
-            .map_err(|e| format!("ssh upload {} -> {remote}: {e}", local.display()))
-    }
 }
 
 /// In-guest process timeout ceiling (seconds) for one `/exec`. Generous so the slow
@@ -513,124 +493,11 @@ async fn exec_ok(ch: &impl ProvisionChannel, cmd: &str) -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
-// The tart clone of a stock Ubuntu image — kept for `linux_dist_install_layout`
+// Staging the binary over the channel
 // ---------------------------------------------------------------------------
-//
-// `linux_host_harness` no longer uses this clone, `provision_ssh` or `SshChannel`. Its HUT is
-// the Linux golden, started through the app. `linux_dist_install_layout` still needs them, so
-// they stay until `dist-layout-golden-hut` moves that test to the same HUT.
-
-/// The stock base image cloned for each HUT (already pulled locally).
-const HUT_BASE: &str = "ghcr.io/cirruslabs/ubuntu:24.04";
-
-/// A running host-under-test clone. Dropping it stops + deletes the clone, so a
-/// panicking assertion never leaks a VM (mirrors `live-vm-gate.rs::VmGuard`).
-struct Hut {
-    id: String,
-    ip: String,
-}
-
-impl Hut {
-    /// Clone the stock Ubuntu base to a throwaway id, boot it detached, and
-    /// poll (state-gated, [[tart-ip-lies]]) for the guest IP.
-    fn launch() -> Result<Self, String> {
-        // testanyware-hut-<hex8>: distinct from goldens and from `vm`-managed
-        // clones, but still under the `testanyware-` prefix the runner expects.
-        let id = format!(
-            "testanyware-hut-{}",
-            testanyware_vm::generate_id()
-                .strip_prefix("testanyware-")
-                .unwrap_or("clone")
-        );
-        if tart::vm_exists(&id) {
-            tart::remove_existing(&id);
-        }
-        tart::clone(HUT_BASE, &id).map_err(|e| format!("tart clone {HUT_BASE} {id}: {e}"))?;
-
-        let log_dir = std::env::temp_dir().join("testanyware-linux-harness");
-        let (_pid, _log) = tart::run_detached(&id, &log_dir)
-            .map_err(|e| format!("tart run {id}: {e}"))?;
-
-        let ip = tart::poll_ip(&id, 60, Duration::from_secs(2)).ok_or_else(|| {
-            tart::remove_existing(&id);
-            format!("HUT {id} never reported a running IP")
-        })?;
-        eprintln!("[hut] {id} up at {ip}");
-        Ok(Self { id, ip })
-    }
-}
-
-impl Drop for Hut {
-    fn drop(&mut self) {
-        eprintln!("[hut] tearing down {}", self.id);
-        tart::remove_existing(&self.id);
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Provisioning: ssh in and install a pubkey (`linux_dist_install_layout` only), then
-// stage the binary + ffmpeg over any channel
-// ---------------------------------------------------------------------------
-
-/// Provision the HUT over ssh and return a key-authed [`SshChannel`] plus the
-/// tempdir holding the generated key (kept alive by the caller).
-///
-/// First-contact auth on the stock Cirrus image is `admin`/`admin` (the brief's
-/// claim, verified here at run time). We connect once with the password to
-/// install a freshly generated pubkey, then reconnect with key auth — exactly
-/// the macOS-golden pattern, and the one place the Linux harness exercises
-/// `SshSession::connect_key` on a Linux sshd.
-async fn provision_ssh(ip: &str) -> Result<(SshChannel, tempfile::TempDir), String> {
-    // Generate a throwaway ed25519 keypair with the system ssh-keygen.
-    let keydir = tempfile::tempdir().map_err(|e| format!("keydir: {e}"))?;
-    let key_path = keydir.path().join("id_ed25519");
-    let status = std::process::Command::new("ssh-keygen")
-        .args(["-t", "ed25519", "-N", "", "-q", "-f"])
-        .arg(&key_path)
-        .status()
-        .map_err(|e| format!("spawn ssh-keygen: {e}"))?;
-    if !status.success() {
-        return Err(format!("ssh-keygen exited {status}"));
-    }
-    let pub_path = key_path.with_extension("pub");
-    let pubkey = std::fs::read_to_string(&pub_path)
-        .map_err(|e| format!("read {}: {e}", pub_path.display()))?
-        .trim()
-        .to_string();
-
-    // Password session (verifies admin/admin first-contact auth).
-    let pw = SshSession::wait_for_password(ip, 22, "admin", "admin", 60, Duration::from_secs(2))
-        .await
-        .map_err(|e| format!("password auth admin/admin failed (first-contact): {e}"))?;
-    eprintln!("[provision] password auth ok; installing pubkey");
-    install_pubkey(&pw, &pubkey).await?;
-    drop(pw);
-
-    // Reconnect with key auth — exercises the russh pubkey path on Linux sshd.
-    let keyed = SshSession::connect_key(ip, 22, "admin", &key_path)
-        .await
-        .map_err(|e| format!("pubkey auth after install failed: {e}"))?;
-    eprintln!("[provision] pubkey auth ok");
-    Ok((SshChannel { session: keyed }, keydir))
-}
-
-/// Append `pubkey` to the remote's `authorized_keys` over an authenticated
-/// session. `single-quoted` because an OpenSSH pubkey contains no single quotes.
-async fn install_pubkey(session: &SshSession, pubkey: &str) -> Result<(), String> {
-    let cmd = format!(
-        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && \
-         printf '%s\\n' '{pubkey}' >> ~/.ssh/authorized_keys && \
-         chmod 600 ~/.ssh/authorized_keys"
-    );
-    let out = session.exec(&cmd).await.map_err(|e| format!("install pubkey: {e}"))?;
-    if out.exit_code != 0 {
-        return Err(format!("install pubkey exited {}: {}", out.exit_code, out.stderr.trim()));
-    }
-    Ok(())
-}
 
 /// Upload the cross binary + the ffmpeg `.so` bundle into [`RUN_DIR`] and mark
-/// the binary executable (SFTP does not preserve the exec bit).
+/// the binary executable.
 async fn stage_binary(ch: &impl ProvisionChannel) -> Result<(), String> {
     let bin = linux_bin_path();
     if !bin.is_file() {
@@ -1989,8 +1856,10 @@ async fn linux_host_harness() {
 //      `ocr_analyzer` from the venv's own site-packages (no `PYTHONPATH`),
 //      exactly as `scripts/templates/testanyware.rb.tmpl` installs it.
 //
-// Same gating + teardown as `linux_host_harness`; reuses its HUT, golden,
-// forward, and OCR-warm machinery — only the *layout* and the *absent env* differ.
+// Same gating, HUT, channel, forward and teardown as `linux_host_harness`: the HUT is the
+// Linux golden, started and provisioned through the app, and the golden's VNC reaches the
+// HUT through a forward that opens a guest stream of the app. Only the *layout* and the
+// *absent env* differ.
 
 /// Install-prefix root in the HUT (stands in for the Homebrew keg prefix).
 const DIST_PREFIX: &str = "/home/admin/taw-dist";
@@ -2050,6 +1919,11 @@ async fn stage_dist_binary(ch: &impl ProvisionChannel) -> Result<(), String> {
 /// `ocr_analyzer` project so `python -m ocr_analyzer` resolves from the venv's
 /// own site-packages with no `PYTHONPATH`. Pre-warms the EasyOCR models so the
 /// daemon's first recognize lands inside the bridge's 15s first-call deadline.
+///
+/// The easyocr install is [`ocr_pip_install_command`], the one of `provision_ocr`: it pins the
+/// torch pair that reads the frame on the Linux golden, and it keeps pip's cache off the disk of
+/// the clone. Right after it, the native libraries of the venv are checked
+/// ([`check_venv_libraries`]), because the golden is a desktop image.
 async fn provision_dist_venv(ch: &impl ProvisionChannel) -> Result<(), String> {
     let venv = format!("{DIST_PREFIX}/libexec/venv");
     let py = format!("{venv}/bin/python");
@@ -2068,16 +1942,30 @@ async fn provision_dist_venv(ch: &impl ProvisionChannel) -> Result<(), String> {
     exec_ok(ch, &format!("mkdir -p {DIST_PREFIX}/libexec")).await?;
     exec_ok(ch, &format!("python3 -m venv {venv}")).await?;
     exec_ok(ch, &format!("{pip} install --quiet --upgrade pip")).await?;
-    eprintln!("[dist] pip install {EASYOCR_PIN} (pulls torch; minutes) …");
-    let p = ch.exec(&format!("{pip} install --quiet {EASYOCR_PIN}")).await?;
+    eprintln!("[dist] pip install {EASYOCR_PIN} {OCR_TORCH_PINS} (pulls torch; minutes) …");
+    let p = ch.exec(&ocr_pip_install_command(&py)).await?;
     if p.exit_code != 0 {
         return Err(format!(
-            "pip install {EASYOCR_PIN} exited {} — aarch64-linux CPU torch wheels exist on PyPI, \
-             so suspect network/disk. stderr tail:\n{}",
+            "pip install {EASYOCR_PIN} {OCR_TORCH_PINS} exited {} — aarch64-linux CPU torch wheels \
+             exist on PyPI, so suspect network/disk. stderr tail:\n{}",
             p.exit_code,
             tail(&p.stderr),
         ));
     }
+
+    // 1b. the library check, as `provision_ocr` runs it: the golden is a desktop image, so a
+    //     native library of the venv could load there only because the desktop has a library
+    //     that a server image lacks. An error returns like a pip failure, and the caller
+    //     reports it as the install-layout OCR result.
+    let libraries = check_venv_libraries(ch, &venv)
+        .await
+        .map_err(|e| format!("the OCR library check failed: {e}"))?;
+    eprintln!(
+        "[dist] library check passed: read {} native libraries of the venv; each needs only \
+         libraries inside the venv, the C runtime or the stock server image ({} needs found no \
+         file)",
+        libraries.libraries, libraries.unresolved,
+    );
 
     // 2. upload the ocr_analyzer project (pyproject + src) and `pip install
     //    --no-deps` it — mirrors the formula's `pip install --no-deps pkgshare/ocr`.
@@ -2150,11 +2038,23 @@ async fn linux_dist_install_layout() {
         return;
     }
 
-    let hut = Hut::launch().unwrap_or_else(|e| panic!("HUT launch failed: {e}"));
-    let _guard = &hut;
-    let (channel, _keydir) = provision_ssh(&hut.ip)
+    // The libraries of the staged files, read before the HUT starts: a bad bundle costs no boot.
+    check_staged_libraries().unwrap_or_else(|e| panic!("library check failed: {e}"));
+    eprintln!("[libs] the binary and the bundled libraries need only bundled libraries and the C runtime");
+
+    // The HUT is the Linux golden, started through the app, as in `linux_host_harness`. The guard
+    // stops it on any exit, so a failed backend check or a panicking check never leaks the VM.
+    let hut_id = start_vm(HUT_PLATFORM, "hut").await;
+    let _hut_guard = VmGuard { id: hut_id.clone(), label: "hut" };
+    hut_backend_is_tart(&hut_id)
         .await
-        .unwrap_or_else(|e| panic!("provisioning failed: {e}"));
+        .unwrap_or_else(|e| panic!("HUT backend check failed: {e}"));
+    eprintln!("[hut] {hut_id} runs on tart");
+
+    // The agent client takes its connections from the app, by the HUT's id. `vm start` has
+    // already waited for the agent's health.
+    let channel = AgentChannel::to_vm(&hut_id)
+        .unwrap_or_else(|e| panic!("building the HUT agent channel failed: {e}"));
 
     stage_dist_binary(&channel)
         .await
@@ -2194,7 +2094,7 @@ async fn linux_dist_install_layout() {
         eprintln!("[dist] venv provisioning FAILED (find-text will report it): {e}");
     }
 
-    // ---- Golden + VNC forward (020 machinery, VNC only — OCR needs no agent) -
+    // ---- Golden + VNC forward (VNC only — OCR needs no agent) --------------
     eprintln!(
         "\nlinux_dist_install_layout: bringing up the {} golden + VNC forward …",
         golden_platform()
