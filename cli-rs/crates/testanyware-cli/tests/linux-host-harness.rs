@@ -45,11 +45,22 @@
 //!   server image holds. The failure names the native library and the library it needs. It reads
 //!   as a failed OCR check (`screen-find-text`), so it does not mask the driven band.
 //!
-//! The forward to the macOS golden has not changed. It still dials the golden from the test
-//! process. So run this test from Terminal with the app running and its Local Network alert
-//! allowed (`task app:bundle-dev`, then `open -n -g` on the bundle it prints). Without the app,
-//! each agent command fails with `APP_NOT_INSTALLED` or `APP_UNREACHABLE`. From a session that
-//! has no Local Network access, the run stops at the forward, after the HUT bands.
+//! * The harness reaches the macOS golden through a forward in the test process
+//!   ([`PortForward`]). For each accepted connection it opens a guest stream of the app by the
+//!   golden's id, with the agent kind or the VNC kind ([`open_guest_stream`]). It dials no
+//!   guest. The harness reads the golden's spec only for the VNC password, as the Host CLI does
+//!   for `--vm`.
+//! * The forward binds the HUT's gateway address and not `0.0.0.0`. It accepts only the HUT's
+//!   own address, the `src` of `ip route show default` ([`parse_default_route`]), and it closes
+//!   a connection from any other peer ([`peer_is_hut`]). The HUT is a tart guest, so the gateway
+//!   is the host and the `src` is the HUT.
+//!
+//! Accepting a connection needs no Local Network access. Only an outgoing dial does, and that
+//! dial belongs to the app (Apple TN3179). So the test runs from an agent session that has no
+//! Local Network access of its own. A person must have allowed the app once
+//! (`task app:bundle-dev`, then `open -n -g` on the bundle it prints). Without the app, each
+//! guest command fails with `APP_NOT_INSTALLED` or `APP_UNREACHABLE`. When the app has no
+//! grant, the app's stream error names the Local Network remedy, and the forward logs it.
 //!
 //! ## How to run
 //!
@@ -63,7 +74,7 @@
 //!
 //! # 2. run the harness. It starts the Linux golden as the HUT (`testanyware vm
 //! #    start --platform linux`), brings up a macOS golden (`--platform macos`),
-//! #    forwards the golden's agent + VNC through the host, and runs both bands:
+//! #    forwards the golden's agent + VNC to the HUT through the app, and runs both bands:
 //! TESTANYWARE_LINUX_HARNESS=1 cargo test -p testanyware-cli \
 //!   --test linux-host-harness -- --ignored linux_host_harness
 //! ```
@@ -72,15 +83,13 @@
 //!
 //! The endpoint-driven band needs a live agent/VNC endpoint. We bring up a real
 //! kept-built tart macOS golden via the host CLI subprocess (`vm start
-//! --platform macos --json`, matching `live-vm-gate.rs`), read its per-VM spec
-//! ([`VmSpec`]) for the golden's `agent {host,port}` + `vnc {host,port,password}`,
-//! and stand up an **in-process tokio TCP proxy** ([`PortForward`]) that binds
-//! `0.0.0.0:0` on the host and splices to the golden. The guest cannot route to
-//! the golden directly, but its default gateway *is* the host (ADR-0009), so the
+//! --platform macos --json`, matching `live-vm-gate.rs`) and stand up **in-process tokio
+//! listeners** ([`PortForward`]) that splice to guest streams of the app. The guest cannot
+//! route to the golden directly, but its default gateway *is* the host (ADR-0009), so the
 //! in-guest CLI targets `--agent <gateway>:<afwd>` / `--vnc <gateway>:<vfwd>`
-//! (+ `TESTANYWARE_VNC_PASSWORD`). The gateway is discovered in-guest via
-//! [`parse_default_gateway`] over `ip route show default`. The forward, the
-//! gateway discovery, the band driver, and the endpoint targeting are the shared
+//! (+ `TESTANYWARE_VNC_PASSWORD`). The gateway and the HUT's address are discovered in-guest
+//! via [`parse_default_route`] over `ip route show default`. The forward, the
+//! route discovery, the band driver, and the endpoint targeting are the shared
 //! machinery the deferred Windows harness reuses — only [`ProvisionChannel`]
 //! differs there (ssh → in-VM agent).
 //!
@@ -149,7 +158,8 @@
 // tests — compiles and runs only on the macOS host, which is also the only place a
 // "plain cargo test" ever runs (no Linux CI; local release on an arm64 Mac).
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
@@ -158,8 +168,8 @@ use serde_json::Value;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::watch;
 use testanyware_agent_client::AgentClient;
-use testanyware_app_protocol::StreamTarget;
-use testanyware_cli::app_route::agent_client_with_timeout;
+use testanyware_app_protocol::{StreamKind, StreamTarget};
+use testanyware_cli::app_route::{agent_client_with_timeout, open_guest_stream};
 use testanyware_cli::resolve::{app_socket_with_env, EnvProvider};
 use testanyware_protocol::ExecRequest;
 use testanyware_vm::{tart, ExecOutput, SshSession, VmPaths, VmSpec};
@@ -805,25 +815,46 @@ fn endpoint_free_cases() -> Vec<BandCase> {
 
 // --- host-gateway discovery (pure parse; unit-tested) ----------------------
 
-/// Extract the default gateway from `ip route show default` output. The guest's
-/// default route *is* the host on tart's NAT (ADR-0009), so this is the address
-/// the in-guest CLI dials to reach the host-side forward. The line looks like
-/// `default via 192.168.64.1 dev enp0s1 proto dhcp src 192.168.64.7 metric 100`
-/// — we take the token after `via`. Returns `None` if no default route is seen.
-fn parse_default_gateway(ip_route_output: &str) -> Option<String> {
-    for line in ip_route_output.lines() {
-        let mut head = line.split_whitespace();
-        if head.next() != Some("default") {
-            continue;
-        }
-        let mut toks = line.split_whitespace();
-        while let Some(tok) = toks.next() {
-            if tok == "via" {
-                return toks.next().map(str::to_string);
-            }
-        }
-    }
-    None
+/// The default route of the HUT, as the forward needs it: the gateway is the address the guest
+/// dials to reach the host, and `src` is the HUT's own address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DefaultRoute {
+    gateway: IpAddr,
+    hut: IpAddr,
+}
+
+/// Read the default route from `ip route show default`. The line looks like
+/// `default via 192.168.64.1 dev enp0s1 proto dhcp src 192.168.64.7 metric 100`. The token after
+/// `via` is the gateway. On tart's NAT that is the host (ADR-0009). The token after `src` is the
+/// HUT's own address. The forward binds the first and accepts only the second. A line without a
+/// gateway or without a `src` is an error, because the forward could not tell the HUT from any
+/// other peer on the bridge.
+fn parse_default_route(ip_route_output: &str) -> Result<DefaultRoute, String> {
+    let line = ip_route_output
+        .lines()
+        .find(|line| line.split_whitespace().next() == Some("default"))
+        .ok_or_else(|| format!("no default route in `ip route show default`: {:?}", ip_route_output.trim()))?;
+    let token_after = |key: &str| {
+        let mut tokens = line.split_whitespace();
+        tokens.find(|t| *t == key)?;
+        tokens.next()
+    };
+    let address = |key: &str| -> Result<IpAddr, String> {
+        let token = token_after(key)
+            .ok_or_else(|| format!("the default route has no `{key}` address: {line:?}"))?;
+        token
+            .parse()
+            .map_err(|e| format!("the `{key}` of the default route is not an IP address ({token:?}): {e}"))
+    };
+    Ok(DefaultRoute { gateway: address("via")?, hut: address("src")? })
+}
+
+/// The forward accepts a connection only from the HUT itself. Any other peer on the bridge, such
+/// as another guest, is closed. TN3179 says that accepting a connection needs no Local Network
+/// access, so this check is the whole of the forward's access control. The comparison treats an
+/// IPv4-mapped IPv6 address as its IPv4 form.
+fn peer_is_hut(peer: IpAddr, hut: IpAddr) -> bool {
+    peer.to_canonical() == hut.to_canonical()
 }
 
 /// Parse `od -An -tx1` hex output (space-separated two-digit bytes) into bytes.
@@ -837,8 +868,8 @@ fn parse_od_hex(od_output: &str) -> Vec<u8> {
         .collect()
 }
 
-/// Discover the in-guest host-gateway address over the channel.
-async fn discover_gateway(ch: &impl ProvisionChannel) -> Result<String, String> {
+/// Discover the default route of the HUT over the channel.
+async fn discover_route(ch: &impl ProvisionChannel) -> Result<DefaultRoute, String> {
     let out = ch.exec("ip route show default").await?;
     if out.exit_code != 0 {
         return Err(format!(
@@ -847,19 +878,30 @@ async fn discover_gateway(ch: &impl ProvisionChannel) -> Result<String, String> 
             out.stderr.trim()
         ));
     }
-    parse_default_gateway(&out.stdout).ok_or_else(|| {
-        format!("no default gateway in `ip route show default`: {:?}", out.stdout.trim())
-    })
+    parse_default_route(&out.stdout)
 }
 
-// --- the in-process host→golden TCP forward (the reusable machinery) --------
+// --- the in-process host→golden forward (the reusable machinery) -----------
 
-/// An in-process tokio TCP proxy: binds `0.0.0.0:0` on the host and splices each
-/// inbound connection to `target` (a golden endpoint). Bound on `0.0.0.0` — not
-/// `127.0.0.1` — so the guest reaches it via the host-gateway. Dropping it
-/// signals shutdown and aborts the accept loop, so no listener leaks across
-/// tests. This is pure Rust (no `socat`/`ssh -L`) and is exactly the machinery
-/// the deferred Windows harness reuses unchanged.
+/// Where a forward listens, whom it accepts and what each accepted connection becomes.
+struct ForwardPlan {
+    /// The HUT's gateway address, the one the guest dials to reach the host.
+    bind: IpAddr,
+    /// The HUT's own address. The forward closes a connection from any other peer.
+    hut: IpAddr,
+    /// The socket of the TestAnyware app.
+    socket: PathBuf,
+    /// The guest that each accepted connection reaches, by id.
+    target: StreamTarget,
+    kind: StreamKind,
+}
+
+/// An in-process tokio listener. It binds the HUT's gateway address, not `0.0.0.0`, and accepts
+/// only the HUT's own address. For each accepted connection it opens a guest stream of the
+/// TestAnyware app by the golden's id and splices the two. The test process dials no guest, so
+/// it needs no Local Network access: accepting needs none, and the dial belongs to the app
+/// (TN3179). Dropping the forward signals shutdown and aborts the accept loop, so no listener
+/// leaks across tests. It lives for one harness run.
 struct PortForward {
     local_port: u16,
     shutdown: watch::Sender<bool>,
@@ -868,17 +910,23 @@ struct PortForward {
 }
 
 impl PortForward {
-    async fn spawn(label: &'static str, target: SocketAddr) -> Result<Self, String> {
-        let listener = TcpListener::bind(("0.0.0.0", 0u16))
+    async fn spawn(label: &'static str, plan: ForwardPlan) -> Result<Self, String> {
+        let listener = TcpListener::bind(SocketAddr::new(plan.bind, 0))
             .await
-            .map_err(|e| format!("bind forward [{label}]: {e}"))?;
+            .map_err(|e| format!("bind forward [{label}] on {}: {e}", plan.bind))?;
         let local_port = listener
             .local_addr()
             .map_err(|e| format!("local_addr [{label}]: {e}"))?
             .port();
         let (tx, rx) = watch::channel(false);
-        let accept_task = tokio::spawn(forward_accept_loop(label, listener, target, rx));
-        eprintln!("[forward] {label}: 0.0.0.0:{local_port} -> {target}");
+        eprintln!(
+            "[forward] {label}: {}:{local_port} accepts {} only -> {:?} {} stream of the app",
+            plan.bind,
+            plan.hut,
+            plan.target,
+            plan.kind.as_str(),
+        );
+        let accept_task = tokio::spawn(forward_accept_loop(label, listener, plan, rx));
         Ok(Self { local_port, shutdown: tx, accept_task, label })
     }
 }
@@ -891,21 +939,28 @@ impl Drop for PortForward {
     }
 }
 
-/// Accept connections until shutdown, spawning a bidirectional splice per conn.
+/// Accept connections until shutdown. A connection from a peer other than the HUT is closed at
+/// once. Each other connection gets a splice task.
 async fn forward_accept_loop(
     label: &'static str,
     listener: TcpListener,
-    target: SocketAddr,
+    plan: ForwardPlan,
     mut shutdown: watch::Receiver<bool>,
 ) {
+    let plan = Arc::new(plan);
     loop {
         tokio::select! {
             _ = shutdown.changed() => break,
             accepted = listener.accept() => match accepted {
                 Ok((inbound, peer)) => {
+                    if !peer_is_hut(peer.ip(), plan.hut) {
+                        eprintln!("[forward] {label} closed a connection from {peer}: not the HUT {}", plan.hut);
+                        continue;
+                    }
                     let sd = shutdown.clone();
+                    let plan = Arc::clone(&plan);
                     tokio::spawn(async move {
-                        if let Err(e) = forward_splice(inbound, target, sd).await {
+                        if let Err(e) = forward_splice(inbound, &plan, sd).await {
                             eprintln!("[forward] {label} conn from {peer}: {e}");
                         }
                     });
@@ -919,22 +974,50 @@ async fn forward_accept_loop(
     }
 }
 
-/// Connect to `target` and `copy_bidirectional` until either side EOFs or
-/// shutdown fires.
+/// Open a guest stream of the app for the plan's target and kind, then `copy_bidirectional`
+/// until either side EOFs or shutdown fires.
 async fn forward_splice(
     mut inbound: TcpStream,
-    target: SocketAddr,
+    plan: &ForwardPlan,
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<(), String> {
-    let mut outbound = TcpStream::connect(target)
+    let mut outbound = open_guest_stream(plan.socket.clone(), &plan.target, plan.kind)
         .await
-        .map_err(|e| format!("connect {target}: {e}"))?;
+        .map_err(|e| {
+            format!(
+                "guest stream {:?} {}: {} ({}){}",
+                plan.target,
+                plan.kind.as_str(),
+                e.message,
+                e.code,
+                e.remediation.map(|r| format!(" {r}")).unwrap_or_default(),
+            )
+        })?;
     tokio::select! {
         r = tokio::io::copy_bidirectional(&mut inbound, &mut outbound) => {
             r.map(|_| ()).map_err(|e| format!("splice: {e}"))
         }
         _ = shutdown.changed() => Ok(()),
     }
+}
+
+/// The plan of a forward from the HUT's route to the golden `golden_id`. It binds the gateway
+/// address and accepts the HUT's address, whatever else the host listens on.
+fn forward_plan(route: DefaultRoute, socket: PathBuf, golden_id: &str, kind: StreamKind) -> ForwardPlan {
+    ForwardPlan {
+        bind: route.gateway,
+        hut: route.hut,
+        socket,
+        target: StreamTarget::Vm { id: golden_id.to_string() },
+        kind,
+    }
+}
+
+/// [`forward_plan`] for the app on this host.
+fn forward_plan_here(route: DefaultRoute, golden_id: &str, kind: StreamKind) -> Result<ForwardPlan, String> {
+    let socket = app_socket_with_env(&EnvProvider::process())
+        .ok_or("this host has no TestAnyware app socket")?;
+    Ok(forward_plan(route, socket, golden_id, kind))
 }
 
 // --- the macOS golden endpoint (host CLI subprocess + spec read) ------------
@@ -958,13 +1041,6 @@ async fn host_run(args: &[&str]) -> Output {
         .await
         .expect("spawn_blocking join")
         .unwrap_or_else(|e| panic!("failed to invoke host `{HOST_BIN} {shown}`: {e}"))
-}
-
-/// The golden's host-reachable endpoints, read from its per-VM spec.
-struct GoldenEndpoints {
-    agent: SocketAddr,
-    vnc: SocketAddr,
-    vnc_password: Option<String>,
 }
 
 /// Stops a VM via `vm stop <id>` on drop, so a panicking check never leaks a running VM. It
@@ -1067,27 +1143,14 @@ async fn hut_backend_is_tart(id: &str) -> Result<(), String> {
     check_hut_backend(&list, id)
 }
 
-/// Read the golden's per-VM spec (written by `vm start`) and resolve its agent +
-/// VNC endpoints to host-reachable [`SocketAddr`]s. The forward splices to these.
-async fn golden_endpoints(id: &str) -> Result<GoldenEndpoints, String> {
+/// Read the VNC password from the golden's per-VM spec (written by `vm start`). It is the only
+/// field of the spec that the harness reads: the app reaches the golden's endpoints itself, and
+/// the Host CLI reads the spec for the password in the same way for `--vm`.
+fn golden_vnc_password(id: &str) -> Result<String, String> {
     let spec_path = VmPaths::from_process_env().spec_path(id);
     let spec = VmSpec::load(&spec_path)
         .map_err(|e| format!("load golden spec {}: {e}", spec_path.display()))?;
-    let agent_spec = spec.agent.ok_or_else(|| {
-        format!("golden spec {} has no agent endpoint (agent unreachable at start?)", spec_path.display())
-    })?;
-    let agent = to_socket_addr(&agent_spec.host, agent_spec.port).await?;
-    let vnc = to_socket_addr(&spec.vnc.host, spec.vnc.port).await?;
-    Ok(GoldenEndpoints { agent, vnc, vnc_password: spec.vnc.password })
-}
-
-/// Resolve `host:port` (an IP for tart goldens) to a single [`SocketAddr`].
-async fn to_socket_addr(host: &str, port: u16) -> Result<SocketAddr, String> {
-    tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|e| format!("resolve {host}:{port}: {e}"))?
-        .next()
-        .ok_or_else(|| format!("no address resolved for {host}:{port}"))
+    Ok(spec.vnc.password.unwrap_or_default())
 }
 
 /// Whether a snapshot shows the Finder menu bar with a `File` item — the
@@ -1830,25 +1893,31 @@ async fn linux_host_harness() {
     wait_for_golden_ready(&golden_id, Duration::from_secs(120))
         .await
         .unwrap_or_else(|e| panic!("golden readiness wait failed: {e}"));
-    let endpoints = golden_endpoints(&golden_id)
-        .await
-        .unwrap_or_else(|e| panic!("reading the golden endpoints failed: {e}"));
+    let vnc_pw = golden_vnc_password(&golden_id)
+        .unwrap_or_else(|e| panic!("reading the golden VNC password failed: {e}"));
 
-    let gateway = discover_gateway(&channel)
+    let route = discover_route(&channel)
         .await
-        .unwrap_or_else(|e| panic!("host-gateway discovery failed: {e}"));
-    eprintln!("[forward] guest reaches the host-gateway at {gateway}");
+        .unwrap_or_else(|e| panic!("default-route discovery failed: {e}"));
+    eprintln!("[forward] the HUT {} reaches the host-gateway at {}", route.hut, route.gateway);
 
-    let agent_fwd = PortForward::spawn("agent", endpoints.agent)
-        .await
-        .unwrap_or_else(|e| panic!("agent forward setup failed: {e}"));
-    let vnc_fwd = PortForward::spawn("vnc", endpoints.vnc)
-        .await
-        .unwrap_or_else(|e| panic!("vnc forward setup failed: {e}"));
+    let agent_fwd = PortForward::spawn(
+        "agent",
+        forward_plan_here(route, &golden_id, StreamKind::Agent)
+            .unwrap_or_else(|e| panic!("agent forward plan failed: {e}")),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("agent forward setup failed: {e}"));
+    let vnc_fwd = PortForward::spawn(
+        "vnc",
+        forward_plan_here(route, &golden_id, StreamKind::Vnc)
+            .unwrap_or_else(|e| panic!("vnc forward plan failed: {e}")),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("vnc forward setup failed: {e}"));
 
-    let agent_ep = format!("{gateway}:{}", agent_fwd.local_port);
-    let vnc_ep = format!("{gateway}:{}", vnc_fwd.local_port);
-    let vnc_pw = endpoints.vnc_password.clone().unwrap_or_default();
+    let agent_ep = format!("{}:{}", route.gateway, agent_fwd.local_port);
+    let vnc_ep = format!("{}:{}", route.gateway, vnc_fwd.local_port);
 
     // Order: agent HTTP, then read-only screen (size/capture/record), then the
     // mutating input family last (mirrors live-vm-gate's read-before-write).
@@ -2135,17 +2204,19 @@ async fn linux_dist_install_layout() {
     wait_for_golden_ready(&golden_id, Duration::from_secs(120))
         .await
         .unwrap_or_else(|e| panic!("golden readiness wait failed: {e}"));
-    let endpoints = golden_endpoints(&golden_id)
+    let vnc_pw = golden_vnc_password(&golden_id)
+        .unwrap_or_else(|e| panic!("reading the golden VNC password failed: {e}"));
+    let route = discover_route(&channel)
         .await
-        .unwrap_or_else(|e| panic!("reading the golden endpoints failed: {e}"));
-    let gateway = discover_gateway(&channel)
-        .await
-        .unwrap_or_else(|e| panic!("host-gateway discovery failed: {e}"));
-    let vnc_fwd = PortForward::spawn("vnc", endpoints.vnc)
-        .await
-        .unwrap_or_else(|e| panic!("vnc forward setup failed: {e}"));
-    let vnc_ep = format!("{gateway}:{}", vnc_fwd.local_port);
-    let vnc_pw = endpoints.vnc_password.clone().unwrap_or_default();
+        .unwrap_or_else(|e| panic!("default-route discovery failed: {e}"));
+    let vnc_fwd = PortForward::spawn(
+        "vnc",
+        forward_plan_here(route, &golden_id, StreamKind::Vnc)
+            .unwrap_or_else(|e| panic!("vnc forward plan failed: {e}")),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("vnc forward setup failed: {e}"));
+    let vnc_ep = format!("{}:{}", route.gateway, vnc_fwd.local_port);
 
     // ---- Delta 2: install-layout OCR ---------------------------------------
     let find_text = match &venv {
@@ -2314,17 +2385,76 @@ mod helper_tests {
         );
     }
 
+    const TART_ROUTE: &str = "default via 192.168.64.1 dev enp0s1 proto dhcp src 192.168.64.7 metric 100\n\
+                              192.168.64.0/24 dev enp0s1 proto kernel scope link src 192.168.64.7";
+
+    fn ip(text: &str) -> IpAddr {
+        text.parse().unwrap()
+    }
+
     #[test]
-    fn parses_default_gateway_from_ip_route() {
-        let out = "default via 192.168.64.1 dev enp0s1 proto dhcp src 192.168.64.7 metric 100\n\
-                   192.168.64.0/24 dev enp0s1 proto kernel scope link src 192.168.64.7";
-        assert_eq!(parse_default_gateway(out).as_deref(), Some("192.168.64.1"));
-        // No default route → None (don't misread a non-default line).
-        assert_eq!(
-            parse_default_gateway("10.0.0.0/24 dev eth0 proto kernel scope link src 10.0.0.5"),
-            None
-        );
-        assert_eq!(parse_default_gateway(""), None);
+    fn the_forward_binds_the_gateway_address_of_the_default_route() {
+        let route = parse_default_route(TART_ROUTE).unwrap();
+        assert_eq!(route.gateway, ip("192.168.64.1"));
+        // The bind address is never the wildcard address of the old forward.
+        assert!(!route.gateway.is_unspecified());
+    }
+
+    #[test]
+    fn the_forward_accepts_the_src_address_of_the_default_route() {
+        // The `src` of the default line, not the `src` of the kernel route below it.
+        let route = parse_default_route(TART_ROUTE).unwrap();
+        assert_eq!(route.hut, ip("192.168.64.7"));
+        let other_src_first = "192.168.64.0/24 dev enp0s1 proto kernel scope link src 192.168.64.9\n\
+                               default via 192.168.64.1 dev enp0s1 src 192.168.64.7";
+        assert_eq!(parse_default_route(other_src_first).unwrap().hut, ip("192.168.64.7"));
+    }
+
+    #[test]
+    fn a_forward_plan_binds_the_gateway_and_accepts_the_hut_for_the_golden_by_id() {
+        let route = parse_default_route(TART_ROUTE).unwrap();
+        let plan = forward_plan(route, PathBuf::from("/app.sock"), "testanyware-1234", StreamKind::Vnc);
+        assert_eq!(plan.bind, ip("192.168.64.1"));
+        assert_eq!(plan.hut, ip("192.168.64.7"));
+        assert_eq!(plan.target, StreamTarget::Vm { id: "testanyware-1234".into() });
+        assert_eq!(plan.kind, StreamKind::Vnc);
+        assert!(!plan.bind.is_unspecified());
+    }
+
+    #[test]
+    fn the_hut_itself_passes_the_peer_check() {
+        let route = parse_default_route(TART_ROUTE).unwrap();
+        assert!(peer_is_hut(ip("192.168.64.7"), route.hut));
+        // An IPv4 peer that a dual-stack listener reports in mapped form is still the HUT.
+        assert!(peer_is_hut(ip("::ffff:192.168.64.7"), route.hut));
+    }
+
+    #[test]
+    fn a_foreign_peer_fails_the_peer_check() {
+        let route = parse_default_route(TART_ROUTE).unwrap();
+        // Another guest on the bridge, the host itself, a loopback client and an outside address.
+        for peer in ["192.168.64.8", "192.168.64.1", "127.0.0.1", "10.0.0.5", "::1"] {
+            assert!(!peer_is_hut(ip(peer), route.hut), "{peer} must not pass the peer check");
+        }
+    }
+
+    #[test]
+    fn a_missing_default_route_is_an_error_and_not_a_guess() {
+        let err = parse_default_route("10.0.0.0/24 dev eth0 proto kernel scope link src 10.0.0.5")
+            .unwrap_err();
+        assert!(err.contains("no default route"), "got: {err}");
+        assert!(parse_default_route("").unwrap_err().contains("no default route"));
+    }
+
+    #[test]
+    fn a_default_route_without_a_gateway_or_a_src_is_an_error() {
+        // Without `src` the forward could not tell the HUT from any other peer.
+        let no_src = parse_default_route("default via 192.168.64.1 dev enp0s1 proto dhcp").unwrap_err();
+        assert!(no_src.contains("`src`"), "got: {no_src}");
+        let no_via = parse_default_route("default dev enp0s1 scope link src 192.168.64.7").unwrap_err();
+        assert!(no_via.contains("`via`"), "got: {no_via}");
+        let not_an_address = parse_default_route("default via gateway src 192.168.64.7").unwrap_err();
+        assert!(not_an_address.contains("not an IP address"), "got: {not_an_address}");
     }
 
     #[test]
