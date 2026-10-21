@@ -155,14 +155,23 @@ check_rustup_cross_targets() {
     remediation "install via https://rustup.rs, then 'rustup target add ${CROSS_RUST_TARGETS[*]}'"
     return
   fi
-  local installed triple
-  installed="$(rustup target list --installed 2>/dev/null || echo)"
+  # Check the std library in the sysroot of the compiler that release-build.sh
+  # will run: the toolchain of cli-rs/rust-toolchain.toml, first on PATH. The
+  # target list of the default toolchain says nothing about that one.
+  local cli_rs cargo_bin sysroot triple
+  cli_rs="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/cli-rs"
+  if ! cargo_bin="$(cd "$cli_rs" && rustup which cargo 2>/dev/null)"; then
+    mark_fail "rustup: no toolchain for $cli_rs"
+    remediation "rustup toolchain install stable"
+    return
+  fi
+  sysroot="$(PATH="$(dirname "$cargo_bin"):$PATH" rustc --print sysroot)"
   for triple in "${CROSS_RUST_TARGETS[@]}"; do
-    if grep -qx "$triple" <<<"$installed"; then
+    if [[ -d "$sysroot/lib/rustlib/$triple" ]]; then
       mark_pass "rustup target: $triple"
     else
-      mark_fail "rustup target: $triple not installed"
-      remediation "rustup target add $triple"
+      mark_fail "rustup target: $triple has no std in $sysroot"
+      remediation "(cd cli-rs && rustup target add $triple)"
     fi
   done
 }

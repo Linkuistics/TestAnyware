@@ -100,6 +100,17 @@ APP_ZIP=""
 readonly CLI_RS="$REPO_ROOT/cli-rs"
 readonly CARGO_TOML="$CLI_RS/Cargo.toml"
 
+# cli-rs/rust-toolchain.toml pins the toolchain through rustup, and only rustup
+# holds the cross std targets. A Homebrew rustc earlier on PATH has none, so
+# cargo-zigbuild fails with "can't find crate for core". Put the pinned
+# toolchain first, as release-doctor.sh does when it checks the targets.
+if command -v rustup >/dev/null 2>&1; then
+  RUSTUP_CARGO="$(cd "$CLI_RS" && rustup which cargo)" \
+    || { echo "release-build: rustup cannot name the toolchain of $CLI_RS" >&2; exit 1; }
+  PATH="$(dirname "$RUSTUP_CARGO"):$PATH"
+  export PATH
+fi
+
 readonly MACOS_TARGET="aarch64-apple-darwin"
 # Linux cross targets. aarch64 is first-class (harness-runtime-verified);
 # x86_64 is build/link-verified only (no native x86_64 guest here).
