@@ -14,7 +14,7 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
 - When the app is unreachable, a command fails and says why. No command falls
   back to a direct connection on macOS.
 - Linux and Windows hosts keep the direct path of today. The release ships no Windows host
-  binary (the owner decided on 2026-10-21; a Windows host is future work and will use WSL). The
+  binary (the owner decided on 2026-10-21). A Windows host is future work and will use WSL. The
   x86_64 Linux archive is build-verified only.
 - VMs outlive the app, and the app adopts them when it starts again.
 - Each command, flag, environment variable, VM id, exit code and `--json` field
