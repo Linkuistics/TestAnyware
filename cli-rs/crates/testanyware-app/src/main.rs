@@ -24,6 +24,10 @@ use std::sync::Arc;
 use clap::Parser;
 #[cfg(unix)]
 use testanyware_app::config::{stat_file, AppConfig};
+#[cfg(all(unix, target_os = "macos"))]
+use testanyware_app::default_file::plan;
+#[cfg(unix)]
+use testanyware_app::default_file::{write_if_absent, Written};
 #[cfg(unix)]
 use testanyware_app::gate::AppIdentity;
 #[cfg(unix)]
@@ -114,6 +118,8 @@ struct Paths {
     data_dir: PathBuf,
     /// The file the app evaluates, if any.
     config: ConfigLocation,
+    /// The default file and its text, when this run may write it before it evaluates.
+    default_file: Option<(PathBuf, String)>,
     /// Where the app looks for the tools it runs, before `config.rhai` locates any.
     tools: ToolSearch,
 }
@@ -132,6 +138,8 @@ fn main() -> ExitCode {
             config: args
                 .config
                 .map_or(ConfigLocation::Disabled, ConfigLocation::File),
+            // A test-mode run writes nothing, so a test keeps its file or its absent file.
+            default_file: None,
             tools: if args.tool_dirs.is_empty() {
                 ToolSearch::builtin()
             } else {
@@ -166,6 +174,20 @@ fn main() -> ExitCode {
         }
     };
 
+    // The default file is written first, so the app evaluates the file it wrote and reports no
+    // change. A failed write leaves the app as with no file.
+    if let Some((file, text)) = &paths.default_file {
+        match write_if_absent(file, text) {
+            Ok(Written::Created) => {
+                eprintln!("testanyware-app: wrote the default {}", file.display());
+            }
+            Ok(Written::EntryThere) => {}
+            Err(error) => eprintln!(
+                "testanyware-app: cannot write the default {}: {error}",
+                file.display()
+            ),
+        }
+    }
     // The app evaluates the file once, here. A restart reloads it. A file that fails leaves the
     // built-in directories and tools, and the menu and the status show the error.
     let config = AppConfig::evaluate_now(&paths.config);
@@ -271,13 +293,16 @@ fn app_paths() -> Option<Paths> {
     // The built-in directories come from HOME alone, as the directory check of golden creation
     // assumes. `config.rhai` is the one way to move them.
     let vm_paths = VmPaths::builtin_for_home(&home);
+    let config = locate(&|key| std::env::var(key).ok());
+    let default_file = plan(&|key| std::env::var(key).ok(), &config, Some(&home));
     Some(Paths {
         socket: default_socket_path(&home),
         state_dir: vm_paths.state_dir().to_path_buf(),
         data_dir: vm_paths.data_dir().to_path_buf(),
         // The app's environment is the one the login item gives it. `TESTANYWARE_CONFIG` is the
         // variable for tests that names another file, or none.
-        config: locate(&|key| std::env::var(key).ok()),
+        config,
+        default_file,
         // The app has no shell environment, so it reads no `PATH`.
         tools: ToolSearch::builtin(),
     })

@@ -75,3 +75,11 @@ a command fails with `APP_INCOMPATIBLE` and cause `directories`. A file that
 fails gives `CONFIG_INVALID`, except in `testanyware doctor`, which reports it.
 The app reads the file when it starts, so quit TestAnyware and open it again
 after an edit.
+
+When the app starts and finds no entry at `~/.config/testanyware/config.rhai`,
+it writes a file there. The file holds comments that name each setting, and an
+empty map, so it changes no setting. A person removes the `//` in front of an
+example line to use that setting. The app never replaces an entry at that path.
+If a person deletes the file, the app writes it again at its next start. The app
+writes nothing for a file that `TESTANYWARE_CONFIG` names. The Host CLI never
+writes the file, so a Linux or Windows host gets no written file.

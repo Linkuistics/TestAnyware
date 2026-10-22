@@ -200,7 +200,10 @@ a loop. Read `remediation` in the `--json` envelope.
 | `CONNECTION_REFUSED` or `VM_BOOT_TIMEOUT` (7): `local_network_denied` | A person allows TestAnyware in System Settings, Privacy & Security, Local Network |
 
 `config.rhai` is optional. Its keys are `tools` (`tart`, `qemu-system-aarch64`,
-`swtpm`), `state_dir` and `data_dir`, each an absolute path.
+`swtpm`), `state_dir` and `data_dir`, each an absolute path. On a macOS host the
+app writes a file of comments and an empty map when it starts and finds none, so
+the file exists after the first start. That file changes no setting, and the app
+never replaces a file. The Host CLI never writes it.
 
 **Golden creation** connects to the guest itself. Run `vm create-golden` from
 Terminal, which has Local Network access. Under a harness that macOS refuses, it

@@ -369,6 +369,35 @@ fn a_file_that_does_not_exist_is_no_error() {
     assert_eq!(configuration["state"], "absent");
     assert_eq!(configuration["file"], app.config.to_str().unwrap());
     assert_eq!(configuration["error"], Value::Null);
+    // A test-mode run writes nothing, so the absent file stays absent (spec "Configuration").
+    assert!(!app.config.exists());
+}
+
+#[test]
+fn a_test_mode_run_without_config_writes_no_file_at_the_default_place() {
+    let _serial = serial();
+    let tmp = tempfile::tempdir().unwrap();
+    let home = tmp.path().join("home");
+    std::fs::create_dir_all(&home).unwrap();
+    let socket = tmp.path().join("run").join("testanyware.sock");
+    let mut cmd = Command::new(APP);
+    cmd.args(["--test-mode", "--socket"])
+        .arg(&socket)
+        .arg("--state-dir")
+        .arg(tmp.path().join("state"))
+        .arg("--data-dir")
+        .arg(tmp.path().join("data"))
+        .env("HOME", &home)
+        .env_remove("TESTANYWARE_CONFIG")
+        .stderr(Stdio::null());
+    let mut child = cmd.spawn().expect("spawn the app");
+    wait_for_socket(&socket, &mut child);
+    let _ = request(&socket, "/v1/status", None);
+    let _ = child.kill();
+    let _ = child.wait();
+
+    // The home directory is as empty as it was: no `.config`, no file.
+    assert_eq!(std::fs::read_dir(&home).unwrap().count(), 0);
 }
 
 #[test]

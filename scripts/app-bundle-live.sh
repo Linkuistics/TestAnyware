@@ -10,7 +10,10 @@
 #   2. Build the development bundle (scripts/build-app.sh dev) and check its Info.plist.
 #   3. `open` the bundle, as macOS starts a login item, and wait for `GET /v1/status`.
 #   4. Check that `build` in the status is the bundle's version, and that the socket file
-#      is mode 0600 in a directory of mode 0700.
+#      is mode 0600 in a directory of mode 0700. When the user had no config.rhai before the
+#      open, check that the app wrote ~/.config/testanyware/config.rhai and that the status
+#      reports it as loaded (spec "Configuration"). The open runs with TESTANYWARE_CONFIG unset,
+#      because a file that it names is never written.
 #   5. Read the status item's menu through System Events. Without the Accessibility grant for
 #      the terminal this step reports SKIP, and the run still passes.
 #   6. Quit through the Apple event that the Dock's Quit sends, and check that the process
@@ -73,7 +76,12 @@ version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist
 echo "app-bundle-live: ok   built $bundle ($version)"
 
 # 3
-open -n -g "$bundle"
+# The app writes the default config.rhai when it finds none. Note whether the user had an entry,
+# so that step 4 checks the write only on a Mac that had none.
+default_config="$HOME/.config/testanyware/config.rhai"
+had_config=0
+if [[ -e "$default_config" || -L "$default_config" ]]; then had_config=1; fi
+env -u TESTANYWARE_CONFIG open -n -g "$bundle"
 started=1
 body=
 for _ in $(seq 1 50); do
@@ -94,6 +102,15 @@ case "$configuration" in
   *) fail "the status reports configuration \"$configuration\", and the user's own file is absent or it loads." ;;
 esac
 echo "app-bundle-live: ok   the status reports the configuration ($configuration)"
+if ((! had_config)); then
+  [[ -f "$default_config" ]] ||
+    fail "the app found no $default_config and did not write it."
+  [[ "$configuration" == loaded ]] ||
+    fail "the app wrote $default_config, and the status reports configuration \"$configuration\" and not loaded."
+  [[ "$(jq -r .configuration.changed_since_evaluation <<<"$body")" == false ]] ||
+    fail "the status reports that the file changed since the evaluation: $(jq -c .configuration <<<"$body")"
+  echo "app-bundle-live: ok   the app wrote $default_config and evaluated it"
+fi
 pgrep -f "$bundle/Contents/MacOS/testanyware-app" >/dev/null ||
   fail "no process runs the bundle's executable."
 [[ "$(stat -f %Lp "$socket")" == 600 ]] || fail "the socket file is not mode 0600."

@@ -8,9 +8,11 @@
 //! variable, file, built-in default) belongs to the caller, because the Host CLI and the app
 //! order them differently.
 
+mod default_file;
 mod evaluate;
 mod location;
 
+pub use default_file::default_text;
 pub use evaluate::{evaluate, MAX_OPERATIONS};
 pub use location::{load, locate, ConfigLocation, Loaded, CONFIG_ENV, DEFAULT_RELATIVE_PATH};
 

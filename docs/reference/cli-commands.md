@@ -534,7 +534,11 @@ own evaluation of `~/.config/testanyware/config.rhai`, or of the file that
 `TESTANYWARE_CONFIG` names. The check passes when the file evaluates, when it
 does not exist, and when `TESTANYWARE_CONFIG=none`. It fails with the
 `CONFIG_INVALID` error object when the file fails. `doctor` is the one command
-that runs with a file that fails.
+that runs with a file that fails. On a macOS host the TestAnyware app writes the
+file when it starts and finds none (see
+[config.rhai](env-vars.md#configrhai)). So the verdict is `loaded` after the
+first start of the app. It is `absent` before that start, and on Linux and
+Windows hosts, where no app writes the file.
 
 On a macOS host it reports the **TestAnyware app** (`checks.app`). The check has
 one item for each fact:

@@ -49,7 +49,7 @@ tasks:
       - cargo test -p testanyware-cli --test app-agent-routing --test app-vnc-routing --test app-vm-list-routing --test app-vm-start-routing --test app-vm-stop-delete-routing --test app-version-skew
 
   config:test:
-    desc: Test config.rhai (ADR-0021). The evaluator and its limits, the order of the sources, the doctor `config` check, and the real CLI binary against a file that fails. On a macOS host the real CLI and the real app executable read one file, and golden creation compares its directories with the app's (golden-directory-check). The app side runs the real app executable with a file that evaluates and one that fails, the directory refusal and its remedy, a restart that reloads the file, and the tool locations (macOS host)
+    desc: Test config.rhai (ADR-0021). The evaluator and its limits, the order of the sources, the doctor `config` check, and the real CLI binary against a file that fails. On a macOS host the real CLI and the real app executable read one file, and golden creation compares its directories with the app's (golden-directory-check). The app side runs the real app executable with a file that evaluates and one that fails, the directory refusal and its remedy, a restart that reloads the file, and the tool locations (macOS host). The default file that the app writes when it finds none, with its text, the write step that never replaces an entry, and a test-mode run that writes nothing
     dir: '{{.CLI_DIR}}'
     cmds:
       - cargo test -p testanyware-config
@@ -58,7 +58,7 @@ tasks:
       - cargo test -p testanyware-app-protocol config_invalid
       - 'cargo test -p testanyware-cli --lib -- host_config:: doctor:: resolve::'
       - cargo test -p testanyware-cli --test config-file --test golden-directory-check
-      - 'cargo test -p testanyware-app --lib -- config:: menu::'
+      - 'cargo test -p testanyware-app --lib -- config:: default_file:: menu::'
       - cargo test -p testanyware-app --test configuration
 
   doctor:app-test:

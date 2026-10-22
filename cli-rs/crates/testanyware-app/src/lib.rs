@@ -16,6 +16,8 @@ pub mod bundle;
 #[cfg(unix)]
 pub mod config;
 #[cfg(unix)]
+pub mod default_file;
+#[cfg(unix)]
 pub mod dial;
 #[cfg(unix)]
 pub mod gate;
