@@ -66,6 +66,7 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
      runtime check runs.
 4. `app-all-guest-traffic` (design, then planning): on a macOS host, the harness traffic goes through the app too. Only golden creation stays direct. Planning cut two increments before `app-release`: `harness-guest-streams`, which unblocks the Linux runtime check, and `remaining-direct-dials`. It cut `candidate-rebuild` inside `app-release`.
 5. `clone-disk-size` (design, then planning): the owner's request of 2026-10-21, outside the issue #8 delivery. Golden creation grows the disk of the Linux golden to 50 GB. Planning cut one leaf, `linux-golden-disk-size`. It ships with the next release, and no release leaf exists for it.
+6. `default-config-file` (design, then planning): the owner's request of 2026-10-22, outside the issue #8 delivery. When the app starts and finds no `config.rhai`, it writes a file of comments and an empty map. The file changes no setting, and the Host CLI never writes it.
 
 ## Pointers
 

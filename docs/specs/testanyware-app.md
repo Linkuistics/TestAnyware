@@ -19,7 +19,8 @@ The evidence is in `docs/research/vm-broker-prior-art-a.md`, the survey, and in
 `docs/research/testanyware-app-local-network-grant.md`, the measurements on this
 Mac. The owner agreed this spec on 2026-10-20. On 2026-10-21 the owner set the
 rule that only the app dials a guest, and the leaf `app-all-guest-traffic-k42`
-applied it. Each graph diagram starts at its dark "Start here" node, and each
+applied it. On 2026-10-22 the owner asked for a file when TestAnyware finds
+none, and the leaf `default-config-file-k58` designed it. Each graph diagram starts at its dark "Start here" node, and each
 sequence starts at its first message.
 
 ## Problem
@@ -802,8 +803,9 @@ ADR-0021 records this decision. One optional file,
 `~/.config/testanyware/config.rhai`, configures the TestAnyware app and the Host
 CLI. Only `TESTANYWARE_CONFIG` names another file or `none`. A test uses it, and
 the remedy of `CONFIG_INVALID` names `TESTANYWARE_CONFIG=none` for one command
-without the file. Only the Host CLI reads the variable, because the app has no
-shell environment.
+without the file. The login item gives the app no shell environment, so in
+normal use only the Host CLI reads the variable. The live check of the bundle
+sets it in the environment in which it opens the app.
 
 - The Host CLI and the app evaluate the file with one shared evaluator and the
   same limits. The script has no access to files, processes or the network, and
@@ -827,6 +829,33 @@ shell environment.
   default. The app's built-in tool search covers `/opt/homebrew/bin`,
   `/usr/local/bin` and `/usr/bin`.
 
+When the app starts and finds no entry at `~/.config/testanyware/config.rhai`,
+it writes a file there, and then it evaluates the file (ADR-0021). The file
+changes no setting, so each command behaves as it does with no file.
+
+- The file holds comments and an empty map, `#{}`, as its value. A file of
+  comments alone fails to evaluate, because its value is not a map.
+- The comments say that TestAnyware wrote the file and that the Host CLI and the
+  app both read it. They say that the app reads it only when it starts.
+- The comments name each setting with an example line that starts with `//`.
+  The examples of `state_dir` and `data_dir` name the built-in directories under
+  the user's home. The example of `tools` names each tool in `/opt/homebrew/bin`,
+  and its comment names the app's built-in search. Each example evaluates when a
+  person removes its `//`.
+- The app never replaces an entry at the path, and a dangling symlink is an
+  entry. A person never sees a partial file at the path. The app creates a
+  missing directory.
+- The write comes before the fingerprint and the read. So the app evaluates the
+  file that it wrote, `changed_since_evaluation` stays false, and the menu asks
+  for no restart.
+- When the write fails, the app runs as with no file. It reports the failure on
+  its standard error, and the status gains no field.
+- The app writes the file again at a later start, after a person removes it.
+- Only a normal run of the app writes, and only at the default place. It never
+  writes a file that `TESTANYWARE_CONFIG` names. A test-mode run writes nothing.
+  The Host CLI never writes the file, so a Linux or Windows host gets no written
+  file.
+
 The app evaluates the file when it starts, and a restart of the app reloads it.
 If the file fails to evaluate, the app runs with its built-in defaults. It
 reports the error in its menu and through `doctor`. The Host CLI refuses to run
@@ -836,7 +865,8 @@ message.
 `GET /v1/status` holds the field `configuration`:
 
 - `state` is `loaded`, `absent` (no file at the place the app looked), `failed`
-  or `disabled` (`TESTANYWARE_CONFIG=none`, or no home directory).
+  or `disabled` (`TESTANYWARE_CONFIG=none`, or no home directory). At the default
+  place, a normal run reports `absent` only after a failed write.
 - `file` is the path the app looked for, or `null` for `disabled`.
 - `evaluated_at` is the time of the evaluation, in seconds since the Unix epoch,
   or `null` for `disabled`.
@@ -872,6 +902,7 @@ which `doctor` sends.
 ```mermaid
 flowchart TD
   file[("Start here:<br/>~/.config/testanyware/config.rhai<br/>(optional)")]:::start --> ev["One shared evaluator:<br/>no files, processes or network,<br/>and an operation limit"]
+  write["TestAnyware app, when it starts<br/>and finds no entry: writes comments<br/>and an empty map"] -. "creates,<br/>never replaces" .-> file
   ev --> cli["Host CLI, at each command:<br/>a flag beats an environment variable,<br/>which beats config.rhai,<br/>which beats the built-in default"]
   ev --> app["TestAnyware app, when it starts:<br/>config.rhai beats<br/>the built-in default"]
   cli -- "each request names<br/>its directories" --> chk{"Same directories<br/>as the app's?"}
@@ -1063,7 +1094,8 @@ same remedy. This check needs no running app.
 ### Linux and Windows hosts
 
 A Linux or Windows host has no TestAnyware app. The Host CLI keeps the direct
-path of today for every command. `config.rhai` applies there too.
+path of today for every command. `config.rhai` applies there too, and no
+process writes it there.
 
 ### Documents that the implementation corrects
 
@@ -1274,6 +1306,34 @@ The Host CLI and the app SHALL evaluate `config.rhai` with one evaluator.
 - **THEN** it fails with `APP_INCOMPATIBLE` and `details.cause` `directories`
   before it starts, whether the app runs or not
 
+### Requirement: The app writes the file when it finds none
+
+When a normal run of the app starts and finds no entry at the default place, it
+SHALL write a file that changes no setting. It SHALL never replace an entry.
+
+#### Scenario: A first start with no file
+
+- **WHEN** the app starts and `~/.config/testanyware/config.rhai` does not exist
+- **THEN** the file holds comments and an empty map, and `GET /v1/status`
+  reports `configuration.state` `loaded` and `changed_since_evaluation` false,
+  and each command resolves the settings that it resolves with no file
+
+#### Scenario: A file is there
+
+- **WHEN** the app starts and the file exists, whether it evaluates or fails
+- **THEN** the app leaves the file as it is
+
+#### Scenario: A test-mode run
+
+- **WHEN** the app starts in its test mode, and no file is at its `--config` path
+- **THEN** it writes nothing, and its status reports `absent`
+
+#### Scenario: The write fails
+
+- **WHEN** the app cannot write the file
+- **THEN** it runs with its built-in defaults, its status reports `absent`, and
+  it reports the failure on its standard error
+
 ### Requirement: doctor reports the failures that it diagnoses
 
 `doctor` SHALL report a configuration error, a directory mismatch and a
@@ -1335,6 +1395,14 @@ The human agreed these three seams in `plan-k1`.
   They are the address that the forward binds and its check of a connection's
   address. The others are the backend check of the Linux HUT, and the check of
   the libraries that the Linux binary and the OCR venv need.
+
+  The text of the written `config.rhai` is a pure function of the home
+  directory. Its tests evaluate the text to no setting. They remove the `//` of
+  each example and evaluate the text again, and they find each key of the
+  evaluator in the text. The write step has a unit test in a temporary
+  directory. It writes when no entry is there, and it never replaces a file or
+  a dangling symlink. The protocol seam's test that a test-mode run reads no
+  file of the user also proves that such a run writes none.
 - **The existing Taskfile live checks**, for four runs on this Mac:
   - The herdr acceptance run. From a herdr session, a macOS guest starts. An
     agent, screen, input and file command each act on it, and it stops. Each

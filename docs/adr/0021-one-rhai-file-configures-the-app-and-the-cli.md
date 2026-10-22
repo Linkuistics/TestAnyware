@@ -4,7 +4,8 @@ Date: 2026-10-20
 
 ## Status
 
-Accepted (grove `gh-issue-8`, leaf `vm-broker-design-k3`). The area's spec is
+Accepted (grove `gh-issue-8`, leaf `vm-broker-design-k3`). The leaf
+`default-config-file-k58` added the file that the app writes. The area's spec is
 `docs/specs/testanyware-app.md`.
 
 ## Context
@@ -20,6 +21,10 @@ owner's apps, evaluates `~/.config/modaliser/config.scm` when it starts. There,
 a restart reloads the file, and a file that fails leaves the app on its bundled
 default. Issues #5 and #7 will later need policy functions, such as the choice of
 a host for each guest.
+
+On 2026-10-22 the owner asked for a minimal file when TestAnyware finds none. A
+person who sees the file learns what it can hold, and the app's menu then offers
+the file.
 
 ## Decision
 
@@ -38,6 +43,10 @@ TestAnyware app and the Host CLI. Both evaluate it with one shared evaluator.**
 - Each request to the app names the directories that the Host CLI resolved. The
   app refuses a request whose directories differ from its own, and the error
   names both and the remedy.
+- When the app starts and finds no file at the default place, it writes one,
+  then evaluates it. The file holds comments that name each setting, and an
+  empty map, so it changes no setting. The app never replaces an entry at the
+  path. The Host CLI never writes the file.
 
 ## Considered options
 
@@ -55,6 +64,18 @@ TestAnyware app and the Host CLI. Both evaluate it with one shared evaluator.**
 - **The app reads the environment of the first client.** Rejected. Docker
   Desktop and VirtualBox both leaked the environment of their first starter into
   a long-lived process.
+- **The Host CLI writes the missing file.** Rejected. The CLI also runs inside
+  guests, in tests and in agent sandboxes that may refuse the write. A file that
+  a command writes after the app started also makes the app report a changed
+  file and ask for a restart.
+- **The formula's `post_install` writes the file.** Rejected. Homebrew runs that
+  step in a sandbox that allows no write to `~/.config`.
+- **The cask writes the file in a `postflight`.** Rejected. An install from the
+  archive or from the source would get no file, and only a live install could
+  test the step.
+- **`doctor`, or a new command, writes the file.** Rejected. `doctor` changes
+  nothing, and a new command adds to the CLI surface. Either one needs a person
+  who knows about the step.
 
 ## Consequences
 
@@ -70,4 +91,10 @@ TestAnyware app and the Host CLI. Both evaluate it with one shared evaluator.**
   reports when the app evaluated an older file.
 - A test names another file, or none, through `TESTANYWARE_CONFIG`. The remedy of
   `CONFIG_INVALID` also names `TESTANYWARE_CONFIG=none`, to run one command without
-  the file. Only the Host CLI reads the variable.
+  the file. In normal use only the Host CLI reads the variable, because the
+  login item gives the app no shell environment.
+- On a macOS host the file exists after the first start of the app, and the app
+  writes it again after a person deletes it. A Linux or Windows host has no app,
+  so it gets no written file. A test-mode run of the app writes nothing.
+- The file stays optional. A missing file and the written file give the same
+  settings, so each command behaves the same with either.
