@@ -25,3 +25,12 @@ Cut the increments that give each clone of the Linux golden about 36G of free di
 - The design keeps every command, flag, exit code and `--json` field. Keep it so: many projects drive TestAnyware through its CLI.
 - An older golden needs no rebuild. `tart set testanyware-golden-linux-24.04 --disk-size 50` gives its clones the space. Ask the owner before a session runs it on this Mac, because tart cannot shrink the disk again.
 - The Linux host harness keeps `--no-cache-dir` in its OCR install. The flag keeps the OCR band working on an older golden.
+
+## Decisions (running log)
+
+- **One `impl` leaf, `linux-golden-disk-size-k57`.** The design is one constant, one `tart set` call, one size check, one section of the user guide and one live task. I looked for a smaller working increment and found none. The growth alone would work, but the design's proof is the size check, and the check fails today's 17 GB disk without the growth. So the two cannot ship apart. The unit tests and the live task are the proof of that one slice, so they stay inside it.
+- **The leaf sits at the grove root.** It is one leaf, not a node, because it fits one session. `remaining-direct-dials-k48` is the precedent.
+- **No release leaf.** The v2.4.0 release is published. A release is outward-facing and costs a candidate, three checks and a publication. One constant does not justify that cost. The owner chooses when a later release happens. So the change ships with the next release, and `linux-golden-disk-size-k57` records it. If the owner wants a release for this change alone, a planning session can cut the release leaves then.
+- **No review chain.** The change is small and the unit tests and a live build cover it. The leaf's session may use its one in-session reviewer. A second need means a `review-impl` leaf.
+- **Two details went into the leaf's context.** The first is the order of the check: cloud-init may not have grown `/` when SSH first answers, so the check waits for it. The second is that the live proof builds a golden under a scratch name, so it cannot replace the owner's golden. The owner's command `tart set … --disk-size 50` on that golden stays the owner's call.
+- **Where this sits in the root brief.** The brief lists the delivery as item 5 of its decomposition, so a later reader finds it.

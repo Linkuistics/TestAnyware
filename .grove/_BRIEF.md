@@ -65,6 +65,7 @@ macOS refuses Local Network access, can start and drive a macOS guest again.
      ships that same candidate. No Windows host binary ships, so no Windows
      runtime check runs.
 4. `app-all-guest-traffic` (design, then planning): on a macOS host, the harness traffic goes through the app too. Only golden creation stays direct. Planning cut two increments before `app-release`: `harness-guest-streams`, which unblocks the Linux runtime check, and `remaining-direct-dials`. It cut `candidate-rebuild` inside `app-release`.
+5. `clone-disk-size` (design, then planning): the owner's request of 2026-10-21, outside the issue #8 delivery. Golden creation grows the disk of the Linux golden to 50 GB. Planning cut one leaf, `linux-golden-disk-size`. It ships with the next release, and no release leaf exists for it.
 
 ## Pointers
 
