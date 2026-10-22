@@ -274,6 +274,28 @@ tasks:
     cmds:
       - '{{.CLI}} vm create-golden --platform macos --version {{.VERSION | default "27"}} --name {{.NAME}}'
 
+  vm:create-golden-linux:
+    desc: 'Build a Linux golden that carries this checkout''s agent, not the Homebrew-bundled one. Needs NAME=<golden> (use a new name: a rebuild replaces a golden of the same name); optional VERSION (default 24.04). The build grows the disk to 50 GB and fails when / is under 40 GB. About 20 to 40 minutes, and it pulls an image. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
+    deps: [cli:build]
+    vars:
+      CLI: '{{.CLI_DIR}}/target/debug/testanyware'
+    env:
+      TESTANYWARE_AGENT_BIN_OVERRIDE: '{{.ROOT_DIR}}/agents/linux'
+    preconditions:
+      - sh: test -n "{{.NAME}}"
+        msg: 'set NAME=<a golden name that does not exist yet>'
+    cmds:
+      - '{{.CLI}} vm create-golden --platform linux --version {{.VERSION | default "24.04"}} --name {{.NAME}}'
+
+  vm:linux-golden-disk-live:
+    desc: 'Does a clone of a Linux golden have the free disk that golden creation grows it for? Needs GOLDEN=<golden>; starts a clone, reads `df` of /, and fails when under MIN_AVAIL_GB (default 30) is available. A grown golden gives about 36 GB; one built before the growth gives about 8.8 GB. About 1 minute; always stops and deletes the clone. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
+    deps: [cli:build]
+    preconditions:
+      - sh: test -n "{{.GOLDEN}}"
+        msg: 'set GOLDEN=<a Linux golden>'
+    cmds:
+      - scripts/linux-golden-disk-live.sh {{.GOLDEN}}
+
   vm:ipsw-base-live:
     desc: 'Does `ensure_base_vm(27)` build testanyware-base-macos-27 from Apple''s IPSW and does the result pass its contract (SSH admin/admin, passwordless sudo, auto-login, no sleep)? A no-op build if the base exists. First run downloads about 25 GB; the install is about 4 minutes and Setup Assistant about 5 more. Run from a terminal that may reach guest IPs (macOS Local Network permission)'
     dir: '{{.CLI_DIR}}'

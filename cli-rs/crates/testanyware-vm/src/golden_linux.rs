@@ -82,7 +82,62 @@ const DESKTOP_SETTLE: Duration = Duration::from_secs(10);
 const FINAL_SHUTDOWN_ATTEMPTS: u32 = 60;
 const FINAL_SHUTDOWN_INTERVAL: Duration = Duration::from_secs(2);
 
+/// Disk size of the Linux golden in GB. The vanilla Cirrus Ubuntu image has 20,
+/// which left a clone 8.8 GB free; 50 is the disk of the macOS base VMs
+/// ([`crate::ipsw_base`]) and of `tart create`, and gave a clone 36 GB free.
+/// tart can only grow a disk, so golden creation keeps a larger one. The host
+/// pays for no space until the guest writes: tart's `disk.img` is sparse.
+const LINUX_DISK_GB: u32 = 50;
+
+/// The least size of `/` in the setup VM, in bytes, for the build to pass.
+/// Measured: a grown guest has a 47.3 GB `/`, and a guest that was not grown
+/// has 18.9 GB at most. 40 GB keeps a margin on each side. The unit is the
+/// decimal GB of `tart` and of `--disk-size`.
+const MIN_ROOT_FS_BYTES: u64 = 40_000_000_000;
+
+/// Budget for `cloud-init status --wait`, in seconds, before the size of `/` is
+/// read. cloud-init grows `/` at boot, and SSH can answer before it does.
+const CLOUD_INIT_WAIT_SECS: u32 = 300;
+
 // ---- pure helpers (unit-tested) -----------------------------------------
+
+/// Whether golden creation must grow the setup VM's disk, given its current
+/// size in GB. A disk of [`LINUX_DISK_GB`] or more stays as it is. When the
+/// size is unknown, try the growth: tart refuses to shrink a disk, so the
+/// attempt cannot lose data.
+fn needs_disk_growth(current_gb: Option<u32>) -> bool {
+    !matches!(current_gb, Some(gb) if gb >= LINUX_DISK_GB)
+}
+
+/// Read the size of `/` in bytes from the output of `df -B1 --output=size /`
+/// (a header line, then one number). `None` when the last line is not a number.
+fn parse_root_fs_bytes(df_output: &str) -> Option<u64> {
+    df_output
+        .lines()
+        .map(str::trim)
+        .rfind(|l| !l.is_empty())?
+        .parse()
+        .ok()
+}
+
+/// The check of the grown disk: `Ok(bytes)` when `/` has at least
+/// [`MIN_ROOT_FS_BYTES`], otherwise the reason it fails the build.
+fn check_root_fs_size(df_output: &str) -> Result<u64, String> {
+    let Some(bytes) = parse_root_fs_bytes(df_output) else {
+        return Err(format!(
+            "could not read the size of / from `df`: {:?}",
+            df_output.trim()
+        ));
+    };
+    if bytes < MIN_ROOT_FS_BYTES {
+        return Err(format!(
+            "/ is {:.1} GB, below the {} GB the {LINUX_DISK_GB} GB disk must give",
+            bytes as f64 / 1e9,
+            MIN_ROOT_FS_BYTES / 1_000_000_000,
+        ));
+    }
+    Ok(bytes)
+}
 
 /// The vanilla Cirrus Labs Ubuntu image ref for a Linux `version`. Ports
 /// `_VANILLA="ghcr.io/cirruslabs/ubuntu:$_VERSION"`.
@@ -254,6 +309,13 @@ pub async fn create_golden_linux(opts: &GoldenOptions, paths: &VmPaths) -> Resul
     eprintln!("(This may pull the image on first run — can take several minutes)");
     crate::tart::clone(&vanilla, &setup_id)?;
 
+    // The disk has never booted, so the guest grows `/` by itself (cloud-init)
+    // at the first boot, and the golden carries the size to every clone.
+    if let Err(e) = grow_setup_disk(&setup_id) {
+        crate::tart::remove_existing(&setup_id);
+        return Err(e);
+    }
+
     // Boot detached (`tart run --no-graphics --vnc-experimental`); the
     // `--vnc-experimental` flag gives GDM a virtual display so it does not
     // crash-loop after reboot. The VNC line in the run log is the boot signal.
@@ -336,6 +398,11 @@ async fn provision_and_finalize(
 
     // Agent-health gate — fatal.
     if let Err(e) = verify_agent_health(&setup).await {
+        return Err((setup, e));
+    }
+
+    // Disk-size gate — fatal, and before sshd goes away.
+    if let Err(e) = verify_root_fs_size(&setup).await {
         return Err((setup, e));
     }
 
@@ -744,6 +811,56 @@ async fn verify_agent_health(setup: &SetupVm) -> Result<(), VmError> {
     })
 }
 
+/// Grow the setup VM's disk to [`LINUX_DISK_GB`] before its first boot, unless
+/// it already has that much. Cirrus images grow `/` on boot (cloud-init
+/// `growpart` and `resizefs`), so the guest needs no step of its own
+/// (<https://tart.run/faq/#disk-resizing>).
+fn grow_setup_disk(setup_id: &str) -> Result<(), VmError> {
+    let current = crate::tart::disk_gb(setup_id);
+    if !needs_disk_growth(current) {
+        eprintln!(
+            "Disk of {setup_id} is already {} GB — keeping it.",
+            current.unwrap_or_default()
+        );
+        return Ok(());
+    }
+    match current {
+        Some(gb) => {
+            eprintln!("Growing the disk of {setup_id} from {gb} GB to {LINUX_DISK_GB} GB...")
+        }
+        None => eprintln!("Growing the disk of {setup_id} to {LINUX_DISK_GB} GB..."),
+    }
+    crate::tart::set_disk_size(setup_id, LINUX_DISK_GB)
+}
+
+/// Disk-size gate: after the reboot, wait for cloud-init to finish and fail the
+/// build when `/` is smaller than [`MIN_ROOT_FS_BYTES`]. Runs while sshd is
+/// still open, so it precedes [`finalize_and_shutdown`].
+async fn verify_root_fs_size(setup: &SetupVm) -> Result<(), VmError> {
+    eprint!("Checking the size of / ...");
+    let session = SshSession::connect_key(&setup.ip, 22, VANILLA_USER, &setup.key_path).await?;
+    // `;` not `&&`: a degraded cloud-init must not hide the size, which decides.
+    let out = session
+        .exec(&format!(
+            "timeout {CLOUD_INIT_WAIT_SECS} cloud-init status --wait >/dev/null 2>&1; \
+             df -B1 --output=size /"
+        ))
+        .await?;
+    let detail = if out.exit_code == 0 {
+        match check_root_fs_size(&out.stdout) {
+            Ok(bytes) => {
+                eprintln!(" {:.1} GB.", bytes as f64 / 1e9);
+                return Ok(());
+            }
+            Err(detail) => detail,
+        }
+    } else {
+        format!("`df` exited {}: {}", out.exit_code, out.stderr.trim())
+    };
+    eprintln!(" too small.");
+    Err(VmError::GoldenCreateFailed { detail })
+}
+
 /// Disable + mask sshd (clones need no SSH — the agent's HTTP surface is the
 /// only ingress, matching the Windows golden), then shut down cleanly. The
 /// `disable`/`mask` deliberately omit `--now` so the running sshd survives long
@@ -811,6 +928,57 @@ mod tests {
             linux_agent_dir_under_prefix(Path::new("/opt/homebrew/opt/testanyware")),
             PathBuf::from("/opt/homebrew/opt/testanyware/share/testanyware/agents/linux")
         );
+    }
+
+    #[test]
+    fn disk_grows_only_when_smaller_than_the_golden_size() {
+        assert!(needs_disk_growth(Some(20))); // the Cirrus Ubuntu image today
+        assert!(needs_disk_growth(Some(49)));
+        assert!(!needs_disk_growth(Some(50)));
+        assert!(!needs_disk_growth(Some(64))); // a larger future image is kept
+        assert!(needs_disk_growth(None)); // unknown: try, tart never shrinks
+    }
+
+    #[test]
+    fn root_fs_of_a_grown_guest_passes() {
+        // 47.3 GB: measured on a guest grown to 50 GB.
+        for df in [
+            "1B-blocks\n47300000000\n",
+            "1B-blocks\n47300000000",
+            " 1B-blocks\n 47300000000 \n\n",
+        ] {
+            assert_eq!(check_root_fs_size(df), Ok(47_300_000_000), "{df:?}");
+        }
+    }
+
+    #[test]
+    fn root_fs_of_an_ungrown_guest_fails() {
+        // 18.9 GB: the file system of today's 20 GB disk.
+        let err = check_root_fs_size("1B-blocks\n18900000000\n").unwrap_err();
+        assert!(err.contains("18.9 GB"), "{err}");
+        assert!(err.contains("40 GB"), "{err}");
+    }
+
+    #[test]
+    fn root_fs_size_threshold_is_exact() {
+        assert!(check_root_fs_size("1B-blocks\n39999999999\n").is_err());
+        assert!(check_root_fs_size("1B-blocks\n40000000000\n").is_ok());
+    }
+
+    #[test]
+    fn root_fs_output_that_is_not_a_number_fails() {
+        let bads = [
+            "",
+            "\n",
+            "1B-blocks\n",
+            "1B-blocks\nabc\n",
+            "df: command not found",
+            "47.3G",
+        ];
+        for bad in bads {
+            let err = check_root_fs_size(bad).unwrap_err();
+            assert!(err.contains("could not read"), "{bad:?}: {err}");
+        }
     }
 
     #[test]

@@ -52,6 +52,22 @@ All golden images share these properties:
 - **Screen lock and blanking disabled** — no interruptions during tests.
 - **NetworkManager** — configured via netplan (replaces
   systemd-networkd from base image).
+- **50 GB disk** — golden creation grows the disk of the 20 GB Cirrus image
+  to 50 GB before its first boot, and cloud-init in each clone grows `/` at
+  boot. A clone has about 36 GB free, against 8.8 GB on the 20 GB disk. The
+  host uses no space for it until the guest writes. Golden creation reads the
+  size of `/` over SSH and fails the build when it is under 40 GB.
+
+  A golden built before this change keeps its 20 GB disk. Give it the space
+  without a rebuild:
+
+  ```bash
+  tart set testanyware-golden-linux-24.04 --disk-size 50
+  ```
+
+  tart can only grow a disk, so this cannot be undone. Check a golden with
+  `task vm:linux-golden-disk-live GOLDEN=testanyware-golden-linux-24.04`
+  from a checkout; it starts a clone and reports the free space of `/`.
 
 ## Windows (`testanyware-golden-windows-11`)
 

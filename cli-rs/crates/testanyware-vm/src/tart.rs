@@ -346,6 +346,51 @@ pub fn set_display_in(tools: &ToolSearch, id: &str, display: &str) -> Result<(),
     }
 }
 
+/// The disk size in GB from `tart get <vm> --format json` (key `Disk`, an
+/// integer), or `None` when the text is not that JSON.
+pub fn parse_disk_gb(tart_json: &str) -> Option<u32> {
+    let disk = serde_json::from_str::<serde_json::Value>(tart_json)
+        .ok()?
+        .get("Disk")?
+        .as_u64()?;
+    u32::try_from(disk).ok()
+}
+
+/// The disk size of `id` in GB, or `None` when tart is absent, fails, or prints
+/// something else.
+pub fn disk_gb(id: &str) -> Option<u32> {
+    disk_gb_in(&ToolSearch::from_process_path(), id)
+}
+
+/// [`disk_gb`], with `tart` found by `tools`.
+pub fn disk_gb_in(tools: &ToolSearch, id: &str) -> Option<u32> {
+    let r = run_tart_in(tools, &["get", id, "--format", "json"]);
+    if r.exit_code == 0 {
+        parse_disk_gb(&r.stdout)
+    } else {
+        None
+    }
+}
+
+/// `tart set <id> --disk-size <gb>`: grow the disk of a stopped VM. tart only
+/// grows a disk, so a size below the current one is an error, not a shrink.
+pub fn set_disk_size(id: &str, gb: u32) -> Result<(), VmError> {
+    set_disk_size_in(&ToolSearch::from_process_path(), id, gb)
+}
+
+/// [`set_disk_size`], with `tart` found by `tools`.
+pub fn set_disk_size_in(tools: &ToolSearch, id: &str, gb: u32) -> Result<(), VmError> {
+    let size = gb.to_string();
+    let r = run_tart_in(tools, &["set", id, "--disk-size", &size]);
+    if r.exit_code == 0 {
+        Ok(())
+    } else {
+        Err(VmError::TartFailed {
+            detail: format!("tart set {id} --disk-size {size}: {}", r.stderr.trim()),
+        })
+    }
+}
+
 /// Best-effort `tart stop` then `tart delete` — both no-ops on an absent
 /// VM, so non-zero exits are ignored. Ports `TartRunner.removeExisting`.
 pub fn remove_existing(id: &str) {
@@ -679,6 +724,31 @@ mod tests {
             assert!(parse_goldens(bad).is_empty(), "goldens lenient on {bad:?}");
             assert!(parse_running_names(bad).is_empty(), "running lenient on {bad:?}");
             assert!(parse_all_names(bad).is_empty(), "names lenient on {bad:?}");
+        }
+    }
+
+    #[test]
+    fn parse_disk_gb_reads_the_disk_key_of_tart_get() {
+        // `tart get testanyware-golden-linux-24.04 --format json` on tart 2.40.1.
+        let json = r#"{
+          "DiskFormat" : "raw", "OS" : "linux", "CPU" : 4, "Disk" : 20,
+          "Display" : "1024x768", "Size" : "9.002", "Running" : false,
+          "State" : "stopped", "Memory" : 4096
+        }"#;
+        assert_eq!(parse_disk_gb(json), Some(20));
+    }
+
+    #[test]
+    fn parse_disk_gb_is_none_for_anything_else() {
+        for bad in [
+            "",
+            "not json",
+            "{}",
+            r#"{"Disk": "20"}"#,
+            r#"{"Disk": -1}"#,
+            "[]",
+        ] {
+            assert_eq!(parse_disk_gb(bad), None, "{bad:?}");
         }
     }
 
