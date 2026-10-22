@@ -104,3 +104,5 @@ An upgrade does three things to the app's permissions:
   with a new executable UUID kept the signing identity and the approval of the
   first start. The grant needed no second approval after it. One run gives no
   rate for the alert (spec, "Open risks").
+- Release 2.4.0 shipped this decision. The cask installs from `linkuistics/taps`,
+  and the herdr acceptance run passed on the bundle of the published candidate.

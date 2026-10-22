@@ -189,6 +189,14 @@ ADR-0020 records the choices of this section and their trade-offs.
   names the bundle id. Its zap names the app's own support and log directories
   and never the VM state.
 
+Release 2.4.0 is the first release that ships the app. The tag `v2.4.0` names the
+commit `345faf54`, the GitHub release holds the archives of the candidate, and
+`linkuistics/taps` holds the formula and the cask of that build. The herdr
+acceptance run passed on the app bundle and the Host CLI of the candidate on
+2026-10-22. After the publication, `brew install --cask
+linkuistics/taps/testanyware-app` installed the app on this Mac, and
+`testanyware doctor` reported it.
+
 On an upgrade, Homebrew quits the app, replaces the bundle, carries the approval
 of the first start to the new copy, and opens it again. Each VM keeps running
 while the app is down. The unchanged signing identity keeps the app's one Local
