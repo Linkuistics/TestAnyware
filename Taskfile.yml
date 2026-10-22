@@ -141,7 +141,7 @@ tasks:
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
-      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh scripts/herdr-acceptance-live.sh scripts/app-adoption-live.sh
+      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh scripts/herdr-acceptance-live.sh scripts/app-adoption-live.sh scripts/upgrade-identity-live.sh
     cmds:
       - shellcheck -x {{.SCRIPTS}}
       - shfmt -i 2 -ci -d {{.SCRIPTS}}
@@ -335,6 +335,20 @@ tasks:
         TESTANYWARE_LINUX_HARNESS=1 TESTANYWARE_LINUX_BIN="$out/bin/testanyware" TESTANYWARE_FFMPEG_LIB_DIR="$out/lib" \
           cargo test -p testanyware-cli --test linux-host-harness -- --ignored --nocapture linux_host_harness 2>&1 | tee "$out/harness.log"
         grep -q '^test result: ok. 1 passed' "$out/harness.log" || { echo "the Linux harness did not report 1 passed test" >&2; exit 1; }
+
+  release:upgrade-check:
+    desc: 'Live check on this Mac: a cask upgrade keeps the identity of the app. OLD=vX.Y.Z is a throwaway candidate (task release:candidate) with a lower version, and TAG=vX.Y.Z is the release candidate. A local tap holds both casks with their urls on the local zips, and nothing is published. It installs OLD and starts a guest through it, then runs brew upgrade --cask to TAG. It checks the signing identity, the approval of the first start, the executable UUID, the guest and its processes, the adoption, and the first command to the guest. A person answers the first-start dialog and allows the Local Network alert once, and again when the upgrade asks. The run stops at such a step (exit 3), names it, and goes on when run again. Needs a free macOS guest slot, no other app on the socket, and /Applications/TestAnyware.app not installed. Run release:upgrade-check-clean afterwards'
+    requires:
+      vars: [OLD, TAG]
+    cmds:
+      - scripts/upgrade-identity-live.sh run {{.OLD}} {{.TAG}}
+
+  release:upgrade-check-clean:
+    desc: 'End the upgrade check: OLD=vX.Y.Z TAG=vX.Y.Z. Stops its guest, quits the app, uninstalls the cask, removes the local tap, the scratch directory, the candidate directory of OLD and the local tag OLD. It refuses a tag that exists on the remote. OLD never reaches release:publish'
+    requires:
+      vars: [OLD, TAG]
+    cmds:
+      - scripts/upgrade-identity-live.sh clean {{.OLD}} {{.TAG}}
 
   release:app-verify:
     desc: 'Verify the release identity of an app bundle: APP=<bundle>. Bundle id dev.antony.TestAnyware, team TA43A4RUP3, hardened runtime, codesign --verify, spctl --assess as Notarized Developer ID, stapler validate. A development bundle fails'

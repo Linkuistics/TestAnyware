@@ -99,6 +99,8 @@ An upgrade does three things to the app's permissions:
   approval of the first start, for each user. The release check exists to stop
   that by mistake.
 - An existing user takes one new step: the cask install and the one-time setup.
-- The probe was not notarised or quarantined. Nobody measured whether
-  notarisation changes what an upgrade does to the grant. The live check of an
-  upgrade in the Taskfile proves the release build.
+- The probe was not notarised or quarantined. The live check
+  `release:upgrade-check` ran the release build once, on 2026-10-22. An upgrade
+  with a new executable UUID kept the signing identity and the approval of the
+  first start. The grant needed no second approval after it. One run gives no
+  rate for the alert (spec, "Open risks").

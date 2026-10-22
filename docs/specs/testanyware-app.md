@@ -202,6 +202,22 @@ One change in three also raised the alert again. Then a person allows
 TestAnyware once more. Until then, each guest connection fails with the denial
 and its remedy, and no command waits. The owner accepts this cost of an upgrade.
 
+The live check `release:upgrade-check` ran an upgrade of the release build once,
+on 2026-10-22, on macOS 27.0.1 with Homebrew 7.0.10. It installed a notarised
+release 2.3.99 from a local tap and upgraded the cask to the release candidate
+2.4.0.
+
+- The signing identity stayed the same, and the executable UUID changed.
+- The quarantine flags kept the approval bit of the first start. A person
+  answered the first-start dialog once, before the upgrade, and no dialog came
+  after it.
+- Homebrew quit the app, replaced the bundle and opened it again.
+- The guest kept its tart process and its keeper, and the new app adopted it.
+- The adoption probes of the new app answered, and the first command after the
+  upgrade succeeded in 1 s.
+- System Settings showed one row for TestAnyware.app. The rows of the
+  development app and of the old probe stood beside it.
+
 ```mermaid
 sequenceDiagram
   actor P as Person or agent
@@ -1319,7 +1335,9 @@ The human agreed these three seams in `plan-k1`.
     then the cask installs release N+1. The first command to a tart guest
     succeeds, or it fails with the denial that names TestAnyware. After a person
     allows the app again, the command succeeds, and System Settings shows one
-    TestAnyware row.
+    TestAnyware row. `release:upgrade-check` runs it on a release candidate and
+    a throwaway release with a lower version, and `release:upgrade-check-clean`
+    removes the throwaway.
   - VMs survive a quit of the app, and the app adopts them when it opens again.
   - The Linux host harness passes from a session that has no Local Network
     access of its own, with the app allowed. `release:linux-harness` runs it on
@@ -1327,21 +1345,18 @@ The human agreed these three seams in `plan-k1`.
 
 ## Open risks
 
-- **The release build.** The probe was not notarised, quarantined or installed
-  in `/Applications`. Nobody measured whether notarisation changes what an
-  upgrade does to the grant. The live check of an upgrade proves the release
-  build.
 - **An alert after an upgrade.** At one upgrade in three with a new UUID, macOS
   raised the alert again, and nothing explains which one. Each row of the
-  measurements ran once. The owner accepts that a person may allow the app
-  again after an update (ADR-0020).
+  measurements ran once. The live check of the release build also ran once. A
+  person approved one alert in that run and could not say which build raised
+  it. The adoption probes of the new app and its first command succeeded at
+  once, so the grant needed no second approval after that upgrade. One run gives
+  no rate. The owner accepts that a person may allow the app again after an
+  update (ADR-0020).
 - **A client's `TART_HOME`.** tart reads this variable to find its storage, and
   so its macOS goldens. The app runs tart with its own environment, so a
   client's `TART_HOME` reaches only golden creation. TestAnyware documents no
   such variable, and nothing checks it.
-- **Homebrew's approval carry-over.** Homebrew 7.0.9 copies the approval of the
-  first start when the signing identity stays the same. Nobody has tested it
-  with a TestAnyware release.
 - **A login item that waits for approval.** Koine never observed the status
   `requiresApproval`. `doctor` reports it with a remedy.
 - **No deep link to the Local Network row.** On macOS 27.0.1 no anchor of System
