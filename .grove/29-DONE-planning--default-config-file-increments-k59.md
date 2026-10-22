@@ -27,3 +27,12 @@ Cut the increments that make the TestAnyware app write `~/.config/testanyware/co
 - Every command, flag, environment variable, exit code and `--json` field keeps its meaning. Many projects drive TestAnyware through its CLI.
 - `linux-golden-disk-size-k57` also ships with the next release, and no release leaf exists for it. Planning can decide whether one release carries both.
 - A test-mode run of the app must write nothing. The test `a_test_mode_run_without_config_reads_no_file_of_the_user` guards a developer's own file.
+
+## Decisions (running log)
+
+- **One increment, one `impl` leaf: `default-config-file-writer-k60`.** The text of the file, the write step and the call in `main.rs` cannot work apart. The text with no writer is dead code, and a writer with no text writes nothing. The documents describe the written file, so they are wrong before the writer lands and belong in the same slice. The live check of the bundle proves this slice. It is not a further increment. The slice fits one session. It holds a pure function in `testanyware-config`, a short write step in the app, and three document sentences.
+- **No node.** `linux-golden-disk-size-k57` set the precedent of one root leaf for a single slice. A second leaf would give a node no purpose.
+- **No release leaf. The change ships with the next release, together with `linux-golden-disk-size-k57`.** The v2.4.0 release is published without either. The owner decides when a later release happens. A file of comments alone does not justify the cost of the release pipeline. A candidate built after the writer lands contains both changes. The leaf, the root brief and this log record this.
+- **No review leaf cut.** The write step is small and bounded. Its unit tests cover the two properties that matter: it never replaces an entry, and it never shows a partial file. The implementing session can spend its one in-session reviewer on the hard-link mechanism. A second need then becomes a `review-impl` leaf.
+- **The leaf names its proof.** The unit tests are those of the spec's test seams, with a failing control for the example check. The live proof is the first start of the new app on this Mac, which has no file today.
+- **Source check.** The leaf names `AppConfig::evaluate`, `evaluate_now`, `app_paths()`, `DEFAULT_RELATIVE_PATH`, `TOOL_NAMES`, the test `a_test_mode_run_without_config_reads_no_file_of_the_user`, `scripts/app-bundle-live.sh` and `task config:test`. I read each of them in the tree. I spent no in-session reviewer.
