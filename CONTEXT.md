@@ -97,6 +97,23 @@ waits for a slot instead.
 _Avoid_: "tart's limit" (Apple sets the limit) and "two-VM limit" (it counts
 macOS guests, not every VM).
 
+**Slot**:
+One of the two places that the *macOS guest limit* gives a Mac. Each running
+macOS guest holds one, whoever started it.
+_Avoid_: "slot" for a Linux or Windows guest (only a macOS guest takes one).
+
+**Admission queue**:
+The ordered list of macOS guest starts that wait in the *TestAnyware app* for a
+*Slot*. Each user who runs the app has one admission queue (issue #7).
+_Avoid_: "semaphore" and "lock" (the queue has an order), and "scheduler" (it
+chooses no host).
+
+**External occupancy**:
+A *Slot* that a macOS guest holds although the user's *TestAnyware app* did not
+grant it. Another user, another tool, or a process that did not ask the app for
+its *Slot* started that guest, and the app never stops it.
+_Avoid_: "leak" and "orphan" (the app does not own the guest).
+
 **Local Network denial**:
 macOS Local Network privacy can refuse a process a route to a tart guest's
 host-only subnet (`192.168.64.0/24`) while the guest's agent is healthy. The
