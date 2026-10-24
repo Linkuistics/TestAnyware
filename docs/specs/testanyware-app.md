@@ -198,6 +198,16 @@ acceptance run passed on the app bundle and the Host CLI of the candidate on
 linkuistics/taps/testanyware-app` installed the app on this Mac, and
 `testanyware doctor` reported it.
 
+Release 2.5.0 is the second release. The tag `v2.5.0` names the commit `6011dba9`.
+The GitHub release and `linkuistics/taps` hold the artifacts of that build. It adds
+the default `config.rhai` that the app writes at its first start. It also grows the
+disk of the Linux golden to 50 GB. It closes a leak of descriptors in the guest
+streams (see "The protocol" for the end of a stream).
+
+The Linux host harness passed
+on the aarch64 Linux binary of the candidate. The herdr acceptance run passed on its
+app bundle, with the Host CLI of its macOS archive.
+
 On an upgrade, Homebrew quits the app, replaces the bundle, carries the approval
 of the first start to the new copy, and opens it again. Each VM keeps running
 while the app is down. The unchanged signing identity keeps the app's one Local
@@ -226,6 +236,24 @@ release 2.3.99 from a local tap and upgraded the cask to the release candidate
   upgrade succeeded in 1 s.
 - System Settings showed one row for TestAnyware.app. The rows of the
   development app and of the old probe stood beside it.
+
+The real upgrade of this Mac from 2.4.0 to 2.5.0 is the second sample. It ran on
+2026-10-24 with `brew upgrade linkuistics/taps/testanyware` and `brew upgrade
+--cask linkuistics/taps/testanyware-app`, after the publication.
+
+- The signing identity stayed the same: `dev.antony.TestAnyware`, team
+  `TA43A4RUP3`, notarised. The executable UUID changed from `BC3E960A` to
+  `D1773BE8`.
+- The quarantine flags of the new bundle are `01c1`, which include the bit of
+  the user's approval. No dialog of the first start was needed.
+- Homebrew quit the app, replaced the bundle and opened it again. The guest
+  `koine-verify-23707` kept its tart process and its keeper, and the new app
+  adopted it.
+- `testanyware doctor` reported the app as installed and running, both at build
+  2.5.0, and its dial to the guest connected. The first command after the upgrade
+  (`screen size`) succeeded.
+- The session could not see the screen. No command failed with
+  `local_network_denied`, so no alert stayed unanswered.
 
 ```mermaid
 sequenceDiagram
@@ -1455,7 +1483,9 @@ The human agreed these three seams in `plan-k1`.
   person approved one alert in that run and could not say which build raised
   it. The adoption probes of the new app and its first command succeeded at
   once, so the grant needed no second approval after that upgrade. One run gives
-  no rate. The owner accepts that a person may allow the app again after an
+  no rate. The real upgrade of this Mac from 2.4.0 to 2.5.0 is a second sample
+  with a new UUID: no command failed with the denial. Two runs still give no
+  rate. The owner accepts that a person may allow the app again after an
   update (ADR-0020).
 - **A client's `TART_HOME`.** tart reads this variable to find its storage, and
   so its macOS goldens. The app runs tart with its own environment, so a

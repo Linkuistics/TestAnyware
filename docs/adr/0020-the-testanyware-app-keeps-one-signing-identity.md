@@ -106,3 +106,9 @@ An upgrade does three things to the app's permissions:
   rate for the alert (spec, "Open risks").
 - Release 2.4.0 shipped this decision. The cask installs from `linkuistics/taps`,
   and the herdr acceptance run passed on the bundle of the published candidate.
+- Release 2.5.0 is the second sample of an upgrade, and the first real one. On
+  2026-10-24 this Mac upgraded from 2.4.0 to 2.5.0 through Homebrew. The signing
+  identity stayed the same and the executable UUID changed. The quarantine flags
+  kept the approval of the first start, the new app adopted the running guest,
+  and the first command succeeded. No command failed with the denial. Two
+  samples give no rate for the alert (spec, "Open risks").
