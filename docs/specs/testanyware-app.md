@@ -443,9 +443,21 @@ directions:
 - The Host CLI runs its agent HTTP client, or its RFB client, on the stream as it
   does on a TCP connection today. `vm start --viewer`, `viewer` and `screen
   record` run in the Host CLI on guest streams.
-- Each stream has its own connection to the guest. The app opens it when
-  the stream opens, and closes it when either side closes. It reuses none.
-- A half-close passes through. Each relay buffer has an upper bound.
+- Each stream has its own connection to the guest. The app opens it when the
+  stream opens. It reuses none.
+- A stream ends, and the app closes its guest connection, in one of three cases:
+  - Both sides have ended their direction.
+  - The client has gone. It ended its direction and then closed the socket. The
+    guest need not end its direction. tart's VNC server never does.
+  - A read or a write fails.
+- A half-close passes through. The app tells it from a client that has gone by
+  the state of the client's Unix socket. A client that ended its direction and
+  still reads has not gone, and it gets the guest's answer. The client's bytes
+  reach the guest before the stream ends, even when the client closes at once.
+- When the client has gone, or a read or a write failed, the app resets the guest
+  connection. tart's VNC server holds a connection that the app closed in the
+  ordinary way in `CLOSE_WAIT` for about two minutes. A reset frees it at once.
+- Each relay buffer has an upper bound.
 - The app sets no timeout of its own on an open stream. The Host CLI's own
   timeouts stay as they are.
 
@@ -1386,6 +1398,12 @@ The human agreed these three seams in `plan-k1`.
   configuration errors and how each error maps to the envelope. It covers
   `doctor` with a file that fails, and with directories that differ. The agent
   client runs here on guest streams, and its existing tests run it on TCP.
+
+  It covers the end of a guest stream. The real Host CLI runs 40 VNC commands
+  against a synthetic RFB guest that keeps its connection after the client's
+  end, as tart does. The test is `many_vnc_commands_leave_the_descriptors_of_the_app_flat`
+  in `app-vnc-routing`. The app's descriptors stay flat, and the guest sees a
+  reset on each connection.
 - **The existing seams of pure functions and injected probes**, for decisions
   inside the app. These are adoption by identity, the skew decision and
   the Local Network diagnosis of a guest stream. They also include the grant
@@ -1396,6 +1414,13 @@ The human agreed these three seams in `plan-k1`.
   address. The others are the backend check of the Linux HUT, and the check of
   the libraries that the Linux binary and the OCR venv need.
 
+  The relay of a guest stream is one such seam. Its unit tests run it on
+  in-memory pipes and on real sockets. They cover a half-close in both
+  directions and a client that closes after its last message. They also cover a
+  client that has gone while the guest stays silent, and the reset of the guest
+  connection. The watch that tells a client that has gone from a half-close runs
+  on a pair of Unix sockets.
+
   The text of the written `config.rhai` is a pure function of the home
   directory. Its tests evaluate the text to no setting. They remove the `//` of
   each example and evaluate the text again, and they find each key of the
@@ -1403,7 +1428,7 @@ The human agreed these three seams in `plan-k1`.
   directory. It writes when no entry is there, and it never replaces a file or
   a dangling symlink. The protocol seam's test that a test-mode run reads no
   file of the user also proves that such a run writes none.
-- **The existing Taskfile live checks**, for four runs on this Mac:
+- **The existing Taskfile live checks**, for five runs on this Mac:
   - The herdr acceptance run. From a herdr session, a macOS guest starts. An
     agent, screen, input and file command each act on it, and it stops. Each
     step goes through the app.
@@ -1415,6 +1440,9 @@ The human agreed these three seams in `plan-k1`.
     a throwaway release with a lower version, and `release:upgrade-check-clean`
     removes the throwaway.
   - VMs survive a quit of the app, and the app adopts them when it opens again.
+  - The end of a guest stream. 150 VNC commands go to a running tart guest
+    through the development bundle. The app's descriptors and the connections
+    that tart holds in `CLOSE_WAIT` stay flat. `app:stream-end-live` runs it.
   - The Linux host harness passes from a session that has no Local Network
     access of its own, with the app allowed. `release:linux-harness` runs it on
     a candidate.
@@ -1443,6 +1471,13 @@ The human agreed these three seams in `plan-k1`.
 - **A silent stall of every stream.** This is the most frequent failure of a
   relay in the survey. One dial for each stream and the Host CLI's own timeouts bound it.
   This delivery adds no watchdog.
+
+  The end of a guest stream covers a client that has gone while the guest
+  keeps its direction. It does not cover two other stalls. In the first, the
+  guest stops reading and the app blocks on a write to it. The app then does not
+  look at the client again, so a client that has gone leaves the stream open. In
+  the second, the guest goes silent while the client stays. The app sets no
+  timeout on an open stream. No run has shown either stall.
 - **Guest endpoints on every interface.** QEMU forwards the agent port with no
   host address, and tart's VNC listened on a wildcard socket in the
   measurements. The agent's `/exec` may be reachable from the LAN. This is not

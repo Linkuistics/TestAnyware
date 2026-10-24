@@ -90,6 +90,15 @@ tasks:
     cmds:
       - TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/app-routing-live.sh {{.VM | shellQuote}}
 
+  app:stream-end-live:
+    desc: 'Live check on this Mac: many VNC commands to a running tart guest leave the descriptors of the app and the connections of tart in CLOSE_WAIT flat (task app:stream-end-live VM=<id> [COMMANDS=150]). tart keeps a connection open after the client has gone, so an app that waits for the guest keeps two descriptors for each command, and the app of release 2.4.0 failed after about 120. Runs the development bundle (APP=<bundle> for another), prints the counts before and after, and quits only the app it started. Quit a running app first, and open it again afterwards. A person first allows the Local Network alert for the bundle, once. Only reads from the guest'
+    deps: [cli:build]
+    preconditions:
+      - sh: test -n "{{.VM}}"
+        msg: 'name a tart guest that runs: task app:stream-end-live VM=<id>'
+    cmds:
+      - APP_BUNDLE={{.APP | default "" | shellQuote}} TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/app-stream-end-live.sh {{.VM | shellQuote}} {{.COMMANDS | default "150" | shellQuote}}
+
   app:herdr-acceptance:
     desc: 'The herdr acceptance run on this Mac, from a herdr session: with no variable set, vm start --platform macos, an agent, a screen, an input and a file command, and vm stop all go through the app, and each fails with APP_UNREACHABLE when no app answers. Prints PASS or FAIL. APP defaults to the development bundle, and the release candidate passes its own bundle (task app:herdr-acceptance APP=<bundle>). A person first allows the Local Network alert for the app, once. Starts the bundle when no app answers, quits only that one, and stops its guest on every exit. About two minutes, one free macOS guest slot'
     deps: [cli:build]
@@ -141,7 +150,7 @@ tasks:
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
-      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh scripts/herdr-acceptance-live.sh scripts/app-adoption-live.sh scripts/upgrade-identity-live.sh
+      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh scripts/app-stream-end-live.sh scripts/herdr-acceptance-live.sh scripts/app-adoption-live.sh scripts/upgrade-identity-live.sh
     cmds:
       - shellcheck -x {{.SCRIPTS}}
       - shfmt -i 2 -ci -d {{.SCRIPTS}}

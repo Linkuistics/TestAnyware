@@ -499,3 +499,58 @@ fn a_macos_host_without_the_variable_goes_through_the_app_on_the_default_socket(
     );
     assert_eq!(rfb.accepted(), 2, "the CLI dialed the guest itself");
 }
+
+#[test]
+fn many_vnc_commands_leave_the_descriptors_of_the_app_flat() {
+    // tart's VNC server keeps a connection open after the client's end and sends nothing more.
+    // A relay that waits for the guest to end its half then keeps both descriptors of the
+    // stream, and an app at the default limit of 256 fails after about 120 commands.
+    let _lock = serial();
+    let rfb = FakeRfb::start_holding(WIDTH, HEIGHT);
+    let app = TestApp::start();
+    app.add_vnc_vm(VM, &rfb, None);
+
+    // The first command warms the app up. The count after it is the baseline.
+    let first = app.cli(&["screen", "size", "--vm", VM]);
+    assert_eq!(first.code(), 0, "{}", first.err());
+    settle(&rfb, 1);
+    let baseline = app.open_descriptors();
+
+    const COMMANDS: usize = 40;
+    for _ in 0..COMMANDS {
+        let run = app.cli(&["screen", "size", "--vm", VM]);
+        assert_eq!(run.code(), 0, "{}", run.err());
+    }
+    settle(&rfb, COMMANDS + 1);
+
+    // Count before the probe below: a byte that reaches a stuck relay makes it fail and free
+    // its descriptors, which would hide the leak.
+    let after = app.open_descriptors();
+    assert!(
+        after <= baseline + 2,
+        "the app holds {after} descriptors after {COMMANDS} commands, and held {baseline} after one"
+    );
+
+    // The app closes each guest connection once its client has gone. The guest has no sign
+    // of that but a reset, which a closed socket sends for the byte that the test writes.
+    let closed = rfb.connections_the_peer_closed();
+    assert_eq!(
+        closed,
+        COMMANDS + 1,
+        "the guest holds {} connections that the app has not closed",
+        COMMANDS + 1 - closed
+    );
+}
+
+/// Wait until the holding guest has read the end of `clients` clients.
+fn settle(rfb: &FakeRfb, clients: usize) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while rfb.client_ends() < clients {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the guest read the end of {} clients, and {clients} were expected",
+            rfb.client_ends()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}

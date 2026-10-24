@@ -269,6 +269,24 @@ impl TestApp {
         self.child.as_ref().expect("the app runs").id()
     }
 
+    /// How many descriptors the app holds open now. `lsof` lists them on a macOS host and
+    /// `/proc` on a Linux host. A test compares two counts, so the fixed ones (the working
+    /// directory, the executable, the standard streams) cancel out.
+    pub fn open_descriptors(&self) -> usize {
+        let pid = self.pid();
+        if let Ok(entries) = std::fs::read_dir(format!("/proc/{pid}/fd")) {
+            return entries.count();
+        }
+        let listing = Command::new("lsof")
+            .args(["-n", "-P", "-F", "f", "-p", &pid.to_string()])
+            .output()
+            .expect("run lsof");
+        String::from_utf8_lossy(&listing.stdout)
+            .lines()
+            .filter(|line| line.starts_with('f'))
+            .count()
+    }
+
     /// Start the app on the default socket of the CLI's `HOME`, as the login item starts it.
     pub fn start_on_the_default_socket() -> Self {
         Self::spawn(Self::not_running_on_the_default_socket())
@@ -562,23 +580,47 @@ pub struct FakeRfb {
     pub password: Option<String>,
     accepted: Arc<AtomicUsize>,
     events: Arc<Mutex<Vec<RfbEvent>>>,
+    /// The connections that a holding server keeps open after the client's end, and how many
+    /// clients ended.
+    held: Arc<Held>,
+}
+
+/// What a holding server keeps (see [`FakeRfb::start_holding`]).
+#[derive(Default)]
+struct Held {
+    connections: Mutex<Vec<TcpStream>>,
+    ended: AtomicUsize,
 }
 
 impl FakeRfb {
     pub fn start(width: u16, height: u16, password: Option<&str>) -> Self {
+        Self::spawn(width, height, password, false)
+    }
+
+    /// A server like tart's VNC server. When a client ends its half of the connection, it reads
+    /// the end (or the reset that follows it), keeps the connection open and sends nothing more. It closes only when the test
+    /// ends. The plain server closes at once, so it hides a relay that waits for the guest.
+    pub fn start_holding(width: u16, height: u16) -> Self {
+        Self::spawn(width, height, None, true)
+    }
+
+    fn spawn(width: u16, height: u16, password: Option<&str>, hold: bool) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind the fake RFB server");
         let addr = listener.local_addr().unwrap();
         let accepted = Arc::new(AtomicUsize::new(0));
         let events = Arc::new(Mutex::new(Vec::new()));
+        let held = Arc::new(Held::default());
         let password = password.map(str::to_string);
         let (count, log, secret) = (Arc::clone(&accepted), Arc::clone(&events), password.clone());
+        let keep = Arc::clone(&held);
         std::thread::spawn(move || {
             for conn in listener.incoming() {
                 let Ok(conn) = conn else { continue };
                 count.fetch_add(1, Ordering::SeqCst);
-                let (log, secret) = (Arc::clone(&log), secret.clone());
+                let (log, secret, keep) = (Arc::clone(&log), secret.clone(), Arc::clone(&keep));
                 std::thread::spawn(move || {
-                    let _ = serve_rfb(conn, width, height, secret.as_deref(), &log);
+                    let held = hold.then_some(&*keep);
+                    let _ = serve_rfb(conn, width, height, secret.as_deref(), &log, held);
                 });
             }
         });
@@ -589,7 +631,36 @@ impl FakeRfb {
             password,
             accepted,
             events,
+            held,
         }
+    }
+
+    /// How many clients ended their half of a connection to a holding server.
+    pub fn client_ends(&self) -> usize {
+        self.held.ended.load(Ordering::SeqCst)
+    }
+
+    /// Count the connections that a holding server keeps and whose peer has closed. The server
+    /// writes one byte and then another. A closed socket answers data with a reset, so the
+    /// second write fails with a reset or a broken pipe. A peer that only ended its half gives
+    /// no such sign: the server saw that end long ago.
+    pub fn connections_the_peer_closed(&self) -> usize {
+        let connections = self.held.connections.lock().unwrap();
+        connections
+            .iter()
+            .filter(|conn| {
+                let mut conn: &TcpStream = conn;
+                let _ = conn.write_all(&[0]);
+                std::thread::sleep(Duration::from_millis(100));
+                matches!(
+                    conn.write_all(&[0]),
+                    Err(e) if matches!(
+                        e.kind(),
+                        std::io::ErrorKind::ConnectionReset | std::io::ErrorKind::BrokenPipe
+                    )
+                )
+            })
+            .count()
     }
 
     /// How many connections the server accepted.
@@ -627,6 +698,7 @@ fn serve_rfb(
     height: u16,
     password: Option<&str>,
     log: &Mutex<Vec<RfbEvent>>,
+    hold: Option<&Held>,
 ) -> std::io::Result<()> {
     conn.set_read_timeout(Some(Duration::from_secs(10)))?;
     conn.write_all(b"RFB 003.008\n")?;
@@ -680,7 +752,17 @@ fn serve_rfb(
         conn.read_exact(&mut sink)
     };
     loop {
-        if conn.read(&mut byte)? == 0 {
+        // The app may reset the connection right after it passes the client's end on. A
+        // holding guest then reads the reset in place of the end, and counts either one.
+        let read = match conn.read(&mut byte) {
+            Err(e) if hold.is_some() && e.kind() == std::io::ErrorKind::ConnectionReset => Ok(0),
+            other => other,
+        };
+        if read? == 0 {
+            if let Some(hold) = hold {
+                hold.ended.fetch_add(1, Ordering::SeqCst);
+                hold.connections.lock().unwrap().push(conn);
+            }
             return Ok(());
         }
         match byte[0] {

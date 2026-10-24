@@ -17,7 +17,8 @@ use testanyware_app_protocol::{
     STREAM_UPGRADE_TOKEN,
 };
 use testanyware_vm::tools::ToolSearch;
-use tokio::net::UnixListener;
+use tokio::io::AsyncWriteExt;
+use tokio::net::{UnixListener, UnixStream};
 
 use crate::access::peer_allowed;
 use crate::body::AppBody;
@@ -26,7 +27,8 @@ use crate::config::{stat_file, AppConfig};
 use crate::gate::{check_request, AppIdentity};
 use crate::grant::GrantObservation;
 use crate::streams::{
-    invalid_endpoint, open_guest_stream, relay, resolve_endpoint, vm_not_found, ServeError,
+    close_guest, invalid_endpoint, open_guest_stream, relay, resolve_endpoint, vm_not_found,
+    ClientWatch, ServeError,
 };
 
 /// What each connection needs to know about the app.
@@ -381,14 +383,32 @@ async fn serve_stream(
     let on_upgrade = hyper::upgrade::on(req);
     tokio::spawn(async move {
         let mut guest = guest;
-        match on_upgrade.await {
-            Ok(upgraded) => {
-                let mut client = TokioIo::new(upgraded);
-                // A reset or a broken pipe is how a client leaves. It needs no report.
-                let _ = relay(&mut client, &mut guest).await;
-            }
-            Err(e) => eprintln!("testanyware-app: upgrade failed: {e}"),
+        let upgraded = match on_upgrade.await {
+            Ok(upgraded) => upgraded,
+            Err(e) => return eprintln!("testanyware-app: upgrade failed: {e}"),
+        };
+        // The connection is the Unix stream that `serve` gave to hyper, so the downcast gives it
+        // back. The relay needs the socket itself to tell a client that has gone from one that
+        // half-closed.
+        // https://docs.rs/hyper/1.9.0/hyper/upgrade/struct.Upgraded.html#method.downcast
+        let Ok(parts) = upgraded.downcast::<TokioIo<UnixStream>>() else {
+            return eprintln!("testanyware-app: the upgraded connection is not a Unix stream");
+        };
+        let mut client = parts.io.into_inner();
+        // Bytes that hyper read past the request belong to the guest.
+        if !parts.read_buf.is_empty() && guest.write_all(&parts.read_buf).await.is_err() {
+            return;
         }
+        let watch = match ClientWatch::new(&client) {
+            Ok(watch) => watch,
+            Err(e) => {
+                eprintln!("testanyware-app: cannot watch a client of a stream: {e}");
+                return;
+            }
+        };
+        // A reset or a broken pipe is how a client leaves. It needs no report.
+        let outcome = relay(&mut client, &mut guest, watch.gone()).await;
+        close_guest(guest, &outcome);
     });
     let mut response = Response::new(AppBody::full(Bytes::new()));
     *response.status_mut() = StatusCode::SWITCHING_PROTOCOLS;
