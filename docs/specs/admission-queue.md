@@ -56,7 +56,7 @@ The count holds the guests and the starts that the app can see. A full count is
 a fact, so the app admits nothing more. A free count only allows a try. When the
 framework refuses the try, the start goes back to the head, ahead of each start
 that joined after it. Then the app tries one start at a time, 3 s apart, until
-the framework accepts one.
+the framework accepts one of those tries.
 
 A start holds its slot from its admission until its guest is gone. Golden
 creation holds its slot through an open connection to the app, and so between
@@ -133,13 +133,14 @@ The app finds the running guests with `tart list`, which reports each VM of the
 user's tart storage and whether it runs. tart treats a VM as running while its
 `tart run` holds a lock on the VM's configuration. So a `tart run` that crashed
 shows as stopped. `tart list` does not name the OS, so the app asks `tart get`
-once for each new VM name, and it keeps the answer. Only a guest whose OS is
-`darwin` counts.
+once for each new VM name. It keeps the answer while `tart list` reports that
+name. Only a guest whose OS is `darwin` counts.
 
-The app observes again before each decision to admit, at least every 3 s while a
-start waits, and for each `vm slots` request. It never holds the lock of the queue
-while tart runs. When tart does not answer within 5 s, the app counts its own
-holders only, until the next observation answers.
+The app observes again before each decision to admit, at least every 3 s while
+the queue holds a waiter, and for each `vm slots` request. It never holds the
+lock of the queue while tart runs. When tart does not answer within 5 s, the app
+keeps its last observation that tart answered, until the next observation
+answers. Before the first answer, it counts each VM of a meta as an own holder.
 
 The count allows an admission while both hold:
 
@@ -180,13 +181,13 @@ stateDiagram-v2
   [*] --> Preparing: vm start of a macOS guest
   Preparing --> Admitted: the decision admits it at once
   Preparing --> Waiting: --wait, and the decision does not admit it at once
-  Preparing --> Failed: no --wait, and the decision does not admit it at once
+  Preparing --> Failed: the clone fails, macos_slots is 0, or no --wait and the decision does not admit it at once
   Waiting --> Admitted: the decision admits it at the head
   Waiting --> Failed: its deadline comes, and the decision does not admit it
   Waiting --> Cancelled: the client goes
   Admitted --> Running: the framework accepts
   Admitted --> Waiting: the framework refuses, and the wait has time left
-  Admitted --> Failed: the framework refuses, and no wait is left
+  Admitted --> Failed: the framework refuses with no wait left, or another stage fails
   Admitted --> Cancelled: the client goes
   Running --> Failed: another stage fails
   Running --> Cancelled: the client goes before the result
@@ -207,11 +208,12 @@ queue, the own holders, the seen holders, `macos_slots` and the last refusal. Th
 unproven starts and the time complete them. The app calls the function on each of these events:
 
 - a start or a golden creation joins
+- a waiter leaves the queue
 - a holder ends
 - the framework refuses a start, or it accepts one
 - the pause after a refusal ends
 - the deadline of a waiter comes
-- a tick every 3 s while a start waits.
+- a tick every 3 s while the queue holds a waiter.
 
 First the function admits the head while the count allows, and it counts each
 admission at once. In contention it admits the head only, as the next section
@@ -226,7 +228,7 @@ under that lock, on an observation that the app made before it took the lock.
 ```mermaid
 flowchart TD
   ev(["Start here: an event"]):::start --> obs["Observe again: the macOS guests<br/>that tart reports running"]
-  obs --> any{"Does a start wait?"}
+  obs --> any{"Does the queue<br/>hold a waiter?"}
   any -- "no" --> idle["Nothing to admit"]
   any -- "yes" --> free{"own < macos_slots,<br/>and own + seen < 2?"}
   free -- "no" --> exp
@@ -269,18 +271,30 @@ not contention still holds.
 **Contention.** In contention, the app admits the head alone, and only while no
 admitted start is unproven. An admitted start is **unproven** until the
 framework accepts it or refuses it, or until the start ends in another way. A
-golden creation is never unproven, because its own boots meet the framework.
-Each retry is a real `tart run` on the one clone of the start, as today.
+golden creation is never unproven. The app gets no answer from the framework
+for its boots, so it would otherwise hold contention for its whole run. Each
+retry is a real `tart run` on the one clone of the start, as today.
 
-Contention ends when the framework accepts a start, or when no start waits and
-no admitted start is unproven. Then the app admits by the count again, after the
-pause.
+Contention ends when the framework accepts a start that the app admitted in
+contention. So the app notes each start that it admits in contention.
+Contention also ends when the queue holds no waiter and no admitted start is
+unproven. Then the app admits by the count again, after the pause.
 
-So contention orders the starts exactly where the limit holds. Two waiters never
-try together after a refusal, and so the second can never take a freed slot
-before the first. The first start that the framework accepts ends the
-contention. Until then, a guest that the app cannot see costs one retry every
-3 s, as the retry of today does.
+An acceptance of a start that the app admitted before the refusal does not end
+contention. That acceptance proves only that one slot was free for that try.
+The refused start still waits, and its retry has no answer yet.
+
+So contention orders the starts exactly where the limit holds. While contention
+holds, two starts never try together. So a later start can never take a freed
+slot before an earlier one. A guest that the app cannot see costs one retry
+every 3 s, as the retry of today does. That cost lasts until a try in
+contention gets an acceptance.
+
+A golden creation is the exception. The app sees its hold, but not its boots.
+So the app can admit a start before the first boot of a golden creation, or
+between two of its boots, in contention or not. Beside a guest that the app
+cannot see, that start can take the one free slot. Then the next boot of golden
+creation fails (see "Open risks").
 
 ```mermaid
 sequenceDiagram
@@ -304,7 +318,7 @@ sequenceDiagram
   Note over F: the other user's guest stops
   P->>F: tart run A
   F-->>P: VNC URL: accepted
-  P->>P: the refusals end. own 2: full by the count
+  P->>P: A tried in contention, so contention ends. own 2: full by the count
   P-->>A: the result of vm start
   Note over P: X stops, and the app reaps tart
   P->>F: tart run B
@@ -317,7 +331,7 @@ sequenceDiagram
 A start without `--wait` never waits and never passes a waiter. The app admits it
 at once only when all of these hold:
 
-- no start waits in the queue
+- the queue holds no waiter
 - the count allows an admission
 - contention does not block an admission.
 
@@ -325,8 +339,8 @@ Otherwise it fails at once with `VM_LIMIT_REACHED`, exit 6, and `refused_by`
 `app`. It does not run `tart run`. When the framework refuses it after the
 admission, it fails at once with `refused_by` `framework`, as it fails today.
 
-So a slot that frees while starts wait goes to the head of the queue, and never
-to a start without `--wait`.
+So a slot that frees while the queue holds a waiter goes to the head of the
+queue, and never to a start without `--wait`.
 
 ### The wait and its end
 
@@ -340,6 +354,9 @@ Its end is the waiter's deadline.
   exit 6, and `refused_by` `app`.
 - The pause after a refusal ends at the deadline of the head at the latest. So
   the pause never costs the head its last try.
+- A waiter behind the head that meets its deadline during the pause gets no
+  admission. It fails with `refused_by` `app`. Outside contention, only a wait
+  shorter than the pause can meet this.
 - The head misses its last try only when the count is full, or another admitted
   start is still unproven, at its deadline. Then it fails with `refused_by`
   `app`. The retry of today has no such case, because each start tries alone.
@@ -371,8 +388,9 @@ over the app's Unix socket, which Local Network privacy does not cover.
   bound, and stderr shows its place and what holds the slots. Ctrl-C ends the
   wait.
 - **The app admits it.** Golden creation runs every boot under one hold. The hold
-  is the open connection, so it keeps the slot between the boots too, and no
-  start takes it.
+  is the open connection, so the count keeps the slot between the boots too.
+  While the count is true, no start of the app takes that slot. A guest that the
+  app cannot see makes the count false (see "Open risks").
 - **Golden creation ends.** It closes the connection after its setup VM has
   stopped: after the clone to the golden on success, and after its cleanup on a
   failure.
@@ -381,6 +399,9 @@ over the app's Unix socket, which Local Network privacy does not cover.
   the app never stops it.
 - **The app quits while golden creation holds its slot.** Golden creation goes
   on without a hold. It writes one line about it to stderr.
+- **The app quits or crashes while golden creation waits.** The connection
+  closes before the admission. Golden creation fails as a waiting start fails,
+  and it has changed nothing yet.
 
 The boot of a setup VM or of a base VM now notices that `tart run` exited.
 Today the boot polls the log of `tart run` for 60 s for a VNC URL. When the
@@ -404,7 +425,7 @@ sequenceDiagram
   end
   G->>T: clone the setup VM, then boot 1
   G->>T: shut down, boot into Recovery, halt, boot again (twice)
-  Note over P,T: Between boots no guest runs.<br/>The hold keeps the slot, so no start takes it
+  Note over P,T: Between boots no guest runs.<br/>The hold keeps the slot in the count
   G->>T: shut down, clone to the golden, delete the setup VM
   G--)P: close the connection
   P->>P: release the slot, admit the next waiter
@@ -485,20 +506,42 @@ recorded process, and the state that tart reports for the VM.
 
 A mismatch of the identity proves only that the recorded process is gone. It
 does not prove that the VM of that name is still the clone of the start. tart
-names no instance of a VM, so the state of the VM decides. The first row that
-holds decides:
+names no instance of a VM, so the state of the VM decides.
+
+Only the recorded `tart run` decides, because that process is the VM. The
+keeper of the start is a separate process. It ends only when its next connect
+fails (ADR-0018). So a keeper that matches proves nothing about the VM. The
+first row that holds decides:
 
 | What the app finds | What the app does |
 |---|---|
 | The recorded `tart run` matches in full | It removes the VM, its clone, its sidecars and the record, as the stop of the app does |
-| tart reports the VM as not running, or no such VM | No `tart run` holds the VM. The app removes it by name with `tart delete`, and it removes the sidecars and the record. It sends no signal |
-| tart reports the VM as running, and no recorded process matches in full | The record does not prove the process that runs the VM. It can be a VM that a person made, or the start's own `tart run` before the record named it. The app sends no signal, and it runs neither `tart stop` nor `tart delete`. It keeps the VM and its sidecars, and it removes only the record |
+| The record names no `tart run` that matches in full. tart reports the VM as not running, or no such VM | No `tart run` holds the VM. The app removes it by name with `tart delete`, and it removes the sidecars and the record. It sends no signal |
+| The record names no `tart run` that matches in full. tart reports the VM as running | The record does not prove the process that runs the VM. It can be a VM that a person made, or the start's own `tart run` before the record named it. The app sends no signal, and it runs neither `tart stop` nor `tart delete`. It keeps the VM, and it removes the record. It also removes the spec and meta sidecars, unless adoption adopts the VM by its meta |
 | tart does not answer within 5 s | The app removes nothing, and the record stays |
 
-A running VM that the app keeps counts by the rules of the count, and the app
-never stops it. The record goes, so a later start of the app cannot remove that
-VM after a person stops it. A start on QEMU has no tart name, and the app
-removes it as the stop of the app does.
+In the second and the third row, a keeper of the start that still runs gets no
+signal. It ends by itself when its port refuses.
+
+The app never stops a running VM that the record does not prove. Sidecars that
+adoption does not adopt describe a `tart run` that is gone, so the app removes
+them. A meta that stayed would make the VM an own holder. `vm stop` would then
+remove the VM by name.
+
+Without the sidecars, the VM counts as a seen holder, and `vm stop` of its id
+fails with `VM_NOT_FOUND`. Then no later start of the app and no `vm stop`
+removes that VM. Only `tart stop` and `tart delete` remove it, or a `vm start`
+whose `--id` names it (see "External occupancy").
+
+A meta that adoption adopts belongs to an earlier start of the same id, whose
+`tart run` still runs. A second start of that id writes its record before its
+clone step clears those sidecars. A crash in that gap leaves the meta and the
+record together. The app keeps that meta, and adoption serves the VM. The
+start of the record left nothing else, so the app reports it with `removed`
+true.
+
+A start on QEMU has no tart name, and the app removes it as the stop of the app
+does.
 
 When a removal fails, the record stays, and the next start of the app decides
 again. `GET /v1/status` reports each such start in its adoption results. A start
@@ -506,13 +549,15 @@ whose VM the app kept has `removed` false. Its detail names the VM, the reason,
 and the remedy: `tart stop` and `tart delete` of that VM, when it is not the
 person's own.
 
-`vm list` and `vm stop` read no start record, so their output does not change.
+`vm list` and `vm stop` read no start record. They read the sidecars, as
+today.
 
 **A quit.** When a person quits the app, or Homebrew quits it for an upgrade, the
 app first stops admitting. It cancels each waiting start, and each admitted start
 that has no result yet, as a closed connection does. It waits up to 10 s for
 their cleanup, and then it exits. Each client of such a start gets
-`APP_UNREACHABLE` with cause `quitting`, as today.
+`APP_UNREACHABLE` with cause `quitting`, as today. A waiting golden creation
+gets the same error.
 
 A start that the 10 s leave unfinished keeps its start record, and the next start
 of the app decides for it. Each VM that started keeps running.
@@ -533,11 +578,11 @@ running while its `tart run` lives.
 flowchart TD
   s(["Start here: the app starts<br/>(after a quit, a crash or a restart of the Mac)"]):::start --> q["The queue is empty, and no start or golden creation<br/>holds a slot. Every client of the last run has gone"]
   q --> rec{"Is there a start record<br/>in the state directory?"}
-  rec -- "yes" --> vm{"What do the identity check<br/>and tart show for its VM?"}
+  rec -- "yes" --> vm{"What do the check of the recorded tart run<br/>and tart show for its VM?"}
   rec -- "no" --> adopt
   vm -- "the recorded tart run<br/>matches in full" --> rm["Signal the matching processes.<br/>Remove the VM, clone, sidecars and record"]
-  vm -- "not running, or no such VM" --> del["tart delete by name, with no signal.<br/>Remove the sidecars and the record"]
-  vm -- "running, and no recorded<br/>process matches" --> keep["Keep the VM and its sidecars, and never stop it.<br/>Remove the record, and report removed false"]
+  vm -- "no recorded tart run matches,<br/>and the VM does not run or does not exist" --> del["tart delete by name, with no signal.<br/>Remove the sidecars and the record"]
+  vm -- "no recorded tart run matches,<br/>and the VM runs" --> keep["Keep the VM, and never stop it. Remove the record,<br/>and the sidecars that adoption does not adopt.<br/>Without an adopted meta, report removed false"]
   vm -- "tart does not answer" --> stay["Remove nothing.<br/>The record stays for the next start"]
   rm & del & keep & stay --> adopt["Adopt each VM of a meta, by the rules of today"]
   adopt --> count["Count each macOS guest that tart reports running:<br/>own when a meta names it, seen otherwise"]
@@ -547,7 +592,9 @@ flowchart TD
 
 ### External occupancy
 
-The app never stops a guest that it did not start. A seen holder counts against
+The app never stops a guest that it did not start, with one exception that keeps
+the meaning of `--id`. A `vm start` whose `--id` names such a guest removes it
+before its clone, as every start of an id does today. A seen holder counts against
 the two slots of the Mac and not against `macos_slots`. `vm slots` names each seen
 holder with the kind `external`.
 
@@ -639,10 +686,11 @@ keeps its type:
 | `request_id` | New. The request id, or `null` when no app took part |
 | `place` | New. The place of the start when it failed, from 1. A start without `--wait` has the place that it would take. `null` when no app took part |
 | `waited_secs` | New. The seconds that the start waited in the queue. 0 for a start without `--wait` |
-| `refused_by` | New. `app` when the count refused, and `framework` when Virtualization.framework refused |
+| `refused_by` | New. `app` when the app refused: its count was full, or contention held the try back. `framework` when Virtualization.framework refused |
 
 The remedy names `vm slots` and `--wait`. Sometimes the framework refuses while
-the app sees no holder. Then the remedy names two possible causes. Another user
+the app sees no holder, or a start fails while contention holds its try back.
+Then the remedy names two possible causes. Another user
 or tool runs a guest, or the count of the framework is stuck until a restart of
 the Mac.
 
@@ -765,6 +813,13 @@ try the start again after a pause of 3 s.
   framework refuses A first and B next
 - **THEN** A is at place 1 and B at place 2, and contention tries A first
 
+#### Scenario: An acceptance of a start that the app admitted before the refusal
+
+- **WHEN** the app admits A and B together, the framework refuses A and then
+  accepts B, and C waits behind A
+- **THEN** contention holds after the acceptance of B. The app admits C only
+  after the framework accepts a retry of A, or after A leaves the queue
+
 ### Requirement: A cancel leaks no slot and leaves no VM
 
 A cancel before the admission, at the admission or during the boot SHALL leave
@@ -840,10 +895,12 @@ the slot of no live guest. It SHALL stop no VM that it did not start.
 
 #### Scenario: A VM that replaced the clone of a start record
 
-- **WHEN** the app is killed while a start boots. Then a person stops and
-  removes that VM with tart, and runs a new VM under the same name
+- **WHEN** the app is killed while a start boots, or after the start wrote its
+  meta and before it removed its start record. Then a person stops and removes
+  that VM with tart, and runs a new VM under the same name
 - **THEN** at its next start the app never stops that VM, and it reports the
-  start with `removed` false
+  start with `removed` false. No sidecar names the VM, so `vm slots` shows it
+  with the kind `external`, and `vm stop` of its id fails with `VM_NOT_FOUND`
 
 #### Scenario: A quit while starts wait
 
@@ -910,18 +967,22 @@ spec, and each one grows.
   free slot. Golden creation's hold request runs through the Host CLI's library.
   A quit of the app while starts wait, and a kill of the app during a boot
   followed by a new start, complete it. So does a VM that replaced the clone of
-  a start record while the app was down.
+  a start record while the app was down, also after the start wrote its meta.
 - **Pure functions.** The admission decision is a function of the queue, the
   holders, the observation, `macos_slots`, the last refusal and the time. Its
-  tests cover each event: a join, a leave, an admission, a refusal, an
-  acceptance, a release, a deadline and an expiry. They also cover two refusals
-  of starts that the app admitted together, a last try at a deadline and
-  `--wait=0`.
+  tests cover each event: a join, a leave, an admission, a refusal and an
+  acceptance. They cover a release, the end of a pause, a tick, a deadline and
+  an expiry. They also cover two refusals of starts that the app admitted
+  together, a last try at a deadline and `--wait=0`. One test accepts a start that the app admitted before the
+  refusal. Another admits a start beside a golden creation in contention.
 
   Other pure functions build the count with its rule for names that two holders
   share, and the details of `VM_LIMIT_REACHED`. The last are the lines on
   stderr, the check of `macos_slots`, and the decision for a start record that
-  the app finds. The tests of that decision cover each row of its table.
+  the app finds. The tests of that decision cover each row of its table. They
+  also cover a start record beside the meta of its own start, or of an earlier
+  start of the same id. Another test has a keeper that matches while its
+  `tart run` does not.
 - **The Taskfile live checks on this Mac.** Three real macOS starts with `--wait`
   run from separate shells. A `tart run` outside the app counts as occupancy,
   and a golden creation waits for its slot.
@@ -955,6 +1016,16 @@ spec, and each one grows.
   proves, so the next start of the app keeps it. Until the boot ends no meta
   exists, so `vm stop` cannot stop it. The VM counts as an external holder,
   and its report names `tart stop` and `tart delete` as the remedy.
+- **A golden creation beside a guest that the app cannot see.** The app counts
+  the slot of a golden creation, but it cannot see when its boots meet the
+  framework. So the app can admit a start before the first boot of a golden
+  creation, or between two of its boots, in contention or not. When a guest
+  that the app cannot see holds the other slot, that start can take the one
+  free slot. Then the next boot of golden creation gets refusals for 30 s.
+  Golden creation fails with `VM_LIMIT_REACHED` and `refused_by` `framework`,
+  and it removes its setup VM. A person runs it again. In the supported
+  deployment, only a guest of another tool, or the stuck count of the
+  framework, has this effect.
 - **A golden creation without a hold.** When the app quits while golden creation
   holds its slot, golden creation goes on without one. A start can then take the
   slot between its boots, and its next boot fails with `VM_LIMIT_REACHED`.
@@ -980,5 +1051,10 @@ spec, and each one grows.
 - **A count of every guest of the Mac.** No source shows a way to count another
   user's guests, or to tell a macOS guest from a Linux guest by its process.
 - **A remedy for the stuck count of the framework.** Only Apple can fix it.
+- **Evidence of each boot of a golden creation.** Golden creation could report
+  its boots over its hold, or the app could trust the lock of tart as proof of a
+  boot. Either would let the app protect golden creation from a guest that it
+  cannot see. That risk needs such a guest, and golden creation then fails with
+  a clear error. So this design takes neither.
 - **A slot for the live tests of the parts of golden creation.** A person runs
   them by hand, and the app counts their guests as seen.

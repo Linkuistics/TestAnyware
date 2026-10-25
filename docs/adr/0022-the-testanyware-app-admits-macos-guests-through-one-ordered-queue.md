@@ -66,7 +66,8 @@ see, and sends the start back to the head.**
 - **The refusal proves.** When the framework refuses an admitted start, the
   start goes back to the head, ahead of each waiter that joined after it. The
   app then tries one start at a time, 3 s apart,
-  until the framework accepts one. So no later waiter takes a freed slot first.
+  until the framework accepts one of those tries. So no later start takes a
+  freed slot before an earlier start.
 - **The queue blocks only what the limit blocks.** Linux and Windows guests never
   join it. When the count shows two free slots, the app admits two starts at
   once.
@@ -102,13 +103,17 @@ see, and sends the start back to the head.**
 ## Consequences
 
 - `vm start --wait` of a macOS guest waits in order. A start without `--wait`
-  fails at once when a start waits, so it cannot pass a waiter.
+  fails at once when the queue holds a waiter, so it cannot pass a waiter.
 - A guest that the app cannot see costs one `tart run` every 3 s while starts
   wait, as the retry of today does.
 - The stuck count of the framework looks like a guest that the app cannot see.
   The app cannot tell the two apart, and its remedy names both.
 - Golden creation asks the app for a slot over the Unix socket, although its
   guest traffic keeps the direct path (ADR-0004).
+- The app sees the hold of golden creation, but not its boots. When a guest that
+  the app cannot see holds the other slot, a start that the app admits can take
+  the free slot first. The next boot of golden creation then fails with
+  `VM_LIMIT_REACHED`.
 - A restart of the app ends each wait with `APP_UNREACHABLE` and cause
   `quitting`. The client loses its place.
 - The protocol of the app gains version 2, for `vm slots` and for the hold of

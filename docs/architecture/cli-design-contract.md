@@ -397,8 +397,8 @@ version bump.
 >
 > - `vm start --wait` of a macOS guest waits in the queue, and the app serves
 >   the waiters in order. A start without `--wait` fails at once with
->   `VM_LIMIT_REACHED` when the count is full or a start waits. So it never
->   passes a waiter.
+>   `VM_LIMIT_REACHED` when the count is full or the queue holds a waiter. So
+>   it never passes a waiter.
 > - Linux and Windows guests take no slot, and they never wait.
 > - `VM_LIMIT_REACHED` keeps exit `6` and the type of each member. `limit` is the
 >   limit that refused: `macos_slots` of `config.rhai` when the app's share is
