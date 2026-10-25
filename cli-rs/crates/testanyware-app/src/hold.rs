@@ -23,7 +23,6 @@ use testanyware_app_protocol::{
 };
 use testanyware_vm::{Progress, VmError};
 use tokio::sync::mpsc;
-use tokio_util::sync::CancellationToken;
 
 use crate::body::AppBody;
 use crate::start::{vm_error_object, Refusal};
@@ -59,14 +58,20 @@ pub fn hold_response(
     request: HoldRequest,
     requested_by: RequestedBy,
 ) -> Response<AppBody> {
+    // A quit that has begun admits nothing. A quit that begins later cancels the wait and ends
+    // the hold.
+    let Some((quit_guard, cancel)) = ctx.quit.enter() else {
+        return crate::start::quitting_response();
+    };
     let (sender, receiver) = mpsc::unbounded_channel::<Bytes>();
     // Dropping the body cancels the wait, and it ends the hold.
-    let cancel = CancellationToken::new();
     let queue = Arc::clone(&ctx.admission);
     let spawned = std::thread::Builder::new().name("golden-hold".into()).spawn({
         let sender = sender.clone();
         let cancel = cancel.clone();
         move || {
+            // The quit waits for this thread, the release of the slot included.
+            let _quit_guard = quit_guard;
             let progress = Progress::to({
                 let sender = sender.clone();
                 move |line| {

@@ -73,6 +73,9 @@ define_class!(
         // SAFETY: The signature is correct.
         #[unsafe(method(applicationWillTerminate:))]
         fn will_terminate(&self, _notification: &NSNotification) {
+            // Stop admitting, cancel each start, and wait up to 10 s for their cleanup. The server
+            // runs on the runtime's threads, so the streams of the cancelled starts end meanwhile.
+            self.ivars().config.ctx.quit.finish_and_say();
             // A clean quit leaves no socket file. A killed app leaves one, and the next start
             // removes it.
             let _ = std::fs::remove_file(&self.ivars().config.socket);

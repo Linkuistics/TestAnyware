@@ -88,6 +88,10 @@ struct Args {
     /// holds. A test mode run has no bundle, so without this the app states none.
     #[arg(long = "test-bundle-build", requires = "test_mode")]
     bundle_build: Option<String>,
+    /// How long a quit waits for the cleanup of the starts that it cancelled, in milliseconds, in
+    /// place of 10 s.
+    #[arg(long = "test-quit-wait-ms", requires = "test_mode")]
+    quit_wait_ms: Option<u64>,
     #[command(subcommand)]
     command: Option<Command>,
 }
@@ -223,6 +227,10 @@ fn main() -> ExitCode {
     .with_probe_deadline(args.probe_deadline_ms.map_or(
         testanyware_app::adoption::PROBE_DEADLINE,
         std::time::Duration::from_millis,
+    ))
+    .with_quit_wait(args.quit_wait_ms.map_or(
+        testanyware_app::quit::QUIT_WAIT,
+        std::time::Duration::from_millis,
     ));
     // The test mode has no login item to ask. It states `unobserved`.
     #[cfg(target_os = "macos")]
@@ -271,6 +279,7 @@ fn run_headless(
 ) -> ExitCode {
     // The socket is served by the select below, so adoption starts after the app can answer.
     runtime.spawn(testanyware_app::adoption::run(Arc::clone(&ctx)));
+    let quit_ctx = Arc::clone(&ctx);
     let code = runtime.block_on(async {
         let mut terminate =
             tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
@@ -284,8 +293,14 @@ fn run_headless(
             _ = terminate.recv() => ExitCode::SUCCESS,
         }
     });
+    // The server runs on the runtime's own threads, so the streams of the cancelled starts end
+    // while this thread waits.
+    quit_ctx.quit.finish_and_say();
     // A clean stop leaves no socket file. A killed app leaves one, and the next start removes it.
     let _ = std::fs::remove_file(&socket);
+    // A cleanup that outlasted the limit may still hold a thread of the blocking pool. The app
+    // exits at the limit and does not wait for it.
+    runtime.shutdown_background();
     code
 }
 
@@ -336,6 +351,24 @@ fn run_menu_bar_app(
 
     let serving = Arc::new(AtomicBool::new(true));
     runtime.spawn(testanyware_app::adoption::run(Arc::clone(&ctx)));
+    // Homebrew quits the app for an upgrade with SIGTERM, and a shell quits it with Ctrl-C. Neither
+    // runs `applicationWillTerminate:`, so the signal runs the quit and then exits.
+    runtime.spawn({
+        let ctx = Arc::clone(&ctx);
+        let socket = socket.clone();
+        async move {
+            let mut terminate =
+                tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+                    .expect("install the SIGTERM handler");
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {}
+                _ = terminate.recv() => {}
+            }
+            let _ = tokio::task::spawn_blocking(move || ctx.quit.finish_and_say()).await;
+            let _ = std::fs::remove_file(&socket);
+            std::process::exit(0);
+        }
+    });
     runtime.spawn({
         let ctx = Arc::clone(&ctx);
         let serving = Arc::clone(&serving);

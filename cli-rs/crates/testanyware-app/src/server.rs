@@ -59,6 +59,8 @@ pub struct AppContext {
     pub adoption: crate::adoption::AdoptionLog,
     /// How long a probe of an adopted VM may take. A test shortens it.
     pub probe_deadline: std::time::Duration,
+    /// The quit of the app: every start and every hold registers here, and a quit cancels them.
+    pub quit: Arc<crate::quit::Quit>,
     /// Asks macOS for the status of the login item, each time `GET /v1/status` needs it. The
     /// menu bar app sets it. A run with no login item, such as the test mode, states
     /// `unobserved`.
@@ -84,6 +86,7 @@ impl AppContext {
             admission,
             adoption: crate::adoption::AdoptionLog::default(),
             probe_deadline: crate::adoption::PROBE_DEADLINE,
+            quit: crate::quit::Quit::new(crate::quit::QUIT_WAIT),
             login_item: || LoginItemState::Unobserved,
         }
     }
@@ -143,6 +146,12 @@ impl AppContext {
     /// The same context with another deadline for the probes of adoption.
     pub fn with_probe_deadline(mut self, deadline: std::time::Duration) -> Self {
         self.probe_deadline = deadline;
+        self
+    }
+
+    /// The same context with another wait for the cleanup at a quit. A test shortens it.
+    pub fn with_quit_wait(mut self, limit: std::time::Duration) -> Self {
+        self.quit = crate::quit::Quit::new(limit);
         self
     }
 

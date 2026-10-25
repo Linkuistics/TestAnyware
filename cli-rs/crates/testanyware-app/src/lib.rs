@@ -34,6 +34,8 @@ pub mod listener;
 #[cfg(unix)]
 pub mod menu;
 #[cfg(unix)]
+pub mod quit;
+#[cfg(unix)]
 pub mod server;
 #[cfg(target_os = "macos")]
 pub mod shell;

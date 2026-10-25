@@ -158,15 +158,30 @@ fn final_event(result: Result<VmStartResult, VmError>) -> Option<StartEvent> {
     }
 }
 
+/// The answer to a request that arrives while the app quits: a stream with no event. The client
+/// reads a stream that ends with neither event as a quit (spec "testanyware-app": "The
+/// protocol"), and the app admits nothing.
+pub fn quitting_response() -> Response<AppBody> {
+    let (_sender, receiver) = mpsc::unbounded_channel::<Bytes>();
+    let mut response = Response::new(AppBody::events(receiver, CancellationToken::new()));
+    response
+        .headers_mut()
+        .insert(CONTENT_TYPE, HeaderValue::from_static(START_CONTENT_TYPE));
+    response
+}
+
 /// Start the VM of `options` and answer with the stream of its events.
 pub fn start_response(
     ctx: &Arc<AppContext>,
     options: VmStartOptions,
     requested_by: Option<RequestedBy>,
 ) -> Response<AppBody> {
+    // A quit that has begun admits nothing. A quit that begins later cancels this start.
+    let Some((quit_guard, cancel)) = ctx.quit.enter() else {
+        return quitting_response();
+    };
     let (sender, receiver) = mpsc::unbounded_channel::<Bytes>();
-    // Dropping the body cancels the start.
-    let cancel = CancellationToken::new();
+    // Dropping the body cancels the start, and so does a quit.
 
     let start_ctx = StartContext::for_app(
         vm_paths(ctx),
@@ -196,7 +211,10 @@ pub fn start_response(
         .name(format!("start-{id}"))
         .spawn({
             let sender = sender.clone();
+            let quit = Arc::clone(&ctx.quit);
             move || {
+                // The quit waits for this thread, its cleanup included.
+                let _quit_guard = quit_guard;
                 // An earlier start of this id may still clean up. Its cleanup must end before
                 // this start reclaims the id, and a client that left while it waited starts nothing.
                 let Some(_permit) = gate_ctx.starts.acquire(&options.id, &start_ctx.cancel) else {
@@ -216,11 +234,12 @@ pub fn start_response(
                         // A client that left after the start ended was told nothing. The start
                         // checked the cancel before it returned, and this covers the rest: the
                         // runtime that is dropped and the event that is sent. A VM that nobody
-                        // learns of is stopped again.
+                        // learns of is stopped again. A quit that began after the result is no
+                        // client that left: each VM that started keeps running.
                         let delivered = match &event {
                             Some(event) => {
                                 sender.send(Bytes::from(event.to_line())).is_ok()
-                                    && !start_ctx.cancel.is_cancelled()
+                                    && (!start_ctx.cancel.is_cancelled() || quit.is_quitting())
                             }
                             None => true,
                         };

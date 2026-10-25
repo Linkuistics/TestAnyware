@@ -16,6 +16,7 @@
 #                   kills it
 #   get-fails       if present, `get` fails, as a tart whose calls fail after its `list` answered
 #   get-delay       a number of seconds: `get` answers after that long, as a slow tart does
+#   delete-delay    a number of seconds: `delete` removes the VM after that long, as a slow cleanup does
 #   <name>.os       the OS that `get` reports for a VM (`darwin` or `linux`). `clone` writes it from
 #                   the base: darwin for the macOS golden, linux for the Linux golden. A VM that a
 #                   test makes by hand without it reports darwin
@@ -100,6 +101,7 @@ case "$cmd" in
     ;;
   delete)
     [ -e "$STATE/stuck" ] && exit 0
+    [ -s "$STATE/delete-delay" ] && sleep "$(cat "$STATE/delete-delay")"
     rm -f "$STATE/$1.cloned" "$STATE/$1.running" "$STATE/$1.os"
     ;;
   *)

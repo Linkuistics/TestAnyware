@@ -301,6 +301,30 @@ impl TestApp {
         }
     }
 
+    /// Quit the app as Homebrew does, with SIGTERM, and wait for it to exit. Returns how long the
+    /// quit took and whether the app exited with success. The directories stay as the app left
+    /// them.
+    pub fn quit(&mut self) -> (Duration, bool) {
+        let mut child = self.child.take().expect("the app runs");
+        let began = Instant::now();
+        nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(child.id() as i32),
+            nix::sys::signal::Signal::SIGTERM,
+        )
+        .expect("signal the app");
+        let status = loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                break status;
+            }
+            assert!(
+                began.elapsed() < Duration::from_secs(30),
+                "the app did not exit 30 s after SIGTERM"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        (began.elapsed(), status.success())
+    }
+
     /// Start the app again on the directories and the socket path of this one, which is down.
     /// The socket accepts connections before the app has decided for the start records it found,
     /// and a request is answered only after that, so a test reads `/v1/status` before it looks.

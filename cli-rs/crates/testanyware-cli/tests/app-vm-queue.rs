@@ -96,6 +96,17 @@ impl Fixture {
         config: Option<&str>,
         prepare: impl FnOnce(&TestApp),
     ) -> Self {
+        Self::with_agent_port_and_args(agent, agent_port, config, prepare, &[])
+    }
+
+    /// As [`Self::with_agent_port`], with more arguments for the app.
+    fn with_agent_port_and_args(
+        agent: FakeAgent,
+        agent_port: u16,
+        config: Option<&str>,
+        prepare: impl FnOnce(&TestApp),
+        extra: &[String],
+    ) -> Self {
         let vnc_port = silent_vnc_server();
         let prepare = |app: &TestApp| {
             let tart = app.tool_dir().join("tart");
@@ -108,7 +119,8 @@ impl Fixture {
             std::fs::write(state.join("capacity"), "2").unwrap();
             prepare(app);
         };
-        let args = ["--test-agent-port".to_string(), agent_port.to_string()];
+        let mut args = vec!["--test-agent-port".to_string(), agent_port.to_string()];
+        args.extend_from_slice(extra);
         let app = match config {
             Some(config) => TestApp::start_after_with_config_text_and_args(
                 prepare,
@@ -2274,4 +2286,125 @@ fn a_start_of_the_same_id_joins_the_queue_while_the_record_stays_and_the_queue_s
     });
     assert!(!fixture.start_record("retry-c").exists());
     third.kill();
+}
+
+// ---- A quit of the app (spec "admission-queue": "A quit, a crash and a restart", "A quit") ----
+
+/// An In-VM agent that answers `GET /health` while `healthy` is set, and drops the connection
+/// otherwise, as an agent that has not come up does. A test turns it off after the first start, so
+/// that a later start stays in its boot.
+struct ToggleAgent {
+    port: u16,
+    healthy: Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl ToggleAgent {
+    fn start() -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let healthy = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let flag = Arc::clone(&healthy);
+        std::thread::spawn(move || {
+            for mut conn in listener.incoming().flatten() {
+                if !flag.load(std::sync::atomic::Ordering::SeqCst) {
+                    continue;
+                }
+                let mut request = [0u8; 4096];
+                let _ = std::io::Read::read(&mut conn, &mut request);
+                let body = r#"{"accessible":true,"platform":"macos"}"#;
+                let _ = std::io::Write::write_all(
+                    &mut conn,
+                    format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\
+                         Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    )
+                    .as_bytes(),
+                );
+            }
+        });
+        Self { port, healthy }
+    }
+
+    fn set_healthy(&self, healthy: bool) {
+        self.healthy
+            .store(healthy, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+#[test]
+fn a_quit_while_starts_wait_and_one_boots_fails_each_client_and_leaves_no_clone_and_keeps_the_guest_that_started(
+) {
+    let _serial = serial();
+    let agent = ToggleAgent::start();
+    let mut fixture = Fixture::with_agent_port(FakeAgent::start(), agent.port, None, |_| {});
+    // One guest has started, so it holds one slot. The agent is silent from now on.
+    fixture.start_and_wait_until_running("qt-a");
+    agent.set_healthy(false);
+    let booting = fixture.spawn_start("qt-b", &[]);
+    until("the second start to boot", || fixture.runs("qt-b"));
+    let waiting = fixture.spawn_start("qt-c", &["--wait"]);
+    waiting.until_stderr_has("place 1");
+    let record = fixture.start_record("qt-b");
+    assert!(record.exists(), "the booting start has a record");
+
+    let (took, exited_cleanly) = fixture.app.quit();
+
+    assert!(exited_cleanly);
+    assert!(took < Duration::from_secs(8), "the quit took {took:?}");
+    for client in [booting, waiting] {
+        let (code, envelope, err) = client.finish();
+        assert_ne!(code, 0, "{envelope} {err}");
+        assert_eq!(envelope["code"], "APP_UNREACHABLE", "{envelope} {err}");
+        assert_eq!(envelope["details"]["cause"], "quitting", "{envelope}");
+    }
+    // The cleanup ran before the app exited: no clone, no VM and no record of those starts.
+    assert!(!fixture.cloned("qt-b") && !fixture.cloned("qt-c"));
+    assert!(!fixture.runs("qt-b") && !fixture.runs("qt-c"));
+    assert!(!record.exists(), "the cleanup removed the record");
+    assert!(!sidecars(&fixture, "qt-b")[0].exists() && !sidecars(&fixture, "qt-b")[1].exists());
+    // The guest that started keeps running, with its clone.
+    assert!(fixture.runs("qt-a") && fixture.cloned("qt-a"));
+}
+
+#[test]
+fn a_cleanup_that_outlasts_the_wait_of_the_quit_lets_the_app_exit_at_the_limit_and_keeps_the_record(
+) {
+    let _serial = serial();
+    let mut fixture = Fixture::with_agent_port_and_args(
+        FakeAgent::start(),
+        closed_port(),
+        None,
+        |_| {},
+        &["--test-quit-wait-ms".to_string(), "700".to_string()],
+    );
+    let client = fixture.spawn_start("qt-d", &[]);
+    until("the start to boot", || fixture.runs("qt-d"));
+    let record = fixture.start_record("qt-d");
+    until("the record to name the keeper", || {
+        std::fs::read_to_string(&record).is_ok_and(|text| text.contains("keeper"))
+    });
+    // The removal of the clone takes far longer than the wait of the quit.
+    fixture.set_fake("delete-delay", "20");
+
+    let (took, exited_cleanly) = fixture.app.quit();
+
+    assert!(exited_cleanly);
+    assert!(
+        took >= Duration::from_millis(650) && took < Duration::from_secs(5),
+        "the app exits at the limit of the wait: {took:?}"
+    );
+    let (code, envelope, err) = client.finish();
+    assert_ne!(code, 0, "{envelope} {err}");
+    assert_eq!(envelope["details"]["cause"], "quitting", "{envelope}");
+    assert!(record.exists(), "the record of the unfinished start stays");
+
+    // The next start of the app decides for the record.
+    fixture.clear_fake("delete-delay");
+    fixture.restart();
+    let status = fixture.status();
+    assert_eq!(
+        status["adoption"]["unfinished_starts"][0]["id"], "qt-d", "{status}"
+    );
+    until("the decision to remove the record", || !record.exists());
 }
