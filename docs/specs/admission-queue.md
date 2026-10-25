@@ -155,8 +155,8 @@ So when `tart get` fails for a VM, the app reads `tart list` again. The VM does
 not count when that list answers and does not report it running. Otherwise the
 observation fails.
 
-The app observes again before each decision to admit, and for each `vm slots`
-request. It also observes at least every 3 s while the queue holds a waiter, or
+The app observes again before each decision to admit, except two decisions that
+this section names below, and for each `vm slots` request. It also observes at least every 3 s while the queue holds a waiter, or
 while a start record waits for tart (see "A record that tart did not decide").
 It never holds the lock of the queue while tart runs.
 
@@ -165,7 +165,12 @@ starts only after the observation before it ends, with an answer or a failure.
 So each answer comes from a newer `tart list` than the answer before it. A
 request for an observation that comes while one runs waits for the next one,
 and the requests that wait together share it. So the observation of each
-decision starts after its event.
+decision that waits for one starts after its event.
+
+Two decisions wait for no observation, so a slow tart cannot delay them. One is
+the decision at the deadline of a waiter (see "The admission decision"). The
+other is a refusal of a start without `--wait` that needs no answer of tart
+(see "A start without `--wait`").
 
 **When tart does not answer.** An observation fails when a call to tart fails,
 or when one call does not answer within 5 s. The bound applies to each call, so
@@ -204,11 +209,18 @@ seen guest that stops meanwhile still counts, until tart answers (see "Open
 risks"). Each line of a waiter on stderr says that tart does not answer, and
 `vm slots` shows since when.
 
-**Before the first answer.** Until tart first answers in a run of the app, the
-app admits nothing. It knows no seen holder then. An admission could let a start
-take the slot of a golden creation between its boots, beside a guest that tart
-would show. A start without `--wait` fails at once with `refused_by` `app`. `vm slots` shows
-`observed_at` as `null`.
+**An answer newer than the join.** The app admits a start or a golden creation
+only on an answer whose observation started after its join. The app numbers its
+observations in the order in which they start. At its join, a start or a golden
+creation notes the number of the next observation. An answer is newer than the
+join when its observation has that number or a later one.
+
+An older answer can miss a guest that started before the join. An admission on
+it could let a start take the slot of a golden creation between its boots,
+beside a guest that tart would show. So until tart first answers in a run of the
+app, the app admits nothing. A start without `--wait` whose observation fails
+gets `refused_by` `app`, because no answer is newer than its join. Before the
+first answer, `vm slots` shows `observed_at` as `null`.
 
 The count allows an admission while both hold:
 
@@ -247,9 +259,9 @@ its error can name it.
 stateDiagram-v2
   direction TB
   [*] --> Preparing: vm start of a macOS guest
-  Preparing --> Admitted: the decision admits it at once
-  Preparing --> Waiting: --wait, and the decision does not admit it at once
-  Preparing --> Failed: the clone fails, macos_slots is 0, or no --wait and the decision does not admit it at once
+  Preparing --> Waiting: the clone is ready, and a start with a wait above 0 joins the queue
+  Preparing --> Admitted: the one decision of a start without --wait, or with --wait=0, admits it
+  Preparing --> Failed: the clone fails, macos_slots is 0, or the one decision of a start without --wait, or with --wait=0, does not admit it
   Waiting --> Admitted: the decision admits it at the head
   Waiting --> Failed: its deadline comes, and the decision does not admit it
   Waiting --> Cancelled: the client goes
@@ -273,7 +285,8 @@ stateDiagram-v2
 
 One pure function decides which waiters the app admits. Its inputs are the
 queue, the own holders, the seen holders, `macos_slots` and the last refusal. The
-unproven starts and the time complete them. The app calls the function on each of these events:
+unproven starts, the number of the answer's observation and the time complete
+them. The app calls the function on each of these events:
 
 - a start or a golden creation joins
 - a waiter leaves the queue
@@ -293,12 +306,22 @@ leave, an admission, a refusal, an acceptance, a release and an expiry. The
 decision runs under that lock, on the last answer of tart when it takes the
 lock. The app made that answer before it took the lock.
 
+The decision at a deadline waits for no observation. At the deadline of a
+waiter, the app decides at once on the last answer of tart, as it decides after
+an observation that failed. So a slow tart, many running guests or a retry of a
+start record never delays the last decision of a waiter. That decision admits a
+waiter only on an answer that is newer than its join (see "The count"). A waiter
+that it does not admit fails at its deadline, so no later decision can admit it.
+
 ```mermaid
 flowchart TD
-  ev(["Start here: an event"]):::start --> obs["Observe again: the macOS guests<br/>that tart reports running"]
+  ev(["Start here: an event"]):::start --> dl{"Is the event the<br/>deadline of a waiter?"}
+  dl -- "no" --> obs["Observe again: the macOS guests<br/>that tart reports running"]
+  dl -- "yes" --> last["Take the last answer of tart.<br/>Wait for no observation"]
   obs --> any{"Does the queue<br/>hold a waiter?"}
+  last --> any
   any -- "no" --> idle["Nothing to admit"]
-  any -- "yes" --> ans{"Has tart answered<br/>in this run of the app?"}
+  any -- "yes" --> ans{"Did the observation of the answer<br/>start after the head joined?"}
   ans -- "no" --> exp
   ans -- "yes" --> free{"own < macos_slots,<br/>and own + seen < 2?"}
   free -- "no" --> exp
@@ -335,7 +358,7 @@ So contention tries the earlier start first.
 
 **The pause.** After each refusal, the app admits nothing for 3 s. The pause
 ends at the deadline of the head when that comes first. It never blocks a start
-without `--wait`, which gets its one decision at once. The pause holds whether or
+without `--wait`, whose one decision never waits for the pause. The pause holds whether or
 not contention still holds.
 
 **Contention.** In contention, the app admits the head alone, and only while no
@@ -398,16 +421,33 @@ sequenceDiagram
 
 ### A start without `--wait`
 
-A start without `--wait` never waits and never passes a waiter. The app admits it
-at once only when all of these hold:
+A start without `--wait` never waits for a slot and never passes a waiter. It
+joins when its clone is ready, as each start does, but it never becomes a
+waiter. So it takes no place in the queue. A start with `--wait=0` takes this
+path too (see "The wait and its end"). Such a start gets one decision. The app
+admits it only when all of these hold at that decision:
 
 - the queue holds no waiter
 - the count allows an admission
 - contention does not block an admission.
 
-Otherwise it fails at once with `VM_LIMIT_REACHED`, exit 6, and `refused_by`
-`app`. It does not run `tart run`. When the framework refuses it after the
-admission, it fails at once with `refused_by` `framework`, as it fails today.
+Otherwise that decision fails it with `VM_LIMIT_REACHED`, exit 6, and
+`refused_by` `app`. It does not run `tart run`. When the framework refuses it
+after the admission, it fails at once with `refused_by` `framework`, as it fails
+today.
+
+Three refusals need no answer of tart, so they wait for no observation. The app
+refuses the start at its join when the queue holds a waiter, or when contention
+blocks an admission. It also refuses it at its join when the starts and golden
+creations that it admitted fill `macos_slots`, or the two slots. No answer of
+tart ends one of those holds.
+
+Otherwise the decision waits for an observation that starts after the join. It
+can wait for the observation in progress, the retries of start records and that
+observation. Each observation makes one call to tart for each running guest, so
+many guests and a slow tart delay the decision. The start still never waits for
+a slot, and that is the sense of "at once" in the contract. Two such starts are
+not served in order, as today.
 
 So a slot that frees while the queue holds a waiter goes to the head of the
 queue, and never to a start without `--wait`.
@@ -418,8 +458,9 @@ queue, and never to a start without `--wait`.
 sets the bound. The wait counts from the moment that the start joins the queue.
 Its end is the waiter's deadline.
 
-- At its deadline, a waiter gets one last decision. The app admits it when the
-  count and contention allow, as for any other decision.
+- At its deadline, a waiter gets one last decision at once, on the last answer
+  of tart (see "The admission decision"). The app admits it when the count and
+  contention allow, as for any other decision.
 - A waiter that the last decision does not admit fails with `VM_LIMIT_REACHED`,
   exit 6, and `refused_by` `app`.
 - The pause after a refusal ends at the deadline of the head at the latest. So
@@ -427,13 +468,17 @@ Its end is the waiter's deadline.
 - A waiter behind the head that meets its deadline during the pause gets no
   admission. It fails with `refused_by` `app`. Outside contention, only a wait
   shorter than the pause can meet this.
-- The head misses its last try only when the count is full, or another admitted
-  start is still unproven, at its deadline. Then it fails with `refused_by`
-  `app`. The retry of today has no such case, because each start tries alone.
+- The head misses its last try in three cases only. At its deadline, the count
+  is full, another admitted start is still unproven, or no answer is newer than
+  its join. Then it fails with `refused_by` `app`. The retry of today has no
+  such case, because each start tries alone.
 - A refusal at or after the deadline fails the start with `refused_by`
   `framework`.
-- `--wait=0` puts the deadline at the join, so the start gets one decision. The
-  app admits it when it would admit a start without `--wait`, as today.
+- `--wait=0` gives the start the one decision of a start without `--wait`, and
+  that decision waits for an observation in the same way. It gets no decision
+  at a deadline. At its join no answer is newer than the join, so such a
+  decision would always refuse it. The app admits it when it would admit a
+  start without `--wait`, as today.
 - Once the framework accepts the start, the wait no longer applies. Boot time
   does not count against it, as today.
 
@@ -648,6 +693,10 @@ observation starts. So two decisions for one record never overlap, and they
 follow the order of the lists. The tick of 3 s in "The count" makes such an
 observation while no client asks for one.
 
+These decisions can delay the next observation, and so each decision that waits
+for it. They never delay the decision at a deadline (see "The admission
+decision").
+
 The observer tries to take the gate of the VM id, as a stop takes it, but it
 never waits for the gate. A start of the id holds its gate while it waits in the
 queue, and that wait needs the next observation. So when a start or a stop of
@@ -817,14 +866,15 @@ keeps its type:
 | `request_id` | New. The request id, or `null` when no app took part |
 | `place` | New. The place of the start when it failed, from 1. A start without `--wait` has the place that it would take. An admitted start has the place that it would take back in the queue. `null` when no app took part |
 | `waited_secs` | New. The seconds that the start waited in the queue. 0 for a start without `--wait` |
-| `refused_by` | New. `app` when the app refused: its count was full, or contention held the try back. `framework` when Virtualization.framework refused |
+| `refused_by` | New. `app` when the app refused: its count was full, contention held the try back, or no answer of tart was newer than the join. `framework` when Virtualization.framework refused |
 
 The remedy names `vm slots` and `--wait`. Sometimes the framework refuses while
 the count shows a free slot, or a start fails while contention holds its try back.
 Then the remedy names two possible causes. Another user
 or tool runs a guest, or the count of the framework is stuck until a restart of
-the Mac. When a start fails while tart does not answer, the remedy says so. It
-names the time of the last answer, when one exists.
+the Mac. When a start fails while tart does not answer, or before an answer
+newer than its join, the remedy says so. It names the time of the last answer,
+when one exists.
 
 **stderr while a start waits.** A waiting start writes a line when it joins. It
 writes another when its place or the holders change, and every 30 s otherwise.
@@ -995,8 +1045,8 @@ details SHALL name its request id, its place and the time that it waited.
 
 - **WHEN** no start waits, the count shows a free slot, and `vm start --wait=0`
   runs
-- **THEN** the app admits the start at once, as it admits a start without
-  `--wait`
+- **THEN** the app admits the start on its one decision, as it admits a start
+  without `--wait`
 
 ### Requirement: Golden creation takes its slot from the queue
 
@@ -1141,6 +1191,18 @@ spec, and each one grows.
   A slow observation runs while a golden creation holds a slot and a start
   waits. The test starts a fake macOS guest outside the app meanwhile, and then
   it runs `vm slots`. The guest stays counted, and the start waits.
+
+  Slow calls that succeed come next. Several fake Linux guests run, and each
+  fake `tart get` answers after almost 5 s. Both slots are held, and the
+  deadline of a `vm start --wait=2` comes during an observation. The start
+  fails after about 2 s with `refused_by` `app`. In a second run, a slot frees
+  only after that deadline, and the app never admits the start later.
+
+  In a third run, an earlier answer shows a free slot, and the start joins while
+  the observer is slow. Its deadline comes before an observation after its join
+  answers. So it fails at its deadline, and it runs no `tart run`.
+  Last, a start without `--wait` arrives while a start waits, during such an
+  observation. It fails at once with `place` 2.
 - **Pure functions.** The admission decision is a function of the queue, the
   holders, the observation, `macos_slots`, the last refusal and the time. Its
   tests cover each event: a join, a leave, an admission, a refusal and an
@@ -1148,6 +1210,12 @@ spec, and each one grows.
   an expiry. They also cover two refusals of starts that the app admitted
   together, a last try at a deadline and `--wait=0`. One test accepts a start that the app admitted before the
   refusal. Another admits a start beside a golden creation in contention.
+
+  The tests of the decision also cover an answer whose observation started
+  before the join of the head. That answer admits no waiter, and a deadline
+  then fails the head. Another function tells a refusal of a start without
+  `--wait` that needs no answer of tart. Its tests cover a waiter in the queue,
+  contention, and the holders that the app admitted.
 
   Other pure functions build the count with its rule for names that two holders
   share, and the details of `VM_LIMIT_REACHED`. The last are the lines on
@@ -1231,16 +1299,31 @@ spec, and each one grows.
   free slot. Then the next boot of golden creation gets refusals for 30 s.
   Golden creation fails with `VM_LIMIT_REACHED` and `refused_by` `framework`,
   and it removes its setup VM. A person runs it again. In the supported
-  deployment, only a guest of another tool, or the stuck count of the
-  framework, has this effect.
-- **A tart that does not answer.** While observations fail, the app keeps each
-  seen holder of its last answer. A seen guest that stops meanwhile still
-  counts. So does a guest of the app whose `tart run` exits by itself
-  meanwhile. So a waiter can fail at its deadline with `refused_by` `app` while a
-  slot is free. A golden creation as the only waiter waits until tart answers,
-  or until Ctrl-C. The app keeps those holders to protect golden creation.
-  Without them, a start could take its slot between its boots, beside a guest
-  that the app can see.
+  deployment, only three causes have this effect. They are a guest of another
+  tool, the stuck count of the framework, and the guest of the next risk.
+- **A guest that starts after the last answer.** Each decision uses an answer
+  that tart gave before the decision. A macOS guest that starts after the
+  `tart list` of that answer does not count. So a start that the app admits can
+  take the slot of a golden creation between its boots, beside that guest. The
+  gap between that list and the decision is longer for a decision at a
+  deadline, or after an observation that failed. The gap starts after the join,
+  because the answer must be newer than the join.
+- **A tart that does not answer, or answers slowly.** While observations fail,
+  the app keeps each seen holder of its last answer. A seen guest that stops
+  meanwhile still counts. So does a guest of the app whose `tart run` exits by
+  itself meanwhile. So a waiter can fail at its deadline with `refused_by` `app`
+  while a slot is free. A decision at a deadline uses the last answer, so a slow
+  tart has the same effect. A slow tart, many running guests or the retry of a
+  start record can also delay an admission, but never a deadline. They also
+  delay the one decision of a start without `--wait`, and so its refusal. So a
+  short wait can fail at its deadline while a slot is free. A start with
+  `--wait=0` that joins at the same moment then gets that slot later.
+
+  A start that joins while observations fail gets no admission until tart
+  answers. A golden creation as the only waiter waits until tart answers, or
+  until Ctrl-C. The app keeps those holders to protect golden creation. Without
+  them, a start could take its slot between its boots, beside a guest that the
+  app can see.
 - **A meta that outlives its `tart run`.** A `tart run` can exit by itself, and
   its meta then stays for `vm stop`, by the rules of adoption. A person can then
   run another VM under its name. The count keeps that VM out of the own holders,
