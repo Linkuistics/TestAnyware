@@ -661,8 +661,9 @@ child a client socket that another thread has just accepted. The app starts
 does not name. A thread waits for each child, so none stays a zombie.
 
 The state directory stays the record of each VM, in the spec and meta sidecars
-of today. A start record also lives there while a start runs, so the app can
-remove a start that a crash interrupted (`docs/specs/admission-queue.md`). The
+of today. A start record also lives there while a start runs. After a crash it
+stays until the app decides for it, so the app can remove a start that the
+crash interrupted (`docs/specs/admission-queue.md`). The
 app keeps no other VM state across a restart.
 
 Adoption is how the app serves again a VM that it did not start in its

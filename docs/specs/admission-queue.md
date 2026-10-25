@@ -146,8 +146,12 @@ guest whose OS is `darwin` counts.
 
 The app keeps no answer of `tart get` from one observation to the next. tart can
 replace a VM under the same name between two observations, and the name then
-stays in each list. A `vm start --id` replaces a VM of its id in this way. A VM
-that `tart get` no longer finds has gone, and it does not count.
+stays in each list. A `vm start --id` replaces a VM of its id in this way.
+
+A failed `tart get` alone cannot tell a VM that has gone from a tart that fails.
+So when `tart get` fails for a VM, the app reads `tart list` again. The VM does
+not count when that list answers and does not report it running. Otherwise the
+observation fails.
 
 The app observes again before each decision to admit, at least every 3 s while
 the queue holds a waiter, and for each `vm slots` request. It never holds the
@@ -155,11 +159,27 @@ lock of the queue while tart runs.
 
 **When tart does not answer.** An observation fails when tart fails, or when it
 does not answer within 5 s. Then the app keeps its last observation that tart
-answered, until an observation answers again. From that observation it removes
-each VM that the app stopped, or whose `tart run` it saw exit, after that answer.
-The app reaps each `tart run` that it starts, and its stop succeeds only when
-tart reports the VM gone. So a release that the app saw frees its slot in the
-count at once.
+answered, until an observation answers again. The time of an observation is
+the moment when its last call to tart returns.
+
+Only a later read of tart changes that observation. A stop of the app makes such
+a read when its last `tart list` answers and does not name the VM. That read is
+later when its `tart list` starts after the last call of the observation
+returns. Then the app removes the VM from the observation, and its slot frees in
+the count at once.
+
+A `tart list` that fails proves nothing, so the VM stays in the observation.
+Today `vm_exists_in` returns false when `tart list` fails. So a stop by name can
+succeed while its VM still runs, and the count must not rely on that result.
+The read of a stop is not an observation. It changes neither `observed_at` nor
+`unanswered_since`, and it is not the first answer of a run of the app.
+
+The exit of a `tart run` removes no VM from the observation. A thread of the app
+reaps each `tart run` that the app starts. So the app can learn of an exit after
+an answer that came later than the exit. That answer can show a VM that
+replaced the VM of the process under the same name. So the exit ends only the
+hold of the admission that started that `tart run`. The VM of that name stays in
+the count until a later read of tart shows it gone.
 
 The app keeps each seen holder of its last answer while observations fail. A
 seen guest that stops meanwhile still counts, until tart answers (see "Open
@@ -543,24 +563,28 @@ names no instance of a VM, so the state of the VM decides.
 
 Only the recorded `tart run` decides, because that process is the VM. The
 keeper of the start is a separate process. It ends only when its next connect
-fails (ADR-0018). So a keeper that matches proves nothing about the VM. The
-first row that holds decides:
+fails (ADR-0018). So a keeper that matches proves nothing about the VM.
+
+The table decides for a start on tart only. A start on QEMU has no tart name.
+The app removes it as the stop of the app does, and it never asks tart. For a
+start on tart, the first row that holds decides:
 
 | What the app finds | What the app does |
 |---|---|
 | The recorded `tart run` matches in full | It removes the VM, its clone, its sidecars and the record, as the stop of the app does |
 | The record names no `tart run` that matches in full. tart reports the VM as not running, or no such VM | No `tart run` holds the VM. The app removes it by name with `tart delete`, and it removes the sidecars and the record. It sends no signal |
 | The record names no `tart run` that matches in full. tart reports the VM as running | The record does not prove the process that runs the VM. It can be a VM that a person made, or the start's own `tart run` before the record named it. The app sends no signal, and it runs neither `tart stop` nor `tart delete`. It keeps the VM, and it removes the record. It also removes the spec and meta sidecars, unless the meta's own `tart run` matches in full |
-| tart does not answer within 5 s | The app removes nothing, and the record stays |
+| tart does not answer within 5 s | The app keeps the VM and the record, and it decides again after an observation that tart answers. It removes the spec and meta sidecars, unless the meta's own `tart run` matches in full |
 
 In the second and the third row, a keeper of the start that still runs gets no
 signal. It ends by itself when its port refuses.
 
 The app never stops a running VM that the record does not prove. So in the third
-row it keeps the sidecars only when they prove the VM. A meta that stayed without
-that proof would make the VM an own holder. `vm stop` would then remove the VM by
-name. The check of the meta's own `tart run` decides. It is the check that
-adoption makes:
+and the fourth row it keeps the sidecars only when they prove the VM. A meta that
+stayed without that proof would let `vm stop` remove the VM by name. In the
+fourth row the meta would stay while the app serves its socket. The check of the
+meta's own `tart run` decides. It is the check that adoption makes, and it needs
+no answer from tart:
 
 | What the check of the meta finds | The spec and the meta | `removed` |
 |---|---|---|
@@ -568,6 +592,8 @@ adoption makes:
 | The meta's `tart run` is gone | The app removes them | false |
 | The pid of the meta names another process | The app removes them | false |
 | The meta records no identity, as an older meta does | The app removes them. No check can prove that its `tart run` still runs | false |
+
+In the fourth row, `removed` is false for each outcome, because the record stays.
 
 Without the sidecars, the VM counts as a seen holder, and `vm stop` of its id
 fails with `VM_NOT_FOUND`. Then no later start of the app and no `vm stop`
@@ -586,18 +612,30 @@ checks no process for it. The second start was about to remove that VM by name
 in its clone step. So the app removes the older meta, and the VM counts as a
 seen holder.
 
-A start on QEMU has no tart name, and the app removes it as the stop of the app
-does.
-
 When a removal fails, the record stays, and the next start of the app decides
 again. `GET /v1/status` reports each such start in its adoption results. A start
 has `removed` false when the app keeps a running VM that no meta proves. Its
 detail names the VM, the reason,
 and the remedy: `tart stop` and `tart delete` of that VM, when it is not the
-person's own.
+person's own. A start also has `removed` false when tart does not answer. Its
+detail then says that the app decides again once tart answers.
+
+**A record that tart did not decide.** After each observation that tart
+answers, the app decides again for each start record that the fourth row kept.
+It takes the gate of the VM id for that decision, as a stop does. It uses the
+same function, with the same bound of 5 s.
+
+The first row cannot hold then, because a recorded process that did not match
+cannot match later. So the second or the third row decides, or the record stays
+for the next answer. `GET /v1/status` then reports the new result.
+
+When a new start of the same id takes the gate before the retry, its own record
+replaces the old one. Its clone step removes the VM of that id, as every start
+of an id does.
 
 `vm list` and `vm stop` read no start record. They read the sidecars, as
-today.
+today. No sidecar that a start record leaves without proof stays when the app
+serves its socket.
 
 **A quit.** When a person quits the app, or Homebrew quits it for an upgrade, the
 app first stops admitting. It cancels each waiting start, and each admitted start
@@ -632,7 +670,7 @@ flowchart TD
   vm -- "the recorded tart run<br/>matches in full" --> rm["Signal the matching processes.<br/>Remove the VM, clone, sidecars and record"]
   vm -- "no recorded tart run matches,<br/>and the VM does not run or does not exist" --> del["tart delete by name, with no signal.<br/>Remove the sidecars and the record"]
   vm -- "no recorded tart run matches,<br/>and the VM runs" --> keep["Keep the VM, and never stop it. Remove the record,<br/>and the sidecars unless the meta's tart run matches in full.<br/>Without such a meta, report removed false"]
-  vm -- "tart does not answer" --> stay["Remove nothing.<br/>The record stays for the next start"]
+  vm -- "tart does not answer" --> stay["Keep the VM and the record. Remove the sidecars<br/>unless the meta's tart run matches in full.<br/>Decide again after the next answer of tart"]
   rm & del & keep & stay --> adopt["Adopt each VM of a meta, by the rules of today"]
   adopt --> count["Count each macOS guest that tart reports running:<br/>own when a meta names it and its check allows it,<br/>seen otherwise. Admit nothing until tart answers"]
   count --> serve["Serve the socket. Admit by the count"]
@@ -767,7 +805,7 @@ schema id is `vm-slots`. Its data:
 | `queue` | Each waiter, in order: `request_id`, `place`, `kind` (`vm` or `golden`), `vms`, `requested_by`, `since` and `deadline` |
 | `contention` | `null` while contention does not hold. In contention, the last refusal: `since`, `tart_error` and `holders` |
 | `observed_at` | The time of the last answer of tart, or `null` before the first answer |
-| `unanswered_since` | `null`, or the time of the first failed observation after the last answer. Before the first answer, it is the time of the first failed observation of this run of the app. Meanwhile the count keeps the holders of the last answer, except each VM that the app saw stop |
+| `unanswered_since` | `null`, or the time of the first failed observation after the last answer. Before the first answer, it is the time of the first failed observation of this run of the app. Meanwhile the count keeps the holders of the last answer, except each VM that a later read of a stop showed gone (see "When tart does not answer") |
 
 Each time is in seconds since the Unix epoch. A member that does not apply is
 `null`. On a Linux or Windows host, `vm slots` reports `slots` 0, `limit` 0 and
@@ -956,6 +994,16 @@ the slot of no live guest. It SHALL stop no VM that it did not start.
   start with `removed` false. No sidecar names the VM, so `vm slots` shows it
   with the kind `external`, and `vm stop` of its id fails with `VM_NOT_FOUND`
 
+#### Scenario: A VM that replaced the clone of a start record, while tart does not answer
+
+- **WHEN** the app is killed after a start wrote its meta and before it removed
+  its start record. Then a person removes that VM with tart and runs a new VM
+  under the same name. At the next start of the app, tart does not answer
+- **THEN** the app keeps the VM and the start record, and it removes the spec and
+  the meta. After the next observation that tart answers, the app decides
+  again. The VM runs, so the app removes the record and reports `removed` false.
+  `vm stop` of the id fails with `VM_NOT_FOUND`, and the app never stops that VM
+
 #### Scenario: A quit while starts wait
 
 - **WHEN** a person quits the app while starts wait and one start boots
@@ -1021,8 +1069,13 @@ spec, and each one grows.
   lower `macos_slots`, external occupancy and a refusal while the app counts a
   free slot. Golden creation's hold request runs through the Host CLI's library.
   A quit of the app while starts wait, and a kill of the app during a boot
-  followed by a new start, complete it. So does a VM that replaced the clone of
-  a start record while the app was down, also after the start wrote its meta.
+  followed by a new start, complete it.
+
+  So does a VM that replaced the clone of a start record while the app was
+  down, also after the start wrote its meta. That case also runs with a
+  `tart list` that does not answer at the next start of the app. The app
+  decides for the record again when tart answers, and a `vm stop` of the id
+  follows.
 - **Pure functions.** The admission decision is a function of the queue, the
   holders, the observation, `macos_slots`, the last refusal and the time. Its
   tests cover each event: a join, a leave, an admission, a refusal and an
@@ -1037,17 +1090,22 @@ spec, and each one grows.
   the app finds.
 
   The tests of the count cover a VM that tart replaced with a guest of another
-  OS, under a name that each list showed. They cover a release that the app saw
-  after its last answer, with failed observations after it. They cover a meta
-  whose `tart run` is gone, beside a running VM of its name. They also cover a
-  decision before the first answer, and the metas of stopped VMs after a
-  restart of the Mac.
+  OS, under a name that each list showed. They cover a stop of the app that
+  began after its last answer, with failed observations after it. They cover
+  the exit of a `tart run` that the app learns after an answer. That answer
+  shows a VM that replaced the VM of the process under the same name, and
+  failed observations follow. The count keeps the replacement and the hold of a
+  golden creation together.
+
+  They also cover a meta whose `tart run` is gone, beside a running VM of its
+  name. They cover a decision before the first answer, and the metas of stopped
+  VMs after a restart of the Mac.
 
   The tests of the decision for a start record cover each row of its table. They
   also cover a start record beside the meta of its own start, or of an earlier
   start of the same id. The meta of that earlier start comes in each outcome of
-  its check, an older meta included. Another test has a keeper that matches
-  while its `tart run` does not.
+  its check, an older meta included, in the third and the fourth row. Another
+  test has a keeper that matches while its `tart run` does not.
 - **The Taskfile live checks on this Mac.** Three real macOS starts with `--wait`
   run from separate shells. A `tart run` outside the app counts as occupancy,
   and a golden creation waits for its slot.
@@ -1071,8 +1129,9 @@ spec, and each one grows.
   record before it sends the result. A crash between the two leaves a started VM
   that no client knows. `vm list` shows it, and `vm stop` stops it.
 - **A VM that does not run, under the name of a start record.** While the app is
-  down, a person can remove the clone of an interrupted start. The person can
-  then make a VM under its name and leave it stopped. tart names no instance of a VM, so the app cannot tell the two
+  down, or before tart answers after the app starts, a person can remove the
+  clone of an interrupted start. The person can then make a VM under its name
+  and leave it stopped, or stop a VM that ran under that name. tart names no instance of a VM, so the app cannot tell the two
   apart. Its next start removes that VM by name. A proof would need a read of
   tart's own storage. The app never stops a running VM of that name.
 - **A crash before the start record names its `tart run`.** The app writes the
@@ -1101,11 +1160,17 @@ spec, and each one grows.
   framework, has this effect.
 - **A tart that does not answer.** While observations fail, the app keeps each
   seen holder of its last answer. A seen guest that stops meanwhile still
-  counts. So a waiter can fail at its deadline with `refused_by` `app` while a
+  counts. So does a guest of the app whose `tart run` exits by itself
+  meanwhile. So a waiter can fail at its deadline with `refused_by` `app` while a
   slot is free. A golden creation as the only waiter waits until tart answers,
   or until Ctrl-C. The app keeps those holders to protect golden creation.
   Without them, a start could take its slot between its boots, beside a guest
   that the app can see.
+- **A meta that outlives its `tart run`.** A `tart run` can exit by itself, and
+  its meta then stays for `vm stop`, by the rules of adoption. A person can then
+  run another VM under its name. The count keeps that VM out of the own holders,
+  but `vm stop` of the id removes it by name. This design accepts that hazard of
+  adoption for each such meta, and a start record does not add to it.
 - **A golden creation without a hold.** When the app quits while golden creation
   holds its slot, golden creation goes on without one. A start can then take the
   slot between its boots, and its next boot fails with `VM_LIMIT_REACHED`.

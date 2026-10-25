@@ -149,9 +149,9 @@ _Avoid_: "pending" (a waiter in the *Admission queue* is pending too).
 **Start record**:
 A sidecar that the *TestAnyware app* writes before the clone of a start. The app
 deletes it when the start ends. So a start record that the app finds when it
-starts names a start that a crash interrupted. The app then deletes that
-start's VM, but it never stops a running VM that the recorded `tart run` does
-not prove.
+starts names a start that a crash interrupted. Once tart answers, the app
+deletes that start's VM. It never stops a running VM that the recorded
+`tart run` does not prove.
 _Avoid_: "meta" (the meta describes a VM that started).
 
 **Local Network denial**:
