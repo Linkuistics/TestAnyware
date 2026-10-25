@@ -16,14 +16,12 @@ surface (the now-retired Swift CLI) and `docs/reference/error-codes.md`.
 
 ---
 
-<!-- tc: pending because the conversion has not reached sections 1 to 4.7 -->
-
 ## 1. Verb/noun convention
 
-**Decision: noun-first, with a curated set of verb-first top-level
-shortcuts.**
+**Decision: a subcommand puts its noun first, and a chosen set of top-level
+shortcuts put the verb first.**
 
-Most subcommands are noun-first (`<noun> <verb>`):
+Most subcommands put the noun first (`<noun> <verb>`):
 
 | Group | Subcommands |
 |---|---|
@@ -33,9 +31,9 @@ Most subcommands are noun-first (`<noun> <verb>`):
 | `screen` | `capture`, `record`, `size`, `find-text` |
 | `file` | `upload`, `download` |
 
-**Verb-first top-level shortcuts are kept** for muscle memory and
-discoverability. They are aliases of the noun-first canonical form, not
-independent commands:
+**The top-level shortcuts that put the verb first stay**, for muscle memory and
+discoverability. Each one is an alias of the canonical form, which puts the noun
+first. None of them is a command of its own:
 
 | Verb-first alias | Canonical |
 |---|---|
@@ -45,14 +43,14 @@ independent commands:
 | `find-text` | `screen find-text` |
 | `upload` | `file upload` |
 | `download` | `file download` |
-| `exec` | `file exec` (lives under `file` because it is an in-VM action; alias retained because it is heavily scripted) |
+| `exec` | `file exec`. It lives under `file` because it is an action in the VM. The alias stays because many scripts use it |
 
-**Aliases policy.** Both forms are tested. `--help` for the alias must
-say "Alias of `<canonical>`". Help and schema are emitted from the
-canonical command — aliases do not re-document the surface. Removing an
-alias is a breaking change.
+**Aliases policy.** Tests cover both forms. The `--help` of an alias must say
+"Alias of `<canonical>`". Help and schema come from the canonical command, so an
+alias does not document the surface again. The removal of an alias is a
+breaking change.
 
-**Common synonym aliases** (cheap; required):
+**Common synonym aliases.** They cost little, and each one is required:
 
 | Canonical | Required aliases |
 |---|---|
@@ -60,56 +58,54 @@ alias is a breaking change.
 | `delete` | `rm`, `remove` |
 | `inspect` | `show` |
 
-**Internal commands** (not part of the public contract): names prefixed
-with `_` (e.g. `_server`). They MUST set `hide = true` in clap so they
-do not appear in `--help` output. They are not bound by any contract
-section below.
+**Internal commands** are not part of the public contract. Their names start
+with `_`, such as `_server`. They MUST set `hide = true` in clap, so that they
+do not appear in the output of `--help`. No section of this contract binds
+them.
 
 ---
 
 ## 2. Flag vocabulary
 
-**One name per concept. No synonyms across commands.** The Rust port
-uses these and only these names:
+**One name for each concept, and no synonyms across commands.** The Rust port
+uses these names and no others:
 
 | Concept | Long flag | Short | Notes |
 |---|---|---|---|
-| Structured output | `--json` | — | Bool flag; equivalent to `--output json`. |
-| Output format selector | `--output <fmt>` | `-o` | Values: `text` (default), `json`, `jsonl`. `-o` is reserved here; commands MUST NOT use `-o` for output-file paths (see below). |
-| Output **file** path | `--out <path>` | — | When a command writes a file, use `--out`, not `--output`. Disambiguates from the format selector. |
-| Suppress non-essential stderr | `--quiet` | `-q` | Stderr-only effect; never silences errors. |
-| Diagnostic detail | `--verbose` | `-v` | Repeatable (`-vv`) for higher levels. Stderr only. |
-| Preview without side effects | `--dry-run` | — | Required on every mutating command (see §9). |
-| Non-interactive confirm | `--yes` | `-y` | Bypasses confirmation prompts. |
-| Override safety check | `--force` | — | Distinct from `--yes`. Required when a check actively refuses. |
-| Narrow list output | `--filter <expr>` | — | Field=value pairs, comma-separated. Per-command grammar documented in help. |
-| Field-specific filter | `--<field> <value>` | — | E.g. `--platform macos` on `vm list`. |
-| Page size | `--limit <n>` | — | Default 100 on list commands. |
-| Unbounded results | `--all` | — | Mutually exclusive with `--limit`. |
-| Custom format template | `--format <tmpl>` | — | Optional; only where templating is meaningful. Must NOT collide with `--output <fmt>`. |
-| Color | `--color <when>` | — | Values: `auto` (default), `always`, `never`. |
-| Keep a failed start's VM | `--keep-on-failure` | — | `vm start` only: leave a still-running VM (and its sidecars) for inspection instead of removing it. See the §4.2 amendment of 2026-10-17. |
-| Wait for a free slot | `--wait[=<seconds>]` | — | `vm start` only: when the macOS guest limit is full, retry until a slot frees or the wait runs out, instead of failing at once. Bare `--wait` is 600 s. Seconds, as in the other timeout flags. See the §4.2 amendment of 2026-10-19 (`--wait`). |
+| Structured output | `--json` | — | A boolean flag. It is the same as `--output json`. |
+| Output format selector | `--output <fmt>` | `-o` | Values: `text` (default), `json` and `jsonl`. `-o` is reserved for this flag. A command MUST NOT use `-o` for the path of an output file (see below). |
+| Output **file** path | `--out <path>` | — | A command that writes a file uses `--out`, not `--output`. This keeps it apart from the format selector. |
+| Suppress non-essential stderr | `--quiet` | `-q` | It acts on stderr only, and it never silences an error. |
+| Diagnostic detail | `--verbose` | `-v` | Repeat it (`-vv`) for more detail. It writes to stderr only. |
+| Preview without side effects | `--dry-run` | — | Each mutating command requires it (see §9). |
+| Non-interactive consent | `--yes` | `-y` | It skips each prompt that asks for consent. |
+| Override safety check | `--force` | — | It differs from `--yes`. A command requires it when a check refuses the action. |
+| Narrow list output | `--filter <expr>` | — | Pairs of field=value, separated by commas. The help of each command documents its grammar. |
+| Field-specific filter | `--<field> <value>` | — | For example `--platform macos` on `vm list`. |
+| Page size | `--limit <n>` | — | The default is 100 on list commands. |
+| Unbounded results | `--all` | — | It cannot go with `--limit`. |
+| Custom format template | `--format <tmpl>` | — | Optional, and only where a template has a meaning. It MUST NOT collide with `--output <fmt>`. |
+| Colour | `--color <when>` | — | Values: `auto` (default), `always` and `never`. |
+| Keep a failed start's VM | `--keep-on-failure` | — | `vm start` only. It leaves a VM that still runs, with its sidecars, for inspection, and does not remove it. See the §4.2 amendment of 2026-10-17. |
+| Wait for a free slot | `--wait[=<seconds>]` | — | `vm start` only. When the macOS guest limit is full, the start retries until a slot frees or the wait runs out. Without the flag, it fails at once. Bare `--wait` is 600 s. The value is in seconds, as in the other timeout flags. See the §4.2 amendment of 2026-10-19 (`--wait`). |
 
-**Reserved short flags** (must remain consistent across the whole
-binary): `-q`, `-v`, `-y`, `-o` (output format only), `-h` (help), `-V`
-(version).
+**Reserved short flags.** They must stay the same across the whole binary:
+`-q`, `-v`, `-y`, `-o` (output format only), `-h` (help) and `-V` (version).
 
-**Flags that MUST NOT appear** (deprecated synonyms of the above):
-`--confirm`, `--noprompt`, `--silent`, `--debug`, `--no-color`,
-`--pretty`, `--raw`. New commands MUST reuse the table above instead of
-inventing.
+**Flags that MUST NOT appear.** They are deprecated synonyms of the flags above:
+`--confirm`, `--noprompt`, `--silent`, `--debug`, `--no-color`, `--pretty` and
+`--raw`. A new command MUST reuse the table above, and not invent a flag.
 
-**Connection flags** (orthogonal to the vocabulary; see §6 for
-identifiers). Inherited unchanged from the Swift CLI:
+**Connection flags.** They are orthogonal to the vocabulary, and §6 covers
+identifiers. They come unchanged from the Swift CLI:
 
 `--connect <path>` | `--vm <id>` | `--vnc <host:port>` |
 `--agent <host:port>` | `--platform <macos|linux|windows>`
 
-These remain because they identify the target rather than configure
-behaviour. Their resolution chain (`--connect` → `--vm` →
-`--vnc`/`--agent`/`--platform` → `TESTANYWARE_VM_ID` → other env vars)
-is part of the contract; see `docs/reference/connection-spec.md`.
+These flags stay because they identify the target, and they do not configure
+behaviour. Their resolution chain is part of the contract: `--connect` →
+`--vm` → `--vnc`/`--agent`/`--platform` → `TESTANYWARE_VM_ID` → the other
+environment variables. `docs/reference/connection-spec.md` describes it.
 
 ---
 
@@ -117,11 +113,11 @@ is part of the contract; see `docs/reference/connection-spec.md`.
 
 ### 3.1 Coverage
 
-Every **data-producing** command MUST support `--json` (equivalently
-`--output json`). "Data-producing" means: returns structured information
-the caller will parse, including confirmations of mutations.
+Every **data-producing** command MUST support `--json`, which is the same as
+`--output json`. A data-producing command returns structured information that
+the caller parses. A confirmation of a mutation counts too.
 
-The current Rust-port target list:
+The current list of the Rust port:
 
 | Command | Mode | Schema id |
 |---|---|---|
@@ -146,28 +142,34 @@ The current Rust-port target list:
 | `doctor` | data | `doctor` |
 | `capabilities` | data | `capabilities` |
 
-**`vm start` reports its TPM decision.** A QEMU-backed start (Windows, and
-Linux on a qcow2 golden) is made under one TPM decision (ADR-0017) and says
-what it was. In `--json` the envelope carries an optional `tpm` object:
+**`vm start` reports its TPM decision.** A start on QEMU (Windows, and Linux on
+a qcow2 golden) runs under one TPM decision (ADR-0017), and it says what that
+decision was. In `--json` the envelope carries an optional `tpm` object:
 `{"attached": true, "ppi_off": <bool>}` or `{"attached": false, "reason":
-"guest_does_not_need_one" | "host_cannot_supply_one"}`. In text mode stdout
-stays the id alone and a line on stderr says the same in words (`TPM
-attached`, `TPM omitted: ...`). `--dry-run` reports the decision in its plan,
-in both modes (a text plan prints it as a second `dry-run:` line), so a
-refusal (`SWTPM_MISSING`, §4.2, raised before anything is cloned) and the
-answer can be seen without starting anything. A tart-backed start (macOS, and
-Linux on a tart golden) has no TPM decision and omits `tpm`. The field is
-optional in `vm-start.json`, so it is an additive change under §3.2.
+"guest_does_not_need_one" | "host_cannot_supply_one"}`. In text mode, stdout
+stays the id alone. A line on stderr says the same in words (`TPM attached`,
+`TPM omitted: ...`).
+
+`--dry-run` reports the decision in its plan, in both modes. A text plan prints
+it as a second `dry-run:` line. So a refusal (`SWTPM_MISSING`, §4.2, raised
+before anything is cloned) and the answer show without a start. A start on tart
+(macOS, and Linux on a tart golden) has no TPM decision, and it omits `tpm`. The
+field is optional in `vm-start.json`, so it is an additive change under §3.2.
 
 **`doctor` reports the same decision.** The `doctor` report carries a sixth
-check group, `checks.windows_tpm`, which asks the Windows question of the TPM
-decision (ADR-0017) without starting anything. It is the `tpm` object above
-plus a `status`: `pass` (attached), `warn` (omitted because the host cannot
-supply a TPM, or the host could not be observed) or `fail` (the decision
-refuses with `SWTPM_MISSING`, §4.2). A refusal also carries an `error` object
-(`code`, `message`, `remediation`). Only `fail` flips `doctor`'s `ok` and its
-exit code to `1`; a `warn` never does. The group is required in `doctor.json`,
-which is an additive change under §3.2.
+check group, `checks.windows_tpm`. It asks the Windows question of the TPM
+decision (ADR-0017) without a start. It is the `tpm` object above with a
+`status`: `pass` (attached), `warn` or `fail`. `warn` means that the decision
+omits the TPM because the host cannot supply one, or that `doctor` could not
+observe the host. `fail` means that the decision refuses with `SWTPM_MISSING`
+(§4.2).
+
+A refusal also carries an `error` object (`code`, `message`, `remediation`).
+Only `fail` flips the `ok` of `doctor` and its exit code to `1`, and a `warn`
+never does. The group is required in `doctor.json`, which is an additive change
+under §3.2.
+
+<!-- tc: pending because the conversion has not reached sections 3.2 to 4.1 -->
 
 ### 3.2 Stability
 
@@ -257,14 +259,16 @@ version bump.
 | `INVALID_PLATFORM` | `--platform` not in `{macos, linux, windows}`. |
 | `SSH_CONNECT_FAILED` | SSH connect or auth to a provisioning target (the throwaway setup VM) failed. `details.detail` carries the cause. `vm create-golden` only. |
 
+<!-- tc: on -->
+
 ### 4.2 VM lifecycle
 
 | Code | When |
 |---|---|
-| `VM_NOT_FOUND` | `--vm <id>` resolved to a missing spec. |
-| `VM_BOOT_TIMEOUT` | `vm start`: the VM is alive but a start stage never completed — the VNC endpoint, the guest IP, or (the usual case) the agent never became a Healthy agent. `details` names the `stage` (`vnc`, `guest-ip`, `agent`), the polled `endpoint`, the `last_error` (kind, OS errno, text), the `attempts`, the `elapsed_secs`, the proven `cause` (`null`, or `local_network_denied`; see the §4.2 amendment of 2026-10-19) and whether the VM was `kept`. |
-| `VM_LIMIT_REACHED` | `vm start` was refused because the platform's concurrent-guest limit is full — Apple's macOS guest limit, two per Mac. A *try again later* condition: exit `6`. `details`: `platform`, `limit`, `holders` (the VMs holding the slots), `tart_error` (the backend's own line). A `--wait` start that ran out returns the same error. |
-| `VM_STOP_FAILED` | `vm stop` couldn't terminate the VM cleanly. The app's stop of a QEMU guest that an older release started signals no process; it fails when a socket still answers or a process still holds the clone's disk, and `details` names `monitor_socket`, `swtpm_socket`, `disk_holders` and `disk_check_error`. The app removes nothing then, and the remedy says to quit that QEMU by hand and run `vm stop` again. |
+| `VM_NOT_FOUND` | `--vm <id>` resolved to a spec that does not exist. |
+| `VM_BOOT_TIMEOUT` | `vm start`: the VM is alive, but a stage of the start never completed. The stage is the VNC endpoint, the guest IP or, in the usual case, the agent, which never became a Healthy agent. `details` names the `stage` (`vnc`, `guest-ip`, `agent`), the polled `endpoint`, the `last_error` (kind, OS errno, text), the `attempts` and the `elapsed_secs`. It also names the proven `cause` (`null` or `local_network_denied`, see the §4.2 amendment of 2026-10-19), and whether the VM was `kept`. |
+| `VM_LIMIT_REACHED` | `vm start` was refused because the platform's limit of concurrent guests is full: Apple's macOS guest limit, two for each Mac. It is a *try again later* condition, exit `6`. `details`: `platform`, `limit`, `holders` (the VMs holding the slots), `tart_error` (the backend's own line). A `--wait` start that ran out returns the same error. |
+| `VM_STOP_FAILED` | `vm stop` could not stop the VM cleanly. The app's stop of a QEMU guest that an older release started signals no process. It fails when a socket still answers or a process still holds the clone's disk, and `details` names `monitor_socket`, `swtpm_socket`, `disk_holders` and `disk_check_error`. The app then removes nothing, and the remedy says to quit that QEMU by hand and run `vm stop` again. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform on this host. |
 | `VM_HOST_UNSUPPORTED` | `vm start` ran on a Windows host. That host cannot run a local QEMU VM, because the binary has no QEMU monitor and no process control for Windows. `details.detail` holds the text. Start VMs from a Linux or macOS host. |
 | `GOLDEN_NOT_FOUND` | Requested golden image name doesn't exist. |
@@ -273,9 +277,11 @@ version bump.
 | `TART_FAILED` | tart subprocess returned non-zero, or `tart run` exited before the guest was ready. `details.tart_error` carries its stderr / the tail of its log. |
 | `QEMU_FAILED` | QEMU subprocess failed (start, monitor, or QMP), or the QEMU process exited before the guest was ready. `details.qemu_error` carries the tail of its log. |
 | `KVM_PERMISSION_DENIED` | `/dev/kvm` is missing or not readable+writable (Linux host). `details.path` carries `/dev/kvm`. |
-| `SWTPM_MISSING` | swtpm is not installed; required for a Windows guest whose host QEMU can supply a TPM (TPM 2.0 socket). Raised before anything is cloned, by the TPM decision (ADR-0017), also under `vm start --dry-run` and before `vm create-golden --platform windows` boots. |
+| `SWTPM_MISSING` | swtpm is not installed. A Windows guest needs it when the host's QEMU can supply a TPM (TPM 2.0 socket). The TPM decision (ADR-0017) raises it before anything is cloned, also under `vm start --dry-run` and before `vm create-golden --platform windows` boots. |
 | `UEFI_NOT_FOUND` | UEFI firmware path missing for the requested QEMU configuration. |
 | `SPAWN_FAILED` | `posix_spawn` (or platform equivalent) returned an error. |
+
+<!-- tc: pending because the conversion has not reached the amendments of section 4.2 from 2026-05-22 to 2026-10-17 -->
 
 > **Amendment 2026-05-22** (`port-qemu-runner-and-vm-lifecycle-to-rust`):
 > `KVM_PERMISSION_DENIED` and `SWTPM_MISSING` added to support the QEMU
@@ -336,8 +342,6 @@ version bump.
 >
 > `vm start` does not route any agent call through `nc`.
 
-<!-- tc: pending because the conversion has not reached the later amendments of section 4.2 and sections 4.3 to 4.7 -->
-
 > **Amendment 2026-10-19** (`start-wait-for-slot-k6`, issue #3): `vm start`
 > gains `--wait[=<seconds>]` to wait out a full macOS guest limit.
 >
@@ -347,8 +351,8 @@ version bump.
 >   runs out. Bare `--wait` waits 600 s, so an unattended driver cannot hang
 >   for ever. `--wait=<seconds>` sets the bound. A wait that runs out fails with
 >   the same `VM_LIMIT_REACHED`, exit `6`, and the holders of the last refusal.
-> - Virtualization.framework's refusal is the only authoritative signal that a
->   slot is free, so each retry is a real `tart run` on the one clone the first
+> - Virtualization.framework's refusal is the only authoritative signal about a
+>   slot. So each retry is a real `tart run` on the one clone that the first
 >   attempt made. A wait leaves one clone, never one per retry, and removes it
 >   when it fails.
 > - While waiting, stderr names the VMs holding the slots: at the first
@@ -363,6 +367,8 @@ version bump.
 >   `TART_FAILED` or `VM_BOOT_TIMEOUT`, ends the start at once. The wait is
 >   spent only on refusals, and boot time after the slot is won does not count
 >   against it.
+
+<!-- tc: pending because the conversion has not reached the amendment of 2026-10-20 in section 4.2 and sections 4.3 to 4.7 -->
 
 > **Amendment 2026-10-20** (`app-vm-start-k27`, issue #8): on a macOS host,
 > `vm start` runs in the TestAnyware app, and the Host CLI sends it the options.

@@ -1505,8 +1505,9 @@ The human agreed these three seams in `plan-k1`.
   The end of a guest stream covers a client that has gone while the guest
   keeps its direction. It does not cover two other stalls. In the first, the
   guest stops reading and the app blocks on a write to it. The app then does not
-  look at the client again, so a client that has gone leaves the stream open. In
-  the second, the guest goes silent while the client stays. The app sets no
+  look at the client again, so a client that has gone leaves the stream open.
+
+  In the second, the guest goes silent while the client stays. The app sets no
   timeout on an open stream. No run has shown either stall.
 - **Guest endpoints on every interface.** QEMU forwards the agent port with no
   host address, and tart's VNC listened on a wildcard socket in the
