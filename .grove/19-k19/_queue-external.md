@@ -1,4 +1,4 @@
-# queue-external-k19
+# queue-external-k19 — brief
 
 ## Goal
 
@@ -58,8 +58,15 @@ a refused `tart run` while that guest runs.
 
 ## Notes
 
-- This leaf is large. If it exceeds one session, decompose it. The first child is
-  the observer, the seen holders and the count. The failure rules of tart and the
-  deadline rules come after it.
+- This leaf proved larger than one session, so it is a node. Two children share
+  its "Done when":
+  - `queue-observer-k27`: the observer, the seen holders and the count, with the
+    answer that is newer than the join and the decision at a deadline.
+  - `queue-tart-failure-k28`: the bound of 5 s for a call, and the stop of the
+    app that a later read of tart settles. It also holds the exit of a `tart run`,
+    the lines and the remedy about a silent tart, and the protocol tests of a slow
+    tart.
+- The node closes when both children retire. The close compares the "Done when"
+  above with the two.
 - `observed_at` and `unanswered_since` stay in memory here. `queue-vm-slots-k20`
   shows them.

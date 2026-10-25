@@ -180,6 +180,34 @@ impl Fixture {
         Client::spawn(command)
     }
 
+    /// A guest that a person runs with `tart run` from a shell: a VM in the fake's state and a
+    /// process that holds it. The app did not start it, and it has no meta.
+    fn run_outside(&self, name: &str, os: &str) -> Child {
+        let state = self.fake_state();
+        let guest = Command::new("sleep")
+            .arg("600")
+            .spawn()
+            .expect("run a fake guest");
+        std::fs::write(state.join(format!("{name}.cloned")), "").unwrap();
+        std::fs::write(state.join(format!("{name}.os")), os).unwrap();
+        std::fs::write(
+            state.join(format!("{name}.running")),
+            guest.id().to_string(),
+        )
+        .unwrap();
+        guest
+    }
+
+    /// The guest of [`run_outside`](Self::run_outside) ends, as when a person quits it.
+    fn end_outside(&self, name: &str, mut guest: Child) {
+        guest.kill().unwrap();
+        guest.wait().unwrap();
+        let state = self.fake_state();
+        for extension in ["running", "cloned", "os"] {
+            let _ = std::fs::remove_file(state.join(format!("{name}.{extension}")));
+        }
+    }
+
     fn stop(&self, id: &str) {
         let out = self.app.cli(&["vm", "stop", id, "--json"]);
         assert_eq!(out.code(), 0, "stop {id}: {} {}", out.out(), out.err());
@@ -569,6 +597,107 @@ fn a_start_without_a_wait_takes_a_free_slot_when_no_waiter_stands_ahead() {
             assert_eq!(out.json()["details"]["refused_by"], "app");
         }
     }
+}
+
+#[test]
+fn a_tart_run_outside_the_app_holds_a_slot_and_the_start_waits_without_a_refused_try() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    fixture.start_and_wait_until_running("x-a");
+    let outside = fixture.run_outside("x-outside", "darwin");
+
+    let mut waiting = fixture.spawn_start("x-b", &["--wait"]);
+    waiting.until_stderr_has("place 1");
+    // The first line comes at the join, from the last answer. The next observation sees the guest,
+    // and the holders change, so a new line names the guest that the app did not start.
+    waiting.until_stderr_has("x-outside");
+    // The tick of 3 s passes twice. The count keeps the guest, and the app tries nothing.
+    std::thread::sleep(Duration::from_secs(7));
+    assert!(
+        !waiting.finished(),
+        "the external guest holds the other slot"
+    );
+    assert!(!fixture.runs("x-b"), "no tart run for the waiting start");
+    assert_eq!(fixture.refusals(), Vec::<String>::new());
+
+    fixture.end_outside("x-outside", outside);
+    let (code, envelope, err) = waiting.finish();
+    assert_eq!(code, 0, "{envelope} {err}");
+    assert!(fixture.runs("x-b"));
+    assert_eq!(
+        fixture.refusals(),
+        Vec::<String>::new(),
+        "the framework refused no try"
+    );
+}
+
+#[test]
+fn the_app_never_stops_a_guest_that_it_did_not_start() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    let outside = fixture.run_outside("y-outside", "darwin");
+    fixture.start_and_wait_until_running("y-a");
+    let (code, envelope, err) = fixture.spawn_start("y-b", &["--wait=1"]).finish();
+    assert_eq!(code, 6, "{envelope} {err}");
+    assert_eq!(envelope["details"]["refused_by"], "app");
+    assert!(
+        envelope["details"]["holders"]
+            .to_string()
+            .contains("y-outside"),
+        "{envelope}"
+    );
+    assert!(
+        fixture.fake_state().join("y-outside.running").exists(),
+        "the app stopped no guest of a person"
+    );
+    fixture.end_outside("y-outside", outside);
+}
+
+#[test]
+fn a_start_without_a_wait_fails_at_once_beside_an_own_guest_and_an_external_guest() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    fixture.start_and_wait_until_running("z-a");
+    let outside = fixture.run_outside("z-outside", "darwin");
+    let out = fixture.app.cli(&[
+        "vm",
+        "start",
+        "--platform",
+        "macos",
+        "--base",
+        MACOS_BASE,
+        "--id",
+        "z-b",
+        "--json",
+    ]);
+    assert_eq!(out.code(), 6, "{} {}", out.out(), out.err());
+    let details = &out.json()["details"];
+    assert_eq!(details["refused_by"], "app");
+    let holders = details["holders"].to_string();
+    assert!(
+        holders.contains("z-outside") && holders.contains("z-a"),
+        "{holders}"
+    );
+    assert!(fixture.tart_run_pid("z-b").is_none(), "no tart run");
+    assert_eq!(fixture.refusals(), Vec::<String>::new());
+    fixture.end_outside("z-outside", outside);
+}
+
+#[test]
+fn a_linux_guest_beside_the_starts_takes_no_slot_of_the_count() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    // The framework allows three running VMs here, so only the count of the app can hold a start
+    // back. A Linux guest is not a macOS guest, so it holds no slot.
+    std::fs::write(fixture.fake_state().join("capacity"), "3").unwrap();
+    let linux = fixture.run_outside("w-linux", "linux");
+    let a = fixture.spawn_start("w-a", &["--wait"]);
+    let b = fixture.spawn_start("w-b", &["--wait"]);
+    let (a_code, a_json, _) = a.finish();
+    let (b_code, b_json, _) = b.finish();
+    assert_eq!((a_code, b_code), (0, 0), "{a_json} {b_json}");
+    assert!(fixture.runs("w-a") && fixture.runs("w-b"));
+    fixture.end_outside("w-linux", linux);
 }
 
 #[test]

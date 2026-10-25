@@ -5,6 +5,9 @@
 //! counts, because no check can show that its `tart run` is gone.
 //!
 //! The other own holders are the starts that the app admitted, and the queue keeps those itself.
+//!
+//! The seen holders are the other macOS guests that the last answer of tart reports running.
+//! [`holders`] puts both together, and a guest that two holders name counts once.
 
 use std::collections::BTreeSet;
 
@@ -23,6 +26,34 @@ pub fn macos_guests_with_a_meta(paths: &VmPaths, probe: &impl ProcessProbe) -> B
         .into_iter()
         .filter(|id| holds_a_slot(id, paths, probe))
         .collect()
+}
+
+/// The own holders and the seen holders of one moment.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Holders {
+    /// The guests that a meta holds and the starts that the app admitted.
+    pub own: BTreeSet<String>,
+    /// The macOS guests of the last answer that no own holder names.
+    pub seen: BTreeSet<String>,
+}
+
+impl Holders {
+    /// The name of each holder, own and seen, in order.
+    pub fn names(&self) -> Vec<String> {
+        self.own.union(&self.seen).cloned().collect()
+    }
+}
+
+/// Put the own holders and the last answer of tart together. A guest that two holders name counts
+/// once, as an own holder: an admitted start names its VM id, and so does the meta of the guest.
+/// The exit of a `tart run` removes no name from the answer, so a guest whose own hold has ended
+/// stays in the count as a seen holder until a later answer drops it. Before the first answer,
+/// `answer` is `None` and no guest is seen.
+pub fn holders(own: BTreeSet<String>, answer: Option<&BTreeSet<String>>) -> Holders {
+    let seen = answer
+        .map(|macos| macos.difference(&own).cloned().collect())
+        .unwrap_or_default();
+    Holders { own, seen }
 }
 
 fn holds_a_slot(id: &str, paths: &VmPaths, probe: &impl ProcessProbe) -> bool {
@@ -188,6 +219,105 @@ mod tests {
         write_vm(&paths, "nospec", VmTool::Tart, 16, Some(identity(1)), None);
         let host = Host([(16, 1)].into());
         assert_eq!(macos_guests_with_a_meta(&paths, &host).len(), 1);
+    }
+
+    fn names(list: &[&str]) -> BTreeSet<String> {
+        list.iter().map(|n| n.to_string()).collect()
+    }
+
+    #[test]
+    fn a_name_that_two_holders_share_counts_once_as_an_own_holder() {
+        // The meta of `a` and the answer of tart both name it. An admitted start `b` is named
+        // by the answer too, once its `tart run` has started.
+        let held = holders(names(&["a", "b"]), Some(&names(&["a", "b", "c"])));
+        assert_eq!(held.own, names(&["a", "b"]));
+        assert_eq!(held.seen, names(&["c"]));
+        assert_eq!(held.names(), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn a_guest_that_no_own_holder_names_is_a_seen_holder() {
+        let held = holders(BTreeSet::new(), Some(&names(&["outside"])));
+        assert!(held.own.is_empty());
+        assert_eq!(held.seen, names(&["outside"]));
+    }
+
+    #[test]
+    fn before_the_first_answer_no_guest_is_seen() {
+        let held = holders(names(&["a"]), None);
+        assert_eq!(held.own, names(&["a"]));
+        assert!(held.seen.is_empty());
+    }
+
+    #[test]
+    fn a_meta_whose_tart_run_is_gone_beside_a_running_vm_of_its_name_counts_as_seen() {
+        // The meta of `mac` records pid 10, which is gone. A person ran another VM under the
+        // name, and tart reports it running. It is no own holder, and it is a seen holder.
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(dir.path());
+        write_vm(
+            &paths,
+            "mac",
+            VmTool::Tart,
+            10,
+            Some(identity(1)),
+            Some("macos"),
+        );
+        let own = macos_guests_with_a_meta(&paths, &Host(Default::default()));
+        assert!(own.is_empty());
+        let held = holders(own, Some(&names(&["mac"])));
+        assert!(held.own.is_empty());
+        assert_eq!(held.seen, names(&["mac"]));
+    }
+
+    #[test]
+    fn the_exit_of_a_tart_run_removes_no_vm_from_the_count() {
+        // The hold of the admission ends when the `tart run` exits, and the answer of tart
+        // still names the VM, which can be a replacement under the same name. It stays in the
+        // count, as a seen holder, until a later answer drops it.
+        let before = holders(names(&["a"]), Some(&names(&["a"])));
+        assert_eq!(before.own.len() + before.seen.len(), 1);
+        let after_the_exit = holders(BTreeSet::new(), Some(&names(&["a"])));
+        assert_eq!(after_the_exit.seen, names(&["a"]));
+        let later_answer = holders(BTreeSet::new(), Some(&BTreeSet::new()));
+        assert!(later_answer.own.is_empty() && later_answer.seen.is_empty());
+    }
+
+    #[test]
+    fn the_metas_of_stopped_vms_after_a_restart_of_the_mac_hold_no_slot() {
+        // The Mac restarted, so no recorded process outlives it: the boot session of each meta
+        // is another one. tart reports each VM stopped, so the answer names no guest.
+        struct NewBoot;
+        impl ProcessProbe for NewBoot {
+            fn start_time(&self, pid: i32) -> Option<u64> {
+                // The pids may be alive again as other processes, with other start times.
+                (pid > 0).then_some(777)
+            }
+            fn boot_session(&self) -> Option<String> {
+                Some("boot-b".into())
+            }
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(dir.path());
+        write_vm(
+            &paths,
+            "one",
+            VmTool::Tart,
+            10,
+            Some(identity(1)),
+            Some("macos"),
+        );
+        write_vm(
+            &paths,
+            "two",
+            VmTool::Tart,
+            11,
+            Some(identity(1)),
+            Some("macos"),
+        );
+        let own = macos_guests_with_a_meta(&paths, &NewBoot);
+        let held = holders(own, Some(&BTreeSet::new()));
+        assert!(held.own.is_empty() && held.seen.is_empty(), "{held:?}");
     }
 
     #[test]

@@ -10,6 +10,9 @@
 #   capacity        a number: `run` refuses as `full` does while that many VMs run, as the
 #                   framework does. Each refusal appends a line to `refused.log`
 #   stuck           if present, `stop` and `delete` do nothing, as a tart that cannot remove a VM
+#   <name>.os       the OS that `get` reports for a VM (`darwin` or `linux`). `clone` writes it from
+#                   the base: darwin for the macOS golden, linux for the Linux golden. A VM that a
+#                   test makes by hand without it reports darwin
 #
 # The tests give it as the only tool directory, so no test runs the developer's own `tart`.
 set -u
@@ -37,9 +40,15 @@ case "$cmd" in
     done
     printf ']\n'
     ;;
+  get)
+    # `tart get <name> --format json`: only the key that the app reads.
+    [ -e "$STATE/$1.cloned" ] || { echo "failed to get $1: no such VM" >&2; exit 1; }
+    printf '{"OS":"%s"}\n' "$(cat "$STATE/$1.os" 2>/dev/null || echo darwin)"
+    ;;
   clone)
     case "$1" in
-      testanyware-golden-macos-27 | testanyware-golden-linux-24.04) touch "$STATE/$2.cloned" ;;
+      testanyware-golden-macos-27) touch "$STATE/$2.cloned"; echo darwin >"$STATE/$2.os" ;;
+      testanyware-golden-linux-24.04) touch "$STATE/$2.cloned"; echo linux >"$STATE/$2.os" ;;
       *) echo "failed to clone $1: no such VM" >&2; exit 1 ;;
     esac
     ;;
@@ -78,7 +87,7 @@ case "$cmd" in
     ;;
   delete)
     [ -e "$STATE/stuck" ] && exit 0
-    rm -f "$STATE/$1.cloned" "$STATE/$1.running"
+    rm -f "$STATE/$1.cloned" "$STATE/$1.running" "$STATE/$1.os"
     ;;
   *)
     echo "fake-tart: unknown command $cmd" >&2

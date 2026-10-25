@@ -12,15 +12,19 @@
 //! for it. So no thread of the queue exists beside the threads of the starts, and a start that
 //! nobody serves leaves no state.
 //!
-//! This increment counts the own holders only: the macOS guests that have a meta, and the starts
-//! that the app admitted. A refusal by the framework sends the start back to the place of its
-//! join, starts a pause of 3 s and starts contention. The seen holders of `tart list` come later.
+//! The count has two kinds of holder: the own holders (the macOS guests that have a meta, and the
+//! starts that the app admitted) and the seen holders (the other macOS guests that tart reports
+//! running). One observer thread asks tart, one observation at a time, and a decision follows each
+//! observation. A decision admits a waiter only on an answer whose observation started after the
+//! waiter joined. A refusal by the framework sends the start back to the place of its join, starts
+//! a pause of 3 s and starts contention.
 
 pub mod count;
 pub mod decision;
+pub mod observation;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
 use testanyware_vm::error::{AdmissionFacts, LimitReached, RefusedBy};
@@ -29,18 +33,20 @@ use testanyware_vm::slot_gate::{Readmission, SlotAsk, SlotGate, SlotHold};
 use testanyware_vm::{Progress, VmError, VmPaths};
 use tokio_util::sync::CancellationToken;
 
+use count::Holders;
 use decision::{
-    admits_without_wait, contention_after_acceptance, contention_after_settle, decide, Input,
-    Waiter, PAUSE,
+    admits_without_wait, contention_after_acceptance, contention_after_settle, decide,
+    own_holders_fill_the_slots, Input, Waiter, APPLE_LIMIT, PAUSE,
 };
+use observation::{observe, SystemTart, TartReader};
+use testanyware_vm::tools::ToolSearch;
 
-/// The slots that Apple allows for macOS guests on one Mac. The `limit` of a refusal names it
-/// when the app's own share is not what ran out.
-const APPLE_LIMIT: usize = 2;
-
-/// The app decides again at least this often while the queue holds a waiter. A guest that ends by
-/// itself raises no event, and the tick finds it.
+/// The app observes again at least this often while the queue holds a waiter. A guest that ends
+/// by itself raises no event, and the tick finds it.
 const TICK: Duration = Duration::from_secs(3);
+
+/// How long the observer sleeps when it has nothing to observe. A request wakes it at once.
+const OBSERVER_IDLE: Duration = Duration::from_millis(250);
 
 /// A waiting start repeats its line on stderr this often when nothing has changed.
 const REPORT_EVERY: Duration = Duration::from_secs(30);
@@ -62,6 +68,8 @@ pub struct AdmissionQueue {
     /// How long the queue admits nothing after a refusal by the framework.
     pause: Duration,
     guests: OwnGuests,
+    /// What an observation asks tart.
+    tart: Arc<dyn TartReader>,
     /// The seed of the request ids of this run of the app.
     salt: u32,
 }
@@ -83,18 +91,42 @@ struct State {
     admitted: BTreeMap<String, Admitted>,
     /// What a decision left for a waiter that is not yet back to read it, by request id.
     verdicts: HashMap<String, Verdict>,
-    /// The holders at the last decision, for the lines of the waiters.
+    /// The holders at the last decision, own and seen, for the lines of the waiters.
     holders: Vec<String>,
+    /// The own holders at the last decision, for the limit that a refusal names.
+    own_held: usize,
     next_seq: u64,
     /// The number of ids made so far.
     counter: u32,
-    /// Raised by each event, so that a waiting thread knows that it must decide again.
-    version: u64,
-    last_decision: Duration,
     /// Whether the app is in contention (spec "A refusal by the framework").
     contention: bool,
     /// The time and the line of the last refusal by the framework.
     last_refusal: Option<Refusal>,
+    /// The number that the next observation gets. The app numbers the observations in the order
+    /// of their start, and a join notes this number.
+    next_obs: u64,
+    /// An event asked for an observation that has not started yet.
+    wanted: bool,
+    /// The moment when the last observation started, on the clock of the queue.
+    last_obs_start: Option<Duration>,
+    /// The last observation that tart answered.
+    answer: Option<Answer>,
+    /// The number of the last observation that failed.
+    last_failure: Option<u64>,
+    /// The refusal whose pause has ended and has raised its event.
+    pause_noted: Option<Duration>,
+    /// Whether the observer thread runs.
+    observer_started: bool,
+}
+
+/// What tart answered in one observation.
+struct Answer {
+    /// The number of the observation, in the order of their start.
+    number: u64,
+    /// The moment when the observation ended, on the clock of the queue.
+    at: Duration,
+    /// The macOS guests that tart reported running.
+    macos: BTreeSet<String>,
 }
 
 impl State {
@@ -116,6 +148,9 @@ struct Entry {
     seq: u64,
     /// `None` for a waiter without a bound. A start with `--wait` always has one.
     deadline: Option<Duration>,
+    /// The number of the next observation at the join. An answer is newer than the join when its
+    /// observation has this number or a later one.
+    joined_obs: u64,
     /// The line of the refusal by the framework that sent this start back, when one did.
     refusal: Option<String>,
 }
@@ -152,12 +187,17 @@ struct Request {
 }
 
 impl AdmissionQueue {
-    pub fn new(slots: usize, guests: OwnGuests) -> Arc<Self> {
-        Self::with_pause(slots, guests, PAUSE)
+    pub fn new(slots: usize, guests: OwnGuests, tart: Arc<dyn TartReader>) -> Arc<Self> {
+        Self::with_pause(slots, guests, tart, PAUSE)
     }
 
     /// [`new`](Self::new) with another pause after a refusal. A test shortens it.
-    pub fn with_pause(slots: usize, guests: OwnGuests, pause: Duration) -> Arc<Self> {
+    pub fn with_pause(
+        slots: usize,
+        guests: OwnGuests,
+        tart: Arc<dyn TartReader>,
+        pause: Duration,
+    ) -> Arc<Self> {
         let epoch = Instant::now();
         Arc::new(Self {
             state: Mutex::new(State::default()),
@@ -166,23 +206,90 @@ impl AdmissionQueue {
             slots,
             pause,
             guests,
+            tart,
             salt: salt(),
         })
     }
 
-    /// The queue of an app that keeps its records in `paths` and holds `slots` of the two slots
-    /// (`macos_slots` of `config.rhai`).
-    pub fn for_paths(paths: VmPaths, slots: usize) -> Arc<Self> {
+    /// The queue of an app that keeps its records in `paths`, finds `tart` with `tools`, and holds
+    /// `slots` of the two slots (`macos_slots` of `config.rhai`).
+    pub fn for_paths(paths: VmPaths, slots: usize, tools: ToolSearch) -> Arc<Self> {
         Self::new(
             slots,
             Box::new(move || count::macos_guests_with_a_meta(&paths, &SystemProbe)),
+            Arc::new(SystemTart::new(tools)),
         )
     }
 
-    /// A guest has ended, so a slot may be free. The queue decides again.
-    pub fn holder_ended(&self) {
+    /// A guest has ended, so a slot may be free. The queue observes and decides again.
+    pub fn holder_ended(self: &Arc<Self>) {
         let mut state = self.lock();
-        state.version += 1;
+        self.event(&mut state);
+    }
+
+    /// An event that the decision must follow: a join, a leave, a release, a refusal, an
+    /// acceptance or the end of a pause. The app observes again before it decides, so the
+    /// observation of the decision starts after the event. With no waiter, no decision follows,
+    /// and nobody needs the observation.
+    fn event(self: &Arc<Self>, state: &mut State) {
+        if !state.waiting.is_empty() {
+            self.request_observation(state);
+        }
+        self.changed.notify_all();
+    }
+
+    /// Ask the observer for an observation that starts now or after the one in progress.
+    fn request_observation(self: &Arc<Self>, state: &mut State) {
+        state.wanted = true;
+        if !state.observer_started {
+            let weak = Arc::downgrade(self);
+            let spawned = std::thread::Builder::new()
+                .name("admission-observer".into())
+                .spawn(move || observer(weak));
+            state.observer_started = spawned.is_ok();
+        }
+        self.changed.notify_all();
+    }
+
+    /// One turn of the observer: wait for a request or for the tick, then make one observation
+    /// and decide on what follows. tart runs outside the lock of the queue.
+    fn observe_once(&self) {
+        let mut state = self.lock();
+        let now = self.now();
+        let tick = !state.waiting.is_empty()
+            && state
+                .last_obs_start
+                .map_or(true, |at| now.saturating_sub(at) >= TICK);
+        if !state.wanted && !tick {
+            drop(
+                self.changed
+                    .wait_timeout(state, OBSERVER_IDLE)
+                    .unwrap_or_else(|p| p.into_inner()),
+            );
+            return;
+        }
+        let number = state.next_obs;
+        state.next_obs += 1;
+        state.wanted = false;
+        state.last_obs_start = Some(now);
+        drop(state);
+
+        let result = observe(&*self.tart);
+
+        let mut state = self.lock();
+        match result {
+            Ok(macos) => {
+                state.answer = Some(Answer {
+                    number,
+                    at: self.now(),
+                    macos,
+                })
+            }
+            Err(_) => state.last_failure = Some(number),
+        }
+        // The decision that follows an observation also follows one that failed: it uses the
+        // last answer, and a waiter that no answer serves waits on.
+        self.run_decision(&mut state);
         self.changed.notify_all();
     }
 
@@ -202,11 +309,28 @@ impl AdmissionQueue {
         own
     }
 
+    /// The own and the seen holders now. The seen holders come from the last answer of tart.
+    fn holders(&self, state: &State) -> Holders {
+        count::holders(
+            self.own_holders(state),
+            state.answer.as_ref().map(|answer| &answer.macos),
+        )
+    }
+
+    /// Note the holders now, for the lines of the waiters and for the limit that a refusal
+    /// names. This decides nothing.
+    fn note_holders(&self, state: &mut State) -> Holders {
+        let held = self.holders(state);
+        state.holders = held.names();
+        state.own_held = held.own.len();
+        held
+    }
+
     /// Decide, and leave each verdict for its waiter. The lock is held, so the decision and its
-    /// effects form one step.
+    /// effects form one step. The decision uses the last answer of tart, as it stands.
     fn run_decision(&self, state: &mut State) {
         let now = self.now();
-        let own = self.own_holders(state);
+        let held = self.note_holders(state);
         state.settle_contention();
         let queue: Vec<Waiter> = state
             .waiting
@@ -214,11 +338,14 @@ impl AdmissionQueue {
             .map(|e| Waiter {
                 request_id: e.request_id.clone(),
                 deadline: e.deadline,
+                joined_obs: e.joined_obs,
             })
             .collect();
         let decision = decide(Input {
             queue: &queue,
-            own_holders: own.len(),
+            own_holders: held.own.len(),
+            seen_holders: held.seen.len(),
+            answer: state.answer.as_ref().map(|answer| answer.number),
             unproven: state.unproven(),
             slots: self.slots,
             contention: state.contention,
@@ -226,8 +353,6 @@ impl AdmissionQueue {
             pause: self.pause,
             now,
         });
-        state.holders = own.into_iter().collect();
-        state.last_decision = now;
         let acted = !decision.admit.is_empty() || !decision.expire.is_empty();
         for request_id in decision.admit {
             if let Some(at) = state
@@ -265,7 +390,6 @@ impl AdmissionQueue {
             }
         }
         if acted {
-            state.version += 1;
             self.changed.notify_all();
         }
     }
@@ -289,9 +413,10 @@ impl AdmissionQueue {
         let request_id = new_request_id(&mut state, self.salt);
         let seq = state.next_seq;
         state.next_seq += 1;
+        let joined_obs = state.next_obs;
 
         let Some(wait) = wait else {
-            return self.admit_without_wait(&mut state, ask, request_id, seq);
+            return self.admit_without_wait(state, ask, request_id, seq, cancel);
         };
 
         let deadline = joined + wait;
@@ -300,11 +425,13 @@ impl AdmissionQueue {
             vm_id: ask.vm_id.to_string(),
             seq,
             deadline: Some(deadline),
+            joined_obs,
             refusal: None,
         });
-        // The join is an event, and the decision of it may admit the start at once.
-        state.version += 1;
-        self.run_decision(&mut state);
+        self.note_holders(&mut state);
+        // The join is an event. The decision of it waits for an observation that starts after
+        // the join, so the app cannot admit the start on an older answer.
+        self.event(&mut state);
 
         let request = Request {
             request_id,
@@ -319,6 +446,7 @@ impl AdmissionQueue {
             request_id: request.request_id,
             seq,
             joined,
+            joined_obs,
             deadline: Some(deadline),
             waited: self.now().saturating_sub(joined),
             reporter,
@@ -328,15 +456,18 @@ impl AdmissionQueue {
 
     /// Wait until a decision admits the request or expires it, or until the client leaves. The
     /// request is in the queue when this starts. It is out of the queue when this returns.
+    ///
+    /// The observer decides after each observation. This thread decides on its own only at the
+    /// deadline of its request, on the last answer and without an observation, so a slow tart
+    /// never delays the last decision of a waiter.
     fn wait_admitted(
-        &self,
+        self: &Arc<Self>,
         mut state: MutexGuard<'_, State>,
         request: &Request,
         reporter: &mut WaitReporter,
         cancel: &CancellationToken,
         progress: &Progress,
     ) -> Result<(), VmError> {
-        let mut seen = state.version;
         loop {
             if let Some(verdict) = state.verdicts.remove(&request.request_id) {
                 let waited = self.now().saturating_sub(request.joined);
@@ -367,8 +498,8 @@ impl AdmissionQueue {
                 {
                     state.waiting.remove(at);
                 }
-                state.version += 1;
-                self.changed.notify_all();
+                // The places behind it move up, and the new head may be admissible.
+                self.event(&mut state);
                 return Err(VmError::StartCancelled {
                     id: request.vm_id.clone(),
                 });
@@ -391,80 +522,127 @@ impl AdmissionQueue {
                 .unwrap_or_else(|p| p.into_inner())
                 .0;
             let now = self.now();
-            // The end of the pause is an event too: no other event marks it.
-            let pause_ended = state.last_refusal.as_ref().is_some_and(|refusal| {
-                let end = refusal.at + self.pause;
-                now >= end && state.last_decision < end
-            });
-            let due = state.version != seen
-                || now.saturating_sub(state.last_decision) >= TICK
-                || deadline.is_some_and(|d| now >= d)
-                || pause_ended;
-            if due {
+            // The end of the pause is an event too: no other event marks it. Each refusal raises
+            // it once.
+            let pause_ended = state
+                .last_refusal
+                .as_ref()
+                .map(|refusal| refusal.at)
+                .filter(|&at| now >= at + self.pause && state.pause_noted != Some(at));
+            if let Some(at) = pause_ended {
+                state.pause_noted = Some(at);
+                self.event(&mut state);
+            }
+            // The decision at the deadline waits for no observation.
+            if deadline.is_some_and(|d| now >= d) {
                 self.run_decision(&mut state);
-                seen = state.version;
             }
         }
     }
 
-    /// The one decision of a start without `--wait`, or with `--wait=0`. It never waits and it
-    /// never passes a waiter, and it takes no place in the queue.
+    /// The one decision of a start without `--wait`, or with `--wait=0`. It never waits for a
+    /// slot and it never passes a waiter, and it takes no place in the queue.
+    ///
+    /// Three refusals need no answer of tart: a waiter in the queue, contention, and own holders
+    /// that fill the slots. Otherwise the decision waits for an observation that starts after the
+    /// join, and it runs on that answer. An observation after the join that fails refuses the
+    /// start with `refused_by` `app`, because no answer is newer than the join.
     fn admit_without_wait(
         self: &Arc<Self>,
-        state: &mut State,
+        mut state: MutexGuard<'_, State>,
         ask: &SlotAsk<'_>,
         request_id: String,
         seq: u64,
+        cancel: &CancellationToken,
     ) -> Result<Box<dyn SlotHold>, VmError> {
-        let own = self.own_holders(state);
-        state.holders = own.iter().cloned().collect();
-        state.settle_contention();
         let joined = self.now();
-        if admits_without_wait(
-            state.waiting.len(),
-            own.len(),
-            self.slots,
-            state.contention,
-            state.unproven(),
-        ) {
-            state.admitted.insert(
-                ask.vm_id.to_string(),
-                Admitted {
-                    request_id: request_id.clone(),
-                    proven: false,
-                    in_contention: state.contention,
-                },
-            );
-            state.version += 1;
-            return Ok(Box::new(Hold {
-                queue: Arc::clone(self),
-                vm_id: ask.vm_id.to_string(),
-                request_id,
-                seq,
-                joined,
-                deadline: None,
-                waited: Duration::ZERO,
-                reporter: WaitReporter::default(),
-                refusals: RefusalReporter::default(),
-            }));
+        let joined_obs = state.next_obs;
+        self.note_holders(&mut state);
+        state.settle_contention();
+        let needs_no_answer = !state.waiting.is_empty()
+            || (state.contention && state.unproven() > 0)
+            || own_holders_fill_the_slots(state.admitted.len(), self.slots);
+        if needs_no_answer {
+            return Err(self.refused_at_the_join(&state, request_id));
         }
-        // The place that the start would take.
+        self.request_observation(&mut state);
+        loop {
+            if cancel.is_cancelled() {
+                return Err(VmError::StartCancelled {
+                    id: ask.vm_id.to_string(),
+                });
+            }
+            let newer = state
+                .answer
+                .as_ref()
+                .is_some_and(|answer| answer.number >= joined_obs);
+            if newer {
+                let held = self.note_holders(&mut state);
+                state.settle_contention();
+                if admits_without_wait(
+                    state.waiting.len(),
+                    held.own.len(),
+                    held.seen.len(),
+                    self.slots,
+                    state.contention,
+                    state.unproven(),
+                ) {
+                    let in_contention = state.contention;
+                    state.admitted.insert(
+                        ask.vm_id.to_string(),
+                        Admitted {
+                            request_id: request_id.clone(),
+                            proven: false,
+                            in_contention,
+                        },
+                    );
+                    return Ok(Box::new(Hold {
+                        queue: Arc::clone(self),
+                        vm_id: ask.vm_id.to_string(),
+                        request_id,
+                        seq,
+                        joined,
+                        joined_obs,
+                        deadline: None,
+                        waited: Duration::ZERO,
+                        reporter: WaitReporter::default(),
+                        refusals: RefusalReporter::default(),
+                    }));
+                }
+                return Err(self.refused_at_the_join(&state, request_id));
+            }
+            if state
+                .last_failure
+                .is_some_and(|number| number >= joined_obs)
+            {
+                return Err(self.refused_at_the_join(&state, request_id));
+            }
+            state = self
+                .changed
+                .wait_timeout(state, CANCEL_POLL)
+                .unwrap_or_else(|p| p.into_inner())
+                .0;
+        }
+    }
+
+    /// The refusal of a start that never waits. Its place is the place that it would take.
+    fn refused_at_the_join(&self, state: &State, request_id: String) -> VmError {
         let place = state.waiting.len() + 1;
         let unseen = state.contention;
-        Err(self.refusal(
+        self.refusal(
             state,
             request_id,
             place,
             Duration::ZERO,
             String::new(),
             unseen,
-        ))
+        )
     }
 
     /// The limit that refused: the app's share when the own holders fill it, and the limit of
     /// Apple otherwise (spec "The command surface").
     fn limit(&self, state: &State) -> usize {
-        if state.holders.len() >= self.slots {
+        if state.own_held >= self.slots {
             self.slots
         } else {
             APPLE_LIMIT
@@ -499,7 +677,7 @@ impl AdmissionQueue {
 
     /// The hold of an admitted start ends. Its slot is free in the count, unless the guest now
     /// has a meta, which holds the slot from then on.
-    fn release(&self, vm_id: &str, request_id: &str) {
+    fn release(self: &Arc<Self>, vm_id: &str, request_id: &str) {
         let mut state = self.lock();
         if state
             .admitted
@@ -508,13 +686,12 @@ impl AdmissionQueue {
         {
             state.admitted.remove(vm_id);
         }
-        state.version += 1;
-        self.changed.notify_all();
+        self.event(&mut state);
     }
 
     /// The framework accepted an admitted start: its slot is proven. That ends contention when
     /// the app admitted the start in contention.
-    fn accepted(&self, vm_id: &str, request_id: &str) {
+    fn accepted(self: &Arc<Self>, vm_id: &str, request_id: &str) {
         let mut state = self.lock();
         let admitted_in_contention = match state.admitted.get_mut(vm_id) {
             Some(held) if held.request_id == request_id => {
@@ -526,8 +703,7 @@ impl AdmissionQueue {
         if let Some(in_contention) = admitted_in_contention {
             state.contention = contention_after_acceptance(state.contention, in_contention);
         }
-        state.version += 1;
-        self.changed.notify_all();
+        self.event(&mut state);
     }
 
     /// The framework refused an admitted start (spec "A refusal by the framework"). The hold
@@ -556,10 +732,9 @@ impl AdmissionQueue {
             at: now,
             line: line.to_string(),
         });
-        state.version += 1;
         // A refusal at or after the deadline is the verdict of the start.
         if !hold.deadline.is_some_and(|deadline| now < deadline) {
-            self.changed.notify_all();
+            self.event(&mut state);
             return Ok(Readmission::Stands);
         }
         let at = state
@@ -574,6 +749,7 @@ impl AdmissionQueue {
                 vm_id: hold.vm_id.clone(),
                 seq: hold.seq,
                 deadline: hold.deadline,
+                joined_obs: hold.joined_obs,
                 refusal: Some(line.to_string()),
             },
         );
@@ -583,8 +759,9 @@ impl AdmissionQueue {
         {
             progress.line(&note);
         }
-        self.changed.notify_all();
-        self.run_decision(&mut state);
+        // The refusal is an event. The decision of it waits for an observation, and then for the
+        // end of the pause.
+        self.event(&mut state);
         let request = Request {
             request_id: hold.request_id.clone(),
             vm_id: hold.vm_id.clone(),
@@ -615,6 +792,17 @@ impl AdmissionQueue {
         self.lock().admitted.keys().cloned().collect()
     }
 
+    /// The moment when the last answer of tart ended, on the clock of the queue. `None` before
+    /// the first answer. `vm slots` shows it as `observed_at`.
+    pub fn observed_at(&self) -> Option<Duration> {
+        self.lock().answer.as_ref().map(|answer| answer.at)
+    }
+
+    /// The holders at the last decision, own and seen, in order. A test reads this.
+    pub fn holder_names(&self) -> Vec<String> {
+        self.lock().holders.clone()
+    }
+
     /// Whether the app is in contention. A test reads this.
     pub fn in_contention(&self) -> bool {
         self.lock().contention
@@ -634,6 +822,8 @@ struct Hold {
     seq: u64,
     /// The moment of the join, on the clock of the queue.
     joined: Duration,
+    /// The number of the next observation at the join.
+    joined_obs: u64,
     /// The end of the wait, on the clock of the queue. `None` for a start that never waits.
     deadline: Option<Duration>,
     waited: Duration,
@@ -688,6 +878,14 @@ impl SlotGate for AppGate {
         progress: &Progress,
     ) -> Result<Box<dyn SlotHold>, VmError> {
         self.0.admit(ask, cancel, progress)
+    }
+}
+
+/// The thread that makes the observations. It holds the queue only for one turn at a time, so the
+/// thread ends soon after the last reference to the queue is gone.
+fn observer(queue: Weak<AdmissionQueue>) {
+    while let Some(queue) = queue.upgrade() {
+        queue.observe_once();
     }
 }
 
@@ -783,15 +981,34 @@ impl RefusalReporter {
 
 #[cfg(test)]
 mod tests {
+    use super::observation::fake::FakeTart;
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// A queue whose meta holders the test sets.
+    /// A queue whose meta holders the test sets, over a tart where no VM runs.
     fn queue(slots: usize) -> (Arc<AdmissionQueue>, Arc<Mutex<BTreeSet<String>>>) {
+        let (queue, guests, _) = queue_over(slots, FakeTart::default());
+        (queue, guests)
+    }
+
+    /// A queue over `tart`, whose answers the test sets.
+    fn queue_over(
+        slots: usize,
+        tart: FakeTart,
+    ) -> (
+        Arc<AdmissionQueue>,
+        Arc<Mutex<BTreeSet<String>>>,
+        Arc<FakeTart>,
+    ) {
         let guests = Arc::new(Mutex::new(BTreeSet::new()));
         let read = Arc::clone(&guests);
-        let queue = AdmissionQueue::new(slots, Box::new(move || read.lock().unwrap().clone()));
-        (queue, guests)
+        let tart = Arc::new(tart);
+        let queue = AdmissionQueue::new(
+            slots,
+            Box::new(move || read.lock().unwrap().clone()),
+            Arc::clone(&tart) as Arc<dyn TartReader>,
+        );
+        (queue, guests, tart)
     }
 
     fn quiet() -> Progress {
@@ -1037,7 +1254,7 @@ mod tests {
         let (queue, _) = queue(1);
         let mut state = State::default();
         assert_eq!(queue.limit(&state), 2, "a guest that the app cannot see");
-        state.holders = vec!["g1".into()];
+        state.own_held = 1;
         assert_eq!(queue.limit(&state), 1);
         let (queue, _) = self::queue(0);
         assert_eq!(queue.limit(&State::default()), 0);
@@ -1295,6 +1512,7 @@ mod tests {
                 vm_id: format!("w{n}"),
                 seq: n as u64,
                 deadline: None,
+                joined_obs: 0,
                 refusal: None,
             });
         }
@@ -1327,6 +1545,210 @@ mod tests {
         );
     }
 
+    // The seen holders (spec "admission-queue": "The count").
+
+    fn macos(names: &[&str]) -> FakeTart {
+        FakeTart::with(&names.iter().map(|n| (*n, "darwin")).collect::<Vec<_>>())
+    }
+
+    fn join_thread(
+        queue: &Arc<AdmissionQueue>,
+        vm_id: &'static str,
+        wait_secs: u64,
+    ) -> std::thread::JoinHandle<Result<Box<dyn SlotHold>, VmError>> {
+        let queue = Arc::clone(queue);
+        std::thread::spawn(move || {
+            queue.admit(
+                &ask(vm_id, Some(wait_secs)),
+                &CancellationToken::new(),
+                &quiet(),
+            )
+        })
+    }
+
+    #[test]
+    fn an_external_guest_holds_a_slot_and_the_start_waits_while_it_runs() {
+        let (queue, _, tart) = queue_over(2, macos(&["outside"]));
+        let cancel = CancellationToken::new();
+        let a = queue.admit(&ask("a", Some(5)), &cancel, &quiet()).unwrap();
+        // The seen guest and the admitted start fill the two slots.
+        let b = join_thread(&queue, "b", 30);
+        wait_until("the second start to join", || queue.waiting().len() == 1);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!b.is_finished(), "the external guest holds the other slot");
+        assert_eq!(queue.holder_names(), ["a", "outside"]);
+        // The external guest stops, and the next observation frees its slot.
+        tart.set(&[]);
+        queue.holder_ended();
+        let hold = b.join().unwrap().expect("the slot is free now");
+        assert!(hold.request_id().starts_with("r-"));
+        drop(a);
+    }
+
+    #[test]
+    fn an_external_guest_counts_against_the_two_slots_and_not_against_macos_slots() {
+        // `macos_slots` is 1 and an external guest runs. The app's own share is free, so one
+        // start is admitted, and then the two slots of Apple are full.
+        let (queue, _, _) = queue_over(1, macos(&["outside"]));
+        let cancel = CancellationToken::new();
+        let a = queue.admit(&ask("a", Some(5)), &cancel, &quiet()).unwrap();
+        assert_eq!(queue.admitted(), ["a"]);
+        let late = queue.admit(&ask("late", None), &cancel, &quiet());
+        let limit = limit_of(late.err().expect("the two slots are full"));
+        assert_eq!(limit.limit, 1, "the own share is full too");
+        assert_eq!(limit.admission.refused_by, RefusedBy::App);
+        drop(a);
+    }
+
+    #[test]
+    fn a_linux_guest_beside_takes_no_slot() {
+        let tart = FakeTart::with(&[("lin-1", "linux"), ("lin-2", "linux")]);
+        let (queue, _, _) = queue_over(2, tart);
+        let cancel = CancellationToken::new();
+        let _a = queue.admit(&ask("a", Some(5)), &cancel, &quiet()).unwrap();
+        let _b = queue.admit(&ask("b", Some(5)), &cancel, &quiet()).unwrap();
+        assert_eq!(queue.admitted(), ["a", "b"]);
+    }
+
+    #[test]
+    fn a_guest_that_the_meta_and_tart_both_name_counts_once() {
+        let (queue, guests, _) = queue_over(2, macos(&["mac"]));
+        guests.lock().unwrap().insert("mac".to_string());
+        let cancel = CancellationToken::new();
+        // One holder, not two: a second start still fits. Counted twice, `mac` would fill the
+        // two slots with no other holder, and the start would wait.
+        let _a = queue.admit(&ask("a", Some(5)), &cancel, &quiet()).unwrap();
+        assert_eq!(queue.admitted(), ["a"]);
+    }
+
+    #[test]
+    fn a_start_is_not_admitted_until_tart_first_answers() {
+        let tart = FakeTart::default();
+        tart.fail_list(true);
+        let (queue, _, tart) = queue_over(2, tart);
+        let waiter = join_thread(&queue, "a", 30);
+        wait_until("the start to join", || queue.waiting().len() == 1);
+        std::thread::sleep(Duration::from_millis(400));
+        assert!(!waiter.is_finished(), "no answer, no admission");
+        assert!(queue.admitted().is_empty());
+        assert_eq!(queue.observed_at(), None);
+        tart.fail_list(false);
+        queue.holder_ended();
+        waiter.join().unwrap().expect("tart answered");
+        assert!(queue.observed_at().is_some());
+    }
+
+    #[test]
+    fn a_start_without_a_wait_is_refused_by_the_app_when_its_observation_fails() {
+        let tart = FakeTart::default();
+        tart.fail_list(true);
+        let (queue, _, _) = queue_over(2, tart);
+        let error = queue
+            .admit(&ask("a", None), &CancellationToken::new(), &quiet())
+            .err()
+            .expect("no answer is newer than the join");
+        let limit = limit_of(error);
+        assert_eq!(limit.admission.refused_by, RefusedBy::App);
+        assert_eq!(limit.admission.place, Some(1));
+        assert!(queue.admitted().is_empty());
+    }
+
+    #[test]
+    fn a_start_without_a_wait_waits_for_an_observation_that_starts_after_its_join() {
+        let tart = FakeTart::default();
+        let (queue, _, tart) = queue_over(2, tart);
+        // The observer is slow: it holds the answer of the observation in progress.
+        tart.hold_lists(true);
+        let first = {
+            let queue = Arc::clone(&queue);
+            std::thread::spawn(move || {
+                queue.admit(&ask("a", None), &CancellationToken::new(), &quiet())
+            })
+        };
+        wait_until("the observation to begin", || tart.list_calls() == 1);
+        std::thread::sleep(Duration::from_millis(200));
+        assert!(
+            !first.is_finished(),
+            "the decision waits for the observation"
+        );
+        // A guest starts outside the app while the observation is slow. The answer of that
+        // observation is older than the join, so the start waits for the next one, which sees
+        // the guest.
+        tart.set(&[("outside", "darwin"), ("outside-2", "darwin")]);
+        tart.hold_lists(false);
+        let limit = limit_of(first.join().unwrap().err().expect("two external guests"));
+        assert_eq!(limit.admission.refused_by, RefusedBy::App);
+        assert_eq!(limit.holders, ["outside", "outside-2"]);
+    }
+
+    #[test]
+    fn requests_that_wait_together_share_one_observation() {
+        let (queue, guests, tart) = queue_over(2, FakeTart::default());
+        guests
+            .lock()
+            .unwrap()
+            .extend(["g1".to_string(), "g2".to_string()]);
+        tart.hold_lists(true);
+        let first = join_thread(&queue, "first", 30);
+        wait_until("the first observation to begin", || tart.list_calls() == 1);
+        // Three more joins while that observation runs. They share the next one.
+        let more: Vec<_> = ["w1", "w2", "w3"]
+            .into_iter()
+            .map(|id| join_thread(&queue, id, 30))
+            .collect();
+        wait_until("all four to join", || queue.waiting().len() == 4);
+        tart.hold_lists(false);
+        wait_until("the next observation to end", || tart.list_calls() == 2);
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(
+            tart.list_calls(),
+            2,
+            "one observation was in progress and one served the later joins"
+        );
+        // Free the slots, so that the threads end.
+        guests.lock().unwrap().clear();
+        queue.holder_ended();
+        drop(first);
+        drop(more);
+    }
+
+    #[test]
+    fn the_decision_at_a_deadline_waits_for_no_observation() {
+        let (queue, _, tart) = queue_over(2, FakeTart::default());
+        tart.hold_lists(true);
+        let began = Instant::now();
+        let waiter = join_thread(&queue, "a", 1);
+        wait_until("the observation to begin", || tart.list_calls() == 1);
+        let error = waiter.join().unwrap().err().expect("no answer came");
+        let waited = began.elapsed();
+        assert!(
+            waited >= Duration::from_secs(1) && waited < Duration::from_secs(3),
+            "the deadline decided at once on the last answer: {waited:?}"
+        );
+        let limit = limit_of(error);
+        assert_eq!(limit.admission.refused_by, RefusedBy::App);
+        tart.hold_lists(false);
+    }
+
+    #[test]
+    fn a_deadline_decides_on_the_last_answer_even_when_the_answer_is_old() {
+        // The first answer shows a free slot. The head joined after that observation, so its
+        // join is newer, and the slow observer never answers again: the head fails at its
+        // deadline and runs no try.
+        let (queue, _, tart) = queue_over(2, FakeTart::default());
+        let hold = queue
+            .admit(&ask("a", Some(5)), &CancellationToken::new(), &quiet())
+            .unwrap();
+        tart.hold_lists(true);
+        let waiter = join_thread(&queue, "b", 1);
+        let error = waiter.join().unwrap();
+        // Two slots are free by the first answer and the guests, but the answer is older.
+        assert!(error.is_err(), "no answer is newer than the join");
+        assert!(queue.admitted() == ["a"]);
+        tart.hold_lists(false);
+        drop(hold);
+    }
+
     // The refusal by the framework (spec "admission-queue": "A refusal by the framework").
 
     const LINE: &str = "The number of VMs exceeds the system limit (other running VMs: holder-a)";
@@ -1338,6 +1760,7 @@ mod tests {
         let queue = AdmissionQueue::with_pause(
             slots,
             Box::new(move || read.lock().unwrap().clone()),
+            Arc::new(FakeTart::default()),
             Duration::from_millis(300),
         );
         (queue, guests)

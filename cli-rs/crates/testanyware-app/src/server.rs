@@ -70,21 +70,15 @@ pub type LoginItemProbe = fn() -> LoginItemState;
 
 impl AppContext {
     pub fn new(identity: AppIdentity, own_uid: u32, config: AppConfig) -> Self {
-        let admission = crate::admission::AdmissionQueue::for_paths(
-            testanyware_vm::VmPaths::new(
-                identity.directories.state_dir.clone(),
-                identity.directories.data_dir.clone(),
-                std::env::temp_dir(),
-            ),
-            config.macos_slots(),
-        );
+        let tools = ToolSearch::builtin();
+        let admission = Self::admission_queue(&identity, &config, &tools);
         Self {
             identity,
             bundle: BundleSource::this_process(),
             own_uid,
             config,
             grant: Mutex::new(GrantObservation::NotYetSeen),
-            tools: ToolSearch::builtin(),
+            tools,
             agent_port: testanyware_vm::start_context::AGENT_PORT,
             starts: crate::gate_start::StartGate::default(),
             admission,
@@ -92,6 +86,24 @@ impl AppContext {
             probe_deadline: crate::adoption::PROBE_DEADLINE,
             login_item: || LoginItemState::Unobserved,
         }
+    }
+
+    /// The queue for the macOS guest slots. It reads the records of the app, and it asks the
+    /// `tart` that `tools` finds.
+    fn admission_queue(
+        identity: &AppIdentity,
+        config: &AppConfig,
+        tools: &ToolSearch,
+    ) -> Arc<crate::admission::AdmissionQueue> {
+        crate::admission::AdmissionQueue::for_paths(
+            testanyware_vm::VmPaths::new(
+                identity.directories.state_dir.clone(),
+                identity.directories.data_dir.clone(),
+                std::env::temp_dir(),
+            ),
+            config.macos_slots(),
+            tools.clone(),
+        )
     }
 
     /// The same context with a probe of the login item.
@@ -136,6 +148,8 @@ impl AppContext {
 
     /// The same context with another tool search. A test passes a directory of fake tools.
     pub fn with_tools(mut self, tools: ToolSearch) -> Self {
+        // The queue observes tart with the same search, so it starts again with the new one.
+        self.admission = Self::admission_queue(&self.identity, &self.config, &tools);
         self.tools = tools;
         self
     }

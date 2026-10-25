@@ -251,6 +251,50 @@ pub fn list_running_names_in(tools: &ToolSearch) -> Vec<String> {
     tart_list_json_in(tools).map(|j| parse_running_names(&j)).unwrap_or_default()
 }
 
+/// Names of the VMs in a `tart list --format json` text that run, or why the text is no list.
+///
+/// [`parse_running_names`] reads malformed text as "no VM runs", which suits `vm list`. A reader
+/// that frees a slot on "no VM runs" needs the failure instead (spec "admission-queue": "The
+/// count").
+pub fn parse_running_names_strict(tart_json: &str) -> Result<Vec<String>, String> {
+    let rows: Vec<TartVm> = serde_json::from_str(tart_json)
+        .map_err(|e| format!("tart list printed output that is not a list of VMs: {e}"))?;
+    Ok(rows
+        .into_iter()
+        .filter(|vm| vm.state.as_deref() == Some("running"))
+        .map(|vm| vm.name)
+        .collect())
+}
+
+/// Names of the VMs that `tart list` reports running, or why tart did not answer. A failed call
+/// and output that is no list are both errors, so "no VM runs" is always an answer of tart.
+pub fn running_names_strict_in(tools: &ToolSearch) -> Result<Vec<String>, String> {
+    let r = run_tart_in(tools, &["list", "--format", "json"]);
+    if r.exit_code != 0 {
+        return Err(format!("tart list failed: {}", r.stderr.trim()));
+    }
+    parse_running_names_strict(&r.stdout)
+}
+
+/// The OS in a `tart get <vm> --format json` text (`darwin` or `linux`), or `None` when the text
+/// is not that JSON. tart prints the key `OS`; `tart list` does not print it.
+pub fn parse_os(tart_json: &str) -> Option<String> {
+    serde_json::from_str::<serde_json::Value>(tart_json)
+        .ok()?
+        .get("OS")?
+        .as_str()
+        .map(str::to_string)
+}
+
+/// The OS of the VM `name` from `tart get`, or why tart did not answer.
+pub fn os_of_in(tools: &ToolSearch, name: &str) -> Result<String, String> {
+    let r = run_tart_in(tools, &["get", name, "--format", "json"]);
+    if r.exit_code != 0 {
+        return Err(format!("tart get {name} failed: {}", r.stderr.trim()));
+    }
+    parse_os(&r.stdout).ok_or_else(|| format!("tart get {name} printed no OS"))
+}
+
 /// Whether a tart VM with `name` exists in any state. `false` when tart
 /// is absent. Ports `TartRunner.vmExists`.
 pub fn vm_exists(name: &str) -> bool {
@@ -749,6 +793,26 @@ mod tests {
             "[]",
         ] {
             assert_eq!(parse_disk_gb(bad), None, "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn the_strict_list_reader_fails_where_the_lenient_reader_reports_no_vm() {
+        let json = r#"[{"Name":"a","State":"running"},{"Name":"b","State":"stopped"}]"#;
+        assert_eq!(parse_running_names_strict(json), Ok(vec!["a".to_string()]));
+        assert_eq!(parse_running_names_strict("[]"), Ok(Vec::new()));
+        for bad in ["", "not json", "{}", r#"[{"State":"running"}]"#] {
+            assert!(parse_running_names_strict(bad).is_err(), "{bad:?}");
+            assert!(parse_running_names(bad).is_empty(), "lenient on {bad:?}");
+        }
+    }
+
+    #[test]
+    fn parse_os_reads_the_os_key_of_tart_get() {
+        assert_eq!(parse_os(r#"{"OS" : "darwin", "Disk" : 90}"#).as_deref(), Some("darwin"));
+        assert_eq!(parse_os(r#"{"OS" : "linux"}"#).as_deref(), Some("linux"));
+        for bad in ["", "not json", "{}", r#"{"OS": 1}"#, "[]"] {
+            assert_eq!(parse_os(bad), None, "{bad:?}");
         }
     }
 

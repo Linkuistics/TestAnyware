@@ -5,13 +5,18 @@
 //! time. It touches no clock, no file and no process, so a test can set every input. The state of
 //! the queue (`super`) gathers the inputs and applies the answer under one lock.
 //!
-//! This increment decides by the app's own count, the pause after a refusal and contention. The
-//! seen holders of `tart list` come in a later increment, and each one adds an input here.
+//! The count has two kinds of holder. The own holders count against `macos_slots` and against the
+//! two slots of Apple. The seen holders, the other macOS guests that tart reports, count against
+//! the two slots only. The function admits a waiter only on an answer of tart whose observation
+//! started after the waiter joined, and it admits nothing before the first answer.
 
 use std::time::Duration;
 
 /// The app admits nothing for this long after a refusal by the framework.
 pub const PAUSE: Duration = Duration::from_secs(3);
+
+/// The slots that Apple allows for macOS guests on one Mac.
+pub const APPLE_LIMIT: usize = 2;
 
 /// One start in the queue. The queue lists its waiters in the order of their join.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +25,9 @@ pub struct Waiter {
     /// The moment when the wait of this waiter ends, on the clock of the queue. `None` for a
     /// waiter without a bound.
     pub deadline: Option<Duration>,
+    /// The number of the next observation at the join of this waiter. An answer is newer than
+    /// the join when its observation has this number or a later one.
+    pub joined_obs: u64,
 }
 
 /// What the function reads.
@@ -30,6 +38,11 @@ pub struct Input<'a> {
     /// The own holders: each running macOS guest that has a meta, and each start that the app
     /// admitted and whose guest is not yet gone. A guest that two holders name counts once.
     pub own_holders: usize,
+    /// The other macOS guests that the last answer of tart reports running. A guest that an own
+    /// holder names is not among them.
+    pub seen_holders: usize,
+    /// The number of the observation of the last answer, or `None` before the first answer.
+    pub answer: Option<u64>,
     /// The admitted starts that the framework has neither accepted nor refused. Each one is also
     /// an own holder. A golden creation is never unproven.
     pub unproven: usize,
@@ -57,7 +70,10 @@ pub struct Decision {
 /// Decide which waiters the app admits, and which waiters run out of time.
 ///
 /// First the function admits the head while the count shows a free slot, and it counts each
-/// admission at once. It never admits a waiter before an earlier one. The pause after a refusal
+/// admission at once. The count shows a free slot while the own holders are below `slots` and
+/// the own and seen holders together are below the two slots of Apple. A waiter needs an answer
+/// that is newer than its join, so the function admits nothing before the first answer. It
+/// never admits a waiter before an earlier one. The pause after a refusal
 /// holds back every admission, except that it ends at the deadline of the head: the pause never
 /// costs the head its last try. In contention the function admits the head alone, and only while
 /// no admitted start is unproven. Then it expires each waiter whose deadline has come and that it
@@ -72,10 +88,17 @@ pub fn decide(input: Input<'_>) -> Decision {
         // Each admission is a holder at once, and it is unproven until the framework answers.
         let held = input.own_holders + admit.len();
         let unproven = input.unproven + admit.len();
+        let newer = input
+            .answer
+            .is_some_and(|number| number >= waiter.joined_obs);
         let due = waiter
             .deadline
             .is_some_and(|deadline| input.now >= deadline);
-        let blocked = held >= input.slots || (paused && !due) || (input.contention && unproven > 0);
+        let blocked = !newer
+            || held >= input.slots
+            || held + input.seen_holders >= APPLE_LIMIT
+            || (paused && !due)
+            || (input.contention && unproven > 0);
         if blocked {
             break;
         }
@@ -92,15 +115,27 @@ pub fn decide(input: Input<'_>) -> Decision {
 /// The one decision of a start without `--wait`, or with `--wait=0`: the app admits it only when
 /// the queue holds no waiter, the count shows a free slot and contention does not hold back an
 /// admission. Such a start never passes a waiter and never becomes one. The pause after a refusal
-/// never blocks it, because the decision never waits for the pause.
+/// never blocks it, because the decision never waits for the pause. The caller passes the seen
+/// holders of an answer that is newer than the join of the start.
 pub fn admits_without_wait(
     waiters: usize,
     own_holders: usize,
+    seen_holders: usize,
     slots: usize,
     contention: bool,
     unproven: usize,
 ) -> bool {
-    waiters == 0 && own_holders < slots && !(contention && unproven > 0)
+    waiters == 0
+        && own_holders < slots
+        && own_holders + seen_holders < APPLE_LIMIT
+        && !(contention && unproven > 0)
+}
+
+/// Whether the own holders alone refuse a start without `--wait` at its join: they fill
+/// `slots`, or they fill the two slots of Apple. No answer of tart ends such a hold, so the
+/// refusal waits for no observation (spec "A start without `--wait`").
+pub fn own_holders_fill_the_slots(admitted: usize, slots: usize) -> bool {
+    admitted >= slots || admitted >= APPLE_LIMIT
 }
 
 /// Contention ends when the queue holds no waiter and no admitted start is unproven. Then the app
@@ -125,9 +160,15 @@ mod tests {
     }
 
     fn waiter(id: &str, deadline: Option<u64>) -> Waiter {
+        joined_at(id, deadline, 0)
+    }
+
+    /// A waiter that joined before the observation with number `joined_obs`.
+    fn joined_at(id: &str, deadline: Option<u64>, joined_obs: u64) -> Waiter {
         Waiter {
             request_id: id.into(),
             deadline: deadline.map(secs),
+            joined_obs,
         }
     }
 
@@ -147,6 +188,9 @@ mod tests {
         Input {
             queue: &[],
             own_holders: 0,
+            seen_holders: 0,
+            // The answer of observation 0 is newer than the join of a waiter of observation 0.
+            answer: Some(0),
             unproven: 0,
             slots: 2,
             contention: false,
@@ -284,12 +328,12 @@ mod tests {
 
     #[test]
     fn a_start_with_wait_zero_is_admitted_only_by_an_empty_queue_and_a_free_slot() {
-        assert!(admits_without_wait(0, 0, 2, false, 0));
-        assert!(admits_without_wait(0, 1, 2, false, 0));
-        assert!(!admits_without_wait(0, 2, 2, false, 0));
+        assert!(admits_without_wait(0, 0, 0, 2, false, 0));
+        assert!(admits_without_wait(0, 1, 0, 2, false, 0));
+        assert!(!admits_without_wait(0, 2, 0, 2, false, 0));
         // It never passes a waiter, even when the count shows a free slot.
-        assert!(!admits_without_wait(1, 0, 2, false, 0));
-        assert!(!admits_without_wait(0, 0, 0, false, 0));
+        assert!(!admits_without_wait(1, 0, 0, 2, false, 0));
+        assert!(!admits_without_wait(0, 0, 0, 0, false, 0));
     }
 
     // The refusal by the framework: the pause and contention.
@@ -457,8 +501,120 @@ mod tests {
 
     #[test]
     fn contention_blocks_a_start_without_a_wait_only_while_a_start_is_unproven() {
-        assert!(!admits_without_wait(0, 0, 2, true, 1));
-        assert!(admits_without_wait(0, 0, 2, true, 0));
-        assert!(admits_without_wait(0, 0, 2, false, 1));
+        assert!(!admits_without_wait(0, 0, 0, 2, true, 1));
+        assert!(admits_without_wait(0, 0, 0, 2, true, 0));
+        assert!(admits_without_wait(0, 0, 0, 2, false, 1));
+    }
+
+    // The seen holders and the answer of tart.
+
+    fn with_seen<'a>(queue: &'a [Waiter], own: usize, seen: usize, slots: usize) -> Input<'a> {
+        Input {
+            queue,
+            own_holders: own,
+            seen_holders: seen,
+            slots,
+            ..quiet()
+        }
+    }
+
+    #[test]
+    fn a_seen_holder_counts_against_the_two_slots() {
+        let queue = [waiter("r-1", None)];
+        assert_eq!(decide(with_seen(&queue, 0, 1, 2)).admit, ids(&["r-1"]));
+        assert_eq!(decide(with_seen(&queue, 1, 1, 2)), Decision::default());
+        assert_eq!(decide(with_seen(&queue, 0, 2, 2)), Decision::default());
+    }
+
+    #[test]
+    fn a_seen_holder_does_not_count_against_macos_slots() {
+        // With `macos_slots` 1, one seen guest and no own holder leave the app's share free:
+        // the app admits one start, and the two slots of Apple are then full.
+        let queue = [waiter("r-1", None), waiter("r-2", None)];
+        assert_eq!(decide(with_seen(&queue, 0, 1, 1)).admit, ids(&["r-1"]));
+        // The same count with `macos_slots` 2 admits the head only, because of the two slots.
+        assert_eq!(decide(with_seen(&queue, 0, 1, 2)).admit, ids(&["r-1"]));
+    }
+
+    #[test]
+    fn an_external_guest_beside_an_own_holder_fills_the_two_slots() {
+        let queue = [waiter("r-1", None)];
+        assert_eq!(decide(with_seen(&queue, 1, 1, 2)), Decision::default());
+    }
+
+    #[test]
+    fn before_the_first_answer_the_function_admits_nothing_and_a_deadline_fails_the_head() {
+        let queue = [waiter("r-1", Some(10))];
+        let before = |now| {
+            decide(Input {
+                answer: None,
+                now: secs(now),
+                ..with_seen(&queue, 0, 0, 2)
+            })
+        };
+        assert_eq!(before(0), Decision::default());
+        assert_eq!(before(9), Decision::default());
+        assert_eq!(before(10).expire, ids(&["r-1"]));
+        assert_eq!(before(10).admit, Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_answer_whose_observation_started_before_the_join_admits_no_waiter() {
+        // The head joined before observation 5. The answer of observation 4 may miss a guest
+        // that started before the join.
+        let queue = [joined_at("r-1", Some(10), 5)];
+        let older = |now| {
+            decide(Input {
+                answer: Some(4),
+                now: secs(now),
+                ..with_seen(&queue, 0, 0, 2)
+            })
+        };
+        assert_eq!(older(3), Decision::default());
+        // A deadline fails the head, because no answer came that is newer than the join.
+        assert_eq!(older(10).expire, ids(&["r-1"]));
+    }
+
+    #[test]
+    fn an_answer_of_the_observation_that_the_join_noted_is_newer_than_the_join() {
+        let queue = [joined_at("r-1", None, 5)];
+        let answer = |number| {
+            decide(Input {
+                answer: Some(number),
+                ..with_seen(&queue, 0, 0, 2)
+            })
+        };
+        assert_eq!(answer(5).admit, ids(&["r-1"]));
+        assert_eq!(answer(6).admit, ids(&["r-1"]));
+    }
+
+    #[test]
+    fn a_later_waiter_needs_an_answer_newer_than_its_own_join() {
+        let queue = [joined_at("r-1", None, 1), joined_at("r-2", None, 3)];
+        let decision = decide(Input {
+            answer: Some(2),
+            ..with_seen(&queue, 0, 0, 2)
+        });
+        assert_eq!(
+            decision.admit,
+            ids(&["r-1"]),
+            "r-2 joined after observation 2 began"
+        );
+    }
+
+    #[test]
+    fn the_own_holders_alone_refuse_a_start_without_a_wait_at_its_join() {
+        assert!(!own_holders_fill_the_slots(0, 2));
+        assert!(!own_holders_fill_the_slots(1, 2));
+        assert!(own_holders_fill_the_slots(2, 2));
+        assert!(own_holders_fill_the_slots(1, 1));
+        assert!(own_holders_fill_the_slots(0, 0));
+    }
+
+    #[test]
+    fn a_seen_holder_refuses_a_start_without_a_wait_beside_one_own_holder() {
+        assert!(admits_without_wait(0, 0, 1, 2, false, 0));
+        assert!(!admits_without_wait(0, 1, 1, 2, false, 0));
+        assert!(!admits_without_wait(0, 0, 2, 2, false, 0));
     }
 }
