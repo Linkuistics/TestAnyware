@@ -307,11 +307,23 @@ pub async fn configure_fresh_vm(vm: &str, paths: &VmPaths) -> Result<(), VmError
     use crate::ssh::SshSession;
 
     eprintln!("Booting '{vm}' to Setup Assistant...");
-    let (pid, log_path) = crate::tart::run_detached(vm, &paths.vms_dir())?;
+    // A refusal by the framework is tried again. A boot that fails leaves no `tart run` behind.
+    let crate::golden_boot::Booted { pid, vnc, .. } = match crate::golden_boot::boot_to_vnc(
+        &crate::tools::ToolSearch::from_process_path(),
+        vm,
+        &paths.vms_dir(),
+        crate::golden_boot::BootMode::Normal,
+        crate::golden_boot::BootBudget::DEFAULT,
+    )
+    .await
+    {
+        Ok(booted) => booted,
+        Err(e) => {
+            crate::tart::stop(vm);
+            return Err(e);
+        }
+    };
     let result: Result<(), VmError> = async {
-        let Some(vnc) = crate::tart::poll_vnc_url(&log_path, 60, Duration::from_secs(1)) else {
-            return Err(VmError::boot_timeout(vm, crate::error::BootStage::Vnc));
-        };
         let mut session = RecoverySession::connect(&vnc.host, vnc.port, vnc.password.as_deref()).await?;
         let driven = async {
             crate::setup_assistant::run_setup_assistant(&mut session, VANILLA_USER, VANILLA_PASS).await?;

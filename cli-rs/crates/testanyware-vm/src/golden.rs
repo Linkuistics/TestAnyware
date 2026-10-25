@@ -345,13 +345,25 @@ pub async fn provision_boot1(opts: &GoldenOptions, paths: &VmPaths) -> Result<Se
     crate::tart::clone(&base, &setup_id)?;
 
     // Boot detached (`tart run --no-graphics --vnc-experimental`); the VNC
-    // line in the run log is the booting signal.
+    // line in the run log is the booting signal. A refusal by the framework
+    // is tried again, and a boot that fails leaves no `tart run` behind.
     eprintln!("Booting setup VM...");
-    let (pid, log_path) = crate::tart::run_detached(&setup_id, &paths.vms_dir())?;
-    if crate::tart::poll_vnc_url(&log_path, 60, Duration::from_secs(1)).is_none() {
-        cleanup_setup_vm(&setup_id, pid);
-        return Err(VmError::boot_timeout(setup_id, crate::error::BootStage::Vnc));
-    }
+    let booted = match crate::golden_boot::boot_to_vnc(
+        &crate::tools::ToolSearch::from_process_path(),
+        &setup_id,
+        &paths.vms_dir(),
+        crate::golden_boot::BootMode::Normal,
+        crate::golden_boot::BootBudget::DEFAULT,
+    )
+    .await
+    {
+        Ok(booted) => booted,
+        Err(e) => {
+            cleanup_setup_vm(&setup_id, 0);
+            return Err(e);
+        }
+    };
+    let pid = booted.pid;
 
     // Run the provisioning, tearing the VM down on any hard failure.
     match provision_running(opts, &setup_id, pid, &private_key, &pubkey, &agent_bin, paths).await {

@@ -34,6 +34,15 @@ All golden images share these properties:
 - **Session restore disabled** — apps don't reopen old windows.
 - **SIP enabled** — standard security posture after image creation.
 
+Golden creation boots its VM several times, and macOS runs two guests at most.
+When another guest holds the second slot, the framework can refuse a boot.
+Golden creation notices that at once, and it tries the boot again every 3 s for
+30 s. The framework can free the slot of the previous boot a moment after it
+ends. If the refusal lasts, golden creation fails with `VM_LIMIT_REACHED` and
+`refused_by` `framework`, and it removes its setup VM. Stop a guest with
+`testanyware vm stop`, then run `vm create-golden` again. Linux and Windows
+golden creation take no slot.
+
 ## Linux (`testanyware-golden-linux-24.04`)
 
 - **Ubuntu 24.04 Desktop** (ARM64, via Cirrus Labs vanilla image +

@@ -55,6 +55,10 @@ pub mod tart;
 /// seam). macOS-host only, like `tart` — grove node `110-vm-create-golden`.
 #[cfg(target_os = "macos")]
 pub mod golden;
+/// The boot of a macOS golden creation: it notices that `tart run` exited and tries again
+/// while the framework refuses (spec "admission-queue": "Golden creation"). macOS-host only.
+#[cfg(target_os = "macos")]
+pub mod golden_boot;
 /// macOS guest runtime display-resolution switch (ADR-0014): host-compile a
 /// CoreGraphics helper, upload + exec it over the agent at `vm start` to force
 /// the guest framebuffer onto the 1920×1080-px contract. macOS-host only, like

@@ -592,7 +592,16 @@ pub fn run_detached_in(tools: &ToolSearch, id: &str, log_dir: &Path) -> Result<(
 /// over the provisioning layer. Ports the `--recovery` `tart run` in the
 /// script's `_recovery_boot_csrutil` (line 408).
 pub fn run_detached_recovery(id: &str, log_dir: &Path) -> Result<(i32, PathBuf), VmError> {
-    run_detached_with(&ToolSearch::from_process_path(), id, log_dir, &["--recovery"])
+    run_detached_recovery_in(&ToolSearch::from_process_path(), id, log_dir)
+}
+
+/// [`run_detached_recovery`], with `tart` found by `tools`.
+pub fn run_detached_recovery_in(
+    tools: &ToolSearch,
+    id: &str,
+    log_dir: &Path,
+) -> Result<(i32, PathBuf), VmError> {
+    run_detached_with(tools, id, log_dir, &["--recovery"])
 }
 
 /// Shared body for the detached `tart run` variants. `extra` flags are

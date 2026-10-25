@@ -465,11 +465,14 @@ pub async fn recovery_boot_csrutil(
 
     // 2. Boot into Recovery with VNC; parse the endpoint from the run log.
     eprintln!("Booting into Recovery with VNC...");
-    let (recovery_pid, log_path) = crate::tart::run_detached_recovery(&setup.id, &paths.vms_dir())?;
-    let Some(vnc) = crate::tart::poll_vnc_url(&log_path, 60, Duration::from_secs(1)) else {
-        crate::process::terminate(recovery_pid, Duration::from_millis(200), 10);
-        return Err(VmError::boot_timeout(setup.id.clone(), crate::error::BootStage::Vnc));
-    };
+    let crate::golden_boot::Booted { pid: recovery_pid, vnc, .. } = crate::golden_boot::boot_to_vnc(
+        &crate::tools::ToolSearch::from_process_path(),
+        &setup.id,
+        &paths.vms_dir(),
+        crate::golden_boot::BootMode::Recovery,
+        crate::golden_boot::BootBudget::DEFAULT,
+    )
+    .await?;
     eprintln!("Recovery VNC at {}:{}", vnc.host, vnc.port);
 
     // Drive the recovery GUI, tearing the recovery boot down on any failure so
@@ -497,7 +500,7 @@ pub async fn recovery_boot_csrutil(
 
     // 8. Reboot normally and wait for SSH (pubkey auth persists across the
     //    recovery cycle, so key auth works on the way back up).
-    reboot_and_wait_ssh(setup, paths).await
+    reboot_macos_and_wait_ssh(setup, paths).await
 }
 
 /// The interactive recovery GUI sequence (steps 3–6), isolated so the caller
@@ -611,7 +614,28 @@ pub(crate) fn wait_for_pid_exit(pid: i32, attempts: u32, interval: Duration) -> 
 pub(crate) async fn reboot_and_wait_ssh(setup: &SetupVm, paths: &VmPaths) -> Result<SetupVm, VmError> {
     eprintln!("Rebooting normally...");
     let (pid, _log) = crate::tart::run_detached(&setup.id, &paths.vms_dir())?;
+    wait_ssh_after_boot(setup, pid).await
+}
 
+/// [`reboot_and_wait_ssh`] for a macOS guest. The boot takes a slot of the framework, so it
+/// notices that `tart run` exited and tries again while the framework refuses it
+/// ([`crate::golden_boot`]). The Linux golden takes no slot and keeps [`reboot_and_wait_ssh`].
+async fn reboot_macos_and_wait_ssh(setup: &SetupVm, paths: &VmPaths) -> Result<SetupVm, VmError> {
+    eprintln!("Rebooting normally...");
+    let booted = crate::golden_boot::boot_to_vnc(
+        &crate::tools::ToolSearch::from_process_path(),
+        &setup.id,
+        &paths.vms_dir(),
+        crate::golden_boot::BootMode::Normal,
+        crate::golden_boot::BootBudget::DEFAULT,
+    )
+    .await?;
+    wait_ssh_after_boot(setup, booted.pid).await
+}
+
+/// The wait that follows a normal boot of the setup VM: its IP, then SSH key auth. It stops the
+/// boot (`pid`) when either wait fails.
+async fn wait_ssh_after_boot(setup: &SetupVm, pid: i32) -> Result<SetupVm, VmError> {
     eprint!("Waiting for guest IP...");
     let Some(ip) = crate::tart::poll_ip(&setup.id, 60, Duration::from_secs(3)) else {
         eprintln!(" timed out.");

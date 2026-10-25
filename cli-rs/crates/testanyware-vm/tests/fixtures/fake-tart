@@ -9,6 +9,8 @@
 #                   (each refusal appends a line to `refused.log`)
 #   capacity        a number: `run` refuses as `full` does while that many VMs run, as the
 #                   framework does. Each refusal appends a line to `refused.log`
+#   run-fails       if present, `run` prints `tart: boom` and exits 1, as a tart that fails for any
+#                   reason but the limit
 #   stuck           if present, `stop` and `delete` do nothing, as a tart that cannot remove a VM
 #   list-hang       if present, `list` does not answer while the file exists, or until a caller
 #                   kills it
@@ -61,6 +63,10 @@ case "$cmd" in
     ;;
   run)
     name="$1"
+    if [ -e "$STATE/run-fails" ]; then
+      echo "tart: boom" >&2
+      exit 1
+    fi
     if [ -s "$STATE/capacity" ]; then
       running=0
       for f in "$STATE"/*.running; do
