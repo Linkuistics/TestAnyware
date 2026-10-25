@@ -446,9 +446,10 @@ testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--disp
   a start although the app counts a free slot, the app puts the start back at
   the head of the queue and tries it again after a pause of 3 s. When the wait
   runs out the start fails with `VM_LIMIT_REACHED` (exit `6`), as it does without
-  the flag. While it waits, stderr names the VMs holding the slots. `--json`
-  still prints only the final result. The retries reuse one clone, and Ctrl-C or
-  SIGTERM deletes it.
+  the flag. While it waits, stderr names the VMs holding the slots, and
+  `testanyware vm slots` shows each holder and each waiter with its place and who
+  asked. `--json` still prints only the final result. The retries reuse one
+  clone, and Ctrl-C or SIGTERM deletes it.
 
 On every backend (tart for macOS and Linux-on-tart, QEMU for Windows and
 Linux-on-qcow2) a start succeeds only once the guest's agent answers `/health`. Otherwise it
@@ -495,6 +496,45 @@ Lists the running VMs TestAnyware started, whatever their id. A running tart VM
 counts when its id starts with `testanyware-` or it has a spec or meta sidecar,
 so `vm start --id koine-verify-1` appears. A sidecar whose VM is not running is
 ignored, not listed as stale. `vm stop <id>` deletes it.
+
+### `testanyware vm slots`
+
+**Synopsis:** Show the macOS guest slots of this Mac, each holder and each
+waiter.
+
+```
+testanyware vm slots [--json]
+```
+
+A Mac runs two macOS guests at most. The TestAnyware app serves the starts that
+wait in one ordered queue. This command shows that queue.
+
+`--json` prints these members (schema id `vm-slots`). Every time is in seconds
+since the Unix epoch, and a member that does not apply is `null`.
+
+| Member | Meaning |
+|---|---|
+| `slots` | The value of `macos_slots` in force. |
+| `limit` | 2, the limit of Apple. |
+| `holders` | Each holder: `kind` (`vm`, `golden` or `external`), `vms`, `state` (`booting`, `running` or `held`), `request_id`, `requested_by` and `since`. |
+| `queue` | Each waiter, in order: `request_id`, `place`, `kind`, `vms`, `requested_by`, `since` and `deadline`. |
+| `contention` | `null` while contention does not hold. In contention, it holds `since`, `tart_error` and `holders` of the last refusal. |
+| `observed_at` | The last answer of tart, or `null` before the first answer. |
+| `unanswered_since` | `null` while tart answers. Otherwise the first failed observation after the last answer. |
+
+`requested_by` names who asked. Its `pid` is the process id of the client, which
+the app reads from the kernel. Its `cwd` is the working directory that the client
+stated, which names the worktree of a grove. `cwd` is `null` when an older
+`testanyware` made the request. A guest that the app adopted, and a guest that the
+app did not start (`kind` `external`), have no `requested_by`.
+
+The app observes tart before it answers, as it does before a decision to admit.
+It waits 8 s at most. `observed_at` then shows how old the answer is.
+
+On a Linux or Windows host the command needs no app. It reports `slots` 0,
+`limit` 0 and empty lists. On a macOS host without the app it fails with
+`APP_UNREACHABLE` or `APP_NOT_INSTALLED`. An app that predates protocol version 2
+fails it with `APP_INCOMPATIBLE` and the cause `protocol`.
 
 ### `testanyware vm delete`
 

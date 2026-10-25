@@ -503,7 +503,8 @@ EXIT CODES:
     4  KVM_PERMISSION_DENIED
     6  VM_LIMIT_REACHED — the macOS guest limit (two per Mac) is full; try again
        later, or start with --wait. `details.holders` names the VMs holding
-       the slots. With --wait it is also what a wait that ran out returns.
+       the slots, and `testanyware vm slots` shows each holder and each
+       waiter. With --wait it is also what a wait that ran out returns.
     7  VM_BOOT_TIMEOUT — the VM is up but a start stage never completed;
        `details` names the stage (vnc, guest-ip, agent), the last probe error
        with its OS errno, the attempts and the elapsed time.
@@ -522,7 +523,8 @@ WAITING FOR A SLOT:
     With --wait the start waits in the queue of the TestAnyware app, then
     starts; bare --wait gives up after 600 s, --wait=SECONDS after that many.
     The app serves the waiters in order: no later start takes a slot that
-    frees before an earlier one. Sometimes the framework refuses a start
+    frees before an earlier one. `testanyware vm slots` shows the queue: the
+    holders, each waiter with its place, and who asked. Sometimes the framework refuses a start
     although the app counts a free slot, for example because a guest of
     another user holds one. Then the app puts the start back at the head of
     the queue and tries it again after a pause of 3 s. The retries reuse one
@@ -586,6 +588,53 @@ EXAMPLES:
 
     # Plan the stop as JSON
     testanyware vm stop testanyware-deadbeef --dry-run --json
+
+SEE ALSO:
+    testanyware vm start, testanyware vm list
+";
+
+const VM_SLOTS_AFTER_HELP: &str = "\
+WHAT IS SHOWN:
+    The macOS guest slots of this Mac. A Mac runs two macOS guests at most,
+    and the TestAnyware app serves the starts that wait in one ordered queue.
+    `holders` lists the guests that hold a slot: `kind` `vm` is a guest that
+    the app started or adopted, and `kind` `external` is a guest that the
+    app did not start. `queue` lists each waiter in order, with its
+    `request_id`, its `place`, its `deadline` and `requested_by`. A holder
+    that the app admitted also has `requested_by`.
+
+WHO ASKED:
+    `requested_by.pid` is the process id of the client. The app reads it from
+    the kernel. `requested_by.cwd` is the working directory of that client,
+    which names the worktree of a grove. It is `null` when an older
+    `testanyware` made the request. An adopted guest and an external guest
+    have no `requested_by`.
+
+OUTPUT:
+    Stable formats: --json (schema: vm-slots). Text is a summary and is not a
+    parsing target. Every time is in seconds since the Unix epoch. `slots` is
+    the value of `macos_slots` in force, and `limit` is the limit of Apple.
+    `contention` is `null` unless the framework has refused a start.
+    `observed_at` is the last answer of tart, and `unanswered_since` is not
+    `null` while tart does not answer.
+
+PLATFORM:
+    A macOS host needs the TestAnyware app. Without it the command fails
+    with APP_UNREACHABLE or APP_NOT_INSTALLED. A Linux or Windows host has
+    no app and no queue: the command reports `slots` 0, `limit` 0 and empty
+    lists. An app older than this `testanyware` fails the command with
+    APP_INCOMPATIBLE and the cause `protocol`.
+
+EXIT CODES:
+    0  success
+    1  APP_UNREACHABLE, APP_NOT_INSTALLED, APP_INCOMPATIBLE
+
+EXAMPLES:
+    # See who holds the slots and who waits
+    testanyware vm slots
+
+    # The same, for a script
+    testanyware vm slots --json
 
 SEE ALSO:
     testanyware vm start, testanyware vm list
@@ -1945,6 +1994,13 @@ enum VmAction {
         #[arg(long, value_name = "EXPR")]
         filter: Option<String>,
     },
+    /// Show the macOS guest slots, each holder and each waiter
+    #[command(after_long_help = VM_SLOTS_AFTER_HELP)]
+    Slots {
+        /// Emit JSON envelope on stdout.
+        #[arg(long)]
+        json: bool,
+    },
     /// Create a golden image (macOS host only)
     //
     // `disable_version_flag`: this command takes a `--version <OS>` argument
@@ -2379,6 +2435,7 @@ async fn main() {
             VmAction::List { json, limit, all, filter } => {
                 vm_cmds::run_vm_list(OutputMode::from_flags(json), limit, all, filter).await
             }
+            VmAction::Slots { json } => vm_cmds::run_vm_slots(OutputMode::from_flags(json)).await,
             VmAction::CreateGolden { platform, version, name, iso, json, dry_run } => {
                 vm_cmds::run_vm_create_golden(
                     platform, version, name, iso,

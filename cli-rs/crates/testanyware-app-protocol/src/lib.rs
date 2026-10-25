@@ -9,6 +9,7 @@ pub mod error;
 pub mod hello;
 pub mod list;
 pub mod skew;
+pub mod slots;
 pub mod socket;
 pub mod start;
 pub mod status;
@@ -23,7 +24,11 @@ pub use error::{
 };
 pub use hello::{ClientHello, Directories, ServerHello};
 pub use list::{ListRequest, LIST_PATH};
-pub use skew::{decide, older_than_bundle, Decision, Notice, Remedy};
+pub use skew::{decide, needs_version, older_than_bundle, Decision, Notice, Remedy};
+pub use slots::{
+    HolderKind, HolderState, RequestedBy, SlotContention, SlotHolder, SlotWaiter, SlotsView,
+    WaiterKind, SLOTS_PATH,
+};
 pub use socket::{
     default_socket_path, judge_socket_dir, validate_socket_path, SocketDirError, SocketPathError,
     SOCKET_PATH_MAX_BYTES,
@@ -42,4 +47,4 @@ pub use stop_delete::{
 pub use stream::{
     is_plain_vm_id, parse_stream_path, RouteMatch, StreamKind, StreamTarget, STREAM_UPGRADE_TOKEN,
 };
-pub use version::ProtocolRange;
+pub use version::{ProtocolRange, SLOTS_VERSION};

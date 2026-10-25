@@ -16,11 +16,11 @@ use testanyware_agent_client::{
     AgentClient, AgentConfig, AgentConnector, BoxedStream, ConnectFuture, ConnectorFailure,
 };
 use testanyware_app_client::{AppClient, AppStream, StartEnd};
-use testanyware_app_protocol::version::SUPPORTED_RANGE;
+use testanyware_app_protocol::version::{SLOTS_VERSION, SUPPORTED_RANGE};
 use testanyware_app_protocol::{
     decide, AppError, ClientHello, Decision, DeleteResult, Directories, ListRequest, Peer,
-    ServerHello, StartRequest, StatusResponse, StopResult, StreamKind, StreamTarget,
-    APP_UNREACHABLE,
+    ServerHello, SlotsView, StartRequest, StatusResponse, StopResult, StreamKind, StreamTarget,
+    APP_UNREACHABLE, SLOTS_PATH,
 };
 use testanyware_vm::listing::ListView;
 
@@ -128,6 +128,17 @@ pub async fn list_vms(socket: PathBuf, request: &ListRequest) -> Result<ListView
     let client = app_client(socket);
     client
         .get_json(&request.path_and_query())
+        .await
+        .map_err(|error| name_missing_install_here(error, client.socket()))
+}
+
+/// Ask the app for the view that `vm slots` prints. The request needs protocol version 2, so an
+/// app whose range ends at 1 fails it with `APP_INCOMPATIBLE`. A failure to reach the app on the
+/// default socket says whether the app is installed, as for a guest stream.
+pub async fn slots(socket: PathBuf) -> Result<SlotsView, AppError> {
+    let client = app_client(socket);
+    client
+        .get_json_needing(SLOTS_PATH, SLOTS_VERSION)
         .await
         .map_err(|error| name_missing_install_here(error, client.socket()))
 }

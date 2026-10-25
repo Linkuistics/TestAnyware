@@ -304,6 +304,8 @@ host, the Host CLI uses a socket only when that variable names one.
   `APP_UNREACHABLE` and cause `socket_path_too_long`.
 - On each connection that it accepts, the app reads the peer's uid from the
   kernel. It closes the connection unless the uid is its own.
+- The app reads the peer's pid from the kernel in the same call. `vm slots` shows
+  it as `requested_by.pid` for a start that the peer asked for.
 - Before it binds, the app removes a socket file that no process answers. A
   second process of the app exits when it finds the first one on the socket.
 - The app has no TCP listener.
@@ -757,8 +759,8 @@ An older QEMU guest stops through its control sockets, and never by a signal:
 
 Protocol versions are integers. The admission queue added version 2 for its two
 requests (`docs/specs/admission-queue.md`). The first release stated the range 1 to 1 on
-both sides. When the two ranges overlap, the pair uses the highest common
-version.
+both sides, and this release states 1 to 2. When the two ranges overlap, the pair
+uses the highest common version.
 
 When the ranges do not overlap, the command fails with `APP_INCOMPATIBLE`, cause
 `protocol`. The error names both builds and both ranges, and one remedy. The
@@ -770,6 +772,17 @@ remedy is the `remediation` of the error, and `details.remedy` holds its name
 | The running app is older, and the installed bundle is newer | Quit TestAnyware from its menu, and open it again |
 | The running app and its bundle are both older | `brew upgrade --cask testanyware-app` |
 | The Host CLI is older | `brew upgrade testanyware` |
+
+A command that needs a version above the app's range fails in the same way. The
+first such command is `vm slots`, which needs version 2. With an app whose range
+ends at 1, it fails with `APP_INCOMPATIBLE`, cause `protocol`. `vm start` still
+works as that app does, because the Host CLI states the range 1 to 2 and the pair
+uses version 1.
+
+The Host CLI learns the range of the app from the headers of the answer. An app
+of version 1 answers the request for `/v1/slots` with 404, and its headers state
+its range. A client that agreed on version 1 gets the same 404 from an app of
+version 2.
 
 A client never restarts the app, so no client stops an app that other
 clients use. When the builds differ and the ranges overlap, the command

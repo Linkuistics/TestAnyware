@@ -363,7 +363,7 @@ fn status_answers_with_no_handshake_headers_at_all() {
     assert_eq!(body["build"], BUILD);
     assert_eq!(
         body["protocol_range"],
-        serde_json::json!({ "min": 1, "max": 1 })
+        serde_json::json!({ "min": 1, "max": 2 })
     );
     assert_eq!(
         body["directories"]["state_dir"],
@@ -409,7 +409,7 @@ fn status_answers_for_a_disjoint_range_and_for_other_directories() {
         resp.json()["directories"]["state_dir"],
         app.dirs.state_dir.to_str().unwrap()
     );
-    assert_eq!(resp.json()["protocol_range"]["max"], 1);
+    assert_eq!(resp.json()["protocol_range"]["max"], 2);
 }
 
 #[test]
@@ -429,7 +429,7 @@ fn every_response_carries_the_apps_range_and_build() {
     let statuses: Vec<u16> = responses.iter().map(|r| r.status).collect();
     assert_eq!(statuses, [200, 409, 409, 404]);
     for r in &responses {
-        assert_eq!(r.header("x-testanyware-protocol"), Some("1-1"));
+        assert_eq!(r.header("x-testanyware-protocol"), Some("1-2"));
         assert_eq!(r.header("x-testanyware-build"), Some(BUILD));
     }
 }
@@ -441,7 +441,7 @@ fn a_range_that_does_not_overlap_fails_and_names_both_sides() {
     let _serial = serial();
     let app = start();
 
-    let resp = raw_request(&app.socket, "/v1/vms", Some(&hello((2, 3), &app.dirs)));
+    let resp = raw_request(&app.socket, "/v1/vms", Some(&hello((3, 4), &app.dirs)));
 
     assert_eq!(resp.status, 409);
     let err = resp.json();
@@ -450,15 +450,15 @@ fn a_range_that_does_not_overlap_fails_and_names_both_sides() {
     assert_eq!(err["details"]["app"]["build"], BUILD);
     assert_eq!(
         err["details"]["app"]["protocol_range"],
-        serde_json::json!({ "min": 1, "max": 1 })
+        serde_json::json!({ "min": 1, "max": 2 })
     );
     assert_eq!(err["details"]["client"]["build"], "9.9.9");
     assert_eq!(
         err["details"]["client"]["protocol_range"],
-        serde_json::json!({ "min": 2, "max": 3 })
+        serde_json::json!({ "min": 3, "max": 4 })
     );
     let message = err["message"].as_str().unwrap();
-    for needle in [BUILD, "9.9.9", "1-1", "2-3"] {
+    for needle in [BUILD, "9.9.9", "1-2", "3-4"] {
         assert!(
             message.contains(needle),
             "{needle} missing from {message:?}"
@@ -533,7 +533,7 @@ fn an_overlapping_range_and_the_same_directories_pass_the_handshake() {
     let _serial = serial();
     let app = start();
 
-    // The range 1-3 overlaps the app's 1-1. The path names no route, so the answer is a 404.
+    // The range 1-3 overlaps the app's 1-2. The path names no route, so the answer is a 404.
     let resp = raw_request(&app.socket, "/v1/no-such-route", Some(&hello((1, 3), &app.dirs)));
 
     assert_eq!(resp.status, 404);
@@ -548,7 +548,7 @@ fn the_handshake_guards_every_path_not_only_the_known_ones() {
     let resp = raw_request(
         &app.socket,
         "/no/such/path",
-        Some(&hello((2, 2), &app.dirs)),
+        Some(&hello((3, 3), &app.dirs)),
     );
 
     assert_eq!(resp.status, 409);

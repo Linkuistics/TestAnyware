@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testanyware.dev/schemas/vm-slots.json",
+  "title": "vm-slots",
+  "description": "The macOS guest slots of this Mac: the slots in force, each holder, each waiter in order, contention and the state of the observations of tart. Every time is in seconds since the Unix epoch.",
+  "type": "object",
+  "required": ["schema_version", "ok", "slots", "limit", "holders", "queue", "contention", "observed_at", "unanswered_since"],
+  "$defs": {
+    "requested_by": {
+      "description": "Who asked, or null when no request of this run of the app made the holder.",
+      "type": ["object", "null"],
+      "required": ["pid", "cwd"],
+      "properties": {
+        "pid": { "type": ["integer", "null"], "description": "The process id of the client. The app reads it from the kernel." },
+        "cwd": { "type": ["string", "null"], "description": "The working directory that the client stated. Null for an older testanyware." }
+      }
+    }
+  },
+  "properties": {
+    "schema_version": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "slots": { "type": "integer", "description": "The value of macos_slots in force. 0 on a host without the app." },
+    "limit": { "type": "integer", "description": "The limit of Apple: 2. 0 on a host without the app." },
+    "holders": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "vms", "state", "request_id", "requested_by", "since"],
+        "properties": {
+          "kind": { "type": "string", "enum": ["vm", "golden", "external"] },
+          "vms": { "type": "array", "items": { "type": "string" } },
+          "state": { "type": "string", "enum": ["booting", "running", "held"] },
+          "request_id": { "type": ["string", "null"] },
+          "requested_by": { "$ref": "#/$defs/requested_by" },
+          "since": { "type": ["integer", "null"], "description": "The admission of a holder that the app admitted. For any other holder, the moment when the app first noted it." }
+        }
+      }
+    },
+    "queue": {
+      "type": "array",
+      "description": "Each waiter, in order.",
+      "items": {
+        "type": "object",
+        "required": ["request_id", "place", "kind", "vms", "requested_by", "since", "deadline"],
+        "properties": {
+          "request_id": { "type": "string" },
+          "place": { "type": "integer", "minimum": 1 },
+          "kind": { "type": "string", "enum": ["vm", "golden"] },
+          "vms": { "type": "array", "items": { "type": "string" } },
+          "requested_by": { "$ref": "#/$defs/requested_by" },
+          "since": { "type": "integer", "description": "The join." },
+          "deadline": { "type": ["integer", "null"], "description": "The end of the wait. Null for a waiter without a bound." }
+        }
+      }
+    },
+    "contention": {
+      "description": "Null while contention does not hold. In contention, the last refusal by the framework.",
+      "type": ["object", "null"],
+      "required": ["since", "tart_error", "holders"],
+      "properties": {
+        "since": { "type": "integer" },
+        "tart_error": { "type": "string" },
+        "holders": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "observed_at": { "type": ["integer", "null"], "description": "The last answer of tart. Null before the first answer." },
+    "unanswered_since": { "type": ["integer", "null"], "description": "The first failed observation after the last answer. Null while tart answers." }
+  }
+}

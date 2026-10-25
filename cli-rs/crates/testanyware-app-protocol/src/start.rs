@@ -33,6 +33,10 @@ pub struct StartRequest {
     /// The seconds that `--wait` waits for a macOS guest slot. `None` is no wait.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wait_secs: Option<u64>,
+    /// The working directory of the Host CLI, which names the worktree of the grove. `vm slots`
+    /// shows it as who asked. An older app ignores it, and an older Host CLI states none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
 }
 
 /// A host and a port of the guest.
@@ -144,6 +148,7 @@ mod tests {
             logical: None,
             keep_on_failure: true,
             wait_secs: Some(600),
+            cwd: Some("/trees/one".into()),
         }
     }
 
@@ -152,15 +157,23 @@ mod tests {
         let mut r = request();
         r.display = None;
         r.wait_secs = None;
+        r.cwd = None;
         let text = serde_json::to_string(&r).unwrap();
         assert!(!text.contains("display"), "{text}");
         assert!(!text.contains("wait_secs"), "{text}");
+        assert!(!text.contains("cwd"), "{text}");
         assert_eq!(serde_json::from_str::<StartRequest>(&text).unwrap(), r);
         let full = serde_json::to_string(&request()).unwrap();
         assert_eq!(
             serde_json::from_str::<StartRequest>(&full).unwrap(),
             request()
         );
+    }
+
+    #[test]
+    fn a_request_of_an_older_host_cli_states_no_cwd_and_reads() {
+        let older = r#"{"platform":"macos","base":"b","id":"i"}"#;
+        assert_eq!(serde_json::from_str::<StartRequest>(older).unwrap().cwd, None);
     }
 
     #[test]

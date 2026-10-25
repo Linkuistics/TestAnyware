@@ -1,4 +1,4 @@
-//! `vm {start|stop|list|delete}` command handlers.
+//! `vm {start|stop|list|slots|delete}` command handlers.
 //!
 //! Bridges clap-parsed args to the `testanyware-vm` crate and emits the
 //! contract §3 JSON envelope (or text). Ports the surface of
@@ -14,8 +14,8 @@ use testanyware_vm::{VmError, VmMeta};
 
 use testanyware_app_client::StartEnd;
 use testanyware_app_protocol::{
-    is_plain_vm_id, AppError, ListRequest, StartRequest, StartResult, TpmReport,
-    GOLDEN_NAME_MAX_BYTES,
+    is_plain_vm_id, AppError, ListRequest, RequestedBy, SlotsView, StartRequest, StartResult,
+    TpmReport, GOLDEN_NAME_MAX_BYTES,
 };
 
 use crate::app_route;
@@ -106,6 +106,11 @@ pub async fn run_vm_start(
                 logical: opts.logical,
                 keep_on_failure: opts.keep_on_failure,
                 wait_secs: opts.wait.map(|wait| wait.as_secs()),
+                // The worktree of the grove, for `vm slots`. A working directory that does not
+                // read is no reason to fail the start.
+                cwd: std::env::current_dir()
+                    .ok()
+                    .map(|dir| dir.display().to_string()),
             };
             match app_route::start_vm(socket, &request, |line| eprintln!("{line}")).await {
                 Ok(StartEnd::Started(result)) => Started::from_app(result, &opts.base),
@@ -371,6 +376,109 @@ pub async fn run_vm_list(
     match mode {
         OutputMode::Text => render_list_text(&view),
         OutputMode::Json => print_success(list_json(&view)),
+    }
+}
+
+/// `testanyware vm slots`.
+pub async fn run_vm_slots(mode: OutputMode) {
+    // The app owns the queue, and a macOS host has no other path. A Linux or Windows host has no
+    // app and no queue, so its view is empty and needs no app (spec "admission-queue": "The
+    // command surface").
+    let view = match app_socket_with_env(&EnvProvider::process()) {
+        Some(socket) => match app_route::slots(socket).await {
+            Ok(view) => view,
+            Err(error) => exit_app_error(error, mode),
+        },
+        None => SlotsView::empty(),
+    };
+    match mode {
+        OutputMode::Text => render_slots_text(&view, unix_now()),
+        OutputMode::Json => print_success(
+            serde_json::to_value(&view).expect("the slots view serialises"),
+        ),
+    }
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
+}
+
+/// How long ago `at` was, for the text view.
+fn ago(now: u64, at: u64) -> String {
+    format!("{} s ago", now.saturating_sub(at))
+}
+
+fn who_asked(by: &Option<RequestedBy>) -> String {
+    match by {
+        None => "-".to_string(),
+        Some(by) => format!(
+            "pid {} in {}",
+            by.pid.map_or_else(|| "-".to_string(), |pid| pid.to_string()),
+            by.cwd.as_deref().unwrap_or("-")
+        ),
+    }
+}
+
+/// The text view of `vm slots`. `now` is the time in seconds since the Unix epoch.
+fn render_slots_text(view: &SlotsView, now: u64) {
+    println!(
+        "macOS guest slots: {} of {} (macos_slots {})",
+        view.holders.len(),
+        view.limit,
+        view.slots
+    );
+    println!("Holders:");
+    if view.holders.is_empty() {
+        println!("  (none)");
+    }
+    for holder in &view.holders {
+        println!(
+            "  {:<9} {:<20} {:<8} {:<11} {}{}",
+            holder.kind.as_str(),
+            holder.vms.join(","),
+            holder.state.as_str(),
+            holder.request_id.as_deref().unwrap_or("-"),
+            who_asked(&holder.requested_by),
+            holder.since.map_or_else(String::new, |at| format!(", since {}", ago(now, at))),
+        );
+    }
+    println!("Waiting:");
+    if view.queue.is_empty() {
+        println!("  (none)");
+    }
+    for waiter in &view.queue {
+        println!(
+            "  {:>2}. {:<11} {:<20} {}, joined {}{}",
+            waiter.place,
+            waiter.request_id,
+            waiter.vms.join(","),
+            who_asked(&waiter.requested_by),
+            ago(now, waiter.since),
+            waiter
+                .deadline
+                .map_or_else(String::new, |at| format!(", waits {} s more", at.saturating_sub(now))),
+        );
+    }
+    if let Some(contention) = &view.contention {
+        println!(
+            "Contention: the framework refused a start {}: {}",
+            ago(now, contention.since),
+            contention.tart_error
+        );
+    }
+    match (view.unanswered_since, view.observed_at) {
+        (Some(since), Some(at)) => println!(
+            "tart does not answer since {}. Its last answer came {}.",
+            ago(now, since),
+            ago(now, at)
+        ),
+        (Some(since), None) => {
+            println!("tart has not answered since the app started ({}).", ago(now, since))
+        }
+        (None, Some(at)) => println!("tart answered {}.", ago(now, at)),
+        (None, None) => {}
     }
 }
 

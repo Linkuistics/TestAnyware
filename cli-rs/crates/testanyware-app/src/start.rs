@@ -15,8 +15,8 @@ use hyper::header::{HeaderValue, CONTENT_TYPE};
 use hyper::{Response, StatusCode};
 use serde_json::json;
 use testanyware_app_protocol::{
-    is_plain_vm_id, AppError, HostPort, StartEvent, StartRequest, StartResult, TpmReport,
-    START_CONTENT_TYPE,
+    is_plain_vm_id, AppError, HostPort, RequestedBy, StartEvent, StartRequest, StartResult,
+    TpmReport, START_CONTENT_TYPE,
 };
 use testanyware_vm::display_request::DisplayRequest;
 use testanyware_vm::legacy_stop::{SettleWait, SystemProbes};
@@ -159,7 +159,11 @@ fn final_event(result: Result<VmStartResult, VmError>) -> Option<StartEvent> {
 }
 
 /// Start the VM of `options` and answer with the stream of its events.
-pub fn start_response(ctx: &Arc<AppContext>, options: VmStartOptions) -> Response<AppBody> {
+pub fn start_response(
+    ctx: &Arc<AppContext>,
+    options: VmStartOptions,
+    requested_by: Option<RequestedBy>,
+) -> Response<AppBody> {
     let (sender, receiver) = mpsc::unbounded_channel::<Bytes>();
     // Dropping the body cancels the start.
     let cancel = CancellationToken::new();
@@ -181,7 +185,10 @@ pub fn start_response(ctx: &Arc<AppContext>, options: VmStartOptions) -> Respons
     )
     .with_agent_port(ctx.agent_port)
     // A macOS start waits in the queue of the app, after its clone is ready.
-    .with_gate(Arc::new(AppGate(Arc::clone(&ctx.admission))));
+    .with_gate(Arc::new(AppGate::new(
+        Arc::clone(&ctx.admission),
+        requested_by,
+    )));
 
     let id = options.id.clone();
     let gate_ctx = Arc::clone(ctx);

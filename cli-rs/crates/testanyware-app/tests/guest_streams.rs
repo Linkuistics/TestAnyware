@@ -507,7 +507,7 @@ fn the_upgrade_answer_names_the_token_and_the_app() {
         .header("connection")
         .unwrap()
         .eq_ignore_ascii_case("upgrade"));
-    assert_eq!(reply.header("x-testanyware-protocol"), Some("1-1"));
+    assert_eq!(reply.header("x-testanyware-protocol"), Some("1-2"));
     assert_eq!(reply.header("x-testanyware-build"), Some(BUILD));
 }
 
@@ -720,7 +720,7 @@ fn a_refused_dial_gives_the_error_object_with_the_errno_and_no_upgrade() {
     assert_eq!(body["details"]["port"], closed_port.port());
     // A refusal is not a denial: the app does not retry it or ask `nc`.
     assert!(body.get("remediation").is_none());
-    assert_eq!(reply.header("x-testanyware-protocol"), Some("1-1"));
+    assert_eq!(reply.header("x-testanyware-protocol"), Some("1-2"));
 }
 
 #[test]

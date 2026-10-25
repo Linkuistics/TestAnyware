@@ -28,6 +28,7 @@ pub const CANONICAL_COMMANDS: &[CommandSpec] = &[
     CommandSpec { path: &["vm", "start"],   mutating: true,  data_producing: true, schema_id: Some("vm-start") },
     CommandSpec { path: &["vm", "stop"],    mutating: true,  data_producing: true, schema_id: Some("vm-stop") },
     CommandSpec { path: &["vm", "list"],    mutating: false, data_producing: true, schema_id: Some("vm-list") },
+    CommandSpec { path: &["vm", "slots"],   mutating: false, data_producing: true, schema_id: Some("vm-slots") },
     CommandSpec { path: &["vm", "delete"],  mutating: true,  data_producing: true, schema_id: Some("vm-delete") },
     CommandSpec { path: &["vm", "create-golden"], mutating: true, data_producing: true, schema_id: Some("vm-create-golden") },
 

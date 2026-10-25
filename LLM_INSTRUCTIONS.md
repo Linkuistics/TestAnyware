@@ -63,6 +63,7 @@ rm .testanyware-vmid
 - `testanyware vm start [--platform macos|linux|windows] [--id <id>] [--display WxH] [--viewer]` — start a VM. It prints its id.
 - `testanyware vm stop <id>` — stop a VM and delete its spec file.
 - `testanyware vm list` — list golden images and running clones.
+- `testanyware vm slots` — show the macOS guest slots, each holder and each waiter, with who asked.
 - `testanyware vm delete <name> [--force]` — delete a golden image.
 
 `vm start` boots a **clone of a pre-built golden image** (clean desktop,
@@ -254,6 +255,20 @@ testanyware file exec "choco install jq -y"         # Windows
 ```
 
 ## JSON output, exit codes, idempotency
+
+### macOS guest slots
+
+A Mac runs two macOS guests at most. Other groves and agents on the same Mac share those slots.
+
+- Pass `--wait` to every macOS `vm start`. The TestAnyware app then queues the start and serves the waiters in order. Without `--wait`, a full limit fails at once with `VM_LIMIT_REACHED` (exit 6).
+- Run a long wait in the background. A bare `--wait` gives up after 600 s. Do the next step of your work, and read the result when the start ends.
+- Run `testanyware vm slots --json` to read the queue. It lists each holder and each waiter, in order. Each entry names `requested_by`: the `pid` and the working directory (`cwd`) of the process that asked.
+- If `VM_LIMIT_REACHED` appears after a wait, run `vm slots`. A holder with `kind` `external` is a guest that the app did not start.
+
+```bash
+testanyware vm start --platform macos --wait --json > start.json 2> start.err &
+testanyware vm slots --json
+```
 
 - Every data-producing command supports `--json`. JSON envelopes carry `schema_version` and `ok`. Failures add a stable `code` and a `message`.
 - Exit codes: `0` success, `1` generic, `2` usage, `3` not-found, `4` auth, `5` conflict, `7` timeout. `file exec` propagates the guest process's own exit code.

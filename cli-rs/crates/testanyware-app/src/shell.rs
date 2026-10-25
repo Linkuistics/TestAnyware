@@ -174,6 +174,8 @@ impl Delegate {
             local_network: LocalNetworkState::from(&*grant),
             running_vms: running_vms_within(&config.ctx, LISTING_PATIENCE),
             not_adopted: config.ctx.adoption.snapshot().not_adopted,
+            // The menu reads the queue as it stands and waits for no observation.
+            slots: config.ctx.admission.view(),
             login: login_item_status(),
             login_problem: self.ivars().login_problem.borrow().clone(),
             configuration: config.ctx.config.status(&crate::config::stat_file),

@@ -63,6 +63,17 @@ tasks:
       - 'cargo test -p testanyware-app --lib -- admission::tests::with_ admission::tests::the_limit_is'
       - 'cargo test -p testanyware-cli --test app-vm-queue -- with_macos_slots'
 
+  slots:test:
+    desc: Test `vm slots` and protocol version 2 (ADR-0022). The shared types of the view, the rule that a request needs a version and the remedy of the skew table, the view of the admission queue (waiters in order, who asked, holders, contention, the observation before the view), the menu, the surface, the schema and the `capabilities` list. On a macOS host the real CLI runs against the real app executable and a fake tart. Agents in two worktrees wait and the view shows their order, pids and directories. A guest outside the app is external. A client of version 1 has no such route, and an older app fails the command with APP_INCOMPATIBLE and still starts a VM
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - 'cargo test -p testanyware-app-protocol --lib -- slots:: skew:: version:: start::'
+      - 'cargo test -p testanyware-app --lib -- admission::tests::the_view admission::tests::an_ admission::tests::a_refusal_by_the_framework_shows menu::'
+      - 'cargo test -p testanyware-vm --lib -- error::tests::the_remedy'
+      - 'cargo test -p testanyware-cli --test cli-contract'
+      - 'cargo test -p testanyware-cli --test app-vm-queue -- vm_slots the_slots_request a_start_states'
+      - 'cargo test -p testanyware-cli --test app-version-skew -- vm_slots older_app_starts'
+
   doctor:app-test:
     desc: Test the `app` check of `doctor` (spec "What the commands report about the app"). The classifier of every item, the report against doctor.json, the status fields of the app (Local Network observation, login item, executable), and the real CLI binary against the real app executable with a directory mismatch, a protocol mismatch, a bundle newer than the app, a file that fails and an app that does not run (macOS host). A Linux or Windows host runs the not-applicable case
     dir: '{{.CLI_DIR}}'

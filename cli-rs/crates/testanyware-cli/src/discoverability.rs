@@ -38,6 +38,7 @@ const EMBEDDED_SCHEMAS: &[(&str, &str)] = &[
     ("vm-create-golden",    include_str!("../../../../docs/reference/cli-schemas/vm-create-golden.json")),
     ("vm-delete",           include_str!("../../../../docs/reference/cli-schemas/vm-delete.json")),
     ("vm-list",             include_str!("../../../../docs/reference/cli-schemas/vm-list.json")),
+    ("vm-slots",            include_str!("../../../../docs/reference/cli-schemas/vm-slots.json")),
     ("vm-start",            include_str!("../../../../docs/reference/cli-schemas/vm-start.json")),
     ("vm-stop",             include_str!("../../../../docs/reference/cli-schemas/vm-stop.json")),
 ];
@@ -82,6 +83,12 @@ pub fn run_capabilities() -> ! {
         // dev-build time it is "unknown".
         "git_revision": option_env!("TESTANYWARE_GIT_REVISION").unwrap_or("unknown"),
         "subcommands": TOP_LEVEL_GROUPS,
+        // Each canonical command, as its noun-first path, so that an agent finds a command such
+        // as `vm slots` without parsing help.
+        "commands": CANONICAL_COMMANDS
+            .iter()
+            .map(|spec| spec.path.join(" "))
+            .collect::<Vec<_>>(),
         "aliases": aliases,
         "output_formats": ["text", "json", "jsonl"],
         "features": {

@@ -162,8 +162,30 @@ impl Fixture {
         )
     }
 
+    /// As [`Self::spawn_start`], from the working directory `dir`, as a shell in a worktree runs it.
+    fn spawn_start_in(&self, dir: &std::path::Path, id: &str, extra: &[&str]) -> Client {
+        let args = [
+            "vm",
+            "start",
+            "--platform",
+            "macos",
+            "--base",
+            MACOS_BASE,
+            "--id",
+            id,
+        ];
+        self.spawn_in(Some(dir), &args, extra)
+    }
+
     fn spawn(&self, args: &[&str], extra: &[&str]) -> Client {
+        self.spawn_in(None, args, extra)
+    }
+
+    fn spawn_in(&self, dir: Option<&std::path::Path>, args: &[&str], extra: &[&str]) -> Client {
         let mut command = Command::new(CLI);
+        if let Some(dir) = dir {
+            command.current_dir(dir);
+        }
         command
             .args(args)
             .args(extra)
@@ -1175,4 +1197,243 @@ fn sidecars(fixture: &Fixture, id: &str) -> [PathBuf; 2] {
         vms.join(format!("{id}.json")),
         vms.join(format!("{id}.meta.json")),
     ]
+}
+
+// ---- `vm slots` ----
+
+/// `vm slots --json` through the real CLI, as the envelope.
+fn slots(fixture: &Fixture) -> Value {
+    let out = fixture.app.cli(&["vm", "slots", "--json"]);
+    assert_eq!(out.code(), 0, "{} {}", out.out(), out.err());
+    out.json()
+}
+
+/// A directory that stands for the worktree of a grove, in its canonical form: the CLI states
+/// what `getcwd` returns, and a temporary directory of macOS is a link.
+fn worktree(parent: &std::path::Path, name: &str) -> PathBuf {
+    let dir = parent.join(name);
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::canonicalize(dir).unwrap()
+}
+
+fn holder<'a>(view: &'a Value, vm: &str) -> &'a Value {
+    view["holders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|holder| holder["vms"] == json!([vm]))
+        .unwrap_or_else(|| panic!("{vm} is no holder in {view}"))
+}
+
+#[test]
+fn vm_slots_lists_the_waiters_of_two_worktrees_in_order_with_their_pids_and_directories() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    fixture.start_and_wait_until_running("v-a");
+    fixture.start_and_wait_until_running("v-b");
+
+    let trees = tempfile::tempdir().unwrap();
+    let (one, two) = (worktree(trees.path(), "one"), worktree(trees.path(), "two"));
+    let c = fixture.spawn_start_in(&one, "v-c", &["--wait=300"]);
+    c.until_stderr_has("place 1");
+    let d = fixture.spawn_start_in(&two, "v-d", &["--wait=300"]);
+    d.until_stderr_has("place 2");
+    let (c_pid, d_pid) = (c.child.id(), d.child.id());
+
+    let view = slots(&fixture);
+    assert_eq!(view["ok"], true, "{view}");
+    assert_eq!((view["slots"].as_u64(), view["limit"].as_u64()), (Some(2), Some(2)));
+    assert_eq!(view["contention"], Value::Null, "{view}");
+    assert!(view["observed_at"].is_u64(), "the app observed tart first: {view}");
+    assert_eq!(view["unanswered_since"], Value::Null, "{view}");
+
+    // Both waiters, in the order of their join, each with the pid of its process and the
+    // directory it ran in.
+    let queue = view["queue"].as_array().unwrap();
+    assert_eq!(queue.len(), 2, "{view}");
+    for (waiter, place, vm, pid, cwd) in [
+        (&queue[0], 1, "v-c", c_pid, &one),
+        (&queue[1], 2, "v-d", d_pid, &two),
+    ] {
+        assert_eq!(waiter["place"], place, "{view}");
+        assert_eq!(waiter["kind"], "vm", "{view}");
+        assert_eq!(waiter["vms"], json!([vm]), "{view}");
+        assert_eq!(waiter["requested_by"]["pid"], pid, "{view}");
+        assert_eq!(waiter["requested_by"]["cwd"], cwd.to_str().unwrap(), "{view}");
+        assert!(waiter["deadline"].as_u64() > waiter["since"].as_u64(), "{view}");
+    }
+    // The request id is the one that the waiting start names on its own stderr.
+    let id = queue[0]["request_id"].as_str().unwrap();
+    assert!(c.stderr().contains(id), "{id} missing from {}", c.stderr());
+
+    // Both slots are held by guests that the app started. This test process ran those CLIs.
+    let here = std::env::current_dir().unwrap();
+    for vm in ["v-a", "v-b"] {
+        let held = holder(&view, vm);
+        assert_eq!((held["kind"].as_str(), held["state"].as_str()), (Some("vm"), Some("running")));
+        assert!(held["request_id"].as_str().unwrap().starts_with("r-"), "{view}");
+        assert!(held["requested_by"]["pid"].is_u64(), "{view}");
+        assert_eq!(held["requested_by"]["cwd"], here.to_str().unwrap(), "{view}");
+        assert!(held["since"].is_u64(), "{view}");
+    }
+
+    // A stop admits the head. It becomes a holder with the pid and the directory it asked from,
+    // and the place of the other waiter moves up.
+    fixture.stop("v-a");
+    let (code, envelope, err) = c.finish();
+    assert_eq!(code, 0, "{envelope} {err}");
+    let view = slots(&fixture);
+    let admitted = holder(&view, "v-c");
+    assert_eq!(admitted["request_id"], id, "{view}");
+    assert_eq!(admitted["requested_by"]["pid"], c_pid, "{view}");
+    assert_eq!(admitted["requested_by"]["cwd"], one.to_str().unwrap(), "{view}");
+    let queue = view["queue"].as_array().unwrap();
+    assert_eq!(queue.len(), 1, "{view}");
+    assert_eq!((queue[0]["place"].as_u64(), &queue[0]["vms"]), (Some(1), &json!(["v-d"])));
+
+    fixture.stop("v-b");
+    let (code, envelope, err) = d.finish();
+    assert_eq!(code, 0, "{envelope} {err}");
+    assert_eq!(fixture.refusals(), Vec::<String>::new());
+}
+
+#[test]
+fn vm_slots_shows_a_guest_outside_the_app_as_external_with_no_requester() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    let outside = fixture.run_outside("ext-guest", "darwin");
+    fixture.start_and_wait_until_running("e-a");
+
+    let view = slots(&fixture);
+    let external = holder(&view, "ext-guest");
+    assert_eq!(external["kind"], "external", "{view}");
+    assert_eq!(external["state"], "running", "{view}");
+    assert_eq!(external["request_id"], Value::Null, "{view}");
+    assert_eq!(external["requested_by"], Value::Null, "{view}");
+    assert_eq!(holder(&view, "e-a")["kind"], "vm", "{view}");
+    assert_eq!(view["holders"].as_array().unwrap().len(), 2, "{view}");
+
+    fixture.end_outside("ext-guest", outside);
+}
+
+#[test]
+fn vm_slots_in_text_names_the_holders_the_waiters_and_who_asked() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    fixture.start_and_wait_until_running("x-a");
+    fixture.start_and_wait_until_running("x-b");
+    let trees = tempfile::tempdir().unwrap();
+    let one = worktree(trees.path(), "text-tree");
+    let waiter = fixture.spawn_start_in(&one, "x-c", &["--wait=300"]);
+    waiter.until_stderr_has("place 1");
+
+    let out = fixture.app.cli(&["vm", "slots"]);
+    assert_eq!(out.code(), 0, "{}", out.err());
+    let text = out.out();
+    for needle in ["x-a", "x-b", "x-c", "Waiting:", one.to_str().unwrap(), "pid"] {
+        assert!(text.contains(needle), "{needle} missing from {text}");
+    }
+    waiter.kill();
+}
+
+/// One raw request on the socket of the app, as a client of the given range sends it.
+fn raw_get(
+    app: &TestApp,
+    path: &str,
+    range: testanyware_app_protocol::ProtocolRange,
+) -> (u16, Value) {
+    use std::io::Write;
+    use testanyware_app_protocol::{ClientHello, Directories};
+    let hello = ClientHello::new(
+        range,
+        env!("CARGO_PKG_VERSION"),
+        Directories {
+            state_dir: app.state_dir(),
+            data_dir: app.data_dir(),
+        },
+    );
+    let mut request = format!("GET {path} HTTP/1.1\r\nHost: test\r\nConnection: close\r\n");
+    for (name, value) in hello.to_headers() {
+        request.push_str(&format!("{name}: {value}\r\n"));
+    }
+    request.push_str("\r\n");
+    let mut stream = std::os::unix::net::UnixStream::connect(app.socket()).unwrap();
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).unwrap();
+    let (head, body) = reply.split_once("\r\n\r\n").expect("a response");
+    let status = head.split(' ').nth(1).unwrap().parse().unwrap();
+    (status, serde_json::from_str(body).unwrap_or(Value::Null))
+}
+
+#[test]
+fn the_slots_request_is_one_of_version_2_and_a_client_of_version_1_has_no_such_route() {
+    let _serial = serial();
+    use testanyware_app_protocol::ProtocolRange;
+    let fixture = Fixture::healthy();
+
+    let (status, body) = raw_get(&fixture.app, "/v1/slots", ProtocolRange::new(1, 2));
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["slots"], 2, "{body}");
+
+    let (status, body) = raw_get(&fixture.app, "/v1/slots", ProtocolRange::new(2, 2));
+    assert_eq!(status, 200, "a client of version 2 only: {body}");
+
+    // The pair agrees on version 1, so the request has no route. Nothing changed in the queue.
+    let (status, body) = raw_get(&fixture.app, "/v1/slots", ProtocolRange::new(1, 1));
+    assert_eq!(status, 404, "{body}");
+    assert_eq!(body["code"], "USAGE_ERROR", "{body}");
+    assert_eq!(body["details"]["version"], 1, "{body}");
+
+    // The other requests of version 1 keep their form for a client of version 1.
+    let (status, body) = raw_get(&fixture.app, "/v1/vms?limit=10", ProtocolRange::new(1, 1));
+    assert_eq!(status, 200, "{body}");
+}
+
+#[test]
+fn a_start_states_its_directory_and_an_older_start_without_one_still_queues() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    fixture.start_and_wait_until_running("w-a");
+    fixture.start_and_wait_until_running("w-b");
+
+    // An older Host CLI states no `cwd`: the body has none. The app takes the start and the
+    // waiter shows a pid and a `cwd` of `null`.
+    let body = json!({
+        "platform": "macos",
+        "base": MACOS_BASE,
+        "id": "w-old",
+        "wait_secs": 300,
+    });
+    let mut stream = std::os::unix::net::UnixStream::connect(fixture.app.socket()).unwrap();
+    let hello = testanyware_app_protocol::ClientHello::new(
+        testanyware_app_protocol::ProtocolRange::new(1, 1),
+        env!("CARGO_PKG_VERSION"),
+        testanyware_app_protocol::Directories {
+            state_dir: fixture.app.state_dir(),
+            data_dir: fixture.app.data_dir(),
+        },
+    );
+    let text = body.to_string();
+    let mut request = format!(
+        "POST /v1/vms HTTP/1.1\r\nHost: test\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        text.len()
+    );
+    for (name, value) in hello.to_headers() {
+        request.push_str(&format!("{name}: {value}\r\n"));
+    }
+    request.push_str("\r\n");
+    request.push_str(&text);
+    use std::io::Write;
+    stream.write_all(request.as_bytes()).unwrap();
+
+    until("the old start to wait", || {
+        slots(&fixture)["queue"].as_array().is_some_and(|q| q.len() == 1)
+    });
+    let view = slots(&fixture);
+    let waiter = &view["queue"][0];
+    assert_eq!(waiter["vms"], json!(["w-old"]), "{view}");
+    assert_eq!(waiter["requested_by"]["pid"], std::process::id(), "this process connected: {view}");
+    assert_eq!(waiter["requested_by"]["cwd"], Value::Null, "{view}");
+    drop(stream);
 }

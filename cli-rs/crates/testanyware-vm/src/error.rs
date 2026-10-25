@@ -216,6 +216,13 @@ const LOCAL_NETWORK_REMEDY: &str =
      Local Network access. Allow that app in System Settings, Privacy & Security, Local Network. \
      A background service or agent harness has no app to allow.";
 
+/// What every `VM_LIMIT_REACHED` adds: how to see the queue, and how to wait in it (spec
+/// "admission-queue": "The command surface").
+const WAIT_AND_SLOTS_REMEDY: &str =
+    "Run `testanyware vm slots` to see each holder and each waiter. \
+     Pass `--wait` to `vm start` to queue the start instead of failing. \
+     `--wait=SECONDS` sets how long it waits.";
+
 /// What a `VM_LIMIT_REACHED` adds when the framework refused a start while the count of the app
 /// showed a free slot (spec "admission-queue": "External occupancy"). The app cannot tell the two
 /// causes apart.
@@ -441,7 +448,7 @@ impl VmError {
                         limit.holders.join(", ")
                     )
                 };
-                let mut remedy = stop;
+                let mut remedy = format!("{stop} {WAIT_AND_SLOTS_REMEDY}");
                 if limit.admission.unseen_possible {
                     remedy = format!("{remedy} {UNSEEN_GUEST_REMEDY}");
                 }
@@ -805,6 +812,15 @@ mod tests {
         assert_eq!(d["refused_by"], "framework");
         assert!(err.to_string().contains("koine-verify-1, testanyware-a1b2c3d4"));
         assert!(err.remediation().unwrap().contains("vm stop"));
+    }
+
+    #[test]
+    fn the_remedy_names_vm_slots_and_wait() {
+        for unseen in [false, true] {
+            let remedy = limit_with(unseen).remediation().unwrap();
+            assert!(remedy.contains("`testanyware vm slots`"), "{remedy}");
+            assert!(remedy.contains("--wait"), "{remedy}");
+        }
     }
 
     fn limit_with(unseen_possible: bool) -> VmError {

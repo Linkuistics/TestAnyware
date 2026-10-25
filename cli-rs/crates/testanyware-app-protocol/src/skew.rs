@@ -111,6 +111,15 @@ pub fn decide(cli: &Peer, app: &Peer, bundle_build: Option<&str>) -> Decision {
     })
 }
 
+/// The remedy for a request that needs protocol version `needed`, when the app's range ends below
+/// it, or `None` when the app can serve it (spec "admission-queue": "The protocol": "Version
+/// skew"). An app that states no range predates the protocol, so it is below every version. The
+/// app is then the side to change, and the remedy is the one of an older app.
+pub fn needs_version(needed: u32, app: &Peer, bundle_build: Option<&str>) -> Option<Remedy> {
+    let serves = app.protocol_range.is_some_and(|range| range.max >= needed);
+    (!serves).then(|| app_remedy(app.build.as_deref(), bundle_build))
+}
+
 /// Whether the running app is older than its bundle on disk. `doctor` and the status response
 /// report it.
 pub fn older_than_bundle(app_build: &str, bundle_build: Option<&str>) -> bool {
@@ -195,6 +204,35 @@ mod tests {
         };
         let d = decide(&peer("1.0.0", 1, 1), &silent, Some("1.0.0"));
         assert_eq!(d, Decision::Fail(Remedy::UpgradeCask));
+    }
+
+    // ---- a request that needs a version ----
+
+    #[test]
+    fn an_app_whose_range_ends_below_the_version_cannot_serve_the_request() {
+        let app = peer("1.0.0", 1, 1);
+        assert_eq!(
+            needs_version(2, &app, Some("2.0.0")),
+            Some(Remedy::QuitAndOpenApp)
+        );
+        assert_eq!(needs_version(2, &app, Some("1.0.0")), Some(Remedy::UpgradeCask));
+        assert_eq!(needs_version(2, &app, None), Some(Remedy::UpgradeCask));
+    }
+
+    #[test]
+    fn an_app_whose_range_reaches_the_version_serves_the_request() {
+        assert_eq!(needs_version(2, &peer("2.0.0", 1, 2), None), None);
+        assert_eq!(needs_version(2, &peer("2.0.0", 2, 3), None), None);
+        assert_eq!(needs_version(1, &peer("1.0.0", 1, 1), None), None);
+    }
+
+    #[test]
+    fn an_app_that_states_no_range_cannot_serve_a_request_of_any_version() {
+        let silent = Peer {
+            build: None,
+            protocol_range: None,
+        };
+        assert_eq!(needs_version(1, &silent, None), Some(Remedy::UpgradeCask));
     }
 
     // ---- ranges that overlap ----

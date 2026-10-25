@@ -97,6 +97,7 @@ testanyware record --vnc localhost:5901 -o recording.mp4 --fps 30 --duration 10
 testanyware vm start --platform macos --display 1920x1080 --viewer      # prints the id on stdout
 testanyware vm stop <vm-id>
 testanyware vm list
+testanyware vm slots                                                    # macOS guest slots: holders, waiters and who asked
 testanyware vm delete <golden-image-name> [--force]
 
 # Diagnostics — verify the install layout (catches dev symlinks shadowing brew) and the Windows guest TPM

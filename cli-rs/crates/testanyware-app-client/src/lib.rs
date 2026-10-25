@@ -17,9 +17,10 @@ use http_body_util::{BodyExt, Full, Limited};
 use hyper_util::rt::TokioIo;
 use serde::de::DeserializeOwned;
 use testanyware_app_protocol::{
-    delete_path, stop_path, validate_socket_path, AppError, ClientHello, DeleteRequest,
-    DeleteResult, EventLines, StartEvent, StartRequest, StartResult, StopResult, StreamKind,
-    ServerHello, StreamTarget, UnreachableCause, LIST_PATH, STREAM_UPGRADE_TOKEN,
+    delete_path, needs_version, stop_path, validate_socket_path, AppError, ClientHello,
+    DeleteRequest, DeleteResult, EventLines, Peer, StartEvent, StartRequest, StartResult,
+    StopResult, StreamKind, ServerHello, StreamTarget, UnreachableCause, LIST_PATH,
+    STREAM_UPGRADE_TOKEN,
 };
 
 /// A guest stream after the `101`: the bytes of the guest protocol, unchanged, in both
@@ -154,6 +155,53 @@ impl AppClient {
             .body(Full::new(Bytes::new()))
             .map_err(|e| internal(format!("the request for {path_and_query} is invalid: {e}")))?;
         self.read_document(sender.send_request(request).await, path_and_query).await
+    }
+
+    /// As [`get_json`](Self::get_json), for a request that needs protocol version `needed`. An
+    /// app whose range ends below it has no such route, and its refusal is `APP_INCOMPATIBLE`
+    /// with the cause `protocol` and the remedy of the table of skew (spec "admission-queue":
+    /// "The protocol": "Version skew"). The range comes from the headers of the response, which
+    /// every response of the app states.
+    pub async fn get_json_needing<T: DeserializeOwned>(
+        &self,
+        path_and_query: &str,
+        needed: u32,
+    ) -> Result<T, AppError> {
+        let mut sender = self.connect(false).await?;
+        let mut request = Request::builder()
+            .method(Method::GET)
+            .uri(path_and_query)
+            .header(HOST, "testanyware");
+        for (name, value) in self.hello.to_headers() {
+            request = request.header(name, value);
+        }
+        let request = request
+            .body(Full::new(Bytes::new()))
+            .map_err(|e| internal(format!("the request for {path_and_query} is invalid: {e}")))?;
+        let response = sender.send_request(request).await;
+        if let Ok(response) = &response {
+            // An app below the version has no such route, so it answers 404. Any other refusal,
+            // such as one on the directories, is the app's own and stays as it is.
+            if response.status() == StatusCode::NOT_FOUND {
+                let app = ServerHello::from_lookup(|name| {
+                    response.headers().get(name).and_then(|v| v.to_str().ok())
+                });
+                let app_peer = Peer {
+                    build: app.build.clone(),
+                    protocol_range: app.protocol_range,
+                };
+                if let Some(remedy) = needs_version(needed, &app_peer, app.bundle_build.as_deref())
+                {
+                    self.observe(response.headers());
+                    return Err(AppError::incompatible_protocol(
+                        &app_peer,
+                        &Peer::from(&self.hello),
+                        remedy,
+                    ));
+                }
+            }
+        }
+        self.read_document(response, path_and_query).await
     }
 
     /// The document in a response, or the error object that the app sent in its place.
@@ -761,6 +809,7 @@ mod tests {
             logical: None,
             keep_on_failure: false,
             wait_secs: None,
+            cwd: None,
         }
     }
 

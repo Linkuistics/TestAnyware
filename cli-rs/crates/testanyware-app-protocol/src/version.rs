@@ -5,9 +5,12 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-/// The protocol range of this release. The first release states 1 to 1 on both
-/// sides.
-pub const SUPPORTED_RANGE: ProtocolRange = ProtocolRange { min: 1, max: 1 };
+/// The protocol range of this release, on both sides. Version 2 adds `GET /v1/slots`, and every
+/// request of version 1 keeps its form (spec "admission-queue": "The protocol").
+pub const SUPPORTED_RANGE: ProtocolRange = ProtocolRange { min: 1, max: 2 };
+
+/// The first version that has `GET /v1/slots`, which `vm slots` sends.
+pub const SLOTS_VERSION: u32 = 2;
 
 /// An inclusive range of protocol versions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,7 +72,7 @@ mod tests {
 
     #[test]
     fn equal_ranges_overlap_on_their_version() {
-        assert_eq!(SUPPORTED_RANGE.highest_common(SUPPORTED_RANGE), Some(1));
+        assert_eq!(SUPPORTED_RANGE.highest_common(SUPPORTED_RANGE), Some(2));
     }
 
     #[test]

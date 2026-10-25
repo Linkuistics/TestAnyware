@@ -608,6 +608,23 @@ fn capabilities_lists_full_surface() {
         .map(|v| v.as_str().expect("subcommands entries are strings"))
         .collect();
 
+    // `commands` lists every canonical command by its noun-first path, `vm slots` included.
+    let commands: Vec<&str> = obj
+        .get("commands")
+        .and_then(|v| v.as_array())
+        .expect("capabilities.commands must be an array")
+        .iter()
+        .map(|v| v.as_str().expect("commands entries are strings"))
+        .collect();
+    for spec in CANONICAL_COMMANDS {
+        let path = spec.path.join(" ");
+        assert!(
+            commands.contains(&path.as_str()),
+            "capabilities.commands missing {path:?}; got: {commands:?}",
+        );
+    }
+    assert!(commands.contains(&"vm slots"), "vm slots missing from {commands:?}");
+
     let expected_groups: std::collections::BTreeSet<&str> = CANONICAL_COMMANDS
         .iter()
         .map(|spec| spec.path[0])

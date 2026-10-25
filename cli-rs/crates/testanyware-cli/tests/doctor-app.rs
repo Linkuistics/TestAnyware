@@ -41,7 +41,7 @@ mod on_a_macos_host {
         assert_eq!(running["status"], "pass", "{check}");
         assert_eq!(running["build"], env!("CARGO_PKG_VERSION"));
         assert_eq!(running["protocol_range"]["min"], 1);
-        assert_eq!(running["protocol_range"]["max"], 1);
+        assert_eq!(running["protocol_range"]["max"], 2);
         assert!(running["executable"].as_str().unwrap().ends_with("testanyware-app"));
 
         assert_eq!(check["directories"]["verdict"], "match", "{check}");
@@ -125,7 +125,7 @@ mod on_a_macos_host {
     fn a_protocol_mismatch_with_an_older_host_cli_is_a_failing_check_with_the_cli_upgrade() {
         let _serial = serial();
         protocol_mismatch(
-            &["--test-build", "9.0.0", "--test-protocol-range", "2-3"],
+            &["--test-build", "9.0.0", "--test-protocol-range", "3-4"],
             "upgrade_host_cli",
             "Run `brew upgrade testanyware`.",
         );

@@ -1,7 +1,9 @@
 //! What the status item's menu shows, as a pure function of the app's state (spec: "The TestAnyware
 //! app"). The AppKit shell turns these entries into menu items and holds no decision of its own.
 
-use testanyware_app_protocol::{ConfigurationState, ConfigurationStatus, NotAdoptedVm};
+use testanyware_app_protocol::{
+    ConfigurationState, ConfigurationStatus, NotAdoptedVm, RequestedBy, SlotsView,
+};
 
 use crate::grant::GrantObservation;
 
@@ -72,6 +74,8 @@ pub struct MenuState {
     pub running_vms: Option<Vec<MenuVm>>,
     /// The VMs that the app found at its start and did not adopt.
     pub not_adopted: Vec<NotAdoptedVm>,
+    /// The macOS guest slots, each holder and each waiter, as `vm slots` shows them.
+    pub slots: SlotsView,
     pub login: LoginItemStatus,
     /// The error text of the last failed `register()` or `unregister()`.
     pub login_problem: Option<String>,
@@ -150,6 +154,59 @@ fn not_adopted_entries(not_adopted: &[NotAdoptedVm]) -> Vec<MenuEntry> {
                 .map(|vm| MenuEntry::Text(format!("  {}: {}", vm.id, vm.reason.replace('_', " ")))),
         )
         .collect()
+}
+
+/// Who asked, as the text after a comma. A holder that no request made says nothing.
+fn who_asked(by: &Option<RequestedBy>) -> String {
+    match by {
+        None => String::new(),
+        Some(by) => format!(
+            ", pid {} in {}",
+            by.pid.map_or_else(|| "?".to_string(), |pid| pid.to_string()),
+            by.cwd.as_deref().unwrap_or("?")
+        ),
+    }
+}
+
+/// The lines for the macOS guest slots: the count, each holder, and each waiter with its place
+/// and who asked (spec "admission-queue": "The command surface").
+fn slots_entries(slots: &SlotsView) -> Vec<MenuEntry> {
+    let mut entries = vec![MenuEntry::Text(format!(
+        "macOS guest slots: {} of {} in use (macos_slots {})",
+        slots.holders.len(),
+        slots.limit,
+        slots.slots
+    ))];
+    for holder in &slots.holders {
+        entries.push(MenuEntry::Text(format!(
+            "  {} {}: {}{}",
+            holder.kind.as_str(),
+            holder.vms.join(", "),
+            holder.state.as_str(),
+            who_asked(&holder.requested_by)
+        )));
+    }
+    if slots.queue.is_empty() {
+        entries.push(MenuEntry::Text("  No start waits".to_string()));
+    } else {
+        entries.push(MenuEntry::Text("Waiting:".to_string()));
+        for waiter in &slots.queue {
+            entries.push(MenuEntry::Text(format!(
+                "  {}. {} ({}){}",
+                waiter.place,
+                waiter.vms.join(", "),
+                waiter.request_id,
+                who_asked(&waiter.requested_by)
+            )));
+        }
+    }
+    if let Some(contention) = &slots.contention {
+        entries.push(MenuEntry::Text(format!(
+            "  The framework refused a start: {}",
+            contention.tart_error
+        )));
+    }
+    entries
 }
 
 /// A time in seconds since the Unix epoch, as `2025-10-09 08:53:20 UTC`. The menu is a pure
@@ -255,6 +312,8 @@ pub fn build_menu(state: &MenuState) -> Vec<MenuEntry> {
     menu.extend(running_vm_entries(state.running_vms.as_deref()));
     menu.extend(not_adopted_entries(&state.not_adopted));
     menu.push(MenuEntry::Separator);
+    menu.extend(slots_entries(&state.slots));
+    menu.push(MenuEntry::Separator);
     menu.push(MenuEntry::Switch {
         title: "Start at Login".to_string(),
         on: state.login.is_registered(),
@@ -286,6 +345,9 @@ pub fn build_menu(state: &MenuState) -> Vec<MenuEntry> {
 mod tests {
     use super::*;
     use std::net::SocketAddr;
+    use testanyware_app_protocol::{
+        HolderKind, HolderState, SlotContention, SlotHolder, SlotWaiter, WaiterKind,
+    };
     use std::time::SystemTime;
 
     fn state() -> MenuState {
@@ -295,10 +357,96 @@ mod tests {
             local_network: LocalNetworkState::NotYetSeen,
             running_vms: Some(Vec::new()),
             not_adopted: Vec::new(),
+            slots: SlotsView {
+                slots: 2,
+                limit: 2,
+                ..SlotsView::empty()
+            },
             login: LoginItemStatus::NotRegistered,
             login_problem: None,
             configuration: ConfigurationStatus::default(),
         }
+    }
+
+    fn holder(kind: HolderKind, vm: &str, by: Option<RequestedBy>) -> SlotHolder {
+        SlotHolder {
+            kind,
+            vms: vec![vm.to_string()],
+            state: HolderState::Running,
+            request_id: by.as_ref().map(|_| "r-1".to_string()),
+            requested_by: by,
+            since: Some(1),
+        }
+    }
+
+    fn waiter(place: u32, vm: &str, by: Option<RequestedBy>) -> SlotWaiter {
+        SlotWaiter {
+            request_id: format!("r-{place}"),
+            place,
+            kind: WaiterKind::Vm,
+            vms: vec![vm.to_string()],
+            requested_by: by,
+            since: 1,
+            deadline: Some(61),
+        }
+    }
+
+    fn by(pid: u32, cwd: &str) -> Option<RequestedBy> {
+        Some(RequestedBy {
+            pid: Some(pid),
+            cwd: Some(cwd.to_string()),
+        })
+    }
+
+    #[test]
+    fn menu_shows_the_slots_each_holder_and_each_waiter_with_its_place_and_who_asked() {
+        let menu = build_menu(&MenuState {
+            slots: SlotsView {
+                holders: vec![
+                    holder(HolderKind::Vm, "vm-a", by(11, "/trees/a")),
+                    holder(HolderKind::External, "outside", None),
+                ],
+                queue: vec![
+                    waiter(1, "vm-b", by(22, "/trees/b")),
+                    waiter(2, "vm-c", None),
+                ],
+                ..state().slots
+            },
+            ..state()
+        });
+        let lines = texts(&menu);
+        let heading = lines
+            .iter()
+            .position(|t| *t == "macOS guest slots: 2 of 2 in use (macos_slots 2)")
+            .expect("a heading");
+        assert_eq!(
+            lines[heading + 1..heading + 6],
+            [
+                "  vm vm-a: running, pid 11 in /trees/a",
+                "  external outside: running",
+                "Waiting:",
+                "  1. vm-b (r-1), pid 22 in /trees/b",
+                "  2. vm-c (r-2)",
+            ]
+        );
+    }
+
+    #[test]
+    fn menu_says_so_when_no_start_waits_and_when_the_framework_refused() {
+        let menu = build_menu(&state());
+        assert!(texts(&menu).contains(&"  No start waits"));
+        let menu = build_menu(&MenuState {
+            slots: SlotsView {
+                contention: Some(SlotContention {
+                    since: 1,
+                    tart_error: "limit".to_string(),
+                    holders: Vec::new(),
+                }),
+                ..state().slots
+            },
+            ..state()
+        });
+        assert!(texts(&menu).contains(&"  The framework refused a start: limit"));
     }
 
     fn loaded() -> ConfigurationStatus {

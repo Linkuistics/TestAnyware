@@ -4,7 +4,7 @@
 //! The real `testanyware` binary runs against the real `testanyware-app` executable in test
 //! mode. The app's test mode forges its build, its protocol range and the build of its bundle
 //! on disk, so each row of the remedy table of the spec is a run. The Host CLI is the real one:
-//! its build is the version of this workspace, and its range is 1 to 1.
+//! its build is the version of this workspace, and its range is 1 to 2.
 //!
 //! The vehicle is `agent snapshot --vm`, which needs a fake In-VM agent and nothing else. A run
 //! that the app refuses must never reach the agent.
@@ -104,7 +104,7 @@ fn fails_with(app_args: &[&str], app_build: &str, app_range: &str, remedy_word: 
     assert_eq!(envelope["details"]["remedy"], remedy_word, "{envelope}");
     assert_eq!(envelope["remediation"], remedy, "{envelope}");
     let message = envelope["message"].as_str().unwrap();
-    for needle in [app_build, CLI_BUILD, app_range, "1-1"] {
+    for needle in [app_build, CLI_BUILD, app_range, "1-2"] {
         assert!(message.contains(needle), "{needle} missing from {message:?}");
     }
     assert_eq!(envelope["details"]["app"]["build"], app_build);
@@ -158,12 +158,168 @@ fn an_older_app_that_runs_from_no_bundle_says_to_upgrade_the_cask() {
 fn an_older_host_cli_fails_and_says_to_upgrade_it() {
     let _lock = serial();
     fails_with(
-        &["--test-build", "9.0.0", "--test-protocol-range", "2-3", "--test-bundle-build", "9.0.0"],
+        &["--test-build", "9.0.0", "--test-protocol-range", "3-4", "--test-bundle-build", "9.0.0"],
         "9.0.0",
-        "2-3",
+        "3-4",
         "upgrade_host_cli",
         "Run `brew upgrade testanyware`.",
     );
+}
+
+// ---- a command that needs version 2, against an app whose range ends at 1 ----
+
+/// `vm slots` needs protocol version 2. Against an app that states the range 1 to 1 it fails with
+/// the same error as a range that does not overlap, with one remedy of the table.
+fn slots_fails_with(app_args: &[&str], app_build: &str, remedy_word: &str, remedy: &str) {
+    let fixture = Fixture::new(app_args);
+
+    let json = fixture.app.cli(&["vm", "slots", "--json"]);
+    assert_eq!(json.code(), 1, "{}", json.err());
+    let envelope = json.json();
+    assert_eq!(envelope["ok"], false, "{envelope}");
+    assert_eq!(envelope["code"], "APP_INCOMPATIBLE", "{envelope}");
+    assert_eq!(envelope["details"]["cause"], "protocol", "{envelope}");
+    assert_eq!(envelope["details"]["remedy"], remedy_word, "{envelope}");
+    assert_eq!(envelope["remediation"], remedy, "{envelope}");
+    assert_eq!(envelope["details"]["app"]["build"], app_build);
+    assert_eq!(envelope["details"]["app"]["protocol_range"], json!({ "min": 1, "max": 1 }));
+    assert_eq!(envelope["details"]["client"]["build"], CLI_BUILD);
+    assert_eq!(envelope["details"]["client"]["protocol_range"], json!({ "min": 1, "max": 2 }));
+    let message = envelope["message"].as_str().unwrap();
+    for needle in [app_build, CLI_BUILD, "1-1", "1-2"] {
+        assert!(message.contains(needle), "{needle} missing from {message:?}");
+    }
+
+    let text = fixture.app.cli(&["vm", "slots"]);
+    assert_eq!(text.code(), 1);
+    assert_eq!(text.out(), "", "a failure prints nothing on stdout");
+    assert!(text.err().contains(remedy), "{}", text.err());
+}
+
+#[test]
+fn vm_slots_against_an_older_app_with_a_newer_bundle_says_to_quit_and_open_it() {
+    let _lock = serial();
+    slots_fails_with(
+        &["--test-build", "0.0.0", "--test-protocol-range", "1-1", "--test-bundle-build", "9.9.9"],
+        "0.0.0",
+        "quit_and_open_app",
+        "Quit TestAnyware from its menu, and open it again.",
+    );
+}
+
+#[test]
+fn vm_slots_against_an_older_app_with_an_older_bundle_says_to_upgrade_the_cask() {
+    let _lock = serial();
+    slots_fails_with(
+        &["--test-build", "0.0.0", "--test-protocol-range", "1-1", "--test-bundle-build", "0.0.0"],
+        "0.0.0",
+        "upgrade_cask",
+        "Run `brew upgrade --cask testanyware-app`.",
+    );
+}
+
+#[test]
+fn vm_slots_against_an_older_app_that_runs_from_no_bundle_says_to_upgrade_the_cask() {
+    let _lock = serial();
+    slots_fails_with(
+        &["--test-build", "0.0.0", "--test-protocol-range", "1-1"],
+        "0.0.0",
+        "upgrade_cask",
+        "Run `brew upgrade --cask testanyware-app`.",
+    );
+}
+
+#[test]
+fn vm_slots_against_an_app_of_version_2_is_the_control() {
+    let _lock = serial();
+    let fixture = Fixture::new(&[]);
+    let out = fixture.app.cli(&["vm", "slots", "--json"]);
+    assert_eq!(out.code(), 0, "{}", out.err());
+    let envelope = out.json();
+    assert_eq!(envelope["ok"], true, "{envelope}");
+    assert_eq!(envelope["slots"], 2, "{envelope}");
+    assert_eq!(out.err(), "");
+}
+
+/// With an older app, `vm start` works as that app does. The Host CLI states the range 1 to 2, so
+/// the pair uses version 1, and the extra member `cwd` of the request is one that the older app
+/// would ignore.
+#[cfg(target_os = "macos")]
+mod older_app_starts {
+    use super::*;
+    use std::net::TcpListener;
+    use std::os::unix::fs::PermissionsExt;
+
+    const FAKE_TART: &str = include_str!("../../testanyware-vm/tests/fixtures/fake-tart");
+
+    #[test]
+    fn vm_start_of_a_macos_guest_works_against_an_app_whose_range_ends_at_1() {
+        let _lock = serial();
+        let agent = FakeAgent::start();
+        agent.mount(
+            "GET",
+            "/health",
+            ResponseTemplate::new(200)
+                .set_body_json(json!({ "accessible": true, "platform": "macos" })),
+        );
+        let vnc = TcpListener::bind("127.0.0.1:0").unwrap();
+        let vnc_port = vnc.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for conn in vnc.incoming().flatten() {
+                held.push(conn);
+            }
+        });
+        let agent_port = agent.addr().port().to_string();
+        let prepare = |app: &TestApp| {
+            let tart = app.tool_dir().join("tart");
+            std::fs::write(&tart, FAKE_TART).unwrap();
+            std::fs::set_permissions(&tart, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let state = app.tool_dir().join("state");
+            std::fs::create_dir_all(&state).unwrap();
+            std::fs::write(state.join("vnc-port"), vnc_port.to_string()).unwrap();
+            std::fs::write(state.join("capacity"), "2").unwrap();
+        };
+        let args: Vec<String> = [
+            "--test-protocol-range",
+            "1-1",
+            "--test-build",
+            CLI_BUILD,
+            "--test-agent-port",
+            &agent_port,
+        ]
+        .iter()
+        .map(|a| a.to_string())
+        .collect();
+        let app = TestApp::start_after_with_args(prepare, &args);
+
+        let out = app.cli(&[
+            "vm", "start", "--platform", "macos", "--base", "testanyware-golden-macos-27", "--id",
+            "older-app-start", "--wait", "--json",
+        ]);
+        assert_eq!(out.code(), 0, "{} {}", out.out(), out.err());
+        assert_eq!(out.json()["id"], "older-app-start");
+        assert!(!out.err().contains("share no protocol version"), "{}", out.err());
+
+        // The app of version 1 cannot show the queue.
+        let slots = app.cli(&["vm", "slots", "--json"]);
+        assert_eq!(slots.code(), 1, "{}", slots.out());
+        assert_eq!(slots.json()["code"], "APP_INCOMPATIBLE");
+
+        let stop = app.cli(&["vm", "stop", "older-app-start", "--json"]);
+        assert_eq!(stop.code(), 0, "{} {}", stop.out(), stop.err());
+        // The fake `tart run` is a `sleep` that outlives the app, as a real VM does.
+        let running = app.tool_dir().join("state").join("older-app-start.running");
+        if let Some(pid) = std::fs::read_to_string(running)
+            .ok()
+            .and_then(|text| text.trim().parse::<i32>().ok())
+        {
+            let _ = nix::sys::signal::kill(
+                nix::unistd::Pid::from_raw(pid),
+                nix::sys::signal::Signal::SIGKILL,
+            );
+        }
+    }
 }
 
 // ---- builds that differ, with ranges that overlap: the command proceeds, with one notice ----

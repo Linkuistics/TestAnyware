@@ -25,8 +25,12 @@ pub mod observation;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use testanyware_app_protocol::{
+    HolderKind, HolderState, RequestedBy, SlotContention, SlotHolder, SlotWaiter, SlotsView,
+    WaiterKind,
+};
 use testanyware_vm::error::{AdmissionFacts, LimitReached, RefusedBy, TartSilence};
 use testanyware_vm::identity::SystemProbe;
 use testanyware_vm::slot_gate::{Readmission, SlotAsk, SlotGate, SlotHold};
@@ -64,6 +68,9 @@ pub struct AdmissionQueue {
     changed: Condvar,
     /// The clock of the queue starts here. Every time in the queue is the time since this moment.
     epoch: Instant,
+    /// The wall clock at `epoch`, so that `vm slots` can state each time in seconds since the
+    /// Unix epoch.
+    wall_epoch: SystemTime,
     slots: usize,
     /// How long the queue admits nothing after a refusal by the framework.
     pause: Duration,
@@ -121,6 +128,19 @@ struct State {
     pause_noted: Option<Duration>,
     /// Whether the observer thread runs.
     observer_started: bool,
+    /// The starts that the app admitted in this run, by VM id, for as long as their guests hold a
+    /// slot. An admitted start leaves `admitted` when its hold ends, and the guest then holds
+    /// its slot through its meta. This record keeps who asked.
+    starts: BTreeMap<String, StartRecord>,
+    /// The moment when the queue first noted each current holder, by name.
+    held_since: BTreeMap<String, Duration>,
+}
+
+/// Who asked for an admitted start, and when the app admitted it.
+struct StartRecord {
+    request_id: String,
+    requested_by: Option<RequestedBy>,
+    admitted_at: Duration,
 }
 
 /// What tart answered in one observation.
@@ -151,6 +171,9 @@ impl State {
 struct Entry {
     request_id: String,
     vm_id: String,
+    requested_by: Option<RequestedBy>,
+    /// The moment of the join, on the clock of the queue.
+    joined: Duration,
     seq: u64,
     /// `None` for a waiter without a bound. A start with `--wait` always has one.
     deadline: Option<Duration>,
@@ -211,6 +234,7 @@ impl AdmissionQueue {
             state: Mutex::new(State::default()),
             changed: Condvar::new(),
             epoch,
+            wall_epoch: SystemTime::now(),
             slots,
             pause,
             guests,
@@ -368,6 +392,19 @@ impl AdmissionQueue {
         let held = self.holders(state);
         state.holders = held.names();
         state.own_held = held.own.len();
+        // A name that holds no slot any more loses its record, and a new holder gets its time.
+        let now = self.now();
+        let State {
+            holders,
+            held_since,
+            starts,
+            ..
+        } = &mut *state;
+        held_since.retain(|name, _| holders.contains(name));
+        for name in holders.iter() {
+            held_since.entry(name.clone()).or_insert(now);
+        }
+        starts.retain(|vm_id, _| held.own.contains(vm_id));
         held
     }
 
@@ -407,6 +444,14 @@ impl AdmissionQueue {
             {
                 let entry = state.waiting.remove(at);
                 let in_contention = state.contention;
+                state.starts.insert(
+                    entry.vm_id.clone(),
+                    StartRecord {
+                        request_id: request_id.clone(),
+                        requested_by: entry.requested_by,
+                        admitted_at: now,
+                    },
+                );
                 state.admitted.insert(
                     entry.vm_id,
                     Admitted {
@@ -439,10 +484,23 @@ impl AdmissionQueue {
         }
     }
 
-    /// Join the queue, and wait for the admission. See [`SlotGate::admit`].
+    /// Join the queue, and wait for the admission. See [`SlotGate::admit`]. The start states no
+    /// requester.
     pub fn admit(
         self: &Arc<Self>,
         ask: &SlotAsk<'_>,
+        cancel: &CancellationToken,
+        progress: &Progress,
+    ) -> Result<Box<dyn SlotHold>, VmError> {
+        self.admit_for(ask, None, cancel, progress)
+    }
+
+    /// [`admit`](Self::admit) for a start that `requested_by` asked for. `vm slots` shows who
+    /// asked for each waiter and each holder.
+    pub fn admit_for(
+        self: &Arc<Self>,
+        ask: &SlotAsk<'_>,
+        requested_by: Option<RequestedBy>,
         cancel: &CancellationToken,
         progress: &Progress,
     ) -> Result<Box<dyn SlotHold>, VmError> {
@@ -461,13 +519,15 @@ impl AdmissionQueue {
         let joined_obs = state.next_obs;
 
         let Some(wait) = wait else {
-            return self.admit_without_wait(state, ask, request_id, seq, cancel);
+            return self.admit_without_wait(state, ask, requested_by, request_id, seq, cancel);
         };
 
         let deadline = joined + wait;
         state.waiting.push(Entry {
             request_id: request_id.clone(),
             vm_id: ask.vm_id.to_string(),
+            requested_by: requested_by.clone(),
+            joined,
             seq,
             deadline: Some(deadline),
             joined_obs,
@@ -490,6 +550,7 @@ impl AdmissionQueue {
             queue: Arc::clone(self),
             vm_id: request.vm_id,
             request_id: request.request_id,
+            requested_by,
             seq,
             joined,
             joined_obs,
@@ -598,6 +659,7 @@ impl AdmissionQueue {
         self: &Arc<Self>,
         mut state: MutexGuard<'_, State>,
         ask: &SlotAsk<'_>,
+        requested_by: Option<RequestedBy>,
         request_id: String,
         seq: u64,
         cancel: &CancellationToken,
@@ -635,6 +697,14 @@ impl AdmissionQueue {
                     state.unproven(),
                 ) {
                     let in_contention = state.contention;
+                    state.starts.insert(
+                        ask.vm_id.to_string(),
+                        StartRecord {
+                            request_id: request_id.clone(),
+                            requested_by: requested_by.clone(),
+                            admitted_at: self.now(),
+                        },
+                    );
                     state.admitted.insert(
                         ask.vm_id.to_string(),
                         Admitted {
@@ -647,6 +717,7 @@ impl AdmissionQueue {
                         queue: Arc::clone(self),
                         vm_id: ask.vm_id.to_string(),
                         request_id,
+                        requested_by,
                         seq,
                         joined,
                         joined_obs,
@@ -818,6 +889,8 @@ impl AdmissionQueue {
             Entry {
                 request_id: hold.request_id.clone(),
                 vm_id: hold.vm_id.clone(),
+                requested_by: hold.requested_by.clone(),
+                joined: hold.joined,
                 seq: hold.seq,
                 deadline: hold.deadline,
                 joined_obs: hold.joined_obs,
@@ -891,6 +964,118 @@ impl AdmissionQueue {
     pub fn last_refusal_line(&self) -> Option<String> {
         self.lock().last_refusal.as_ref().map(|r| r.line.clone())
     }
+
+    /// Ask for an observation that starts now or after the one in progress, and wait until it
+    /// ends with an answer or a failure. `vm slots` calls this before it reads the view, as a
+    /// decision to admit does. The wait ends after `patience` at the latest, because a slow tart
+    /// must not hold a command for long. The view then states the time of the last answer, so
+    /// the reader sees how old it is.
+    pub fn observe_now(self: &Arc<Self>, patience: Duration) {
+        let give_up = Instant::now() + patience;
+        let mut state = self.lock();
+        let number = state.next_obs;
+        self.request_observation(&mut state);
+        loop {
+            let ended = state
+                .answer
+                .as_ref()
+                .is_some_and(|answer| answer.number >= number)
+                || state.last_failure.is_some_and(|failed| failed >= number);
+            let left = give_up.saturating_duration_since(Instant::now());
+            if ended || left.is_zero() {
+                return;
+            }
+            state = self
+                .changed
+                .wait_timeout(state, left.min(CANCEL_POLL))
+                .unwrap_or_else(|p| p.into_inner())
+                .0;
+        }
+    }
+
+    /// A time of the queue as seconds since the Unix epoch.
+    fn unix(&self, at: Duration) -> u64 {
+        (self.wall_epoch + at)
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |since| since.as_secs())
+    }
+
+    /// The view that `vm slots` prints: the slots, each holder, each waiter in order, contention
+    /// and the state of the observations. It reads state and changes none, except that it notes
+    /// the holders as a decision does.
+    pub fn view(&self) -> SlotsView {
+        let mut state = self.lock();
+        let held = self.note_holders(&mut state);
+        let mut holders: Vec<(Duration, SlotHolder)> = Vec::new();
+        for name in &held.own {
+            let record = state.starts.get(name);
+            let since = record
+                .map(|record| record.admitted_at)
+                .or_else(|| state.held_since.get(name).copied())
+                .unwrap_or_default();
+            holders.push((
+                since,
+                SlotHolder {
+                    kind: HolderKind::Vm,
+                    vms: vec![name.clone()],
+                    // An admitted start boots until its hold ends. Then its meta holds the slot.
+                    state: if state.admitted.contains_key(name) {
+                        HolderState::Booting
+                    } else {
+                        HolderState::Running
+                    },
+                    request_id: record.map(|record| record.request_id.clone()),
+                    requested_by: record.and_then(|record| record.requested_by.clone()),
+                    since: Some(self.unix(since)),
+                },
+            ));
+        }
+        for name in &held.seen {
+            let since = state.held_since.get(name).copied().unwrap_or_default();
+            holders.push((
+                since,
+                SlotHolder {
+                    kind: HolderKind::External,
+                    vms: vec![name.clone()],
+                    state: HolderState::Running,
+                    request_id: None,
+                    requested_by: None,
+                    since: Some(self.unix(since)),
+                },
+            ));
+        }
+        holders.sort_by(|a, b| (a.0, &a.1.vms).cmp(&(b.0, &b.1.vms)));
+        SlotsView {
+            slots: u32::try_from(self.slots).unwrap_or(u32::MAX),
+            limit: u32::try_from(APPLE_LIMIT).unwrap_or(u32::MAX),
+            holders: holders.into_iter().map(|(_, holder)| holder).collect(),
+            queue: state
+                .waiting
+                .iter()
+                .enumerate()
+                .map(|(at, entry)| SlotWaiter {
+                    request_id: entry.request_id.clone(),
+                    place: u32::try_from(at + 1).unwrap_or(u32::MAX),
+                    kind: WaiterKind::Vm,
+                    vms: vec![entry.vm_id.clone()],
+                    requested_by: entry.requested_by.clone(),
+                    since: self.unix(entry.joined),
+                    deadline: entry.deadline.map(|deadline| self.unix(deadline)),
+                })
+                .collect(),
+            contention: state
+                .last_refusal
+                .as_ref()
+                .filter(|_| state.contention)
+                .map(|refusal| SlotContention {
+                    since: self.unix(refusal.at),
+                    tart_error: refusal.line.clone(),
+                    holders: state.holders.clone(),
+                }),
+            observed_at: state.answer.as_ref().map(|answer| self.unix(answer.at)),
+            unanswered_since: state.unanswered_since.map(|at| self.unix(at)),
+        }
+    }
 }
 
 /// The hold of one admitted start. Dropping it releases the slot.
@@ -898,6 +1083,7 @@ struct Hold {
     queue: Arc<AdmissionQueue>,
     vm_id: String,
     request_id: String,
+    requested_by: Option<RequestedBy>,
     seq: u64,
     /// The moment of the join, on the clock of the queue.
     joined: Duration,
@@ -950,9 +1136,21 @@ impl Drop for Hold {
     }
 }
 
-/// The gate that a start of the app passes.
+/// The gate that a start of the app passes. It carries who asked for the start.
 #[derive(Debug, Clone)]
-pub struct AppGate(pub Arc<AdmissionQueue>);
+pub struct AppGate {
+    queue: Arc<AdmissionQueue>,
+    requested_by: Option<RequestedBy>,
+}
+
+impl AppGate {
+    pub fn new(queue: Arc<AdmissionQueue>, requested_by: Option<RequestedBy>) -> Self {
+        Self {
+            queue,
+            requested_by,
+        }
+    }
+}
 
 impl SlotGate for AppGate {
     fn admit(
@@ -961,7 +1159,8 @@ impl SlotGate for AppGate {
         cancel: &CancellationToken,
         progress: &Progress,
     ) -> Result<Box<dyn SlotHold>, VmError> {
-        self.0.admit(ask, cancel, progress)
+        self.queue
+            .admit_for(ask, self.requested_by.clone(), cancel, progress)
     }
 }
 
@@ -1614,6 +1813,8 @@ mod tests {
             state.waiting.push(Entry {
                 request_id: id.to_string(),
                 vm_id: format!("w{n}"),
+                requested_by: None,
+                joined: Duration::ZERO,
                 seq: n as u64,
                 deadline: None,
                 joined_obs: 0,
@@ -2006,6 +2207,8 @@ mod tests {
         state.waiting.push(Entry {
             request_id: "r-1".into(),
             vm_id: "w".into(),
+            requested_by: None,
+            joined: Duration::ZERO,
             seq: 0,
             deadline: None,
             joined_obs: 0,
@@ -2455,5 +2658,200 @@ mod tests {
         assert!(reporter
             .note("r-1", 2, "another line", pause, Duration::from_secs(42), "")
             .is_some());
+    }
+
+    // ---- the view of `vm slots` ----
+
+    fn asked_by(pid: u32, cwd: &str) -> Option<RequestedBy> {
+        Some(RequestedBy {
+            pid: Some(pid),
+            cwd: Some(cwd.to_string()),
+        })
+    }
+
+    fn admit_for(
+        queue: &Arc<AdmissionQueue>,
+        vm_id: &'static str,
+        by: Option<RequestedBy>,
+        wait_secs: u64,
+    ) -> std::thread::JoinHandle<Result<Box<dyn SlotHold>, VmError>> {
+        let queue = Arc::clone(queue);
+        std::thread::spawn(move || {
+            queue.admit_for(
+                &ask(vm_id, Some(wait_secs)),
+                by,
+                &CancellationToken::new(),
+                &quiet(),
+            )
+        })
+    }
+
+    #[test]
+    fn the_view_of_an_idle_queue_states_the_slots_and_nothing_else() {
+        let (full, _) = queue(2);
+        let view = full.view();
+        assert_eq!((view.slots, view.limit), (2, 2));
+        assert!(view.holders.is_empty() && view.queue.is_empty());
+        assert_eq!(view.contention, None);
+        assert_eq!((view.observed_at, view.unanswered_since), (None, None));
+        let (lowered, _) = queue(1);
+        assert_eq!(lowered.view().slots, 1, "the value of `macos_slots` in force");
+    }
+
+    #[test]
+    fn the_view_lists_the_waiters_in_order_with_who_asked_and_the_deadline() {
+        let (queue, guests) = queue(1);
+        guests.lock().unwrap().insert("held".to_string());
+        let first = admit_for(&queue, "w1", asked_by(11, "/trees/one"), 30);
+        wait_until("the first waiter", || queue.waiting().len() == 1);
+        let second = admit_for(&queue, "w2", asked_by(22, "/trees/two"), 60);
+        wait_until("the second waiter", || queue.waiting().len() == 2);
+
+        let view = queue.view();
+        let places: Vec<_> = view
+            .queue
+            .iter()
+            .map(|w| (w.place, w.vms.clone(), w.kind))
+            .collect();
+        assert_eq!(
+            places,
+            [
+                (1, vec!["w1".to_string()], WaiterKind::Vm),
+                (2, vec!["w2".to_string()], WaiterKind::Vm)
+            ]
+        );
+        assert_eq!(view.queue[0].requested_by, asked_by(11, "/trees/one"));
+        assert_eq!(view.queue[1].requested_by, asked_by(22, "/trees/two"));
+        assert_eq!(view.queue[0].request_id, queue.waiting()[0].0);
+        for waiter in &view.queue {
+            let deadline = waiter.deadline.expect("a wait with --wait has a bound");
+            assert!(deadline >= waiter.since + 29, "{waiter:?}");
+        }
+        assert!(view.queue[1].deadline > view.queue[0].deadline);
+
+        // End the test: the waiters leave when the held guest ends.
+        guests.lock().unwrap().clear();
+        queue.holder_ended();
+        drop(first.join().unwrap());
+        drop(second.join().unwrap());
+    }
+
+    #[test]
+    fn an_admitted_start_is_a_booting_holder_with_who_asked_and_a_running_one_after_its_hold() {
+        let (queue, guests) = queue(2);
+        let hold = queue
+            .admit_for(
+                &ask("a", Some(5)),
+                asked_by(7, "/trees/a"),
+                &CancellationToken::new(),
+                &quiet(),
+            )
+            .unwrap();
+        let view = queue.view();
+        assert_eq!(view.holders.len(), 1);
+        let holder = &view.holders[0];
+        assert_eq!(holder.kind, HolderKind::Vm);
+        assert_eq!(holder.vms, ["a"]);
+        assert_eq!(holder.state, HolderState::Booting);
+        assert_eq!(holder.request_id.as_deref(), Some(hold.request_id()));
+        assert_eq!(holder.requested_by, asked_by(7, "/trees/a"));
+
+        // The guest has a meta, and the start drops its hold. The guest keeps who asked.
+        guests.lock().unwrap().insert("a".to_string());
+        let request_id = hold.request_id().to_string();
+        drop(hold);
+        let view = queue.view();
+        assert_eq!(view.holders.len(), 1, "a guest that two holders name counts once");
+        assert_eq!(view.holders[0].state, HolderState::Running);
+        assert_eq!(view.holders[0].request_id.as_deref(), Some(request_id.as_str()));
+        assert_eq!(view.holders[0].requested_by, asked_by(7, "/trees/a"));
+
+        // The guest ends. Its slot and its record go.
+        guests.lock().unwrap().clear();
+        assert!(queue.view().holders.is_empty());
+        assert!(queue.lock().starts.is_empty());
+    }
+
+    #[test]
+    fn an_adopted_guest_and_a_seen_guest_have_no_requester() {
+        let (queue, guests, _) = queue_over(2, macos(&["outside"]));
+        guests.lock().unwrap().insert("adopted".to_string());
+        // A guest that the tart answer shows is seen once an observation has answered.
+        queue.observe_now(Duration::from_secs(5));
+        let view = queue.view();
+        let by_name = |name: &str| {
+            view.holders
+                .iter()
+                .find(|h| h.vms == [name])
+                .unwrap_or_else(|| panic!("{name} missing from {view:?}"))
+        };
+        let adopted = by_name("adopted");
+        assert_eq!(
+            (adopted.kind, adopted.state),
+            (HolderKind::Vm, HolderState::Running)
+        );
+        let seen = by_name("outside");
+        assert_eq!(
+            (seen.kind, seen.state),
+            (HolderKind::External, HolderState::Running)
+        );
+        for holder in [adopted, seen] {
+            assert_eq!(holder.request_id, None, "{holder:?}");
+            assert_eq!(holder.requested_by, None, "{holder:?}");
+            assert!(holder.since.is_some(), "{holder:?}");
+        }
+    }
+
+    #[test]
+    fn an_observation_before_the_view_gives_the_view_a_time_of_the_last_answer() {
+        let (queue, _, tart) = queue_over(2, macos(&[]));
+        assert_eq!(queue.view().observed_at, None, "no answer yet");
+        queue.observe_now(Duration::from_secs(5));
+        let view = queue.view();
+        let observed = view.observed_at.expect("tart answered");
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert!(observed <= now && now - observed <= 5, "{observed} vs {now}");
+        assert_eq!(view.unanswered_since, None);
+
+        // A tart that fails shows the silence, and the view keeps the last answer.
+        tart.fail_list(true);
+        queue.observe_now(Duration::from_secs(5));
+        let view = queue.view();
+        assert_eq!(view.observed_at, Some(observed));
+        assert!(view.unanswered_since.is_some());
+    }
+
+    #[test]
+    fn the_wait_for_an_observation_ends_at_its_patience_when_tart_does_not_answer() {
+        let (queue, _, tart) = queue_over(2, macos(&[]));
+        tart.hold_lists(true);
+        let began = Instant::now();
+        queue.observe_now(Duration::from_millis(300));
+        assert!(began.elapsed() < Duration::from_secs(3), "{:?}", began.elapsed());
+        assert_eq!(queue.view().observed_at, None);
+        tart.hold_lists(false);
+    }
+
+    #[test]
+    fn a_refusal_by_the_framework_shows_as_contention_in_the_view() {
+        let (queue, _) = quick_queue(1);
+        let cancel = CancellationToken::new();
+        let hold = queue
+            .admit_for(&ask("a", Some(30)), asked_by(3, "/trees/c"), &cancel, &quiet())
+            .unwrap();
+        assert_eq!(queue.view().contention, None);
+        let refused = refuse(hold, &cancel, quiet());
+        wait_until("the start to go back", || queue.waiting().len() == 1);
+        let view = queue.view();
+        let contention = view.contention.expect("the refusal starts contention");
+        assert_eq!(contention.tart_error, LINE);
+        assert_eq!(view.queue.len(), 1);
+        assert_eq!(view.queue[0].requested_by, asked_by(3, "/trees/c"));
+        cancel.cancel();
+        let (outcome, _) = refused.join().unwrap();
+        assert!(outcome.is_err());
     }
 }

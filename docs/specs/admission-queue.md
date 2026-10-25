@@ -902,8 +902,15 @@ schema id is `vm-slots`. Its data:
 | `unanswered_since` | `null`, or the time of the first failed observation after the last answer. Before the first answer, it is the time of the first failed observation of this run of the app. Meanwhile the count keeps the holders of the last answer, except each VM that a later read of a stop showed gone (see "When tart does not answer") |
 
 Each time is in seconds since the Unix epoch. A member that does not apply is
-`null`. On a Linux or Windows host, `vm slots` reports `slots` 0, `limit` 0 and
-empty lists, and it needs no app. On a macOS host without the app, it fails with
+`null`.
+
+The `since` of a holder that the app admitted is its admission. For any other
+holder, it is the moment when the app first noted that holder. The app waits at
+most 8 s for the observation that a request starts. `observed_at` then shows how
+old the answer is.
+
+On a Linux or Windows host, `vm slots` reports `slots` 0, `limit` 0 and empty
+lists, and it needs no app. On a macOS host without the app, it fails with
 `APP_UNREACHABLE` or `APP_NOT_INSTALLED`, as each command of the app does.
 
 **The app's menu** shows the slots, each holder and each waiter, with its place

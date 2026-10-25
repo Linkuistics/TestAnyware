@@ -13,8 +13,8 @@ use serde_json::{json, Value};
 use testanyware_app_protocol::hello::{BUILD_HEADER, BUNDLE_BUILD_HEADER, PROTOCOL_HEADER};
 use testanyware_app_protocol::{
     older_than_bundle, parse_end_path, parse_stream_path, AppError, ClientHello, EndRoute,
-    ListRequest, LoginItemState, RouteMatch, StatusResponse, StreamKind, StreamTarget, LIST_PATH,
-    STREAM_UPGRADE_TOKEN,
+    ListRequest, LoginItemState, RequestedBy, RouteMatch, StatusResponse, StreamKind,
+    StreamTarget, LIST_PATH, SLOTS_PATH, SLOTS_VERSION, STREAM_UPGRADE_TOKEN,
 };
 use testanyware_vm::tools::ToolSearch;
 use tokio::io::AsyncWriteExt;
@@ -179,11 +179,14 @@ pub async fn serve(listener: UnixListener, ctx: Arc<AppContext>) -> std::io::Res
         tokio::spawn(async move {
             // The kernel states the peer's uid. Dropping the stream closes the connection
             // before it reads a byte.
-            match stream.peer_cred() {
-                Ok(cred) if peer_allowed(cred.uid(), ctx.own_uid) => {}
+            let pid = match stream.peer_cred() {
+                Ok(cred) if peer_allowed(cred.uid(), ctx.own_uid) => cred.pid(),
                 _ => return,
-            }
-            let service = hyper::service::service_fn(move |req| handle(Arc::clone(&ctx), req));
+            };
+            // The kernel states the peer's pid as well, so a client cannot state a false one
+            // (spec "admission-queue": "Who asked").
+            let service =
+                hyper::service::service_fn(move |req| handle(Arc::clone(&ctx), pid, req));
             // A guest stream upgrades the connection, so the connection must allow upgrades.
             // https://docs.rs/hyper/1.9.0/hyper/server/conn/http1/struct.Connection.html#method.with_upgrades
             let conn = hyper::server::conn::http1::Builder::new()
@@ -206,11 +209,12 @@ fn is_transient(e: &std::io::Error) -> bool {
 
 async fn handle(
     ctx: Arc<AppContext>,
+    peer_pid: Option<i32>,
     mut req: Request<Incoming>,
 ) -> Result<Response<AppBody>, Infallible> {
     let hello =
         ClientHello::from_lookup(|name| req.headers().get(name).and_then(|v| v.to_str().ok()));
-    let mut response = route(&ctx, &mut req, &hello).await;
+    let mut response = route(&ctx, &mut req, &hello, peer_pid).await;
     // Every response states the app's range and build.
     let headers = response.headers_mut();
     headers.insert(
@@ -230,6 +234,7 @@ async fn route(
     ctx: &Arc<AppContext>,
     req: &mut Request<Incoming>,
     hello: &ClientHello,
+    peer_pid: Option<i32>,
 ) -> Response<AppBody> {
     let method = req.method().clone();
     let path = req.uri().path().to_string();
@@ -242,20 +247,24 @@ async fn route(
             serde_json::to_value(body).expect("status serialises"),
         );
     }
-    if let Err(err) = check_request(
+    let version = match check_request(
         &ctx.identity,
         hello,
         ctx.bundle.build().as_deref(),
         // Read the file only for a request that fails on its directories.
         &|| ctx.config.status(&stat_file),
     ) {
-        return error_response(StatusCode::CONFLICT, &err);
-    }
+        Ok(version) => version,
+        Err(err) => return error_response(StatusCode::CONFLICT, &err),
+    };
     if path == LIST_PATH && method == Method::GET {
         return list_vms(ctx, req.uri().query()).await;
     }
     if path == LIST_PATH && method == Method::POST {
-        return start_vm(ctx, req).await;
+        return start_vm(ctx, req, peer_pid).await;
+    }
+    if path == SLOTS_PATH && method == Method::GET {
+        return slots(ctx, version).await;
     }
     match parse_end_path(&path) {
         EndRoute::Neither => {}
@@ -346,13 +355,62 @@ async fn list_vms(ctx: &Arc<AppContext>, query: Option<&str>) -> Response<AppBod
     }
 }
 
+/// How long `GET /v1/slots` waits for the observation that it asks for. Each call to tart is
+/// bound at 5 s, so a few calls fit. A slow tart must not hold a command for long, and the view
+/// states the time of its last answer.
+const SLOTS_PATIENCE: std::time::Duration = std::time::Duration::from_secs(8);
+
+/// Serve `GET /v1/slots`: the view that `vm slots` prints. The app observes tart first, as it
+/// does before a decision to admit. The request is one of protocol version 2, so a client that
+/// agreed on version 1 has no such route.
+async fn slots(ctx: &Arc<AppContext>, version: u32) -> Response<AppBody> {
+    if version < SLOTS_VERSION {
+        let err = AppError::new(
+            "USAGE_ERROR",
+            format!(
+                "GET {SLOTS_PATH} is a request of protocol version {SLOTS_VERSION}, and this \
+                 client agreed on version {version}."
+            ),
+            None,
+            json!({ "method": "GET", "path": SLOTS_PATH, "version": version }),
+        );
+        return error_response(StatusCode::NOT_FOUND, &err);
+    }
+    // The observation waits on a condition variable, and it must not block a worker.
+    let blocking_ctx = Arc::clone(ctx);
+    let view = tokio::task::spawn_blocking(move || {
+        blocking_ctx.admission.observe_now(SLOTS_PATIENCE);
+        blocking_ctx.admission.view()
+    })
+    .await;
+    match view {
+        Ok(view) => json_response(
+            StatusCode::OK,
+            serde_json::to_value(view).expect("the view serialises"),
+        ),
+        Err(e) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &AppError::new(
+                "INTERNAL",
+                format!("The view of the slots failed inside the TestAnyware app: {e}."),
+                None,
+                Value::Null,
+            ),
+        ),
+    }
+}
+
 /// The most bytes of a start request that the app reads. The options are far smaller.
 const START_BODY_LIMIT: usize = 64 * 1024;
 
 /// Serve `POST /v1/vms`: read the options that the Host CLI resolved, and answer with the
 /// events of the start. A request that cannot start anything fails before the stream, as a
 /// JSON error object.
-async fn start_vm(ctx: &Arc<AppContext>, req: &mut Request<Incoming>) -> Response<AppBody> {
+async fn start_vm(
+    ctx: &Arc<AppContext>,
+    req: &mut Request<Incoming>,
+    peer_pid: Option<i32>,
+) -> Response<AppBody> {
     let body = match Limited::new(req.body_mut(), START_BODY_LIMIT)
         .collect()
         .await
@@ -369,7 +427,13 @@ async fn start_vm(ctx: &Arc<AppContext>, req: &mut Request<Incoming>) -> Respons
         }
     };
     match crate::start::parse_request(&body) {
-        Ok((_, options)) => crate::start::start_response(ctx, options),
+        Ok((request, options)) => {
+            let requested_by = RequestedBy {
+                pid: peer_pid.and_then(|pid| u32::try_from(pid).ok()),
+                cwd: request.cwd,
+            };
+            crate::start::start_response(ctx, options, Some(requested_by))
+        }
         Err(refusal) => error_response(refusal.status, &refusal.error),
     }
 }
