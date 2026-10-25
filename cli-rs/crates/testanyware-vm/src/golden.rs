@@ -309,27 +309,91 @@ pub(crate) fn write_scratch(dir: &Path, name: &str, contents: &[u8]) -> Result<P
     Ok(path)
 }
 
+/// What golden creation settles before it changes anything: the SSH key, the agent binary, the
+/// name of the setup VM and the VMs that it will boot (spec "admission-queue": "Golden
+/// creation"). The command asks the TestAnyware app for a slot between [`GoldenPreflight::check`]
+/// and the first change, and it names [`hold_names`](Self::hold_names) in its request.
+#[derive(Debug, Clone)]
+pub struct GoldenPreflight {
+    pubkey: PathBuf,
+    private_key: PathBuf,
+    agent_bin: PathBuf,
+    /// The throwaway setup VM's tart name (`testanyware-setup-<hex8>`).
+    pub setup_id: String,
+    /// The name `<base>-building` of the VM that an IPSW build boots, when the base VM does not
+    /// exist yet. The build renames the VM only after its last boot.
+    pub building: Option<String>,
+}
+
+impl GoldenPreflight {
+    /// The fast checks: the host's SSH keypair and the agent binary. They fail before golden
+    /// creation boots or changes anything, and they say which key and which binary they found.
+    /// The check also makes the name of the setup VM, and it reads `tart` to learn whether an
+    /// IPSW build will boot a base VM. It changes nothing.
+    pub fn check(opts: &GoldenOptions) -> Result<Self, VmError> {
+        // Fail fast on host prerequisites before booting anything.
+        let (pubkey, private_key) = resolve_ssh_key()?;
+        let agent_bin = resolve_agent_bin()?;
+        eprintln!("Using SSH key: {}", pubkey.display());
+        eprintln!("Using macOS agent: {}", agent_bin.display());
+
+        // A distinct setup-VM id so it is never mistaken for a `vm start` clone
+        // or a golden. `generate_id()` yields `testanyware-<hex8>`; splice in a
+        // `setup-` marker. Ports `_SETUP_VM="testanyware-setup-$$"`.
+        let setup_id = generate_id().replacen("testanyware-", "testanyware-setup-", 1);
+        let building = match base_source(&opts.version) {
+            BaseSource::Ipsw { major } => {
+                let base = crate::base_source::base_vm_name(major);
+                (!crate::tart::vm_exists(&base)).then(|| format!("{base}-building"))
+            }
+            BaseSource::Vanilla(_) => None,
+        };
+        Ok(Self {
+            pubkey,
+            private_key,
+            agent_bin,
+            setup_id,
+            building,
+        })
+    }
+
+    /// The VMs that golden creation boots: its setup VM and, for an IPSW build, the VM
+    /// `<base>-building`. Golden creation never boots the finished base.
+    pub fn hold_names(&self) -> Vec<String> {
+        let mut names = vec![self.setup_id.clone()];
+        names.extend(self.building.clone());
+        names
+    }
+}
+
 /// Boot-1 entry point: clone+boot the vanilla setup VM and provision it over
 /// SSH, returning the [`SetupVm`] handoff for leaf `030`. On any hard
 /// failure the setup VM is torn down before returning the error; on success
 /// it is left **running** by design.
 pub async fn provision_boot1(opts: &GoldenOptions, paths: &VmPaths) -> Result<SetupVm, VmError> {
-    // Fail fast on host prerequisites before booting anything.
-    let (pubkey, private_key) = resolve_ssh_key()?;
-    let agent_bin = resolve_agent_bin()?;
-    eprintln!("Using SSH key: {}", pubkey.display());
-    eprintln!("Using macOS agent: {}", agent_bin.display());
+    let preflight = GoldenPreflight::check(opts)?;
+    provision_boot1_after(opts, &preflight, paths).await
+}
+
+/// [`provision_boot1`] after the fast checks, for a caller that asked for a slot in between.
+pub async fn provision_boot1_after(
+    opts: &GoldenOptions,
+    preflight: &GoldenPreflight,
+    paths: &VmPaths,
+) -> Result<SetupVm, VmError> {
+    let GoldenPreflight {
+        pubkey,
+        private_key,
+        agent_bin,
+        setup_id,
+        ..
+    } = preflight;
 
     // Delete any existing golden of the same name first (script lines ~98–105).
     if crate::tart::vm_exists(&opts.name) {
         eprintln!("Deleting existing golden image '{}'...", opts.name);
         crate::tart::remove_existing(&opts.name);
     }
-
-    // A distinct setup-VM id so it is never mistaken for a `vm start` clone
-    // or a golden. `generate_id()` yields `testanyware-<hex8>`; splice in a
-    // `setup-` marker. Ports `_SETUP_VM="testanyware-setup-$$"`.
-    let setup_id = generate_id().replacen("testanyware-", "testanyware-setup-", 1);
 
     // The base to clone: a Cirrus vanilla image, or — for a release Cirrus does
     // not publish (a numeric `--version`, e.g. 27) — a base built from Apple's
@@ -342,7 +406,7 @@ pub async fn provision_boot1(opts: &GoldenOptions, paths: &VmPaths) -> Result<Se
         BaseSource::Ipsw { major } => crate::ipsw_base::ensure_base_vm(major, paths).await?,
     };
     eprintln!("Cloning {base} → {setup_id}...");
-    crate::tart::clone(&base, &setup_id)?;
+    crate::tart::clone(&base, setup_id)?;
 
     // Boot detached (`tart run --no-graphics --vnc-experimental`); the VNC
     // line in the run log is the booting signal. A refusal by the framework
@@ -350,7 +414,7 @@ pub async fn provision_boot1(opts: &GoldenOptions, paths: &VmPaths) -> Result<Se
     eprintln!("Booting setup VM...");
     let booted = match crate::golden_boot::boot_to_vnc(
         &crate::tools::ToolSearch::from_process_path(),
-        &setup_id,
+        setup_id,
         &paths.vms_dir(),
         crate::golden_boot::BootMode::Normal,
         crate::golden_boot::BootBudget::DEFAULT,
@@ -359,17 +423,17 @@ pub async fn provision_boot1(opts: &GoldenOptions, paths: &VmPaths) -> Result<Se
     {
         Ok(booted) => booted,
         Err(e) => {
-            cleanup_setup_vm(&setup_id, 0);
+            cleanup_setup_vm(setup_id, 0);
             return Err(e);
         }
     };
     let pid = booted.pid;
 
     // Run the provisioning, tearing the VM down on any hard failure.
-    match provision_running(opts, &setup_id, pid, &private_key, &pubkey, &agent_bin, paths).await {
+    match provision_running(opts, setup_id, pid, private_key, pubkey, agent_bin, paths).await {
         Ok(setup) => Ok(setup),
         Err(e) => {
-            cleanup_setup_vm(&setup_id, pid);
+            cleanup_setup_vm(setup_id, pid);
             Err(e)
         }
     }

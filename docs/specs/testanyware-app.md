@@ -595,6 +595,15 @@ The app runs each start on a thread of its own, with its own runtime, because
 a start calls tools that block. It installs no signal handler: a handler in the
 app would end the app. A start answers to the connection of its client only.
 
+`POST /v1/slots` carries `vms` and the optional `cwd` as a JSON body. The
+golden creation names the VMs that it boots, and each name must be a plain VM id.
+A body that does not read, an empty list and a name that is not a plain VM id
+give `USAGE_ERROR` (400). The response is `200` with `application/x-ndjson`, with
+the events `progress`, `admitted` and `error`. After `admitted` the app sends
+nothing more. The open response is the hold: the app keeps the slot until the
+client closes the connection, and a crash of the client closes it too. The queue,
+the count and the events are in `docs/specs/admission-queue.md`.
+
 `POST /v1/vms/{id}/stop` has no body. The app stops the VM as `vm stop` does
 today. It signals the processes that the meta records, removes the clone, and
 removes the sidecars. It answers `{"id": ..., "stopped": true}`.
@@ -774,10 +783,10 @@ remedy is the `remediation` of the error, and `details.remedy` holds its name
 | The Host CLI is older | `brew upgrade testanyware` |
 
 A command that needs a version above the app's range fails in the same way. The
-first such command is `vm slots`, which needs version 2. With an app whose range
-ends at 1, it fails with `APP_INCOMPATIBLE`, cause `protocol`. `vm start` still
-works as that app does, because the Host CLI states the range 1 to 2 and the pair
-uses version 1.
+commands that need version 2 are `vm slots` and the macOS `vm create-golden`.
+With an app whose range ends at 1, each fails with `APP_INCOMPATIBLE`, cause
+`protocol`. `vm start` still works as that app does, because the Host CLI states
+the range 1 to 2 and the pair uses version 1.
 
 The Host CLI learns the range of the app from the headers of the answer. An app
 of version 1 answers the request for `/v1/slots` with 404, and its headers state

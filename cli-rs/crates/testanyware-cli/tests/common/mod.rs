@@ -238,9 +238,19 @@ impl TestApp {
         config: &str,
         args: &[String],
     ) -> Self {
+        Self::start_after_with_config_text_and_args(prepare, |_| config.to_string(), args)
+    }
+
+    /// As [`Self::start_after_with_config_and_args`], for a `config.rhai` that names paths under
+    /// the root of the test, which only the app knows.
+    pub fn start_after_with_config_text_and_args(
+        prepare: impl FnOnce(&TestApp),
+        config: impl FnOnce(&TestApp) -> String,
+        args: &[String],
+    ) -> Self {
         let app = Self::not_running();
         prepare(&app);
-        app.write_config(config);
+        app.write_config(&config(&app));
         let mut all = vec![
             "--config".to_string(),
             app.config_file().display().to_string(),

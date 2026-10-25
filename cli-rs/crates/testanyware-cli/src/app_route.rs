@@ -15,12 +15,12 @@ use std::time::Duration;
 use testanyware_agent_client::{
     AgentClient, AgentConfig, AgentConnector, BoxedStream, ConnectFuture, ConnectorFailure,
 };
-use testanyware_app_client::{AppClient, AppStream, StartEnd};
+use testanyware_app_client::{AppClient, AppStream, SlotLease, StartEnd};
 use testanyware_app_protocol::version::{SLOTS_VERSION, SUPPORTED_RANGE};
 use testanyware_app_protocol::{
-    decide, AppError, ClientHello, Decision, DeleteResult, Directories, ListRequest, Peer,
-    ServerHello, SlotsView, StartRequest, StatusResponse, StopResult, StreamKind, StreamTarget,
-    APP_UNREACHABLE, SLOTS_PATH,
+    decide, AppError, ClientHello, Decision, DeleteResult, Directories, HoldRequest, ListRequest,
+    Peer, ServerHello, SlotsView, StartRequest, StatusResponse, StopResult, StreamKind,
+    StreamTarget, APP_NOT_INSTALLED, APP_UNREACHABLE, SLOTS_PATH,
 };
 use testanyware_vm::listing::ListView;
 
@@ -141,6 +141,43 @@ pub async fn slots(socket: PathBuf) -> Result<SlotsView, AppError> {
         .get_json_needing(SLOTS_PATH, SLOTS_VERSION)
         .await
         .map_err(|error| name_missing_install_here(error, client.socket()))
+}
+
+/// Ask the app for a slot for a golden creation, and wait for the admission with no bound (spec
+/// "admission-queue": "Golden creation"). `vms` are the VMs that the golden creation boots.
+/// `on_progress` receives each line about the wait. The request needs protocol version 2, so an
+/// app whose range ends at 1 fails it with `APP_INCOMPATIBLE`. The returned lease holds the slot
+/// until the caller drops it. `on_lost` runs once if the app closes the connection before that.
+///
+/// A failure to reach the app on the default socket says whether the app is installed, as for a
+/// guest stream. [`runs_without_the_app`] tells that failure from the others.
+pub async fn hold_slot(
+    socket: PathBuf,
+    vms: Vec<String>,
+    on_progress: impl FnMut(&str),
+    on_lost: impl FnOnce() + Send + 'static,
+) -> Result<SlotLease, AppError> {
+    let client = app_client(socket);
+    let request = HoldRequest {
+        vms,
+        // The worktree of the grove, for `vm slots`. A working directory that does not read is
+        // no reason to fail the golden creation.
+        cwd: std::env::current_dir()
+            .ok()
+            .map(|dir| dir.display().to_string()),
+    };
+    client
+        .hold_slot(&request, on_progress, on_lost)
+        .await
+        .map_err(|error| name_missing_install_here(error, client.socket()))
+}
+
+/// Whether `error` shows that no app runs: nothing answers on the socket, or no bundle is
+/// installed. Golden creation then runs as it does without an app, and it takes no slot. Every
+/// other failure, such as an app of protocol version 1, fails the command.
+pub fn runs_without_the_app(error: &AppError) -> bool {
+    error.code == APP_NOT_INSTALLED
+        || (error.code == APP_UNREACHABLE && error.details["cause"] == "not_running")
 }
 
 /// Ask the app to stop a VM. A failure to reach the app on the default socket says whether the
@@ -387,6 +424,22 @@ mod tests {
             assert!(remedy.contains(step), "{step} missing from {remedy}");
         }
         assert!(remedy.contains("release provides the cask"), "{remedy}");
+    }
+
+    #[test]
+    fn only_an_app_that_does_not_run_lets_golden_creation_go_on_without_a_slot() {
+        assert!(runs_without_the_app(&unreachable("not_running")));
+        assert!(runs_without_the_app(&AppError::not_installed(
+            Path::new("/h/s.sock"),
+            &search()
+        )));
+        for cause in ["quitting", "socket_error", "unsafe_socket_directory"] {
+            assert!(!runs_without_the_app(&unreachable(cause)), "{cause}");
+        }
+        for code in ["APP_INCOMPATIBLE", "VM_LIMIT_REACHED", "USAGE_ERROR"] {
+            let error = AppError::new(code, "m", None, json!({ "cause": "not_running" }));
+            assert!(!runs_without_the_app(&error), "{code}");
+        }
     }
 
     #[test]

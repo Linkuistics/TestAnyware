@@ -96,6 +96,9 @@ struct State {
     /// The starts that the app admitted and whose hold has not ended, by VM id. A guest that the
     /// meta holder group also names counts once.
     admitted: BTreeMap<String, Admitted>,
+    /// The golden creations that the app admitted and whose connection is open, by request id.
+    /// A golden creation is one own holder, and it is never unproven.
+    goldens: BTreeMap<String, GoldenHold>,
     /// What a decision left for a waiter that is not yet back to read it, by request id.
     verdicts: HashMap<String, Verdict>,
     /// The holders at the last decision, own and seen, for the lines of the waiters.
@@ -136,6 +139,14 @@ struct State {
     held_since: BTreeMap<String, Duration>,
 }
 
+/// A golden creation that holds a slot through its open connection.
+struct GoldenHold {
+    /// The VMs that the golden creation boots.
+    vms: Vec<String>,
+    requested_by: Option<RequestedBy>,
+    admitted_at: Duration,
+}
+
 /// Who asked for an admitted start, and when the app admitted it.
 struct StartRecord {
     request_id: String,
@@ -168,9 +179,42 @@ impl State {
     }
 }
 
+/// What a waiter will start.
+#[derive(Clone)]
+enum Subject {
+    /// A `vm start`, by the id of the VM that it clones.
+    Start { vm_id: String },
+    /// A golden creation, by the VMs that it boots.
+    Golden { vms: Vec<String> },
+}
+
+impl Subject {
+    /// The VM whose id the cancel of the request names.
+    fn first_vm(&self) -> &str {
+        match self {
+            Subject::Start { vm_id } => vm_id,
+            Subject::Golden { vms } => vms.first().map_or("", String::as_str),
+        }
+    }
+
+    fn vms(&self) -> Vec<String> {
+        match self {
+            Subject::Start { vm_id } => vec![vm_id.clone()],
+            Subject::Golden { vms } => vms.clone(),
+        }
+    }
+
+    fn kind(&self) -> WaiterKind {
+        match self {
+            Subject::Start { .. } => WaiterKind::Vm,
+            Subject::Golden { .. } => WaiterKind::Golden,
+        }
+    }
+}
+
 struct Entry {
     request_id: String,
-    vm_id: String,
+    subject: Subject,
     requested_by: Option<RequestedBy>,
     /// The moment of the join, on the clock of the queue.
     joined: Duration,
@@ -380,8 +424,10 @@ impl AdmissionQueue {
 
     /// The own and the seen holders now. The seen holders come from the last answer of tart.
     fn holders(&self, state: &State) -> Holders {
+        let goldens: Vec<Vec<String>> = state.goldens.values().map(|g| g.vms.clone()).collect();
         count::holders(
             self.own_holders(state),
+            &goldens,
             state.answer.as_ref().map(|answer| &answer.macos),
         )
     }
@@ -391,7 +437,7 @@ impl AdmissionQueue {
     fn note_holders(&self, state: &mut State) -> Holders {
         let held = self.holders(state);
         state.holders = held.names();
-        state.own_held = held.own.len();
+        state.own_held = held.own_count();
         // A name that holds no slot any more loses its record, and a new holder gets its time.
         let now = self.now();
         let State {
@@ -405,6 +451,8 @@ impl AdmissionQueue {
             held_since.entry(name.clone()).or_insert(now);
         }
         starts.retain(|vm_id, _| held.own.contains(vm_id));
+        // A golden creation that the app admitted keeps its hold until its connection closes, so
+        // no record of the count drops it.
         held
     }
 
@@ -421,11 +469,12 @@ impl AdmissionQueue {
                 request_id: e.request_id.clone(),
                 deadline: e.deadline,
                 joined_obs: e.joined_obs,
+                golden: matches!(e.subject, Subject::Golden { .. }),
             })
             .collect();
         let decision = decide(Input {
             queue: &queue,
-            own_holders: held.own.len(),
+            own_holders: held.own_count(),
             seen_holders: held.seen.len(),
             answer: state.answer.as_ref().map(|answer| answer.number),
             unproven: state.unproven(),
@@ -444,22 +493,37 @@ impl AdmissionQueue {
             {
                 let entry = state.waiting.remove(at);
                 let in_contention = state.contention;
-                state.starts.insert(
-                    entry.vm_id.clone(),
-                    StartRecord {
-                        request_id: request_id.clone(),
-                        requested_by: entry.requested_by,
-                        admitted_at: now,
-                    },
-                );
-                state.admitted.insert(
-                    entry.vm_id,
-                    Admitted {
-                        request_id: request_id.clone(),
-                        proven: false,
-                        in_contention,
-                    },
-                );
+                match entry.subject {
+                    Subject::Start { vm_id } => {
+                        state.starts.insert(
+                            vm_id.clone(),
+                            StartRecord {
+                                request_id: request_id.clone(),
+                                requested_by: entry.requested_by,
+                                admitted_at: now,
+                            },
+                        );
+                        state.admitted.insert(
+                            vm_id,
+                            Admitted {
+                                request_id: request_id.clone(),
+                                proven: false,
+                                in_contention,
+                            },
+                        );
+                    }
+                    // The hold is the connection of the golden creation. It is never unproven.
+                    Subject::Golden { vms } => {
+                        state.goldens.insert(
+                            request_id.clone(),
+                            GoldenHold {
+                                vms,
+                                requested_by: entry.requested_by,
+                                admitted_at: now,
+                            },
+                        );
+                    }
+                }
                 state.verdicts.insert(request_id, Verdict::Admitted);
             }
         }
@@ -525,7 +589,9 @@ impl AdmissionQueue {
         let deadline = joined + wait;
         state.waiting.push(Entry {
             request_id: request_id.clone(),
-            vm_id: ask.vm_id.to_string(),
+            subject: Subject::Start {
+                vm_id: ask.vm_id.to_string(),
+            },
             requested_by: requested_by.clone(),
             joined,
             seq,
@@ -559,6 +625,74 @@ impl AdmissionQueue {
             reporter,
             refusals: RefusalReporter::default(),
         }))
+    }
+
+    /// Join the queue as a golden creation, and wait with no bound for the admission (spec
+    /// "admission-queue": "Golden creation"). `vms` are the VMs that the golden creation boots,
+    /// and the count names them. The golden creation holds its slot until the returned value is
+    /// dropped, which the app does when the connection of the client closes.
+    ///
+    /// With `macos_slots` at 0, no slot can free while the app runs, so the request takes the one
+    /// decision of a start without `--wait`, which refuses it with `VM_LIMIT_REACHED`.
+    pub fn admit_golden(
+        self: &Arc<Self>,
+        vms: Vec<String>,
+        requested_by: Option<RequestedBy>,
+        cancel: &CancellationToken,
+        progress: &Progress,
+    ) -> Result<GoldenSlot, VmError> {
+        let joined = self.now();
+        let mut state = self.lock();
+        let request_id = new_request_id(&mut state, self.salt);
+        let seq = state.next_seq;
+        state.next_seq += 1;
+        let joined_obs = state.next_obs;
+        if self.slots == 0 {
+            self.note_holders(&mut state);
+            return Err(self.refused_at_the_join(&state, request_id, joined_obs));
+        }
+        let subject = Subject::Golden { vms };
+        let first_vm = subject.first_vm().to_string();
+        state.waiting.push(Entry {
+            request_id: request_id.clone(),
+            subject,
+            requested_by,
+            joined,
+            seq,
+            deadline: None,
+            joined_obs,
+            refusal: None,
+        });
+        self.note_holders(&mut state);
+        // The join is an event, as for a start. The decision of it waits for an observation that
+        // starts after the join.
+        self.event(&mut state);
+        let request = Request {
+            request_id,
+            vm_id: first_vm,
+            joined,
+            joined_obs,
+        };
+        self.wait_admitted(
+            state,
+            &request,
+            &mut WaitReporter::default(),
+            cancel,
+            progress,
+        )?;
+        Ok(GoldenSlot {
+            queue: Arc::clone(self),
+            request_id: request.request_id,
+        })
+    }
+
+    /// The hold of a golden creation ends. Its slot is free in the count. A setup VM that still
+    /// runs stays in the count as a seen holder until tart shows it gone, and the app never
+    /// stops it.
+    fn release_golden(self: &Arc<Self>, request_id: &str) {
+        let mut state = self.lock();
+        state.goldens.remove(request_id);
+        self.event(&mut state);
     }
 
     /// Wait until a decision admits the request or expires it, or until the client leaves. The
@@ -670,7 +804,7 @@ impl AdmissionQueue {
         state.settle_contention();
         let needs_no_answer = !state.waiting.is_empty()
             || (state.contention && state.unproven() > 0)
-            || own_holders_fill_the_slots(state.admitted.len(), self.slots);
+            || own_holders_fill_the_slots(state.admitted.len() + state.goldens.len(), self.slots);
         if needs_no_answer {
             return Err(self.refused_at_the_join(&state, request_id, joined_obs));
         }
@@ -690,7 +824,7 @@ impl AdmissionQueue {
                 state.settle_contention();
                 if admits_without_wait(
                     state.waiting.len(),
-                    held.own.len(),
+                    held.own_count(),
                     held.seen.len(),
                     self.slots,
                     state.contention,
@@ -888,7 +1022,9 @@ impl AdmissionQueue {
             at,
             Entry {
                 request_id: hold.request_id.clone(),
-                vm_id: hold.vm_id.clone(),
+                subject: Subject::Start {
+                    vm_id: hold.vm_id.clone(),
+                },
                 requested_by: hold.requested_by.clone(),
                 joined: hold.joined,
                 seq: hold.seq,
@@ -929,13 +1065,19 @@ impl AdmissionQueue {
         self.lock()
             .waiting
             .iter()
-            .map(|e| (e.request_id.clone(), e.vm_id.clone()))
+            .map(|e| (e.request_id.clone(), e.subject.first_vm().to_string()))
             .collect()
     }
 
     /// The VM ids of the starts that the app admitted and that still hold. A test reads this.
     pub fn admitted(&self) -> Vec<String> {
         self.lock().admitted.keys().cloned().collect()
+    }
+
+    /// The request ids of the golden creations that the app admitted and that still hold. A test
+    /// reads this.
+    pub fn golden_holds(&self) -> Vec<String> {
+        self.lock().goldens.keys().cloned().collect()
     }
 
     /// The moment when the last answer of tart ended, on the clock of the queue. `None` before
@@ -1030,6 +1172,19 @@ impl AdmissionQueue {
                 },
             ));
         }
+        for (request_id, golden) in &state.goldens {
+            holders.push((
+                golden.admitted_at,
+                SlotHolder {
+                    kind: HolderKind::Golden,
+                    vms: golden.vms.clone(),
+                    state: HolderState::Held,
+                    request_id: Some(request_id.clone()),
+                    requested_by: golden.requested_by.clone(),
+                    since: Some(self.unix(golden.admitted_at)),
+                },
+            ));
+        }
         for name in &held.seen {
             let since = state.held_since.get(name).copied().unwrap_or_default();
             holders.push((
@@ -1056,8 +1211,8 @@ impl AdmissionQueue {
                 .map(|(at, entry)| SlotWaiter {
                     request_id: entry.request_id.clone(),
                     place: u32::try_from(at + 1).unwrap_or(u32::MAX),
-                    kind: WaiterKind::Vm,
-                    vms: vec![entry.vm_id.clone()],
+                    kind: entry.subject.kind(),
+                    vms: entry.subject.vms(),
                     requested_by: entry.requested_by.clone(),
                     since: self.unix(entry.joined),
                     deadline: entry.deadline.map(|deadline| self.unix(deadline)),
@@ -1133,6 +1288,26 @@ impl SlotHold for Hold {
 impl Drop for Hold {
     fn drop(&mut self) {
         self.queue.release(&self.vm_id, &self.request_id);
+    }
+}
+
+/// The hold of one admitted golden creation. Dropping it releases the slot: the app drops it when
+/// the connection of the client closes, whether the golden creation ended or crashed.
+pub struct GoldenSlot {
+    queue: Arc<AdmissionQueue>,
+    request_id: String,
+}
+
+impl GoldenSlot {
+    /// The request id of the golden creation, which the `admitted` event states.
+    pub fn request_id(&self) -> &str {
+        &self.request_id
+    }
+}
+
+impl Drop for GoldenSlot {
+    fn drop(&mut self) {
+        self.queue.release_golden(&self.request_id);
     }
 }
 
@@ -1812,7 +1987,9 @@ mod tests {
         for (n, id) in ["r-1", "r-2"].iter().enumerate() {
             state.waiting.push(Entry {
                 request_id: id.to_string(),
-                vm_id: format!("w{n}"),
+                subject: Subject::Start {
+                    vm_id: format!("w{n}"),
+                },
                 requested_by: None,
                 joined: Duration::ZERO,
                 seq: n as u64,
@@ -1848,6 +2025,174 @@ mod tests {
             line.contains("place 1") && line.contains("1 waiter,"),
             "{line}"
         );
+    }
+
+    // Golden creation holds a slot through its connection (spec "admission-queue": "Golden
+    // creation").
+
+    fn golden_thread(
+        queue: &Arc<AdmissionQueue>,
+        vms: &[&str],
+    ) -> std::thread::JoinHandle<Result<GoldenSlot, VmError>> {
+        let queue = Arc::clone(queue);
+        let vms: Vec<String> = vms.iter().map(|v| v.to_string()).collect();
+        std::thread::spawn(move || {
+            queue.admit_golden(vms, None, &CancellationToken::new(), &quiet())
+        })
+    }
+
+    #[test]
+    fn a_golden_creation_takes_one_slot_whatever_the_number_of_its_vms() {
+        let (queue, _) = queue(2);
+        let slot = queue
+            .admit_golden(
+                vec!["setup".into(), "base-building".into()],
+                None,
+                &CancellationToken::new(),
+                &quiet(),
+            )
+            .unwrap();
+        assert!(slot.request_id().starts_with("r-"));
+        assert_eq!(queue.golden_holds(), [slot.request_id()]);
+        // The other slot is free, so a start gets it at once.
+        let _a = queue
+            .admit(&ask("a", Some(5)), &CancellationToken::new(), &quiet())
+            .unwrap();
+        // Both slots are held now, and the next start waits.
+        let b = join_thread(&queue, "b", 30);
+        wait_until("the start to join", || queue.waiting().len() == 1);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!b.is_finished());
+        drop(slot);
+        assert!(queue.golden_holds().is_empty());
+        assert!(b.join().unwrap().is_ok(), "the end of the hold admits the start");
+    }
+
+    #[test]
+    fn a_golden_creation_behind_two_starts_waits_in_order_and_has_no_bound() {
+        let (queue, _) = queue(2);
+        let cancel = CancellationToken::new();
+        let a = queue.admit(&ask("a", Some(5)), &cancel, &quiet()).unwrap();
+        let b = queue.admit(&ask("b", Some(5)), &cancel, &quiet()).unwrap();
+        let golden = golden_thread(&queue, &["setup"]);
+        wait_until("the golden creation to join", || queue.waiting().len() == 1);
+        // A start that joins later stays behind it.
+        let c = join_thread(&queue, "c", 60);
+        wait_until("the start to join", || queue.waiting().len() == 2);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!golden.is_finished(), "both slots are held");
+        assert_eq!(queue.view().queue[0].kind, WaiterKind::Golden);
+        assert_eq!(queue.view().queue[0].vms, ["setup"]);
+        assert_eq!(queue.view().queue[0].deadline, None, "the wait has no bound");
+        assert_eq!(queue.view().queue[1].kind, WaiterKind::Vm);
+        drop(a);
+        let slot = golden.join().unwrap().expect("the release admits the golden creation");
+        assert!(!c.is_finished(), "the start behind it keeps waiting");
+        drop(b);
+        // The golden creation holds one slot, so the freed slot goes to the start.
+        assert!(c.join().unwrap().is_ok());
+        drop(slot);
+    }
+
+    #[test]
+    fn the_view_shows_the_hold_as_a_golden_holder() {
+        let (queue, _) = queue(2);
+        let slot = queue
+            .admit_golden(
+                vec!["setup".into(), "base-building".into()],
+                Some(RequestedBy {
+                    pid: Some(7),
+                    cwd: Some("/trees/golden".into()),
+                }),
+                &CancellationToken::new(),
+                &quiet(),
+            )
+            .unwrap();
+        let view = queue.view();
+        assert_eq!(view.holders.len(), 1);
+        let holder = &view.holders[0];
+        assert_eq!(holder.kind, HolderKind::Golden);
+        assert_eq!(holder.state, HolderState::Held);
+        assert_eq!(holder.vms, ["setup", "base-building"]);
+        assert_eq!(holder.request_id.as_deref(), Some(slot.request_id()));
+        assert_eq!(
+            holder.requested_by.as_ref().and_then(|by| by.cwd.as_deref()),
+            Some("/trees/golden")
+        );
+        drop(slot);
+        assert!(queue.view().holders.is_empty());
+    }
+
+    #[test]
+    fn macos_slots_at_zero_refuses_a_golden_creation_at_once() {
+        let (queue, _) = queue(0);
+        let error = queue
+            .admit_golden(
+                vec!["setup".into()],
+                None,
+                &CancellationToken::new(),
+                &quiet(),
+            )
+            .err()
+            .expect("no slot to hold");
+        let limit = limit_of(error);
+        assert_eq!(limit.limit, 0);
+        assert_eq!(limit.admission.refused_by, RefusedBy::App);
+        assert!(queue.waiting().is_empty(), "the refusal leaves nothing in the queue");
+    }
+
+    #[test]
+    fn a_golden_creation_that_leaves_while_it_waits_leaves_no_hold() {
+        let (queue, _) = queue(1);
+        let _a = queue
+            .admit(&ask("a", Some(5)), &CancellationToken::new(), &quiet())
+            .unwrap();
+        let cancel = CancellationToken::new();
+        let golden = {
+            let queue = Arc::clone(&queue);
+            let cancel = cancel.clone();
+            std::thread::spawn(move || {
+                queue.admit_golden(vec!["setup".into()], None, &cancel, &quiet())
+            })
+        };
+        wait_until("the golden creation to join", || queue.waiting().len() == 1);
+        cancel.cancel();
+        assert!(matches!(
+            golden.join().unwrap().err(),
+            Some(VmError::StartCancelled { .. })
+        ));
+        assert!(queue.waiting().is_empty());
+        assert!(queue.golden_holds().is_empty());
+    }
+
+    #[test]
+    fn the_setup_vm_of_a_golden_creation_that_ended_counts_as_a_seen_holder_while_it_runs() {
+        // The golden creation crashed with its setup VM running: the connection closes, and the
+        // hold ends. tart still reports the setup VM running, so it holds a slot until it stops.
+        let (queue, _, tart) = queue_over(2, macos(&["setup"]));
+        let slot = queue
+            .admit_golden(
+                vec!["setup".into()],
+                None,
+                &CancellationToken::new(),
+                &quiet(),
+            )
+            .unwrap();
+        let view = queue.view();
+        assert_eq!(view.holders.len(), 1, "the hold and the running VM are one holder");
+        assert_eq!(view.holders[0].kind, HolderKind::Golden);
+        drop(slot);
+        let a = queue
+            .admit(&ask("a", Some(5)), &CancellationToken::new(), &quiet())
+            .unwrap();
+        let b = join_thread(&queue, "b", 30);
+        wait_until("the second start to join", || queue.waiting().len() == 1);
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!b.is_finished(), "the running setup VM and the first start hold both slots");
+        tart.set(&[]);
+        queue.holder_ended();
+        assert!(b.join().unwrap().is_ok());
+        drop(a);
     }
 
     // The seen holders (spec "admission-queue": "The count").
@@ -2206,7 +2551,9 @@ mod tests {
         };
         state.waiting.push(Entry {
             request_id: "r-1".into(),
-            vm_id: "w".into(),
+            subject: Subject::Start {
+                vm_id: "w".into(),
+            },
             requested_by: None,
             joined: Duration::ZERO,
             seq: 0,

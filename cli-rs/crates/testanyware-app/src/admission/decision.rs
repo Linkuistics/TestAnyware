@@ -28,6 +28,10 @@ pub struct Waiter {
     /// The number of the next observation at the join of this waiter. An answer is newer than
     /// the join when its observation has this number or a later one.
     pub joined_obs: u64,
+    /// Whether the waiter is a golden creation. The app sees its hold and not its boots, so the
+    /// framework never answers the admission of a golden creation, and the app never counts it
+    /// as unproven.
+    pub golden: bool,
 }
 
 /// What the function reads.
@@ -84,10 +88,12 @@ pub fn decide(input: Input<'_>) -> Decision {
         .last_refusal
         .is_some_and(|at| input.now < at + input.pause);
     let mut admit = Vec::new();
+    // The starts among the admissions of this decision. Only they await the framework.
+    let mut admitted_unproven = 0;
     for waiter in input.queue {
         // Each admission is a holder at once, and it is unproven until the framework answers.
         let held = input.own_holders + admit.len();
-        let unproven = input.unproven + admit.len();
+        let unproven = input.unproven + admitted_unproven;
         let newer = input
             .answer
             .is_some_and(|number| number >= waiter.joined_obs);
@@ -103,6 +109,9 @@ pub fn decide(input: Input<'_>) -> Decision {
             break;
         }
         admit.push(waiter.request_id.clone());
+        if !waiter.golden {
+            admitted_unproven += 1;
+        }
     }
     let expire = input.queue[admit.len()..]
         .iter()
@@ -169,6 +178,15 @@ mod tests {
             request_id: id.into(),
             deadline: deadline.map(secs),
             joined_obs,
+            golden: false,
+        }
+    }
+
+    /// A golden creation that joined before the observation 0.
+    fn golden(id: &str) -> Waiter {
+        Waiter {
+            golden: true,
+            ..waiter(id, None)
         }
     }
 
@@ -497,6 +515,29 @@ mod tests {
             decide(after_a_refusal(&queue, 2, 0, 20)),
             Decision::default()
         );
+    }
+
+    #[test]
+    fn a_golden_creation_admitted_in_contention_leaves_no_unproven_start() {
+        // The head is a golden creation: it is a holder at once and never unproven, so the start
+        // behind it takes the other slot in the same decision.
+        let queue = [golden("g-1"), waiter("r-2", Some(600))];
+        assert_eq!(
+            decide(after_a_refusal(&queue, 0, 0, 20)).admit,
+            ids(&["g-1", "r-2"])
+        );
+    }
+
+    #[test]
+    fn a_golden_creation_behind_an_unproven_start_waits_in_contention() {
+        let queue = [waiter("r-1", Some(600)), golden("g-2")];
+        assert_eq!(
+            decide(after_a_refusal(&queue, 0, 0, 20)).admit,
+            ids(&["r-1"]),
+            "the start is unproven, and contention admits one try at a time"
+        );
+        // Without contention both take a slot.
+        assert_eq!(decide_at(&queue, 0, 0).admit, ids(&["r-1", "g-2"]));
     }
 
     #[test]

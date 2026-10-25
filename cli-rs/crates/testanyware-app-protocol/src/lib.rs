@@ -26,15 +26,16 @@ pub use hello::{ClientHello, Directories, ServerHello};
 pub use list::{ListRequest, LIST_PATH};
 pub use skew::{decide, needs_version, older_than_bundle, Decision, Notice, Remedy};
 pub use slots::{
-    HolderKind, HolderState, RequestedBy, SlotContention, SlotHolder, SlotWaiter, SlotsView,
-    WaiterKind, SLOTS_PATH,
+    HoldEvent, HoldRequest, HolderKind, HolderState, RequestedBy, SlotContention, SlotHolder,
+    SlotWaiter, SlotsView, WaiterKind, SLOTS_PATH,
 };
 pub use socket::{
     default_socket_path, judge_socket_dir, validate_socket_path, SocketDirError, SocketPathError,
     SOCKET_PATH_MAX_BYTES,
 };
 pub use start::{
-    EventLines, HostPort, StartEvent, StartRequest, StartResult, TpmReport, START_CONTENT_TYPE,
+    EventLines, HostPort, NdjsonLines, StartEvent, StartRequest, StartResult, TpmReport,
+    START_CONTENT_TYPE,
 };
 pub use status::{
     AdoptedVm, AdoptionStatus, ConfigurationState, ConfigurationStatus, GrantState,

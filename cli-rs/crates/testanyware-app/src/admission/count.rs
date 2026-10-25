@@ -33,29 +33,64 @@ pub fn macos_guests_with_a_meta(paths: &VmPaths, probe: &impl ProcessProbe) -> B
 /// The own holders and the seen holders of one moment.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Holders {
-    /// The guests that a meta holds and the starts that the app admitted.
+    /// The guests that a meta holds and the starts that the app admitted. A guest that a golden
+    /// creation names is not among them: the hold of the golden creation counts it.
     pub own: BTreeSet<String>,
+    /// The golden creations that the app admitted, each with the names of the VMs that it boots.
+    /// Each one is one own holder, whatever the number of its names.
+    pub golden: Vec<Vec<String>>,
     /// The macOS guests of the last answer that no own holder names.
     pub seen: BTreeSet<String>,
 }
 
 impl Holders {
+    /// The number of own holders: the guests, and the golden creations. This is the number that
+    /// counts against `macos_slots` and against the two slots of Apple.
+    pub fn own_count(&self) -> usize {
+        self.own.len() + self.golden.len()
+    }
+
     /// The name of each holder, own and seen, in order.
     pub fn names(&self) -> Vec<String> {
-        self.own.union(&self.seen).cloned().collect()
+        let mut names: BTreeSet<String> = self.own.union(&self.seen).cloned().collect();
+        names.extend(self.golden.iter().flatten().cloned());
+        names.into_iter().collect()
     }
 }
 
 /// Put the own holders and the last answer of tart together. A guest that two holders name counts
 /// once, as an own holder: an admitted start names its VM id, and so does the meta of the guest.
+/// A golden creation counts as one own holder and names each VM that it boots (spec
+/// "admission-queue": "The count"). A guest that it names is its own, so the answer of tart makes
+/// it no seen holder, and no meta makes it a second own holder.
+///
 /// The exit of a `tart run` removes no name from the answer, so a guest whose own hold has ended
 /// stays in the count as a seen holder until a later answer drops it. Before the first answer,
 /// `answer` is `None` and no guest is seen.
-pub fn holders(own: BTreeSet<String>, answer: Option<&BTreeSet<String>>) -> Holders {
+pub fn holders(
+    own: BTreeSet<String>,
+    goldens: &[Vec<String>],
+    answer: Option<&BTreeSet<String>>,
+) -> Holders {
+    let named_by_a_golden: BTreeSet<&String> = goldens.iter().flatten().collect();
+    let own: BTreeSet<String> = own
+        .into_iter()
+        .filter(|name| !named_by_a_golden.contains(name))
+        .collect();
     let seen = answer
-        .map(|macos| macos.difference(&own).cloned().collect())
+        .map(|macos| {
+            macos
+                .iter()
+                .filter(|name| !own.contains(*name) && !named_by_a_golden.contains(name))
+                .cloned()
+                .collect()
+        })
         .unwrap_or_default();
-    Holders { own, seen }
+    Holders {
+        own,
+        golden: goldens.to_vec(),
+        seen,
+    }
 }
 
 /// Whether the read of a stop removes `vm` from the last answer (spec "admission-queue": "The
@@ -249,22 +284,55 @@ mod tests {
     fn a_name_that_two_holders_share_counts_once_as_an_own_holder() {
         // The meta of `a` and the answer of tart both name it. An admitted start `b` is named
         // by the answer too, once its `tart run` has started.
-        let held = holders(names(&["a", "b"]), Some(&names(&["a", "b", "c"])));
+        let held = holders(names(&["a", "b"]), &[], Some(&names(&["a", "b", "c"])));
         assert_eq!(held.own, names(&["a", "b"]));
         assert_eq!(held.seen, names(&["c"]));
         assert_eq!(held.names(), ["a", "b", "c"]);
     }
 
     #[test]
+    fn a_golden_creation_is_one_own_holder_whatever_the_number_of_its_names() {
+        let goldens = [vec!["setup".to_string(), "base-building".to_string()]];
+        let held = holders(BTreeSet::new(), &goldens, Some(&BTreeSet::new()));
+        assert_eq!(held.own_count(), 1);
+        assert_eq!(held.names(), ["base-building", "setup"]);
+    }
+
+    #[test]
+    fn a_guest_that_a_golden_creation_names_is_neither_seen_nor_a_second_own_holder() {
+        // tart reports the setup VM running, and a meta names it as well. The golden creation
+        // holds the one slot of the three names.
+        let goldens = [vec!["setup".to_string()]];
+        let held = holders(
+            names(&["setup", "mac"]),
+            &goldens,
+            Some(&names(&["setup", "mac", "outside"])),
+        );
+        assert_eq!(held.own, names(&["mac"]));
+        assert_eq!(held.seen, names(&["outside"]));
+        assert_eq!(held.own_count(), 2);
+        assert_eq!(held.names(), ["mac", "outside", "setup"]);
+    }
+
+    #[test]
+    fn a_golden_creation_between_its_boots_holds_a_slot_beside_no_running_guest() {
+        // The setup VM does not run between two boots, so the answer of tart names nothing.
+        let goldens = [vec!["setup".to_string()]];
+        let held = holders(BTreeSet::new(), &goldens, Some(&BTreeSet::new()));
+        assert_eq!(held.own_count(), 1);
+        assert!(held.seen.is_empty());
+    }
+
+    #[test]
     fn a_guest_that_no_own_holder_names_is_a_seen_holder() {
-        let held = holders(BTreeSet::new(), Some(&names(&["outside"])));
+        let held = holders(BTreeSet::new(), &[], Some(&names(&["outside"])));
         assert!(held.own.is_empty());
         assert_eq!(held.seen, names(&["outside"]));
     }
 
     #[test]
     fn before_the_first_answer_no_guest_is_seen() {
-        let held = holders(names(&["a"]), None);
+        let held = holders(names(&["a"]), &[], None);
         assert_eq!(held.own, names(&["a"]));
         assert!(held.seen.is_empty());
     }
@@ -285,7 +353,7 @@ mod tests {
         );
         let own = macos_guests_with_a_meta(&paths, &Host(Default::default()));
         assert!(own.is_empty());
-        let held = holders(own, Some(&names(&["mac"])));
+        let held = holders(own, &[], Some(&names(&["mac"])));
         assert!(held.own.is_empty());
         assert_eq!(held.seen, names(&["mac"]));
     }
@@ -295,11 +363,11 @@ mod tests {
         // The hold of the admission ends when the `tart run` exits, and the answer of tart
         // still names the VM, which can be a replacement under the same name. It stays in the
         // count, as a seen holder, until a later answer drops it.
-        let before = holders(names(&["a"]), Some(&names(&["a"])));
+        let before = holders(names(&["a"]), &[], Some(&names(&["a"])));
         assert_eq!(before.own.len() + before.seen.len(), 1);
-        let after_the_exit = holders(BTreeSet::new(), Some(&names(&["a"])));
+        let after_the_exit = holders(BTreeSet::new(), &[], Some(&names(&["a"])));
         assert_eq!(after_the_exit.seen, names(&["a"]));
-        let later_answer = holders(BTreeSet::new(), Some(&BTreeSet::new()));
+        let later_answer = holders(BTreeSet::new(), &[], Some(&BTreeSet::new()));
         assert!(later_answer.own.is_empty() && later_answer.seen.is_empty());
     }
 
@@ -336,7 +404,7 @@ mod tests {
             Some("macos"),
         );
         let own = macos_guests_with_a_meta(&paths, &NewBoot);
-        let held = holders(own, Some(&BTreeSet::new()));
+        let held = holders(own, &[], Some(&BTreeSet::new()));
         assert!(held.own.is_empty() && held.seen.is_empty(), "{held:?}");
     }
 

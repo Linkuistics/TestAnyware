@@ -7,7 +7,11 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The path of the request. It is a request of version 2.
+use crate::error::AppError;
+use crate::stream::is_plain_vm_id;
+
+/// The path of the requests. `GET` reads the view, and `POST` holds a slot for a golden creation.
+/// Both are requests of version 2.
 pub const SLOTS_PATH: &str = "/v1/slots";
 
 /// Who asked for a start (spec "Who asked").
@@ -151,6 +155,60 @@ impl SlotsView {
     }
 }
 
+/// `POST /v1/slots`: the hold request of a golden creation (spec "admission-queue": "The
+/// protocol"). The golden creation joins the queue, and after its admission the open connection is
+/// the hold.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HoldRequest {
+    /// The VMs that the golden creation boots: its setup VM and, for an IPSW build, the VM
+    /// `<base>-building`. The count names them, so that a guest that tart reports under one of
+    /// these names counts once.
+    pub vms: Vec<String>,
+    /// The working directory of the Host CLI, which names the worktree of the grove. An older
+    /// Host CLI states none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cwd: Option<String>,
+}
+
+impl HoldRequest {
+    /// Check the request before the app opens a stream. The names go into the count and into
+    /// `vm slots`, so each must be a plain VM id, and a golden creation boots at least one VM.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.vms.is_empty() {
+            return Err("the request names no VM that the golden creation boots".into());
+        }
+        match self.vms.iter().find(|vm| !is_plain_vm_id(vm)) {
+            Some(bad) => Err(format!(
+                "the VM name '{bad}' has characters other than letters, digits, '.', '-' and '_', \
+                 or starts with a dot"
+            )),
+            None => Ok(()),
+        }
+    }
+}
+
+/// One line of the response to a hold request.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
+pub enum HoldEvent {
+    /// A line for stderr about the wait, as a waiting start gets it.
+    Progress { line: String },
+    /// The app admitted the golden creation. The app sends nothing more, and it holds the slot
+    /// until the client closes the connection.
+    Admitted { request_id: String },
+    /// The request failed, such as `VM_LIMIT_REACHED` when `macos_slots` is 0. It ends the stream.
+    Error { error: AppError },
+}
+
+impl HoldEvent {
+    /// The line of the stream: the event as JSON, and a newline.
+    pub fn to_line(&self) -> String {
+        let mut line = serde_json::to_string(self).expect("an event serialises");
+        line.push('\n');
+        line
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,5 +275,48 @@ mod tests {
                 "deadline": 65,
             })
         );
+    }
+
+    #[test]
+    fn a_hold_request_names_plain_vm_ids_and_at_least_one() {
+        let ok = HoldRequest {
+            vms: vec!["testanyware-setup-ab12cd34".into(), "base-building".into()],
+            cwd: None,
+        };
+        assert_eq!(ok.validate(), Ok(()));
+        for bad in [
+            vec![],
+            vec!["../x".to_string()],
+            vec!["ok".into(), "a/b".into()],
+        ] {
+            let request = HoldRequest {
+                vms: bad,
+                cwd: None,
+            };
+            assert!(request.validate().is_err(), "{request:?}");
+        }
+    }
+
+    #[test]
+    fn the_events_of_a_hold_are_lines_of_json() {
+        let admitted = HoldEvent::Admitted {
+            request_id: "r-1".into(),
+        };
+        assert_eq!(
+            admitted.to_line(),
+            "{\"event\":\"admitted\",\"request_id\":\"r-1\"}\n"
+        );
+        let mut lines = crate::start::NdjsonLines::<HoldEvent>::default();
+        let both = format!(
+            "{}{}",
+            HoldEvent::Progress {
+                line: "waiting".into()
+            }
+            .to_line(),
+            admitted.to_line()
+        );
+        let (first, second) = both.as_bytes().split_at(10);
+        assert_eq!(lines.push(first).unwrap(), vec![]);
+        assert_eq!(lines.push(second).unwrap().len(), 2);
     }
 }

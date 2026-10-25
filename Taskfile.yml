@@ -74,6 +74,16 @@ tasks:
       - 'cargo test -p testanyware-cli --test app-vm-queue -- vm_slots the_slots_request a_start_states'
       - 'cargo test -p testanyware-cli --test app-version-skew -- vm_slots older_app_starts'
 
+  golden:hold-test:
+    desc: Test that a macOS golden creation holds a slot through one connection (ADR-0022, spec "admission-queue", "Golden creation"). The hold request and its events, the count of a hold that names several VMs, the decision that never counts a golden creation as unproven, and the queue with a golden waiter (no bound, one slot, the view). On a macOS host the hold request runs through the library of the Host CLI against the real app executable and a fake tart. Golden creation waits behind two VMs, a start beside the hold waits, a crash of the client and a quit of the app, macos_slots 0, a bad name and a client of version 1. The real vm create-golden waits for its slot after its fast checks, and an app of version 1 fails it with APP_INCOMPATIBLE
+    dir: '{{.CLI_DIR}}'
+    cmds:
+      - 'cargo test -p testanyware-app-protocol --lib -- slots::'
+      - 'cargo test -p testanyware-app --lib -- admission::count admission::decision admission::tests::a_golden admission::tests::the_view_shows_the_hold admission::tests::macos_slots_at_zero admission::tests::the_setup_vm hold::'
+      - 'cargo test -p testanyware-cli --lib -- app_route::'
+      - 'cargo test -p testanyware-cli --test app-vm-queue -- golden the_hold_request the_command a_host_that_fails a_setup_vm_that_still a_name_that_is_no_plain a_start_beside_the_hold'
+      - 'cargo test -p testanyware-cli --test app-version-skew -- golden'
+
   doctor:app-test:
     desc: Test the `app` check of `doctor` (spec "What the commands report about the app"). The classifier of every item, the report against doctor.json, the status fields of the app (Local Network observation, login item, executable), and the real CLI binary against the real app executable with a directory mismatch, a protocol mismatch, a bundle newer than the app, a file that fails and an app that does not run (macOS host). A Linux or Windows host runs the not-applicable case
     dir: '{{.CLI_DIR}}'

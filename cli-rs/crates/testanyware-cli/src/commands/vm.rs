@@ -590,14 +590,25 @@ async fn run_vm_create_golden_macos(
 
     #[cfg(target_os = "macos")]
     {
-        use testanyware_vm::finalize::create_golden;
-        use testanyware_vm::golden::GoldenOptions;
+        use testanyware_vm::finalize::create_golden_after;
+        use testanyware_vm::golden::{GoldenOptions, GoldenPreflight};
 
-        // The app cannot compare the directories of a command that sends it no request.
+        // The app compares the directories of its own requests. Golden creation checks them
+        // first, so a mismatch fails before the checks and before the wait for a slot.
         crate::host_config::refuse_golden_if_directories_differ(mode);
         let opts = GoldenOptions { version: version.clone(), name: name.clone() };
         let paths = crate::host_config::vm_paths();
-        match create_golden(&opts, &paths).await {
+        // The fast checks come before the request for a slot, and the request comes before the
+        // first change (spec "admission-queue": "Golden creation").
+        let preflight = match GoldenPreflight::check(&opts) {
+            Ok(preflight) => preflight,
+            Err(err) => exit_vm_error(err, mode),
+        };
+        // The lease holds the slot through all the boots. It ends when the setup VM has stopped:
+        // after the clone to the golden on success, and after the cleanup on a failure. It also
+        // ends if this process crashes, because the app watches the connection.
+        let _slot = hold_golden_slot(&preflight, mode).await;
+        match create_golden_after(&opts, &preflight, &paths).await {
             Ok(golden) => match mode {
                 OutputMode::Text => {
                     println!("Golden image '{golden}' created successfully.");
@@ -612,6 +623,41 @@ async fn run_vm_create_golden_macos(
             },
             Err(err) => exit_vm_error(err, mode),
         }
+    }
+}
+
+/// Ask the TestAnyware app for the slot of a macOS golden creation, and wait for it with no bound.
+/// Ctrl-C ends the wait, as it ends the process. `None` means that no app runs, and golden
+/// creation then takes no slot, as it did before the queue. An app that runs and cannot serve the
+/// request, such as one of protocol version 1, fails the command with its error.
+#[cfg(target_os = "macos")]
+async fn hold_golden_slot(
+    preflight: &testanyware_vm::golden::GoldenPreflight,
+    mode: OutputMode,
+) -> Option<testanyware_app_client::SlotLease> {
+    let socket = app_socket_with_env(&EnvProvider::process())?;
+    let held = app_route::hold_slot(
+        socket,
+        preflight.hold_names(),
+        |line| eprintln!("{line}"),
+        || {
+            eprintln!(
+                "The TestAnyware app ended the connection that holds the slot of this golden \
+                 creation. Golden creation goes on without a hold."
+            )
+        },
+    )
+    .await;
+    match held {
+        Ok(lease) => {
+            eprintln!(
+                "The TestAnyware app admitted this golden creation: request {}.",
+                lease.request_id()
+            );
+            Some(lease)
+        }
+        Err(error) if app_route::runs_without_the_app(&error) => None,
+        Err(error) => exit_app_error(error, mode),
     }
 }
 

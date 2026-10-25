@@ -108,7 +108,12 @@ impl Fixture {
         };
         let args = ["--test-agent-port".to_string(), agent_port.to_string()];
         let app = match config {
-            Some(config) => TestApp::start_after_with_config_and_args(prepare, config, &args),
+            Some(config) => TestApp::start_after_with_config_text_and_args(
+                prepare,
+                |app| config.replace("$STATE", &app.state_dir().display().to_string())
+                    .replace("$DATA", &app.data_dir().display().to_string()),
+                &args,
+            ),
             None => TestApp::start_after_with_args(prepare, &args),
         };
         Self { app, _agent: agent }
@@ -604,7 +609,7 @@ fn a_start_without_a_wait_never_passes_a_waiter_and_runs_no_tart_run() {
 #[test]
 fn a_start_without_a_wait_takes_a_free_slot_when_no_waiter_stands_ahead() {
     let _serial = serial();
-    let fixture = Fixture::healthy();
+    let fixture = Fixture::for_golden("");
     fixture.start_and_wait_until_running("f-a");
     for (id, wait) in [("f-b", None), ("f-c", Some("--wait=0"))] {
         let mut args = vec![
@@ -1436,4 +1441,467 @@ fn a_start_states_its_directory_and_an_older_start_without_one_still_queues() {
     assert_eq!(waiter["requested_by"]["pid"], std::process::id(), "this process connected: {view}");
     assert_eq!(waiter["requested_by"]["cwd"], Value::Null, "{view}");
     drop(stream);
+}
+
+// ---- golden creation holds a slot (spec "admission-queue": "Golden creation") ----
+//
+// The hold request runs through the library of the Host CLI, as the command runs it. No test runs
+// the real pipeline of golden creation, which takes 10 to 40 minutes: the hold is the open
+// connection, and the pipeline only has to keep the lease until its setup VM has stopped.
+
+/// The process states the directories that the app reads, as the Host CLI states its own. The
+/// serial lock keeps another test from changing them.
+fn state_directories_of(fixture: &Fixture) {
+    std::env::set_var("XDG_STATE_HOME", fixture.app.xdg_state_home());
+    std::env::set_var("XDG_DATA_HOME", fixture.app.xdg_data_home());
+}
+
+fn runtime() -> tokio::runtime::Runtime {
+    // The lease owns tasks that keep its connection open, so the runtime runs them on its own
+    // threads while the test thread waits.
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .expect("a tokio runtime")
+}
+
+type Lines = Arc<Mutex<Vec<String>>>;
+type Lost = Arc<std::sync::atomic::AtomicBool>;
+type Held = tokio::task::JoinHandle<Result<testanyware_app_client::SlotLease, testanyware_app_protocol::AppError>>;
+
+/// Ask for the slot of a golden creation on `runtime`, as the command does. The progress lines
+/// land in the first value, and the second becomes true if the app closes the connection of an
+/// admitted hold.
+fn ask_for_the_hold(
+    runtime: &tokio::runtime::Runtime,
+    fixture: &Fixture,
+    vms: &[&str],
+) -> (Held, Lines, Lost) {
+    let lines: Lines = Arc::default();
+    let lost: Lost = Arc::default();
+    let socket = fixture.app.socket();
+    let vms: Vec<String> = vms.iter().map(|vm| vm.to_string()).collect();
+    let task = runtime.spawn({
+        let lines = Arc::clone(&lines);
+        let lost = Arc::clone(&lost);
+        async move {
+            testanyware_cli::app_route::hold_slot(
+                socket,
+                vms,
+                move |line| lines.lock().unwrap().push(line.to_string()),
+                move || lost.store(true, std::sync::atomic::Ordering::SeqCst),
+            )
+            .await
+        }
+    });
+    (task, lines, lost)
+}
+
+fn lines_have(lines: &Lines, text: &str) -> bool {
+    lines.lock().unwrap().iter().any(|line| line.contains(text))
+}
+
+fn golden_holders(view: &Value) -> Vec<&Value> {
+    view["holders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|holder| holder["kind"] == "golden")
+        .collect()
+}
+
+#[test]
+fn golden_creation_behind_two_vms_waits_reports_its_place_and_holds_one_slot_for_its_connection() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    state_directories_of(&fixture);
+    fixture.start_and_wait_until_running("h-a");
+    fixture.start_and_wait_until_running("h-b");
+    let runtime = runtime();
+
+    let (held, lines, _) = ask_for_the_hold(&runtime, &fixture, &["h-setup", "h-base-building"]);
+    until("the golden creation to report its place", || {
+        lines_have(&lines, "place 1")
+    });
+    let line = lines.lock().unwrap()[0].clone();
+    assert!(line.contains("request r-") && line.contains("h-a") && line.contains("h-b"), "{line}");
+
+    // The queue shows the waiter as a golden creation, with who asked and no bound.
+    let view = slots(&fixture);
+    let waiter = &view["queue"][0];
+    assert_eq!(waiter["kind"], "golden", "{view}");
+    assert_eq!(waiter["vms"], json!(["h-base-building", "h-setup"]), "{view}");
+    assert_eq!(waiter["deadline"], Value::Null, "the wait has no bound: {view}");
+    assert_eq!(waiter["requested_by"]["pid"], std::process::id(), "{view}");
+    assert_eq!(
+        waiter["requested_by"]["cwd"],
+        std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap().display().to_string(),
+        "{view}"
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(!held.is_finished(), "both slots are held");
+
+    // A start that joins later stays behind the golden creation.
+    let mut later = fixture.spawn_start("h-later", &["--wait"]);
+    later.until_stderr_has("place 2");
+
+    // A stop frees one slot, and the app admits the golden creation first.
+    fixture.stop("h-a");
+    let lease = runtime
+        .block_on(held)
+        .unwrap()
+        .expect("the stop admits the golden creation");
+    let view = slots(&fixture);
+    let holders = golden_holders(&view);
+    assert_eq!(holders.len(), 1, "{view}");
+    assert_eq!(holders[0]["state"], "held", "{view}");
+    assert_eq!(holders[0]["request_id"], lease.request_id(), "{view}");
+    assert_eq!(holders[0]["vms"], json!(["h-base-building", "h-setup"]), "{view}");
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(!later.finished(), "the golden creation holds the slot that the stop freed");
+    assert!(fixture.tart_run_pid("h-later").is_none());
+
+    // The end of the golden creation closes the connection, and the app admits the start.
+    drop(lease);
+    let (code, envelope, err) = later.finish();
+    assert_eq!(code, 0, "{envelope} {err}");
+    assert_eq!(fixture.refusals(), Vec::<String>::new(), "the framework refused no start");
+}
+
+#[test]
+fn a_start_beside_the_hold_takes_the_other_slot_and_the_next_start_waits() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    state_directories_of(&fixture);
+    let runtime = runtime();
+
+    // Nothing runs, and the golden creation boots nothing yet: it holds a slot between boots.
+    let (held, _, _) = ask_for_the_hold(&runtime, &fixture, &["g-setup"]);
+    let lease = runtime.block_on(held).unwrap().expect("a free slot admits it at once");
+    assert!(lease.request_id().starts_with("r-"));
+
+    fixture.start_and_wait_until_running("g-one");
+    let mut second = fixture.spawn_start("g-two", &["--wait"]);
+    second.until_stderr_has("place 1");
+    assert!(
+        second.stderr().contains("g-one") && second.stderr().contains("g-setup"),
+        "the line names the start and the golden creation: {}",
+        second.stderr()
+    );
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(!second.finished(), "the hold and the first start fill both slots");
+    assert!(fixture.tart_run_pid("g-two").is_none());
+
+    // The setup VM does not run, so tart shows nothing of the golden creation. The count keeps it.
+    let view = slots(&fixture);
+    assert_eq!(golden_holders(&view).len(), 1, "{view}");
+    assert!(holder(&view, "g-one")["kind"] == "vm", "{view}");
+
+    drop(lease);
+    let (code, envelope, err) = second.finish();
+    assert_eq!(code, 0, "{envelope} {err}");
+    let view = slots(&fixture);
+    assert!(golden_holders(&view).is_empty(), "{view}");
+    assert_eq!(fixture.refusals(), Vec::<String>::new());
+}
+
+/// POST `/v1/slots` by hand, as a client that the test controls. The reply is read up to the end
+/// of the head and the first event.
+fn raw_hold(fixture: &Fixture, vms: &[&str]) -> (std::os::unix::net::UnixStream, String) {
+    use std::io::Write;
+    use testanyware_app_protocol::{ClientHello, Directories, ProtocolRange};
+    let hello = ClientHello::new(
+        ProtocolRange::new(1, 2),
+        env!("CARGO_PKG_VERSION"),
+        Directories {
+            state_dir: fixture.app.state_dir(),
+            data_dir: fixture.app.data_dir(),
+        },
+    );
+    let text = json!({ "vms": vms }).to_string();
+    let mut request = format!(
+        "POST /v1/slots HTTP/1.1\r\nHost: test\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        text.len()
+    );
+    for (name, value) in hello.to_headers() {
+        request.push_str(&format!("{name}: {value}\r\n"));
+    }
+    request.push_str("\r\n");
+    request.push_str(&text);
+    let mut stream = std::os::unix::net::UnixStream::connect(fixture.app.socket()).unwrap();
+    stream.write_all(request.as_bytes()).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    let mut head = String::new();
+    let mut byte = [0u8; 1];
+    while !head.contains("\"admitted\"") && !head.contains("\"error\"") {
+        if stream.read(&mut byte).unwrap_or(0) == 0 {
+            break;
+        }
+        head.push(byte[0] as char);
+    }
+    (stream, head)
+}
+
+#[test]
+fn the_crash_of_a_golden_creation_closes_its_connection_and_ends_the_hold() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    let (stream, head) = raw_hold(&fixture, &["c-setup"]);
+    assert!(head.contains("\"event\":\"admitted\""), "{head}");
+    assert_eq!(golden_holders(&slots(&fixture)).len(), 1);
+
+    // The kernel closes the connection of a process that crashes, which is what this does.
+    drop(stream);
+    until("the hold to end", || golden_holders(&slots(&fixture)).is_empty());
+}
+
+#[test]
+fn a_setup_vm_that_still_runs_after_the_hold_ended_counts_as_a_seen_holder_and_is_never_stopped() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    let (stream, head) = raw_hold(&fixture, &["r-setup"]);
+    assert!(head.contains("admitted"), "{head}");
+    // The golden creation booted its setup VM outside the app, as it does on the direct path.
+    let setup = fixture.run_outside("r-setup", "darwin");
+    until("the app to see the VM beside the hold", || {
+        let view = slots(&fixture);
+        golden_holders(&view).len() == 1 && view["holders"].as_array().unwrap().len() == 1
+    });
+
+    drop(stream);
+    until("the hold to end", || golden_holders(&slots(&fixture)).is_empty());
+    let view = slots(&fixture);
+    let seen = holder(&view, "r-setup");
+    assert_eq!(seen["kind"], "external", "{view}");
+    assert!(fixture.runs("r-setup"), "the app never stops a VM that it did not start");
+    fixture.end_outside("r-setup", setup);
+}
+
+#[test]
+fn with_macos_slots_0_golden_creation_fails_with_vm_limit_reached() {
+    let _serial = serial();
+    let fixture = Fixture::healthy_with_config("#{ macos_slots: 0 }");
+    state_directories_of(&fixture);
+    let runtime = runtime();
+    let (held, _, _) = ask_for_the_hold(&runtime, &fixture, &["z-setup"]);
+    let error = runtime.block_on(held).unwrap().expect_err("no slot to hold");
+    assert_eq!(error.code, "VM_LIMIT_REACHED", "{error:?}");
+    assert_eq!(error.details["limit"], 0, "{error:?}");
+    assert_eq!(error.details["refused_by"], "app", "{error:?}");
+    assert!(slots(&fixture)["queue"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn a_name_that_is_no_plain_vm_id_fails_with_usage_error_before_the_stream() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    state_directories_of(&fixture);
+    let runtime = runtime();
+    for bad in [vec!["../escape"], vec!["ok", "a/b"], vec![]] {
+        let (held, _, _) = ask_for_the_hold(&runtime, &fixture, &bad);
+        let error = runtime.block_on(held).unwrap().expect_err("a usage error");
+        assert_eq!(error.code, "USAGE_ERROR", "{bad:?}: {error:?}");
+    }
+    assert!(slots(&fixture)["queue"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn a_quit_of_the_app_while_golden_creation_waits_fails_it_with_the_cause_quitting() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    state_directories_of(&fixture);
+    fixture.start_and_wait_until_running("q2-a");
+    fixture.start_and_wait_until_running("q2-b");
+    let runtime = runtime();
+    let (held, lines, _) = ask_for_the_hold(&runtime, &fixture, &["q2-setup"]);
+    until("the golden creation to wait", || lines_have(&lines, "place 1"));
+
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(fixture.app.pid() as i32),
+        nix::sys::signal::Signal::SIGTERM,
+    )
+    .unwrap();
+    let error = runtime.block_on(held).unwrap().expect_err("the wait fails");
+    assert_eq!(error.code, "APP_UNREACHABLE", "{error:?}");
+    assert_eq!(error.details["cause"], "quitting", "{error:?}");
+}
+
+#[test]
+fn a_quit_of_the_app_while_golden_creation_holds_its_slot_ends_the_hold_and_says_so_once() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    state_directories_of(&fixture);
+    let runtime = runtime();
+    let (held, _, lost) = ask_for_the_hold(&runtime, &fixture, &["q3-setup"]);
+    let lease = runtime.block_on(held).unwrap().expect("admitted");
+    assert!(!lost.load(std::sync::atomic::Ordering::SeqCst));
+
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(fixture.app.pid() as i32),
+        nix::sys::signal::Signal::SIGTERM,
+    )
+    .unwrap();
+    until("the lease to learn that the app is gone", || {
+        lost.load(std::sync::atomic::Ordering::SeqCst)
+    });
+    // The golden creation goes on: dropping the lease afterwards is harmless.
+    drop(lease);
+}
+
+#[test]
+fn a_lease_that_the_golden_creation_drops_does_not_say_that_the_hold_was_lost() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    state_directories_of(&fixture);
+    let runtime = runtime();
+    let (held, _, lost) = ask_for_the_hold(&runtime, &fixture, &["d-setup"]);
+    drop(runtime.block_on(held).unwrap().expect("admitted"));
+    until("the hold to end", || golden_holders(&slots(&fixture)).is_empty());
+    std::thread::sleep(Duration::from_millis(300));
+    assert!(!lost.load(std::sync::atomic::Ordering::SeqCst));
+}
+
+#[test]
+fn the_hold_request_is_one_of_version_2_and_a_client_of_version_1_has_no_such_route() {
+    let _serial = serial();
+    use std::io::Write;
+    use testanyware_app_protocol::{ClientHello, Directories, ProtocolRange};
+    let fixture = Fixture::healthy();
+    let hello = ClientHello::new(
+        ProtocolRange::new(1, 1),
+        env!("CARGO_PKG_VERSION"),
+        Directories {
+            state_dir: fixture.app.state_dir(),
+            data_dir: fixture.app.data_dir(),
+        },
+    );
+    let text = json!({ "vms": ["v1-setup"] }).to_string();
+    let mut request = format!(
+        "POST /v1/slots HTTP/1.1\r\nHost: test\r\nConnection: close\r\nContent-Type: application/json\r\nContent-Length: {}\r\n",
+        text.len()
+    );
+    for (name, value) in hello.to_headers() {
+        request.push_str(&format!("{name}: {value}\r\n"));
+    }
+    request.push_str("\r\n");
+    request.push_str(&text);
+    let mut stream = std::os::unix::net::UnixStream::connect(fixture.app.socket()).unwrap();
+    stream.write_all(request.as_bytes()).unwrap();
+    let mut reply = String::new();
+    stream.read_to_string(&mut reply).unwrap();
+    assert!(reply.starts_with("HTTP/1.1 404"), "{reply}");
+    assert!(reply.contains("\"USAGE_ERROR\""), "{reply}");
+    assert!(golden_holders(&slots(&fixture)).is_empty());
+}
+
+// ---- the command `vm create-golden` ----
+
+impl Fixture {
+    /// An app whose `config.rhai` names the directories that the CLI of the test resolves, so
+    /// that the directory check of golden creation passes. `extra` adds keys such as
+    /// `macos_slots`.
+    fn for_golden(extra: &str) -> Self {
+        Self::healthy_with_config(&format!(
+            r#"#{{ state_dir: "$STATE", data_dir: "$DATA"{extra} }}"#
+        ))
+    }
+
+    /// A host that passes the fast checks of golden creation: an SSH keypair under `HOME`, and an
+    /// agent binary named by the override.
+    fn golden_host(&self) -> PathBuf {
+        let ssh = self.app.root().join(".ssh");
+        std::fs::create_dir_all(&ssh).unwrap();
+        std::fs::write(ssh.join("id_ed25519"), "key").unwrap();
+        std::fs::write(ssh.join("id_ed25519.pub"), "pub").unwrap();
+        let agent = self.app.root().join("agent-binary");
+        std::fs::write(&agent, "agent").unwrap();
+        agent
+    }
+
+    /// The real `vm create-golden` of a macOS guest, in the background. The tools of the CLI are
+    /// the fake `tart` first. The vanilla image `tahoe` is one that the fake cannot clone, so the
+    /// pipeline stops at its first `tart clone`, after the slot. No test runs the real pipeline.
+    fn spawn_golden(&self, agent: &std::path::Path) -> Client {
+        let mut path = std::ffi::OsString::from(self.app.tool_dir());
+        path.push(":");
+        path.push(std::env::var_os("PATH").unwrap_or_default());
+        let mut command = Command::new(CLI);
+        command
+            .args(["vm", "create-golden", "--platform", "macos", "--version", "tahoe", "--json"])
+            .env_clear()
+            .env("PATH", path)
+            .env("HOME", self.app.root())
+            .env("TMPDIR", self.app.tmp_dir())
+            .env("XDG_STATE_HOME", self.app.xdg_state_home())
+            .env("XDG_DATA_HOME", self.app.xdg_data_home())
+            .env("TESTANYWARE_APP_SOCKET", self.app.socket())
+            .env("TESTANYWARE_AGENT_BIN_OVERRIDE", agent)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        Client::spawn(command)
+    }
+}
+
+#[test]
+fn the_command_waits_for_its_slot_after_its_fast_checks_and_closes_the_hold_when_it_ends() {
+    let _serial = serial();
+    let fixture = Fixture::for_golden("");
+    let agent = fixture.golden_host();
+    fixture.start_and_wait_until_running("e-a");
+    fixture.start_and_wait_until_running("e-b");
+
+    let mut golden = fixture.spawn_golden(&agent);
+    golden.until_stderr_has("place 1");
+    let err = golden.stderr();
+    assert!(err.contains("Using SSH key"), "the fast checks ran first: {err}");
+    assert!(err.contains("e-a") && err.contains("e-b"), "{err}");
+    assert!(!err.contains("Cloning"), "nothing changed before the slot: {err}");
+    let view = slots(&fixture);
+    let waiter = &view["queue"][0];
+    assert_eq!(waiter["kind"], "golden", "{view}");
+    assert_eq!(waiter["vms"].as_array().unwrap().len(), 1, "a vanilla base builds nothing: {view}");
+    assert!(waiter["vms"][0].as_str().unwrap().starts_with("testanyware-setup-"), "{view}");
+    assert_eq!(waiter["requested_by"]["cwd"], std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap().display().to_string());
+    std::thread::sleep(Duration::from_millis(500));
+    assert!(!golden.finished());
+
+    // A stop admits it. The fake cannot clone the vanilla image, so the pipeline fails there.
+    fixture.stop("e-a");
+    let (code, envelope, err) = golden.finish();
+    assert_ne!(code, 0, "{envelope} {err}");
+    assert!(err.contains("admitted this golden creation"), "{err}");
+    assert!(err.contains("Cloning"), "the pipeline ran after the admission: {err}");
+    assert!(
+        err.find("admitted this golden creation") < err.find("Cloning"),
+        "the slot came before the first change: {err}"
+    );
+    // The end of the process closed the connection, and the hold ended.
+    until("the hold to end", || golden_holders(&slots(&fixture)).is_empty());
+}
+
+#[test]
+fn a_host_that_fails_its_fast_checks_never_joins_the_queue() {
+    let _serial = serial();
+    let fixture = Fixture::for_golden("");
+    fixture.start_and_wait_until_running("f-a");
+    fixture.start_and_wait_until_running("f-b");
+    // `HOME` holds no SSH key, so the check fails before any request for a slot.
+    let golden = fixture.spawn_golden(&fixture.app.root().join("no-agent"));
+    let (code, envelope, err) = golden.finish();
+    assert_ne!(code, 0, "{envelope} {err}");
+    assert_eq!(envelope["code"], "GOLDEN_CREATE_FAILED", "{envelope}");
+    assert!(slots(&fixture)["queue"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn with_macos_slots_0_the_command_fails_with_vm_limit_reached_before_it_changes_anything() {
+    let _serial = serial();
+    let fixture = Fixture::for_golden(", macos_slots: 0");
+    let agent = fixture.golden_host();
+    let golden = fixture.spawn_golden(&agent);
+    let (code, envelope, err) = golden.finish();
+    assert_eq!(code, 6, "{envelope} {err}");
+    assert_eq!(envelope["code"], "VM_LIMIT_REACHED", "{envelope}");
+    assert!(!err.contains("Cloning"), "{err}");
 }

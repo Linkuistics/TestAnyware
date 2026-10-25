@@ -96,16 +96,30 @@ impl StartEvent {
     }
 }
 
-/// Splits a stream of bytes into events. The bytes of one line may arrive in several pieces,
-/// and several lines in one piece.
-#[derive(Debug, Default)]
-pub struct EventLines {
+/// Splits a stream of bytes into events of type `E`. The bytes of one line may arrive in several
+/// pieces, and several lines in one piece. The stream of `vm start` and the stream of the hold
+/// of a golden creation use the same lines, with their own events.
+#[derive(Debug)]
+pub struct NdjsonLines<E> {
     pending: Vec<u8>,
+    events: std::marker::PhantomData<fn() -> E>,
 }
 
-impl EventLines {
+impl<E> Default for NdjsonLines<E> {
+    fn default() -> Self {
+        Self {
+            pending: Vec::new(),
+            events: std::marker::PhantomData,
+        }
+    }
+}
+
+/// The lines of the stream of `vm start`.
+pub type EventLines = NdjsonLines<StartEvent>;
+
+impl<E: serde::de::DeserializeOwned> NdjsonLines<E> {
     /// Add `bytes` and return the events they complete. A line that is no event is an error.
-    pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<StartEvent>, String> {
+    pub fn push(&mut self, bytes: &[u8]) -> Result<Vec<E>, String> {
         self.pending.extend_from_slice(bytes);
         let mut events = Vec::new();
         while let Some(end) = self.pending.iter().position(|b| *b == b'\n') {

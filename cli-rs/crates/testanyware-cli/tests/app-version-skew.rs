@@ -322,6 +322,54 @@ mod older_app_starts {
     }
 }
 
+/// Golden creation asks the app for a slot with a request of version 2. Against an app whose range
+/// ends at 1 it fails with the error of the other commands that need version 2, before it changes
+/// anything. The fast checks come first, so the test gives the host a key and an agent binary.
+#[cfg(target_os = "macos")]
+#[test]
+fn golden_creation_against_an_app_whose_range_ends_at_1_fails_with_app_incompatible() {
+    let _lock = serial();
+    let args: Vec<String> = ["--test-protocol-range", "1-1", "--test-build", CLI_BUILD]
+        .iter()
+        .map(|a| a.to_string())
+        .collect();
+    // The directory check of golden creation compares the CLI with the file of the app, so the file
+    // names the directories that the CLI of the test resolves.
+    let app = TestApp::start_after_with_config_text_and_args(
+        |_| {},
+        |app| {
+            format!(
+                "#{{ state_dir: {:?}, data_dir: {:?} }}",
+                app.state_dir().display().to_string(),
+                app.data_dir().display().to_string()
+            )
+        },
+        &args,
+    );
+    let ssh = app.root().join(".ssh");
+    std::fs::create_dir_all(&ssh).unwrap();
+    std::fs::write(ssh.join("id_ed25519"), "key").unwrap();
+    std::fs::write(ssh.join("id_ed25519.pub"), "pub").unwrap();
+    let agent = app.root().join("agent");
+    std::fs::write(&agent, "agent").unwrap();
+
+    let out = app.cli_with(
+        &["vm", "create-golden", "--platform", "macos", "--version", "tahoe", "--json"],
+        &[
+            ("TESTANYWARE_APP_SOCKET", app.socket().to_str().unwrap()),
+            ("TESTANYWARE_AGENT_BIN_OVERRIDE", agent.to_str().unwrap()),
+        ],
+    );
+    assert_eq!(out.code(), 1, "{} {}", out.out(), out.err());
+    let envelope = out.json();
+    assert_eq!(envelope["code"], "APP_INCOMPATIBLE", "{envelope}");
+    assert_eq!(envelope["details"]["cause"], "protocol", "{envelope}");
+    assert_eq!(envelope["details"]["app"]["protocol_range"], json!({ "min": 1, "max": 1 }));
+    // The checks ran first and the pipeline did not: nothing booted or cloned.
+    assert!(out.err().contains("Using SSH key"), "{}", out.err());
+    assert!(!out.err().contains("Cloning"), "{}", out.err());
+}
+
 // ---- builds that differ, with ranges that overlap: the command proceeds, with one notice ----
 
 /// Run the command in both output modes. Require the output of today on stdout, and exactly one

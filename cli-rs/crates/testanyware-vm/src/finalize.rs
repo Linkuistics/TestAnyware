@@ -44,7 +44,9 @@
 use std::time::Duration;
 
 use crate::error::VmError;
-use crate::golden::{cleanup_setup_vm, provision_boot1, GoldenOptions, SetupVm, VANILLA_USER};
+use crate::golden::{
+    cleanup_setup_vm, provision_boot1_after, GoldenOptions, GoldenPreflight, SetupVm, VANILLA_USER,
+};
 use crate::golden_linux::health_accessible;
 use crate::paths::VmPaths;
 use crate::recovery::{recovery_boot_csrutil, wait_for_pid_exit};
@@ -184,8 +186,20 @@ fn sip_status_matches(out: &str, expected: &str) -> bool {
 /// never strands a setup VM. On success the setup VM is consumed by the final
 /// `tart clone` + `tart delete`.
 pub async fn create_golden(opts: &GoldenOptions, paths: &VmPaths) -> Result<String, VmError> {
+    let preflight = GoldenPreflight::check(opts)?;
+    create_golden_after(opts, &preflight, paths).await
+}
+
+/// [`create_golden`] after the fast checks. The command layer asks the TestAnyware app for a slot
+/// between the checks and this call, and it holds the slot until this call has returned (spec
+/// "admission-queue": "Golden creation").
+pub async fn create_golden_after(
+    opts: &GoldenOptions,
+    preflight: &GoldenPreflight,
+    paths: &VmPaths,
+) -> Result<String, VmError> {
     // Boot 1 cleans itself up on failure; from its Ok the setup VM is running.
-    let setup = provision_boot1(opts, paths).await?;
+    let setup = provision_boot1_after(opts, preflight, paths).await?;
 
     match run_sip_tcc_finalize(opts, setup, paths).await {
         Ok(name) => Ok(name),

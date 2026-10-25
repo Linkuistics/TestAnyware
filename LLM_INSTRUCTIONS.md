@@ -175,7 +175,8 @@ On a macOS host, every command that reaches a guest goes through the
 **TestAnyware app**, even with an explicit `--agent`, `--vnc` or `--connect`.
 The app is a menu bar app that holds the Local Network access. So an agent that
 macOS refuses, for example under herdr, can still drive a VM. Only
-`vm create-golden` connects directly. Linux and Windows hosts have no app.
+`vm create-golden` connects to its guests directly, and it asks the app only for
+a macOS guest slot. Linux and Windows hosts have no app.
 
 **A person sets the app up once.** An agent cannot.
 
@@ -208,7 +209,10 @@ never replaces a file. The Host CLI never writes it.
 
 **Golden creation** connects to the guest itself. Run `vm create-golden` from
 Terminal, which has Local Network access. Under a harness that macOS refuses, it
-fails with the Local Network error.
+fails with the Local Network error. A macOS golden creation also waits in the
+queue for a slot when the app runs, with no bound. It can take 10 to 40 minutes
+and more, so run it in the background and read `testanyware vm slots` for its
+place. Without the app, it takes no slot.
 
 `testanyware doctor` reports the app: installed, running, started at login and
 allowed on the Local Network. Each failing item has a remedy. Its `config` check

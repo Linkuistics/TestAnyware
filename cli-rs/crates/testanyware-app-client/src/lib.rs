@@ -18,9 +18,9 @@ use hyper_util::rt::TokioIo;
 use serde::de::DeserializeOwned;
 use testanyware_app_protocol::{
     delete_path, needs_version, stop_path, validate_socket_path, AppError, ClientHello,
-    DeleteRequest, DeleteResult, EventLines, Peer, StartEvent, StartRequest, StartResult,
-    StopResult, StreamKind, ServerHello, StreamTarget, UnreachableCause, LIST_PATH,
-    STREAM_UPGRADE_TOKEN,
+    DeleteRequest, DeleteResult, EventLines, HoldEvent, HoldRequest, NdjsonLines, Peer,
+    StartEvent, StartRequest, StartResult, StopResult, StreamKind, ServerHello, StreamTarget,
+    UnreachableCause, LIST_PATH, SLOTS_PATH, SLOTS_VERSION, STREAM_UPGRADE_TOKEN,
 };
 
 /// A guest stream after the `101`: the bytes of the guest protocol, unchanged, in both
@@ -43,6 +43,55 @@ pub enum StartEnd {
     Started(StartResult),
     /// The start failed. The error is the one that the direct command prints.
     Failed(AppError),
+}
+
+/// A slot that the app holds for a golden creation. The open connection to the app is the hold, and
+/// this value owns it: dropping the value closes the connection, and the app then releases the
+/// slot. A crash of the process closes the connection too.
+///
+/// A task watches the connection. When the app closes it first, the task calls the `on_lost`
+/// function of [`AppClient::hold_slot`] once. The golden creation then goes on without a hold.
+#[derive(Debug)]
+pub struct SlotLease {
+    request_id: String,
+    watcher: tokio::task::JoinHandle<()>,
+}
+
+impl SlotLease {
+    /// Keep `sender` and `body` open in a task. The app sends nothing after the admission, so the
+    /// task ends only when the app closes the connection, or when the lease is dropped.
+    fn watch(
+        request_id: String,
+        sender: hyper::client::conn::http1::SendRequest<Full<Bytes>>,
+        mut body: hyper::body::Incoming,
+        on_lost: impl FnOnce() + Send + 'static,
+    ) -> Self {
+        let watcher = tokio::spawn(async move {
+            // The task owns the request side as well, because dropping it ends the connection.
+            let _sender = sender;
+            // A frame after the admission is not part of the protocol, and it holds nothing.
+            while let Some(frame) = body.frame().await {
+                if frame.is_err() {
+                    break;
+                }
+            }
+            on_lost();
+        });
+        Self { request_id, watcher }
+    }
+
+    /// The request id that the app gave the golden creation. `vm slots` shows it.
+    pub fn request_id(&self) -> &str {
+        &self.request_id
+    }
+}
+
+impl Drop for SlotLease {
+    fn drop(&mut self) {
+        // The task owns the body and the sender. Aborting it drops both, which closes the
+        // connection, and the task never calls `on_lost` for an end that the caller chose.
+        self.watcher.abort();
+    }
 }
 
 /// What a caller does with the build, the range and the bundle build that each response states.
@@ -180,28 +229,38 @@ impl AppClient {
             .map_err(|e| internal(format!("the request for {path_and_query} is invalid: {e}")))?;
         let response = sender.send_request(request).await;
         if let Ok(response) = &response {
-            // An app below the version has no such route, so it answers 404. Any other refusal,
-            // such as one on the directories, is the app's own and stays as it is.
-            if response.status() == StatusCode::NOT_FOUND {
-                let app = ServerHello::from_lookup(|name| {
-                    response.headers().get(name).and_then(|v| v.to_str().ok())
-                });
-                let app_peer = Peer {
-                    build: app.build.clone(),
-                    protocol_range: app.protocol_range,
-                };
-                if let Some(remedy) = needs_version(needed, &app_peer, app.bundle_build.as_deref())
-                {
-                    self.observe(response.headers());
-                    return Err(AppError::incompatible_protocol(
-                        &app_peer,
-                        &Peer::from(&self.hello),
-                        remedy,
-                    ));
-                }
+            if let Some(error) = self.below_version(response, needed) {
+                return Err(error);
             }
         }
         self.read_document(response, path_and_query).await
+    }
+
+    /// `APP_INCOMPATIBLE` with the cause `protocol` when `response` shows an app whose range ends
+    /// below `needed`. An app below the version has no such route, so it answers 404. Any other
+    /// refusal, such as one on the directories, is the app's own and stays as it is.
+    fn below_version(
+        &self,
+        response: &hyper::Response<hyper::body::Incoming>,
+        needed: u32,
+    ) -> Option<AppError> {
+        if response.status() != StatusCode::NOT_FOUND {
+            return None;
+        }
+        let app = ServerHello::from_lookup(|name| {
+            response.headers().get(name).and_then(|v| v.to_str().ok())
+        });
+        let app_peer = Peer {
+            build: app.build.clone(),
+            protocol_range: app.protocol_range,
+        };
+        let remedy = needs_version(needed, &app_peer, app.bundle_build.as_deref())?;
+        self.observe(response.headers());
+        Some(AppError::incompatible_protocol(
+            &app_peer,
+            &Peer::from(&self.hello),
+            remedy,
+        ))
     }
 
     /// The document in a response, or the error object that the app sent in its place.
@@ -320,6 +379,76 @@ impl AppClient {
         Err(self.connection_ended(
             UnreachableCause::Quitting,
             "it closed the stream before the start ended",
+        ))
+    }
+
+    /// Ask the app for a slot for a golden creation, and wait for the admission with no bound
+    /// (spec "admission-queue": "Golden creation"). `on_progress` receives each line about the
+    /// wait. The request needs protocol version 2, so an app whose range ends at 1 fails it with
+    /// `APP_INCOMPATIBLE`. An error that the app sends, such as `VM_LIMIT_REACHED` when
+    /// `macos_slots` is 0, is the error of the call, and so is an app that goes away while the
+    /// request waits.
+    ///
+    /// Dropping the call while it waits closes the connection, and the app takes the request out
+    /// of the queue. The call ends with the [`SlotLease`] when the app admits the request. The
+    /// open connection is the hold: the lease keeps it open until it is dropped. `on_lost` runs
+    /// once if the app closes the connection before that, as a quit of the app does.
+    pub async fn hold_slot(
+        &self,
+        request: &HoldRequest,
+        mut on_progress: impl FnMut(&str),
+        on_lost: impl FnOnce() + Send + 'static,
+    ) -> Result<SlotLease, AppError> {
+        let mut sender = self.connect(false).await?;
+        let body = serde_json::to_vec(request)
+            .map_err(|e| internal(format!("the request to hold a slot does not serialise: {e}")))?;
+        let mut http_request = Request::builder()
+            .method(Method::POST)
+            .uri(SLOTS_PATH)
+            .header(HOST, "testanyware")
+            .header(CONTENT_TYPE, "application/json");
+        for (name, value) in self.hello.to_headers() {
+            http_request = http_request.header(name, value);
+        }
+        let http_request = http_request
+            .body(Full::new(Bytes::from(body)))
+            .map_err(|e| internal(format!("the request to hold a slot is invalid: {e}")))?;
+        let response = sender
+            .send_request(http_request)
+            .await
+            .map_err(|e| self.connection_error(&e))?;
+        if let Some(error) = self.below_version(&response, SLOTS_VERSION) {
+            return Err(error);
+        }
+        self.observe(response.headers());
+        if response.status() != StatusCode::OK {
+            return Err(error_of(response).await);
+        }
+
+        let mut body = response.into_body();
+        let mut lines = NdjsonLines::<HoldEvent>::default();
+        while let Some(frame) = body.frame().await {
+            let frame = frame.map_err(|e| self.connection_error(&e))?;
+            let Ok(data) = frame.into_data() else { continue };
+            let events = lines.push(&data).map_err(|e| {
+                internal(format!(
+                    "The TestAnyware app sent a line of the hold that does not read: {e}."
+                ))
+            })?;
+            for event in events {
+                match event {
+                    HoldEvent::Progress { line } => on_progress(&line),
+                    HoldEvent::Admitted { request_id } => {
+                        return Ok(SlotLease::watch(request_id, sender, body, on_lost));
+                    }
+                    HoldEvent::Error { error } => return Err(error),
+                }
+            }
+        }
+        // The stream ended with neither an admission nor an error: the app went away.
+        Err(self.connection_ended(
+            UnreachableCause::Quitting,
+            "it closed the stream before it admitted the request",
         ))
     }
 

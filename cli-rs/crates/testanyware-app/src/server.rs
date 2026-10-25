@@ -266,6 +266,9 @@ async fn route(
     if path == SLOTS_PATH && method == Method::GET {
         return slots(ctx, version).await;
     }
+    if path == SLOTS_PATH && method == Method::POST {
+        return hold_slot(ctx, req, version, peer_pid).await;
+    }
     match parse_end_path(&path) {
         EndRoute::Neither => {}
         end => return end_vm_or_golden(ctx, req, end).await,
@@ -360,21 +363,30 @@ async fn list_vms(ctx: &Arc<AppContext>, query: Option<&str>) -> Response<AppBod
 /// states the time of its last answer.
 const SLOTS_PATIENCE: std::time::Duration = std::time::Duration::from_secs(8);
 
+/// The refusal of a request of protocol version 2 from a client that agreed on version 1. Such a
+/// client has no such route.
+fn below_slots_version(version: u32, method: &Method) -> Option<Response<AppBody>> {
+    if version >= SLOTS_VERSION {
+        return None;
+    }
+    let err = AppError::new(
+        "USAGE_ERROR",
+        format!(
+            "{method} {SLOTS_PATH} is a request of protocol version {SLOTS_VERSION}, and this \
+             client agreed on version {version}."
+        ),
+        None,
+        json!({ "method": method.as_str(), "path": SLOTS_PATH, "version": version }),
+    );
+    Some(error_response(StatusCode::NOT_FOUND, &err))
+}
+
 /// Serve `GET /v1/slots`: the view that `vm slots` prints. The app observes tart first, as it
 /// does before a decision to admit. The request is one of protocol version 2, so a client that
 /// agreed on version 1 has no such route.
 async fn slots(ctx: &Arc<AppContext>, version: u32) -> Response<AppBody> {
-    if version < SLOTS_VERSION {
-        let err = AppError::new(
-            "USAGE_ERROR",
-            format!(
-                "GET {SLOTS_PATH} is a request of protocol version {SLOTS_VERSION}, and this \
-                 client agreed on version {version}."
-            ),
-            None,
-            json!({ "method": "GET", "path": SLOTS_PATH, "version": version }),
-        );
-        return error_response(StatusCode::NOT_FOUND, &err);
+    if let Some(refusal) = below_slots_version(version, &Method::GET) {
+        return refusal;
     }
     // The observation waits on a condition variable, and it must not block a worker.
     let blocking_ctx = Arc::clone(ctx);
@@ -397,6 +409,45 @@ async fn slots(ctx: &Arc<AppContext>, version: u32) -> Response<AppBody> {
                 Value::Null,
             ),
         ),
+    }
+}
+
+/// Serve `POST /v1/slots`: the hold request of a golden creation. A request that cannot hold
+/// anything fails before the stream, as a JSON error object. Otherwise the response is the stream
+/// of the wait and then the hold (see [`crate::hold`]).
+async fn hold_slot(
+    ctx: &Arc<AppContext>,
+    req: &mut Request<Incoming>,
+    version: u32,
+    peer_pid: Option<i32>,
+) -> Response<AppBody> {
+    if let Some(refusal) = below_slots_version(version, &Method::POST) {
+        return refusal;
+    }
+    let body = match Limited::new(req.body_mut(), START_BODY_LIMIT)
+        .collect()
+        .await
+    {
+        Ok(collected) => collected.to_bytes(),
+        Err(e) => {
+            let err = AppError::new(
+                "USAGE_ERROR",
+                format!("The TestAnyware app cannot read the request to hold a slot: {e}."),
+                None,
+                json!({ "method": "POST", "path": SLOTS_PATH }),
+            );
+            return error_response(StatusCode::BAD_REQUEST, &err);
+        }
+    };
+    match crate::hold::parse_request(&body) {
+        Ok(request) => {
+            let requested_by = RequestedBy {
+                pid: peer_pid.and_then(|pid| u32::try_from(pid).ok()),
+                cwd: request.cwd.clone(),
+            };
+            crate::hold::hold_response(ctx, request, requested_by)
+        }
+        Err(refusal) => error_response(refusal.status, &refusal.error),
     }
 }
 

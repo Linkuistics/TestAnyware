@@ -35,6 +35,17 @@ All golden images share these properties:
 - **SIP enabled** — standard security posture after image creation.
 
 Golden creation boots its VM several times, and macOS runs two guests at most.
+When the TestAnyware app runs, a macOS golden creation asks it for a slot before
+it changes anything. It waits in the queue of `vm start --wait`, with no bound,
+and stderr shows its place and the VMs that hold the slots. Press Ctrl-C to end
+the wait. The golden creation then holds the slot until its setup VM has
+stopped, so no start takes the slot between two boots. `testanyware vm slots`
+shows the hold with the kind `golden`. With `macos_slots` at 0 in `config.rhai`,
+it fails with `VM_LIMIT_REACHED`. If the app stops while the golden creation
+holds its slot, it goes on and writes one line to stderr. If the app stops while
+it waits, it fails with `APP_UNREACHABLE`, and it has changed nothing. When the
+app does not run, golden creation takes no slot.
+
 When another guest holds the second slot, the framework can refuse a boot.
 Golden creation notices that at once, and it tries the boot again every 3 s for
 30 s. The framework can free the slot of the previous boot a moment after it
@@ -42,6 +53,10 @@ ends. If the refusal lasts, golden creation fails with `VM_LIMIT_REACHED` and
 `refused_by` `framework`, and it removes its setup VM. Stop a guest with
 `testanyware vm stop`, then run `vm create-golden` again. Linux and Windows
 golden creation take no slot.
+
+A guest that the app cannot see, such as one of another user, can take the free
+slot between two boots, because the app counts only what it sees. Golden
+creation then fails with the error above.
 
 ## Linux (`testanyware-golden-linux-24.04`)
 

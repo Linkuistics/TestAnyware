@@ -726,6 +726,18 @@ PLATFORM:
     from a Microsoft evaluation ISO under QEMU+swtpm and provisions over the
     in-VM agent (no SSH); pass --iso on first run (cached afterwards).
 
+SLOTS:
+    A macOS golden boots its VM several times, and macOS runs two guests at
+    most. When the TestAnyware app runs, the command asks it for a slot after
+    its fast checks (the directories, the SSH key and the agent binary) and
+    before it changes anything. It waits in the same queue as `vm start --wait`,
+    with no bound, and stderr shows its place and the VMs that hold the slots.
+    Ctrl-C ends the wait. The command then holds the slot until its setup VM
+    has stopped, so no start takes the slot between two boots. `vm slots`
+    shows the hold with the kind `golden`. When the app does not run, the
+    command runs as it did before the queue and takes no slot. Linux and
+    Windows golden creation take no slot.
+
 IDEMPOTENCY:
     Re-running replaces any existing golden of the same name. The build
     runs against a fresh throwaway setup VM each time.
