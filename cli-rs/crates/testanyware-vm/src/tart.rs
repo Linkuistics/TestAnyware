@@ -228,6 +228,89 @@ fn run_tart_in(tools: &ToolSearch, args: &[&str]) -> TartResult {
     }
 }
 
+/// How often [`run_tart_bounded_in`] looks at its child.
+const BOUND_POLL: Duration = Duration::from_millis(10);
+
+/// [`run_tart_in`], ended after `bound`. A call that does not answer in time is killed with its
+/// whole process group and fails, so a tart that hangs cannot hold the caller for ever (spec
+/// "admission-queue": "The count": "When tart does not answer").
+///
+/// The group dies, and not the child alone, because a child that spawned a helper leaves the helper
+/// holding the pipes open, and the readers would then wait for it.
+fn run_tart_bounded_in(
+    tools: &ToolSearch,
+    args: &[&str],
+    bound: Duration,
+) -> Result<TartResult, String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+
+    let Some(tart) = tools.find("tart") else {
+        return Err("tart not found on PATH".into());
+    };
+    let mut command = Command::new(tart);
+    command
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(unix)]
+    std::os::unix::process::CommandExt::process_group(&mut command, 0);
+    let mut child = command.spawn().map_err(|e| e.to_string())?;
+    let read = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut text = Vec::new();
+            if let Some(mut pipe) = pipe {
+                let _ = pipe.read_to_end(&mut text);
+            }
+            String::from_utf8_lossy(&text).into_owned()
+        })
+    };
+    let stdout = read(child.stdout.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+    let stderr = read(child.stderr.take().map(|p| Box::new(p) as Box<dyn Read + Send>));
+
+    let began = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) if began.elapsed() >= bound => break Err(()),
+            Ok(None) => std::thread::sleep(BOUND_POLL),
+            Err(e) => return Err(e.to_string()),
+        }
+    };
+    let Ok(status) = status else {
+        kill_group(&mut child);
+        let _ = child.wait();
+        // The pipes close with the group, so the readers end.
+        let _ = (stdout.join(), stderr.join());
+        return Err(format!(
+            "tart {} did not answer within {} s",
+            args.first().copied().unwrap_or(""),
+            bound.as_secs_f64()
+        ));
+    };
+    Ok(TartResult {
+        exit_code: status.code().unwrap_or(-1),
+        stdout: stdout.join().unwrap_or_default(),
+        stderr: stderr.join().unwrap_or_default(),
+    })
+}
+
+#[cfg(unix)]
+fn kill_group(child: &mut std::process::Child) {
+    // SAFETY: `killpg` only sends a signal. The group id is the pid of the child that
+    // `process_group(0)` made the leader of its own group.
+    let pgid = child.id() as libc::pid_t;
+    if unsafe { libc::killpg(pgid, libc::SIGKILL) } != 0 {
+        let _ = child.kill();
+    }
+}
+
+#[cfg(not(unix))]
+fn kill_group(child: &mut std::process::Child) {
+    let _ = child.kill();
+}
+
 /// `tart list --format json` stdout, or `None` when tart is absent or the
 /// invocation fails, with `tart` found by `tools`. Ports `TartRunner.tartListJSON`.
 fn tart_list_json_in(tools: &ToolSearch) -> Option<String> {
@@ -266,10 +349,11 @@ pub fn parse_running_names_strict(tart_json: &str) -> Result<Vec<String>, String
         .collect())
 }
 
-/// Names of the VMs that `tart list` reports running, or why tart did not answer. A failed call
-/// and output that is no list are both errors, so "no VM runs" is always an answer of tart.
-pub fn running_names_strict_in(tools: &ToolSearch) -> Result<Vec<String>, String> {
-    let r = run_tart_in(tools, &["list", "--format", "json"]);
+/// Names of the VMs that `tart list` reports running, or why tart did not answer. A failed call,
+/// a call that does not answer within `bound`, and output that is no list are all errors, so "no VM
+/// runs" is always an answer of tart.
+pub fn running_names_strict_in(tools: &ToolSearch, bound: Duration) -> Result<Vec<String>, String> {
+    let r = run_tart_bounded_in(tools, &["list", "--format", "json"], bound)?;
     if r.exit_code != 0 {
         return Err(format!("tart list failed: {}", r.stderr.trim()));
     }
@@ -286,9 +370,9 @@ pub fn parse_os(tart_json: &str) -> Option<String> {
         .map(str::to_string)
 }
 
-/// The OS of the VM `name` from `tart get`, or why tart did not answer.
-pub fn os_of_in(tools: &ToolSearch, name: &str) -> Result<String, String> {
-    let r = run_tart_in(tools, &["get", name, "--format", "json"]);
+/// The OS of the VM `name` from `tart get`, or why tart did not answer within `bound`.
+pub fn os_of_in(tools: &ToolSearch, name: &str, bound: Duration) -> Result<String, String> {
+    let r = run_tart_bounded_in(tools, &["get", name, "--format", "json"], bound)?;
     if r.exit_code != 0 {
         return Err(format!("tart get {name} failed: {}", r.stderr.trim()));
     }
@@ -933,5 +1017,58 @@ mod tests {
         std::fs::write(&log, "no url here\n").unwrap();
         assert!(poll_vnc_url(&log, 2, Duration::from_millis(5)).is_none());
         assert!(poll_vnc_url(&dir.path().join("missing.log"), 2, Duration::from_millis(5)).is_none());
+    }
+
+    /// A tool directory whose `tart` is the shell script `body`.
+    #[cfg(unix)]
+    fn tart_script(body: &str) -> (tempfile::TempDir, ToolSearch) {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let tart = dir.path().join("tart");
+        std::fs::write(&tart, format!("#!/bin/sh\n{body}\n")).unwrap();
+        std::fs::set_permissions(&tart, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let tools = ToolSearch::new(vec![dir.path().to_path_buf()]);
+        (dir, tools)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_call_that_answers_within_the_bound_gives_its_output() {
+        let (_dir, tools) = tart_script(r#"echo '[{"Name":"a","State":"running"}]'"#);
+        let names = running_names_strict_in(&tools, Duration::from_secs(5));
+        assert_eq!(names, Ok(vec!["a".to_string()]));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_call_that_does_not_answer_within_the_bound_fails_and_leaves_no_process_behind() {
+        // The script starts `sleep` as a child, as a tart that spawns a helper does. The sleep
+        // holds the pipes, so only a kill of the whole group lets the call return.
+        let (dir, tools) = tart_script(r#"echo $$ > "$(dirname "$0")/pid"; sleep 30"#);
+        let began = std::time::Instant::now();
+        let error = running_names_strict_in(&tools, Duration::from_millis(300))
+            .expect_err("the call does not answer");
+        assert!(error.contains("did not answer"), "{error}");
+        assert!(
+            began.elapsed() < Duration::from_secs(5),
+            "the bound ended the call: {:?}",
+            began.elapsed()
+        );
+        let pid: i32 = std::fs::read_to_string(dir.path().join("pid"))
+            .unwrap()
+            .trim()
+            .parse()
+            .unwrap();
+        assert!(!crate::process::process_alive(pid), "the script is gone");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_bound_applies_to_tart_get_as_well() {
+        let (_dir, tools) = tart_script("sleep 30");
+        let error = os_of_in(&tools, "vm", Duration::from_millis(200)).expect_err("silent");
+        assert!(error.contains("did not answer"), "{error}");
+        let (_dir, tools) = tart_script(r#"echo '{"OS":"darwin"}'"#);
+        assert_eq!(os_of_in(&tools, "vm", Duration::from_secs(5)), Ok("darwin".into()));
     }
 }

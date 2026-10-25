@@ -66,8 +66,10 @@ where
             wait,
         );
         // A guest that is gone frees its slot, so the queue decides again (spec
-        // "admission-queue": "The admission decision": "a holder ends").
-        blocking_ctx.admission.holder_ended();
+        // "admission-queue": "The admission decision": "a holder ends"). A later read of tart
+        // shows the guest gone, and the queue removes it from its last answer (spec
+        // "admission-queue": "The count").
+        blocking_ctx.admission.stopped(&blocking_id);
         Some(stopped)
     })
     .await;

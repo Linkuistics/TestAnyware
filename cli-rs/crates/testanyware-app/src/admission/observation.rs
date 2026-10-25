@@ -9,8 +9,14 @@
 //! every failure. [`SystemTart`] is the reader that runs the real `tart`.
 
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 use testanyware_vm::tools::ToolSearch;
+
+/// One call to tart fails when it does not answer within this time (spec "admission-queue": "The
+/// count": "When tart does not answer"). The bound applies to each call, so many running guests do
+/// not make an observation fail.
+pub const CALL_BOUND: Duration = Duration::from_secs(5);
 
 /// A call to tart failed, or printed what the app cannot read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -61,24 +67,30 @@ pub fn observe(tart: &dyn TartReader) -> Result<BTreeSet<String>, ReadFailed> {
 pub struct SystemTart {
     #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     tools: ToolSearch,
+    /// How long one call may take.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    bound: Duration,
 }
 
 impl SystemTart {
     pub fn new(tools: ToolSearch) -> Self {
-        Self { tools }
+        Self {
+            tools,
+            bound: CALL_BOUND,
+        }
     }
 }
 
 #[cfg(target_os = "macos")]
 impl TartReader for SystemTart {
     fn running(&self) -> Result<BTreeSet<String>, ReadFailed> {
-        testanyware_vm::tart::running_names_strict_in(&self.tools)
+        testanyware_vm::tart::running_names_strict_in(&self.tools, self.bound)
             .map(|names| names.into_iter().collect())
             .map_err(ReadFailed)
     }
 
     fn os_of(&self, name: &str) -> Result<String, ReadFailed> {
-        testanyware_vm::tart::os_of_in(&self.tools, name).map_err(ReadFailed)
+        testanyware_vm::tart::os_of_in(&self.tools, name, self.bound).map_err(ReadFailed)
     }
 }
 
@@ -142,6 +154,11 @@ pub(crate) mod fake {
 
         pub fn fail_get_of(&self, name: &str) {
             self.inner.lock().unwrap().get_fails.insert(name.into());
+        }
+
+        /// `tart get` of `name` answers again.
+        pub fn heal_get_of(&self, name: &str) {
+            self.inner.lock().unwrap().get_fails.remove(name);
         }
 
         /// Make `tart list` hold its answer until `hold_lists(false)`, as a slow tart does.

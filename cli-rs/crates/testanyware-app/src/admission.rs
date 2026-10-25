@@ -27,7 +27,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
-use testanyware_vm::error::{AdmissionFacts, LimitReached, RefusedBy};
+use testanyware_vm::error::{AdmissionFacts, LimitReached, RefusedBy, TartSilence};
 use testanyware_vm::identity::SystemProbe;
 use testanyware_vm::slot_gate::{Readmission, SlotAsk, SlotGate, SlotHold};
 use testanyware_vm::{Progress, VmError, VmPaths};
@@ -113,6 +113,10 @@ struct State {
     answer: Option<Answer>,
     /// The number of the last observation that failed.
     last_failure: Option<u64>,
+    /// The moment of the first failed observation after the last answer, on the clock of the
+    /// queue. Before the first answer, the first failed observation of this run of the app. `None`
+    /// while the last observation answered. It stays in memory.
+    unanswered_since: Option<Duration>,
     /// The refusal whose pause has ended and has raised its event.
     pause_noted: Option<Duration>,
     /// Whether the observer thread runs.
@@ -123,9 +127,11 @@ struct State {
 struct Answer {
     /// The number of the observation, in the order of their start.
     number: u64,
-    /// The moment when the observation ended, on the clock of the queue.
+    /// The moment when the observation ended, on the clock of the queue: when its last call to
+    /// tart returned.
     at: Duration,
-    /// The macOS guests that tart reported running.
+    /// The macOS guests that tart reported running, less each guest that the read of a stop
+    /// showed gone. A newer answer replaces the whole value.
     macos: BTreeSet<String>,
 }
 
@@ -184,6 +190,8 @@ struct Request {
     request_id: String,
     vm_id: String,
     joined: Duration,
+    /// The number of the next observation at the join.
+    joined_obs: u64,
 }
 
 impl AdmissionQueue {
@@ -225,6 +233,37 @@ impl AdmissionQueue {
     pub fn holder_ended(self: &Arc<Self>) {
         let mut state = self.lock();
         self.event(&mut state);
+    }
+
+    /// A stop of the app has ended the guest `vm_id`. The slot frees in the count at once, when
+    /// a later read of tart shows the guest gone, and the queue observes and decides again.
+    ///
+    /// The read is a `tart list` that starts now, after the stop. It removes the guest from the
+    /// last answer only when it starts after that answer ended and answers without the guest (see
+    /// [`count::stop_read_removes`]). The stop makes no read when the last answer does not name
+    /// the guest, because there is nothing to remove. The read is no observation: it changes
+    /// neither the time of the answer nor `unanswered_since`. It runs outside the lock.
+    pub fn stopped(self: &Arc<Self>, vm_id: &str) {
+        let named = self
+            .lock()
+            .answer
+            .as_ref()
+            .is_some_and(|answer| answer.macos.contains(vm_id));
+        if named {
+            let started = self.now();
+            let read = self.tart.running();
+            let mut state = self.lock();
+            let removed = match state.answer.as_mut() {
+                Some(answer) if count::stop_read_removes(answer.at, started, &read, vm_id) => {
+                    answer.macos.remove(vm_id)
+                }
+                _ => false,
+            };
+            if removed {
+                self.run_decision(&mut state);
+            }
+        }
+        self.holder_ended();
     }
 
     /// An event that the decision must follow: a join, a leave, a release, a refusal, an
@@ -283,9 +322,15 @@ impl AdmissionQueue {
                     number,
                     at: self.now(),
                     macos,
-                })
+                });
+                state.unanswered_since = None;
             }
-            Err(_) => state.last_failure = Some(number),
+            Err(_) => {
+                state.last_failure = Some(number);
+                if state.unanswered_since.is_none() {
+                    state.unanswered_since = Some(self.now());
+                }
+            }
         }
         // The decision that follows an observation also follows one that failed: it uses the
         // last answer, and a waiter that no answer serves waits on.
@@ -437,6 +482,7 @@ impl AdmissionQueue {
             request_id,
             vm_id: ask.vm_id.to_string(),
             joined,
+            joined_obs,
         };
         let mut reporter = WaitReporter::default();
         self.wait_admitted(state, &request, &mut reporter, cancel, progress)?;
@@ -484,6 +530,7 @@ impl AdmissionQueue {
                             waited,
                             refusal.unwrap_or_default(),
                             unseen,
+                            Some(request.joined_obs),
                         ))
                     }
                 };
@@ -563,7 +610,7 @@ impl AdmissionQueue {
             || (state.contention && state.unproven() > 0)
             || own_holders_fill_the_slots(state.admitted.len(), self.slots);
         if needs_no_answer {
-            return Err(self.refused_at_the_join(&state, request_id));
+            return Err(self.refused_at_the_join(&state, request_id, joined_obs));
         }
         self.request_observation(&mut state);
         loop {
@@ -609,13 +656,13 @@ impl AdmissionQueue {
                         refusals: RefusalReporter::default(),
                     }));
                 }
-                return Err(self.refused_at_the_join(&state, request_id));
+                return Err(self.refused_at_the_join(&state, request_id, joined_obs));
             }
             if state
                 .last_failure
                 .is_some_and(|number| number >= joined_obs)
             {
-                return Err(self.refused_at_the_join(&state, request_id));
+                return Err(self.refused_at_the_join(&state, request_id, joined_obs));
             }
             state = self
                 .changed
@@ -626,7 +673,7 @@ impl AdmissionQueue {
     }
 
     /// The refusal of a start that never waits. Its place is the place that it would take.
-    fn refused_at_the_join(&self, state: &State, request_id: String) -> VmError {
+    fn refused_at_the_join(&self, state: &State, request_id: String, joined_obs: u64) -> VmError {
         let place = state.waiting.len() + 1;
         let unseen = state.contention;
         self.refusal(
@@ -636,7 +683,28 @@ impl AdmissionQueue {
             Duration::ZERO,
             String::new(),
             unseen,
+            Some(joined_obs),
         )
+    }
+
+    /// What the lines and the remedy say about tart, or `None` while tart serves the start.
+    ///
+    /// Tart does not serve a start while an observation has failed since the last answer. With
+    /// `joined_obs`, it also does not serve the start when no answer is newer than the join, which
+    /// a slow tart causes as well. The time is the seconds since the last answer, when one exists.
+    fn silence(&self, state: &State, joined_obs: Option<u64>) -> Option<TartSilence> {
+        let no_newer_answer = joined_obs.is_some_and(|obs| {
+            state
+                .answer
+                .as_ref()
+                .map_or(true, |answer| answer.number < obs)
+        });
+        (state.unanswered_since.is_some() || no_newer_answer).then(|| TartSilence {
+            since_last_answer_secs: state
+                .answer
+                .as_ref()
+                .map(|answer| self.now().saturating_sub(answer.at).as_secs()),
+        })
     }
 
     /// The limit that refused: the app's share when the own holders fill it, and the limit of
@@ -651,6 +719,7 @@ impl AdmissionQueue {
 
     /// `VM_LIMIT_REACHED`, refused by the app. `raw` is the line of the refusal by the framework
     /// that sent the start back, or empty when no `tart run` of this start took part.
+    #[allow(clippy::too_many_arguments)]
     fn refusal(
         &self,
         state: &State,
@@ -659,6 +728,7 @@ impl AdmissionQueue {
         waited: Duration,
         raw: String,
         unseen_possible: bool,
+        joined_obs: Option<u64>,
     ) -> VmError {
         VmError::VmLimitReached(Box::new(LimitReached {
             platform: "macos".into(),
@@ -671,6 +741,7 @@ impl AdmissionQueue {
                 waited_secs: waited.as_secs(),
                 refused_by: RefusedBy::App,
                 unseen_possible,
+                tart_silence: self.silence(state, joined_obs),
             },
         }))
     }
@@ -753,9 +824,10 @@ impl AdmissionQueue {
                 refusal: Some(line.to_string()),
             },
         );
-        if let Some(note) = hold
-            .refusals
-            .note(&hold.request_id, at + 1, line, self.pause, now)
+        let silence = silence_note(&state, now);
+        if let Some(note) =
+            hold.refusals
+                .note(&hold.request_id, at + 1, line, self.pause, now, &silence)
         {
             progress.line(&note);
         }
@@ -766,6 +838,7 @@ impl AdmissionQueue {
             request_id: hold.request_id.clone(),
             vm_id: hold.vm_id.clone(),
             joined: hold.joined,
+            joined_obs: hold.joined_obs,
         };
         self.wait_admitted(state, &request, &mut hold.reporter, cancel, progress)?;
         hold.waited = self.now().saturating_sub(hold.joined);
@@ -796,6 +869,12 @@ impl AdmissionQueue {
     /// the first answer. `vm slots` shows it as `observed_at`.
     pub fn observed_at(&self) -> Option<Duration> {
         self.lock().answer.as_ref().map(|answer| answer.at)
+    }
+
+    /// The moment of the first failed observation after the last answer, on the clock of the
+    /// queue, or `None` while tart answers. `vm slots` shows it as `unanswered_since`.
+    pub fn unanswered_since(&self) -> Option<Duration> {
+        self.lock().unanswered_since
     }
 
     /// The holders at the last decision, own and seen, in order. A test reads this.
@@ -843,6 +922,11 @@ impl SlotHold for Hold {
 
     fn waited(&self) -> Duration {
         self.waited
+    }
+
+    fn tart_silence(&self) -> Option<TartSilence> {
+        let state = self.queue.lock();
+        self.queue.silence(&state, None)
     }
 
     fn accepted(&self) {
@@ -909,7 +993,7 @@ fn new_request_id(state: &mut State, salt: u32) -> String {
 /// change, and every 30 s otherwise.
 #[derive(Default)]
 struct WaitReporter {
-    last: Option<(usize, Vec<String>, Duration)>,
+    last: Option<(usize, Vec<String>, bool, Duration)>,
 }
 
 impl WaitReporter {
@@ -919,18 +1003,20 @@ impl WaitReporter {
             .iter()
             .position(|e| e.request_id == request_id)?
             + 1;
+        let silent = state.unanswered_since.is_some();
         let due = match &self.last {
             None => true,
-            Some((last_place, last_holders, at)) => {
+            Some((last_place, last_holders, was_silent, at)) => {
                 *last_place != place
                     || *last_holders != state.holders
+                    || *was_silent != silent
                     || now.saturating_sub(*at) >= REPORT_EVERY
             }
         };
         if !due {
             return None;
         }
-        self.last = Some((place, state.holders.clone(), now));
+        self.last = Some((place, state.holders.clone(), silent, now));
         let held_by = if state.holders.is_empty() {
             "no VM".to_string()
         } else {
@@ -938,9 +1024,26 @@ impl WaitReporter {
         };
         let waiters = state.waiting.len();
         Some(format!(
-            "waiting for a macOS guest slot: request {request_id}, place {place}, {waiters} {}, slots held by {held_by}",
-            if waiters == 1 { "waiter" } else { "waiters" }
+            "waiting for a macOS guest slot: request {request_id}, place {place}, {waiters} {}, slots held by {held_by}{}",
+            if waiters == 1 { "waiter" } else { "waiters" },
+            silence_note(state, now)
         ))
+    }
+}
+
+/// The words that a line of a waiting start adds while tart does not answer (spec
+/// "admission-queue": "The command surface"). They name the time of the last answer, when one
+/// exists. The line says nothing while tart answers.
+fn silence_note(state: &State, now: Duration) -> String {
+    if state.unanswered_since.is_none() {
+        return String::new();
+    }
+    match &state.answer {
+        Some(answer) => format!(
+            ". tart does not answer: the last answer came {} s ago",
+            now.saturating_sub(answer.at).as_secs()
+        ),
+        None => ". tart does not answer: it has not answered since the app started".to_string(),
     }
 }
 
@@ -960,6 +1063,7 @@ impl RefusalReporter {
         line: &str,
         pause: Duration,
         now: Duration,
+        silence: &str,
     ) -> Option<String> {
         let due = match &self.last {
             None => true,
@@ -973,7 +1077,7 @@ impl RefusalReporter {
         self.last = Some((place, line.to_string(), now));
         Some(format!(
             "the framework refused request {request_id}: {line}. The start is back at place {place}. \
-             The app admits nothing for a pause of {} s, then tries this start again",
+             The app admits nothing for a pause of {} s, then tries this start again{silence}",
             pause.as_secs()
         ))
     }
@@ -1749,6 +1853,270 @@ mod tests {
         drop(hold);
     }
 
+    // When tart does not answer (spec "admission-queue": "The count").
+
+    /// Ask for an observation, and wait until `ended` shows that the observer made one. The
+    /// test says what shows it: an answer or a failure.
+    fn observe_and_wait(queue: &Arc<AdmissionQueue>, what: &str, ended: impl Fn(&State) -> bool) {
+        {
+            let mut state = queue.lock();
+            queue.request_observation(&mut state);
+        }
+        wait_until(what, || ended(&queue.lock()));
+    }
+
+    /// A queue that has one answer of a tart that runs `a` and `other`, and whose later
+    /// observations fail: `tart get` of `other` fails while `other` runs.
+    fn queue_with_an_answer_and_failing_observations() -> (Arc<AdmissionQueue>, Arc<FakeTart>) {
+        let (queue, _, tart) = queue_over(2, macos(&["a", "other"]));
+        observe_and_wait(&queue, "the first answer", |s| s.answer.is_some());
+        assert_eq!(queue.holder_names(), ["a", "other"]);
+        // `a` stops, and every observation from now on fails.
+        tart.set(&[("other", "darwin")]);
+        tart.fail_get_of("other");
+        let before = queue.lock().last_failure;
+        observe_and_wait(&queue, "a failed observation", |s| s.last_failure != before);
+        (queue, tart)
+    }
+
+    #[test]
+    fn a_stop_after_the_last_answer_frees_its_slot_while_the_observations_fail() {
+        let (queue, _tart) = queue_with_an_answer_and_failing_observations();
+        let answered = queue.observed_at();
+        let silent_since = queue.unanswered_since();
+        assert!(silent_since.is_some(), "the observation failed");
+        // The failed observation changed nothing: the last answer still names `a`.
+        assert_eq!(queue.lock().answer.as_ref().unwrap().macos.len(), 2);
+
+        queue.stopped("a");
+
+        assert_eq!(
+            queue.holder_names(),
+            ["other"],
+            "a later read showed `a` gone"
+        );
+        assert_eq!(
+            queue.observed_at(),
+            answered,
+            "the read of a stop is no observation"
+        );
+        assert_eq!(queue.unanswered_since(), silent_since);
+    }
+
+    #[test]
+    fn a_newer_answer_after_such_a_stop_that_still_reports_the_vm_running_counts_it_again() {
+        let (queue, tart) = queue_with_an_answer_and_failing_observations();
+        queue.stopped("a");
+        assert_eq!(queue.holder_names(), ["other"]);
+        // tart answers again, and its answer still reports `a` running. The newer answer replaces
+        // the last answer whole, and the removal that the stop made goes with the old answer.
+        tart.set(&[("a", "darwin"), ("other", "darwin")]);
+        tart.heal_get_of("other");
+        let number = queue.lock().answer.as_ref().unwrap().number;
+        observe_and_wait(&queue, "a newer answer", |s| {
+            s.answer.as_ref().is_some_and(|a| a.number > number)
+        });
+        wait_until("the decision to count `a` again", || {
+            queue.holder_names() == ["a", "other"]
+        });
+        assert_eq!(queue.unanswered_since(), None, "tart answered");
+    }
+
+    #[test]
+    fn a_stop_whose_read_fails_proves_nothing_and_the_vm_stays_in_the_count() {
+        let (queue, tart) = queue_with_an_answer_and_failing_observations();
+        tart.fail_list(true);
+        queue.stopped("a");
+        assert_eq!(queue.holder_names(), ["a", "other"]);
+    }
+
+    #[test]
+    fn a_stop_of_a_vm_that_the_last_answer_does_not_name_makes_no_read_of_tart() {
+        let (queue, _, tart) = queue_over(2, macos(&["other"]));
+        observe_and_wait(&queue, "the first answer", |s| s.answer.is_some());
+        let calls = tart.list_calls();
+        queue.stopped("a");
+        assert_eq!(tart.list_calls(), calls, "an idle stop runs no tart");
+    }
+
+    #[test]
+    fn a_stop_with_no_answer_yet_is_not_the_first_answer_of_the_run() {
+        let (queue, _, _) = queue_over(2, macos(&[]));
+        queue.stopped("a");
+        assert_eq!(queue.observed_at(), None);
+    }
+
+    #[test]
+    fn the_exit_of_a_tart_run_ends_its_hold_and_removes_no_vm_from_the_answer() {
+        // The answer shows a replacement under the name of the admitted start. The `tart run`
+        // exits, and the app learns of it after that answer. Observations fail after it.
+        let (queue, _, tart) = queue_over(2, macos(&["a"]));
+        let hold = queue
+            .admit(&ask("a", Some(5)), &CancellationToken::new(), &quiet())
+            .unwrap();
+        wait_until("an answer that names `a`", || {
+            queue
+                .lock()
+                .answer
+                .as_ref()
+                .is_some_and(|answer| answer.macos.contains("a"))
+        });
+        tart.fail_get_of("a");
+        let before = queue.lock().last_failure;
+
+        drop(hold);
+
+        observe_and_wait(&queue, "a failed observation", |s| s.last_failure != before);
+        let held = queue.holders(&queue.lock());
+        assert!(held.own.is_empty(), "the hold of the admission ended");
+        assert_eq!(
+            held.seen,
+            BTreeSet::from(["a".to_string()]),
+            "the replacement stays in the count until a later read shows it gone"
+        );
+    }
+
+    #[test]
+    fn the_first_failed_observation_after_an_answer_starts_the_silence_and_an_answer_ends_it() {
+        let (queue, tart) = queue_with_an_answer_and_failing_observations();
+        let first = queue.unanswered_since().expect("the observation failed");
+        // Another failed observation keeps the time of the first.
+        let before = queue.lock().last_failure;
+        observe_and_wait(&queue, "a second failure", |s| s.last_failure != before);
+        assert_eq!(queue.unanswered_since(), Some(first));
+        tart.heal_get_of("other");
+        let number = queue.lock().answer.as_ref().unwrap().number;
+        observe_and_wait(&queue, "an answer", |s| {
+            s.answer.as_ref().is_some_and(|a| a.number > number)
+        });
+        assert_eq!(queue.unanswered_since(), None);
+    }
+
+    #[test]
+    fn a_line_says_that_tart_does_not_answer_with_the_time_of_the_last_answer() {
+        let mut state = State {
+            holders: vec!["vm-a".into()],
+            answer: Some(Answer {
+                number: 0,
+                at: Duration::from_secs(10),
+                macos: BTreeSet::new(),
+            }),
+            ..State::default()
+        };
+        state.waiting.push(Entry {
+            request_id: "r-1".into(),
+            vm_id: "w".into(),
+            seq: 0,
+            deadline: None,
+            joined_obs: 0,
+            refusal: None,
+        });
+        let mut reporter = WaitReporter::default();
+        let line = reporter
+            .note(&state, "r-1", Duration::from_secs(11))
+            .unwrap();
+        assert!(!line.contains("does not answer"), "tart answers: {line}");
+        // The first failed observation is said at once, with the time of the last answer.
+        state.unanswered_since = Some(Duration::from_secs(12));
+        let line = reporter
+            .note(&state, "r-1", Duration::from_secs(50))
+            .unwrap();
+        assert!(
+            line.contains("tart does not answer") && line.contains("last answer came 40 s ago"),
+            "{line}"
+        );
+        // Before the first answer there is no time to name.
+        state.answer = None;
+        let line = reporter.note(&state, "r-1", Duration::from_secs(51));
+        assert!(line.is_none(), "nothing changed: {line:?}");
+        let line = reporter
+            .note(&state, "r-1", Duration::from_secs(80))
+            .unwrap();
+        assert!(
+            line.contains("has not answered since the app started"),
+            "{line}"
+        );
+        // The end of the silence is said too.
+        state.unanswered_since = None;
+        let line = reporter
+            .note(&state, "r-1", Duration::from_secs(81))
+            .unwrap();
+        assert!(!line.contains("does not answer"), "{line}");
+    }
+
+    #[test]
+    fn the_line_after_a_refusal_says_that_tart_does_not_answer() {
+        let mut reporter = RefusalReporter::default();
+        let silence = silence_note(
+            &State {
+                unanswered_since: Some(Duration::from_secs(1)),
+                ..State::default()
+            },
+            Duration::from_secs(2),
+        );
+        let line = reporter
+            .note(
+                "r-1",
+                1,
+                LINE,
+                Duration::from_secs(3),
+                Duration::ZERO,
+                &silence,
+            )
+            .unwrap();
+        assert!(line.contains("tart does not answer"), "{line}");
+    }
+
+    #[test]
+    fn a_start_whose_observation_failed_says_in_its_remedy_that_tart_does_not_answer() {
+        let tart = FakeTart::default();
+        tart.fail_list(true);
+        let (queue, _, _) = queue_over(2, tart);
+        let error = queue
+            .admit(&ask("a", None), &CancellationToken::new(), &quiet())
+            .err()
+            .expect("no answer is newer than the join");
+        let remedy = error.remediation().expect("a remedy");
+        assert!(remedy.contains("tart does not answer"), "{remedy}");
+        assert!(
+            remedy.contains("not answered since the app started"),
+            "{remedy}"
+        );
+        assert!(queue.unanswered_since().is_some());
+    }
+
+    #[test]
+    fn a_wait_that_runs_out_during_a_slow_observation_says_so_in_its_remedy() {
+        let (queue, _, tart) = queue_over(2, FakeTart::default());
+        let hold = queue
+            .admit(&ask("a", Some(5)), &CancellationToken::new(), &quiet())
+            .unwrap();
+        // The observer is slow, so no answer is newer than the join of `b`.
+        tart.hold_lists(true);
+        let error = join_thread(&queue, "b", 1).join().unwrap().err();
+        let error = error.expect("no answer is newer than the join");
+        let seen_silence = queue.unanswered_since();
+        tart.hold_lists(false);
+        let limit = limit_of(error);
+        assert_eq!(limit.admission.refused_by, RefusedBy::App);
+        assert!(limit.admission.tart_silence.is_some());
+        assert_eq!(seen_silence, None, "a slow tart has not failed");
+        drop(hold);
+    }
+
+    #[test]
+    fn a_refusal_on_a_fresh_answer_says_nothing_about_tart() {
+        let (queue, _, _) = queue_over(2, macos(&["x", "y"]));
+        let error = join_thread(&queue, "b", 1).join().unwrap().err().unwrap();
+        let limit = limit_of(error);
+        assert_eq!(limit.holders, ["x", "y"]);
+        assert_eq!(limit.admission.tart_silence, None);
+        assert!(!VmError::VmLimitReached(Box::new(limit))
+            .remediation()
+            .unwrap()
+            .contains("tart does not answer"));
+    }
+
     // The refusal by the framework (spec "admission-queue": "A refusal by the framework").
 
     const LINE: &str = "The number of VMs exceeds the system limit (other running VMs: holder-a)";
@@ -2072,20 +2440,20 @@ mod tests {
         let mut reporter = RefusalReporter::default();
         let pause = Duration::from_secs(3);
         let first = reporter
-            .note("r-1", 1, LINE, pause, Duration::ZERO)
+            .note("r-1", 1, LINE, pause, Duration::ZERO, "")
             .expect("the first refusal speaks");
         assert!(first.contains("pause of 3 s"), "{first}");
         assert!(reporter
-            .note("r-1", 1, LINE, pause, Duration::from_secs(4))
+            .note("r-1", 1, LINE, pause, Duration::from_secs(4), "")
             .is_none());
         assert!(reporter
-            .note("r-1", 2, LINE, pause, Duration::from_secs(8))
+            .note("r-1", 2, LINE, pause, Duration::from_secs(8), "")
             .is_some());
         assert!(reporter
-            .note("r-1", 2, "another line", pause, Duration::from_secs(12))
+            .note("r-1", 2, "another line", pause, Duration::from_secs(12), "")
             .is_some());
         assert!(reporter
-            .note("r-1", 2, "another line", pause, Duration::from_secs(42))
+            .note("r-1", 2, "another line", pause, Duration::from_secs(42), "")
             .is_some());
     }
 }

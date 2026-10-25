@@ -10,6 +10,9 @@
 #   capacity        a number: `run` refuses as `full` does while that many VMs run, as the
 #                   framework does. Each refusal appends a line to `refused.log`
 #   stuck           if present, `stop` and `delete` do nothing, as a tart that cannot remove a VM
+#   list-hang       if present, `list` does not answer while the file exists, or until a caller
+#                   kills it
+#   get-delay       a number of seconds: `get` answers after that long, as a slow tart does
 #   <name>.os       the OS that `get` reports for a VM (`darwin` or `linux`). `clone` writes it from
 #                   the base: darwin for the macOS golden, linux for the Linux golden. A VM that a
 #                   test makes by hand without it reports darwin
@@ -25,6 +28,7 @@ alive() { [ -e "$STATE/$1.running" ] && kill -0 "$(cat "$STATE/$1.running")" 2>/
 
 case "$cmd" in
   list)
+    while [ -e "$STATE/list-hang" ]; do sleep 0.1; done
     first=1
     printf '['
     emit() {
@@ -42,6 +46,7 @@ case "$cmd" in
     ;;
   get)
     # `tart get <name> --format json`: only the key that the app reads.
+    [ -s "$STATE/get-delay" ] && sleep "$(cat "$STATE/get-delay")"
     [ -e "$STATE/$1.cloned" ] || { echo "failed to get $1: no such VM" >&2; exit 1; }
     printf '{"OS":"%s"}\n' "$(cat "$STATE/$1.os" 2>/dev/null || echo darwin)"
     ;;

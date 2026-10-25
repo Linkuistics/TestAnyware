@@ -365,6 +365,7 @@ impl VmLifecycle {
                     waited_secs: joined.elapsed().as_secs(),
                     refused_by: RefusedBy::Framework,
                     unseen_possible: true,
+                    tart_silence: hold.tart_silence(),
                 };
                 Err(VmError::VmLimitReached(limit))
             }

@@ -208,6 +208,15 @@ impl Fixture {
         }
     }
 
+    /// Write a control file of the fake `tart` (see the header of the script).
+    fn set_fake(&self, name: &str, value: &str) {
+        std::fs::write(self.fake_state().join(name), value).unwrap();
+    }
+
+    fn clear_fake(&self, name: &str) {
+        let _ = std::fs::remove_file(self.fake_state().join(name));
+    }
+
     fn stop(&self, id: &str) {
         let out = self.app.cli(&["vm", "stop", id, "--json"]);
         assert_eq!(out.code(), 0, "stop {id}: {} {}", out.out(), out.err());
@@ -1021,6 +1030,143 @@ fn after_a_restart_the_queue_is_empty_and_the_adopted_guests_count() {
     }
     let (code, envelope, err) = waiter.finish();
     assert_eq!(code, 0, "{envelope} {err}");
+}
+
+// A slow tart and a tart that does not answer (spec "admission-queue": "The count": "When tart does
+// not answer", and "Test seams").
+
+#[test]
+fn a_wait_that_runs_out_during_a_slow_observation_fails_at_its_deadline_and_a_slot_that_frees_later_admits_nobody(
+) {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    let first = fixture.run_outside("s-ext-1", "darwin");
+    let second = fixture.run_outside("s-ext-2", "darwin");
+    // Each `tart get` answers after 4 s, inside the bound of 5 s. So no call fails, and one
+    // observation takes about 8 s.
+    fixture.set_fake("get-delay", "4");
+
+    let began = Instant::now();
+    let client = fixture.spawn_start("s-a", &["--wait=2"]);
+    let (code, envelope, err) = client.finish();
+    let waited = began.elapsed();
+    assert_eq!(code, 6, "{envelope} {err}");
+    assert!(
+        waited >= Duration::from_secs(2) && waited < Duration::from_secs(6),
+        "the deadline decided at once, and not after the observation: {waited:?}"
+    );
+    let details = &envelope["details"];
+    assert_eq!(details["refused_by"], "app");
+    assert_eq!(details["place"], 1);
+    let remedy = envelope["remediation"].as_str().unwrap_or_default();
+    assert!(
+        remedy.contains("tart does not answer or answers late"),
+        "{remedy}"
+    );
+
+    // A slot frees only after the deadline. The start is gone, so nobody takes the slot.
+    fixture.end_outside("s-ext-1", first);
+    fixture.clear_fake("get-delay");
+    fixture.start_and_wait_until_running("s-b");
+    assert!(!fixture.cloned("s-a"), "the failed start leaves no clone");
+    assert!(
+        !fixture.runs("s-a"),
+        "the app never admitted the failed start later"
+    );
+    assert_eq!(fixture.refusals(), Vec::<String>::new());
+    fixture.end_outside("s-ext-2", second);
+}
+
+#[test]
+fn a_start_without_a_wait_behind_a_waiter_fails_at_once_during_a_slow_observation() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    let first = fixture.run_outside("p-ext-1", "darwin");
+    let second = fixture.run_outside("p-ext-2", "darwin");
+    fixture.set_fake("get-delay", "4");
+    let mut waiter = fixture.spawn_start("p-w", &["--wait"]);
+    waiter.until_stderr_has("place 1");
+
+    let began = Instant::now();
+    let out = fixture.app.cli(&[
+        "vm",
+        "start",
+        "--platform",
+        "macos",
+        "--base",
+        MACOS_BASE,
+        "--id",
+        "p-d",
+        "--json",
+    ]);
+    assert!(
+        began.elapsed() < Duration::from_secs(4),
+        "a refusal that needs no answer waits for no observation: {:?}",
+        began.elapsed()
+    );
+    assert_eq!(out.code(), 6, "{} {}", out.out(), out.err());
+    let details = &out.json()["details"];
+    assert_eq!(details["refused_by"], "app");
+    assert_eq!(details["place"], 2);
+    assert!(!waiter.finished());
+    waiter.kill();
+    fixture.end_outside("p-ext-1", first);
+    fixture.end_outside("p-ext-2", second);
+}
+
+#[test]
+fn a_tart_that_does_not_answer_is_said_in_the_lines_of_the_wait_and_a_later_read_frees_the_slot() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    fixture.start_and_wait_until_running("t-a");
+    fixture.start_and_wait_until_running("t-b");
+    let waiter = fixture.spawn_start("t-w", &["--wait"]);
+    waiter.until_stderr_has("place 1");
+    assert!(!waiter.stderr().contains("does not answer"));
+    // An answer exists by now. Then `tart list` stops answering. The bound of 5 s ends the
+    // call that hangs, and the observation fails.
+    std::thread::sleep(Duration::from_secs(1));
+    fixture.set_fake("list-hang", "");
+    waiter.until_stderr_has("tart does not answer");
+    assert!(
+        waiter.stderr().contains("the last answer came"),
+        "{}",
+        waiter.stderr()
+    );
+
+    // tart answers again, and a stop frees a slot.
+    fixture.clear_fake("list-hang");
+    fixture.stop("t-a");
+    let (code, envelope, err) = waiter.finish();
+    assert_eq!(code, 0, "{envelope} {err}");
+    assert!(fixture.runs("t-w"));
+    assert_eq!(fixture.refusals(), Vec::<String>::new());
+}
+
+#[test]
+fn a_start_that_fails_while_tart_does_not_answer_says_so_in_its_remedy() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    fixture.start_and_wait_until_running("u-a");
+    fixture.start_and_wait_until_running("u-b");
+    // The start asks `tart list` once before it joins, and so does its cleanup after a refusal.
+    // Those two calls have no bound. So the hang begins after the join, and it ends after the
+    // deadline. The wait is long enough for one failed observation.
+    let client = fixture.spawn_start("u-c", &["--wait=14"]);
+    client.until_stderr_has("place 1");
+    std::thread::sleep(Duration::from_secs(1));
+    fixture.set_fake("list-hang", "");
+    client.until_stderr_has("tart does not answer");
+    std::thread::sleep(Duration::from_secs(8));
+    fixture.clear_fake("list-hang");
+    let (code, envelope, err) = client.finish();
+    assert_eq!(code, 6, "{envelope} {err}");
+    assert_eq!(envelope["details"]["refused_by"], "app");
+    let remedy = envelope["remediation"].as_str().unwrap_or_default();
+    assert!(remedy.contains("tart does not answer"), "{remedy}");
+    assert!(remedy.contains("The last answer of tart came"), "{remedy}");
+    assert!(err.contains("tart does not answer"), "{err}");
+    fixture.clear_fake("list-hang");
 }
 
 fn sidecars(fixture: &Fixture, id: &str) -> [PathBuf; 2] {

@@ -10,6 +10,7 @@
 //! [`holders`] puts both together, and a guest that two holders name counts once.
 
 use std::collections::BTreeSet;
+use std::time::Duration;
 
 use testanyware_vm::adoption::{decide, Adoption};
 use testanyware_vm::identity::ProcessProbe;
@@ -17,6 +18,7 @@ use testanyware_vm::meta::{VmMeta, VmTool};
 use testanyware_vm::spec::VmSpec;
 use testanyware_vm::VmPaths;
 
+use super::observation::ReadFailed;
 use crate::adoption::meta_ids;
 
 /// The ids of the macOS guests that hold a slot because they have a meta. This reads files and
@@ -54,6 +56,24 @@ pub fn holders(own: BTreeSet<String>, answer: Option<&BTreeSet<String>>) -> Hold
         .map(|macos| macos.difference(&own).cloned().collect())
         .unwrap_or_default();
     Holders { own, seen }
+}
+
+/// Whether the read of a stop removes `vm` from the last answer (spec "admission-queue": "The
+/// count": "When tart does not answer").
+///
+/// The answer ended at `answered_at`, when its last call to tart returned. The read is a `tart
+/// list` that started at `read_started`, after the stop. It removes the VM only when it started
+/// after the answer ended, and it answered, and it does not report the VM running. A read that
+/// started earlier can predate the guest that the answer shows, and a read that failed proves
+/// nothing. The read of a stop is no observation, so the caller changes neither the time of the
+/// answer nor the time since tart did not answer.
+pub fn stop_read_removes(
+    answered_at: Duration,
+    read_started: Duration,
+    read: &Result<BTreeSet<String>, ReadFailed>,
+    vm: &str,
+) -> bool {
+    read_started > answered_at && read.as_ref().is_ok_and(|running| !running.contains(vm))
 }
 
 fn holds_a_slot(id: &str, paths: &VmPaths, probe: &impl ProcessProbe) -> bool {
@@ -327,5 +347,50 @@ mod tests {
         std::fs::create_dir_all(paths.vms_dir()).unwrap();
         std::fs::write(paths.meta_path("torn"), b"{ not json").unwrap();
         assert!(macos_guests_with_a_meta(&paths, &Host(Default::default())).is_empty());
+    }
+
+    // The read of a stop (spec "admission-queue": "The count").
+
+    fn secs(n: u64) -> Duration {
+        Duration::from_secs(n)
+    }
+
+    fn answered(list: &[&str]) -> Result<BTreeSet<String>, ReadFailed> {
+        Ok(names(list))
+    }
+
+    #[test]
+    fn a_stop_read_that_started_after_the_answer_and_does_not_name_the_vm_removes_it() {
+        assert!(stop_read_removes(
+            secs(10),
+            secs(11),
+            &answered(&["other"]),
+            "a"
+        ));
+        assert!(stop_read_removes(secs(10), secs(11), &answered(&[]), "a"));
+    }
+
+    #[test]
+    fn a_stop_read_that_started_before_the_end_of_the_answer_removes_nothing() {
+        // The answer ended at 10 s. A read that began at 9 s can predate a guest that the answer
+        // shows, so it is not later. A read that began at the same moment is not later either.
+        assert!(!stop_read_removes(secs(10), secs(9), &answered(&[]), "a"));
+        assert!(!stop_read_removes(secs(10), secs(10), &answered(&[]), "a"));
+    }
+
+    #[test]
+    fn a_stop_read_that_fails_proves_nothing() {
+        let failed = Err(ReadFailed("tart list failed".into()));
+        assert!(!stop_read_removes(secs(10), secs(11), &failed, "a"));
+    }
+
+    #[test]
+    fn a_stop_read_that_still_names_the_vm_removes_nothing() {
+        assert!(!stop_read_removes(
+            secs(10),
+            secs(11),
+            &answered(&["a"]),
+            "a"
+        ));
     }
 }

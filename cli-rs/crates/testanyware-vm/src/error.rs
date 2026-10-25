@@ -100,6 +100,18 @@ pub struct AdmissionFacts {
     /// the app cannot see may hold a slot. The remedy names that cause. It is no `details`
     /// member.
     pub unseen_possible: bool,
+    /// The app got no usable answer of tart for this start: tart does not answer, or no answer
+    /// was newer than the join of the start. The remedy says so. It is no `details` member.
+    pub tart_silence: Option<TartSilence>,
+}
+
+/// What the app knows about a tart that did not serve a start (spec "admission-queue": "The
+/// command surface").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TartSilence {
+    /// The seconds from the last answer of tart to the refusal, or `None` when tart has not
+    /// answered in this run of the app.
+    pub since_last_answer_secs: Option<u64>,
 }
 
 impl fmt::Display for LimitReached {
@@ -211,6 +223,18 @@ const UNSEEN_GUEST_REMEDY: &str =
     "The app counted a free slot, and the framework refused anyway. There are two possible \
      causes. A guest of another user or tool holds a slot that the app cannot see. Or the count \
      of the framework is stuck, which only a restart of the Mac clears.";
+
+/// What a `VM_LIMIT_REACHED` adds when the app had no usable answer of tart for the start.
+fn tart_silence_remedy(silence: &TartSilence) -> String {
+    let last = match silence.since_last_answer_secs {
+        Some(secs) => format!("The last answer of tart came {secs} s before this failure."),
+        None => "Tart has not answered since the app started.".to_string(),
+    };
+    format!(
+        "The app had no answer of tart that served this start, because tart does not answer or \
+         answers late. {last} Check that `tart list` answers, then retry."
+    )
+}
 
 /// Errors produced by the VM lifecycle. Each variant maps 1:1 to a §4
 /// error code and a §5 exit code.
@@ -417,11 +441,14 @@ impl VmError {
                         limit.holders.join(", ")
                     )
                 };
-                Some(if limit.admission.unseen_possible {
-                    format!("{stop} {UNSEEN_GUEST_REMEDY}")
-                } else {
-                    stop
-                })
+                let mut remedy = stop;
+                if limit.admission.unseen_possible {
+                    remedy = format!("{remedy} {UNSEEN_GUEST_REMEDY}");
+                }
+                if let Some(silence) = &limit.admission.tart_silence {
+                    remedy = format!("{remedy} {}", tart_silence_remedy(silence));
+                }
+                Some(remedy)
             }
             VmError::HostUnsupported { .. } => Some(
                 "Launch VMs from a Linux or macOS host. The Windows host binary is \
@@ -814,5 +841,48 @@ mod tests {
     fn the_unseen_guest_flag_is_no_member_of_the_details() {
         let details = limit_with(true).details();
         assert!(details.get("unseen_possible").is_none(), "{details}");
+    }
+
+    #[test]
+    fn the_remedy_says_that_tart_does_not_answer_with_the_time_of_the_last_answer() {
+        let silent = |since_last_answer_secs| {
+            VmError::VmLimitReached(Box::new(LimitReached {
+                platform: "macos".into(),
+                limit: 2,
+                holders: vec![],
+                raw: String::new(),
+                admission: AdmissionFacts {
+                    tart_silence: Some(TartSilence {
+                        since_last_answer_secs,
+                    }),
+                    ..AdmissionFacts::default()
+                },
+            }))
+        };
+        let remedy = silent(Some(42)).remediation().unwrap();
+        assert!(remedy.contains("tart does not answer"), "{remedy}");
+        assert!(remedy.contains("42 s"), "{remedy}");
+        assert!(remedy.contains("vm stop"), "the stop advice stays: {remedy}");
+        let remedy = silent(None).remediation().unwrap();
+        assert!(remedy.contains("has not answered since the app started"), "{remedy}");
+        assert!(!limit_with(false).remediation().unwrap().contains("tart does not answer"));
+    }
+
+    #[test]
+    fn the_silence_of_tart_is_no_member_of_the_details() {
+        let details = VmError::VmLimitReached(Box::new(LimitReached {
+            platform: "macos".into(),
+            limit: 2,
+            holders: vec![],
+            raw: String::new(),
+            admission: AdmissionFacts {
+                tart_silence: Some(TartSilence {
+                    since_last_answer_secs: None,
+                }),
+                ..AdmissionFacts::default()
+            },
+        }))
+        .details();
+        assert!(details.get("tart_silence").is_none(), "{details}");
     }
 }

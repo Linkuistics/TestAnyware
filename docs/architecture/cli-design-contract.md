@@ -268,7 +268,7 @@ version bump.
 |---|---|
 | `VM_NOT_FOUND` | `--vm <id>` resolved to a spec that does not exist. |
 | `VM_BOOT_TIMEOUT` | `vm start`: the VM is alive, but a stage of the start never completed. The stage is the VNC endpoint, the guest IP or, in the usual case, the agent, which never became a Healthy agent. `details` names the `stage` (`vnc`, `guest-ip`, `agent`), the polled `endpoint`, the `last_error` (kind, OS errno, text), the `attempts` and the `elapsed_secs`. It also names the proven `cause` (`null` or `local_network_denied`, see the §4.2 amendment of 2026-10-19), and whether the VM was `kept`. |
-| `VM_LIMIT_REACHED` | `vm start` or `vm create-golden` was refused because the platform's limit of concurrent guests is full: Apple's macOS guest limit, two for each Mac. It is a *try again later* condition, exit `6`. `details`: `platform`, `limit` (the limit that refused), `holders` (the VMs holding the slots), `tart_error` (the backend's own line, or an empty string when no `tart run` ran), `request_id`, `place`, `waited_secs` and `refused_by` (`app` or `framework`). A `--wait` start that ran out returns the same error. If the framework refuses a start while the app counts a free slot, or contention holds a try back, the remedy names two causes. One cause is a guest of another user or tool that the app cannot see. The other is a stuck count of the framework, which only a restart of the Mac clears. See the amendment of 2026-10-25. |
+| `VM_LIMIT_REACHED` | `vm start` or `vm create-golden` was refused because the platform's limit of concurrent guests is full: Apple's macOS guest limit, two for each Mac. It is a *try again later* condition, exit `6`. `details`: `platform`, `limit` (the limit that refused), `holders` (the VMs holding the slots), `tart_error` (the backend's own line, or an empty string when no `tart run` ran), `request_id`, `place`, `waited_secs` and `refused_by` (`app` or `framework`). A `--wait` start that ran out returns the same error. If the framework refuses a start while the app counts a free slot, or contention holds a try back, the remedy names two causes. One cause is a guest of another user or tool that the app cannot see. The other is a stuck count of the framework, which only a restart of the Mac clears. If tart does not answer the app, the remedy says so. It names the time of the last answer. See the amendment of 2026-10-25. |
 | `VM_STOP_FAILED` | `vm stop` could not stop the VM cleanly. The app's stop of a QEMU guest that an older release started signals no process. It fails when a socket still answers or a process still holds the clone's disk, and `details` names `monitor_socket`, `swtpm_socket`, `disk_holders` and `disk_check_error`. The app then removes nothing, and the remedy says to quit that QEMU by hand and run `vm stop` again. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform on this host. |
 | `VM_HOST_UNSUPPORTED` | `vm start` ran on a Windows host. That host cannot run a local QEMU VM, because the binary has no QEMU monitor and no process control for Windows. `details.detail` holds the text. Start VMs from a Linux or macOS host. |
@@ -414,6 +414,12 @@ version bump.
 >   remedy names two causes. A guest of another user or tool holds a slot that
 >   the app cannot see, or the count of the framework is stuck. Only a restart
 >   of the Mac clears a stuck count.
+> - The app calls tart for each observation, and it ends a call that does not
+>   answer within 5 s. While tart does not answer, the app keeps its last answer,
+>   and it frees a slot only on a later read of tart. The lines of a waiting
+>   start say that tart does not answer, and they name the time of the last
+>   answer. When a start fails while tart does not answer, or before an answer
+>   newer than its join, the remedy says so too.
 > - One user for each Mac is the supported deployment. The queue counts the tart
 >   VMs of that user only.
 > - `VM_LIMIT_REACHED` keeps exit `6` and the type of each member. `limit` is the

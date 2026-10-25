@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use tokio_util::sync::CancellationToken;
 
-use crate::error::VmError;
+use crate::error::{TartSilence, VmError};
 use crate::start_context::Progress;
 
 /// What a start asks of the gate.
@@ -49,6 +49,11 @@ pub trait SlotHold: Send + Sync {
     fn request_id(&self) -> &str;
     /// The seconds the start waited in the queue before its latest admission.
     fn waited(&self) -> Duration;
+    /// What the app knows about a tart that does not answer now, for the remedy of a refusal by
+    /// the framework. `None` while tart answers.
+    fn tart_silence(&self) -> Option<TartSilence> {
+        None
+    }
     /// The framework accepted the start: its `tart run` printed the VNC URL. The slot is proven.
     fn accepted(&self);
     /// The framework refused the start: its `tart run` has exited, with `line` as the refusal.

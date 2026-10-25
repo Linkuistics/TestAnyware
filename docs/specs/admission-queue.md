@@ -1324,6 +1324,12 @@ spec, and each one grows.
   until Ctrl-C. The app keeps those holders to protect golden creation. Without
   them, a start could take its slot between its boots, beside a guest that the
   app can see.
+
+  The bound of 5 s covers the calls of an observation and the read of a stop.
+  It does not cover the other calls of a start to `tart list`: the check before
+  its clone, and the cleanup after a refusal. Against a tart that never answers,
+  the app still decides at the deadline. But the client waits until those calls
+  end. This design leaves them as they are today.
 - **A meta that outlives its `tart run`.** A `tart run` can exit by itself, and
   its meta then stays for `vm stop`, by the rules of adoption. A person can then
   run another VM under its name. The count keeps that VM out of the own holders,
