@@ -40,7 +40,23 @@ slot is about to free.
 1. `admission-queue` (design): the spec of the queue, and the rework of the
    contract amendment of 2026-10-19, which left a queue out.
 2. `admission-increments` (planning): the working increments of the agreed
-   design. They end with a release leaf.
+   design. They end with a release leaf. Eleven `impl` leaves follow it, in
+   this order. Each leaves the product working and updates the documents of its
+   own scope.
+   1. `queue-order`: waiters of a macOS `vm start --wait` get their slots in
+      order, by the app's own count. A refusal keeps the retry of today.
+   2. `queue-refusal`: a refusal sends the start back to the head, with a pause
+      and contention. The help and the contract change here.
+   3. `queue-slots-config`: `config.rhai` lowers `macos_slots`.
+   4. `queue-external`: the count sees the other macOS guests of the user.
+   5. `queue-vm-slots`: protocol version 2 and the command `vm slots`.
+   6. `queue-golden-boot`: a golden boot notices a refusal and tries again.
+   7. `queue-golden-hold`: golden creation holds its slot through a connection.
+   8. `queue-start-record`: a crash or a restart keeps the count true.
+   9. `queue-skill`: the `using-testanyware` skill passes `--wait`. It asks the
+      human before it pushes.
+   10. `queue-live-checks`: the live checks of the queue in the Taskfile.
+   11. `queue-release`: the tagged release, and the live checks on it.
 
 ## Pointers
 
