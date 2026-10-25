@@ -230,6 +230,14 @@ fn main() -> ExitCode {
         ctx = ctx.with_login_item(testanyware_app::shell::login_item_state);
     }
     let ctx = Arc::new(ctx);
+    // A start record names a start that a crash interrupted. The app decides for each one before
+    // it serves its socket, and before adoption reads the sidecars that the decision removes.
+    // A client that connects meanwhile waits in the backlog of the socket.
+    let unfinished = testanyware_app::unfinished::run_for_app(&ctx);
+    for start in &unfinished {
+        eprintln!("testanyware-app: {}", start.detail);
+    }
+    ctx.adoption.set_unfinished_starts(unfinished);
     eprintln!("testanyware-app: serving on {}", paths.socket.display());
 
     if args.test_mode {

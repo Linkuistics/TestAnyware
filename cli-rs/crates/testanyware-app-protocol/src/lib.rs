@@ -39,7 +39,7 @@ pub use start::{
 };
 pub use status::{
     AdoptedVm, AdoptionStatus, ConfigurationState, ConfigurationStatus, GrantState,
-    LocalNetworkStatus, LoginItemState, NotAdoptedVm, ProbeAnswer, StatusResponse,
+    LocalNetworkStatus, LoginItemState, NotAdoptedVm, ProbeAnswer, StatusResponse, UnfinishedStart,
 };
 pub use stop_delete::{
     delete_path, parse_end_path, stop_path, DeleteRequest, DeleteResult, EndRoute, StopResult,

@@ -125,6 +125,24 @@ pub struct AdoptionStatus {
     pub adopted: Vec<AdoptedVm>,
     /// The VMs the app did not adopt, each with the reason. The app signalled none of them.
     pub not_adopted: Vec<NotAdoptedVm>,
+    /// The start records that the app found when it started: each names a start that a crash of
+    /// the app, or of the Mac, interrupted. The app decided for each one before it served its
+    /// socket (spec "admission-queue": "A quit, a crash and a restart").
+    #[serde(default)]
+    pub unfinished_starts: Vec<UnfinishedStart>,
+}
+
+/// A start that a crash interrupted, and what the app did about it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnfinishedStart {
+    /// The VM id of the start.
+    pub id: String,
+    /// True when nothing of the start remains: the app removed its VM, clone and sidecars, or the
+    /// VM that runs now belongs to an earlier start that adoption serves. False when the record
+    /// stays, and when the app keeps a running VM that no meta proves.
+    pub removed: bool,
+    /// The reason, and the remedy when a person has to act, in sentences.
+    pub detail: String,
 }
 
 /// A VM the app serves again.
@@ -183,6 +201,26 @@ mod tests {
         assert_eq!(status.executable, None);
         assert_eq!(status.local_network, LocalNetworkStatus::default());
         assert_eq!(status.login_item, LoginItemState::Unobserved);
+    }
+
+    #[test]
+    fn an_adoption_body_of_an_older_app_has_no_unfinished_starts() {
+        let body = r#"{"finished": true, "adopted": [], "not_adopted": []}"#;
+        let adoption: AdoptionStatus = serde_json::from_str(body).unwrap();
+        assert!(adoption.unfinished_starts.is_empty());
+    }
+
+    #[test]
+    fn an_unfinished_start_states_its_id_what_was_removed_and_why() {
+        let start = UnfinishedStart {
+            id: "vm-1".into(),
+            removed: false,
+            detail: "reason".into(),
+        };
+        assert_eq!(
+            serde_json::to_value(start).unwrap(),
+            serde_json::json!({"id": "vm-1", "removed": false, "detail": "reason"})
+        );
     }
 
     #[test]

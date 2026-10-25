@@ -1,4 +1,4 @@
-# queue-start-record-k23
+# queue-start-record-k23 — brief
 
 ## Goal
 
@@ -52,6 +52,14 @@ app cannot account for. The app never stops a VM that it did not start.
 
 ## Notes
 
-- This leaf is large. If it exceeds one session, decompose it. The first child is
-  the record, its removal and the decision for the first and second rows. The
-  rows that wait for tart come after it.
+- This leaf proved larger than one session, so it is a node. Three children share
+  its "Done when":
+  - `queue-record-decision-k29`: the record, its removal, the pure function of
+    the four rows, the decision before the socket is served, and the results in
+    `GET /v1/status`. The fourth row only keeps the record here.
+  - `queue-record-retry-k30`: the observer decides again for each record that
+    tart did not decide, and the second row asks for a newer read. It holds the
+    tests of a `tart list` that does not answer.
+  - `queue-quit-k31`: the quit of the app, with its wait of 10 s.
+- The node closes when the three children retire. The close compares the "Done
+  when" above with the three.

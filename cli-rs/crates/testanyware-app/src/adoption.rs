@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use testanyware_app_protocol::{
-    AdoptedVm, AdoptionStatus, NotAdoptedVm, ProbeAnswer, StreamKind,
+    AdoptedVm, AdoptionStatus, NotAdoptedVm, ProbeAnswer, StreamKind, UnfinishedStart,
 };
 use testanyware_vm::adoption::{check_process, decide, Adoption, ProcessCheck};
 use testanyware_vm::identity::{ProcessProbe, SystemProbe};
@@ -46,6 +46,12 @@ impl AdoptionLog {
 
     fn replace(&self, status: AdoptionStatus) {
         *self.lock() = status;
+    }
+
+    /// Note the results for the start records that the app found, before it serves its socket
+    /// (see [`crate::unfinished`]). The adoption that follows keeps them.
+    pub fn set_unfinished_starts(&self, starts: Vec<UnfinishedStart>) {
+        self.lock().unfinished_starts = starts;
     }
 
     fn update(&self, change: impl FnOnce(&mut AdoptionStatus)) {
@@ -247,6 +253,7 @@ pub async fn run_scanned(ctx: &Arc<AppContext>, scanned: Scan, deadline: Duratio
         finished: false,
         adopted: scanned.survivors.iter().map(pending).collect(),
         not_adopted: scanned.not_adopted,
+        unfinished_starts: ctx.adoption.snapshot().unfinished_starts,
     });
 
     let mut tasks = Vec::new();

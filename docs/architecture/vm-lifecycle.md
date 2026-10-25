@@ -46,6 +46,7 @@ Defaults follow the XDG Base Directory spec.
 | Content | Path | Purpose |
 |---------|------|---------|
 | Running-VM specs | `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.json` and `<id>.meta.json` | Ephemeral. `vm start` creates them and `vm stop` removes them |
+| Start records | `${XDG_STATE_HOME:-~/.local/state}/testanyware/vms/<id>.start-record` | Ephemeral. The TestAnyware app writes one before the clone of each start and removes it when the start ends. After a crash it stays until the app decides for it (`docs/specs/admission-queue.md`) |
 | QEMU golden images | `${XDG_DATA_HOME:-~/.local/share}/testanyware/golden/` | Persistent. `testanyware vm create-golden --platform windows` produces them |
 | QEMU clone working dirs | `${XDG_DATA_HOME:-~/.local/share}/testanyware/clones/<id>/` | Ephemeral per-clone disk. `vm stop` removes it |
 | Windows installer ISO cache | `${XDG_DATA_HOME:-~/.local/share}/testanyware/cache/` | Persistent. Golden-image rebuilds reuse it |

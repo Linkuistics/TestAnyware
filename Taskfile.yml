@@ -43,7 +43,7 @@ tasks:
       - cargo test -p testanyware-app-protocol -p testanyware-app -p testanyware-app-client
 
   app:routing-test:
-    desc: Run the real host CLI binary against the real app executable and fake guests (agent, VNC) and a fake tart (vm list, vm start, vm stop and vm delete), and an app that forges its build, range and bundle build, so that each row of the version skew table is a run. Uses the default socket on a macOS host and TESTANYWARE_APP_SOCKET elsewhere (macOS or Linux host)
+    desc: Run the real host CLI binary against the real app executable and fake guests (agent, VNC) and a fake tart (vm list, vm start, vm stop and vm delete), and an app that forges its build, range and bundle build, so that each row of the version skew table is a run. The queue tests also kill the app during a boot and start it again, with a start record of the crashed run (spec admission-queue). Uses the default socket on a macOS host and TESTANYWARE_APP_SOCKET elsewhere (macOS or Linux host)
     dir: '{{.CLI_DIR}}'
     cmds:
       - cargo test -p testanyware-cli --test app-agent-routing --test app-vnc-routing --test app-vm-list-routing --test app-vm-start-routing --test app-vm-queue --test app-vm-stop-delete-routing --test app-version-skew

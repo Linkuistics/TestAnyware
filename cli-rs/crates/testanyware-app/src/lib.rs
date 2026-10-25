@@ -44,6 +44,8 @@ pub mod stop_delete;
 #[cfg(unix)]
 pub mod streams;
 #[cfg(unix)]
+pub mod unfinished;
+#[cfg(unix)]
 pub mod vms;
 
 #[cfg(unix)]

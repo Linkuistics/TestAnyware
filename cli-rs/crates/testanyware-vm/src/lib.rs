@@ -33,6 +33,8 @@ pub mod spec;
 pub mod swtpm;
 /// The pure start-outcome decision behind `vm start`'s honest-failure rule.
 pub mod start_outcome;
+/// The record of a start that is running, for a start that a crash interrupted.
+pub mod start_record;
 /// What one `vm start` runs on: the tools, the progress sink and the cancel token.
 pub mod start_context;
 /// The seam where the TestAnyware app gives a macOS start its admission gate.

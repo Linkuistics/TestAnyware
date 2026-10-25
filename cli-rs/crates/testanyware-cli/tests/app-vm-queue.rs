@@ -33,6 +33,8 @@ const LINUX_BASE: &str = "testanyware-golden-linux-24.04";
 struct Fixture {
     app: TestApp,
     _agent: FakeAgent,
+    /// The port of the agent that the app probes, for a restart of the app.
+    agent_port: u16,
 }
 
 /// Hold every connection that arrives, as a VNC server that never speaks does.
@@ -116,11 +118,47 @@ impl Fixture {
             ),
             None => TestApp::start_after_with_args(prepare, &args),
         };
-        Self { app, _agent: agent }
+        Self { app, _agent: agent, agent_port }
     }
 
     fn fake_state(&self) -> PathBuf {
         self.app.tool_dir().join("state")
+    }
+
+    /// The app crashes: SIGKILL, with no cleanup. The fake `tart run` of a start outlives it, as
+    /// a real VM does.
+    fn crash(&mut self) {
+        self.app.crash();
+    }
+
+    /// The app starts again on the same directories, after [`crash`](Self::crash).
+    fn restart(&mut self) {
+        let mut args = Vec::new();
+        if self.app.config_file().exists() {
+            args.push("--config".to_string());
+            args.push(self.app.config_file().display().to_string());
+        }
+        args.push("--test-agent-port".to_string());
+        args.push(self.agent_port.to_string());
+        let down = std::mem::replace(&mut self.app, TestApp::not_running());
+        self.app = down.restart(&args);
+    }
+
+    /// The path of the start record of `id`.
+    fn start_record(&self, id: &str) -> PathBuf {
+        self.app.state_dir().join("vms").join(format!("{id}.start-record"))
+    }
+
+    /// `GET /v1/status` as the app serves it. The app answers only after it has decided for the
+    /// start records that it found.
+    fn status(&self) -> Value {
+        let (code, body) = raw_get(
+            &self.app,
+            "/v1/status",
+            testanyware_app_protocol::version::SUPPORTED_RANGE,
+        );
+        assert_eq!(code, 200, "{body}");
+        body
     }
 
     fn cloned(&self, id: &str) -> bool {
@@ -1904,4 +1942,144 @@ fn with_macos_slots_0_the_command_fails_with_vm_limit_reached_before_it_changes_
     assert_eq!(code, 6, "{envelope} {err}");
     assert_eq!(envelope["code"], "VM_LIMIT_REACHED", "{envelope}");
     assert!(!err.contains("Cloning"), "{err}");
+}
+
+// ---- The start record (spec "admission-queue": "A quit, a crash and a restart") ----
+
+#[test]
+fn the_record_of_a_start_lives_while_the_start_runs_and_is_gone_after_each_end() {
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+
+    // A success: the meta describes the VM, and the record is gone before the result.
+    fixture.start_and_wait_until_running("rec-a");
+    assert!(!fixture.start_record("rec-a").exists(), "a success removes the record");
+    assert!(sidecars(&fixture, "rec-a")[1].exists());
+
+    // A failure: tart fails for any reason but the limit, and the cleanup has run.
+    fixture.set_fake("run-fails", "");
+    let out = fixture.app.cli(&[
+        "vm", "start", "--platform", "macos", "--base", MACOS_BASE, "--id", "rec-b", "--json",
+    ]);
+    assert_ne!(out.code(), 0, "{} {}", out.out(), out.err());
+    fixture.clear_fake("run-fails");
+    assert!(!fixture.start_record("rec-b").exists(), "a failure removes the record");
+    assert!(!fixture.cloned("rec-b"));
+    assert!(fixture.status()["adoption"]["unfinished_starts"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn a_cancelled_start_leaves_no_record_and_a_running_start_has_one_that_names_its_processes() {
+    let _serial = serial();
+    // The agent never answers, so the start stays in its boot.
+    let fixture = Fixture::starved();
+    let client = fixture.spawn_start("rec-c", &[]);
+    until("the start to boot", || fixture.runs("rec-c"));
+    let record_path = fixture.start_record("rec-c");
+    until("the record to name the tart run and the keeper", || {
+        std::fs::read_to_string(&record_path)
+            .ok()
+            .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+            .is_some_and(|record| !record["main"].is_null() && !record["keeper"].is_null())
+    });
+    let record: Value =
+        serde_json::from_str(&std::fs::read_to_string(&record_path).unwrap()).unwrap();
+    assert_eq!(record["id"], "rec-c");
+    assert_eq!(record["backend"], "tart");
+    assert_eq!(
+        record["main"]["pid"].as_i64().map(|pid| pid as i32),
+        fixture.tart_run_pid("rec-c")
+    );
+    assert!(record["main"]["identity"]["boot_session"].is_string(), "{record}");
+
+    client.kill();
+    until("the app to clean up the cancelled start", || !fixture.cloned("rec-c"));
+    until("the record to go", || !record_path.exists());
+}
+
+#[test]
+fn an_app_killed_during_a_boot_removes_that_vm_its_clone_and_its_sidecars_before_it_serves_again() {
+    let _serial = serial();
+    let mut fixture = Fixture::starved();
+    let client = fixture.spawn_start("crash-a", &[]);
+    until("the start to boot", || fixture.runs("crash-a"));
+    let record_path = fixture.start_record("crash-a");
+    until("the record to name the keeper", || {
+        std::fs::read_to_string(&record_path).is_ok_and(|text| text.contains("keeper"))
+    });
+    let record: Value =
+        serde_json::from_str(&std::fs::read_to_string(&record_path).unwrap()).unwrap();
+    let tart_run = record["main"]["pid"].as_i64().unwrap() as i32;
+    let keeper = record["keeper"]["pid"].as_i64().unwrap() as i32;
+
+    fixture.crash();
+    let (code, envelope, err) = client.finish();
+    assert_ne!(code, 0, "{envelope} {err}");
+    // The crash left the VM running, with its clone and its record.
+    assert!(testanyware_vm::process::process_alive(tart_run));
+    assert!(fixture.cloned("crash-a") && record_path.exists());
+
+    fixture.restart();
+    let status = fixture.status();
+
+    assert_eq!(
+        status["adoption"]["unfinished_starts"][0]["id"], "crash-a", "{status}"
+    );
+    assert_eq!(status["adoption"]["unfinished_starts"][0]["removed"], true, "{status}");
+    until("the tart run to end", || !testanyware_vm::process::process_alive(tart_run));
+    until("the keeper to end", || !testanyware_vm::process::process_alive(keeper));
+    assert!(!fixture.cloned("crash-a"));
+    assert!(!record_path.exists());
+    assert!(!sidecars(&fixture, "crash-a")[0].exists() && !sidecars(&fixture, "crash-a")[1].exists());
+    // Nothing holds a slot now, so the next start boots at once.
+    let next = fixture.spawn_start("crash-b", &[]);
+    until("the freed slot to admit a start", || fixture.runs("crash-b"));
+    next.kill();
+    assert_eq!(fixture.refusals(), Vec::<String>::new());
+}
+
+#[test]
+fn a_vm_that_replaced_the_clone_of_a_record_is_never_stopped_and_counts_as_an_external_holder() {
+    let _serial = serial();
+    let mut fixture = Fixture::starved();
+    let client = fixture.spawn_start("crash-c", &[]);
+    until("the start to boot", || fixture.runs("crash-c"));
+    until("the record to name the keeper", || {
+        std::fs::read_to_string(fixture.start_record("crash-c"))
+            .is_ok_and(|text| text.contains("keeper"))
+    });
+    let tart_run = fixture.tart_run_pid("crash-c").unwrap();
+
+    fixture.crash();
+    let (code, envelope, err) = client.finish();
+    assert_ne!(code, 0, "{envelope} {err}");
+    // A person stops and removes the VM with tart, and runs a new one under the same name.
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(tart_run),
+        nix::sys::signal::Signal::SIGKILL,
+    )
+    .unwrap();
+    until("the old tart run to end", || !testanyware_vm::process::process_alive(tart_run));
+    let person_s_vm = fixture.run_outside("crash-c", "darwin");
+
+    fixture.restart();
+    let status = fixture.status();
+
+    let result = &status["adoption"]["unfinished_starts"][0];
+    assert_eq!(result["id"], "crash-c", "{status}");
+    assert_eq!(result["removed"], false, "{status}");
+    let detail = result["detail"].as_str().unwrap();
+    assert!(detail.contains("tart stop crash-c") && detail.contains("tart delete crash-c"), "{detail}");
+    // The app signalled nothing and deleted nothing.
+    assert!(testanyware_vm::process::process_alive(person_s_vm.id() as i32));
+    assert!(fixture.cloned("crash-c"));
+    assert!(!fixture.start_record("crash-c").exists());
+    assert!(!sidecars(&fixture, "crash-c")[1].exists());
+    // No sidecar names it, so `vm stop` finds no VM, and `vm slots` shows an external holder.
+    let out = fixture.app.cli(&["vm", "stop", "crash-c", "--json"]);
+    assert_eq!(out.json()["code"], "VM_NOT_FOUND", "{} {}", out.out(), out.err());
+    assert!(testanyware_vm::process::process_alive(person_s_vm.id() as i32));
+    let view = slots(&fixture);
+    assert_eq!(holder(&view, "crash-c")["kind"], "external", "{view}");
+    fixture.end_outside("crash-c", person_s_vm);
 }

@@ -31,7 +31,7 @@ ephemeral state it writes. Defaults are derived from `$HOME`.
 
 | Name | Default | Used for |
 |------|---------|----------|
-| `XDG_STATE_HOME` | `$HOME/.local/state` | `testanyware/vms/<id>.json` (per-VM running spec) and sibling `<id>.meta.json` |
+| `XDG_STATE_HOME` | `$HOME/.local/state` | `testanyware/vms/<id>.json` (per-VM running spec), sibling `<id>.meta.json`, and the `<id>.start-record` that the app keeps while a start runs |
 | `XDG_DATA_HOME` | `$HOME/.local/share` | `testanyware/golden/` (QEMU golden images), `testanyware/clones/<id>/` (per-clone QEMU working dirs), `testanyware/cache/` (Windows ISO cache) |
 
 macOS/Linux (tart) golden images live outside this tree, under tart's

@@ -96,6 +96,10 @@ impl VmPaths {
 
     pub fn spec_path(&self, id: &str) -> PathBuf { self.vms_dir().join(format!("{id}.json")) }
     pub fn meta_path(&self, id: &str) -> PathBuf { self.vms_dir().join(format!("{id}.meta.json")) }
+    /// The record of a start that is running, or that a crash interrupted.
+    pub fn start_record_path(&self, id: &str) -> PathBuf {
+        self.vms_dir().join(format!("{id}{}", crate::start_record::SUFFIX))
+    }
     pub fn clone_dir(&self, id: &str) -> PathBuf { self.clones_dir().join(id) }
 
     /// Per-VM short-path session dir under `$TMPDIR` for AF_UNIX sockets.

@@ -24,6 +24,7 @@ use crate::qemu::{
     StartArtifacts,
 };
 use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
+use crate::start_record::{RecordedProcess, StartRecord};
 use crate::tools::ToolSearch;
 use crate::qemu_profile::host_profile_in;
 use crate::error::{AdmissionFacts, RefusedBy};
@@ -193,7 +194,12 @@ impl VmLifecycle {
 
         #[cfg(target_os = "macos")]
         if wants_tart(opts.platform, &opts.base, paths, &ctx.tools) {
-            return Self::start_tart(opts, ctx).await;
+            open_start_record(ctx, &opts.id, VmTool::Tart)?;
+            let started = Self::start_tart(opts, ctx).await;
+            // The start has ended: it succeeded and its meta describes the VM, or it failed or
+            // was cancelled and its cleanup is done.
+            close_start_record(ctx, &opts.id);
+            return started;
         }
 
         // No tart backend reachable here: a macOS guest cannot be served.
@@ -206,7 +212,10 @@ impl VmLifecycle {
         // rather than failing to run the probe.
         crate::preflight::check_host_supports_local_qemu()?;
         let tpm = decide_tpm_on_host_in(&ctx.tools, opts.platform, &host_profile_in(&ctx.tools))?;
-        Self::start_qemu(opts, ctx, tpm).await
+        open_start_record(ctx, &opts.id, VmTool::Qemu)?;
+        let started = Self::start_qemu(opts, ctx, tpm).await;
+        close_start_record(ctx, &opts.id);
+        started
     }
 
     /// Start a QEMU-backed VM (Windows, Linux-on-qcow2) end-to-end. The runner
@@ -239,6 +248,12 @@ impl VmLifecycle {
         // A failed launch has already torn its clone down.
         let artifacts = QemuRunner::start_in(&ctx.tools, &qopts, paths).await?;
         let pid = artifacts.pid;
+        record_processes(ctx, &opts.id, |record| {
+            record.main = Some(RecordedProcess { pid, identity: artifacts.identity.clone() });
+            record.swtpm = artifacts
+                .swtpm_pid
+                .map(|pid| RecordedProcess { pid, identity: artifacts.swtpm_identity.clone() });
+        });
         if ctx.cancel.is_cancelled() {
             return Err(abandon_qemu(opts, ctx, &artifacts));
         }
@@ -1236,6 +1251,10 @@ async fn observe_tart_boot(
     // has had time to end it and free its pid.
     let identity = read_identity(&SystemProbe, pid);
     *track.identity.lock().unwrap_or_else(|e| e.into_inner()) = identity.clone();
+    // A `tart run` of an earlier try is gone, and this one replaces it in the record.
+    record_processes(ctx, &opts.id, |record| {
+        record.main = Some(RecordedProcess { pid, identity: identity.clone() });
+    });
     let mut observation = BootObservation {
         id: opts.id.clone(),
         backend: Backend::Tart,
@@ -1275,6 +1294,10 @@ async fn observe_tart_boot(
             keeper_identity = read_optional_identity(&SystemProbe, keeper_pid);
             *track.keeper_identity.lock().unwrap_or_else(|e| e.into_inner()) =
                 keeper_identity.clone();
+            record_processes(ctx, &opts.id, |record| {
+                record.keeper = keeper_pid
+                    .map(|pid| RecordedProcess { pid, identity: keeper_identity.clone() });
+            });
             vnc = Some(url);
         }
         Polled::ProcessExited => {}
@@ -1354,6 +1377,32 @@ async fn observe_qemu_boot(
 }
 
 /// Remove an id's spec and meta sidecars; a missing file is the normal case.
+/// Write the start record of `id`, before the clone of the start. A start whose record cannot be
+/// written fails: a crash would then leave a VM that nothing accounts for. A start that keeps no
+/// record (the Host CLI) writes nothing.
+fn open_start_record(ctx: &StartContext, id: &str, backend: VmTool) -> Result<(), VmError> {
+    if !ctx.start_records {
+        return Ok(());
+    }
+    StartRecord::new(id, backend).write(&ctx.paths)
+}
+
+/// Add the processes that the start has made to its record. The update is best effort: the
+/// record that `open_start_record` wrote still names the id and the backend.
+fn record_processes(ctx: &StartContext, id: &str, change: impl FnOnce(&mut StartRecord)) {
+    if ctx.start_records {
+        StartRecord::update(&ctx.paths, id, change);
+    }
+}
+
+/// Remove the start record of `id` once the start has ended. A removal that fails leaves the
+/// record, and the next start of the app decides for it.
+fn close_start_record(ctx: &StartContext, id: &str) {
+    if ctx.start_records {
+        StartRecord::remove(&ctx.paths, id);
+    }
+}
+
 pub(crate) fn clear_sidecars(paths: &VmPaths, id: &str) {
     let _ = std::fs::remove_file(paths.spec_path(id));
     let _ = std::fs::remove_file(paths.meta_path(id));

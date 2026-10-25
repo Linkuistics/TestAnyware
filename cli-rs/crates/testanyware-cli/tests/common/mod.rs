@@ -292,6 +292,23 @@ impl TestApp {
         std::fs::write(file, text).unwrap();
     }
 
+    /// End the app with SIGKILL, as a crash does: it runs no cleanup and removes no socket file.
+    /// The directories stay as the app left them.
+    pub fn crash(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+
+    /// Start the app again on the directories and the socket path of this one, which is down.
+    /// The socket accepts connections before the app has decided for the start records it found,
+    /// and a request is answered only after that, so a test reads `/v1/status` before it looks.
+    pub fn restart(self, extra: &[String]) -> Self {
+        assert!(self.child.is_none(), "the app still runs");
+        Self::spawn_with(self, extra)
+    }
+
     /// The process id of the app.
     pub fn pid(&self) -> u32 {
         self.child.as_ref().expect("the app runs").id()

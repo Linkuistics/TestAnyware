@@ -66,6 +66,11 @@ pub struct StartContext {
     /// The admission gate of a macOS start. The app sets it, and the direct path of the Host CLI
     /// has none.
     pub gate: crate::slot_gate::SharedGate,
+    /// Whether the start keeps a start record in the state directory while it runs (spec
+    /// "admission-queue": "A quit, a crash and a restart"). The app does, because it decides for
+    /// a record that a crash left. The direct path of the Host CLI has no such app, and it
+    /// writes none.
+    pub start_records: bool,
 }
 
 impl StartContext {
@@ -79,6 +84,7 @@ impl StartContext {
             agent_port: AGENT_PORT,
             process_signals: true,
             gate: None,
+            start_records: false,
         }
     }
 
@@ -97,6 +103,7 @@ impl StartContext {
             agent_port: AGENT_PORT,
             process_signals: false,
             gate: None,
+            start_records: true,
         }
     }
 

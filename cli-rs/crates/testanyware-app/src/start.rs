@@ -234,6 +234,8 @@ pub fn start_response(
                         let _ = stop_without_proof(&id, &start_ctx);
                         #[cfg(target_os = "macos")]
                         testanyware_vm::tart::remove_existing_in(&start_ctx.tools, &id);
+                        // The cleanup is done, so the record that the start wrote goes too.
+                        testanyware_vm::start_record::StartRecord::remove(&start_ctx.paths, &id);
                         Some(StartEvent::Error {
                             error: AppError::new(
                                 "INTERNAL",
