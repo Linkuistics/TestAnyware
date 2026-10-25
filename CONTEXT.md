@@ -137,7 +137,7 @@ until the framework accepts a start that the app admitted in contention. It
 also ends when the *Admission queue* holds no waiter and no start is
 *Unproven*. Meanwhile the app tries
 one start at a time, 3 s apart.
-_Avoid_: "full" (a full count is a fact that the app sees, and contention is
+_Avoid_: "full" (a full count comes from what the app sees, and contention does
 not).
 
 **Unproven**:

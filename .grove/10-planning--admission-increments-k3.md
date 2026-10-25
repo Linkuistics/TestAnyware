@@ -10,8 +10,8 @@ increment publishes the release.
 
 - `docs/specs/admission-queue.md`, which the human agreed on 2026-10-25, and
   ADR-0022. The decision log of `admission-queue-k2` records why.
-- The reviews `admission-queue-k4`, `admission-queue-k6` and
-  `admission-queue-k8` read the design first. Plan from the spec as those
+- The reviews `admission-queue-k4`, `admission-queue-k6`, `admission-queue-k8`
+  and `admission-queue-k10` read the design first. Plan from the spec as those
   reviews and their integrations leave it.
 - The root brief: the done-when roll-up and the three test seams.
 - The earlier groves on this repository each ended with a release leaf. The

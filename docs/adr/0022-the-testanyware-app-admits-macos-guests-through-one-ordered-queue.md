@@ -62,7 +62,8 @@ see, and sends the start back to the head.**
 
 - **The count only refuses.** It holds the app's own VMs, and the starts and
   golden creations that it admitted. It also holds the other running macOS
-  guests that tart reports for the user. A full count is a fact. A free count only allows one try.
+  guests that tart reports for the user. While tart answers, a full count is a
+  fact. A free count only allows one try.
 - **The refusal proves.** When the framework refuses an admitted start, the
   start goes back to the head, ahead of each waiter that joined after it. The
   app then tries one start at a time, 3 s apart,
