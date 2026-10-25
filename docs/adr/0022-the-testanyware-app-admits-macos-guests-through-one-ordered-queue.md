@@ -64,7 +64,8 @@ see, and sends the start back to the head.**
   golden creations that it admitted. It also holds the other running macOS
   guests that tart reports for the user. A full count is a fact. A free count only allows one try.
 - **The refusal proves.** When the framework refuses an admitted start, the
-  start goes back to place 1. The app then tries one start at a time, 3 s apart,
+  start goes back to the head, ahead of each waiter that joined after it. The
+  app then tries one start at a time, 3 s apart,
   until the framework accepts one. So no later waiter takes a freed slot first.
 - **The queue blocks only what the limit blocks.** Linux and Windows guests never
   join it. When the count shows two free slots, the app admits two starts at

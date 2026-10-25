@@ -132,16 +132,23 @@ _Avoid_: "leak" and "orphan" (the app does not own the guest).
 
 **Contention**:
 The state after Virtualization.framework refused a start that the app's count
-allowed. The refusal proves occupancy that the app cannot see. Until the
-framework accepts a start again, the app tries one start at a time, 3 s apart.
+allowed. The refusal proves occupancy that the app cannot see. Contention lasts
+until the framework accepts a start, or until no start waits and none is
+*Unproven*. Meanwhile the app tries one start at a time, 3 s apart.
 _Avoid_: "full" (a full count is a fact that the app sees, and contention is
 not).
+
+**Unproven**:
+An admitted start that the framework has not yet accepted or refused, and that
+has not ended in another way. A golden creation is never unproven, because its
+own boots meet the framework.
+_Avoid_: "pending" (a waiter in the *Admission queue* is pending too).
 
 **Start record**:
 A sidecar that the *TestAnyware app* writes before the clone of a start. The app
 deletes it when the start ends. So a start record that the app finds when it
-starts names a start that a crash interrupted, and the app deletes that start's
-VM.
+starts names a start that a crash interrupted. The app then deletes that
+start's VM, but it never stops a running VM that no recorded process proves.
 _Avoid_: "meta" (the meta describes a VM that started).
 
 **Local Network denial**:

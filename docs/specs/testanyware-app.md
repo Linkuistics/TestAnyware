@@ -867,7 +867,8 @@ sets it in the environment in which it opens the app.
   `data_dir`. `macos_slots` lowers the app's share of the macOS guest slots
   (`docs/specs/admission-queue.md`). An unknown key is an error, and so is an
   unknown tool.
-- Each setting is a string that holds an absolute path. A relative path would mean
+- `macos_slots` is an integer, as the queue's spec states. Each other setting is
+  a path: a string that holds an absolute path. A relative path would mean
   another place for each working directory. `state_dir` is the state directory
   itself, the one that holds `vms/`. `data_dir` is the data directory itself, the
   one that holds `golden/`. Neither is a replacement for `XDG_STATE_HOME` or
@@ -876,7 +877,8 @@ sets it in the environment in which it opens the app.
   The search of the host does not stand in for a wrong location.
 - The app takes every setting. The Host CLI takes the directories on every host.
   It takes the tool locations where it runs the tools itself: on Linux and
-  Windows hosts, and for golden creation.
+  Windows hosts, and for golden creation. It checks `macos_slots`, as the
+  shared evaluator does, and it does not use it.
 - In the Host CLI, a flag beats an environment variable, which beats the file,
   which beats the built-in default. In the app, the file beats the built-in
   default. The app's built-in tool search covers `/opt/homebrew/bin`,
@@ -1139,7 +1141,11 @@ Terminal's Local Network access. TestAnyware builds no helper for that file. The
 live tests of the parts of golden creation dial their guests directly too, and
 they also run from Terminal.
 
-Golden creation sends no request, so the app cannot compare its directories.
+Golden creation sends one request at most: the hold of a slot, when the app
+runs. That request carries the directories, as every request does. When the app
+does not run, golden creation sends no request, and nothing compares the
+directories.
+
 So on a macOS host, golden creation compares them itself, before it starts. It
 resolves the directories that the app resolves: those of `config.rhai`, else
 the built-in defaults, with no flag and no variable. When its own directories

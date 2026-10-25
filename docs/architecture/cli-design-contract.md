@@ -402,8 +402,8 @@ version bump.
 > - Linux and Windows guests take no slot, and they never wait.
 > - `VM_LIMIT_REACHED` keeps exit `6` and the type of each member. `limit` is the
 >   limit that refused: `macos_slots` of `config.rhai` when the app's share is
->   full, and 2 otherwise. `tart_error` is an empty string when the app refused
->   without a `tart run`.
+>   full, and 2 otherwise. `tart_error` is an empty string when the start ran no
+>   `tart run`.
 > - The details gain `request_id`, `place`, `waited_secs` and `refused_by`
 >   (`app` or `framework`). Without an app, `request_id` and `place` are `null`.
 > - When the app runs, `vm create-golden` of a macOS golden waits in the same
