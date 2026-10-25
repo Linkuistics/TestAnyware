@@ -6,6 +6,9 @@
 #   vnc-port        the port that `run` prints in its vnc:// line (default 9, which refuses)
 #   ip              what `ip` prints (default 127.0.0.1)
 #   full            if present, `run` refuses with the macOS guest limit message and exits 1
+#                   (each refusal appends a line to `refused.log`)
+#   capacity        a number: `run` refuses as `full` does while that many VMs run, as the
+#                   framework does. Each refusal appends a line to `refused.log`
 #   stuck           if present, `stop` and `delete` do nothing, as a tart that cannot remove a VM
 #
 # The tests give it as the only tool directory, so no test runs the developer's own `tart`.
@@ -44,7 +47,20 @@ case "$cmd" in
     ;;
   run)
     name="$1"
+    if [ -s "$STATE/capacity" ]; then
+      running=0
+      for f in "$STATE"/*.running; do
+        [ -e "$f" ] || continue
+        alive "$(basename "$f" .running)" && running=$((running + 1))
+      done
+      if [ "$running" -ge "$(cat "$STATE/capacity")" ]; then
+        echo "$name" >>"$STATE/refused.log"
+        echo "The number of VMs exceeds the system limit (other running VMs: holder-a, holder-b)" >&2
+        exit 1
+      fi
+    fi
     if [ -e "$STATE/full" ]; then
+      echo "$name" >>"$STATE/refused.log"
       echo "The number of VMs exceeds the system limit (other running VMs: holder-a, holder-b)" >&2
       exit 1
     fi

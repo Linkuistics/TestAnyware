@@ -26,6 +26,7 @@ use testanyware_vm::{Progress, StartContext, VmError};
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
+use crate::admission::AppGate;
 use crate::body::AppBody;
 use crate::vms::vm_paths;
 use crate::AppContext;
@@ -178,7 +179,9 @@ pub fn start_response(ctx: &Arc<AppContext>, options: VmStartOptions) -> Respons
         },
         cancel.clone(),
     )
-    .with_agent_port(ctx.agent_port);
+    .with_agent_port(ctx.agent_port)
+    // A macOS start waits in the queue of the app, after its clone is ready.
+    .with_gate(Arc::new(AppGate(Arc::clone(&ctx.admission))));
 
     let id = options.id.clone();
     let gate_ctx = Arc::clone(ctx);

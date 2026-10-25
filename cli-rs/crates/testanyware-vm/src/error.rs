@@ -57,8 +57,45 @@ pub struct LimitReached {
     pub limit: u32,
     /// The VMs holding the slots, as the backend named them (possibly none).
     pub holders: Vec<String>,
-    /// The backend's own line, verbatim — backends reword the framework's error.
+    /// The backend's own line, verbatim — backends reword the framework's error. Empty when the
+    /// refusal was the app's and no `tart run` ran.
     pub raw: String,
+    /// What the admission queue of the TestAnyware app knows about this refusal.
+    pub admission: AdmissionFacts,
+}
+
+/// Who refused a start that the limit stopped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum RefusedBy {
+    /// The app: its count was full, or a waiter stood ahead of the start.
+    App,
+    /// Virtualization.framework, through the `tart run` of the start.
+    #[default]
+    Framework,
+}
+
+impl RefusedBy {
+    /// The token of the `refused_by` member in `--json` details.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            RefusedBy::App => "app",
+            RefusedBy::Framework => "framework",
+        }
+    }
+}
+
+/// The members that the admission queue adds to the details of `VM_LIMIT_REACHED` (spec
+/// "admission-queue": "The command surface"). A start that no app admitted has none of them,
+/// and says that the framework refused.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AdmissionFacts {
+    /// The request id, or `None` when no app took part.
+    pub request_id: Option<String>,
+    /// The place the start had, or would take again in the queue, from 1.
+    pub place: Option<u32>,
+    /// The seconds the start waited in the queue.
+    pub waited_secs: u64,
+    pub refused_by: RefusedBy,
 }
 
 impl fmt::Display for LimitReached {
@@ -416,6 +453,10 @@ impl VmError {
                 "limit": limit.limit,
                 "holders": limit.holders,
                 "tart_error": limit.raw,
+                "request_id": limit.admission.request_id,
+                "place": limit.admission.place,
+                "waited_secs": limit.admission.waited_secs,
+                "refused_by": limit.admission.refused_by.as_str(),
             }),
             VmError::TartFailed { detail } => json!({ "tart_error": detail }),
             VmError::QemuFailed { detail } => json!({ "qemu_error": detail }),
@@ -701,6 +742,7 @@ mod tests {
             limit: 2,
             holders: vec!["koine-verify-1".into(), "testanyware-a1b2c3d4".into()],
             raw: "The number of VMs exceeds the system limit (other running VMs: koine-verify-1, testanyware-a1b2c3d4)".into(),
+            admission: AdmissionFacts::default(),
         }));
         // §4.2 code + §5 "rate limited / try again later" → exit 6.
         assert_eq!(err.code(), "VM_LIMIT_REACHED");
@@ -710,6 +752,11 @@ mod tests {
         assert_eq!(d["limit"], 2);
         assert_eq!(d["holders"], serde_json::json!(["koine-verify-1", "testanyware-a1b2c3d4"]));
         assert!(d["tart_error"].as_str().unwrap().contains("exceeds the system limit"));
+        // No app took part: the new members say so.
+        assert_eq!(d["request_id"], serde_json::Value::Null);
+        assert_eq!(d["place"], serde_json::Value::Null);
+        assert_eq!(d["waited_secs"], 0);
+        assert_eq!(d["refused_by"], "framework");
         assert!(err.to_string().contains("koine-verify-1, testanyware-a1b2c3d4"));
         assert!(err.remediation().unwrap().contains("vm stop"));
     }

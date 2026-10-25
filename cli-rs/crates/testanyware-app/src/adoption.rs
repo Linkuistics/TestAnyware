@@ -81,18 +81,7 @@ pub struct Scan {
 /// and asks `probe` about processes, and it changes nothing.
 pub fn scan(paths: &VmPaths, probe: &impl ProcessProbe) -> Scan {
     let mut scan = Scan::default();
-    let Ok(entries) = std::fs::read_dir(paths.vms_dir()) else {
-        return scan;
-    };
-    let mut ids: Vec<String> = entries
-        .flatten()
-        .filter_map(|entry| {
-            let name = entry.file_name().to_string_lossy().into_owned();
-            name.strip_suffix(".meta.json").map(str::to_string)
-        })
-        .collect();
-    ids.sort();
-    for id in ids {
+    for id in meta_ids(paths) {
         let meta = match VmMeta::load(&paths.meta_path(&id)) {
             Ok(meta) => meta,
             Err(e) => {
@@ -126,6 +115,22 @@ pub fn scan(paths: &VmPaths, probe: &impl ProcessProbe) -> Scan {
         }
     }
     scan
+}
+
+/// The ids that have a meta in the state directory, in order.
+pub(crate) fn meta_ids(paths: &VmPaths) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(paths.vms_dir()) else {
+        return Vec::new();
+    };
+    let mut ids: Vec<String> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            name.strip_suffix(".meta.json").map(str::to_string)
+        })
+        .collect();
+    ids.sort();
+    ids
 }
 
 fn survivor(

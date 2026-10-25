@@ -26,6 +26,8 @@ use crate::qemu::{
 use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
 use crate::tools::ToolSearch;
 use crate::qemu_profile::host_profile_in;
+use crate::error::{AdmissionFacts, RefusedBy};
+use crate::slot_gate::SlotAsk;
 use crate::start_context::{Progress, StartContext};
 #[cfg(target_os = "macos")]
 use crate::tart::TartRunner;
@@ -323,10 +325,51 @@ impl VmLifecycle {
         if ctx.cancel.is_cancelled() {
             return Err(abandon_tart(opts, ctx, &track));
         }
+        // The clone is ready, so the start joins the admission queue of the app (spec
+        // "admission-queue": "The order"). The hold lives to the end of this function: a failed or
+        // cancelled start drops it after the cleanup, so after `tart run` has exited, and a
+        // successful start drops it with its meta written, which holds the slot from then on.
+        let joined = Instant::now();
+        let hold = match (&ctx.gate, opts.platform) {
+            (Some(gate), Platform::Macos) => {
+                let ask = SlotAsk { vm_id: &opts.id, wait: opts.wait };
+                match gate.admit(&ask, &ctx.cancel, &ctx.progress) {
+                    Ok(hold) => Some(hold),
+                    Err(refusal) => {
+                        // The wait ended before any `tart run`. The clone is the only thing to remove.
+                        let cancelled = abandon_tart(opts, ctx, &track);
+                        return Err(match refusal {
+                            VmError::StartCancelled { .. } => cancelled,
+                            other => other,
+                        });
+                    }
+                }
+            }
+            _ => None,
+        };
+        // The wait counts from the join, so the retry of today inside the hold gets what is left.
+        let wait = match &hold {
+            Some(hold) => opts.wait.map(|wait| wait.saturating_sub(hold.waited())),
+            None => opts.wait,
+        };
         let started = tokio::select! {
             biased;
-            started = Self::start_tart_clone(opts, ctx, &topts, &track) => started,
+            started = Self::start_tart_clone(opts, ctx, &topts, &track, wait) => started,
             _ = ctx.cancel.cancelled() => return Err(abandon_tart(opts, ctx, &track)),
+        };
+        // A refusal by the framework after the admission says whose refusal it was, and where the
+        // start would stand if it queued again.
+        let started = match (started, &hold) {
+            (Err(VmError::VmLimitReached(mut limit)), Some(hold)) => {
+                limit.admission = AdmissionFacts {
+                    request_id: Some(hold.request_id().to_string()),
+                    place: Some(hold.place_if_requeued()),
+                    waited_secs: joined.elapsed().as_secs(),
+                    refused_by: RefusedBy::Framework,
+                };
+                Err(VmError::VmLimitReached(limit))
+            }
+            (started, _) => started,
         };
         // The client left as the start ended: nobody is told the id, so stop the VM again. A start
         // that failed with `--keep-on-failure` left a VM that nobody can reclaim either.
@@ -344,9 +387,10 @@ impl VmLifecycle {
         ctx: &StartContext,
         topts: &crate::tart::TartStartOptions,
         track: &StartTrack,
+        wait: Option<Duration>,
     ) -> Result<VmStartResult, VmError> {
         let paths = &ctx.paths;
-        let (pid, boot, decision) = Self::run_until_slot(opts, ctx, topts, track).await?;
+        let (pid, boot, decision) = Self::run_until_slot(opts, ctx, topts, track, wait).await?;
 
         let (vnc, ip) = match decision {
             StartDecision::Ready => match (boot.vnc.clone(), boot.ip.clone()) {
@@ -486,8 +530,9 @@ impl VmLifecycle {
         ctx: &StartContext,
         topts: &crate::tart::TartStartOptions,
         track: &StartTrack,
+        wait: Option<Duration>,
     ) -> Result<(i32, TartBoot, StartDecision), VmError> {
-        let Some(timeout) = opts.wait else {
+        let Some(timeout) = wait else {
             return Self::run_and_observe(opts, ctx, topts, track).await;
         };
         let stop = if ctx.process_signals { StopSignals::install() } else { None };

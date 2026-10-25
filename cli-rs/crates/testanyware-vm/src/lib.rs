@@ -35,6 +35,8 @@ pub mod swtpm;
 pub mod start_outcome;
 /// What one `vm start` runs on: the tools, the progress sink and the cancel token.
 pub mod start_context;
+/// The seam where the TestAnyware app gives a macOS start its admission gate.
+pub mod slot_gate;
 pub mod tools;
 pub mod tpm;
 /// `russh`-backed SSH/SFTP provisioning helper for `vm create-golden`

@@ -53,6 +53,8 @@ pub struct AppContext {
     pub agent_port: u16,
     /// The ids that are being started now, so that one id has one start at a time.
     pub starts: crate::gate_start::StartGate,
+    /// The queue for the macOS guest slots. A `vm start` of a macOS guest waits in it.
+    pub admission: Arc<crate::admission::AdmissionQueue>,
     /// What the app did with each VM it found when it started.
     pub adoption: crate::adoption::AdoptionLog,
     /// How long a probe of an adopted VM may take. A test shortens it.
@@ -68,6 +70,11 @@ pub type LoginItemProbe = fn() -> LoginItemState;
 
 impl AppContext {
     pub fn new(identity: AppIdentity, own_uid: u32, config: AppConfig) -> Self {
+        let admission = crate::admission::AdmissionQueue::for_paths(testanyware_vm::VmPaths::new(
+            identity.directories.state_dir.clone(),
+            identity.directories.data_dir.clone(),
+            std::env::temp_dir(),
+        ));
         Self {
             identity,
             bundle: BundleSource::this_process(),
@@ -77,6 +84,7 @@ impl AppContext {
             tools: ToolSearch::builtin(),
             agent_port: testanyware_vm::start_context::AGENT_PORT,
             starts: crate::gate_start::StartGate::default(),
+            admission,
             adoption: crate::adoption::AdoptionLog::default(),
             probe_deadline: crate::adoption::PROBE_DEADLINE,
             login_item: || LoginItemState::Unobserved,

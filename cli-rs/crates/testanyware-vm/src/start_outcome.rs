@@ -222,6 +222,7 @@ fn backend_exit_error(obs: &BootObservation, log_tail: &str) -> VmError {
                 limit: MACOS_GUEST_LIMIT,
                 holders: refusal.holders,
                 raw: refusal.raw,
+                admission: Default::default(),
             }));
         }
     }
@@ -857,6 +858,7 @@ mod tests {
             limit: MACOS_GUEST_LIMIT,
             holders: holders.iter().map(|h| h.to_string()).collect(),
             raw: String::new(),
+            admission: Default::default(),
         }
     }
 

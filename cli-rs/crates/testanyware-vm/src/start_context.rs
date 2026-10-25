@@ -63,6 +63,9 @@ pub struct StartContext {
     /// Whether SIGINT and SIGTERM during a `--wait` start remove the clone and end the process.
     /// The Host CLI does so. The app must not: a handler there would end the app.
     pub process_signals: bool,
+    /// The admission gate of a macOS start. The app sets it, and the direct path of the Host CLI
+    /// has none.
+    pub gate: crate::slot_gate::SharedGate,
 }
 
 impl StartContext {
@@ -75,6 +78,7 @@ impl StartContext {
             cancel: CancellationToken::new(),
             agent_port: AGENT_PORT,
             process_signals: true,
+            gate: None,
         }
     }
 
@@ -92,7 +96,14 @@ impl StartContext {
             cancel,
             agent_port: AGENT_PORT,
             process_signals: false,
+            gate: None,
         }
+    }
+
+    /// The same context with an admission gate for its macOS starts.
+    pub fn with_gate(mut self, gate: Arc<dyn crate::slot_gate::SlotGate>) -> Self {
+        self.gate = Some(gate);
+        self
     }
 
     pub fn with_agent_port(mut self, port: u16) -> Self {

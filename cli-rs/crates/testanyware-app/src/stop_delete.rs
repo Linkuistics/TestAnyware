@@ -58,13 +58,17 @@ where
     let blocking_id = id.clone();
     let outcome = tokio::task::spawn_blocking(move || {
         let _permit = blocking_ctx.starts.acquire(&blocking_id, &cancel)?;
-        Some(VmLifecycle::stop_with_probes(
+        let stopped = VmLifecycle::stop_with_probes(
             &blocking_id,
             &vm_paths(&blocking_ctx),
             &blocking_ctx.tools,
             &*probes,
             wait,
-        ))
+        );
+        // A guest that is gone frees its slot, so the queue decides again (spec
+        // "admission-queue": "The admission decision": "a holder ends").
+        blocking_ctx.admission.holder_ended();
+        Some(stopped)
     })
     .await;
     match outcome {

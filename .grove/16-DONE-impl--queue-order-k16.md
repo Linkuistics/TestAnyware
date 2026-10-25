@@ -78,3 +78,58 @@ issue #7.
   that run without the app.
 - If this leaf proves bigger than one session, decompose it. The first child is
   the pure decision with the own count, wired for a start that waits.
+
+## Decisions (running log)
+
+**The seam is a trait in the vm crate.** `testanyware-vm/src/slot_gate.rs` holds
+`SlotGate` and `SlotHold`. `StartContext.gate` is `None` on the direct path and set
+by the app. `start_tart` asks the gate after the clone and before the first
+`tart run`, and only for `Platform::Macos`. A Linux start on tart never asks.
+
+**One pure function, and a second for the start without a wait.** `decide` in
+`admission/decision.rs` takes the queue, the number of own holders, the slot limit
+and the time. It admits before it expires, so the deadline gets its last try.
+`admits_without_wait` is the one decision of a start without `--wait` and of
+`--wait=0`. A start with `--wait=0` gets no decision at a deadline.
+
+**No thread of the queue.** One mutex guards the waiters, the admitted starts and
+the verdicts. Each waiting thread decides in its turn: on an event, on the tick of
+3 s, and at its own deadline. A decision leaves a verdict for each waiter it
+admits or expires. So a start that nobody serves leaves no state, and a quit of the
+app leaves no waiter.
+
+**The count has two own groups, and a guest counts once.** The queue keeps the
+admitted starts by VM id. `admission/count.rs` reads the metas with the check of
+adoption. The union is by VM id, so a start that wrote its meta and has not yet
+dropped its hold counts once. A tart meta whose spec does not read counts as macOS,
+because a count that is too high frees the slot of no live guest.
+
+**The hold ends in the vm crate, not in the app thread.** The hold is a local of
+`start_tart`. A failed or cancelled start drops it after the cleanup, so after
+`tart run` has exited. A successful start drops it after the meta is written, and
+the meta holds the slot from then on. `vm stop` calls `holder_ended` so that the
+next waiter does not wait for the tick.
+
+**The retry of today stays inside the hold.** After the admission the start gets
+the wait that is left, `opts.wait` minus the time in the queue. A refusal by the
+framework then fills `request_id`, `place`, `waited_secs` and `refused_by`
+`framework`. `queue-refusal-k17` replaces this retry.
+
+**The details are in `LimitReached.admission`.** The direct path gives
+`request_id` and `place` as `null`, `waited_secs` 0 and `refused_by` `framework`.
+`docs/reference/error-codes.md` names the new members. The help, the contract and
+`cli-commands.md` stay for `queue-refusal-k17`, as the planning leaf decided.
+
+**A quit needed no new code.** The connection of each waiting start closes with
+the app, and the client already maps that to `APP_UNREACHABLE` with cause
+`quitting`. A protocol test shows it. The wait of up to 10 s for the cleanup of
+admitted starts belongs to `queue-start-record-k23`.
+
+**The tests are mutation-checked.** With the gate removed from `start_response`,
+ten of the eleven first protocol tests fail. The one that passes is the case of two
+free slots, which needs no queue. The fake `tart` gained a `capacity` file and a
+`refused.log`, so a test can show that the framework refused no start.
+
+**No review leaf, and the in-session allowance stays unspent.** The queue is small.
+A race test of the cancel against a release, and the mutation check, cover the
+claims that the compiler cannot.
