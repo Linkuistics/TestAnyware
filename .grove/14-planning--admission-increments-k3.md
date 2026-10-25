@@ -11,8 +11,9 @@ increment publishes the release.
 - `docs/specs/admission-queue.md`, which the human agreed on 2026-10-25, and
   ADR-0022. The decision log of `admission-queue-k2` records why.
 - The reviews `admission-queue-k4`, `admission-queue-k6`, `admission-queue-k8`,
-  `admission-queue-k10` and `admission-queue-k12` read the design first. Plan
-  from the spec as those reviews and their integrations leave it.
+  `admission-queue-k10`, `admission-queue-k12` and `admission-queue-k14` read
+  the design first. Plan from the spec as those reviews and their integrations
+  leave it.
 - The root brief: the done-when roll-up and the three test seams.
 - The earlier groves on this repository each ended with a release leaf. The
   `release:*` tasks of the Taskfile publish a release.

@@ -134,8 +134,10 @@ The check keeps that VM out of the own holders.
 
 Its **seen** holders are the other running macOS guests that tart reports for
 the app's user. A guest that two holders name counts once. An admitted start
-names its VM id. A golden creation names the base VM and the setup VM that it
-runs.
+names its VM id. A golden creation names each VM that it boots: its setup VM,
+and the VM of an IPSW build of its base. That build boots the base under the
+name `<base>-building`, and it renames the VM only after its last boot. Golden
+creation never boots the finished base, so its hold never names it.
 
 The app finds the running guests with `tart list`, which reports each VM of the
 user's tart storage and whether it runs. tart treats a VM as running while its
@@ -153,20 +155,36 @@ So when `tart get` fails for a VM, the app reads `tart list` again. The VM does
 not count when that list answers and does not report it running. Otherwise the
 observation fails.
 
-The app observes again before each decision to admit, at least every 3 s while
-the queue holds a waiter, and for each `vm slots` request. It never holds the
-lock of the queue while tart runs.
+The app observes again before each decision to admit, and for each `vm slots`
+request. It also observes at least every 3 s while the queue holds a waiter, or
+while a start record waits for tart (see "A record that tart did not decide").
+It never holds the lock of the queue while tart runs.
 
-**When tart does not answer.** An observation fails when tart fails, or when it
-does not answer within 5 s. Then the app keeps its last observation that tart
-answered, until an observation answers again. The time of an observation is
-the moment when its last call to tart returns.
+One observer in the app makes each observation, one at a time. An observation
+starts only after the observation before it ends, with an answer or a failure.
+So each answer comes from a newer `tart list` than the answer before it. A
+request for an observation that comes while one runs waits for the next one,
+and the requests that wait together share it. So the observation of each
+decision starts after its event.
+
+**When tart does not answer.** An observation fails when a call to tart fails,
+or when one call does not answer within 5 s. The bound applies to each call, so
+many running guests do not make an observation fail. Then the app keeps its last observation that tart
+answered, until an observation answers again. A call that answers after its
+observation failed changes nothing. The time of an observation is the moment
+when its last call to tart returns.
 
 Only a later read of tart changes that observation. A stop of the app makes such
 a read when its last `tart list` answers and does not name the VM. That read is
 later when its `tart list` starts after the last call of the observation
 returns. Then the app removes the VM from the observation, and its slot frees in
 the count at once.
+
+A newer answer replaces the last answer whole, with each removal that a stop
+made. The read of a stop can overlap the next observation. When that observation
+reports the VM running, its `tart list` can have started before the read of the
+stop. The VM then counts until the next answer. That can make the count too
+high, but it frees the slot of no live guest.
 
 A `tart list` that fails proves nothing, so the VM stays in the observation.
 Today `vm_exists_in` returns false when `tart list` fails. So a stop by name can
@@ -272,8 +290,8 @@ admit. So each waiter gets one last decision at its deadline.
 
 The app takes one lock for each change of the queue. The changes are a join, a
 leave, an admission, a refusal, an acceptance, a release and an expiry. The
-decision runs
-under that lock, on an observation that the app made before it took the lock.
+decision runs under that lock, on the last answer of tart when it takes the
+lock. The app made that answer before it took the lock.
 
 ```mermaid
 flowchart TD
@@ -435,8 +453,8 @@ over the app's Unix socket, which Local Network privacy does not cover.
 
 - **The app is not running, or it is not installed.** Golden creation runs as
   it does today, and it takes no slot.
-- **The app answers.** Golden creation sends a hold request, which names the base
-  VM that an IPSW build boots and the setup VM. It waits in the queue with no
+- **The app answers.** Golden creation sends a hold request, which names each VM
+  that it boots (see "The count"). It waits in the queue with no
   bound, and stderr shows its place and what holds the slots. Ctrl-C ends the
   wait.
 - **The app admits it.** Golden creation runs every boot under one hold. The hold
@@ -468,7 +486,7 @@ sequenceDiagram
   participant P as TestAnyware app
   participant T as tart
   G->>G: fast checks: directories, SSH key, agent binary
-  G->>P: POST /v1/slots: the base VM and the setup VM
+  G->>P: POST /v1/slots: the VMs that it boots
   P-->>G: waiting, place 1, held by A and B
   Note over P: A stops
   P-->>G: admitted, request r-7c41
@@ -509,7 +527,9 @@ exited. When the stop of `tart run` does not end, the slot stays held, and
 
 A start takes the gate of its VM id before it joins the queue. `vm stop` takes
 only that gate, and golden creation takes only the queue. So the two locks are
-always taken in one order, and they cannot deadlock.
+always taken in one order, and they cannot deadlock. The observer never waits
+for a gate (see "A record that tart did not decide"). So a start that waits in
+the queue with its gate never blocks the observation that its decision needs.
 
 ```mermaid
 sequenceDiagram
@@ -574,7 +594,7 @@ start on tart, the first row that holds decides:
 | The recorded `tart run` matches in full | It removes the VM, its clone, its sidecars and the record, as the stop of the app does |
 | The record names no `tart run` that matches in full. tart reports the VM as not running, or no such VM | No `tart run` holds the VM. The app removes it by name with `tart delete`, and it removes the sidecars and the record. It sends no signal |
 | The record names no `tart run` that matches in full. tart reports the VM as running | The record does not prove the process that runs the VM. It can be a VM that a person made, or the start's own `tart run` before the record named it. The app sends no signal, and it runs neither `tart stop` nor `tart delete`. It keeps the VM, and it removes the record. It also removes the spec and meta sidecars, unless the meta's own `tart run` matches in full |
-| tart does not answer within 5 s | The app keeps the VM and the record, and it decides again after an observation that tart answers. It removes the spec and meta sidecars, unless the meta's own `tart run` matches in full |
+| tart does not answer within 5 s | The app keeps the VM and the record, and it decides again once the `tart list` of an observation answers. It removes the spec and meta sidecars, unless the meta's own `tart run` matches in full |
 
 In the second and the third row, a keeper of the start that still runs gets no
 signal. It ends by itself when its port refuses.
@@ -620,14 +640,38 @@ and the remedy: `tart stop` and `tart delete` of that VM, when it is not the
 person's own. A start also has `removed` false when tart does not answer. Its
 detail then says that the app decides again once tart answers.
 
-**A record that tart did not decide.** After each observation that tart
-answers, the app decides again for each start record that the fourth row kept.
-It takes the gate of the VM id for that decision, as a stop does. It uses the
-same function, with the same bound of 5 s.
+**A record that tart did not decide.** The observer decides again for each start
+record that the fourth row kept. It decides after each observation whose
+`tart list` answered, also when a later call of that observation failed. It
+decides after the app keeps any answer of that observation, and before the next
+observation starts. So two decisions for one record never overlap, and they
+follow the order of the lists. The tick of 3 s in "The count" makes such an
+observation while no client asks for one.
+
+The observer tries to take the gate of the VM id, as a stop takes it, but it
+never waits for the gate. A start of the id holds its gate while it waits in the
+queue, and that wait needs the next observation. So when a start or a stop of
+the id holds the gate, the record waits for the next list. A start of the id
+replaces the record in any case. The observer holds no lock of the queue while
+it holds a gate.
 
 The first row cannot hold then, because a recorded process that did not match
-cannot match later. So the second or the third row decides, or the record stays
-for the next answer. `GET /v1/status` then reports the new result.
+cannot match later. The function takes the state of the VM from the last
+`tart list` of the observation that answered. When a list reports the VM
+running, the app notes that for the record, in memory. The third row then
+decides at the first decision that gets the gate, whatever later lists report.
+So a call to tart that fails after that list cannot keep the record.
+
+When the VM stops later, no decision for that start record removes it. The note
+lives only as long as the run of the app. After a crash,
+the next start of the app decides again (see "Open risks").
+
+The second row removes a VM by name, so it needs a newer read than the list of
+the observation. The function never gives the second row from that list. When
+no list of this run reported the VM running, the observer reads `tart list`
+again under the gate, with the bound of 5 s. The function then decides with the
+state of that read. When the read does not answer, the record stays for the
+next list. `GET /v1/status` reports each new result.
 
 When a new start of the same id takes the gate before the retry, its own record
 replaces the old one. Its clone step removes the VM of that id, as every start
@@ -741,7 +785,7 @@ none. The app ignores a body member that it does not know, so an older app
 ignores `cwd`.
 
 **`POST /v1/slots`.** The JSON body has `vms`, the names of the VMs that the
-golden creation runs, and the optional `cwd`. Each name must be a plain VM id,
+golden creation boots, and the optional `cwd`. Each name must be a plain VM id,
 or the request fails with `USAGE_ERROR` before the stream. The response is
 `200` with NDJSON:
 
@@ -1000,9 +1044,10 @@ the slot of no live guest. It SHALL stop no VM that it did not start.
   its start record. Then a person removes that VM with tart and runs a new VM
   under the same name. At the next start of the app, tart does not answer
 - **THEN** the app keeps the VM and the start record, and it removes the spec and
-  the meta. After the next observation that tart answers, the app decides
+  the meta. Once the `tart list` of an observation answers, the app decides
   again. The VM runs, so the app removes the record and reports `removed` false.
-  `vm stop` of the id fails with `VM_NOT_FOUND`, and the app never stops that VM
+  `vm stop` of the id fails with `VM_NOT_FOUND`, and the app never stops that VM.
+  When the VM stops later, the app does not remove it
 
 #### Scenario: A quit while starts wait
 
@@ -1021,6 +1066,15 @@ and it SHALL never stop one.
   holds the other slot
 - **THEN** the next start waits, `vm slots` shows the VM with the kind
   `external`, and the app never stops it
+
+#### Scenario: A guest that starts during a slow observation
+
+- **WHEN** a golden creation holds one slot, and a macOS start waits. An
+  observation is slow, and a person runs a macOS VM with tart meanwhile. Then
+  `vm slots` runs
+- **THEN** `vm slots` shows the VM with the kind `external`, and the start
+  waits while the VM runs. The slow observation never removes the VM from the
+  count
 
 ### Requirement: `config.rhai` lowers the share
 
@@ -1062,7 +1116,8 @@ spec, and each one grows.
   A capacity below the count of the fake's visible guests stands for a guest
   that the app cannot see. A fake guest that the test starts outside the app
   stands for external occupancy. A fake `tart list` that does not answer stands
-  for a slow tart.
+  for a slow tart. A fake `tart get` that answers late stands for a slow
+  observation.
 
   The seam covers the order of service and a wait that runs out. It covers a
   cancel before the admission, at the admission and during the boot. It covers a
@@ -1075,7 +1130,17 @@ spec, and each one grows.
   down, also after the start wrote its meta. That case also runs with a
   `tart list` that does not answer at the next start of the app. The app
   decides for the record again when tart answers, and a `vm stop` of the id
-  follows.
+  follows. No client asks for an observation then, so the tick of the app makes
+  it.
+
+  Two more runs of that case follow. In one, each call to tart after that list
+  fails for a while. Then the VM stops, tart answers again, and the VM stays. In
+  the other, a `vm start --wait` of the same id joins the queue while the record
+  stays. The queue still serves its waiters, and `vm slots` answers.
+
+  A slow observation runs while a golden creation holds a slot and a start
+  waits. The test starts a fake macOS guest outside the app meanwhile, and then
+  it runs `vm slots`. The guest stays counted, and the start waits.
 - **Pure functions.** The admission decision is a function of the queue, the
   holders, the observation, `macos_slots`, the last refusal and the time. Its
   tests cover each event: a join, a leave, an admission, a refusal and an
@@ -1091,8 +1156,9 @@ spec, and each one grows.
 
   The tests of the count cover a VM that tart replaced with a guest of another
   OS, under a name that each list showed. They cover a stop of the app that
-  began after its last answer, with failed observations after it. They cover
-  the exit of a `tart run` that the app learns after an answer. That answer
+  began after its last answer, with failed observations after it. They also
+  cover a newer answer after such a stop that still reports the VM running.
+  They cover the exit of a `tart run` that the app learns after an answer. That answer
   shows a VM that replaced the VM of the process under the same name, and
   failed observations follow. The count keeps the replacement and the hold of a
   golden creation together.
@@ -1106,6 +1172,12 @@ spec, and each one grows.
   start of the same id. The meta of that earlier start comes in each outcome of
   its check, an older meta included, in the third and the fourth row. Another
   test has a keeper that matches while its `tart run` does not.
+
+  The tests of a decision again cover the lists of observations. A list that
+  reports the VM running gives the third row. So does a later list that does
+  not report it running, after such a list. A list that does not report it
+  running, with no such list before it, never gives the second row. It asks for
+  a newer read.
 - **The Taskfile live checks on this Mac.** Three real macOS starts with `--wait`
   run from separate shells. A `tart run` outside the app counts as occupancy,
   and a golden creation waits for its slot.
@@ -1128,12 +1200,15 @@ spec, and each one grows.
 - **A crash between the start record and the result.** The app removes the start
   record before it sends the result. A crash between the two leaves a started VM
   that no client knows. `vm list` shows it, and `vm stop` stops it.
-- **A VM that does not run, under the name of a start record.** While the app is
-  down, or before tart answers after the app starts, a person can remove the
-  clone of an interrupted start. The person can then make a VM under its name
-  and leave it stopped, or stop a VM that ran under that name. tart names no instance of a VM, so the app cannot tell the two
-  apart. Its next start removes that VM by name. A proof would need a read of
-  tart's own storage. The app never stops a running VM of that name.
+- **A VM that does not run, under the name of a start record.** A person can
+  remove the clone of an interrupted start while the app is down. The person
+  can also do it after the app starts, before the app decides for the record.
+  The person can then make a VM under its name and leave it stopped, or stop a
+  VM that ran under that name. tart names no instance of a VM, so the app
+  cannot tell the two apart. The app then removes that VM by name. A proof
+  would need a read of tart's own storage. The app never stops a running VM of
+  that name. Within one run of the app, once a `tart list` that decides for the
+  record reports that VM running, the app keeps it.
 - **A crash before the start record names its `tart run`.** The app writes the
   identity of a `tart run` into the record after the spawn, and each retry
   opens that gap again. A crash in the gap leaves a running VM that no record
