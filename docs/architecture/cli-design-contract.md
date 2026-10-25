@@ -87,7 +87,7 @@ uses these names and no others:
 | Custom format template | `--format <tmpl>` | — | Optional, and only where a template has a meaning. It MUST NOT collide with `--output <fmt>`. |
 | Colour | `--color <when>` | — | Values: `auto` (default), `always` and `never`. |
 | Keep a failed start's VM | `--keep-on-failure` | — | `vm start` only. It leaves a VM that still runs, with its sidecars, for inspection, and does not remove it. See the §4.2 amendment of 2026-10-17. |
-| Wait for a free slot | `--wait[=<seconds>]` | — | `vm start` only. When the macOS guest limit is full, the start waits in the admission queue until the app admits it or the wait runs out. Without the flag, it fails at once. Bare `--wait` is 600 s. The value is in seconds, as in the other timeout flags. See the §4.2 amendments of 2026-10-19 (`--wait`) and 2026-10-25 (the admission queue). |
+| Wait for a free slot | `--wait[=<seconds>]` | — | `vm start` only. When the macOS guest limit is full, the start waits in the admission queue until the app admits it or the wait runs out. The app serves the waiters in order. If the framework refuses a start, the app puts it back at the head of the queue. It tries the start again after a pause of 3 s. Without the flag, the start fails at once. Bare `--wait` is 600 s. The value is in seconds, as in the other timeout flags. See the §4.2 amendments of 2026-10-19 (`--wait`) and 2026-10-25 (the admission queue). |
 
 **Reserved short flags.** They must stay the same across the whole binary:
 `-q`, `-v`, `-y`, `-o` (output format only), `-h` (help) and `-V` (version).
@@ -268,7 +268,7 @@ version bump.
 |---|---|
 | `VM_NOT_FOUND` | `--vm <id>` resolved to a spec that does not exist. |
 | `VM_BOOT_TIMEOUT` | `vm start`: the VM is alive, but a stage of the start never completed. The stage is the VNC endpoint, the guest IP or, in the usual case, the agent, which never became a Healthy agent. `details` names the `stage` (`vnc`, `guest-ip`, `agent`), the polled `endpoint`, the `last_error` (kind, OS errno, text), the `attempts` and the `elapsed_secs`. It also names the proven `cause` (`null` or `local_network_denied`, see the §4.2 amendment of 2026-10-19), and whether the VM was `kept`. |
-| `VM_LIMIT_REACHED` | `vm start` or `vm create-golden` was refused because the platform's limit of concurrent guests is full: Apple's macOS guest limit, two for each Mac. It is a *try again later* condition, exit `6`. `details`: `platform`, `limit` (the limit that refused), `holders` (the VMs holding the slots), `tart_error` (the backend's own line, or an empty string when no `tart run` ran), `request_id`, `place`, `waited_secs` and `refused_by` (`app` or `framework`). A `--wait` start that ran out returns the same error. See the amendment of 2026-10-25. |
+| `VM_LIMIT_REACHED` | `vm start` or `vm create-golden` was refused because the platform's limit of concurrent guests is full: Apple's macOS guest limit, two for each Mac. It is a *try again later* condition, exit `6`. `details`: `platform`, `limit` (the limit that refused), `holders` (the VMs holding the slots), `tart_error` (the backend's own line, or an empty string when no `tart run` ran), `request_id`, `place`, `waited_secs` and `refused_by` (`app` or `framework`). A `--wait` start that ran out returns the same error. If the framework refuses a start while the app counts a free slot, or contention holds a try back, the remedy names two causes. One cause is a guest of another user or tool that the app cannot see. The other is a stuck count of the framework, which only a restart of the Mac clears. See the amendment of 2026-10-25. |
 | `VM_STOP_FAILED` | `vm stop` could not stop the VM cleanly. The app's stop of a QEMU guest that an older release started signals no process. It fails when a socket still answers or a process still holds the clone's disk, and `details` names `monitor_socket`, `swtpm_socket`, `disk_holders` and `disk_check_error`. The app then removes nothing, and the remedy says to quit that QEMU by hand and run `vm stop` again. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform on this host. |
 | `VM_HOST_UNSUPPORTED` | `vm start` ran on a Windows host. That host cannot run a local QEMU VM, because the binary has no QEMU monitor and no process control for Windows. `details.detail` holds the text. Start VMs from a Linux or macOS host. |
@@ -355,7 +355,8 @@ version bump.
 > - Virtualization.framework's refusal is the only authoritative signal about a
 >   slot. So each retry is a real `tart run` on the one clone that the first
 >   attempt made. A wait leaves one clone, never one per retry, and removes it
->   when it fails.
+>   when it fails. On a macOS host, the app decides when a retry runs
+>   (amendment of 2026-10-25 below).
 > - While waiting, stderr names the place of the start and the VMs holding the
 >   slots. It names them when the start joins, when they change, and every 30 s
 >   otherwise. The `--json` envelope is still the final result only.
@@ -363,7 +364,9 @@ version bump.
 >   process as the signal would have (130 / 143).
 > - On a macOS host the waiters wait in the admission queue of the TestAnyware
 >   app, which serves them in order. The queue blocks only the starts that the
->   limit blocks (amendment of 2026-10-25 below).
+>   limit blocks. A refusal by the framework sends the start back to the head
+>   of the queue, with a pause of 3 s. The help text no longer says that the
+>   waiters are not served in order (amendment of 2026-10-25 below).
 > - `--wait` changes nothing else. Any failure other than the limit, such as
 >   `TART_FAILED` or `VM_BOOT_TIMEOUT`, ends the start at once. The wait is
 >   spent only on refusals, and boot time after the slot is won does not count
@@ -400,6 +403,19 @@ version bump.
 >   `VM_LIMIT_REACHED` when the count is full or the queue holds a waiter. So
 >   it never passes a waiter.
 > - Linux and Windows guests take no slot, and they never wait.
+> - When the framework refuses an admitted start, the app puts the start back at
+>   the place of its join. The start goes ahead of each waiter that joined after
+>   it. The app then admits nothing for 3 s. After the pause, the app tries the
+>   head alone, and only while no admitted start is unproven. So a later start
+>   never takes a freed slot before an earlier one. A guest that the app cannot
+>   see costs one retry every 3 s. A start without `--wait` never waits for the
+>   pause. It fails at once while contention holds back an admission.
+> - If the framework refuses a start while the app counts a free slot, the
+>   remedy names two causes. A guest of another user or tool holds a slot that
+>   the app cannot see, or the count of the framework is stuck. Only a restart
+>   of the Mac clears a stuck count.
+> - One user for each Mac is the supported deployment. The queue counts the tart
+>   VMs of that user only.
 > - `VM_LIMIT_REACHED` keeps exit `6` and the type of each member. `limit` is the
 >   limit that refused: `macos_slots` of `config.rhai` when the app's share is
 >   full, and 2 otherwise. `tart_error` is an empty string when the start ran no

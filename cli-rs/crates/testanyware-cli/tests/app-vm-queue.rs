@@ -1,11 +1,12 @@
-//! The admission queue of the TestAnyware app (spec "admission-queue": "The order", "A cancel",
-//! "The wait and its end" and "A quit, a crash and a restart").
+//! The admission queue of the TestAnyware app (spec "admission-queue": "The order", "A refusal by
+//! the framework", "A cancel", "The wait and its end" and "A quit, a crash and a restart").
 //!
 //! The real Host CLI binary runs against the real app executable in test mode, as in
 //! `app-vm-start-routing`. Several CLI processes run at once, one for each start, as several
 //! shells would run them. `tart` is the fake script with a capacity of 2: like the framework, it
 //! refuses a third running VM and logs the refusal. So a test that finds no refusal in the log
-//! shows that the queue held the third start back, and the framework never refused it.
+//! shows that the queue held the third start back, and the framework never refused it. A test of
+//! a guest that the app cannot see gives the fake a capacity below the count of the app.
 //!
 //! The tart backend exists on a macOS host only.
 
@@ -649,6 +650,10 @@ fn a_refusal_by_the_framework_after_the_admission_is_named_and_releases_the_slot
     );
     assert_eq!(details["holders"], json!(["holder-a", "holder-b"]));
     assert!(!fixture.cloned("fw-a"));
+    // The count showed a free slot, so the remedy names both causes.
+    let remedy = envelope["remediation"].as_str().unwrap_or_default();
+    assert!(remedy.contains("another user or tool"), "{remedy}");
+    assert!(remedy.contains("restart of the Mac"), "{remedy}");
 
     // The refused start released its slot. The next start is admitted at once, and so is a
     // second one: neither waits behind a hold that the refusal left behind.
@@ -658,7 +663,7 @@ fn a_refusal_by_the_framework_after_the_admission_is_named_and_releases_the_slot
 }
 
 #[test]
-fn a_refusal_by_the_framework_keeps_the_retry_of_today_inside_the_hold() {
+fn a_refusal_at_the_deadline_of_a_waiting_start_is_the_verdict_of_the_framework() {
     let _serial = serial();
     let fixture = Fixture::healthy();
     std::fs::write(fixture.fake_state().join("full"), "").unwrap();
@@ -673,8 +678,10 @@ fn a_refusal_by_the_framework_keeps_the_retry_of_today_inside_the_hold() {
     let details = &envelope["details"];
     assert_eq!(details["refused_by"], "framework");
     assert!(details["waited_secs"].as_u64().unwrap() >= 2, "{details}");
-    // The retry of today speaks, and it tried `tart run` more than once.
-    assert!(err.contains("waiting for a macos guest slot"), "{err}");
+    // The queue took the start back after its first refusal, and the pause ended at the deadline
+    // of the head: the last try came at the deadline, and the framework refused it too.
+    assert!(err.contains("the framework refused request r-"), "{err}");
+    assert!(err.contains("pause of 3 s"), "{err}");
     assert!(fixture.refusals().len() >= 2, "{:?}", fixture.refusals());
     assert!(!fixture.cloned("rt-a"));
 
@@ -682,6 +689,84 @@ fn a_refusal_by_the_framework_keeps_the_retry_of_today_inside_the_hold() {
     std::fs::remove_file(fixture.fake_state().join("full")).unwrap();
     fixture.start_and_wait_until_running("rt-b");
     fixture.start_and_wait_until_running("rt-c");
+}
+
+/// The refusals of `id` in the log of the fake.
+fn refusals_of(fixture: &Fixture, id: &str) -> usize {
+    fixture.refusals().iter().filter(|name| *name == id).count()
+}
+
+#[test]
+fn three_starts_beside_a_guest_that_the_app_cannot_see_get_their_slots_in_the_order_of_their_join()
+{
+    let _serial = serial();
+    let fixture = Fixture::healthy();
+    // The fake framework holds one VM, although the count of the app shows two free slots. This
+    // stands for a guest of another user, which the app cannot see.
+    std::fs::write(fixture.fake_state().join("capacity"), "1").unwrap();
+
+    let a = fixture.spawn_start("u-a", &["--wait"]);
+    let (a_code, a_json, a_err) = a.finish();
+    assert_eq!(a_code, 0, "{a_json} {a_err}");
+    assert!(fixture.runs("u-a"));
+
+    // The count shows a free slot, so the app admits b, and the framework refuses it.
+    let mut b = fixture.spawn_start("u-b", &["--wait"]);
+    b.until_stderr_has("the framework refused request r-");
+    let line = b.stderr();
+    assert!(line.contains("pause of 3 s"), "{line}");
+    assert!(line.contains("exceeds the system limit"), "{line}");
+    let mut c = fixture.spawn_start("u-c", &["--wait"]);
+    c.until_stderr_has("place 2");
+
+    // A start without `--wait` fails at once: a waiter stands ahead, and contention holds.
+    let began = Instant::now();
+    let out = fixture.app.cli(&[
+        "vm",
+        "start",
+        "--platform",
+        "macos",
+        "--base",
+        MACOS_BASE,
+        "--id",
+        "u-d",
+        "--json",
+    ]);
+    assert_eq!(out.code(), 6, "{} {}", out.out(), out.err());
+    assert!(began.elapsed() < Duration::from_secs(2), "it fails at once");
+    let envelope = out.json();
+    assert_eq!(envelope["details"]["refused_by"], "app", "{envelope}");
+    let remedy = envelope["remediation"].as_str().unwrap_or_default();
+    assert!(remedy.contains("stuck"), "{remedy}");
+
+    // The app tries b alone, every 3 s, and never c first. Wait for two more tries of b.
+    until("two refusals of b", || refusals_of(&fixture, "u-b") >= 2);
+    assert_eq!(refusals_of(&fixture, "u-c"), 0, "c was never tried first");
+    assert_eq!(
+        refusals_of(&fixture, "u-d"),
+        0,
+        "the start without a wait ran no tart run"
+    );
+    assert!(fixture.tart_run_pid("u-c").is_none());
+    assert!(!b.finished() && !c.finished());
+
+    // The unseen guest goes: a stops. The next try of b gets the slot, and c is still behind it.
+    fixture.stop("u-a");
+    let (b_code, b_json, b_err) = b.finish();
+    assert_eq!(b_code, 0, "{b_json} {b_err}");
+    assert!(fixture.runs("u-b"));
+    assert!(!c.finished(), "c waits for the slot of b");
+
+    // The acceptance of b ended contention, so the app admits c by the count. The framework
+    // refuses it while b runs, and c gets its slot after b stops.
+    until("the first refusal of c", || {
+        refusals_of(&fixture, "u-c") >= 1
+    });
+    assert!(fixture.tart_run_pid("u-c").is_none() || !fixture.runs("u-c"));
+    fixture.stop("u-b");
+    let (c_code, c_json, c_err) = c.finish();
+    assert_eq!(c_code, 0, "{c_json} {c_err}");
+    assert!(fixture.runs("u-c"));
 }
 
 #[test]

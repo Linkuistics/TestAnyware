@@ -1,5 +1,5 @@
 //! The admission queue of the app (spec "admission-queue": "The order", "The admission
-//! decision" and "A cancel").
+//! decision", "A refusal by the framework" and "A cancel").
 //!
 //! A `vm start` of a macOS guest joins the queue when its clone is ready, and the app serves the
 //! waiters in the order of their join while its own count limits the starts. The queue lives in
@@ -7,13 +7,14 @@
 //! so a quit of the app or a restart of the Mac leaves no waiter behind.
 //!
 //! One lock guards the queue, the admitted starts and the verdicts. Each change takes it: a join, a
-//! leave, an admission, an expiry and a release. Each waiting thread decides in its turn, through
-//! [`decision::decide`], and it reads the verdict that a decision left for it. So no thread of the
-//! queue exists beside the threads of the starts, and a start that nobody serves leaves no state.
+//! leave, an admission, a refusal, an acceptance, an expiry and a release. Each waiting thread
+//! decides in its turn, through [`decision::decide`], and it reads the verdict that a decision left
+//! for it. So no thread of the queue exists beside the threads of the starts, and a start that
+//! nobody serves leaves no state.
 //!
 //! This increment counts the own holders only: the macOS guests that have a meta, and the starts
-//! that the app admitted. The seen holders of `tart list`, the pause after a refusal and the
-//! contention come later, and the retry of today keeps handling a refusal inside the hold.
+//! that the app admitted. A refusal by the framework sends the start back to the place of its
+//! join, starts a pause of 3 s and starts contention. The seen holders of `tart list` come later.
 
 pub mod count;
 pub mod decision;
@@ -24,11 +25,14 @@ use std::time::{Duration, Instant};
 
 use testanyware_vm::error::{AdmissionFacts, LimitReached, RefusedBy};
 use testanyware_vm::identity::SystemProbe;
-use testanyware_vm::slot_gate::{SlotAsk, SlotGate, SlotHold};
+use testanyware_vm::slot_gate::{Readmission, SlotAsk, SlotGate, SlotHold};
 use testanyware_vm::{Progress, VmError, VmPaths};
 use tokio_util::sync::CancellationToken;
 
-use decision::{admits_without_wait, decide, Input, Waiter};
+use decision::{
+    admits_without_wait, contention_after_acceptance, contention_after_settle, decide, Input,
+    Waiter, PAUSE,
+};
 
 /// The number of the two slots that the app may hold. `config.rhai` lowers it in a later
 /// increment (`queue-slots-config`).
@@ -55,6 +59,8 @@ pub struct AdmissionQueue {
     /// The clock of the queue starts here. Every time in the queue is the time since this moment.
     epoch: Instant,
     slots: usize,
+    /// How long the queue admits nothing after a refusal by the framework.
+    pause: Duration,
     guests: OwnGuests,
     /// The seed of the request ids of this run of the app.
     salt: u32,
@@ -74,7 +80,7 @@ struct State {
     waiting: Vec<Entry>,
     /// The starts that the app admitted and whose hold has not ended, by VM id. A guest that the
     /// meta holder group also names counts once.
-    admitted: BTreeMap<String, String>,
+    admitted: BTreeMap<String, Admitted>,
     /// What a decision left for a waiter that is not yet back to read it, by request id.
     verdicts: HashMap<String, Verdict>,
     /// The holders at the last decision, for the lines of the waiters.
@@ -85,6 +91,23 @@ struct State {
     /// Raised by each event, so that a waiting thread knows that it must decide again.
     version: u64,
     last_decision: Duration,
+    /// Whether the app is in contention (spec "A refusal by the framework").
+    contention: bool,
+    /// The time and the line of the last refusal by the framework.
+    last_refusal: Option<Refusal>,
+}
+
+impl State {
+    /// The admitted starts that the framework has neither accepted nor refused.
+    fn unproven(&self) -> usize {
+        self.admitted.values().filter(|a| !a.proven).count()
+    }
+
+    /// Contention ends when the queue holds no waiter and no admitted start is unproven.
+    fn settle_contention(&mut self) {
+        self.contention =
+            contention_after_settle(self.contention, self.waiting.len(), self.unproven());
+    }
 }
 
 struct Entry {
@@ -93,24 +116,55 @@ struct Entry {
     seq: u64,
     /// `None` for a waiter without a bound. A start with `--wait` always has one.
     deadline: Option<Duration>,
+    /// The line of the refusal by the framework that sent this start back, when one did.
+    refusal: Option<String>,
+}
+
+/// An admitted start whose hold has not ended.
+struct Admitted {
+    request_id: String,
+    /// The framework accepted the start or refused it. An unproven start holds contention.
+    proven: bool,
+    /// The app admitted the start while it was in contention. Its acceptance ends contention.
+    in_contention: bool,
+}
+
+struct Refusal {
+    at: Duration,
+    line: String,
 }
 
 enum Verdict {
     Admitted,
-    /// The place the waiter held when its deadline came.
     Expired {
+        /// The place the waiter held when its deadline came.
         place: usize,
+        /// The line of the refusal that sent the waiter back, when one did.
+        refusal: Option<String>,
     },
+}
+
+/// A request that waits for its admission.
+struct Request {
+    request_id: String,
+    vm_id: String,
+    joined: Duration,
 }
 
 impl AdmissionQueue {
     pub fn new(slots: usize, guests: OwnGuests) -> Arc<Self> {
+        Self::with_pause(slots, guests, PAUSE)
+    }
+
+    /// [`new`](Self::new) with another pause after a refusal. A test shortens it.
+    pub fn with_pause(slots: usize, guests: OwnGuests, pause: Duration) -> Arc<Self> {
         let epoch = Instant::now();
         Arc::new(Self {
             state: Mutex::new(State::default()),
             changed: Condvar::new(),
             epoch,
             slots,
+            pause,
             guests,
             salt: salt(),
         })
@@ -152,6 +206,7 @@ impl AdmissionQueue {
     fn run_decision(&self, state: &mut State) {
         let now = self.now();
         let own = self.own_holders(state);
+        state.settle_contention();
         let queue: Vec<Waiter> = state
             .waiting
             .iter()
@@ -163,7 +218,11 @@ impl AdmissionQueue {
         let decision = decide(Input {
             queue: &queue,
             own_holders: own.len(),
+            unproven: state.unproven(),
             slots: self.slots,
+            contention: state.contention,
+            last_refusal: state.last_refusal.as_ref().map(|r| r.at),
+            pause: self.pause,
             now,
         });
         state.holders = own.into_iter().collect();
@@ -176,7 +235,15 @@ impl AdmissionQueue {
                 .position(|e| e.request_id == request_id)
             {
                 let entry = state.waiting.remove(at);
-                state.admitted.insert(entry.vm_id, request_id.clone());
+                let in_contention = state.contention;
+                state.admitted.insert(
+                    entry.vm_id,
+                    Admitted {
+                        request_id: request_id.clone(),
+                        proven: false,
+                        in_contention,
+                    },
+                );
                 state.verdicts.insert(request_id, Verdict::Admitted);
             }
         }
@@ -186,10 +253,14 @@ impl AdmissionQueue {
                 .iter()
                 .position(|e| e.request_id == request_id)
             {
-                state.waiting.remove(at);
-                state
-                    .verdicts
-                    .insert(request_id, Verdict::Expired { place: at + 1 });
+                let entry = state.waiting.remove(at);
+                state.verdicts.insert(
+                    request_id,
+                    Verdict::Expired {
+                        place: at + 1,
+                        refusal: entry.refusal,
+                    },
+                );
             }
         }
         if acted {
@@ -216,31 +287,66 @@ impl AdmissionQueue {
             return self.admit_without_wait(&mut state, ask, request_id, seq);
         };
 
+        let deadline = joined + wait;
         state.waiting.push(Entry {
             request_id: request_id.clone(),
             vm_id: ask.vm_id.to_string(),
             seq,
-            deadline: Some(joined + wait),
+            deadline: Some(deadline),
+            refusal: None,
         });
         // The join is an event, and the decision of it may admit the start at once.
         state.version += 1;
         self.run_decision(&mut state);
 
+        let request = Request {
+            request_id,
+            vm_id: ask.vm_id.to_string(),
+            joined,
+        };
         let mut reporter = WaitReporter::default();
+        self.wait_admitted(state, &request, &mut reporter, cancel, progress)?;
+        Ok(Box::new(Hold {
+            queue: Arc::clone(self),
+            vm_id: request.vm_id,
+            request_id: request.request_id,
+            seq,
+            joined,
+            deadline: Some(deadline),
+            waited: self.now().saturating_sub(joined),
+            reporter,
+            refusals: RefusalReporter::default(),
+        }))
+    }
+
+    /// Wait until a decision admits the request or expires it, or until the client leaves. The
+    /// request is in the queue when this starts. It is out of the queue when this returns.
+    fn wait_admitted(
+        &self,
+        mut state: MutexGuard<'_, State>,
+        request: &Request,
+        reporter: &mut WaitReporter,
+        cancel: &CancellationToken,
+        progress: &Progress,
+    ) -> Result<(), VmError> {
         let mut seen = state.version;
         loop {
-            if let Some(verdict) = state.verdicts.remove(&request_id) {
-                let waited = self.now().saturating_sub(joined);
+            if let Some(verdict) = state.verdicts.remove(&request.request_id) {
+                let waited = self.now().saturating_sub(request.joined);
                 return match verdict {
-                    Verdict::Admitted => Ok(Box::new(Hold {
-                        queue: Arc::clone(self),
-                        vm_id: ask.vm_id.to_string(),
-                        request_id,
-                        seq,
-                        waited,
-                    })),
-                    Verdict::Expired { place } => {
-                        Err(self.refusal(&state, request_id, place, waited))
+                    Verdict::Admitted => Ok(()),
+                    Verdict::Expired { place, refusal } => {
+                        // A refusal of this start, or contention, makes a guest that the app
+                        // cannot see a possible cause.
+                        let unseen = refusal.is_some() || state.contention;
+                        Err(self.refusal(
+                            &state,
+                            request.request_id.clone(),
+                            place,
+                            waited,
+                            refusal.unwrap_or_default(),
+                            unseen,
+                        ))
                     }
                 };
             }
@@ -250,23 +356,23 @@ impl AdmissionQueue {
                 if let Some(at) = state
                     .waiting
                     .iter()
-                    .position(|e| e.request_id == request_id)
+                    .position(|e| e.request_id == request.request_id)
                 {
                     state.waiting.remove(at);
                 }
                 state.version += 1;
                 self.changed.notify_all();
                 return Err(VmError::StartCancelled {
-                    id: ask.vm_id.to_string(),
+                    id: request.vm_id.clone(),
                 });
             }
-            if let Some(line) = reporter.note(&state, &request_id, self.now()) {
+            if let Some(line) = reporter.note(&state, &request.request_id, self.now()) {
                 progress.line(&line);
             }
             let deadline = state
                 .waiting
                 .iter()
-                .find(|e| e.request_id == request_id)
+                .find(|e| e.request_id == request.request_id)
                 .and_then(|e| e.deadline);
             let now = self.now();
             let step = deadline
@@ -278,9 +384,15 @@ impl AdmissionQueue {
                 .unwrap_or_else(|p| p.into_inner())
                 .0;
             let now = self.now();
+            // The end of the pause is an event too: no other event marks it.
+            let pause_ended = state.last_refusal.as_ref().is_some_and(|refusal| {
+                let end = refusal.at + self.pause;
+                now >= end && state.last_decision < end
+            });
             let due = state.version != seen
                 || now.saturating_sub(state.last_decision) >= TICK
-                || deadline.is_some_and(|d| now >= d);
+                || deadline.is_some_and(|d| now >= d)
+                || pause_ended;
             if due {
                 self.run_decision(&mut state);
                 seen = state.version;
@@ -299,42 +411,71 @@ impl AdmissionQueue {
     ) -> Result<Box<dyn SlotHold>, VmError> {
         let own = self.own_holders(state);
         state.holders = own.iter().cloned().collect();
-        if admits_without_wait(state.waiting.len(), own.len(), self.slots) {
-            state
-                .admitted
-                .insert(ask.vm_id.to_string(), request_id.clone());
+        state.settle_contention();
+        let joined = self.now();
+        if admits_without_wait(
+            state.waiting.len(),
+            own.len(),
+            self.slots,
+            state.contention,
+            state.unproven(),
+        ) {
+            state.admitted.insert(
+                ask.vm_id.to_string(),
+                Admitted {
+                    request_id: request_id.clone(),
+                    proven: false,
+                    in_contention: state.contention,
+                },
+            );
             state.version += 1;
             return Ok(Box::new(Hold {
                 queue: Arc::clone(self),
                 vm_id: ask.vm_id.to_string(),
                 request_id,
                 seq,
+                joined,
+                deadline: None,
                 waited: Duration::ZERO,
+                reporter: WaitReporter::default(),
+                refusals: RefusalReporter::default(),
             }));
         }
         // The place that the start would take.
         let place = state.waiting.len() + 1;
-        Err(self.refusal(state, request_id, place, Duration::ZERO))
+        let unseen = state.contention;
+        Err(self.refusal(
+            state,
+            request_id,
+            place,
+            Duration::ZERO,
+            String::new(),
+            unseen,
+        ))
     }
 
-    /// `VM_LIMIT_REACHED`, refused by the app. No `tart run` took part.
+    /// `VM_LIMIT_REACHED`, refused by the app. `raw` is the line of the refusal by the framework
+    /// that sent the start back, or empty when no `tart run` of this start took part.
     fn refusal(
         &self,
         state: &State,
         request_id: String,
         place: usize,
         waited: Duration,
+        raw: String,
+        unseen_possible: bool,
     ) -> VmError {
         VmError::VmLimitReached(Box::new(LimitReached {
             platform: "macos".into(),
             limit: u32::try_from(self.slots).unwrap_or(u32::MAX),
             holders: state.holders.clone(),
-            raw: String::new(),
+            raw,
             admission: AdmissionFacts {
                 request_id: Some(request_id),
                 place: Some(u32::try_from(place).unwrap_or(u32::MAX)),
                 waited_secs: waited.as_secs(),
                 refused_by: RefusedBy::App,
+                unseen_possible,
             },
         }))
     }
@@ -346,12 +487,95 @@ impl AdmissionQueue {
         if state
             .admitted
             .get(vm_id)
-            .is_some_and(|held| held == request_id)
+            .is_some_and(|held| held.request_id == request_id)
         {
             state.admitted.remove(vm_id);
         }
         state.version += 1;
         self.changed.notify_all();
+    }
+
+    /// The framework accepted an admitted start: its slot is proven. That ends contention when
+    /// the app admitted the start in contention.
+    fn accepted(&self, vm_id: &str, request_id: &str) {
+        let mut state = self.lock();
+        let admitted_in_contention = match state.admitted.get_mut(vm_id) {
+            Some(held) if held.request_id == request_id => {
+                held.proven = true;
+                Some(held.in_contention)
+            }
+            _ => None,
+        };
+        if let Some(in_contention) = admitted_in_contention {
+            state.contention = contention_after_acceptance(state.contention, in_contention);
+        }
+        state.version += 1;
+        self.changed.notify_all();
+    }
+
+    /// The framework refused an admitted start (spec "A refusal by the framework"). The hold
+    /// ends, contention starts, and the app notes the time and the line of the refusal. When the
+    /// wait has time left, the start goes back to the place of its join, and this waits for the
+    /// admission again. The queue lists two starts that were refused together in the order of
+    /// their join, whichever refusal comes first.
+    fn refuse(
+        self: &Arc<Self>,
+        hold: &mut Hold,
+        line: &str,
+        cancel: &CancellationToken,
+        progress: &Progress,
+    ) -> Result<Readmission, VmError> {
+        let mut state = self.lock();
+        let now = self.now();
+        if state
+            .admitted
+            .get(&hold.vm_id)
+            .is_some_and(|held| held.request_id == hold.request_id)
+        {
+            state.admitted.remove(&hold.vm_id);
+        }
+        state.contention = true;
+        state.last_refusal = Some(Refusal {
+            at: now,
+            line: line.to_string(),
+        });
+        state.version += 1;
+        // A refusal at or after the deadline is the verdict of the start.
+        if !hold.deadline.is_some_and(|deadline| now < deadline) {
+            self.changed.notify_all();
+            return Ok(Readmission::Stands);
+        }
+        let at = state
+            .waiting
+            .iter()
+            .position(|e| e.seq > hold.seq)
+            .unwrap_or(state.waiting.len());
+        state.waiting.insert(
+            at,
+            Entry {
+                request_id: hold.request_id.clone(),
+                vm_id: hold.vm_id.clone(),
+                seq: hold.seq,
+                deadline: hold.deadline,
+                refusal: Some(line.to_string()),
+            },
+        );
+        if let Some(note) = hold
+            .refusals
+            .note(&hold.request_id, at + 1, line, self.pause, now)
+        {
+            progress.line(&note);
+        }
+        self.changed.notify_all();
+        self.run_decision(&mut state);
+        let request = Request {
+            request_id: hold.request_id.clone(),
+            vm_id: hold.vm_id.clone(),
+            joined: hold.joined,
+        };
+        self.wait_admitted(state, &request, &mut hold.reporter, cancel, progress)?;
+        hold.waited = self.now().saturating_sub(hold.joined);
+        Ok(Readmission::Admitted)
     }
 
     fn place_if_requeued(&self, seq: u64) -> u32 {
@@ -373,6 +597,16 @@ impl AdmissionQueue {
     pub fn admitted(&self) -> Vec<String> {
         self.lock().admitted.keys().cloned().collect()
     }
+
+    /// Whether the app is in contention. A test reads this.
+    pub fn in_contention(&self) -> bool {
+        self.lock().contention
+    }
+
+    /// The line of the last refusal by the framework. A test reads this.
+    pub fn last_refusal_line(&self) -> Option<String> {
+        self.lock().last_refusal.as_ref().map(|r| r.line.clone())
+    }
 }
 
 /// The hold of one admitted start. Dropping it releases the slot.
@@ -381,7 +615,14 @@ struct Hold {
     vm_id: String,
     request_id: String,
     seq: u64,
+    /// The moment of the join, on the clock of the queue.
+    joined: Duration,
+    /// The end of the wait, on the clock of the queue. `None` for a start that never waits.
+    deadline: Option<Duration>,
     waited: Duration,
+    /// Keeps the lines of the waits that follow a refusal from repeating themselves.
+    reporter: WaitReporter,
+    refusals: RefusalReporter,
 }
 
 impl SlotHold for Hold {
@@ -395,6 +636,20 @@ impl SlotHold for Hold {
 
     fn waited(&self) -> Duration {
         self.waited
+    }
+
+    fn accepted(&self) {
+        self.queue.accepted(&self.vm_id, &self.request_id);
+    }
+
+    fn refused(
+        &mut self,
+        line: &str,
+        cancel: &CancellationToken,
+        progress: &Progress,
+    ) -> Result<Readmission, VmError> {
+        let queue = Arc::clone(&self.queue);
+        queue.refuse(self, line, cancel, progress)
     }
 }
 
@@ -470,6 +725,41 @@ impl WaitReporter {
         Some(format!(
             "waiting for a macOS guest slot: request {request_id}, place {place}, {waiters} {}, slots held by {held_by}",
             if waiters == 1 { "waiter" } else { "waiters" }
+        ))
+    }
+}
+
+/// Decides when a start says that the framework refused it. A start that the framework refuses
+/// again and again says so when it first happens, when the place or the line changes, and every
+/// 30 s otherwise.
+#[derive(Default)]
+struct RefusalReporter {
+    last: Option<(usize, String, Duration)>,
+}
+
+impl RefusalReporter {
+    fn note(
+        &mut self,
+        request_id: &str,
+        place: usize,
+        line: &str,
+        pause: Duration,
+        now: Duration,
+    ) -> Option<String> {
+        let due = match &self.last {
+            None => true,
+            Some((last_place, last_line, at)) => {
+                *last_place != place || last_line != line || now.saturating_sub(*at) >= REPORT_EVERY
+            }
+        };
+        if !due {
+            return None;
+        }
+        self.last = Some((place, line.to_string(), now));
+        Some(format!(
+            "the framework refused request {request_id}: {line}. The start is back at place {place}. \
+             The app admits nothing for a pause of {} s, then tries this start again",
+            pause.as_secs()
         ))
     }
 }
@@ -807,6 +1097,11 @@ mod tests {
         wait_until("the second join", || queue.waiting().len() == 2);
         cancel_first.cancel();
         assert!(!first.join().unwrap());
+        // The second waiter says its new place before the slot frees. Without this wait, a busy
+        // machine can admit it before it speaks.
+        wait_until("the place to move up", || {
+            lines.lock().unwrap().iter().any(|l| l.contains("place 1"))
+        });
         guests.lock().unwrap().clear();
         queue.holder_ended();
         assert!(second.join().unwrap());
@@ -912,6 +1207,7 @@ mod tests {
                 vm_id: format!("w{n}"),
                 seq: n as u64,
                 deadline: None,
+                refusal: None,
             });
         }
         let mut reporter = WaitReporter::default();
@@ -941,5 +1237,344 @@ mod tests {
             line.contains("place 1") && line.contains("1 waiter,"),
             "{line}"
         );
+    }
+
+    // The refusal by the framework (spec "admission-queue": "A refusal by the framework").
+
+    const LINE: &str = "The number of VMs exceeds the system limit (other running VMs: holder-a)";
+
+    /// A queue whose pause after a refusal is short, so that a test does not wait 3 s for it.
+    fn quick_queue(slots: usize) -> (Arc<AdmissionQueue>, Arc<Mutex<BTreeSet<String>>>) {
+        let guests = Arc::new(Mutex::new(BTreeSet::new()));
+        let read = Arc::clone(&guests);
+        let queue = AdmissionQueue::with_pause(
+            slots,
+            Box::new(move || read.lock().unwrap().clone()),
+            Duration::from_millis(300),
+        );
+        (queue, guests)
+    }
+
+    type Refused = std::thread::JoinHandle<(Result<Readmission, VmError>, Box<dyn SlotHold>)>;
+
+    /// The framework refuses `hold`. The call blocks while the start waits to be admitted again,
+    /// so it runs on a thread, and the thread gives the hold back.
+    fn refuse(
+        mut hold: Box<dyn SlotHold>,
+        cancel: &CancellationToken,
+        progress: Progress,
+    ) -> Refused {
+        let cancel = cancel.clone();
+        std::thread::spawn(move || {
+            let outcome = hold.refused(LINE, &cancel, &progress);
+            (outcome, hold)
+        })
+    }
+
+    fn join_waiter(
+        queue: &Arc<AdmissionQueue>,
+        vm_id: &'static str,
+        wait_secs: u64,
+    ) -> std::thread::JoinHandle<Result<Box<dyn SlotHold>, VmError>> {
+        let queue = Arc::clone(queue);
+        let joined = queue.waiting().len();
+        let handle = {
+            let queue = Arc::clone(&queue);
+            std::thread::spawn(move || {
+                queue.admit(
+                    &ask(vm_id, Some(wait_secs)),
+                    &CancellationToken::new(),
+                    &quiet(),
+                )
+            })
+        };
+        wait_until("the waiter to join", || queue.waiting().len() == joined + 1);
+        handle
+    }
+
+    fn vm_ids(queue: &AdmissionQueue) -> Vec<String> {
+        queue.waiting().into_iter().map(|(_, vm)| vm).collect()
+    }
+
+    #[test]
+    fn a_refused_start_goes_back_ahead_of_the_waiters_that_joined_after_it() {
+        let (queue, _) = quick_queue(1);
+        let a = queue
+            .admit(&ask("a", Some(30)), &CancellationToken::new(), &quiet())
+            .unwrap();
+        let b = join_waiter(&queue, "b", 30);
+        let c = join_waiter(&queue, "c", 30);
+
+        let cancel = CancellationToken::new();
+        let refused = refuse(a, &cancel, quiet());
+        wait_until("a back in the queue", || vm_ids(&queue) == ["a", "b", "c"]);
+        assert!(queue.in_contention(), "a refusal starts contention");
+        assert_eq!(queue.last_refusal_line().as_deref(), Some(LINE));
+        assert!(queue.admitted().is_empty(), "the refusal ended the hold");
+
+        // The pause ends, and contention admits the head alone: a, never b.
+        let (outcome, a) = refused.join().unwrap();
+        assert_eq!(outcome.unwrap(), Readmission::Admitted);
+        assert_eq!(queue.admitted(), ["a"]);
+        assert_eq!(vm_ids(&queue), ["b", "c"]);
+        assert!(!b.is_finished() && !c.is_finished());
+
+        // The framework accepts the retry in contention, and contention ends.
+        a.accepted();
+        assert!(!queue.in_contention());
+        drop(a);
+        let b = b.join().unwrap().expect("a release admits b before c");
+        assert_eq!(vm_ids(&queue), ["c"]);
+        drop(b);
+        c.join().unwrap().expect("then c");
+    }
+
+    #[test]
+    fn two_starts_that_the_framework_refused_together_go_back_in_the_order_of_their_join() {
+        for refused_first in ["a", "b"] {
+            let (queue, guests) = quick_queue(2);
+            let cancel = CancellationToken::new();
+            let a = queue.admit(&ask("a", Some(30)), &cancel, &quiet()).unwrap();
+            let b = queue.admit(&ask("b", Some(30)), &cancel, &quiet()).unwrap();
+            let c = join_waiter(&queue, "c", 30);
+            // Both slots look taken now, so the retries wait where the test can see them.
+            guests
+                .lock()
+                .unwrap()
+                .extend(["g1".to_string(), "g2".to_string()]);
+            let (first, second) = if refused_first == "a" { (a, b) } else { (b, a) };
+            let first = refuse(first, &cancel, quiet());
+            wait_until("the first refusal", || queue.waiting().len() == 2);
+            let second = refuse(second, &cancel, quiet());
+            wait_until("the second refusal", || queue.waiting().len() == 3);
+            assert_eq!(
+                vm_ids(&queue),
+                ["a", "b", "c"],
+                "the refusal of {refused_first} came first"
+            );
+            cancel.cancel();
+            for refused in [first, second] {
+                let (outcome, _) = refused.join().unwrap();
+                assert!(matches!(outcome, Err(VmError::StartCancelled { .. })));
+            }
+            let _ = c;
+        }
+    }
+
+    #[test]
+    fn contention_admits_nothing_while_the_other_start_of_a_pair_is_unproven() {
+        let (queue, _) = quick_queue(2);
+        let cancel = CancellationToken::new();
+        let a = queue.admit(&ask("a", Some(30)), &cancel, &quiet()).unwrap();
+        let _b = queue.admit(&ask("b", Some(30)), &cancel, &quiet()).unwrap();
+        // The framework refuses a. b has neither been accepted nor refused.
+        let refused = refuse(a, &cancel, quiet());
+        wait_until("a back in the queue", || vm_ids(&queue) == ["a"]);
+        std::thread::sleep(Duration::from_millis(600));
+        // The pause is over, and the count shows a free slot, but b is unproven.
+        assert_eq!(vm_ids(&queue), ["a"]);
+        assert!(!refused.is_finished(), "contention holds a back");
+        cancel.cancel();
+        let _ = refused.join().unwrap();
+    }
+
+    #[test]
+    fn an_acceptance_of_a_start_admitted_before_the_refusal_does_not_end_contention() {
+        let (queue, _) = quick_queue(2);
+        let cancel = CancellationToken::new();
+        let a = queue.admit(&ask("a", Some(30)), &cancel, &quiet()).unwrap();
+        let b = queue.admit(&ask("b", Some(30)), &cancel, &quiet()).unwrap();
+        let c = join_waiter(&queue, "c", 30);
+
+        let refused = refuse(a, &cancel, quiet());
+        wait_until("a back in the queue", || vm_ids(&queue) == ["a", "c"]);
+        // The framework accepts b, which the app admitted before the refusal.
+        b.accepted();
+        assert!(queue.in_contention(), "that acceptance proves only b");
+
+        // The retry of a is admitted alone, and c stays behind it.
+        let (outcome, a) = refused.join().unwrap();
+        assert_eq!(outcome.unwrap(), Readmission::Admitted);
+        assert_eq!(vm_ids(&queue), ["c"]);
+        assert!(queue.in_contention());
+
+        // Its acceptance ends contention. The count is full, so c still waits for a release.
+        a.accepted();
+        assert!(!queue.in_contention());
+        assert!(!c.is_finished());
+        drop(b);
+        let c = c.join().unwrap().expect("a release admits c");
+        drop((a, c));
+    }
+
+    #[test]
+    fn a_refusal_at_the_deadline_is_the_verdict_and_leaves_no_hold() {
+        let (queue, _) = quick_queue(2);
+        let hold = queue
+            .admit(&ask("a", Some(1)), &CancellationToken::new(), &quiet())
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(1100));
+        let (outcome, hold) = refuse(hold, &CancellationToken::new(), quiet())
+            .join()
+            .unwrap();
+        assert_eq!(outcome.unwrap(), Readmission::Stands);
+        assert!(
+            queue.waiting().is_empty(),
+            "no time left, so it queues no more"
+        );
+        assert!(queue.admitted().is_empty(), "and holds no slot");
+        drop(hold);
+    }
+
+    #[test]
+    fn a_start_that_never_waits_stands_at_its_refusal() {
+        let (queue, _) = quick_queue(2);
+        let hold = queue
+            .admit(&ask("a", None), &CancellationToken::new(), &quiet())
+            .unwrap();
+        let (outcome, _hold) = refuse(hold, &CancellationToken::new(), quiet())
+            .join()
+            .unwrap();
+        assert_eq!(outcome.unwrap(), Readmission::Stands);
+        assert!(queue.waiting().is_empty() && queue.admitted().is_empty());
+    }
+
+    #[test]
+    fn a_wait_that_runs_out_after_a_refusal_fails_with_the_app_and_the_line_of_the_framework() {
+        let (queue, guests) = quick_queue(1);
+        let hold = queue
+            .admit(&ask("a", Some(1)), &CancellationToken::new(), &quiet())
+            .unwrap();
+        // Another guest takes the slot that the refusal gave back.
+        guests.lock().unwrap().insert("g1".to_string());
+        let (outcome, _hold) = refuse(hold, &CancellationToken::new(), quiet())
+            .join()
+            .unwrap();
+        let limit = limit_of(outcome.expect_err("the wait runs out in the queue"));
+        assert_eq!(limit.admission.refused_by, RefusedBy::App);
+        assert_eq!(limit.admission.place, Some(1));
+        assert_eq!(limit.raw, LINE, "the last refusal of this start");
+        assert!(limit.admission.unseen_possible);
+        assert!(queue.waiting().is_empty() && queue.admitted().is_empty());
+    }
+
+    #[test]
+    fn a_cancel_of_a_start_that_the_queue_took_back_removes_it_and_holds_no_slot() {
+        let (queue, guests) = quick_queue(1);
+        let cancel = CancellationToken::new();
+        let hold = queue.admit(&ask("a", Some(30)), &cancel, &quiet()).unwrap();
+        guests.lock().unwrap().insert("g1".to_string());
+        let refused = refuse(hold, &cancel, quiet());
+        wait_until("a back in the queue", || vm_ids(&queue) == ["a"]);
+        cancel.cancel();
+        let (outcome, _hold) = refused.join().unwrap();
+        assert!(matches!(outcome, Err(VmError::StartCancelled { .. })));
+        assert!(queue.waiting().is_empty() && queue.admitted().is_empty());
+    }
+
+    #[test]
+    fn the_refusal_writes_a_line_that_names_the_request_the_place_and_the_pause() {
+        let (queue, guests) = queue(1);
+        let cancel = CancellationToken::new();
+        let hold = queue.admit(&ask("a", Some(30)), &cancel, &quiet()).unwrap();
+        let request_id = hold.request_id().to_string();
+        guests.lock().unwrap().insert("g1".to_string());
+        let lines = Arc::new(Mutex::new(Vec::<String>::new()));
+        let sink = Arc::clone(&lines);
+        let progress = Progress::to(move |line| sink.lock().unwrap().push(line.to_string()));
+        let refused = refuse(hold, &cancel, progress);
+        wait_until("a back in the queue", || vm_ids(&queue) == ["a"]);
+        cancel.cancel();
+        let _ = refused.join().unwrap();
+        let lines = lines.lock().unwrap();
+        let refusal = lines
+            .iter()
+            .find(|l| l.contains("framework refused"))
+            .unwrap_or_else(|| panic!("no refusal line: {lines:?}"));
+        assert!(refusal.contains(&request_id), "{refusal}");
+        assert!(refusal.contains("place 1"), "{refusal}");
+        assert!(refusal.contains("pause of 3 s"), "{refusal}");
+        assert!(refusal.contains(LINE), "{refusal}");
+    }
+
+    #[test]
+    fn contention_holds_back_a_start_without_a_wait_while_a_start_is_unproven() {
+        let (queue, _) = quick_queue(2);
+        let cancel = CancellationToken::new();
+        let a = queue.admit(&ask("a", None), &cancel, &quiet()).unwrap();
+        let b = queue.admit(&ask("b", None), &cancel, &quiet()).unwrap();
+        // The framework refuses a, which has no wait. b is unproven, and the queue is empty.
+        let (outcome, _a) = refuse(a, &cancel, quiet()).join().unwrap();
+        assert_eq!(outcome.unwrap(), Readmission::Stands);
+        assert!(queue.in_contention());
+        let error = queue
+            .admit(&ask("d", None), &cancel, &quiet())
+            .err()
+            .expect("contention blocks the admission");
+        let limit = limit_of(error);
+        assert_eq!(limit.admission.refused_by, RefusedBy::App);
+        assert!(
+            limit.admission.unseen_possible,
+            "contention names the unseen guest"
+        );
+        assert_eq!(limit.raw, "", "no tart run of this start took part");
+        assert!(queue.waiting().is_empty(), "it took no place");
+
+        // b is accepted, nothing is unproven, and contention ends: the next start is admitted.
+        b.accepted();
+        let d = queue.admit(&ask("d", None), &cancel, &quiet());
+        assert!(d.is_ok(), "the count shows a free slot again");
+        assert!(!queue.in_contention());
+    }
+
+    #[test]
+    fn the_pause_never_blocks_a_start_without_a_wait() {
+        let (queue, _) = queue(2);
+        let cancel = CancellationToken::new();
+        let a = queue.admit(&ask("a", None), &cancel, &quiet()).unwrap();
+        let (outcome, _a) = refuse(a, &cancel, quiet()).join().unwrap();
+        assert_eq!(outcome.unwrap(), Readmission::Stands);
+        // The pause of 3 s runs. Nothing is unproven, so contention has ended too.
+        let began = Instant::now();
+        let b = queue.admit(&ask("b", None), &cancel, &quiet());
+        assert!(b.is_ok());
+        assert!(began.elapsed() < Duration::from_millis(500));
+    }
+
+    #[test]
+    fn a_start_that_a_refusal_keeps_in_contention_is_tried_again_after_the_pause_and_not_before() {
+        let (queue, _) = quick_queue(2);
+        let cancel = CancellationToken::new();
+        let a = queue.admit(&ask("a", Some(30)), &cancel, &quiet()).unwrap();
+        let refused_at = Instant::now();
+        let (outcome, _a) = refuse(a, &cancel, quiet()).join().unwrap();
+        assert_eq!(outcome.unwrap(), Readmission::Admitted);
+        assert!(
+            refused_at.elapsed() >= Duration::from_millis(300),
+            "the pause held the retry back: {:?}",
+            refused_at.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_line_after_a_refusal_repeats_only_when_something_changed_or_30_s_passed() {
+        let mut reporter = RefusalReporter::default();
+        let pause = Duration::from_secs(3);
+        let first = reporter
+            .note("r-1", 1, LINE, pause, Duration::ZERO)
+            .expect("the first refusal speaks");
+        assert!(first.contains("pause of 3 s"), "{first}");
+        assert!(reporter
+            .note("r-1", 1, LINE, pause, Duration::from_secs(4))
+            .is_none());
+        assert!(reporter
+            .note("r-1", 2, LINE, pause, Duration::from_secs(8))
+            .is_some());
+        assert!(reporter
+            .note("r-1", 2, "another line", pause, Duration::from_secs(12))
+            .is_some());
+        assert!(reporter
+            .note("r-1", 2, "another line", pause, Duration::from_secs(42))
+            .is_some());
     }
 }

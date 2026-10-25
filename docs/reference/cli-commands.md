@@ -440,11 +440,15 @@ testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--disp
   deleted.
 - `--wait[=<seconds>]` — If the macOS guest limit is full, wait for a slot
   instead of failing at once, then start. Bare `--wait` waits up to 600 s. The
-  value is in seconds and needs `=` (`--wait=300`). When the wait runs out the
-  start fails with `VM_LIMIT_REACHED` (exit `6`), as it does without the flag.
-  While it waits, stderr names the VMs holding the slots. `--json` still prints
-  only the final result. The retries reuse one clone, and Ctrl-C or SIGTERM
-  deletes it. Several waiters are not served in order.
+  value is in seconds and needs `=` (`--wait=300`). The start waits in the queue
+  of the TestAnyware app, and the app serves the waiters in order: no later
+  start takes a slot that frees before an earlier one. If the framework refuses
+  a start although the app counts a free slot, the app puts the start back at
+  the head of the queue and tries it again after a pause of 3 s. When the wait
+  runs out the start fails with `VM_LIMIT_REACHED` (exit `6`), as it does without
+  the flag. While it waits, stderr names the VMs holding the slots. `--json`
+  still prints only the final result. The retries reuse one clone, and Ctrl-C or
+  SIGTERM deletes it.
 
 On every backend (tart for macOS and Linux-on-tart, QEMU for Windows and
 Linux-on-qcow2) a start succeeds only once the guest's agent answers `/health`. Otherwise it

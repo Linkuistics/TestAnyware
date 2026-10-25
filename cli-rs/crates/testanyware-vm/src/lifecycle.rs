@@ -27,7 +27,7 @@ use crate::spec::{AgentEndpoint, LogicalSize, VmSpec, VncEndpoint};
 use crate::tools::ToolSearch;
 use crate::qemu_profile::host_profile_in;
 use crate::error::{AdmissionFacts, RefusedBy};
-use crate::slot_gate::SlotAsk;
+use crate::slot_gate::{Readmission, SlotAsk, SlotHold};
 use crate::start_context::{Progress, StartContext};
 #[cfg(target_os = "macos")]
 use crate::tart::TartRunner;
@@ -330,7 +330,7 @@ impl VmLifecycle {
         // cancelled start drops it after the cleanup, so after `tart run` has exited, and a
         // successful start drops it with its meta written, which holds the slot from then on.
         let joined = Instant::now();
-        let hold = match (&ctx.gate, opts.platform) {
+        let mut hold = match (&ctx.gate, opts.platform) {
             (Some(gate), Platform::Macos) => {
                 let ask = SlotAsk { vm_id: &opts.id, wait: opts.wait };
                 match gate.admit(&ask, &ctx.cancel, &ctx.progress) {
@@ -347,25 +347,24 @@ impl VmLifecycle {
             }
             _ => None,
         };
-        // The wait counts from the join, so the retry of today inside the hold gets what is left.
-        let wait = match &hold {
-            Some(hold) => opts.wait.map(|wait| wait.saturating_sub(hold.waited())),
-            None => opts.wait,
-        };
         let started = tokio::select! {
             biased;
-            started = Self::start_tart_clone(opts, ctx, &topts, &track, wait) => started,
+            started = Self::start_tart_clone(opts, ctx, &topts, &track, &mut hold) => started,
             _ = ctx.cancel.cancelled() => return Err(abandon_tart(opts, ctx, &track)),
         };
-        // A refusal by the framework after the admission says whose refusal it was, and where the
-        // start would stand if it queued again.
+        // A refusal by the framework that the queue did not take back says whose refusal it was,
+        // and where the start would stand if it queued again. A refusal by the app after a try
+        // has its facts from the queue already.
         let started = match (started, &hold) {
-            (Err(VmError::VmLimitReached(mut limit)), Some(hold)) => {
+            (Err(VmError::VmLimitReached(mut limit)), Some(hold))
+                if limit.admission.request_id.is_none() =>
+            {
                 limit.admission = AdmissionFacts {
                     request_id: Some(hold.request_id().to_string()),
                     place: Some(hold.place_if_requeued()),
                     waited_secs: joined.elapsed().as_secs(),
                     refused_by: RefusedBy::Framework,
+                    unseen_possible: true,
                 };
                 Err(VmError::VmLimitReached(limit))
             }
@@ -387,10 +386,10 @@ impl VmLifecycle {
         ctx: &StartContext,
         topts: &crate::tart::TartStartOptions,
         track: &StartTrack,
-        wait: Option<Duration>,
+        hold: &mut Option<Box<dyn SlotHold>>,
     ) -> Result<VmStartResult, VmError> {
         let paths = &ctx.paths;
-        let (pid, boot, decision) = Self::run_until_slot(opts, ctx, topts, track, wait).await?;
+        let (pid, boot, decision) = Self::run_until_slot(opts, ctx, topts, track, hold).await?;
 
         let (vnc, ip) = match decision {
             StartDecision::Ready => match (boot.vnc.clone(), boot.ip.clone()) {
@@ -515,11 +514,12 @@ impl VmLifecycle {
     }
 
     /// Run `tart run` on the prepared clone and observe its boot, returning the
-    /// verdict. Without `--wait` that is one attempt. With it, a refusal by the
-    /// macOS guest limit runs the *same* clone again after a pause, until a slot
-    /// frees or the wait is spent; the final refusal is then the verdict, with
-    /// the same error as a start that never waited. Waiting and starting are
-    /// one operation, so no other caller can take the freed slot in between.
+    /// verdict. Without `--wait` that is one attempt.
+    ///
+    /// With the admission queue of the app (`hold`), a refusal by the framework sends the start
+    /// back into the queue (`run_in_queue`). Without it, a `--wait` start runs the *same* clone
+    /// again after a pause, until a slot frees or the wait is spent; the final refusal is then
+    /// the verdict, with the same error as a start that never waited.
     ///
     /// A SIGINT or SIGTERM during a `--wait` start of the Host CLI removes the clone, so an
     /// interrupted wait leaks nothing, then ends the process the way the signal
@@ -530,10 +530,13 @@ impl VmLifecycle {
         ctx: &StartContext,
         topts: &crate::tart::TartStartOptions,
         track: &StartTrack,
-        wait: Option<Duration>,
+        hold: &mut Option<Box<dyn SlotHold>>,
     ) -> Result<(i32, TartBoot, StartDecision), VmError> {
-        let Some(timeout) = wait else {
-            return Self::run_and_observe(opts, ctx, topts, track).await;
+        if let Some(hold) = hold.as_mut() {
+            return Self::run_in_queue(opts, ctx, topts, track, hold).await;
+        }
+        let Some(timeout) = opts.wait else {
+            return Self::run_and_observe(opts, ctx, topts, track, None).await;
         };
         let stop = if ctx.process_signals { StopSignals::install() } else { None };
         let Some(mut stop) = stop else {
@@ -552,6 +555,42 @@ impl VmLifecycle {
         outcome
     }
 
+    /// The tries of a start that holds a slot of the app's queue (spec "admission-queue": "A
+    /// refusal by the framework"). A refusal gives the slot back, and the queue decides whether
+    /// the start has time left. If so, the queue returns the start to the place of its join, and
+    /// the next try waits for the admission. If not, the refusal is the verdict.
+    #[cfg(target_os = "macos")]
+    async fn run_in_queue(
+        opts: &VmStartOptions,
+        ctx: &StartContext,
+        topts: &crate::tart::TartStartOptions,
+        track: &StartTrack,
+        hold: &mut Box<dyn SlotHold>,
+    ) -> Result<(i32, TartBoot, StartDecision), VmError> {
+        loop {
+            let (pid, boot, decision) =
+                Self::run_and_observe(opts, ctx, topts, track, Some(&**hold)).await?;
+            let StartDecision::Failed { error: VmError::VmLimitReached(limit), .. } = &decision else {
+                return Ok((pid, boot, decision));
+            };
+            // The refused `tart run` has exited and been reaped, and its pid may be another
+            // process's by the time a cancel reads it.
+            track.pid.store(0, std::sync::atomic::Ordering::SeqCst);
+            match hold.refused(&limit.raw, &ctx.cancel, &ctx.progress) {
+                Ok(Readmission::Admitted) => {}
+                Ok(Readmission::Stands) => return Ok((pid, boot, decision)),
+                Err(ended) => {
+                    // The wait ended in the queue. The clone is the only thing to remove.
+                    let cancelled = abandon_tart(opts, ctx, track);
+                    return Err(match ended {
+                        VmError::StartCancelled { .. } => cancelled,
+                        other => other,
+                    });
+                }
+            }
+        }
+    }
+
     /// The retry loop behind [`run_until_slot`](Self::run_until_slot).
     #[cfg(target_os = "macos")]
     async fn wait_for_slot(
@@ -564,7 +603,7 @@ impl VmLifecycle {
         let waiting_since = Instant::now();
         let mut reporter = SlotWaitReporter::default();
         loop {
-            let (pid, boot, decision) = Self::run_and_observe(opts, ctx, topts, track).await?;
+            let (pid, boot, decision) = Self::run_and_observe(opts, ctx, topts, track, None).await?;
             let StartDecision::Failed { error: VmError::VmLimitReached(limit), .. } = &decision else {
                 return Ok((pid, boot, decision));
             };
@@ -586,18 +625,19 @@ impl VmLifecycle {
 
     /// One `tart run` on the prepared clone and what its boot showed. The pid
     /// goes into `track` as soon as there is one. A failed spawn has already
-    /// removed the clone.
+    /// removed the clone. `hold` hears when the framework accepts the start.
     #[cfg(target_os = "macos")]
     async fn run_and_observe(
         opts: &VmStartOptions,
         ctx: &StartContext,
         topts: &crate::tart::TartStartOptions,
         track: &StartTrack,
+        hold: Option<&dyn SlotHold>,
     ) -> Result<(i32, TartBoot, StartDecision), VmError> {
         let crate::tart::TartLaunch { pid, log_path } =
             crate::tart::TartRunner::run_in(&ctx.tools, topts, &ctx.paths)?;
         track.pid.store(pid, std::sync::atomic::Ordering::SeqCst);
-        let boot = observe_tart_boot(opts, ctx, pid, &log_path, track).await;
+        let boot = observe_tart_boot(opts, ctx, pid, &log_path, track, hold).await;
         let decision = decide_start(&boot.observation, opts.keep_on_failure);
         Ok((pid, boot, decision))
     }
@@ -1186,6 +1226,7 @@ async fn observe_tart_boot(
     pid: i32,
     log_path: &std::path::Path,
     track: &StartTrack,
+    hold: Option<&dyn SlotHold>,
 ) -> TartBoot {
     use crate::tart::{await_guest_ip, await_vnc_url, Polled};
 
@@ -1211,6 +1252,12 @@ async fn observe_tart_boot(
     let stage_start = Instant::now();
     match await_vnc_url(log_path, VNC_POLLS.0, VNC_POLLS.1, alive).await {
         Polled::Found(url) => {
+            // tart prints the URL only after the framework started the VM, so the framework has
+            // accepted the start and its slot is proven (spec "admission-queue": "A refusal by
+            // the framework").
+            if let Some(hold) = hold {
+                hold.accepted();
+            }
             // Hold one silent VNC connection for the life of tart (ADR-0018),
             // so a client that connects after a pause of 60 s or more cannot
             // crash it on a macOS 27 host. Start it as soon as tart prints the

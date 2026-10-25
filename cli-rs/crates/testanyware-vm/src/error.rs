@@ -96,6 +96,10 @@ pub struct AdmissionFacts {
     /// The seconds the start waited in the queue.
     pub waited_secs: u64,
     pub refused_by: RefusedBy,
+    /// The count of the app showed a free slot, or contention held the try back, so a guest that
+    /// the app cannot see may hold a slot. The remedy names that cause. It is no `details`
+    /// member.
+    pub unseen_possible: bool,
 }
 
 impl fmt::Display for LimitReached {
@@ -199,6 +203,14 @@ const LOCAL_NETWORK_REMEDY: &str =
     "The guest answers a platform tool. Run testanyware from an app that has \
      Local Network access. Allow that app in System Settings, Privacy & Security, Local Network. \
      A background service or agent harness has no app to allow.";
+
+/// What a `VM_LIMIT_REACHED` adds when the framework refused a start while the count of the app
+/// showed a free slot (spec "admission-queue": "External occupancy"). The app cannot tell the two
+/// causes apart.
+const UNSEEN_GUEST_REMEDY: &str =
+    "The app counted a free slot, and the framework refused anyway. There are two possible \
+     causes. A guest of another user or tool holds a slot that the app cannot see. Or the count \
+     of the framework is stuck, which only a restart of the Mac clears.";
 
 /// Errors produced by the VM lifecycle. Each variant maps 1:1 to a §4
 /// error code and a §5 exit code.
@@ -393,17 +405,24 @@ impl VmError {
                     None => next,
                 })
             }
-            VmError::VmLimitReached(limit) => Some(if limit.holders.is_empty() {
-                "Stop a running macOS VM (`testanyware vm list`, `testanyware vm stop <id>`), \
-                 or retry once one has finished."
-                    .into()
-            } else {
-                format!(
-                    "Stop one of the running macOS VMs ({}) with `testanyware vm stop <id>`, \
-                     or retry once one has finished.",
-                    limit.holders.join(", ")
-                )
-            }),
+            VmError::VmLimitReached(limit) => {
+                let stop = if limit.holders.is_empty() {
+                    "Stop a running macOS VM (`testanyware vm list`, `testanyware vm stop <id>`), \
+                     or retry once one has finished."
+                        .to_string()
+                } else {
+                    format!(
+                        "Stop one of the running macOS VMs ({}) with `testanyware vm stop <id>`, \
+                         or retry once one has finished.",
+                        limit.holders.join(", ")
+                    )
+                };
+                Some(if limit.admission.unseen_possible {
+                    format!("{stop} {UNSEEN_GUEST_REMEDY}")
+                } else {
+                    stop
+                })
+            }
             VmError::HostUnsupported { .. } => Some(
                 "Launch VMs from a Linux or macOS host. The Windows host binary is \
                  build/link-verified only — it has no local-QEMU runtime path \
@@ -759,5 +778,41 @@ mod tests {
         assert_eq!(d["refused_by"], "framework");
         assert!(err.to_string().contains("koine-verify-1, testanyware-a1b2c3d4"));
         assert!(err.remediation().unwrap().contains("vm stop"));
+    }
+
+    fn limit_with(unseen_possible: bool) -> VmError {
+        VmError::VmLimitReached(Box::new(LimitReached {
+            platform: "macos".into(),
+            limit: 2,
+            holders: vec![],
+            raw: String::new(),
+            admission: AdmissionFacts {
+                unseen_possible,
+                ..AdmissionFacts::default()
+            },
+        }))
+    }
+
+    #[test]
+    fn the_remedy_names_both_causes_when_the_framework_refused_beside_a_free_count() {
+        let remedy = limit_with(true).remediation().unwrap();
+        assert!(remedy.contains("guest of another user or tool"), "{remedy}");
+        assert!(remedy.contains("stuck"), "{remedy}");
+        assert!(remedy.contains("restart of the Mac"), "{remedy}");
+        // The stop advice stays.
+        assert!(remedy.contains("vm stop"), "{remedy}");
+    }
+
+    #[test]
+    fn the_remedy_names_neither_cause_when_the_count_was_full() {
+        let remedy = limit_with(false).remediation().unwrap();
+        assert!(!remedy.contains("stuck"), "{remedy}");
+        assert!(!remedy.contains("another user"), "{remedy}");
+    }
+
+    #[test]
+    fn the_unseen_guest_flag_is_no_member_of_the_details() {
+        let details = limit_with(true).details();
+        assert!(details.get("unseen_possible").is_none(), "{details}");
     }
 }

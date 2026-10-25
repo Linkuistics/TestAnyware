@@ -322,6 +322,12 @@ The app checks neither the port nor the protocol of an explicit endpoint. A
 stream of the agent kind to port 22 relays its bytes to port 22. So only a
 stream by VM id is limited to the agent and the VNC endpoint of a VM.
 
+One user for each Mac is the supported deployment. The app serves the one user
+who runs it. Its admission queue counts the tart VMs of that user only, so a
+guest of another user is invisible to it (`docs/specs/admission-queue.md`).
+Several users on one Mac share the two macOS guest slots of Apple, and the
+framework may then refuse a start that the app admitted.
+
 The forward of the Windows host harness is the one exception to the one-user
 rule. During a manual run, another local user can reach the macOS golden
 through it, by the harness's guest streams. The owner accepted this bounded

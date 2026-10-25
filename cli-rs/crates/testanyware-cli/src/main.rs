@@ -519,14 +519,18 @@ HEALTH:
 WAITING FOR A SLOT:
     Only two macOS guests can run on a Mac at once. Without --wait a start
     that finds both slots taken fails at once (VM_LIMIT_REACHED, exit 6).
-    With --wait the start retries until a slot frees, then starts; bare
-    --wait gives up after 600 s, --wait=SECONDS after that many. The retries
-    reuse one clone, and stderr names the VMs holding the slots while the
-    start waits (--json still prints only the final result). When the wait
-    runs out the start fails with VM_LIMIT_REACHED as before. Interrupting a
-    waiting start (Ctrl-C, SIGTERM) removes its clone. Several waiters are
-    not served in order: whichever retries first after a slot frees gets it.
-    --wait does not change a failure of any other kind.
+    With --wait the start waits in the queue of the TestAnyware app, then
+    starts; bare --wait gives up after 600 s, --wait=SECONDS after that many.
+    The app serves the waiters in order: no later start takes a slot that
+    frees before an earlier one. Sometimes the framework refuses a start
+    although the app counts a free slot, for example because a guest of
+    another user holds one. Then the app puts the start back at the head of
+    the queue and tries it again after a pause of 3 s. The retries reuse one
+    clone, and stderr names the VMs holding the slots while the start waits
+    (--json still prints only the final result). When the wait runs out the
+    start fails with VM_LIMIT_REACHED as before. Interrupting a waiting start
+    (Ctrl-C, SIGTERM) removes its clone. --wait does not change a failure of
+    any other kind.
 
 IDEMPOTENCY:
     Not idempotent — each call without --id clones a fresh VM. Retry-safe:

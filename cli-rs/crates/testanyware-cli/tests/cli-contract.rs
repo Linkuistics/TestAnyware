@@ -934,10 +934,13 @@ fn vm_start_help_documents_wait_its_default_and_its_exit_code() {
         "600 s",
         "6  VM_LIMIT_REACHED",
         "Interrupting a",
-        "not served in order",
+        "serves the waiters in order",
+        "pause of 3 s",
     ] {
         assert!(help.contains(needle), "`vm start --help` missing {needle:?}; got:\n{help}");
     }
+    // The queue of the app serves the waiters in order, so the old warning must be gone.
+    assert!(!help.contains("not served in order"), "the help still warns about the order:\n{help}");
 }
 
 /// §9.3: `--wait` is a start-time option, so `--dry-run` accepts it bare and
