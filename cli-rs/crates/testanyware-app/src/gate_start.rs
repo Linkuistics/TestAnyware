@@ -48,6 +48,19 @@ impl StartGate {
     }
 }
 
+impl StartGate {
+    /// Take the id when no start or stop of it runs now. Never waits. The observer decides again
+    /// for a start record this way, because a start of the id may wait for the very observation
+    /// that would hold the decision (spec "admission-queue": "A record that tart did not decide").
+    pub fn try_acquire(&self, id: &str) -> Option<StartPermit<'_>> {
+        let mut busy = self.busy.lock().unwrap_or_else(|p| p.into_inner());
+        busy.insert(id.to_string()).then(|| StartPermit {
+            gate: self,
+            id: id.to_string(),
+        })
+    }
+}
+
 impl Drop for StartPermit<'_> {
     fn drop(&mut self) {
         self.gate
@@ -95,6 +108,27 @@ mod tests {
         let (began, waited) = waiting.join().unwrap();
         assert!(began, "the second start begins once the first has ended");
         assert!(waited >= Duration::from_millis(300), "{waited:?}");
+    }
+
+    #[test]
+    fn a_try_never_waits_and_takes_an_id_that_no_start_holds() {
+        let gate = StartGate::default();
+        let held = gate.try_acquire("vm").expect("a free id is taken");
+        assert!(
+            gate.try_acquire("vm").is_none(),
+            "a held id is refused at once"
+        );
+        assert!(gate.try_acquire("other").is_some());
+        drop(held);
+        assert!(gate.try_acquire("vm").is_some(), "the id is free again");
+    }
+
+    #[test]
+    fn a_start_that_waits_holds_the_id_against_a_try() {
+        let gate = Arc::new(StartGate::default());
+        let first = gate.acquire("vm", &CancellationToken::new()).unwrap();
+        assert!(gate.try_acquire("vm").is_none());
+        drop(first);
     }
 
     #[test]

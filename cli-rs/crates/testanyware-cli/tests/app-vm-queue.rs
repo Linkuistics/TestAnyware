@@ -2083,3 +2083,195 @@ fn a_vm_that_replaced_the_clone_of_a_record_is_never_stopped_and_counts_as_an_ex
     assert_eq!(holder(&view, "crash-c")["kind"], "external", "{view}");
     fixture.end_outside("crash-c", person_s_vm);
 }
+
+// ---- A start record that tart did not decide (spec "admission-queue": "A record that tart did
+// not decide") ----
+
+impl Fixture {
+    /// A VM `id` that a start made, a crash of the app after the meta and before the removal of
+    /// the record, and a person who replaces the VM with another one under the same name. The app
+    /// is down afterwards, and the record of the start is there.
+    fn crash_with_a_replaced_vm(&mut self, id: &str) -> Child {
+        self.start_and_wait_until_running(id);
+        let tart_run = self.tart_run_pid(id).unwrap();
+        self.crash();
+        nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(tart_run),
+            nix::sys::signal::Signal::SIGKILL,
+        )
+        .unwrap();
+        until("the old tart run to end", || !testanyware_vm::process::process_alive(tart_run));
+        let person_s_vm = self.run_outside(id, "darwin");
+        // The start wrote its meta and the app died before it removed the record.
+        std::fs::write(
+            self.start_record(id),
+            json!({ "id": id, "backend": "tart" }).to_string(),
+        )
+        .unwrap();
+        person_s_vm
+    }
+
+    /// The next start of the app finds a `tart list` that does not answer.
+    fn restart_while_tart_does_not_answer(&mut self) {
+        self.set_fake("list-hang", "");
+        self.restart();
+    }
+
+    /// The result of `id` in the adoption results of `GET /v1/status`.
+    fn unfinished(&self, id: &str) -> Value {
+        self.status()["adoption"]["unfinished_starts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|start| start["id"] == id)
+            .cloned()
+            .unwrap_or(Value::Null)
+    }
+}
+
+#[test]
+fn a_record_that_tart_did_not_decide_is_decided_when_the_tick_observes_and_the_running_vm_stays() {
+    let _serial = serial();
+    let mut fixture = Fixture::healthy();
+    let person_s_vm = fixture.crash_with_a_replaced_vm("retry-a");
+    fixture.restart_while_tart_does_not_answer();
+
+    // The fourth row: the app keeps the VM and the record, and removes the sidecars that prove
+    // nothing.
+    let first = fixture.unfinished("retry-a");
+    assert_eq!(first["removed"], false, "{first}");
+    assert!(first["detail"].as_str().unwrap().contains("tart does not answer"), "{first}");
+    assert!(fixture.start_record("retry-a").exists());
+    assert!(!sidecars(&fixture, "retry-a")[1].exists());
+
+    // No client asks for an observation. The tick makes it, and the app decides again.
+    fixture.clear_fake("list-hang");
+    until("the app to decide again", || {
+        fixture.unfinished("retry-a")["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("tart reports a running VM"))
+    });
+    let result = fixture.unfinished("retry-a");
+    assert_eq!(result["removed"], false, "{result}");
+    assert!(!fixture.start_record("retry-a").exists());
+    assert!(testanyware_vm::process::process_alive(person_s_vm.id() as i32));
+    assert!(fixture.cloned("retry-a"));
+    let out = fixture.app.cli(&["vm", "stop", "retry-a", "--json"]);
+    assert_eq!(out.json()["code"], "VM_NOT_FOUND", "{} {}", out.out(), out.err());
+    assert!(testanyware_vm::process::process_alive(person_s_vm.id() as i32));
+    let view = slots(&fixture);
+    assert_eq!(holder(&view, "retry-a")["kind"], "external", "{view}");
+
+    // The VM stops later. No decision for the record is left, so the app removes nothing.
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(person_s_vm.id() as i32),
+        nix::sys::signal::Signal::SIGKILL,
+    )
+    .unwrap();
+    std::thread::sleep(Duration::from_secs(4));
+    assert!(fixture.cloned("retry-a"), "the app deletes no VM that it did not start");
+    fixture.end_outside("retry-a", person_s_vm);
+}
+
+#[test]
+fn a_list_that_answers_decides_the_record_although_each_later_call_to_tart_fails() {
+    let _serial = serial();
+    let mut fixture = Fixture::healthy();
+    let person_s_vm = fixture.crash_with_a_replaced_vm("retry-b");
+    fixture.restart_while_tart_does_not_answer();
+    assert_eq!(fixture.unfinished("retry-b")["removed"], false);
+
+    // The list answers and reports the VM running, and `tart get` fails: the observation fails.
+    fixture.set_fake("get-fails", "");
+    fixture.clear_fake("list-hang");
+    until("the app to decide again", || !fixture.start_record("retry-b").exists());
+    assert!(
+        fixture.unfinished("retry-b")["detail"]
+            .as_str()
+            .unwrap()
+            .contains("tart reports a running VM"),
+        "{}",
+        fixture.unfinished("retry-b")
+    );
+
+    // The VM stops, tart answers again, and the VM stays.
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(person_s_vm.id() as i32),
+        nix::sys::signal::Signal::SIGKILL,
+    )
+    .unwrap();
+    fixture.clear_fake("get-fails");
+    fixture.app.cli(&["vm", "slots", "--json"]);
+    assert!(fixture.cloned("retry-b"), "the app deletes no VM that it did not start");
+    assert!(!fixture.start_record("retry-b").exists());
+    fixture.end_outside("retry-b", person_s_vm);
+}
+
+#[test]
+fn a_start_of_the_same_id_joins_the_queue_while_the_record_stays_and_the_queue_serves_its_waiters() {
+    let _serial = serial();
+    let mut fixture = Fixture::starved();
+    let client = fixture.spawn_start("retry-c", &[]);
+    until("the start to boot", || fixture.runs("retry-c"));
+    until("the record to name the keeper", || {
+        std::fs::read_to_string(fixture.start_record("retry-c"))
+            .is_ok_and(|text| text.contains("keeper"))
+    });
+    let tart_run = fixture.tart_run_pid("retry-c").unwrap();
+    fixture.crash();
+    let _ = client.finish();
+    nix::sys::signal::kill(
+        nix::unistd::Pid::from_raw(tart_run),
+        nix::sys::signal::Signal::SIGKILL,
+    )
+    .unwrap();
+    until("the tart run to end", || !testanyware_vm::process::process_alive(tart_run));
+
+    fixture.restart_while_tart_does_not_answer();
+    assert_eq!(fixture.unfinished("retry-c")["removed"], false);
+    assert!(fixture.start_record("retry-c").exists(), "the record stays while tart is silent");
+
+    // A start of the id takes the gate of the id, and its clone step waits for the tart that does
+    // not answer. Two more starts follow it. The app never waits for the gate, so the record stays.
+    let same = fixture.spawn_start("retry-c", &["--wait=60"]);
+    until("the start of the id to replace the record", || {
+        std::fs::read_to_string(fixture.start_record("retry-c"))
+            .is_ok_and(|text| !text.contains("keeper"))
+    });
+    let second = fixture.spawn_start("retry-d", &["--wait=60"]);
+    let third = fixture.spawn_start("retry-e", &["--wait=60"]);
+    let view = slots(&fixture);
+    assert!(view["queue"].is_array(), "`vm slots` answers: {view}");
+
+    // tart answers. The record stays, because the start of the id holds its gate while it waits.
+    fixture.clear_fake("list-hang");
+    until("two starts to hold both slots and one to wait", || {
+        slots(&fixture)["queue"].as_array().is_some_and(|queue| queue.len() == 1)
+            && ["retry-c", "retry-d", "retry-e"]
+                .iter()
+                .filter(|id| fixture.runs(id))
+                .count()
+                == 2
+    });
+    assert_eq!(fixture.refusals(), Vec::<String>::new());
+    assert!(fixture.start_record("retry-c").exists());
+    assert!(
+        fixture.unfinished("retry-c")["detail"].as_str().unwrap().contains("tart does not answer"),
+        "no decision again while the start of the id holds the gate"
+    );
+
+    // A slot frees, and the queue serves the waiter that stands in its place.
+    second.kill();
+    until("the third start to boot", || fixture.runs("retry-e"));
+
+    // The start of the id ends and takes its record along. The next tick finds that a start
+    // replaced the record, and the app decides no more for the old one.
+    same.kill();
+    until("the app to note that a start replaced the record", || {
+        fixture.unfinished("retry-c")["detail"]
+            .as_str()
+            .is_some_and(|detail| detail.contains("replaced the start record"))
+    });
+    assert!(!fixture.start_record("retry-c").exists());
+    third.kill();
+}

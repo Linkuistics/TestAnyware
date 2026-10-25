@@ -747,8 +747,10 @@ The rules of adoption:
   Its `not_adopted` list names each VM with a `reason` and a `detail`. The reasons are
   `process_gone`, `start_time_differs`, `boot_session_differs`, `no_boot_session` and
   `meta_unreadable`. Its `unfinished_starts` list names each start record that the app
-  found, with `removed` and a `detail` (`docs/specs/admission-queue.md`). A client that
-  needs the results asks again until `finished` is true.
+  found, with `removed` and a `detail` (`docs/specs/admission-queue.md`). When tart did
+  not answer at the start of the app, the app decides again for the record after an
+  observation whose `tart list` answered, and the new result replaces the first one for
+  that VM. A client that needs the results asks again until `finished` is true.
 
 An older QEMU guest stops through its control sockets, and never by a signal:
 

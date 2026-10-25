@@ -38,14 +38,42 @@ pub trait TartReader: Send + Sync {
     fn os_of(&self, name: &str) -> Result<String, ReadFailed>;
 }
 
+/// What one observation read from tart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Observed {
+    /// The names that the last `tart list` of the observation reported running. `None` when no
+    /// list of the observation answered. A start record that the app decides again reads its VM
+    /// here, also when a later call of the observation failed (spec "admission-queue": "A record
+    /// that tart did not decide").
+    pub listed: Option<BTreeSet<String>>,
+    /// The macOS guests that tart reports running, or why the observation failed.
+    pub macos: Result<BTreeSet<String>, ReadFailed>,
+}
+
 /// The macOS guests that tart reports running, or why the observation failed.
 ///
 /// A failed `tart get` alone cannot tell a VM that has gone from a tart that fails. So the app
 /// reads `tart list` again for that VM. The VM does not count when that list answers and does not
 /// report it running. Otherwise the observation fails.
 pub fn observe(tart: &dyn TartReader) -> Result<BTreeSet<String>, ReadFailed> {
+    observe_listed(tart).macos
+}
+
+/// [`observe`], with the last list that answered.
+pub fn observe_listed(tart: &dyn TartReader) -> Observed {
+    let mut listed = None;
+    let macos = observe_over(tart, &mut listed);
+    Observed { listed, macos }
+}
+
+fn observe_over(
+    tart: &dyn TartReader,
+    listed: &mut Option<BTreeSet<String>>,
+) -> Result<BTreeSet<String>, ReadFailed> {
     let mut macos = BTreeSet::new();
-    for name in tart.running()? {
+    let names = tart.running()?;
+    *listed = Some(names.clone());
+    for name in names {
         match tart.os_of(&name) {
             Ok(os) => {
                 if os == "darwin" {
@@ -53,7 +81,9 @@ pub fn observe(tart: &dyn TartReader) -> Result<BTreeSet<String>, ReadFailed> {
                 }
             }
             Err(failed) => {
-                if tart.running()?.contains(&name) {
+                let again = tart.running()?;
+                *listed = Some(again.clone());
+                if again.contains(&name) {
                     return Err(failed);
                 }
             }
@@ -288,5 +318,54 @@ mod tests {
             }
         }
         assert!(observe(&ListsOnce(Default::default())).is_err());
+    }
+
+    #[test]
+    fn the_list_of_an_observation_whose_later_get_failed_is_still_reported() {
+        let tart = FakeTart::with(&[("mac", "darwin"), ("other", "darwin")]);
+        tart.fail_get_of("mac");
+        let observed = observe_listed(&tart);
+        assert!(observed.macos.is_err());
+        assert_eq!(observed.listed, Some(set(&["mac", "other"])));
+    }
+
+    #[test]
+    fn an_observation_whose_list_fails_reports_no_list() {
+        let tart = FakeTart::with(&[("mac", "darwin")]);
+        tart.fail_list(true);
+        let observed = observe_listed(&tart);
+        assert!(observed.macos.is_err());
+        assert_eq!(observed.listed, None);
+    }
+
+    #[test]
+    fn the_list_is_the_last_one_that_answered() {
+        // The second list drops the VM whose `tart get` failed, so the VM is gone from the list.
+        let tart = FakeTart::with(&[("mac", "darwin")]);
+        tart.fail_get_of("mac");
+        tart.drop_from_the_second_list("mac");
+        let observed = observe_listed(&tart);
+        assert_eq!(observed.macos, Ok(BTreeSet::new()));
+        assert_eq!(observed.listed, Some(BTreeSet::new()));
+    }
+
+    #[test]
+    fn a_failed_get_whose_second_list_fails_still_reports_the_first_list() {
+        struct ListsOnce(std::sync::atomic::AtomicUsize);
+        impl TartReader for ListsOnce {
+            fn running(&self) -> Result<BTreeSet<String>, ReadFailed> {
+                if self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                    Ok(set(&["mac"]))
+                } else {
+                    Err(ReadFailed("tart list failed".into()))
+                }
+            }
+            fn os_of(&self, _: &str) -> Result<String, ReadFailed> {
+                Err(ReadFailed("tart get failed".into()))
+            }
+        }
+        let observed = observe_listed(&ListsOnce(Default::default()));
+        assert!(observed.macos.is_err());
+        assert_eq!(observed.listed, Some(set(&["mac"])));
     }
 }

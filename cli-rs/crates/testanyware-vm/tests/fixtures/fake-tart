@@ -14,6 +14,7 @@
 #   stuck           if present, `stop` and `delete` do nothing, as a tart that cannot remove a VM
 #   list-hang       if present, `list` does not answer while the file exists, or until a caller
 #                   kills it
+#   get-fails       if present, `get` fails, as a tart whose calls fail after its `list` answered
 #   get-delay       a number of seconds: `get` answers after that long, as a slow tart does
 #   <name>.os       the OS that `get` reports for a VM (`darwin` or `linux`). `clone` writes it from
 #                   the base: darwin for the macOS golden, linux for the Linux golden. A VM that a
@@ -48,6 +49,7 @@ case "$cmd" in
     ;;
   get)
     # `tart get <name> --format json`: only the key that the app reads.
+    [ -e "$STATE/get-fails" ] && { echo "failed to get $1: boom" >&2; exit 1; }
     [ -s "$STATE/get-delay" ] && sleep "$(cat "$STATE/get-delay")"
     [ -e "$STATE/$1.cloned" ] || { echo "failed to get $1: no such VM" >&2; exit 1; }
     printf '{"OS":"%s"}\n' "$(cat "$STATE/$1.os" 2>/dev/null || echo darwin)"

@@ -233,11 +233,13 @@ fn main() -> ExitCode {
     // A start record names a start that a crash interrupted. The app decides for each one before
     // it serves its socket, and before adoption reads the sidecars that the decision removes.
     // A client that connects meanwhile waits in the backlog of the socket.
-    let unfinished = testanyware_app::unfinished::run_for_app(&ctx);
+    let (unfinished, undecided) = testanyware_app::unfinished::run_for_app(&ctx);
     for start in &unfinished {
         eprintln!("testanyware-app: {}", start.detail);
     }
     ctx.adoption.set_unfinished_starts(unfinished);
+    // The records that tart did not decide wait for an observation whose list answers.
+    testanyware_app::unfinished::watch(&ctx, undecided);
     eprintln!("testanyware-app: serving on {}", paths.socket.display());
 
     if args.test_mode {

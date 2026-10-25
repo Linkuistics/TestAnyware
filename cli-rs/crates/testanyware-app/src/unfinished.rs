@@ -11,11 +11,14 @@
 //! signals a process that the record does not prove, and it never stops a running VM that no meta
 //! proves.
 //!
-//! This module applies the first three rows of the table. The fourth row (tart does not answer)
-//! keeps the VM and the record, and it removes the sidecars unless the meta proves the VM. The
-//! decision again, once an observation of tart answers, is the observer's.
+//! [`run`] applies the table when the app starts. The fourth row (tart does not answer) keeps the
+//! VM and the record, and it removes the sidecars unless the meta proves the VM. [`Undecided`]
+//! holds those records, and [`Retry`] decides for them again after each observation whose `tart
+//! list` answered (spec "admission-queue": "A record that tart did not decide").
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::sync::{Arc, Mutex, Weak};
 
 use testanyware_app_protocol::UnfinishedStart;
 use testanyware_vm::adoption::{check_process, ProcessCheck};
@@ -26,6 +29,8 @@ use testanyware_vm::tools::ToolSearch;
 use testanyware_vm::VmPaths;
 
 use crate::admission::observation::{SystemTart, TartReader};
+use crate::admission::AfterObservation;
+use crate::gate_start::StartGate;
 
 /// What tart reports for the VM of a record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,6 +225,17 @@ pub fn run(
     probe: &impl ProcessProbe,
     effects: &impl Effects,
 ) -> Vec<UnfinishedStart> {
+    run_keeping(paths, tart, probe, effects).0
+}
+
+/// [`run`], and the records that the fourth row kept: the app decides again for them.
+pub fn run_keeping(
+    paths: &VmPaths,
+    tart: &dyn TartReader,
+    probe: &impl ProcessProbe,
+    effects: &impl Effects,
+) -> (Vec<UnfinishedStart>, Vec<StartRecord>) {
+    let mut undecided = Vec::new();
     let ids = start_record::ids(paths);
     // One bounded `tart list` serves every record of a start on tart. A host that has none asks
     // tart nothing.
@@ -235,7 +251,7 @@ pub fn run(
         .iter()
         .any(|(_, r)| matches!(r, Ok(r) if r.backend == VmTool::Tart));
     let listed = has_tart.then(|| tart.running());
-    loaded
+    let results = loaded
         .drain(..)
         .map(|(id, record)| match record {
             Err(detail) => UnfinishedStart {
@@ -254,11 +270,16 @@ pub fn run(
                         Some(Ok(_)) => TartState::NotRunning,
                         _ => TartState::Unanswered,
                     };
-                    settle_tart(paths, &record, state, probe, effects)
+                    let (result, row) = settle_tart(paths, &record, state, probe, effects);
+                    if row == Row::Fourth {
+                        undecided.push(record);
+                    }
+                    result
                 }
             },
         })
-        .collect()
+        .collect();
+    (results, undecided)
 }
 
 /// The facts for the record of a start on tart.
@@ -311,7 +332,7 @@ fn settle_tart(
     tart: TartState,
     probe: &impl ProcessProbe,
     effects: &impl Effects,
-) -> UnfinishedStart {
+) -> (UnfinishedStart, Row) {
     let id = record.id.clone();
     let facts = facts(paths, record, tart, probe);
     let verdict = decide(&facts);
@@ -330,7 +351,7 @@ fn settle_tart(
     // A VM that stays after its removal keeps the record and the sidecars: the next start of the
     // app decides again, and `vm stop` can still find the VM.
     if vm_gone == Some(false) {
-        return UnfinishedStart {
+        let result = UnfinishedStart {
             id: id.clone(),
             removed: false,
             detail: format!(
@@ -339,6 +360,7 @@ fn settle_tart(
                  and `tart delete {id}`."
             ),
         };
+        return (result, verdict.row);
     }
 
     let mut kept_by_failure = false;
@@ -350,11 +372,12 @@ fn settle_tart(
     }
 
     let removed = verdict.removed && !kept_by_failure;
-    UnfinishedStart {
+    let result = UnfinishedStart {
         id: id.clone(),
         removed,
         detail: detail(&id, &facts, &verdict, kept_by_failure),
-    }
+    };
+    (result, verdict.row)
 }
 
 /// The sentences of a result: the reason, and the remedy when a person has to act.
@@ -450,15 +473,192 @@ fn settle_qemu(
     }
 }
 
-/// Decide for every start record of the app, as the app starts. The result is what `GET
-/// /v1/status` reports.
-pub fn run_for_app(ctx: &crate::AppContext) -> Vec<UnfinishedStart> {
-    run(
+/// Decide for every start record of the app, as the app starts. The results are what `GET
+/// /v1/status` reports, and the records are those that the app decides again with [`watch`].
+pub fn run_for_app(ctx: &crate::AppContext) -> (Vec<UnfinishedStart>, Vec<StartRecord>) {
+    run_keeping(
         &crate::vms::vm_paths(ctx),
         &SystemTart::new(ctx.tools.clone()),
         &SystemProbe,
         &SystemEffects::new(ctx.tools.clone()),
     )
+}
+
+/// A start record that the fourth row kept, and what the app noted about its VM.
+struct Kept {
+    record: StartRecord,
+    /// A list of this run reported the VM running. The note lives in memory only, as long as the
+    /// run of the app. After a crash, the next start of the app decides again.
+    noted_running: bool,
+}
+
+/// The start records that tart did not decide. The observer decides again for each one.
+#[derive(Default)]
+pub struct Undecided {
+    kept: Mutex<BTreeMap<String, Kept>>,
+}
+
+/// What a decision again reads and changes.
+pub struct Surroundings<'a, P: ProcessProbe, E: Effects> {
+    pub paths: &'a VmPaths,
+    /// The gate of the VM ids. A start or a stop of an id holds it.
+    pub gate: &'a StartGate,
+    /// Reads `tart list` again, under the gate, with the bound of 5 s.
+    pub tart: &'a dyn TartReader,
+    pub probe: &'a P,
+    pub effects: &'a E,
+}
+
+impl Undecided {
+    pub fn new(records: Vec<StartRecord>) -> Self {
+        let kept = records
+            .into_iter()
+            .map(|record| {
+                let kept = Kept {
+                    record,
+                    noted_running: false,
+                };
+                (kept.record.id.clone(), kept)
+            })
+            .collect();
+        Self {
+            kept: Mutex::new(kept),
+        }
+    }
+
+    /// Whether a record waits for a decision.
+    pub fn is_empty(&self) -> bool {
+        self.lock().is_empty()
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, BTreeMap<String, Kept>> {
+        self.kept.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// Decide again for each record, after an observation whose last list that answered is
+    /// `listed`. It returns the new result of each record that it decided.
+    ///
+    /// The note comes first, whatever the gate says: a list that reports the VM running makes the
+    /// third row the decision of the first attempt that gets the gate. The attempt never waits for
+    /// the gate, because a start of the id holds it while it waits in the queue, and that wait needs
+    /// the next observation. A start or a stop of the id that holds the gate leaves the record for
+    /// the next list.
+    pub fn decide_again<P: ProcessProbe, E: Effects>(
+        &self,
+        world: &Surroundings<'_, P, E>,
+        listed: &BTreeSet<String>,
+    ) -> Vec<UnfinishedStart> {
+        let ids: Vec<String> = self.lock().keys().cloned().collect();
+        let mut results = Vec::new();
+        for id in ids {
+            if listed.contains(&id) {
+                if let Some(kept) = self.lock().get_mut(&id) {
+                    kept.noted_running = true;
+                }
+            }
+            let Some(_permit) = world.gate.try_acquire(&id) else {
+                continue;
+            };
+            // The record cannot change while this thread holds the gate.
+            let Some((record, noted)) = self
+                .lock()
+                .get(&id)
+                .map(|kept| (kept.record.clone(), kept.noted_running))
+            else {
+                continue;
+            };
+            let path = world.paths.start_record_path(&id);
+            match StartRecord::load(&path) {
+                Ok(current) if current == record => {}
+                // The file is there and the app cannot read it. Nothing says that a start of the
+                // id replaced the record, so the record stays for the next start of the app.
+                Err(_) if path.exists() => continue,
+                // A start of the id replaced the record, or it ended and removed it. Its own end
+                // answers for the VM.
+                _ => {
+                    self.lock().remove(&id);
+                    results.push(UnfinishedStart {
+                        id: id.clone(),
+                        removed: false,
+                        detail: format!(
+                            "The start of {id} was interrupted, and tart did not answer. A later \
+                             start of {id} replaced the start record, so the app decides no more \
+                             for the interrupted start. The clone step of that start removes the \
+                             VM of that id, as every start of an id does."
+                        ),
+                    });
+                    continue;
+                }
+            }
+            let state = if noted {
+                TartState::Running
+            } else {
+                // The list of the observation cannot give the second row, because that row
+                // removes a VM by name. Only a read that starts under the gate can.
+                match world.tart.running() {
+                    Ok(running) if running.contains(&id) => {
+                        if let Some(kept) = self.lock().get_mut(&id) {
+                            kept.noted_running = true;
+                        }
+                        TartState::Running
+                    }
+                    Ok(_) => TartState::NotRunning,
+                    Err(_) => continue,
+                }
+            };
+            let (result, _row) =
+                settle_tart(world.paths, &record, state, world.probe, world.effects);
+            // A removal that failed keeps the record too, and the next start of the app decides
+            // again (spec: "A quit, a crash and a restart").
+            self.lock().remove(&id);
+            results.push(result);
+        }
+        results
+    }
+}
+
+/// Decides again for the records of [`Undecided`] in the running app.
+struct Retry {
+    ctx: Weak<crate::AppContext>,
+    undecided: Undecided,
+}
+
+impl AfterObservation for Retry {
+    fn pending(&self) -> bool {
+        !self.undecided.is_empty()
+    }
+
+    fn after(&self, listed: &BTreeSet<String>) {
+        let Some(ctx) = self.ctx.upgrade() else {
+            return;
+        };
+        let tart = SystemTart::new(ctx.tools.clone());
+        let world = Surroundings {
+            paths: &crate::vms::vm_paths(&ctx),
+            gate: &ctx.starts,
+            tart: &tart,
+            probe: &SystemProbe,
+            effects: &SystemEffects::new(ctx.tools.clone()),
+        };
+        for result in self.undecided.decide_again(&world, listed) {
+            eprintln!("testanyware-app: {}", result.detail);
+            ctx.adoption.update_unfinished_start(result);
+        }
+    }
+}
+
+/// Decide again for `records`, after each observation of tart whose list answered. The observer
+/// of the admission queue runs it, and its tick of 3 s makes an observation while no client asks
+/// for one. The context holds the queue, so the hook holds the context weakly.
+pub fn watch(ctx: &Arc<crate::AppContext>, records: Vec<StartRecord>) {
+    if records.is_empty() {
+        return;
+    }
+    let retry = Retry {
+        ctx: Arc::downgrade(ctx),
+        undecided: Undecided::new(records),
+    };
+    ctx.admission.set_after_observation(Arc::new(retry));
 }
 
 #[cfg(test)]
@@ -923,5 +1123,333 @@ mod tests {
         assert_eq!(tart.list_calls(), 0);
         assert!(!paths.clone_dir("q").exists());
         assert!(files(&paths).is_empty());
+    }
+
+    // ----- the decision again for a record that tart did not decide -----
+
+    /// A state directory with the record of `v` that the fourth row kept: a tart that does not
+    /// answer at the start of the app.
+    fn kept_by_the_fourth_row(dir: &Path) -> (VmPaths, Undecided, StartRecord) {
+        let paths = paths(dir);
+        record("v", Some((10, 1)), None).write(&paths).unwrap();
+        sidecars(&paths, "v", meta_of("v", 99, None));
+        let tart = FakeTart::default();
+        tart.fail_list(true);
+        let (results, undecided) = run_keeping(
+            &paths,
+            &tart,
+            &Host(Default::default()),
+            &Recording::default(),
+        );
+        assert!(!only(results).removed);
+        assert_eq!(undecided.len(), 1, "only the fourth row is decided again");
+        let kept = undecided[0].clone();
+        (paths, Undecided::new(undecided), kept)
+    }
+
+    fn names(vms: &[&str]) -> BTreeSet<String> {
+        vms.iter().map(|vm| vm.to_string()).collect()
+    }
+
+    fn again(
+        paths: &VmPaths,
+        undecided: &Undecided,
+        gate: &StartGate,
+        tart: &FakeTart,
+        effects: &Recording,
+        listed: &[&str],
+    ) -> Vec<UnfinishedStart> {
+        let world = Surroundings {
+            paths,
+            gate,
+            tart,
+            probe: &Host(Default::default()),
+            effects,
+        };
+        undecided.decide_again(&world, &names(listed))
+    }
+
+    #[test]
+    fn only_a_record_of_the_fourth_row_is_decided_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = paths(dir.path());
+        record("kept", None, None).write(&paths).unwrap();
+        record("gone", None, None).write(&paths).unwrap();
+        let tart = FakeTart::default();
+        // The list answers: both records are decided at once, and none stays.
+        let (results, undecided) = run_keeping(
+            &paths,
+            &tart,
+            &Host(Default::default()),
+            &Recording::default(),
+        );
+        assert_eq!(results.len(), 2);
+        assert!(undecided.is_empty());
+    }
+
+    #[test]
+    fn a_list_that_reports_the_vm_running_gives_the_third_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        let effects = Recording::default();
+        let tart = FakeTart::default();
+
+        let results = again(
+            &paths,
+            &undecided,
+            &StartGate::default(),
+            &tart,
+            &effects,
+            &["v"],
+        );
+
+        let result = only(results);
+        assert!(!result.removed, "{result:?}");
+        assert!(effects.calls.borrow().is_empty(), "no stop and no delete");
+        assert_eq!(tart.list_calls(), 0, "the list of the observation decides");
+        assert!(files(&paths).is_empty(), "the record goes in the third row");
+        assert!(undecided.is_empty());
+    }
+
+    #[test]
+    fn a_later_list_that_does_not_report_the_vm_gives_the_third_row_too() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        let effects = Recording::default();
+        let tart = FakeTart::default();
+        let gate = StartGate::default();
+
+        // A start of another id holds nothing here. A stop of `v` holds the gate while the list
+        // reports the VM running, so the note stands and no decision is made.
+        let held = gate.try_acquire("v").unwrap();
+        assert!(again(&paths, &undecided, &gate, &tart, &effects, &["v"]).is_empty());
+        drop(held);
+        // The next list does not report the VM, and the app still keeps it.
+        let results = again(&paths, &undecided, &gate, &tart, &effects, &[]);
+
+        assert!(!only(results).removed);
+        assert!(effects.calls.borrow().is_empty(), "the VM is never deleted");
+        assert_eq!(tart.list_calls(), 0, "the note decides, not a new read");
+    }
+
+    #[test]
+    fn a_list_without_the_vm_and_no_list_that_reported_it_never_gives_the_second_row() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        let effects = Recording::default();
+        // The read under the gate reports the VM running, as a VM that started since the list.
+        let tart = FakeTart::with(&[("v", "darwin")]);
+
+        let results = again(
+            &paths,
+            &undecided,
+            &StartGate::default(),
+            &tart,
+            &effects,
+            &[],
+        );
+
+        assert!(!only(results).removed);
+        assert!(
+            effects.calls.borrow().is_empty(),
+            "the list of the observation alone never deletes"
+        );
+        assert_eq!(tart.list_calls(), 1, "one newer read under the gate");
+    }
+
+    #[test]
+    fn the_second_row_comes_from_a_newer_read_under_the_gate() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        let effects = Recording::default();
+        let tart = FakeTart::default();
+
+        let results = again(
+            &paths,
+            &undecided,
+            &StartGate::default(),
+            &tart,
+            &effects,
+            &[],
+        );
+
+        let result = only(results);
+        assert!(result.removed, "{result:?}");
+        assert_eq!(*effects.calls.borrow(), ["delete v"]);
+        assert_eq!(tart.list_calls(), 1);
+        assert!(files(&paths).is_empty());
+    }
+
+    #[test]
+    fn a_read_that_does_not_answer_keeps_the_record_for_the_next_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        let effects = Recording::default();
+        let tart = FakeTart::default();
+        tart.fail_list(true);
+
+        let results = again(
+            &paths,
+            &undecided,
+            &StartGate::default(),
+            &tart,
+            &effects,
+            &[],
+        );
+
+        assert!(results.is_empty());
+        assert!(effects.calls.borrow().is_empty());
+        assert!(!undecided.is_empty());
+        assert!(files(&paths).contains(&"v.start-record".to_string()));
+        // The next list is read again, and it decides.
+        tart.fail_list(false);
+        let results = again(
+            &paths,
+            &undecided,
+            &StartGate::default(),
+            &tart,
+            &effects,
+            &[],
+        );
+        assert!(only(results).removed);
+    }
+
+    #[test]
+    fn a_gate_that_a_start_or_a_stop_holds_leaves_the_record_and_waits_for_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        let effects = Recording::default();
+        let tart = FakeTart::default();
+        let gate = StartGate::default();
+        let _held = gate
+            .acquire("v", &tokio_util::sync::CancellationToken::new())
+            .unwrap();
+
+        // The call returns at once. A wait here would never end, because this thread holds the gate.
+        let results = again(&paths, &undecided, &gate, &tart, &effects, &[]);
+
+        assert!(results.is_empty());
+        assert_eq!(tart.list_calls(), 0, "nothing is read without the gate");
+        assert!(effects.calls.borrow().is_empty());
+        assert!(!undecided.is_empty());
+    }
+
+    #[test]
+    fn a_record_that_a_start_replaced_is_not_decided_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        // A start of the id wrote its own record, with a `tart run` of its own.
+        record("v", Some((77, 7)), None).write(&paths).unwrap();
+        let effects = Recording::default();
+        let tart = FakeTart::default();
+
+        let results = again(
+            &paths,
+            &undecided,
+            &StartGate::default(),
+            &tart,
+            &effects,
+            &["v"],
+        );
+
+        let result = only(results);
+        assert!(!result.removed && result.detail.contains("replaced the start record"));
+        assert!(undecided.is_empty());
+        assert!(
+            effects.calls.borrow().is_empty(),
+            "the new start owns the VM"
+        );
+        assert_eq!(files(&paths), ["v.start-record"], "its record stays");
+    }
+
+    #[test]
+    fn a_record_that_a_start_ended_and_removed_is_not_decided_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        StartRecord::remove(&paths, "v");
+        let effects = Recording::default();
+
+        let results = again(
+            &paths,
+            &undecided,
+            &StartGate::default(),
+            &FakeTart::default(),
+            &effects,
+            &[],
+        );
+
+        assert!(!only(results).removed);
+        assert!(undecided.is_empty());
+        assert!(effects.calls.borrow().is_empty());
+    }
+
+    #[test]
+    fn a_record_that_cannot_be_read_stays_for_the_next_start_of_the_app() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        std::fs::write(paths.start_record_path("v"), b"not json").unwrap();
+        let effects = Recording::default();
+
+        let results = again(
+            &paths,
+            &undecided,
+            &StartGate::default(),
+            &FakeTart::default(),
+            &effects,
+            &["v"],
+        );
+
+        assert!(results.is_empty());
+        assert!(effects.calls.borrow().is_empty());
+        assert_eq!(files(&paths), ["v.start-record"]);
+    }
+
+    #[test]
+    fn a_removal_that_fails_keeps_the_record_and_is_not_tried_on_every_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        let effects = Recording {
+            stays: true,
+            ..Recording::default()
+        };
+
+        let results = again(
+            &paths,
+            &undecided,
+            &StartGate::default(),
+            &FakeTart::default(),
+            &effects,
+            &[],
+        );
+
+        let result = only(results);
+        assert!(!result.removed, "{result:?}");
+        assert!(files(&paths).contains(&"v.start-record".to_string()));
+        assert!(
+            undecided.is_empty(),
+            "the next start of the app decides again"
+        );
+    }
+
+    #[test]
+    fn a_meta_that_proves_its_tart_run_keeps_the_vm_when_the_read_says_it_does_not_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let (paths, undecided, _) = kept_by_the_fourth_row(dir.path());
+        sidecars(&paths, "v", meta_of("v", 20, Some(5)));
+        let effects = Recording::default();
+        let tart = FakeTart::default();
+        let world = Surroundings {
+            paths: &paths,
+            gate: &StartGate::default(),
+            tart: &tart,
+            probe: &Host([(20, 5)].into()),
+            effects: &effects,
+        };
+
+        let results = undecided.decide_again(&world, &names(&[]));
+
+        assert!(only(results).removed, "the meta serves the VM again");
+        assert!(effects.calls.borrow().is_empty());
+        assert_eq!(files(&paths), ["v.json", "v.meta.json"]);
     }
 }

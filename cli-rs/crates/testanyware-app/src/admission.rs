@@ -42,7 +42,7 @@ use decision::{
     admits_without_wait, contention_after_acceptance, contention_after_settle, decide,
     own_holders_fill_the_slots, Input, Waiter, APPLE_LIMIT, PAUSE,
 };
-use observation::{observe, SystemTart, TartReader};
+use observation::{observe_listed, SystemTart, TartReader};
 use testanyware_vm::tools::ToolSearch;
 
 /// The app observes again at least this often while the queue holds a waiter. A guest that ends
@@ -58,6 +58,21 @@ const REPORT_EVERY: Duration = Duration::from_secs(30);
 /// How often a waiting thread reads the cancel of its client. The token cannot wake a condition
 /// variable, so the wait is bounded.
 const CANCEL_POLL: Duration = Duration::from_millis(100);
+
+/// Work that follows each observation whose `tart list` answered. The app decides again for the
+/// start records that tart did not decide this way (spec "admission-queue": "A record that tart
+/// did not decide").
+pub trait AfterObservation: Send + Sync {
+    /// Whether work waits for the next observation. Then the tick of 3 s observes while no client
+    /// asks for an observation.
+    fn pending(&self) -> bool;
+
+    /// Follow one observation. `listed` is the last `tart list` of the observation that
+    /// answered, also when a later call of the observation failed. The observer calls this after
+    /// it kept the answer and decided, and before the next observation starts. It holds no lock
+    /// of the queue.
+    fn after(&self, listed: &BTreeSet<String>);
+}
 
 /// The ids of the macOS guests that hold a slot because they have a meta.
 pub type OwnGuests = Box<dyn Fn() -> BTreeSet<String> + Send + Sync>;
@@ -79,6 +94,8 @@ pub struct AdmissionQueue {
     tart: Arc<dyn TartReader>,
     /// The seed of the request ids of this run of the app.
     salt: u32,
+    /// The work that follows an observation whose list answered.
+    after: Mutex<Option<Arc<dyn AfterObservation>>>,
 }
 
 impl std::fmt::Debug for AdmissionQueue {
@@ -284,6 +301,7 @@ impl AdmissionQueue {
             guests,
             tart,
             salt: salt(),
+            after: Mutex::new(None),
         })
     }
 
@@ -295,6 +313,21 @@ impl AdmissionQueue {
             Box::new(move || count::macos_guests_with_a_meta(&paths, &SystemProbe)),
             Arc::new(SystemTart::new(tools)),
         )
+    }
+
+    /// Follow each observation whose list answered with `hook`. The tick observes while the hook
+    /// has work, so the hook starts the observer when it has some now.
+    pub fn set_after_observation(self: &Arc<Self>, hook: Arc<dyn AfterObservation>) {
+        let pending = hook.pending();
+        *self.after.lock().unwrap_or_else(|p| p.into_inner()) = Some(hook);
+        if pending {
+            let mut state = self.lock();
+            self.request_observation(&mut state);
+        }
+    }
+
+    fn after_observation(&self) -> Option<Arc<dyn AfterObservation>> {
+        self.after.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     /// A guest has ended, so a slot may be free. The queue observes and decides again.
@@ -361,9 +394,11 @@ impl AdmissionQueue {
     /// One turn of the observer: wait for a request or for the tick, then make one observation
     /// and decide on what follows. tart runs outside the lock of the queue.
     fn observe_once(&self) {
+        let after = self.after_observation();
+        let work = after.as_ref().is_some_and(|after| after.pending());
         let mut state = self.lock();
         let now = self.now();
-        let tick = !state.waiting.is_empty()
+        let tick = (!state.waiting.is_empty() || work)
             && state
                 .last_obs_start
                 .map_or(true, |at| now.saturating_sub(at) >= TICK);
@@ -381,10 +416,10 @@ impl AdmissionQueue {
         state.last_obs_start = Some(now);
         drop(state);
 
-        let result = observe(&*self.tart);
+        let observed = observe_listed(&*self.tart);
 
         let mut state = self.lock();
-        match result {
+        match observed.macos {
             Ok(macos) => {
                 state.answer = Some(Answer {
                     number,
@@ -404,6 +439,14 @@ impl AdmissionQueue {
         // last answer, and a waiter that no answer serves waits on.
         self.run_decision(&mut state);
         self.changed.notify_all();
+        drop(state);
+
+        // The decisions for the start records come after the answer is kept and before the next
+        // observation. They delay the next observation, and the lock is free meanwhile, so no
+        // waiter's decision at its deadline waits for them.
+        if let (Some(after), Some(listed)) = (after, observed.listed) {
+            after.after(&listed);
+        }
     }
 
     fn lock(&self) -> MutexGuard<'_, State> {
@@ -3200,5 +3243,153 @@ mod tests {
         cancel.cancel();
         let (outcome, _) = refused.join().unwrap();
         assert!(outcome.is_err());
+    }
+
+    // ----- the work that follows an observation whose list answered -----
+
+    /// A hook that records the lists it is given. While `block` is set, `after` does not return.
+    #[derive(Default)]
+    struct Recorder {
+        pending: std::sync::atomic::AtomicBool,
+        lists: Mutex<Vec<BTreeSet<String>>>,
+        block: Mutex<bool>,
+        released: Condvar,
+    }
+
+    impl Recorder {
+        fn pending() -> Arc<Self> {
+            let hook = Arc::new(Self::default());
+            hook.pending.store(true, Ordering::SeqCst);
+            hook
+        }
+
+        fn lists(&self) -> Vec<BTreeSet<String>> {
+            self.lists.lock().unwrap().clone()
+        }
+    }
+
+    impl AfterObservation for Recorder {
+        fn pending(&self) -> bool {
+            self.pending.load(Ordering::SeqCst)
+        }
+
+        fn after(&self, listed: &BTreeSet<String>) {
+            self.lists.lock().unwrap().push(listed.clone());
+            let mut block = self.block.lock().unwrap();
+            while *block {
+                block = self.released.wait(block).unwrap();
+            }
+        }
+    }
+
+    #[test]
+    fn the_tick_observes_for_a_hook_with_work_while_no_client_waits() {
+        let (queue, _, _) = queue_over(2, macos(&["a"]));
+        let hook = Recorder::pending();
+        queue.set_after_observation(Arc::clone(&hook) as Arc<dyn AfterObservation>);
+
+        wait_until("the hook to follow an observation", || {
+            !hook.lists().is_empty()
+        });
+
+        assert!(queue.lock().waiting.is_empty(), "no client asked");
+        assert_eq!(hook.lists()[0], ["a".to_string()].into());
+    }
+
+    #[test]
+    fn a_hook_without_work_makes_no_observation_while_no_client_waits() {
+        let (queue, _, tart) = queue_over(2, macos(&["a"]));
+        let hook = Arc::new(Recorder::default());
+        queue.set_after_observation(Arc::clone(&hook) as Arc<dyn AfterObservation>);
+
+        std::thread::sleep(Duration::from_millis(600));
+
+        assert_eq!(tart.list_calls(), 0);
+        assert!(hook.lists().is_empty());
+    }
+
+    #[test]
+    fn the_hook_follows_an_observation_whose_later_call_failed_with_the_list_that_answered() {
+        let (queue, _, tart) = queue_over(2, macos(&["a", "other"]));
+        tart.fail_get_of("other");
+        let hook = Arc::new(Recorder::default());
+        queue.set_after_observation(Arc::clone(&hook) as Arc<dyn AfterObservation>);
+
+        observe_and_wait(&queue, "a failed observation", |s| s.last_failure.is_some());
+        wait_until("the hook", || !hook.lists().is_empty());
+
+        assert!(queue.lock().answer.is_none(), "the observation failed");
+        assert_eq!(
+            hook.lists()[0],
+            ["a".to_string(), "other".to_string()].into()
+        );
+    }
+
+    #[test]
+    fn the_hook_does_not_follow_an_observation_whose_list_did_not_answer() {
+        let (queue, _, tart) = queue_over(2, macos(&["a"]));
+        tart.fail_list(true);
+        let hook = Arc::new(Recorder::default());
+        queue.set_after_observation(Arc::clone(&hook) as Arc<dyn AfterObservation>);
+
+        observe_and_wait(&queue, "a failed observation", |s| s.last_failure.is_some());
+        std::thread::sleep(Duration::from_millis(300));
+
+        assert!(hook.lists().is_empty());
+    }
+
+    #[test]
+    fn the_hook_follows_the_answer_that_the_app_kept() {
+        let (queue, _, _) = queue_over(2, macos(&["a"]));
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        struct Reads(Arc<AdmissionQueue>, Arc<Mutex<Vec<bool>>>);
+        impl AfterObservation for Reads {
+            fn pending(&self) -> bool {
+                true
+            }
+            fn after(&self, _: &BTreeSet<String>) {
+                let kept = self.0.lock().answer.is_some();
+                self.1.lock().unwrap().push(kept);
+            }
+        }
+        queue.set_after_observation(Arc::new(Reads(Arc::clone(&queue), Arc::clone(&seen))));
+
+        wait_until("the hook", || !seen.lock().unwrap().is_empty());
+
+        assert!(seen.lock().unwrap()[0], "the answer is kept first");
+    }
+
+    #[test]
+    fn a_hook_that_works_holds_no_lock_of_the_queue() {
+        let (queue, guests, _) = queue_over(2, macos(&[]));
+        let hook = Recorder::pending();
+        *hook.block.lock().unwrap() = true;
+        queue.set_after_observation(Arc::clone(&hook) as Arc<dyn AfterObservation>);
+        wait_until("the hook to start", || !hook.lists().is_empty());
+
+        // The hook is busy. A join, a view and a decision at a deadline all take the lock, so
+        // none of them waits for the hook.
+        guests.lock().unwrap().insert("g1".into());
+        guests.lock().unwrap().insert("g2".into());
+        let began = Instant::now();
+        let outcome = queue.admit_for(
+            &ask("w", Some(1)),
+            None,
+            &CancellationToken::new(),
+            &quiet(),
+        );
+        let _ = queue.view();
+        assert!(
+            outcome.is_err(),
+            "the two slots are held, so the wait runs out"
+        );
+        assert!(
+            began.elapsed() < Duration::from_secs(5),
+            "the deadline came at its time: {:?}",
+            began.elapsed()
+        );
+
+        *hook.block.lock().unwrap() = false;
+        hook.released.notify_all();
     }
 }

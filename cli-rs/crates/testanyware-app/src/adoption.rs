@@ -54,6 +54,20 @@ impl AdoptionLog {
         self.lock().unfinished_starts = starts;
     }
 
+    /// Note a new result for a start record that the app decided again (spec "admission-queue":
+    /// "A record that tart did not decide"). It replaces the result of the same VM id.
+    pub fn update_unfinished_start(&self, start: UnfinishedStart) {
+        let mut status = self.lock();
+        match status
+            .unfinished_starts
+            .iter_mut()
+            .find(|s| s.id == start.id)
+        {
+            Some(old) => *old = start,
+            None => status.unfinished_starts.push(start),
+        }
+    }
+
     fn update(&self, change: impl FnOnce(&mut AdoptionStatus)) {
         change(&mut self.lock());
     }
