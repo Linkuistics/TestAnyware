@@ -28,6 +28,6 @@ supported corrections to the admission design before planning consumes it.
 ## Notes
 
 This is integration of a design review. The review ran no tests, builds, lint
-or formatting, and changed no implementation or test code. Read its evidence
-and limits before deciding each finding; its list is input to triage rather
-than a predetermined work list.
+or formatting, and changed no implementation or test code. Before you decide a
+finding, read the evidence and the limits of the review. Its list is input to
+triage, not a work list to complete.
