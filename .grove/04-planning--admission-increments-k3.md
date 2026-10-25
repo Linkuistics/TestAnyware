@@ -8,7 +8,10 @@ increment publishes the release.
 
 ## Context
 
-- The spec that `admission-queue-k2` writes, and the decisions that it records.
+- `docs/specs/admission-queue.md`, which the human agreed on 2026-10-25, and
+  ADR-0022. The decision log of `admission-queue-k2` records why.
+- The review `admission-queue-k4` reads the design first. Plan from the spec as
+  that review and its integration leave it.
 - The root brief: the done-when roll-up and the three test seams.
 - The earlier groves on this repository each ended with a release leaf. The
   `release:*` tasks of the Taskfile publish a release.
@@ -28,3 +31,6 @@ increment publishes the release.
 - The skill change need not wait for the release, because `--wait` exists since
   2026-10-19. The queue only makes the wait fair.
 - The parts of #7 that moved to #9, #10, #11 and #4 are not work for this grove.
+- The help of `vm start` still says that the waiters are not served in order.
+  `cli-contract.rs` checks that text, and `docs/reference/cli-commands.md`
+  repeats it. The increment that ships the ordered queue changes all three.

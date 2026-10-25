@@ -93,7 +93,7 @@ VMs: …)".
 
 To run more than two macOS guests, use more Macs (issues #4, #5). A `vm start`
 that finds both slots taken fails with `VM_LIMIT_REACHED`. `vm start --wait`
-waits for a slot instead.
+waits in the *Admission queue* instead.
 _Avoid_: "tart's limit" (Apple sets the limit) and "two-VM limit" (it counts
 macOS guests, not every VM).
 
@@ -103,16 +103,46 @@ macOS guest holds one, whoever started it.
 _Avoid_: "slot" for a Linux or Windows guest (only a macOS guest takes one).
 
 **Admission queue**:
-The ordered list of macOS guest starts that wait in the *TestAnyware app* for a
-*Slot*. Each user who runs the app has one admission queue (issue #7).
+The ordered list of macOS guest starts and golden creations that wait in the
+*TestAnyware app* for a *Slot*. Each user who runs the app has one admission
+queue. The app serves it in order (`docs/specs/admission-queue.md`).
 _Avoid_: "semaphore" and "lock" (the queue has an order), and "scheduler" (it
 chooses no host).
 
+**Admit**:
+What the *TestAnyware app* does when it gives the head of the *Admission queue*
+a *Slot*. From that moment the start or the golden creation is a *Holder*.
+_Avoid_: "grant" (the *Local Network grant* is another thing), and "lease" (a
+lease has a term, and issue #10 owns leases).
+
+**Holder**:
+What takes one *Slot*: a running macOS guest, a start that the app admitted, or a
+golden creation that the app admitted. An admitted start holds its slot until its
+guest is gone. An admitted golden creation holds its slot while its connection to
+the app stays open, and so between its boots too.
+_Avoid_: "owner" (an *External occupancy* holder has no owner that the app knows).
+
 **External occupancy**:
 A *Slot* that a macOS guest holds although the user's *TestAnyware app* did not
-grant it. Another user, another tool, or a process that did not ask the app for
-its *Slot* started that guest, and the app never stops it.
+admit it. Another user, another tool, or a process that did not ask the app for
+its *Slot* started that guest, and the app never stops it. The app sees such a
+guest of its own user through `tart list`. It cannot see a guest of another user
+or another tool, so only a refusal by the framework proves that one runs.
 _Avoid_: "leak" and "orphan" (the app does not own the guest).
+
+**Contention**:
+The state after Virtualization.framework refused a start that the app's count
+allowed. The refusal proves occupancy that the app cannot see. Until the
+framework accepts a start again, the app tries one start at a time, 3 s apart.
+_Avoid_: "full" (a full count is a fact that the app sees, and contention is
+not).
+
+**Start record**:
+A sidecar that the *TestAnyware app* writes before the clone of a start. The app
+deletes it when the start ends. So a start record that the app finds when it
+starts names a start that a crash interrupted, and the app deletes that start's
+VM.
+_Avoid_: "meta" (the meta describes a VM that started).
 
 **Local Network denial**:
 macOS Local Network privacy can refuse a process a route to a tart guest's

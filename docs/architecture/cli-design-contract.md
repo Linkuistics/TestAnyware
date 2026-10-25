@@ -25,7 +25,7 @@ Most subcommands put the noun first (`<noun> <verb>`):
 
 | Group | Subcommands |
 |---|---|
-| `vm` | `start`, `stop`, `list`, `delete` |
+| `vm` | `start`, `stop`, `list`, `delete`, `slots` |
 | `agent` | `health`, `snapshot`, `inspect`, `press`, `set-value`, `focus`, `show-menu`, `windows`, `window-focus`, `window-resize`, `window-move`, `window-close`, `window-minimize`, `wait` |
 | `input` | `key`, `key-down`, `key-up`, `type`, `click`, `mouse-down`, `mouse-up`, `move`, `scroll`, `drag` |
 | `screen` | `capture`, `record`, `size`, `find-text` |
@@ -87,7 +87,7 @@ uses these names and no others:
 | Custom format template | `--format <tmpl>` | — | Optional, and only where a template has a meaning. It MUST NOT collide with `--output <fmt>`. |
 | Colour | `--color <when>` | — | Values: `auto` (default), `always` and `never`. |
 | Keep a failed start's VM | `--keep-on-failure` | — | `vm start` only. It leaves a VM that still runs, with its sidecars, for inspection, and does not remove it. See the §4.2 amendment of 2026-10-17. |
-| Wait for a free slot | `--wait[=<seconds>]` | — | `vm start` only. When the macOS guest limit is full, the start retries until a slot frees or the wait runs out. Without the flag, it fails at once. Bare `--wait` is 600 s. The value is in seconds, as in the other timeout flags. See the §4.2 amendment of 2026-10-19 (`--wait`). |
+| Wait for a free slot | `--wait[=<seconds>]` | — | `vm start` only. When the macOS guest limit is full, the start waits in the admission queue until the app admits it or the wait runs out. Without the flag, it fails at once. Bare `--wait` is 600 s. The value is in seconds, as in the other timeout flags. See the §4.2 amendments of 2026-10-19 (`--wait`) and 2026-10-25 (the admission queue). |
 
 **Reserved short flags.** They must stay the same across the whole binary:
 `-q`, `-v`, `-y`, `-o` (output format only), `-h` (help) and `-V` (version).
@@ -128,6 +128,7 @@ The current list of the Rust port:
 | `vm start` | data | `vm-start` |
 | `vm stop` | data (mutation receipt) | `vm-stop` |
 | `vm list` | data | `vm-list` |
+| `vm slots` | data | `vm-slots` |
 | `vm delete` | data (mutation receipt) | `vm-delete` |
 | `agent health` | data | `agent-health` |
 | `agent snapshot` | data | `agent-snapshot` |
@@ -267,7 +268,7 @@ version bump.
 |---|---|
 | `VM_NOT_FOUND` | `--vm <id>` resolved to a spec that does not exist. |
 | `VM_BOOT_TIMEOUT` | `vm start`: the VM is alive, but a stage of the start never completed. The stage is the VNC endpoint, the guest IP or, in the usual case, the agent, which never became a Healthy agent. `details` names the `stage` (`vnc`, `guest-ip`, `agent`), the polled `endpoint`, the `last_error` (kind, OS errno, text), the `attempts` and the `elapsed_secs`. It also names the proven `cause` (`null` or `local_network_denied`, see the §4.2 amendment of 2026-10-19), and whether the VM was `kept`. |
-| `VM_LIMIT_REACHED` | `vm start` was refused because the platform's limit of concurrent guests is full: Apple's macOS guest limit, two for each Mac. It is a *try again later* condition, exit `6`. `details`: `platform`, `limit`, `holders` (the VMs holding the slots), `tart_error` (the backend's own line). A `--wait` start that ran out returns the same error. |
+| `VM_LIMIT_REACHED` | `vm start` or `vm create-golden` was refused because the platform's limit of concurrent guests is full: Apple's macOS guest limit, two for each Mac. It is a *try again later* condition, exit `6`. `details`: `platform`, `limit` (the limit that refused), `holders` (the VMs holding the slots), `tart_error` (the backend's own line, or an empty string when no `tart run` ran), `request_id`, `place`, `waited_secs` and `refused_by` (`app` or `framework`). A `--wait` start that ran out returns the same error. See the amendment of 2026-10-25. |
 | `VM_STOP_FAILED` | `vm stop` could not stop the VM cleanly. The app's stop of a QEMU guest that an older release started signals no process. It fails when a socket still answers or a process still holds the clone's disk, and `details` names `monitor_socket`, `swtpm_socket`, `disk_holders` and `disk_check_error`. The app then removes nothing, and the remedy says to quit that QEMU by hand and run `vm stop` again. |
 | `VM_BACKEND_UNSUPPORTED` | Neither tart nor QEMU can serve the requested platform on this host. |
 | `VM_HOST_UNSUPPORTED` | `vm start` ran on a Windows host. That host cannot run a local QEMU VM, because the binary has no QEMU monitor and no process control for Windows. `details.detail` holds the text. Start VMs from a Linux or macOS host. |
@@ -347,28 +348,28 @@ version bump.
 >
 > - Without `--wait` nothing changes: a refused start fails at once with
 >   `VM_LIMIT_REACHED` (exit `6`).
-> - With `--wait`, a refusal is retried until the start succeeds or the wait
->   runs out. Bare `--wait` waits 600 s, so an unattended driver cannot hang
->   for ever. `--wait=<seconds>` sets the bound. A wait that runs out fails with
->   the same `VM_LIMIT_REACHED`, exit `6`, and the holders of the last refusal.
+> - With `--wait`, the start waits for a slot until it succeeds or the wait runs
+>   out. Bare `--wait` waits 600 s, so an unattended driver cannot hang for ever.
+>   `--wait=<seconds>` sets the bound. A wait that runs out fails with the same
+>   `VM_LIMIT_REACHED`, exit `6`, and details that say that it waited.
 > - Virtualization.framework's refusal is the only authoritative signal about a
 >   slot. So each retry is a real `tart run` on the one clone that the first
 >   attempt made. A wait leaves one clone, never one per retry, and removes it
 >   when it fails.
-> - While waiting, stderr names the VMs holding the slots: at the first
->   refusal, when the holders change, and every 30 s otherwise. The `--json`
->   envelope is still the final result only.
+> - While waiting, stderr names the place of the start and the VMs holding the
+>   slots. It names them when the start joins, when they change, and every 30 s
+>   otherwise. The `--json` envelope is still the final result only.
 > - SIGINT or SIGTERM during a waiting start removes the clone and ends the
 >   process as the signal would have (130 / 143).
-> - Waiters are not served in order. Whichever retries first after a slot frees
->   gets it (retries are 3 s apart). A host-wide queue was left out: it would
->   serialise starts that the limit does not.
+> - On a macOS host the waiters wait in the admission queue of the TestAnyware
+>   app, which serves them in order. The queue blocks only the starts that the
+>   limit blocks (amendment of 2026-10-25 below).
 > - `--wait` changes nothing else. Any failure other than the limit, such as
 >   `TART_FAILED` or `VM_BOOT_TIMEOUT`, ends the start at once. The wait is
 >   spent only on refusals, and boot time after the slot is won does not count
 >   against it.
 
-<!-- tc: pending because the conversion has not reached the amendment of 2026-10-20 in section 4.2 and sections 4.3 to 4.7 -->
+<!-- tc: pending because the conversion has not reached the amendment of 2026-10-20 in section 4.2 -->
 
 > **Amendment 2026-10-20** (`app-vm-start-k27`, issue #8): on a macOS host,
 > `vm start` runs in the TestAnyware app, and the Host CLI sends it the options.
@@ -387,6 +388,35 @@ version bump.
 >   has gone, not before. This holds for every start, not for `--wait` alone.
 > - A cancelled start removes the VM even under `--keep-on-failure`: nobody is
 >   left to reclaim a kept VM.
+
+<!-- tc: on -->
+
+> **Amendment 2026-10-25** (`admission-queue-k2`, issue #7, ADR-0022): on a
+> macOS host, the TestAnyware app admits macOS guests through one ordered
+> queue. `docs/specs/admission-queue.md` describes it.
+>
+> - `vm start --wait` of a macOS guest waits in the queue, and the app serves
+>   the waiters in order. A start without `--wait` fails at once with
+>   `VM_LIMIT_REACHED` when the count is full or a start waits. So it never
+>   passes a waiter.
+> - Linux and Windows guests take no slot, and they never wait.
+> - `VM_LIMIT_REACHED` keeps exit `6` and the type of each member. `limit` is the
+>   limit that refused: `macos_slots` of `config.rhai` when the app's share is
+>   full, and 2 otherwise. `tart_error` is an empty string when the app refused
+>   without a `tart run`.
+> - The details gain `request_id`, `place`, `waited_secs` and `refused_by`
+>   (`app` or `framework`). Without an app, `request_id` and `place` are `null`.
+> - When the app runs, `vm create-golden` of a macOS golden waits in the same
+>   queue, with no bound. When the framework refuses one of its boots for 30 s,
+>   it fails with `VM_LIMIT_REACHED`, with the app or without it.
+> - The new read-only command `vm slots` shows the slot count, each holder, the
+>   queue and the last refusal. Its schema id is `vm-slots`.
+> - `config.rhai` gains `macos_slots`: the number of the two slots that the app
+>   may hold, 0, 1 or 2.
+> - No command, flag, environment variable, exit code or `--json` field changes
+>   its meaning, and the catalogue gains no code.
+
+<!-- tc: pending because the conversion has not reached sections 4.3 to 4.7 -->
 
 ### 4.3 VNC capture
 

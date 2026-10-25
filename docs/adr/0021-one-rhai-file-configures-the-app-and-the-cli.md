@@ -5,8 +5,10 @@ Date: 2026-10-20
 ## Status
 
 Accepted (grove `gh-issue-8`, leaf `vm-broker-design-k3`). The leaf
-`default-config-file-k58` added the file that the app writes. The area's spec is
-`docs/specs/testanyware-app.md`.
+`default-config-file-k58` added the file that the app writes. The leaf
+`admission-queue-k2` of grove `gh-issue-7-vm-queue` added `macos_slots`. The
+area's spec is `docs/specs/testanyware-app.md`, and `docs/specs/admission-queue.md`
+uses the slot count.
 
 ## Context
 
@@ -19,8 +21,9 @@ The owner asked for configuration as code, in the way of Ravel, but in Rhai.
 Ravel evaluates an owner policy written in TypeScript. Modaliser, another of the
 owner's apps, evaluates `~/.config/modaliser/config.scm` when it starts. There,
 a restart reloads the file, and a file that fails leaves the app on its bundled
-default. Issues #5 and #7 will later need policy functions, such as the choice of
-a host for each guest.
+default. Issue #5 will later need policy functions, such as the choice of a host
+for each guest. The admission queue of issue #7 needed only a number, the slot
+count.
 
 On 2026-10-22 the owner asked for a minimal file when TestAnyware finds none. A
 person who sees the file learns what it can hold, and the app's menu then offers
@@ -33,8 +36,10 @@ TestAnyware app and the Host CLI. Both evaluate it with one shared evaluator.**
 
 - The script runs with no access to files, processes or the network, and under
   an operation limit. Its value is a map of settings. An unknown key is an error.
-- In this delivery the settings are the tool locations, `state_dir` and
-  `data_dir`. Policy functions come with the deliveries that need them.
+- The settings are the tool locations, `state_dir`, `data_dir` and
+  `macos_slots`. `macos_slots` is the number of the two macOS guest slots that
+  the app may hold: 0, 1 or 2 (ADR-0022). Policy functions come with the
+  deliveries that need them.
 - The app evaluates the file when it starts, and a restart of the app reloads it.
   If the file fails, the app runs with its built-in defaults and reports the
   error. The Host CLI refuses to run with a file that fails.
@@ -54,7 +59,7 @@ TestAnyware app and the Host CLI. Both evaluate it with one shared evaluator.**
   variables, and one process would own the file. The owner chose a file for both
   processes. One shared evaluator keeps the two readings of one file the same.
 - **A declarative file, such as TOML.** Rejected. The owner asked for code, and
-  the policy functions of #5 and #7 need code.
+  the policy functions of #5 need code.
 - **The app honours the directories of each request.** Rejected. After a
   restart, adoption would have to find every directory that any request ever
   named.
@@ -98,3 +103,6 @@ TestAnyware app and the Host CLI. Both evaluate it with one shared evaluator.**
   so it gets no written file. A test-mode run of the app writes nothing.
 - The file stays optional. A missing file and the written file give the same
   settings, so each command behaves the same with either.
+- A Host CLI or an app of an older release reads a new key, such as
+  `macos_slots`, as an unknown key, and it fails. So the written file names a
+  new key only in a comment.

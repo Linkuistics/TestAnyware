@@ -15,6 +15,9 @@ this area that have a real trade-off, and this spec cites them:
 - ADR-0020: the TestAnyware app keeps one signing identity and ships as a cask.
 - ADR-0021: one Rhai file configures the TestAnyware app and the Host CLI.
 
+The spec `docs/specs/admission-queue.md` describes the admission queue of the
+app for the macOS guest slots, and ADR-0022 records its decision.
+
 The evidence is in `docs/research/vm-broker-prior-art-a.md`, the survey, and in
 `docs/research/testanyware-app-local-network-grant.md`, the measurements on this
 Mac. The owner agreed this spec on 2026-10-20. On 2026-10-21 the owner set the
@@ -109,13 +112,14 @@ The status item's menu shows:
 - the app's version, and whether it serves its socket
 - the Local Network state: allowed, not yet seen or denied, with an item that
   opens the Local Network pane of System Settings
-- the running VMs
+- the running VMs, the slots, each holder and each waiter of the admission queue
 - a "Start at Login" switch
 - the configuration file, the time of its last evaluation and any error, with an
   item that opens the file
 - Quit.
 
-Quit leaves each VM running, and the menu item says so.
+Quit leaves each VM running, and the menu item says so. Before the app exits,
+Quit cancels each start that waits or boots (`docs/specs/admission-queue.md`).
 
 ### How the app starts
 
@@ -345,7 +349,7 @@ the connection. TestAnyware's own tests and scripts name a VM only by its id.
 | The VNC keeper of a tart guest, on loopback | The keeper, which the app starts from its own executable | No client takes part |
 | The host harnesses of ADR-0009 | The app | Guest streams, through the Host CLI's library |
 | The live checks of the Taskfile | The app | Host CLI commands |
-| `vm create-golden`, with its SSH, RFB and agent connections, and the live tests of its parts | The Host CLI itself, on the direct path | No app takes part |
+| `vm create-golden`, with its SSH, RFB and agent connections, and the live tests of its parts | The Host CLI itself, on the direct path | No app takes part. When the app runs, golden creation asks it only for a macOS guest slot |
 
 The processes that the app starts are the VNC keepers and the platform
 `/usr/bin/nc` of the Local Network diagnosis. A live check may also ask
@@ -403,6 +407,8 @@ app compares directories as the strings it receives and canonicalises none.
 | `GET /v1/status` | `doctor` | The app's state: versions, executable path, directories, configuration, Local Network observation, login item status and adoption results |
 | `GET /v1/vms` | `vm list` | The listing that `vm list` prints today |
 | `POST /v1/vms` | `vm start` | Progress events as NDJSON, then one result event or one error event |
+| `GET /v1/slots` | `vm slots` | The view of the admission queue (protocol version 2, `docs/specs/admission-queue.md`) |
+| `POST /v1/slots` | golden creation | The hold of a slot (protocol version 2, `docs/specs/admission-queue.md`) |
 | `POST /v1/vms/{id}/stop` | `vm stop` | The result that `vm stop` prints today |
 | `POST /v1/goldens/{name}/delete` | `vm delete` | The result that `vm delete` prints today |
 | `GET /v1/vms/{id}/agent` or `/vnc`, with `Upgrade` | any command that reaches a VM by id | `101 Switching Protocols`, then a guest stream |
@@ -544,7 +550,7 @@ It is 405 for another method, and 500 for `IO_ERROR`, `VM_STOP_FAILED` and
 `TART_FAILED`. The Host CLI reads the code, never the status.
 
 `POST /v1/vms` carries the options as a JSON body: `platform`, `base`, `id`,
-`display`, `logical`, `keep_on_failure` and `wait_secs`. The Host CLI states
+`display`, `logical`, `keep_on_failure`, `wait_secs` and `cwd`. The Host CLI states
 the id and the base that it chose by default, so the app reads nothing from the
 environment of the client. `--viewer` is not an option of the request: the
 viewer runs in the Host CLI on a guest stream after the result.
@@ -568,7 +574,8 @@ CLI then fails with `APP_UNREACHABLE`, cause `quitting`.
 
 When the client's connection closes before a `vm start` result, the app
 cancels the start and cleans up as it does after a failed start. `vm start
---wait` waits for a macOS guest slot in the app, and a closed connection
+--wait` waits in the app's admission queue for a macOS guest slot
+(`docs/specs/admission-queue.md`), and a closed connection
 ends that wait. The app reads the cancel at each wait of the start: the slot
 wait, the stages of the boot and the agent wait. It reads the cancel after
 each step that runs to its end, such as `tart clone`. The cleanup removes the
@@ -654,7 +661,9 @@ child a client socket that another thread has just accepted. The app starts
 does not name. A thread waits for each child, so none stays a zombie.
 
 The state directory stays the record of each VM, in the spec and meta sidecars
-of today. The app keeps no other VM state across a restart.
+of today. A start record also lives there while a start runs, so the app can
+remove a start that a crash interrupted (`docs/specs/admission-queue.md`). The
+app keeps no other VM state across a restart.
 
 Adoption is how the app serves again a VM that it did not start in its
 current run. When the app starts, it reads each sidecar and checks each
@@ -719,7 +728,9 @@ The rules of adoption:
   `vnc`, and each answer is `pending`, `answering`, `not_answering` or `not_probed`.
   Its `not_adopted` list names each VM with a `reason` and a `detail`. The reasons are
   `process_gone`, `start_time_differs`, `boot_session_differs`, `no_boot_session` and
-  `meta_unreadable`. A client that needs the results asks again until `finished` is true.
+  `meta_unreadable`. Its `unfinished_starts` list names each start record that the app
+  found, with `removed` and a `detail` (`docs/specs/admission-queue.md`). A client that
+  needs the results asks again until `finished` is true.
 
 An older QEMU guest stops through its control sockets, and never by a signal:
 
@@ -737,7 +748,8 @@ An older QEMU guest stops through its control sockets, and never by a signal:
 
 ### Version skew
 
-Protocol versions are integers. The first release states the range 1 to 1 on
+Protocol versions are integers. The admission queue added version 2 for its two
+requests (`docs/specs/admission-queue.md`). The first release stated the range 1 to 1 on
 both sides. When the two ranges overlap, the pair uses the highest common
 version.
 
@@ -850,10 +862,11 @@ sets it in the environment in which it opens the app.
 - The Host CLI and the app evaluate the file with one shared evaluator and the
   same limits. The script has no access to files, processes or the network, and
   it runs under an operation limit.
-- The script's value is a map of settings. In this delivery the settings are
-  `tools`, with the locations of `tart`, `qemu-system-aarch64` and `swtpm`, and
-  `state_dir` and `data_dir`. An unknown key is an error, and so is an unknown
-  tool.
+- The script's value is a map of settings. The settings are `tools`, with the
+  locations of `tart`, `qemu-system-aarch64` and `swtpm`, and `state_dir` and
+  `data_dir`. `macos_slots` lowers the app's share of the macOS guest slots
+  (`docs/specs/admission-queue.md`). An unknown key is an error, and so is an
+  unknown tool.
 - Each setting is a string that holds an absolute path. A relative path would mean
   another place for each working directory. `state_dir` is the state directory
   itself, the one that holds `vms/`. `data_dir` is the data directory itself, the
@@ -1113,7 +1126,9 @@ sequenceDiagram
 ### Golden creation keeps its direct path
 
 `vm create-golden` runs in the Host CLI on every host, as today. It connects to
-the guest itself, through SSH, RFB and the agent, and it does not use the app.
+the guest itself, through SSH, RFB and the agent, and it does not use the app for
+that traffic. When the app runs, golden creation asks it for a macOS guest slot
+(`docs/specs/admission-queue.md`).
 On a macOS host it needs a context with Local Network access, such as
 Terminal. Under herdr it fails as it does today.
 
@@ -1528,11 +1543,13 @@ The human agreed these three seams in `plan-k1`.
 
 ## Out of scope
 
-- **Issues #7, #4 and #5:** the host-wide queue, leases, more hosts and
-  placement. The app is the one point of admission on a host, and
-  `config.rhai` can gain policy functions later. This delivery builds neither.
-- **Golden creation through the app.** The owner keeps it direct, because a
-  person or an LLM runs it from Terminal.
+- **Issues #10, #4 and #5:** leases, more hosts and placement. The app is the
+  one point of admission on a host, and `config.rhai` can gain policy functions
+  later. The admission queue of issue #7 has a spec of its own,
+  `docs/specs/admission-queue.md`.
+- **Golden creation through the app.** The owner keeps its guest traffic
+  direct, because a person or an LLM runs it from Terminal. It asks the app only
+  for a slot.
 - **A helper that writes and opens the `.command` file of golden creation.** It
   is a later delivery, if the owner asks for it.
 - **A stream to another port of a VM, such as SSH.** No client needs one.
