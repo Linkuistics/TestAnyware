@@ -334,6 +334,34 @@ fn an_unknown_key_fails_the_file_without_a_line() {
 }
 
 #[test]
+fn a_macos_slots_outside_0_to_2_fails_the_file_and_leaves_the_app_on_its_defaults() {
+    let _serial = serial();
+    let app = start_with(Some(&|_| "#{ macos_slots: 3 }".to_string()));
+
+    let configuration = status(&app)["configuration"].clone();
+
+    assert_eq!(configuration["state"], "failed");
+    assert_eq!(configuration["error"]["code"], "CONFIG_INVALID");
+    assert_eq!(configuration["error"]["details"]["line"], Value::Null);
+    assert!(
+        configuration["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("`macos_slots` must be 0, 1 or 2, but it is 3"),
+        "{configuration}"
+    );
+}
+
+#[test]
+fn a_macos_slots_of_0_1_or_2_loads() {
+    let _serial = serial();
+    for slots in 0..=2 {
+        let app = start_with(Some(&|_| format!("#{{ macos_slots: {slots} }}")));
+        assert_eq!(status(&app)["configuration"]["state"], "loaded", "{slots}");
+    }
+}
+
+#[test]
 fn a_directory_mismatch_names_the_file_that_fails_as_the_reason() {
     let _serial = serial();
     let app = start_with(Some(&|_| "let y = ;".to_string()));

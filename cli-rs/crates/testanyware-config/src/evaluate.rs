@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 
 use rhai::{Dynamic, Engine, EvalAltResult, Map, Position};
 
-use crate::{Config, ConfigError, ToolLocations, TOOL_NAMES};
+use crate::{Config, ConfigError, ToolLocations, DEFAULT_MACOS_SLOTS, TOOL_NAMES};
 
 /// The operation limit of one script. A settings map takes a few dozen operations, so the
 /// limit only stops a script that loops. It stops `loop {}` instead of hanging a command.
 pub const MAX_OPERATIONS: u64 = 100_000;
 
-const TOP_LEVEL_KEYS: [&str; 3] = ["tools", "state_dir", "data_dir"];
+const TOP_LEVEL_KEYS: [&str; 4] = ["tools", "state_dir", "data_dir", "macos_slots"];
 
 /// Evaluate `source`, the text of `file`, to the settings it names.
 pub fn evaluate(source: &str, file: &Path) -> Result<Config, ConfigError> {
@@ -96,6 +96,7 @@ fn settings_from_map(map: Map) -> Result<Config, String> {
             "tools" => config.tools = tools_from(value)?,
             "state_dir" => config.state_dir = Some(path_from("state_dir", value)?),
             "data_dir" => config.data_dir = Some(path_from("data_dir", value)?),
+            "macos_slots" => config.macos_slots = Some(slots_from(value)?),
             unknown => {
                 return Err(format!(
                     "unknown key `{unknown}`; the keys are {}",
@@ -145,6 +146,20 @@ fn path_from(setting: &str, value: Dynamic) -> Result<PathBuf, String> {
         ));
     }
     Ok(path)
+}
+
+/// The share of the two slots: the integer 0, 1 or 2. Rhai reads `1.0` as a float, so it fails.
+fn slots_from(value: Dynamic) -> Result<usize, String> {
+    let type_name = value.type_name();
+    let Ok(number) = value.as_int() else {
+        return Err(format!(
+            "`macos_slots` must be an integer, but it is {type_name}"
+        ));
+    };
+    usize::try_from(number)
+        .ok()
+        .filter(|slots| *slots <= DEFAULT_MACOS_SLOTS)
+        .ok_or_else(|| format!("`macos_slots` must be 0, 1 or 2, but it is {number}"))
 }
 
 fn quoted(names: &[&str]) -> String {

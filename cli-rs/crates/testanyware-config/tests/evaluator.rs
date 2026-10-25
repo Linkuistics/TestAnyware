@@ -63,8 +63,65 @@ fn a_map_names_the_directories_and_the_tools() {
             },
             state_dir: Some(state),
             data_dir: Some(data),
+            macos_slots: None,
         }
     );
+}
+
+#[test]
+fn macos_slots_is_the_integer_0_1_or_2_and_is_unset_by_default() {
+    assert_eq!(eval("#{}").unwrap().macos_slots, None);
+    for slots in 0..=2 {
+        let config = eval(&format!("#{{ macos_slots: {slots} }}")).unwrap();
+        assert_eq!(config.macos_slots, Some(slots));
+    }
+}
+
+#[test]
+fn macos_slots_computed_by_the_script_is_checked_after_the_script_ends() {
+    let config = eval("let share = 3 - 2; #{ macos_slots: share }").unwrap();
+    assert_eq!(config.macos_slots, Some(1));
+}
+
+#[test]
+fn a_macos_slots_outside_0_to_2_is_an_error() {
+    for value in ["3", "-1", "100"] {
+        let error = failure(&format!("#{{ macos_slots: {value} }}"));
+        assert_eq!(error.line, None);
+        assert!(
+            error.message.contains(&format!(
+                "`macos_slots` must be 0, 1 or 2, but it is {value}"
+            )),
+            "{}",
+            error.message
+        );
+    }
+}
+
+#[test]
+fn a_macos_slots_of_another_type_is_an_error() {
+    for (value, type_name) in [
+        ("1.0", "f64"),
+        ("\"1\"", "string"),
+        ("true", "bool"),
+        ("()", "()"),
+        ("[1]", "array"),
+    ] {
+        let error = failure(&format!("#{{ macos_slots: {value} }}"));
+        assert!(
+            error.message.contains(&format!(
+                "`macos_slots` must be an integer, but it is {type_name}"
+            )),
+            "{value}: {}",
+            error.message
+        );
+    }
+}
+
+#[test]
+fn the_error_for_an_unknown_key_lists_macos_slots() {
+    let error = failure("#{ macos_slot: 1 }");
+    assert!(error.message.contains("`macos_slots`"), "{}", error.message);
 }
 
 #[test]

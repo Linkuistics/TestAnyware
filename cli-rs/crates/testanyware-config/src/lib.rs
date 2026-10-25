@@ -48,7 +48,14 @@ pub struct Config {
     pub state_dir: Option<PathBuf>,
     /// The directory that holds `golden/`, `clones/` and `cache/`.
     pub data_dir: Option<PathBuf>,
+    /// The number of the two macOS guest slots that the app may hold (ADR-0022): 0, 1 or 2. Only
+    /// the app uses it, but the Host CLI checks it too, so a wrong value fails the file for both.
+    pub macos_slots: Option<usize>,
 }
+
+/// The slots that Apple allows for macOS guests on one Mac, and the share of them that the app
+/// holds when the file does not lower it.
+pub const DEFAULT_MACOS_SLOTS: usize = 2;
 
 /// The names that the `tools` map accepts, each the file name of the tool.
 pub const TOOL_NAMES: [&str; 3] = ["tart", "qemu-system-aarch64", "swtpm"];

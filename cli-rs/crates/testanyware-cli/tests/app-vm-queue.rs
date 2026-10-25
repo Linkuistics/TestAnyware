@@ -62,6 +62,15 @@ impl Fixture {
 
     /// As [`Self::healthy`], after `prepare` has written what the app reads when it starts.
     fn healthy_after(prepare: impl FnOnce(&TestApp)) -> Self {
+        Self::healthy_with(None, prepare)
+    }
+
+    /// An app whose `config.rhai` is `config`, when there is one.
+    fn healthy_with_config(config: &str) -> Self {
+        Self::healthy_with(Some(config), |_| {})
+    }
+
+    fn healthy_with(config: Option<&str>, prepare: impl FnOnce(&TestApp)) -> Self {
         let agent = FakeAgent::start();
         agent.mount(
             "GET",
@@ -70,34 +79,38 @@ impl Fixture {
                 .set_body_json(json!({ "accessible": true, "platform": "macos" })),
         );
         let port = agent.addr().port();
-        Self::with_agent_port(agent, port, prepare)
+        Self::with_agent_port(agent, port, config, prepare)
     }
 
     /// An app whose starts probe a port that refuses, so a start stays in its agent wait and
     /// keeps its slot.
     fn starved() -> Self {
-        Self::with_agent_port(FakeAgent::start(), closed_port(), |_| {})
+        Self::with_agent_port(FakeAgent::start(), closed_port(), None, |_| {})
     }
 
-    fn with_agent_port(agent: FakeAgent, agent_port: u16, prepare: impl FnOnce(&TestApp)) -> Self {
+    fn with_agent_port(
+        agent: FakeAgent,
+        agent_port: u16,
+        config: Option<&str>,
+        prepare: impl FnOnce(&TestApp),
+    ) -> Self {
         let vnc_port = silent_vnc_server();
-        let app = TestApp::start_after_with_args(
-            |app| {
-                let tart = app.tool_dir().join("tart");
-                std::fs::write(&tart, FAKE_TART).unwrap();
-                std::fs::set_permissions(
-                    &tart,
-                    std::os::unix::fs::PermissionsExt::from_mode(0o755),
-                )
+        let prepare = |app: &TestApp| {
+            let tart = app.tool_dir().join("tart");
+            std::fs::write(&tart, FAKE_TART).unwrap();
+            std::fs::set_permissions(&tart, std::os::unix::fs::PermissionsExt::from_mode(0o755))
                 .unwrap();
-                let state = app.tool_dir().join("state");
-                std::fs::create_dir_all(&state).unwrap();
-                std::fs::write(state.join("vnc-port"), vnc_port.to_string()).unwrap();
-                std::fs::write(state.join("capacity"), "2").unwrap();
-                prepare(app);
-            },
-            &["--test-agent-port".to_string(), agent_port.to_string()],
-        );
+            let state = app.tool_dir().join("state");
+            std::fs::create_dir_all(&state).unwrap();
+            std::fs::write(state.join("vnc-port"), vnc_port.to_string()).unwrap();
+            std::fs::write(state.join("capacity"), "2").unwrap();
+            prepare(app);
+        };
+        let args = ["--test-agent-port".to_string(), agent_port.to_string()];
+        let app = match config {
+            Some(config) => TestApp::start_after_with_config_and_args(prepare, config, &args),
+            None => TestApp::start_after_with_args(prepare, &args),
+        };
         Self { app, _agent: agent }
     }
 
@@ -389,6 +402,59 @@ fn two_free_slots_admit_two_starts_at_once() {
     let (b_code, ..) = b.finish();
     assert_eq!((a_code, b_code), (0, 0));
     assert!(fixture.runs("t-a") && fixture.runs("t-b"));
+}
+
+#[test]
+fn with_macos_slots_1_a_second_start_waits_while_a_first_guest_runs_and_the_framework_never_refuses(
+) {
+    let _serial = serial();
+    let fixture = Fixture::healthy_with_config("#{ macos_slots: 1 }");
+    fixture.start_and_wait_until_running("s1-a");
+
+    let mut second = fixture.spawn_start("s1-b", &["--wait"]);
+    second.until_stderr_has("place 1");
+    std::thread::sleep(Duration::from_secs(4));
+    assert!(
+        !second.finished(),
+        "the framework has a free slot, but the app holds one of the two"
+    );
+    assert!(!fixture.runs("s1-b"), "no tart run for the waiting start");
+
+    fixture.stop("s1-a");
+    let (code, envelope, err) = second.finish();
+    assert_eq!(code, 0, "{envelope} {err}");
+    assert!(fixture.runs("s1-b"));
+    assert_eq!(fixture.refusals(), Vec::<String>::new());
+}
+
+#[test]
+fn with_macos_slots_0_every_macos_start_fails_at_once_with_limit_0() {
+    let _serial = serial();
+    let fixture = Fixture::healthy_with_config("#{ macos_slots: 0 }");
+    for (id, extra) in [
+        ("s0-a", &["--wait"][..]),
+        ("s0-b", &["--wait=600"]),
+        ("s0-c", &[]),
+    ] {
+        let began = Instant::now();
+        let (code, envelope, err) = fixture.spawn_start(id, extra).finish();
+        assert!(
+            began.elapsed() < Duration::from_secs(30),
+            "{id}: the start waited"
+        );
+        assert_eq!(code, 6, "{id}: {envelope} {err}");
+        assert_eq!(envelope["code"], "VM_LIMIT_REACHED");
+        let details = &envelope["details"];
+        assert_eq!(details["limit"], 0, "{id}: {details}");
+        assert_eq!(details["refused_by"], "app");
+        assert_eq!(details["waited_secs"], 0);
+        assert!(
+            !fixture.cloned(id),
+            "{id}: the failed start leaves no clone"
+        );
+        assert!(!fixture.runs(id));
+    }
+    assert_eq!(fixture.refusals(), Vec::<String>::new());
 }
 
 #[test]

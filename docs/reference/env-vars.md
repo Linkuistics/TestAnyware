@@ -59,17 +59,21 @@ connection that the chain names. The chain does not change.
 ## config.rhai
 
 One optional file, `~/.config/testanyware/config.rhai`, configures the Host CLI
-and the TestAnyware app. Its value is a map. Every setting is a string that
-holds an absolute path:
+and the TestAnyware app. Its value is a map. Each setting is a string that holds
+an absolute path, except `macos_slots`, which is an integer:
 
 | Key | Meaning |
 |-----|---------|
 | `tools` | A map from `tart`, `qemu-system-aarch64` or `swtpm` to the location of that tool. The Host CLI finds a tool that the file names at that location, or not at all |
 | `state_dir` | The state directory itself, the one that holds `vms/`. It replaces `XDG_STATE_HOME` plus `testanyware` |
 | `data_dir` | The data directory itself, the one that holds `golden/`. It replaces `XDG_DATA_HOME` plus `testanyware` |
+| `macos_slots` | The number of the two macOS guest slots that the app may hold: the integer 0, 1 or 2. The default is 2. With 1, the app leaves one slot for a VM of your own. With 0, every macOS `vm start` fails at once with `VM_LIMIT_REACHED` and `limit` 0, with `--wait` or without it. Only the app uses the value, but the Host CLI checks it on every host. Another value or another type is `CONFIG_INVALID` |
 
-An unknown key is an error, and so is an unknown tool. A flag beats an
-environment variable, which beats the file, which beats the built-in default.
+An unknown key is an error, and so is an unknown tool. A Host CLI or an app of a
+release before `macos_slots` reads that key as an unknown key and fails with
+`CONFIG_INVALID`, so set it only when both are at this release or later. A flag
+beats an environment variable, which beats the file, which beats the built-in
+default.
 The Host CLI and the app must resolve the same two directories. If they differ,
 a command fails with `APP_INCOMPATIBLE` and cause `directories`. A file that
 fails gives `CONFIG_INVALID`, except in `testanyware doctor`, which reports it.

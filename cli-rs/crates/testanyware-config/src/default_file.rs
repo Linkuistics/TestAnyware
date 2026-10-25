@@ -36,6 +36,12 @@ pub fn default_text(home: &Path) -> String {
 
     // data_dir: the directory that holds golden/, clones/ and cache/. This is the built-in directory.
     //  data_dir: "{data_dir}",
+
+    // macos_slots: the number of the two macOS guest slots that the app may hold: 0, 1 or 2.
+    // Apple allows two macOS guests at once. Lower it to leave a slot for a VM of your own.
+    // With 0, every macOS start fails at once with VM_LIMIT_REACHED. 2 is the built-in value.
+    // A release before this setting fails the file when it reads this key.
+    //  macos_slots: 2,
 }}
 "#
     )
@@ -101,6 +107,7 @@ mod tests {
         // Every example set something, so the deletion reached all of them.
         assert_eq!(config.tools.named().len(), TOOL_NAMES.len());
         assert!(config.state_dir.is_some() && config.data_dir.is_some());
+        assert!(config.macos_slots.is_some());
     }
 
     #[test]
@@ -120,7 +127,7 @@ mod tests {
     #[test]
     fn each_key_of_the_evaluator_appears_in_the_text() {
         let text = text();
-        let keys = ["tools", "state_dir", "data_dir"]
+        let keys = ["tools", "state_dir", "data_dir", "macos_slots"]
             .into_iter()
             .chain(TOOL_NAMES);
         for key in keys {
@@ -133,7 +140,7 @@ mod tests {
         // The list in the previous test must not drift from the evaluator. A key that the
         // evaluator does not know fails the file, so each listed key must pass.
         let source = format!(
-            "#{{ tools: #{{ {} }}, state_dir: \"/s\", data_dir: \"/d\" }}",
+            "#{{ tools: #{{ {} }}, state_dir: \"/s\", data_dir: \"/d\", macos_slots: 1 }}",
             TOOL_NAMES
                 .iter()
                 .map(|name| format!("\"{name}\": \"/t/{name}\""))
@@ -154,6 +161,24 @@ mod tests {
             config.data_dir,
             Some(PathBuf::from("/Users/someone/.local/share/testanyware"))
         );
+    }
+
+    #[test]
+    fn the_example_of_macos_slots_is_the_built_in_share_and_the_prose_names_the_range() {
+        let config = evaluate(&uncomment_examples(&text()), &file()).unwrap();
+        assert_eq!(config.macos_slots, Some(crate::DEFAULT_MACOS_SLOTS));
+        assert!(text().contains("0, 1 or 2"));
+    }
+
+    #[test]
+    fn the_example_of_macos_slots_is_a_comment_until_a_person_removes_the_slashes() {
+        // The text sets no setting, so a release before `macos_slots` still reads the file.
+        let line = text()
+            .lines()
+            .find(|line| line.contains("macos_slots: 2"))
+            .expect("the text holds the example")
+            .to_string();
+        assert!(line.trim_start().starts_with("//  "), "{line}");
     }
 
     #[test]

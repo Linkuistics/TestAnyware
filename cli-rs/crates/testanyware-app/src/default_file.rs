@@ -252,6 +252,16 @@ mod tests {
     }
 
     #[test]
+    fn the_written_file_leaves_the_app_with_both_slots() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let file = home.join(".config/testanyware/config.rhai");
+        write_if_absent(&file, &default_text(home)).unwrap();
+        let config = AppConfig::evaluate_now(&ConfigLocation::File(file));
+        assert_eq!(config.macos_slots(), 2);
+    }
+
+    #[test]
     fn the_examples_of_the_directories_are_the_built_in_directories_of_the_app() {
         let home = Path::new("/Users/someone");
         let builtin = VmPaths::builtin_for_home(home);

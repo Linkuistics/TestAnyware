@@ -49,7 +49,7 @@ tasks:
       - cargo test -p testanyware-cli --test app-agent-routing --test app-vnc-routing --test app-vm-list-routing --test app-vm-start-routing --test app-vm-queue --test app-vm-stop-delete-routing --test app-version-skew
 
   config:test:
-    desc: Test config.rhai (ADR-0021). The evaluator and its limits, the order of the sources, the doctor `config` check, and the real CLI binary against a file that fails. On a macOS host the real CLI and the real app executable read one file, and golden creation compares its directories with the app's (golden-directory-check). The app side runs the real app executable with a file that evaluates and one that fails, the directory refusal and its remedy, a restart that reloads the file, and the tool locations (macOS host). The default file that the app writes when it finds none, with its text, the write step that never replaces an entry, and a test-mode run that writes nothing
+    desc: Test config.rhai (ADR-0021). The evaluator and its limits, the order of the sources, the doctor `config` check, and the real CLI binary against a file that fails. On a macOS host the real CLI and the real app executable read one file, and golden creation compares its directories with the app's (golden-directory-check). The app side runs the real app executable with a file that evaluates and one that fails, the directory refusal and its remedy, a restart that reloads the file, and the tool locations (macOS host). The default file that the app writes when it finds none, with its text, the write step that never replaces an entry, and a test-mode run that writes nothing. The setting macos_slots (ADR-0022) has the check of its value in the evaluator, the Host CLI and the app, the app's share in the admission count, and the real CLI against the real app with a share of 1 and of 0 (macOS host)
     dir: '{{.CLI_DIR}}'
     cmds:
       - cargo test -p testanyware-config
@@ -60,6 +60,8 @@ tasks:
       - cargo test -p testanyware-cli --test config-file --test golden-directory-check
       - 'cargo test -p testanyware-app --lib -- config:: default_file:: menu::'
       - cargo test -p testanyware-app --test configuration
+      - 'cargo test -p testanyware-app --lib -- admission::tests::with_ admission::tests::the_limit_is'
+      - 'cargo test -p testanyware-cli --test app-vm-queue -- with_macos_slots'
 
   doctor:app-test:
     desc: Test the `app` check of `doctor` (spec "What the commands report about the app"). The classifier of every item, the report against doctor.json, the status fields of the app (Local Network observation, login item, executable), and the real CLI binary against the real app executable with a directory mismatch, a protocol mismatch, a bundle newer than the app, a file that fails and an app that does not run (macOS host). A Linux or Windows host runs the not-applicable case

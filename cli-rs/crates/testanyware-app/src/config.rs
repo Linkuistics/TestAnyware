@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use testanyware_app_protocol::{AppError, ConfigurationState, ConfigurationStatus, Directories};
-use testanyware_config::{load, Config, ConfigError, ConfigLocation, Loaded};
+use testanyware_config::{load, Config, ConfigError, ConfigLocation, Loaded, DEFAULT_MACOS_SLOTS};
 use testanyware_vm::tools::ToolSearch;
 
 /// What identifies one version of the file on disk. A rewrite of the file changes its length or
@@ -133,6 +133,14 @@ impl AppConfig {
             state_dir: config.state_dir.clone().unwrap_or(default.state_dir),
             data_dir: config.data_dir.clone().unwrap_or(default.data_dir),
         }
+    }
+
+    /// The number of the two macOS guest slots that the app may hold (ADR-0022). The file's value
+    /// where it names one, else the built-in 2. A file that fails gives the built-in value too.
+    pub fn macos_slots(&self) -> usize {
+        self.settings()
+            .and_then(|config| config.macos_slots)
+            .unwrap_or(DEFAULT_MACOS_SLOTS)
     }
 
     /// `search` with the tools the file locates. A tool the file names is found at that
@@ -378,6 +386,23 @@ mod tests {
         // The named tool is found at its location or not at all. The unnamed one is searched.
         assert_eq!(search.find("tart"), None);
         assert_eq!(search.find("swtpm"), Some(dir.path().join("swtpm")));
+    }
+
+    #[test]
+    fn the_file_lowers_the_slots_and_every_other_case_keeps_two() {
+        for slots in 0..=2 {
+            let disk = Disk::with(Some(&format!("#{{ macos_slots: {slots} }}")));
+            assert_eq!(evaluate(&disk).macos_slots(), slots);
+        }
+        // A file that names other settings, no file, a run with no file, and a file that fails.
+        let other = Disk::with(Some(r#"#{ state_dir: "/f/state" }"#));
+        assert_eq!(evaluate(&other).macos_slots(), 2);
+        assert_eq!(evaluate(&Disk::with(None)).macos_slots(), 2);
+        assert_eq!(AppConfig::disabled().macos_slots(), 2);
+        assert_eq!(
+            evaluate(&Disk::with(Some("#{ macos_slots: 3 }"))).macos_slots(),
+            2
+        );
     }
 
     #[test]

@@ -34,9 +34,9 @@ use decision::{
     Waiter, PAUSE,
 };
 
-/// The number of the two slots that the app may hold. `config.rhai` lowers it in a later
-/// increment (`queue-slots-config`).
-pub const MACOS_SLOTS: usize = 2;
+/// The slots that Apple allows for macOS guests on one Mac. The `limit` of a refusal names it
+/// when the app's own share is not what ran out.
+const APPLE_LIMIT: usize = 2;
 
 /// The app decides again at least this often while the queue holds a waiter. A guest that ends by
 /// itself raises no event, and the tick finds it.
@@ -170,10 +170,11 @@ impl AdmissionQueue {
         })
     }
 
-    /// The queue of an app that keeps its records in `paths`.
-    pub fn for_paths(paths: VmPaths) -> Arc<Self> {
+    /// The queue of an app that keeps its records in `paths` and holds `slots` of the two slots
+    /// (`macos_slots` of `config.rhai`).
+    pub fn for_paths(paths: VmPaths, slots: usize) -> Arc<Self> {
         Self::new(
-            MACOS_SLOTS,
+            slots,
             Box::new(move || count::macos_guests_with_a_meta(&paths, &SystemProbe)),
         )
     }
@@ -276,7 +277,13 @@ impl AdmissionQueue {
         cancel: &CancellationToken,
         progress: &Progress,
     ) -> Result<Box<dyn SlotHold>, VmError> {
-        let wait = ask.wait.filter(|wait| !wait.is_zero());
+        // With no slot to hold, no slot can free while the app runs, because it reads the file
+        // only when it starts. So a start never waits: it takes the one decision of a start
+        // without `--wait`, which refuses it.
+        let wait = ask
+            .wait
+            .filter(|wait| !wait.is_zero())
+            .filter(|_| self.slots > 0);
         let joined = self.now();
         let mut state = self.lock();
         let request_id = new_request_id(&mut state, self.salt);
@@ -454,6 +461,16 @@ impl AdmissionQueue {
         ))
     }
 
+    /// The limit that refused: the app's share when the own holders fill it, and the limit of
+    /// Apple otherwise (spec "The command surface").
+    fn limit(&self, state: &State) -> usize {
+        if state.holders.len() >= self.slots {
+            self.slots
+        } else {
+            APPLE_LIMIT
+        }
+    }
+
     /// `VM_LIMIT_REACHED`, refused by the app. `raw` is the line of the refusal by the framework
     /// that sent the start back, or empty when no `tart run` of this start took part.
     fn refusal(
@@ -467,7 +484,7 @@ impl AdmissionQueue {
     ) -> VmError {
         VmError::VmLimitReached(Box::new(LimitReached {
             platform: "macos".into(),
-            limit: u32::try_from(self.slots).unwrap_or(u32::MAX),
+            limit: u32::try_from(self.limit(state)).unwrap_or(u32::MAX),
             holders: state.holders.clone(),
             raw,
             admission: AdmissionFacts {
@@ -953,6 +970,77 @@ mod tests {
         // The meta holds the slot from now on.
         let refused = queue.admit(&ask("c", None), &cancel, &quiet());
         assert!(refused.is_err());
+    }
+
+    #[test]
+    fn with_one_slot_a_second_start_waits_while_a_first_guest_runs() {
+        let (queue, _) = queue(1);
+        let cancel = CancellationToken::new();
+        let first = queue.admit(&ask("a", Some(5)), &cancel, &quiet()).unwrap();
+        let second = {
+            let queue = Arc::clone(&queue);
+            std::thread::spawn(move || {
+                queue
+                    .admit(&ask("b", Some(30)), &CancellationToken::new(), &quiet())
+                    .is_ok()
+            })
+        };
+        wait_until("the second start to join", || queue.waiting().len() == 1);
+        assert!(
+            !second.is_finished(),
+            "the framework has a free slot, but the share is full"
+        );
+        drop(first);
+        assert!(
+            second.join().unwrap(),
+            "the release admits the second start"
+        );
+    }
+
+    #[test]
+    fn with_one_slot_the_refusal_of_a_full_share_names_one_as_the_limit() {
+        let (queue, guests) = queue(1);
+        guests.lock().unwrap().insert("g1".to_string());
+        let limit = limit_of(
+            queue
+                .admit(&ask("late", None), &CancellationToken::new(), &quiet())
+                .err()
+                .expect("the share is full"),
+        );
+        assert_eq!(limit.limit, 1);
+        assert_eq!(limit.holders, ["g1"]);
+    }
+
+    #[test]
+    fn with_no_slot_every_start_fails_at_once_with_limit_0_and_waits_for_nothing() {
+        let (queue, _) = queue(0);
+        for wait in [None, Some(0), Some(600)] {
+            let began = Instant::now();
+            let error = queue
+                .admit(&ask("a", wait), &CancellationToken::new(), &quiet())
+                .err()
+                .unwrap_or_else(|| panic!("{wait:?}: no slot to admit"));
+            assert!(
+                began.elapsed() < Duration::from_secs(1),
+                "{wait:?}: the start waited"
+            );
+            let limit = limit_of(error);
+            assert_eq!(limit.limit, 0, "{wait:?}");
+            assert_eq!(limit.admission.refused_by, RefusedBy::App);
+            assert_eq!(limit.admission.waited_secs, 0);
+            assert!(queue.waiting().is_empty() && queue.admitted().is_empty());
+        }
+    }
+
+    #[test]
+    fn the_limit_is_the_share_when_the_own_holders_fill_it_and_the_limit_of_apple_otherwise() {
+        let (queue, _) = queue(1);
+        let mut state = State::default();
+        assert_eq!(queue.limit(&state), 2, "a guest that the app cannot see");
+        state.holders = vec!["g1".into()];
+        assert_eq!(queue.limit(&state), 1);
+        let (queue, _) = self::queue(0);
+        assert_eq!(queue.limit(&State::default()), 0);
     }
 
     #[test]

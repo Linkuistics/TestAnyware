@@ -111,6 +111,45 @@ fn an_unknown_key_is_refused_with_no_line() {
 }
 
 #[test]
+fn a_macos_slots_that_is_not_0_1_or_2_is_refused_on_every_host_and_a_valid_one_is_not() {
+    let dir = TempDir::new().unwrap();
+    for (name, value, message) in [
+        (
+            "three.rhai",
+            "3",
+            "`macos_slots` must be 0, 1 or 2, but it is 3",
+        ),
+        (
+            "float.rhai",
+            "1.0",
+            "`macos_slots` must be an integer, but it is f64",
+        ),
+        (
+            "text.rhai",
+            "\"1\"",
+            "`macos_slots` must be an integer, but it is string",
+        ),
+    ] {
+        let bad = write(&dir, name, &format!("#{{ macos_slots: {value} }}"));
+        let out = run(dir.path(), &bad, &[], &["vm", "list", "--json"]);
+        assert_eq!(out.status.code(), Some(2), "{value}");
+        let body = json(&out);
+        assert_eq!(body["code"], "CONFIG_INVALID", "{body}");
+        assert!(body["details"]["line"].is_null(), "{body}");
+        assert!(
+            body["message"].as_str().unwrap().contains(message),
+            "{body}"
+        );
+    }
+    // The Host CLI checks the value and does not use it, so a valid one changes nothing.
+    for slots in 0..=2 {
+        let good = write(&dir, "good.rhai", &format!("#{{ macos_slots: {slots} }}"));
+        let out = run(dir.path(), &good, &[], &["capabilities", "--json"]);
+        assert_eq!(out.status.code(), Some(0), "{slots}: {out:?}");
+    }
+}
+
+#[test]
 fn doctor_runs_with_a_file_that_fails_and_exits_with_1() {
     let dir = TempDir::new().unwrap();
     let bad = write(&dir, "bad.rhai", "#{ colour: \"red\" }");

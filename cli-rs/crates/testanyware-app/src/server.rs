@@ -70,11 +70,14 @@ pub type LoginItemProbe = fn() -> LoginItemState;
 
 impl AppContext {
     pub fn new(identity: AppIdentity, own_uid: u32, config: AppConfig) -> Self {
-        let admission = crate::admission::AdmissionQueue::for_paths(testanyware_vm::VmPaths::new(
-            identity.directories.state_dir.clone(),
-            identity.directories.data_dir.clone(),
-            std::env::temp_dir(),
-        ));
+        let admission = crate::admission::AdmissionQueue::for_paths(
+            testanyware_vm::VmPaths::new(
+                identity.directories.state_dir.clone(),
+                identity.directories.data_dir.clone(),
+                std::env::temp_dir(),
+            ),
+            config.macos_slots(),
+        );
         Self {
             identity,
             bundle: BundleSource::this_process(),

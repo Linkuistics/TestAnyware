@@ -231,6 +231,24 @@ impl TestApp {
         Self::spawn_with(app, args)
     }
 
+    /// [`Self::start_after_with_args`], with a `config.rhai` that `config` holds at the default
+    /// place of the CLI's `HOME`. The app reads it with `--config`, and the CLI finds it there.
+    pub fn start_after_with_config_and_args(
+        prepare: impl FnOnce(&TestApp),
+        config: &str,
+        args: &[String],
+    ) -> Self {
+        let app = Self::not_running();
+        prepare(&app);
+        app.write_config(config);
+        let mut all = vec![
+            "--config".to_string(),
+            app.config_file().display().to_string(),
+        ];
+        all.extend_from_slice(args);
+        Self::spawn_with(app, &all)
+    }
+
     /// Start the app with a `config.rhai` that `text` returns, at the default place of the CLI's
     /// `HOME` (see [`Self::config_file`]). The app reads it with `--config`, and the CLI finds it
     /// by its default location, so the two read one file.
