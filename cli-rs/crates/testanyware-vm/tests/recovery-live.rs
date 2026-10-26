@@ -23,7 +23,7 @@
 //! host pubkey — for the graceful stop and the post-reboot wait — and (b)
 //! bootable into Recovery. None of boot-1's Homebrew/Xcode/agent provisioning
 //! touches the recovery path, so this harness builds a **minimal** setup VM
-//! (clone the Cirrus vanilla image → boot → install the host pubkey) rather
+//! (clone the base VM built from Apple's IPSW → boot → install the host pubkey) rather
 //! than running the slow full `provision_boot1`. That isolates *this leaf's*
 //! deliverable; the full boot-1 → recovery → finalize integration is verified
 //! by `020-tcc-and-finalize` / the live-vm gate.
@@ -39,8 +39,9 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use testanyware_vm::golden::{
-    private_key_for, provision_boot1, ssh_pubkey_candidates, vanilla_image, GoldenOptions, SetupVm,
+    private_key_for, provision_boot1, ssh_pubkey_candidates, GoldenOptions, SetupVm,
 };
+use testanyware_vm::base_source::{base_vm_name, macos_major};
 use testanyware_vm::paths::VmPaths;
 use testanyware_vm::recovery::recovery_boot_csrutil;
 use testanyware_vm::ssh::SshSession;
@@ -57,7 +58,7 @@ fn opt_in() -> bool {
 }
 
 fn version() -> String {
-    std::env::var("TESTANYWARE_RECOVERY_VERSION").unwrap_or_else(|_| "tahoe".into())
+    std::env::var("TESTANYWARE_RECOVERY_VERSION").unwrap_or_else(|_| "27".into())
 }
 
 /// The host pubkey + matching private key (the recovery driver authenticates
@@ -74,7 +75,7 @@ fn host_keypair() -> (PathBuf, PathBuf) {
     panic!("no ~/.ssh/id_ed25519[.pub] or id_rsa[.pub] keypair found");
 }
 
-/// Build (or reuse) a minimal setup VM: clone the vanilla image, boot it, and
+/// Build (or reuse) a minimal setup VM: clone the base VM, boot it, and
 /// install the host pubkey so key auth works. Returns the [`SetupVm`] handoff.
 async fn ensure_minimal_setup_vm(paths: &VmPaths) -> SetupVm {
     let (pubkey, private_key) = host_keypair();
@@ -87,9 +88,9 @@ async fn ensure_minimal_setup_vm(paths: &VmPaths) -> SetupVm {
         tokio::time::sleep(Duration::from_secs(2)).await;
     }
 
-    let vanilla = vanilla_image(&version());
-    eprintln!("Cloning {vanilla} -> {SETUP_ID}...");
-    tart::clone(&vanilla, SETUP_ID).expect("tart clone vanilla");
+    let base = base_vm_name(macos_major(&version()).expect("a macOS major of 27 or later"));
+    eprintln!("Cloning {base} -> {SETUP_ID}...");
+    tart::clone(&base, SETUP_ID).expect("tart clone base VM");
 
     eprintln!("Booting setup VM...");
     let (pid, log_path) = tart::run_detached(SETUP_ID, &paths.vms_dir()).expect("tart run");

@@ -1870,7 +1870,7 @@ impl Fixture {
     }
 
     /// The real `vm create-golden` of a macOS guest, in the background. The tools of the CLI are
-    /// the fake `tart` first. The vanilla image `tahoe` is one that the fake cannot clone, so the
+    /// the fake `tart` first. The fake lists the base VM of macOS 27 and cannot clone it, so the
     /// pipeline stops at its first `tart clone`, after the slot. No test runs the real pipeline.
     fn spawn_golden(&self, agent: &std::path::Path) -> Client {
         let mut path = std::ffi::OsString::from(self.app.tool_dir());
@@ -1878,7 +1878,7 @@ impl Fixture {
         path.push(std::env::var_os("PATH").unwrap_or_default());
         let mut command = Command::new(CLI);
         command
-            .args(["vm", "create-golden", "--platform", "macos", "--version", "tahoe", "--json"])
+            .args(["vm", "create-golden", "--platform", "macos", "--version", "27", "--json"])
             .env_clear()
             .env("PATH", path)
             .env("HOME", self.app.root())
@@ -1910,13 +1910,13 @@ fn the_command_waits_for_its_slot_after_its_fast_checks_and_closes_the_hold_when
     let view = slots(&fixture);
     let waiter = &view["queue"][0];
     assert_eq!(waiter["kind"], "golden", "{view}");
-    assert_eq!(waiter["vms"].as_array().unwrap().len(), 1, "a vanilla base builds nothing: {view}");
+    assert_eq!(waiter["vms"].as_array().unwrap().len(), 1, "an existing base VM builds nothing: {view}");
     assert!(waiter["vms"][0].as_str().unwrap().starts_with("testanyware-setup-"), "{view}");
     assert_eq!(waiter["requested_by"]["cwd"], std::fs::canonicalize(std::env::current_dir().unwrap()).unwrap().display().to_string());
     std::thread::sleep(Duration::from_millis(500));
     assert!(!golden.finished());
 
-    // A stop admits it. The fake cannot clone the vanilla image, so the pipeline fails there.
+    // A stop admits it. The fake cannot clone the base VM, so the pipeline fails there.
     fixture.stop("e-a");
     let (code, envelope, err) = golden.finish();
     assert_ne!(code, 0, "{envelope} {err}");

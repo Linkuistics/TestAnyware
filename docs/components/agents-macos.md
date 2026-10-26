@@ -73,12 +73,10 @@ the macOS golden and launched by a LaunchAgent with label
 - **AX tree not ready at login.** Immediately after desktop login,
   AX calls can return empty trees for up to several seconds. Call
   `POST /wait` first in scripts that run right after boot.
-- **Tahoe drop-shadow inset.** AX-reported window origin includes the
-  drop-shadow inset (~40 px). See
+- **Window origin and the CLI inset.** macOS 27 reports the visible top of
+  a window as its AX origin, and the CLI subtracts a 40 px top inset from
+  it by default. See
   [`docs/user/troubleshooting.md`](../user/troubleshooting.md).
-- **`NSStackView` element resolution.** Text fields hosted inside
-  `NSStackView` containers on Tahoe may not appear via
-  `kAXChildrenAttribute`. Workaround in troubleshooting.md.
 - **Keep the protocol copy in sync.** If you change wire shapes, apply
   the same change in `cli-rs/crates/testanyware-protocol/`. The fixtures
   contract test in `cli-rs/crates/testanyware-protocol/tests/fixtures.rs`

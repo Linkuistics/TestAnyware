@@ -49,23 +49,25 @@ prediction matches when it falls within the GT box (±10 px margin) or
 when the GT box fully contains it. A threshold change does not fix this,
 because the metric itself was wrong.
 
-## `--window` on input commands compensates for the Tahoe drop-shadow inset
+## `--window` on input commands subtracts a 40 px top inset (set it to 0 on macOS 27)
 
 The `--window <name>` flag on `testanyware input click` / `mouse-down`
 / `mouse-up` / `move` / `scroll` / `drag` translates caller-supplied
-coordinates via the AX-reported window origin. On macOS Tahoe, that
-origin sits ~40 px below the visible top of the window (the AX frame
-includes the structural drop-shadow inset). The CLI now subtracts a
+coordinates via the AX-reported window origin. The CLI subtracts a
 40 px top inset from the y origin when the resolved platform is
-`macos`, so window-relative coordinates land where intended.
+`macos`. Mini Browser verification measured that inset on macOS 26 on
+2026-04-18. There, the AX origin sat ~40 px below the visible top of the
+window.
 
-If your macOS version reports a different inset, override it with
-`TESTANYWARE_WINDOW_TOP_INSET=<int>` (in pixels). For pixel-perfect
-targeting against unfamiliar windows, capture a full-screen
-`testanyware screenshot`. Read the screen-absolute coordinates off it.
-Pass those coordinates directly, without `--window`. Mini Browser
-verification surfaced this on 2026-04-18. The compensation landed on
-2026-04-28.
+macOS 27 reports the visible top of the window as the AX origin. A
+standard window and a Finder window showed it on 2026-10-26. With the
+default inset, a window-relative click on a macOS 27 guest lands 40 px
+above the target. Set `TESTANYWARE_WINDOW_TOP_INSET=0` for a macOS 27
+guest. The variable takes any other inset in pixels.
+
+For pixel-perfect targeting against unfamiliar windows, capture a
+full-screen `testanyware screenshot`. Read the screen-absolute
+coordinates off it. Pass those coordinates directly, without `--window`.
 
 ## A tart guest dies when `screen` or `input` runs after 60 idle seconds (macOS 27 host)
 
@@ -78,7 +80,7 @@ host's VNC server (Apple's `_VZVNCServer`) aborts the tart process if a client
 connects after the last client left 60 seconds or more earlier. The guest stops
 with it. Tart 2.40.1 on macOS 27.0.1 shows this.
 
-The guest does not matter. A macOS 26 guest and a Linux guest under tart fail the same way.
+The guest does not matter. A macOS guest and a Linux guest under tart fail the same way.
 Windows guests run under QEMU, which has its own VNC server, and are not affected.
 A first connection after boot works.
 
@@ -121,20 +123,6 @@ tart, even after a 5-second gap. The TestAnyware client has not shown this.
 Full evidence and the draft report for Apple and Cirrus Labs are in
 [`docs/research/tart-vnc-reconnect-crash-macos-27.md`](../research/tart-vnc-reconnect-crash-macos-27.md).
 Observed 2026-10-18 to 2026-10-19.
-
-## `testanyware agent set-value` fails for NSTextField inside NSStackView
-
-The macOS agent's element resolver does not reliably reach text
-fields hosted inside `NSStackView` containers on Tahoe. The symptom is
-that `--role textfield --window "..."` returns "Multiple elements matched".
-Adding `--index N` then returns "No element found matching query". AppKit
-does not always propagate stack-view children through
-`kAXChildrenAttribute` on Tahoe.
-
-Until the fix lands, use this workaround. Derive the field's screen-absolute VNC coordinates from a full-screen
-screenshot. Triple-click at those coordinates to focus and select existing
-text. Then run `testanyware input type` and then
-`testanyware input key return`. Backlog item #8 tracks the fix.
 
 ## VirtioFS shared folders can serve stale file content
 

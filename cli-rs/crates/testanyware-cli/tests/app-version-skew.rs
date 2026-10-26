@@ -354,7 +354,7 @@ fn golden_creation_against_an_app_whose_range_ends_at_1_fails_with_app_incompati
     std::fs::write(&agent, "agent").unwrap();
 
     let out = app.cli_with(
-        &["vm", "create-golden", "--platform", "macos", "--version", "tahoe", "--json"],
+        &["vm", "create-golden", "--platform", "macos", "--version", "27", "--json"],
         &[
             ("TESTANYWARE_APP_SOCKET", app.socket().to_str().unwrap()),
             ("TESTANYWARE_AGENT_BIN_OVERRIDE", agent.to_str().unwrap()),

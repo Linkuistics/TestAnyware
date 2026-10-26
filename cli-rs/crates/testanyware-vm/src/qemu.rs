@@ -84,7 +84,7 @@ pub struct StartArtifacts {
 /// Classify a golden / clone name into a platform string. Ports
 /// `QEMURunner.platformFromName`.
 pub fn platform_from_name(name: &str) -> String {
-    if name.contains("macos") || name.contains("tahoe") {
+    if name.contains("macos") {
         "macos".into()
     } else if name.contains("linux") || name.contains("ubuntu") {
         "linux".into()
@@ -560,7 +560,7 @@ mod tests {
 
     #[test]
     fn platform_from_name_classifies_image_names() {
-        assert_eq!(platform_from_name("testanyware-golden-macos-tahoe"), "macos");
+        assert_eq!(platform_from_name("testanyware-golden-macos-27"), "macos");
         assert_eq!(platform_from_name("testanyware-golden-linux-24.04"), "linux");
         assert_eq!(platform_from_name("ubuntu-server"), "linux");
         assert_eq!(platform_from_name("testanyware-golden-windows-11"), "windows");

@@ -22,10 +22,10 @@ All golden images share these properties:
 - **macOS 27** (Apple Silicon, built once from Apple's IPSW into a base VM,
   `testanyware-base-macos-27`). This is the default macOS golden: `vm start
   --platform macos` clones it when you pass no `--base`.
-- **macOS 26 (Tahoe) is still available.** `testanyware vm create-golden
-  --platform macos --version tahoe` builds `testanyware-golden-macos-tahoe`
-  from Cirrus Labs' vanilla image. `testanyware vm start --platform macos
-  --base testanyware-golden-macos-tahoe` clones it.
+- **Only macOS 27 or a later major.** `vm create-golden --platform macos
+  --version` takes a major number of 27 or later. A Cirrus Labs tag (`tahoe`,
+  `sequoia`, `sonoma`) or a major below 27 fails with a usage error before the
+  command clones or downloads anything.
 - **Agent autostart** — LaunchAgent at `/usr/local/bin/testanyware-agent`
   (label `com.linkuistics.testanyware-agent`).
 - **Accessibility** — TCC grant via system TCC database with code

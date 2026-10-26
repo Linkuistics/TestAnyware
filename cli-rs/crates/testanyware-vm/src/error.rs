@@ -320,6 +320,14 @@ pub enum VmError {
     #[error("unknown platform '{value}' (expected macos, linux, or windows)")]
     InvalidPlatform { value: String },
 
+    /// `vm create-golden --platform macos --version <value>` named something other than a macOS
+    /// major number of 27 or later. Its code is `USAGE_ERROR`.
+    #[error(
+        "unsupported macOS version '{value}': golden creation builds macOS 27 or a later major \
+         from Apple's IPSW"
+    )]
+    UnsupportedMacosVersion { value: String },
+
     #[error("SSH error: {detail}")]
     SshConnectFailed { detail: String },
 
@@ -364,6 +372,7 @@ impl VmError {
             VmError::BackendUnsupported { .. } => "VM_BACKEND_UNSUPPORTED",
             VmError::HostUnsupported { .. } => "VM_HOST_UNSUPPORTED",
             VmError::InvalidPlatform { .. } => "INVALID_PLATFORM",
+            VmError::UnsupportedMacosVersion { .. } => "USAGE_ERROR",
             VmError::SshConnectFailed { .. } => "SSH_CONNECT_FAILED",
             VmError::GoldenCreateFailed { .. } => "GOLDEN_CREATE_FAILED",
             VmError::Io(_) => "IO_ERROR",
@@ -378,7 +387,7 @@ impl VmError {
             | VmError::GoldenNotFound { .. }
             | VmError::VmNotFound { .. } => 3,
             VmError::GoldenInUse { .. } => 5,
-            VmError::InvalidPlatform { .. } => 2,
+            VmError::InvalidPlatform { .. } | VmError::UnsupportedMacosVersion { .. } => 2,
             // §5: rate limited / try again later.
             VmError::VmLimitReached(_) => 6,
             // §5: boot/startup-timeout family.
@@ -457,6 +466,11 @@ impl VmError {
                 }
                 Some(remedy)
             }
+            VmError::UnsupportedMacosVersion { .. } => Some(
+                "Pass --version with a macOS major number such as 27, or omit --version for the \
+                 default (27)."
+                    .into(),
+            ),
             VmError::HostUnsupported { .. } => Some(
                 "Launch VMs from a Linux or macOS host. The Windows host binary is \
                  build/link-verified only — it has no local-QEMU runtime path \
@@ -520,6 +534,9 @@ impl VmError {
             }
             VmError::BackendUnsupported { platform } | VmError::InvalidPlatform { value: platform } => {
                 json!({ "platform": platform })
+            }
+            VmError::UnsupportedMacosVersion { value } => {
+                json!({ "version": value, "minimum": crate::base_source::MIN_MACOS_MAJOR })
             }
             _ => Value::Null,
         }

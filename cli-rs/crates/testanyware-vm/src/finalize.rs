@@ -5,7 +5,7 @@
 //! on top of the two lower layers built by the earlier grove leaves:
 //!
 //!   1. **Boot 1** — [`crate::golden::provision_boot1`] (leaf `020`): clone the
-//!      vanilla image into a throwaway *setup VM* and provision it over SSH.
+//!      base VM into a throwaway *setup VM* and provision it over SSH.
 //!   2. **The SIP/TCC cycle** (this module, ports the script's lines 677–723):
 //!      disable SIP via a Recovery boot, grant the agent's TCC permissions
 //!      (which require SIP off), re-enable SIP via a second Recovery boot. The
@@ -177,7 +177,7 @@ fn sip_status_matches(out: &str, expected: &str) -> bool {
 
 // ---- live orchestration (verified on the Mac, not unit-tested) -----------
 
-/// The command entry point: produce a golden image from a vanilla one. Runs
+/// The command entry point: produce a golden image from a base VM. Runs
 /// boot-1 provisioning, the SIP/TCC cycle, the health gate, the clean shutdown,
 /// and the clone to golden. Returns the golden's name on success.
 ///

@@ -809,7 +809,7 @@ mod tests {
     #[test]
     fn parse_goldens_keeps_only_golden_prefixed_names() {
         let json = r#"[
-          {"Name": "testanyware-golden-macos-tahoe", "State": "stopped", "Disk": 50},
+          {"Name": "testanyware-golden-macos-27", "State": "stopped", "Disk": 50},
           {"Name": "testanyware-golden-linux-24.04", "State": "stopped", "Disk": 20},
           {"Name": "some-other-vm", "State": "stopped", "Disk": 10},
           {"Name": "testanyware-a1b2c3d4", "State": "running", "Disk": 50}
@@ -818,7 +818,7 @@ mod tests {
         names.sort();
         assert_eq!(names, vec![
             "testanyware-golden-linux-24.04",
-            "testanyware-golden-macos-tahoe",
+            "testanyware-golden-macos-27",
         ]);
         let macos = parse_goldens(json).into_iter().find(|g| g.name.contains("macos")).unwrap();
         assert_eq!(macos.platform, "macos");
@@ -828,21 +828,21 @@ mod tests {
     #[test]
     fn parse_running_names_keeps_every_running_vm_and_skips_stopped() {
         let json = r#"[
-          {"Name": "testanyware-golden-macos-tahoe", "State": "running"},
+          {"Name": "testanyware-golden-macos-27", "State": "running"},
           {"Name": "testanyware-a1b2c3d4", "State": "running"},
           {"Name": "koine-verify-4242", "State": "running"},
           {"Name": "testanyware-b5c6d7e8", "State": "stopped"}
         ]"#;
         assert_eq!(
             parse_running_names(json),
-            vec!["testanyware-golden-macos-tahoe", "testanyware-a1b2c3d4", "koine-verify-4242"],
+            vec!["testanyware-golden-macos-27", "testanyware-a1b2c3d4", "koine-verify-4242"],
         );
     }
 
     #[test]
     fn parse_all_names_returns_every_name() {
         let json = r#"[
-          {"Name": "testanyware-golden-macos-tahoe", "State": "stopped"},
+          {"Name": "testanyware-golden-macos-27", "State": "stopped"},
           {"Name": "testanyware-a1b2c3d4", "State": "running"},
           {"Name": "my-custom-vm", "State": "running"}
         ]"#;
@@ -851,7 +851,7 @@ mod tests {
         assert_eq!(names, vec![
             "my-custom-vm",
             "testanyware-a1b2c3d4",
-            "testanyware-golden-macos-tahoe",
+            "testanyware-golden-macos-27",
         ]);
     }
 

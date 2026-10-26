@@ -1,36 +1,28 @@
-//! Which base VM a macOS golden is cloned from — pure, so it is available on
+//! Which macOS major a golden is built for — pure, so it is available on
 //! every host (the `--dry-run` plan names the base without touching `tart`).
 //!
-//! `vm create-golden --platform macos --version <v>` names either a Cirrus Labs
-//! **vanilla tag** (`tahoe`, `sequoia`, `sonoma`) or a macOS **major number**
-//! (`27`). [`base_source`] decides which by shape: all digits means "build the
-//! base from Apple's IPSW" (see [`crate::ipsw_base`]), anything else is a Cirrus
-//! tag. The Cirrus tags are never numeric, so that path is unchanged.
+//! `vm create-golden --platform macos --version <v>` names a macOS **major
+//! number** (`27`). [`macos_major`] parses it and refuses anything that is not
+//! a major of [`MIN_MACOS_MAJOR`] or later: a Cirrus Labs tag (`tahoe`,
+//! `sequoia`, `sonoma`), a major below 27 and a malformed value. The base VM is
+//! always built from Apple's IPSW (see [`crate::ipsw_base`]).
 
-/// The Cirrus Labs vanilla image ref for a macOS `version` tag. Ports
-/// `_VANILLA="ghcr.io/cirruslabs/macos-$_VERSION-vanilla:latest"`.
-pub fn vanilla_image(version: &str) -> String {
-    format!("ghcr.io/cirruslabs/macos-{version}-vanilla:latest")
-}
+use crate::error::VmError;
 
-/// Where a macOS golden's base VM comes from.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BaseSource {
-    /// A Cirrus Labs vanilla image, pulled and cloned by `tart clone`. The
-    /// string is the full OCI reference.
-    Vanilla(String),
-    /// Built here from Apple's IPSW for this macOS major version.
-    Ipsw { major: u32 },
-}
+/// The oldest macOS major that golden creation accepts.
+pub const MIN_MACOS_MAJOR: u32 = 27;
 
-/// Classify a `--version` value: all-digit → IPSW for that major, otherwise a
-/// Cirrus vanilla tag. See the module docs.
-pub fn base_source(version: &str) -> BaseSource {
+/// Parse a `--version` value into a macOS major of [`MIN_MACOS_MAJOR`] or later.
+/// Only an all-digit value is a major, so `27.0.1`, `+27`, `27beta` and the empty
+/// string fail with the same usage error as `tahoe` and `26`.
+pub fn macos_major(version: &str) -> Result<u32, VmError> {
     match version.parse::<u32>() {
-        Ok(major) if !version.is_empty() && version.bytes().all(|b| b.is_ascii_digit()) => {
-            BaseSource::Ipsw { major }
+        Ok(major)
+            if major >= MIN_MACOS_MAJOR && version.bytes().all(|b| b.is_ascii_digit()) =>
+        {
+            Ok(major)
         }
-        _ => BaseSource::Vanilla(vanilla_image(version)),
+        _ => Err(VmError::UnsupportedMacosVersion { value: version.to_string() }),
     }
 }
 
@@ -46,25 +38,31 @@ mod tests {
     use super::*;
 
     #[test]
-    fn digits_select_the_ipsw_path_and_names_select_cirrus() {
-        assert_eq!(base_source("27"), BaseSource::Ipsw { major: 27 });
-        assert_eq!(base_source("14"), BaseSource::Ipsw { major: 14 });
-        assert_eq!(
-            base_source("tahoe"),
-            BaseSource::Vanilla("ghcr.io/cirruslabs/macos-tahoe-vanilla:latest".into())
-        );
-        assert_eq!(
-            base_source("sequoia"),
-            BaseSource::Vanilla("ghcr.io/cirruslabs/macos-sequoia-vanilla:latest".into())
-        );
+    fn a_major_of_27_or_later_selects_that_major() {
+        assert_eq!(macos_major("27").unwrap(), 27);
+        assert_eq!(macos_major("28").unwrap(), 28);
+        assert_eq!(macos_major("127").unwrap(), 127);
     }
 
     #[test]
-    fn mixed_or_empty_versions_stay_on_the_cirrus_path() {
-        // Only an all-digit value is an IPSW major; `27.0.1`, `+27`, `` are
-        // not, and fall through to the (unchanged) vanilla naming.
-        for v in ["27.0.1", "+27", "", "27beta"] {
-            assert!(matches!(base_source(v), BaseSource::Vanilla(_)), "{v:?}");
+    fn a_cirrus_tag_or_an_older_major_is_a_usage_error_that_names_macos_27() {
+        for v in ["tahoe", "sequoia", "sonoma", "26", "14", "0"] {
+            let err = macos_major(v).unwrap_err();
+            assert!(
+                matches!(&err, VmError::UnsupportedMacosVersion { value } if value == v),
+                "{v:?}: {err:?}"
+            );
+            assert_eq!(err.exit_code(), 2, "{v:?}");
+            assert_eq!(err.code(), "USAGE_ERROR", "{v:?}");
+            assert!(err.to_string().contains("macOS 27"), "{v:?}: {err}");
+        }
+    }
+
+    #[test]
+    fn a_value_that_is_not_all_digits_is_refused() {
+        // `27.0.1`, `+27`, `27beta`, `` and a number too large for a u32.
+        for v in ["27.0.1", "+27", "", "27beta", " 27", "99999999999"] {
+            assert!(macos_major(v).is_err(), "{v:?}");
         }
     }
 

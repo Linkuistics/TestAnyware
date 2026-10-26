@@ -1,8 +1,8 @@
 //! Golden-image creation: **boot-1 normal-mode provisioning** (macOS host).
 //!
 //! Ports **boot 1** of `provisioner/scripts/vm-create-golden-macos.sh`
-//! (grove leaf `110-vm-create-golden-macos/020`): clone the vanilla Cirrus
-//! Labs image into a throwaway *setup VM*, boot it, and provision it over
+//! (grove leaf `110-vm-create-golden-macos/020`): clone the base VM built from
+//! Apple's IPSW into a throwaway *setup VM*, boot it, and provision it over
 //! the `010` [`SshSession`](crate::ssh::SshSession) layer (ADR-0007) — host
 //! pubkey install, macOS defaults, solid wallpaper, hide widgets, Xcode CLT,
 //! Homebrew, and the agent binary + LaunchAgent plist.
@@ -41,7 +41,7 @@ use std::time::Duration;
 
 use crate::error::VmError;
 use crate::id::generate_id;
-use crate::ipsw_base::{base_source, BaseSource};
+use crate::base_source::{base_vm_name, macos_major};
 use crate::paths::VmPaths;
 use crate::ssh::SshSession;
 
@@ -71,9 +71,8 @@ const SOLID_GRAY_PNG_BASE64: &str =
 /// Inputs for golden creation, resolved by the command layer.
 #[derive(Debug, Clone)]
 pub struct GoldenOptions {
-    /// macOS version selector — `tahoe`, `sequoia`, `sonoma` (the vanilla
-    /// image tag) or a major number such as `27` (built from the IPSW).
-    /// Ports `--version`.
+    /// macOS version selector — a major number of 27 or later, built from
+    /// the IPSW (see [`macos_major`]). Ports `--version`.
     pub version: String,
     /// Final golden image name. Ports `--name`
     /// (default `testanyware-golden-macos-<version>`).
@@ -96,12 +95,6 @@ pub struct SetupVm {
 }
 
 // ---- pure helpers (unit-tested) -----------------------------------------
-
-/// The vanilla Cirrus Labs image ref for a macOS `version`. Ports
-/// `_VANILLA="ghcr.io/cirruslabs/macos-$_VERSION-vanilla:latest"`.
-pub fn vanilla_image(version: &str) -> String {
-    crate::base_source::vanilla_image(version)
-}
 
 /// Ordered host SSH **public**-key candidates under `home`. Ports the
 /// script's `~/.ssh/id_ed25519.pub` → `~/.ssh/id_rsa.pub` search (ed25519
@@ -341,13 +334,8 @@ impl GoldenPreflight {
         // or a golden. `generate_id()` yields `testanyware-<hex8>`; splice in a
         // `setup-` marker. Ports `_SETUP_VM="testanyware-setup-$$"`.
         let setup_id = generate_id().replacen("testanyware-", "testanyware-setup-", 1);
-        let building = match base_source(&opts.version) {
-            BaseSource::Ipsw { major } => {
-                let base = crate::base_source::base_vm_name(major);
-                (!crate::tart::vm_exists(&base)).then(|| format!("{base}-building"))
-            }
-            BaseSource::Vanilla(_) => None,
-        };
+        let base = base_vm_name(macos_major(&opts.version)?);
+        let building = (!crate::tart::vm_exists(&base)).then(|| format!("{base}-building"));
         Ok(Self {
             pubkey,
             private_key,
@@ -395,16 +383,9 @@ pub async fn provision_boot1_after(
         crate::tart::remove_existing(&opts.name);
     }
 
-    // The base to clone: a Cirrus vanilla image, or — for a release Cirrus does
-    // not publish (a numeric `--version`, e.g. 27) — a base built from Apple's
-    // IPSW, built now if it does not exist yet.
-    let base = match base_source(&opts.version) {
-        BaseSource::Vanilla(image) => {
-            eprintln!("(Cloning may pull the image on first run — can take several minutes)");
-            image
-        }
-        BaseSource::Ipsw { major } => crate::ipsw_base::ensure_base_vm(major, paths).await?,
-    };
+    // The base to clone: a base built from Apple's IPSW for the macOS major,
+    // built now if it does not exist yet.
+    let base = crate::ipsw_base::ensure_base_vm(macos_major(&opts.version)?, paths).await?;
     eprintln!("Cloning {base} → {setup_id}...");
     crate::tart::clone(&base, setup_id)?;
 
@@ -695,18 +676,6 @@ async fn provision_agent(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn vanilla_image_matches_cirrus_naming() {
-        assert_eq!(
-            vanilla_image("tahoe"),
-            "ghcr.io/cirruslabs/macos-tahoe-vanilla:latest"
-        );
-        assert_eq!(
-            vanilla_image("sequoia"),
-            "ghcr.io/cirruslabs/macos-sequoia-vanilla:latest"
-        );
-    }
 
     #[test]
     fn ssh_pubkey_candidates_prefer_ed25519() {

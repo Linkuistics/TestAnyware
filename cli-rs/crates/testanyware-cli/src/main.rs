@@ -23,8 +23,8 @@ use testanyware_cli::resolve::ConnectionOptions as ResolveOptions;
 // §7-template "after-help" blocks.
 
 const WINDOW_FLAG_HELP: &str = "Window name for relative coordinates. \
-    The macOS Tahoe drop-shadow inset (~40 px in y) is compensated automatically; \
-    override the inset via `TESTANYWARE_WINDOW_TOP_INSET=<int>` if your macOS version differs.";
+    The CLI subtracts a 40 px top inset (measured on macOS 26) from the window origin of a macOS guest; \
+    macOS 27 reports the visible top, so set `TESTANYWARE_WINDOW_TOP_INSET=0` there (any pixel count works).";
 
 const CAPABILITIES_AFTER_HELP: &str = "\
 OUTPUT:
@@ -715,12 +715,11 @@ EXIT CODES:
 
 PLATFORM:
     Requires a macOS host. macOS drives a 5-boot SIP/TCC cycle on a base VM.
-    The default --version (27) and any numeric version name a release Cirrus
-    does not publish: the first run installs it from Apple's IPSW
-    (about 25 GB, cached) into the base VM testanyware-base-macos-27 by
-    driving Setup Assistant, and later runs reuse that base. --version tahoe
-    (or sequoia, sonoma) clones a Cirrus Labs vanilla image via tart instead
-    and builds testanyware-golden-macos-tahoe. linux clones a Cirrus Labs vanilla
+    --version takes a macOS major number, 27 (the default) or later. The first
+    run installs it from Apple's IPSW (about 25 GB, cached) into the base VM
+    testanyware-base-macos-27 by driving Setup Assistant, and later runs reuse
+    that base. A Cirrus Labs tag (tahoe, sequoia, sonoma) or a major below 27
+    is a usage error (exit 2). linux clones a Cirrus Labs vanilla
     Ubuntu image via tart and provisions Ubuntu Desktop + the agent over SSH
     in 2 normal boots (no SIP/TCC cycle). windows boots an unattended install
     from a Microsoft evaluation ISO under QEMU+swtpm and provisions over the
@@ -753,8 +752,8 @@ EXAMPLES:
     # base VM from Apple's IPSW)
     testanyware vm create-golden --platform macos
 
-    # Create the macOS 26 (Tahoe) golden from Cirrus Labs' vanilla image
-    testanyware vm create-golden --platform macos --version tahoe
+    # Name the macOS major (27 or later) in the plan
+    testanyware vm create-golden --platform macos --version 27 --dry-run
 
     # Create the default Ubuntu 24.04 golden (macOS host)
     testanyware vm create-golden --platform linux
@@ -2018,15 +2017,14 @@ enum VmAction {
     // `disable_version_flag`: this command takes a `--version <OS>` argument
     // (the macOS release to provision), which collides with the root's
     // propagated auto `--version`. Suppress the auto flag for this subcommand
-    // so `--version tahoe` is our OS selector.
+    // so `--version 27` is our OS selector.
     #[command(after_long_help = VM_CREATE_GOLDEN_AFTER_HELP, disable_version_flag = true)]
     CreateGolden {
         /// Target platform: `macos`, `linux`, or `windows` (all require a macOS host).
         #[arg(long, value_name = "PLATFORM")]
         platform: String,
-        /// OS version to provision. macOS: tahoe, sequoia, sonoma (Cirrus Labs
-        /// vanilla images) or a major number such as 27 (built once from
-        /// Apple's IPSW) [default: 27]. linux: 24.04, 22.04 [default:
+        /// OS version to provision. macOS: a major number of 27 or later (built
+        /// once from Apple's IPSW) [default: 27]. linux: 24.04, 22.04 [default:
         /// 24.04]. windows: the release number [default: 11].
         #[arg(long, value_name = "VERSION")]
         version: Option<String>,

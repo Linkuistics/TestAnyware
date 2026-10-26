@@ -1064,6 +1064,42 @@ fn vm_commands_carry_stable_error_codes() {
     assert_eq!(body["code"], "GOLDEN_NOT_FOUND");
 }
 
+/// `vm create-golden --platform macos` accepts macOS 27 or a later major only. Any other
+/// `--version` is a `USAGE_ERROR` (exit 2) that names macOS 27. It fails in the fast checks, also
+/// under `--dry-run`, before any clone, download or wait for a slot, so no backend is needed.
+#[test]
+fn vm_create_golden_macos_accepts_macos_27_or_later_only() {
+    for version in ["tahoe", "sequoia", "sonoma", "26", "14", "27.0.1", ""] {
+        for dry_run in [false, true] {
+            let mut args =
+                vec!["vm", "create-golden", "--platform", "macos", "--version", version, "--json"];
+            if dry_run {
+                args.push("--dry-run");
+            }
+            let out = run(&args);
+            let shown = args.join(" ");
+            assert_eq!(out.status.code(), Some(2), "`{shown}` must exit 2");
+            let body: serde_json::Value = serde_json::from_slice(&out.stdout)
+                .unwrap_or_else(|e| panic!("`{shown}` stdout is not JSON: {e}"));
+            assert_eq!(body["code"], "USAGE_ERROR", "`{shown}`: {body}");
+            assert!(
+                body["message"].as_str().is_some_and(|m| m.contains("macOS 27")),
+                "`{shown}` does not name macOS 27: {body}"
+            );
+            assert_eq!(body["details"]["version"], version, "`{shown}`: {body}");
+        }
+    }
+
+    // The control: macOS 27 passes the version check and reaches the plan.
+    let out = run(&[
+        "vm", "create-golden", "--platform", "macos", "--version", "27", "--dry-run", "--json",
+    ]);
+    assert_eq!(out.status.code(), Some(0), "{}", String::from_utf8_lossy(&out.stdout));
+    let body: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(body["dry_run"], true);
+    assert!(body["base"].as_str().unwrap().starts_with("testanyware-base-macos-27"), "{body}");
+}
+
 /// ADR-0016 D3: the `--display WxH@2x` HiDPI opt-in is validated at the CLI
 /// boundary. A `@Nx` for N≠2, or `@2x` on a non-macOS guest, is a `USAGE_ERROR`
 /// (exit 2) — caught before any VM/golden lookup, so no backend is needed.

@@ -76,16 +76,16 @@ pub mod golden_windows;
 /// grove leaf `110/030/010`). macOS-host only, like `tart`/`golden`.
 #[cfg(target_os = "macos")]
 pub mod recovery;
-/// Which base VM a macOS golden is cloned from (Cirrus vanilla tag vs an
-/// IPSW-built base) — pure, **not** macOS-gated, so `--dry-run` can name it.
+/// Which macOS major a golden is built for (27 or later) and the name of its
+/// IPSW-built base VM — pure, **not** macOS-gated, so `--dry-run` can name it.
 pub mod base_source;
 /// macOS Setup Assistant automation over RFB + OCR: a table of known screens
 /// driven to a desktop with an `admin` account (grove leaf `ipsw-base-vm-k14`).
 /// macOS-host only, like `recovery`.
 #[cfg(target_os = "macos")]
 pub mod setup_assistant;
-/// A macOS base VM built from Apple's IPSW, standing in for a Cirrus vanilla
-/// image when none exists for a release (grove leaf `ipsw-base-vm-k14`).
+/// A macOS base VM built from Apple's IPSW, the base of every macOS golden
+/// (grove leaf `ipsw-base-vm-k14`).
 /// macOS-host only, like `tart`/`golden`.
 #[cfg(target_os = "macos")]
 pub mod ipsw_base;

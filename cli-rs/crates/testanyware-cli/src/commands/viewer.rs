@@ -1141,7 +1141,7 @@ mod tests {
 
     #[test]
     fn process_input_macos_cmd_maps_to_alt_l_swap() {
-        // The Cmd→XK_Alt_L Tahoe swap must come through the guest keymap.
+        // The Cmd→XK_Alt_L swap of a macOS guest must come through the guest keymap.
         let mut app = test_app();
         let mut snap = empty_snapshot();
         snap.modifiers = egui::Modifiers { mac_cmd: true, ..Default::default() };

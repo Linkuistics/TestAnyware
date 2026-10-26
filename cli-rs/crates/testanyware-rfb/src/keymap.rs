@@ -6,7 +6,8 @@
 //!
 //! The macOS modifier mapping intentionally swaps Cmd and Option:
 //! Cmd → `XK_Alt_L (0xffe9)`, Option → `XK_Meta_L (0xffe7)`. This is the
-//! mapping required by macOS Tahoe's Virtualization.framework VNC server
+//! mapping required by the Virtualization.framework VNC server of a macOS
+//! guest (checked on macOS 27: Cmd+A selects every item of a Finder window)
 //! and is documented in the project memory entry `cmd_key_tahoe`. Do not
 //! "fix" the swap without re-checking that note.
 
@@ -143,8 +144,8 @@ pub fn modifier_for_name(name: &str, platform: Platform) -> Option<u32> {
     let lower = name.to_ascii_lowercase();
     match platform {
         Platform::Macos => match lower.as_str() {
-            // See module-level note on the Cmd/Option swap for macOS
-            // Tahoe's Virtualization.framework VNC server.
+            // See module-level note on the Cmd/Option swap for the
+            // Virtualization.framework VNC server of a macOS guest.
             "cmd" | "command" => Some(xk::ALT_L),
             "alt" | "option" => Some(xk::META_L),
             "shift" => Some(xk::SHIFT_L),

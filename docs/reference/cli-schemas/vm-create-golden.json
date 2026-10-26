@@ -10,7 +10,7 @@
     "ok": { "type": "boolean" },
     "dry_run": { "type": "boolean", "description": "Present and true when --dry-run was set; the plan is described but nothing is mutated." },
     "platform": { "type": "string", "enum": ["macos", "linux", "windows"], "description": "Target platform. macos, linux, and windows are all supported (all macOS-host work)." },
-    "version": { "type": "string", "description": "OS version to provision. macOS: tahoe, sequoia, sonoma (Cirrus Labs vanilla images) or a major number such as 27 (a base built once from Apple's IPSW as testanyware-base-macos-<major>) (default 27). linux: 24.04, 22.04 (default 24.04). windows: the release number (default 11)." },
+    "version": { "type": "string", "description": "OS version to provision. macOS: a major number of 27 or later (a base built once from Apple's IPSW as testanyware-base-macos-<major>) (default 27); any other value is a USAGE_ERROR. linux: 24.04, 22.04 (default 24.04). windows: the release number (default 11)." },
     "name": { "type": "string", "description": "Golden image name. Defaults to testanyware-golden-<platform>-<version>." },
     "iso": { "type": ["string", "null"], "description": "windows only: path to the Windows ARM64 evaluation ISO (null when relying on the cached ISO)." },
     "created": { "type": "boolean", "description": "Present and true on a successful (non-dry-run) golden creation." },

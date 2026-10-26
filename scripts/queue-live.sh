@@ -358,9 +358,9 @@ echo "queue-live: check 3: a golden creation waits for its slot"
 holds "$id_d" || fail "$id_d does not hold a slot."
 holds "$id_e" || fail "$id_e does not hold a slot."
 before=$(tart_names | sort)
-# A vanilla image, so that no build of an IPSW is possible, and a name that exists nowhere. The
-# command passes its fast checks, and then it waits. It never reaches its first clone.
-launch golden vm create-golden --platform macos --version tahoe --name "$golden" --json
+# The default version, macOS 27, and a name that exists nowhere. The command passes its fast
+# checks, and then it waits. It never reaches its first clone, so it builds no base VM.
+launch golden vm create-golden --platform macos --version 27 --name "$golden" --json
 pid_g=$LAUNCHED
 waiting_golden() {
   kill -0 "$pid_g" 2>/dev/null || return 0

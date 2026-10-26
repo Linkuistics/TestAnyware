@@ -152,7 +152,7 @@ shell scripts ship any more:
 
 | Builder | Produces |
 |---------|----------|
-| `testanyware vm create-golden --platform macos` | `testanyware-golden-macos-27` (tart). `--version tahoe` builds `testanyware-golden-macos-tahoe`. |
+| `testanyware vm create-golden --platform macos` | `testanyware-golden-macos-27` (tart). `--version` takes a macOS major of 27 or later. |
 | `testanyware vm create-golden --platform linux` | `testanyware-golden-linux-24.04` (tart) |
 | `testanyware vm create-golden --platform windows` | `testanyware-golden-windows-11` (QEMU+swtpm, under `$XDG_DATA_HOME/testanyware/golden/`). The first run needs `--iso <path>`. |
 

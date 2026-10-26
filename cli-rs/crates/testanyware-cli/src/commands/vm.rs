@@ -571,8 +571,14 @@ async fn run_vm_create_golden_macos(
     mode: OutputMode,
     dry_run: bool,
 ) {
+    // A version below macOS 27, or not a major number, is a usage error. It fails before the
+    // plan, the directory check, the fast checks and the wait for a slot.
+    let major = match testanyware_vm::base_source::macos_major(&version) {
+        Ok(major) => major,
+        Err(err) => exit_vm_error(err, mode),
+    };
     if dry_run {
-        emit_golden_plan(&version, &name, mode);
+        emit_golden_plan(major, &version, &name, mode);
         return;
     }
 
@@ -788,22 +794,18 @@ fn golden_boot_plan() -> [(u32, &'static str, &'static str); 5] {
 }
 
 /// Where the macOS golden's base VM comes from, in words, for the dry-run
-/// plan: a Cirrus vanilla image, or a base built from Apple's IPSW on first use.
-/// Pure (no `tart`, no network), shared by the text and JSON renderers.
-fn golden_base_note(version: &str) -> String {
-    use testanyware_vm::base_source::{base_source, base_vm_name, BaseSource};
-    match base_source(version) {
-        BaseSource::Vanilla(image) => format!("Cirrus Labs vanilla image {image}"),
-        BaseSource::Ipsw { major } => format!(
-            "{}, built from Apple's IPSW for macOS {major} on first use (about 25 GB download)",
-            base_vm_name(major)
-        ),
-    }
+/// plan: a base built from Apple's IPSW on first use. Pure (no `tart`, no
+/// network), shared by the text and JSON renderers.
+fn golden_base_note(major: u32) -> String {
+    format!(
+        "{}, built from Apple's IPSW for macOS {major} on first use (about 25 GB download)",
+        testanyware_vm::base_source::base_vm_name(major)
+    )
 }
 
-fn emit_golden_plan(version: &str, name: &str, mode: OutputMode) {
+fn emit_golden_plan(major: u32, version: &str, name: &str, mode: OutputMode) {
     let plan = golden_boot_plan();
-    let base = golden_base_note(version);
+    let base = golden_base_note(major);
     match mode {
         OutputMode::Text => {
             println!(
@@ -1094,12 +1096,8 @@ mod tests {
     }
 
     #[test]
-    fn golden_base_note_names_a_vanilla_image_or_the_ipsw_built_base() {
-        assert_eq!(
-            golden_base_note("tahoe"),
-            "Cirrus Labs vanilla image ghcr.io/cirruslabs/macos-tahoe-vanilla:latest"
-        );
-        let ipsw = golden_base_note("27");
+    fn golden_base_note_names_the_ipsw_built_base() {
+        let ipsw = golden_base_note(27);
         assert!(ipsw.starts_with("testanyware-base-macos-27, built from Apple's IPSW"), "{ipsw}");
     }
 

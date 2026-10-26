@@ -136,9 +136,11 @@ testanyware input click <x> <y> [--button <button>] [--count <count>] [--window 
 - `-b, --button <button>` — `left`, `right`, `middle`. Default: `left`.
 - `-c, --count <count>` — Click count (1 = single, 2 = double). Default: `1`.
 - `--window <window>` — Window name for relative coordinates. **Caveat on
-  macOS Tahoe:** AX-reported window origin includes the drop-shadow inset
-  (~40 px), so clicks land below intent. Prefer screen-absolute coords
-  from `testanyware screenshot` when precision matters.
+  macOS guests:** the CLI subtracts a 40 px top inset from the AX window
+  origin, a value measured on macOS 26. On macOS 27 the AX origin is the
+  visible top, so set `TESTANYWARE_WINDOW_TOP_INSET=0`. Prefer
+  screen-absolute coords from `testanyware screenshot` when precision
+  matters.
 
 ### `testanyware input mouse-down`
 
@@ -429,8 +431,7 @@ testanyware vm start [--platform <platform>] [--base <base>] [--id <id>] [--disp
 
 - `--platform <platform>` — `macos`, `linux`, or `windows`. Default: `macos`.
 - `--base <base>` — Base image to clone from. Default: platform-specific
-  golden image. For macOS it is `testanyware-golden-macos-27`. Pass
-  `testanyware-golden-macos-tahoe` for the macOS 26 golden.
+  golden image. For macOS it is `testanyware-golden-macos-27`.
 - `--id <id>` — VM instance id. Default: `testanyware-<hex8>`.
 - `--display <display>` — Display resolution (e.g. `1920x1080`).
 - `--viewer` — Open a VNC viewer after boot.

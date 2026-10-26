@@ -71,15 +71,13 @@ A pre-built per-platform VM disk image (`testanyware-golden-<platform>-...`)
 that `vm start` clones to spawn a fresh instance.
 
 **Base VM** (macOS golden creation):
-The stopped tart VM a macOS *Golden image* is built from. For a release Cirrus
-Labs publishes (`tahoe`, `sequoia`, `sonoma`) it is their **vanilla** image,
-cloned as-is. For a release that Cirrus Labs does not publish (`--version 27`,
-the default), TestAnyware builds it once from Apple's IPSW as
-`testanyware-base-macos-<major>`.
+The stopped tart VM a macOS *Golden image* is built from. It exists for macOS 27
+or a later major (`--version 27`, the default). TestAnyware builds it once from
+Apple's IPSW as `testanyware-base-macos-<major>`.
 
 The IPSW build runs `tart create --from-ipsw`, drives Setup Assistant over RFB +
-OCR and enables Remote Login. Then it gives the VM the same first-contact state
-that a vanilla image has: an `admin`/`admin` account, passwordless `sudo`,
+OCR and enables Remote Login. Then it gives the VM the first-contact state that
+golden creation needs: an `admin`/`admin` account, passwordless `sudo`,
 auto-login and no display sleep. A Base VM is not a Golden image: it has no agent
 and no TCC grants.
 _Avoid_: "vanilla" for the IPSW-built one (vanilla is Cirrus's image).
@@ -211,7 +209,7 @@ too).
 
 **Autounattend provisioning** (Windows golden creation):
 How the **Windows** Golden image is built — structurally unlike the macOS one.
-macOS *clones a pre-built vanilla image* and provisions a running system over
+macOS *clones a Base VM* and provisions a running system over
 SSH (ADR-0007 `russh`). Windows instead boots a **blank disk from a Microsoft
 evaluation ISO** alongside an **autounattend USB** and lets Windows Setup run a
 fully **unattended install**. The answer file `autounattend.xml` partitions the

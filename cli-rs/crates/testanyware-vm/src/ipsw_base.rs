@@ -1,13 +1,11 @@
-//! A macOS base VM built from Apple's IPSW — the stand-in for a Cirrus Labs
-//! *vanilla* image when none is published for a macOS release (grove leaf
-//! `ipsw-base-vm-k14`). **macOS-host only**, like `tart`/`golden`.
+//! A macOS base VM built from Apple's IPSW (grove leaf `ipsw-base-vm-k14`).
+//! **macOS-host only**, like `tart`/`golden`.
 //!
 //! Golden creation ([`crate::golden::provision_boot1`]) clones a base VM into a
 //! throwaway setup VM and provisions it over SSH as `admin`/`admin`
-//! ([`crate::golden::VANILLA_USER`] / [`crate::golden::VANILLA_PASS`]). Cirrus
-//! publishes such a base for each release it supports, with the account made
-//! and Remote Login on. For a release it does not (macOS 27 at the time of
-//! writing) this module makes the equivalent itself:
+//! ([`crate::golden::VANILLA_USER`] / [`crate::golden::VANILLA_PASS`]), with the
+//! account made and Remote Login on. This module makes that base itself, for
+//! every macOS guest:
 //!
 //! 1. resolve the IPSW for a macOS major from Apple's catalogue, download it
 //!    into the cache (resumable);
@@ -22,17 +20,15 @@
 //!
 //! ## The `--version` selector
 //!
-//! `vm create-golden --platform macos --version <v>` names either a Cirrus
-//! vanilla tag (`tahoe`, `sequoia`, `sonoma`) or a macOS **major number**
-//! (`27`). [`base_source`] decides which by shape: all digits means "build it
-//! from the IPSW", anything else is a Cirrus tag. The existing tags are never
-//! numeric, so the tahoe/sequoia/sonoma path is unchanged.
+//! `vm create-golden --platform macos --version <v>` names a macOS **major
+//! number** of 27 or later (`27`). [`macos_major`] parses it and refuses
+//! anything else, so every macOS golden is built from the IPSW.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::error::VmError;
-pub use crate::base_source::{base_source, base_vm_name, BaseSource};
+pub use crate::base_source::{base_vm_name, macos_major};
 use crate::paths::VmPaths;
 
 /// One macOS restore image listed in Apple's catalogue.
@@ -210,7 +206,7 @@ pub fn resolve_release(major: u32) -> Result<IpswRelease, VmError> {
     select_ipsw(&releases, major).cloned().ok_or_else(|| VmError::GoldenCreateFailed {
         detail: format!(
             "Apple's IPSW catalogue lists no macOS {major} restore image (it lists: {}). \
-             Use `--version tahoe` (a Cirrus Labs vanilla image) or another macOS major.",
+             Use a macOS major that the catalogue lists.",
             releases.iter().map(|r| r.version.as_str()).collect::<Vec<_>>().join(", ")
         ),
     })

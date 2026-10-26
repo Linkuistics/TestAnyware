@@ -4,12 +4,15 @@
 //! plus the `windowOffset(connection:spec:windowFilter:)` helper from
 //! `cli/Sources/testanyware/InputCommand.swift`.
 //!
-//! On macOS Tahoe, the `kAXPositionAttribute` for an `AXWindow` includes
+//! On macOS 26, the `kAXPositionAttribute` for an `AXWindow` included
 //! the structural drop-shadow inset, so taking the AX origin verbatim
-//! makes every `--window`-relative click land ~40 px below the intended
-//! target. Subtracting `defaultMacosTopInset` from the y origin restores
-//! intent. `TESTANYWARE_WINDOW_TOP_INSET=<int>` overrides the constant
-//! for tuning across other macOS versions or window subroles.
+//! made every `--window`-relative click land ~40 px below the intended
+//! target. Subtracting `DEFAULT_MACOS_TOP_INSET` from the y origin
+//! restored intent. macOS 27 reports the visible top of the window
+//! (checked on 2026-10-26 with a standard window and a Finder window), so
+//! the default puts a click 40 px above the target there.
+//! `TESTANYWARE_WINDOW_TOP_INSET=<int>` overrides the constant, and `0`
+//! is the value for macOS 27.
 
 use serde_json::json;
 use testanyware_agent_client::AgentClient;

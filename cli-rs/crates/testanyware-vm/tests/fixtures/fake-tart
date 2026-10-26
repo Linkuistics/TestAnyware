@@ -40,7 +40,7 @@ case "$cmd" in
       first=0
       printf '{"Name":"%s","State":"%s"}' "$1" "$2"
     }
-    for golden in testanyware-golden-macos-27 testanyware-golden-linux-24.04; do emit "$golden" stopped; done
+    for golden in testanyware-golden-macos-27 testanyware-golden-linux-24.04 testanyware-base-macos-27; do emit "$golden" stopped; done
     for f in "$STATE"/*.cloned; do
       [ -e "$f" ] || continue
       name="$(basename "$f" .cloned)"
