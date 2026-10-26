@@ -61,3 +61,44 @@ before any code of the input path changes.
 - Both macOS guest slots may be in use. Start the guest with `vm start --wait`
   (ADR-0022).
 - Do not fix the fault here. `input-delivery-k3` fixes it.
+
+## Decisions (running log)
+
+**The fixture is a Swift window that the script builds on the host.** A small
+AppKit program (`scripts/fixtures/input-fixture.swift`) holds a text field and a
+scroll view of 40 rows with a legacy scroll bar. The script compiles it with
+`swiftc`, uploads it with `file upload`, and starts it with `exec`. The golden
+needs no change, and no other project is involved. The agent reads the position
+of `row-20` and of the thumb (`AXValueIndicator`) from `agent snapshot --mode
+full --json`.
+
+**The oracle is `agent set-value`.** It changes the field through the
+accessibility surface, with no VNC. `agent snapshot` reads the new value. The
+oracle passed in every run. `agent focus` is not in the oracle, because it leaves
+the field focused and then the click of check 1 would prove nothing.
+
+**The run goes on after a failed step.** A step that has no effect is recorded
+and the script goes on. So one run on 2.6.0 names all four failed commands. A
+failed precondition, such as the oracle, still stops the run.
+
+**The reproduction ran on the development bundle, not on the installed 2.6.0
+app.** The installed app reported its Local Network grant as `denied` that
+evening, and it had reported `allowed` at 16:45. So it could not reach any
+guest, and the script names the remedy. The development bundle is built from this
+tree, and no file of the input path differs from v2.6.0. It failed all four
+steps: `input click`, `input type`, `input scroll` and `input drag`. The run on
+the installed release is for `release-k5`, after a person allows the app.
+
+**The checks can pass.** A stand-in CLI sent the four input commands through the
+bare client with an ordinary close. The same script then passed both checks. So
+a failure of the checks is a failure of input.
+
+**The cause is the reset of the guest connection, at the speed of an `input`
+command.** The control sent the same events straight to tart. With an ordinary
+close, or with a reset after a pause, every event arrived. With all events in one
+write and a reset at once, none arrived (3 of 3 runs). The research note holds the
+table. The lead of this leaf held, and no build of v2.4.0 was needed.
+
+**A `SetEncodings` without DesktopSize stops the guest.** tart logs a FIXME and
+the guest ends. It is not the cause. The control sends the list of the TestAnyware
+client with `--like-cli`.

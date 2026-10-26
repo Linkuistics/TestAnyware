@@ -1508,7 +1508,7 @@ The human agreed these three seams in `plan-k1`.
   directory. It writes when no entry is there, and it never replaces a file or
   a dangling symlink. The protocol seam's test that a test-mode run reads no
   file of the user also proves that such a run writes none.
-- **The existing Taskfile live checks**, for six runs on this Mac:
+- **The existing Taskfile live checks**, for seven runs on this Mac:
   - The herdr acceptance run. From a herdr session, a macOS guest starts. An
     agent, screen, input and file command each act on it, and it stops. Each
     step goes through the app.
@@ -1531,6 +1531,13 @@ The human agreed these three seams in `plan-k1`.
     app holds a slot, and `vm slots` names it as external. A golden creation
     waits for its slot, and Ctrl-C ends the wait and changes nothing.
     `queue:live` runs it, and it takes `APP=<bundle>` for a candidate.
+  - The input commands. A fixture window in a macOS 27 guest holds a text field
+    and a scroll view taller than its window. `input click` must focus the field,
+    and `input type` must put text in it. `input scroll` and then `input drag` of
+    the scroll-bar thumb must each move one element of the view. Each check reads
+    its effect through `agent snapshot`, never the exit status of the command, and
+    an oracle with `agent set-value` first shows that the agent reads the field.
+    `input:live` runs it, and it takes `APP=<bundle>` for a candidate.
 
 ## Open risks
 

@@ -131,6 +131,15 @@ tasks:
         [ -n "$app" ] || app=$(scripts/build-app.sh dev | tail -n 1)
         TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/herdr-acceptance-live.sh "$app"
 
+  input:live:
+    desc: 'The live checks of the input commands on this Mac, with a real macOS 27 guest (task input:live [APP=<bundle>]). It builds a small fixture window with swiftc, uploads it to the guest, and reads each effect through `agent snapshot`, never the exit status. Step 0, the oracle: `agent set-value` changes the field and the snapshot reads it. Check 1: `input click` focuses the text field and `input type` puts text in it. Check 2: `input scroll` and then `input drag` of the scroll-bar thumb each move one element of a view taller than its window. Prints PASS or FAIL for each check, names each failed step, runs every step, and exits non-zero when any step failed. APP defaults to the development bundle, and the release candidate passes its own bundle. Starts the guest with `vm start --wait`, so a taken slot makes it wait. Needs the golden image testanyware-golden-macos-27. A person first allows the Local Network alert for the app, once. Starts the bundle when no app answers, quits only that one, and stops its guest on every exit (KEEP_GUEST=1 keeps it). About five minutes'
+    deps: [cli:build]
+    cmds:
+      - |
+        app={{.APP | default "" | shellQuote}}
+        [ -n "$app" ] || app=$(scripts/build-app.sh dev | tail -n 1)
+        TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/input-live.sh "$app"
+
   queue:live:
     desc: 'The live checks of the admission queue on this Mac, with real macOS guests (task queue:live [APP=<bundle>]). Check 1: three `vm start --wait` run from three shells, the third waits at place 1, and a stop of the first admits it. Check 2: a `tart run` outside the app holds a slot and `vm slots` names it external, a start waits for the second slot only, and a second start waits until the outside guest ends. Check 3: two guests hold both slots, `vm create-golden` waits and shows a place, and Ctrl-C ends the wait and changes nothing (no golden is built). Prints PASS or FAIL for each check and exits non-zero at the first FAIL. APP defaults to the development bundle, and the release candidate passes its own bundle. Needs both macOS guest slots free and refuses, naming the guest, when a guest that it did not start runs. It never stops such a guest. Needs the golden image testanyware-golden-macos-27 (BASE=<image> for another), an SSH key and the macOS agent binary for the fast checks of golden creation. A person first allows the Local Network alert for the app, once. Starts the bundle when no app answers, quits only that one, and stops its guests on every exit. About ten minutes'
     deps: [cli:build]
@@ -182,7 +191,7 @@ tasks:
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
-      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh scripts/app-stream-end-live.sh scripts/herdr-acceptance-live.sh scripts/queue-live.sh scripts/app-adoption-live.sh scripts/upgrade-identity-live.sh
+      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh scripts/app-stream-end-live.sh scripts/herdr-acceptance-live.sh scripts/queue-live.sh scripts/input-live.sh scripts/app-adoption-live.sh scripts/upgrade-identity-live.sh
     cmds:
       - shellcheck -x {{.SCRIPTS}}
       - shfmt -i 2 -ci -d {{.SCRIPTS}}

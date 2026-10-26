@@ -7,7 +7,14 @@ at the cause that `input-live-k2` found.
 
 ## Context
 
-- The research note that `input-live-k2` writes. That leaf adds its path here.
+- The research note `docs/research/tart-vnc-reset-drops-input-macos-27.md`. It
+  holds the reproduction and the control. A reset of the guest connection right
+  after the input makes tart discard the input. The same input through a bare
+  client with an ordinary close reaches the guest. A pause of 10 ms before the
+  reset kept the input in four runs.
+- `task input:live` is the acceptance test of the fix. It fails today with four
+  failed steps: click, type, scroll and drag. `scripts/tart-vnc-input-control.py`
+  is the bare client. Its `--burst --close reset` option copies the app.
 - The spec testanyware-app, section "Guest traffic on a macOS host", states how
   a stream ends and when the app resets the guest connection. The reset exists
   because the VNC server of tart holds a connection that the app closed in the
