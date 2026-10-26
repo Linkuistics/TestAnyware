@@ -1508,7 +1508,7 @@ The human agreed these three seams in `plan-k1`.
   directory. It writes when no entry is there, and it never replaces a file or
   a dangling symlink. The protocol seam's test that a test-mode run reads no
   file of the user also proves that such a run writes none.
-- **The existing Taskfile live checks**, for five runs on this Mac:
+- **The existing Taskfile live checks**, for six runs on this Mac:
   - The herdr acceptance run. From a herdr session, a macOS guest starts. An
     agent, screen, input and file command each act on it, and it stops. Each
     step goes through the app.
@@ -1526,6 +1526,11 @@ The human agreed these three seams in `plan-k1`.
   - The Linux host harness passes from a session that has no Local Network
     access of its own, with the app allowed. `release:linux-harness` runs it on
     a candidate.
+  - The admission queue. Three `vm start --wait` run from three shells, and the
+    third waits until a stop of the first admits it. A `tart run` outside the
+    app holds a slot, and `vm slots` names it as external. A golden creation
+    waits for its slot, and Ctrl-C ends the wait and changes nothing.
+    `queue:live` runs it, and it takes `APP=<bundle>` for a candidate.
 
 ## Open risks
 

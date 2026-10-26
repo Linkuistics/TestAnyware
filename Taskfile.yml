@@ -131,6 +131,15 @@ tasks:
         [ -n "$app" ] || app=$(scripts/build-app.sh dev | tail -n 1)
         TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/herdr-acceptance-live.sh "$app"
 
+  queue:live:
+    desc: 'The live checks of the admission queue on this Mac, with real macOS guests (task queue:live [APP=<bundle>]). Check 1: three `vm start --wait` run from three shells, the third waits at place 1, and a stop of the first admits it. Check 2: a `tart run` outside the app holds a slot and `vm slots` names it external, a start waits for the second slot only, and a second start waits until the outside guest ends. Check 3: two guests hold both slots, `vm create-golden` waits and shows a place, and Ctrl-C ends the wait and changes nothing (no golden is built). Prints PASS or FAIL for each check and exits non-zero at the first FAIL. APP defaults to the development bundle, and the release candidate passes its own bundle. Needs both macOS guest slots free and refuses, naming the guest, when a guest that it did not start runs. It never stops such a guest. Needs the golden image testanyware-golden-macos-27 (BASE=<image> for another), an SSH key and the macOS agent binary for the fast checks of golden creation. A person first allows the Local Network alert for the app, once. Starts the bundle when no app answers, quits only that one, and stops its guests on every exit. About ten minutes'
+    deps: [cli:build]
+    cmds:
+      - |
+        app={{.APP | default "" | shellQuote}}
+        [ -n "$app" ] || app=$(scripts/build-app.sh dev | tail -n 1)
+        TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/queue-live.sh "$app"
+
   app:adoption-live:
     desc: 'Live check on this Mac: VMs outlive the app, and the app adopts them. Starts a macOS guest through the app, quits the app and shows the guest runs on with the same processes, opens the app and shows it adopts the guest, and an agent and a screen command reach it. Then it removes the identity from the meta (a hand-made older meta) and shows the app adopts the guest as legacy and stops it by name. When an older Host CLI is at hand (OLD_TESTANYWARE_BIN, or the testanyware on PATH), it repeats the legacy case with a guest that CLI started. APP defaults to the development bundle (task app:adoption-live APP=<bundle>). A person first allows the Local Network alert for the app, once. Quits only the app it started, and stops its guests on every exit. About five minutes, one free macOS guest slot'
     deps: [cli:build]
@@ -173,7 +182,7 @@ tasks:
   scripts:check:
     desc: shellcheck and shfmt (-i 2 -ci) over the scripts the tasks here run
     vars:
-      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh scripts/app-stream-end-live.sh scripts/herdr-acceptance-live.sh scripts/app-adoption-live.sh scripts/upgrade-identity-live.sh
+      SCRIPTS: scripts/live-start-checks.sh scripts/qemu-tpm-check.sh scripts/windows-healthy-start.sh scripts/vnc-keeper-live.sh scripts/build-app.sh scripts/app-bundle-live.sh scripts/app-routing-live.sh scripts/app-stream-end-live.sh scripts/herdr-acceptance-live.sh scripts/queue-live.sh scripts/app-adoption-live.sh scripts/upgrade-identity-live.sh
     cmds:
       - shellcheck -x {{.SCRIPTS}}
       - shfmt -i 2 -ci -d {{.SCRIPTS}}
