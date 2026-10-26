@@ -1257,6 +1257,13 @@ spec, and each one grows.
   run from separate shells. A `tart run` outside the app counts as occupancy,
   and a golden creation waits for its slot.
 
+  Release 2.6.0 carries the queue. The tag `v2.6.0` names the commit `3a82b78d`.
+  The GitHub release and `linkuistics/taps` hold the artifacts of that build.
+  `task queue:live` passed all three checks twice on this Mac. The first run used
+  the bundle and the Host CLI of the candidate. The second run used the installed
+  release, after `brew upgrade` of the formula and of the cask. The herdr
+  acceptance run and the Linux host harness passed on the candidate.
+
 ## Open risks
 
 - **A stuck count of the framework.** On macOS 26.x the count of the framework

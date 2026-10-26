@@ -119,3 +119,6 @@ see, and sends the start back to the head.**
   `quitting`. The client loses its place.
 - The protocol of the app gains version 2, for `vm slots` and for the hold of
   golden creation.
+- Release 2.6.0 shipped this decision. On 2026-10-26 the live checks of the queue
+  passed on the candidate and again on the installed release, on this Mac. The
+  spec records the run (`docs/specs/admission-queue.md`, "Test seams").
