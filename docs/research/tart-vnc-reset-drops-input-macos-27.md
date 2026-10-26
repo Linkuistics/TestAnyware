@@ -105,6 +105,23 @@ trigger this. The control sends the list of the TestAnyware client with `--like-
   discard unread input when it sees a reset, as tart does.
 - The live check `task input:live` is the acceptance test, and it needs the fix to pass.
 
+## The fix, and how it was checked
+
+Leaf `input-delivery-k3` fixed the fault in the RFB client of the CLI. After the last event of
+an `input` command, the client sends a one-pixel FramebufferUpdateRequest that is not
+incremental, and it waits for the update. The app keeps the reset of 2.5.0 and guesses no pause.
+
+- `task input:live` passed on the development bundle: `input click` focused the field, `input
+  type` typed the text, `input scroll` moved `row-20` from y=986 to y=936, and `input drag` of
+  the thumb moved it to y=759. It failed all four steps before the fix.
+- `task app:stream-end-live` passed: the app held 33 descriptors after one command and 32 after
+  151, and tart held one connection in `CLOSE_WAIT` after one command and after 151.
+- The routing seam has a guest that reads late and drops unread input at a reset. Its two tests
+  failed before the fix, and they pass after it.
+
+The runs did not show that tart sends an update that we did not ask for. Such an update would
+end the wait early. The live check passed in one run, so it gives no rate.
+
 ## Not measured
 
 - Linux and Windows guests. They do not use tart's VNC server in the same way, and the issue

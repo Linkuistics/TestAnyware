@@ -9,7 +9,7 @@ use serde_json::json;
 use testanyware_rfb::{InputError, KeymapError, Platform, RfbError};
 
 use crate::commands::window::resolve_window_offset;
-use crate::commands::{exit_vnc_connect_error, VncConnection};
+use crate::commands::{confirm_input_read, exit_vnc_connect_error, VncConnection};
 use crate::output::{print_error, print_success, OutputMode};
 use crate::resolve::{
     resolve_platform_with_env, resolve_vnc_endpoint, ConnectionOptions, EnvProvider,
@@ -76,6 +76,7 @@ pub async fn run_key(
     if let Err(err) = conn.press_key(&key, &mod_refs, platform).await {
         exit_input_error(err, mode);
     }
+    confirm_input_read(&mut conn).await;
     emit_text_or_json(
         mode,
         || {
@@ -98,6 +99,7 @@ pub async fn run_key_down(opts: ConnectionOptions, key: String, mode: OutputMode
     if let Err(err) = conn.key_down_named(&key).await {
         exit_input_error(err, mode);
     }
+    confirm_input_read(&mut conn).await;
     emit_text_or_json(mode, || println!("Key down: {key}"), json!({ "key": key }));
 }
 
@@ -110,6 +112,7 @@ pub async fn run_key_up(opts: ConnectionOptions, key: String, mode: OutputMode, 
     if let Err(err) = conn.key_up_named(&key).await {
         exit_input_error(err, mode);
     }
+    confirm_input_read(&mut conn).await;
     emit_text_or_json(mode, || println!("Key up: {key}"), json!({ "key": key }));
 }
 
@@ -126,6 +129,7 @@ pub async fn run_type(opts: ConnectionOptions, text: String, mode: OutputMode, d
     if let Err(err) = conn.type_text(&text).await {
         exit_input_error(err, mode);
     }
+    confirm_input_read(&mut conn).await;
     emit_text_or_json(
         mode,
         || println!("Typed: {text}"),
@@ -163,6 +167,7 @@ pub async fn run_click(
     if let Err(err) = conn.click(x, y, &button, count).await {
         exit_input_error(err, mode);
     }
+    confirm_input_read(&mut conn).await;
     emit_text_or_json(
         mode,
         || println!("Clicked at ({x}, {y}) button={button} count={count}"),
@@ -196,6 +201,7 @@ pub async fn run_mouse_down(
     if let Err(err) = conn.mouse_down(x, y, &button).await {
         exit_input_error(err, mode);
     }
+    confirm_input_read(&mut conn).await;
     emit_text_or_json(
         mode,
         || println!("Mouse down at ({x}, {y}) button={button}"),
@@ -229,6 +235,7 @@ pub async fn run_mouse_up(
     if let Err(err) = conn.mouse_up(x, y, &button).await {
         exit_input_error(err, mode);
     }
+    confirm_input_read(&mut conn).await;
     emit_text_or_json(
         mode,
         || println!("Mouse up at ({x}, {y}) button={button}"),
@@ -257,6 +264,7 @@ pub async fn run_move(
     if let Err(err) = conn.mouse_move(x, y).await {
         exit_input_error(err, mode);
     }
+    confirm_input_read(&mut conn).await;
     emit_text_or_json(
         mode,
         || println!("Mouse moved to ({x}, {y})"),
@@ -292,6 +300,7 @@ pub async fn run_scroll(
     if let Err(err) = conn.scroll(x, y, dx, dy).await {
         exit_input_error(err, mode);
     }
+    confirm_input_read(&mut conn).await;
     emit_text_or_json(
         mode,
         || println!("Scrolled at ({x}, {y}) dx={dx} dy={dy}"),
@@ -348,6 +357,7 @@ pub async fn run_drag(
     if let Err(err) = conn.drag(from_x, from_y, to_x, to_y, &button, steps).await {
         exit_input_error(err, mode);
     }
+    confirm_input_read(&mut conn).await;
     emit_text_or_json(
         mode,
         || println!("Dragged from ({from_x},{from_y}) to ({to_x},{to_y})"),

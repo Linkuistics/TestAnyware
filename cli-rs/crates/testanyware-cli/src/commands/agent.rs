@@ -165,6 +165,7 @@ async fn open_menu_path(
         if let Err(err) = conn.click(x, y, "left", 1).await {
             exit_input_error(err, mode);
         }
+        crate::commands::confirm_input_read(&mut conn).await;
         // Brief settle for the menu-open animation so AppKit populates the AX
         // tree before the next segment's snapshot (matches Swift's 400 ms).
         tokio::time::sleep(Duration::from_millis(400)).await;

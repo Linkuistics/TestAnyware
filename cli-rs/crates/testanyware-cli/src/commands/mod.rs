@@ -21,6 +21,8 @@ pub mod viewer;
 pub mod vm;
 pub mod window;
 
+use std::time::Duration;
+
 use testanyware_agent_client::{AgentClient, AgentConfig, AgentError, ConnectorFailure};
 use testanyware_app_protocol::{AppError, StreamKind};
 use testanyware_rfb::{RfbConnection, RfbError};
@@ -111,6 +113,29 @@ pub(crate) async fn connect_vnc(endpoint: &VncEndpoint) -> Result<VncConnection,
     .await?;
     apply_logical_target(&mut conn, resolved);
     Ok(conn)
+}
+
+/// How long an input command waits for the guest to show that it read the input.
+const INPUT_CONFIRM_LIMIT: Duration = Duration::from_secs(10);
+
+/// Wait until the guest has read the input that a command sent, before the command closes the
+/// connection. The app resets the guest connection when its client has gone, and tart's VNC
+/// server drops the input that a reset overtakes (issue 12). A guest that gives no answer, or
+/// a connection that ends first, leaves the command as it was: it prints a warning on stderr
+/// and keeps its exit code, because the input was sent.
+pub(crate) async fn confirm_input_read(conn: &mut VncConnection) {
+    match conn.confirm_input_read(INPUT_CONFIRM_LIMIT).await {
+        Ok(true) => {}
+        Ok(false) => eprintln!(
+            "warning: the guest gave no sign within {} s that it read the input; \
+             the input may not have reached it.",
+            INPUT_CONFIRM_LIMIT.as_secs()
+        ),
+        Err(err) => eprintln!(
+            "warning: the guest connection ended before the guest showed that it read the \
+             input ({err}); the input may not have reached it."
+        ),
+    }
 }
 
 /// Apply the resolved HiDPI logical target to an already-open connection

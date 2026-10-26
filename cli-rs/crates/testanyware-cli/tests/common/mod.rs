@@ -663,17 +663,32 @@ struct Held {
 
 impl FakeRfb {
     pub fn start(width: u16, height: u16, password: Option<&str>) -> Self {
-        Self::spawn(width, height, password, false)
+        Self::spawn(width, height, password, false, None)
+    }
+
+    /// A server that reads input as late as tart does. It reads one message in each `lag`, and
+    /// when a reset has reached its connection by then, it drops the input that it has not
+    /// read. The research note `tart-vnc-reset-drops-input-macos-27` measured that tart does
+    /// so. The plain server reads each byte at once, so it hides a client that closes before
+    /// the server has read its input.
+    pub fn start_reading_late(width: u16, height: u16, lag: Duration) -> Self {
+        Self::spawn(width, height, None, false, Some(lag))
     }
 
     /// A server like tart's VNC server. When a client ends its half of the connection, it reads
     /// the end (or the reset that follows it), keeps the connection open and sends nothing more. It closes only when the test
     /// ends. The plain server closes at once, so it hides a relay that waits for the guest.
     pub fn start_holding(width: u16, height: u16) -> Self {
-        Self::spawn(width, height, None, true)
+        Self::spawn(width, height, None, true, None)
     }
 
-    fn spawn(width: u16, height: u16, password: Option<&str>, hold: bool) -> Self {
+    fn spawn(
+        width: u16,
+        height: u16,
+        password: Option<&str>,
+        hold: bool,
+        lag: Option<Duration>,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind the fake RFB server");
         let addr = listener.local_addr().unwrap();
         let accepted = Arc::new(AtomicUsize::new(0));
@@ -689,7 +704,7 @@ impl FakeRfb {
                 let (log, secret, keep) = (Arc::clone(&log), secret.clone(), Arc::clone(&keep));
                 std::thread::spawn(move || {
                     let held = hold.then_some(&*keep);
-                    let _ = serve_rfb(conn, width, height, secret.as_deref(), &log, held);
+                    let _ = serve_rfb(conn, width, height, secret.as_deref(), &log, held, lag);
                 });
             }
         });
@@ -768,6 +783,7 @@ fn serve_rfb(
     password: Option<&str>,
     log: &Mutex<Vec<RfbEvent>>,
     hold: Option<&Held>,
+    lag: Option<Duration>,
 ) -> std::io::Result<()> {
     conn.set_read_timeout(Some(Duration::from_secs(10)))?;
     conn.write_all(b"RFB 003.008\n")?;
@@ -821,6 +837,14 @@ fn serve_rfb(
         conn.read_exact(&mut sink)
     };
     loop {
+        if let Some(lag) = lag {
+            std::thread::sleep(lag);
+            // A reset that has arrived by now makes the server drop all that it has not read.
+            if matches!(conn.take_error(), Ok(Some(e)) if e.kind() == std::io::ErrorKind::ConnectionReset)
+            {
+                return Ok(());
+            }
+        }
         // The app may reset the connection right after it passes the client's end on. A
         // holding guest then reads the reset in place of the end, and counts either one.
         let read = match conn.read(&mut byte) {

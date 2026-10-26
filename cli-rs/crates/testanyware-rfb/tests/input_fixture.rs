@@ -8,6 +8,7 @@
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
@@ -17,6 +18,8 @@ use testanyware_rfb::{proto::PixelFormat, Platform, RfbConnection};
 struct ScriptedTransport {
     server_to_client: io::Cursor<Vec<u8>>,
     client_to_server: Vec<u8>,
+    /// A server that goes silent at the end of its script, in place of one that closes.
+    silent_at_end: bool,
 }
 
 impl ScriptedTransport {
@@ -24,7 +27,12 @@ impl ScriptedTransport {
         Self {
             server_to_client: io::Cursor::new(server_script),
             client_to_server: Vec::new(),
+            silent_at_end: false,
         }
+    }
+    fn silent_at_end(mut self) -> Self {
+        self.silent_at_end = true;
+        self
     }
     fn writes(&self) -> &[u8] {
         &self.client_to_server
@@ -40,7 +48,12 @@ impl AsyncRead for ScriptedTransport {
         let pos = self.server_to_client.position() as usize;
         let inner = self.server_to_client.get_ref();
         if pos >= inner.len() {
-            return Poll::Ready(Ok(()));
+            // The timer of the caller wakes the task, so no waker is kept here.
+            return if self.silent_at_end {
+                Poll::Pending
+            } else {
+                Poll::Ready(Ok(()))
+            };
         }
         let n = (inner.len() - pos).min(buf.remaining());
         buf.put_slice(&inner[pos..pos + n]);
@@ -351,4 +364,65 @@ async fn pointer_event_unscaled_when_no_logical_target() {
     let msg = &transport.writes()[HANDSHAKE_WRITE_LEN..];
     assert_eq!(&msg[2..4], &50u16.to_be_bytes());
     assert_eq!(&msg[4..6], &60u16.to_be_bytes());
+}
+
+/// A FramebufferUpdate with no rectangle.
+const EMPTY_UPDATE: [u8; 4] = [0, 0, 0, 0];
+const BELL: [u8; 1] = [2];
+
+#[tokio::test]
+async fn confirming_input_sends_a_one_pixel_request_that_is_not_incremental() {
+    let mut script = server_no_auth_script(800, 600, b"vm");
+    script.extend_from_slice(&EMPTY_UPDATE);
+    let mut transport = ScriptedTransport::new(script);
+    let mut conn = RfbConnection::handshake(&mut transport, None).await.unwrap();
+    conn.pointer_event(0, 5, 6).await.unwrap();
+    let confirmed = conn
+        .confirm_input_read(Duration::from_secs(5))
+        .await
+        .unwrap();
+    assert!(confirmed);
+
+    // The request follows the input event, so the answer shows that the server read the event.
+    let msg = &transport.writes()[HANDSHAKE_WRITE_LEN..];
+    assert_eq!(msg.len(), 6 + 10);
+    assert_eq!(msg[0], 5, "the PointerEvent comes first");
+    assert_eq!(msg[6], 3, "FramebufferUpdateRequest");
+    assert_eq!(msg[7], 0, "not incremental");
+    assert_eq!(&msg[8..12], &[0, 0, 0, 0], "x and y");
+    assert_eq!(&msg[12..16], &[0, 1, 0, 1], "one pixel");
+}
+
+#[tokio::test]
+async fn confirming_input_reads_past_other_server_messages_to_the_update() {
+    let mut script = server_no_auth_script(800, 600, b"vm");
+    script.extend_from_slice(&BELL);
+    script.extend_from_slice(&EMPTY_UPDATE);
+    let mut transport = ScriptedTransport::new(script);
+    let mut conn = RfbConnection::handshake(&mut transport, None).await.unwrap();
+    assert!(conn
+        .confirm_input_read(Duration::from_secs(5))
+        .await
+        .unwrap());
+}
+
+#[tokio::test]
+async fn confirming_input_reports_a_server_that_does_not_answer() {
+    let script = server_no_auth_script(800, 600, b"vm");
+    let mut transport = ScriptedTransport::new(script).silent_at_end();
+    let mut conn = RfbConnection::handshake(&mut transport, None).await.unwrap();
+    let confirmed = conn
+        .confirm_input_read(Duration::from_millis(50))
+        .await
+        .unwrap();
+    assert!(!confirmed);
+}
+
+#[tokio::test]
+async fn confirming_input_reports_a_server_that_closed() {
+    let script = server_no_auth_script(800, 600, b"vm");
+    let mut transport = ScriptedTransport::new(script);
+    let mut conn = RfbConnection::handshake(&mut transport, None).await.unwrap();
+    let result = conn.confirm_input_read(Duration::from_secs(5)).await;
+    assert!(matches!(result, Err(testanyware_rfb::RfbError::Io(_))), "{result:?}");
 }

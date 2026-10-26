@@ -495,10 +495,24 @@ directions:
 - A half-close passes through. The app tells it from a client that has gone by
   the state of the client's Unix socket. A client that ended its direction and
   still reads has not gone, and it gets the guest's answer. The client's bytes
-  reach the guest before the stream ends, even when the client closes at once.
+  reach the guest's connection before the stream ends, even when the client
+  closes at once.
 - When the client has gone, or a read or a write failed, the app resets the guest
   connection. tart's VNC server holds a connection that the app closed in the
   ordinary way in `CLOSE_WAIT` for about two minutes. A reset frees it at once.
+- The app does not wait for the guest to read the client's bytes. A guest that
+  reads late can drop the bytes that a reset overtakes, and tart's VNC server
+  does (issue 12, `docs/research/tart-vnc-reset-drops-input-macos-27.md`). So a
+  client that needs the guest to have read its last bytes waits for an answer
+  of the guest before it closes. The app stays a relay of unchanged bytes, and it
+  guesses no pause.
+- The RFB client of the Host CLI follows that rule. After the last event of an
+  `input` command, and of the menu click of `agent --open-menu`, it sends a
+  FramebufferUpdateRequest for one pixel that is not incremental. It then waits
+  for the FramebufferUpdate that answers it, because a server reads the messages
+  of a connection in order. A wait that gets no answer ends after 10 seconds, or
+  when the connection ends. The command then prints a warning on stderr and
+  keeps its exit code and its output, because it sent the input.
 - Each relay buffer has an upper bound.
 - The app sets no timeout of its own on an open stream. The Host CLI's own
   timeouts stay as they are.
@@ -1484,6 +1498,15 @@ The human agreed these three seams in `plan-k1`.
   end, as tart does. The test is `many_vnc_commands_leave_the_descriptors_of_the_app_flat`
   in `app-vnc-routing`. The app's descriptors stay flat, and the guest sees a
   reset on each connection.
+
+  It also covers the delivery of input. A synthetic RFB guest reads one message
+  in each 100 ms, as tart reads late, and it drops all that it has not read when
+  a reset has reached its connection by then. The real Host CLI runs `input
+  click` and `input type` through the real app against it. When the command
+  returns, the guest must hold every event. The tests are
+  `a_click_has_reached_a_guest_that_reads_late_when_the_command_returns` and
+  `typed_text_has_reached_a_guest_that_reads_late_when_the_command_returns` in
+  `app-vnc-routing`. Both fail when the client closes without the wait.
 - **The existing seams of pure functions and injected probes**, for decisions
   inside the app. These are adoption by identity, the skew decision and
   the Local Network diagnosis of a guest stream. They also include the grant

@@ -30,7 +30,10 @@ struct Fixture {
 impl Fixture {
     /// The fakes start first, and the app spawns once (see the rules in `common`).
     fn new(password: Option<&str>, logical: Option<(u32, u32)>) -> Self {
-        let rfb = FakeRfb::start(WIDTH, HEIGHT, password);
+        Self::with(FakeRfb::start(WIDTH, HEIGHT, password), logical)
+    }
+
+    fn with(rfb: FakeRfb, logical: Option<(u32, u32)>) -> Self {
         let app = TestApp::start();
         app.add_vnc_vm(VM, &rfb, logical);
         Fixture { rfb, app }
@@ -115,6 +118,63 @@ fn the_hidpi_logical_target_of_the_spec_still_applies() {
         }),
         "{events:?}"
     );
+}
+
+/// How late the guest of the next tests reads. The app resets the guest connection within a few
+/// milliseconds of the client's end, so a guest that reads this late sees the reset first.
+const LATE_READ: std::time::Duration = std::time::Duration::from_millis(100);
+
+/// The input events of a log, without the requests for a framebuffer update.
+fn input_events(events: Vec<RfbEvent>) -> Vec<RfbEvent> {
+    events
+        .into_iter()
+        .filter(|e| !matches!(e, RfbEvent::UpdateRequest { .. }))
+        .collect()
+}
+
+#[test]
+fn a_click_has_reached_a_guest_that_reads_late_when_the_command_returns() {
+    // Issue 12. tart's VNC server drops the input that a reset follows before it has read it
+    // (docs/research/tart-vnc-reset-drops-input-macos-27.md). The app resets the guest connection
+    // when the client has gone, so a command that closes at once loses its input.
+    let _lock = serial();
+    let fixture = Fixture::with(FakeRfb::start_reading_late(WIDTH, HEIGHT, LATE_READ), None);
+    let run = fixture.app.cli(&["input", "click", "10", "5", "--vm", VM]);
+    assert_eq!(run.code(), 0, "{}", run.err());
+    // The log is read at once. The guarantee is that the guest has the input when the command
+    // returns, not that it has it a moment later.
+    assert_eq!(
+        input_events(fixture.rfb.events()),
+        vec![
+            RfbEvent::Pointer {
+                buttons: 1,
+                x: 10,
+                y: 5
+            },
+            RfbEvent::Pointer {
+                buttons: 0,
+                x: 10,
+                y: 5
+            },
+        ]
+    );
+}
+
+#[test]
+fn typed_text_has_reached_a_guest_that_reads_late_when_the_command_returns() {
+    let _lock = serial();
+    let fixture = Fixture::with(FakeRfb::start_reading_late(WIDTH, HEIGHT, LATE_READ), None);
+    let run = fixture.app.cli(&["input", "type", "ab", "--vm", VM]);
+    assert_eq!(run.code(), 0, "{}", run.err());
+    let keys: Vec<(bool, u32)> = input_events(fixture.rfb.events())
+        .into_iter()
+        .filter_map(|e| match e {
+            RfbEvent::Key { down, keysym } => Some((down, keysym)),
+            _ => None,
+        })
+        .collect();
+    let (a, b) = ('a' as u32, 'b' as u32);
+    assert_eq!(keys, vec![(true, a), (false, a), (true, b), (false, b)]);
 }
 
 #[test]

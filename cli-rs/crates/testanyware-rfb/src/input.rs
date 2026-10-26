@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::connection::RfbConnection;
+use crate::connection::{RfbConnection, ServerEvent};
 use crate::error::RfbError;
 use crate::keymap::{
     decompose_scroll, key_for_name, mouse_button_bit_for_name, resolve_modifiers,
@@ -192,6 +192,38 @@ impl<T: AsyncRead + AsyncWrite + Unpin> RfbConnection<T> {
         }
         self.pointer_event(0, to_x, to_y).await?;
         Ok(())
+    }
+
+    /// Wait until the server has read the input that this connection sent.
+    ///
+    /// RFB has no acknowledgement for a `KeyEvent` or a `PointerEvent`. A client that closes
+    /// right after its last event cannot tell whether the server read it. A server that sees a
+    /// reset before it reads can drop the input: tart's VNC server does, and the TestAnyware
+    /// app resets the guest connection when its client has gone (spec: "Guest traffic on a
+    /// macOS host", research note `tart-vnc-reset-drops-input-macos-27`).
+    ///
+    /// A server reads the messages of a connection in order, and it answers a
+    /// `FramebufferUpdateRequest` that is not incremental with an update. So this call sends
+    /// such a request for one pixel and reads server messages until the update arrives. That
+    /// update shows that the server read all that came before the request.
+    ///
+    /// It returns `Ok(true)` at the update, and `Ok(false)` when none came within `limit`.
+    /// After `Ok(false)` the connection is not fit for more reads, because the wait can stop
+    /// in the middle of a message. The caller closes it.
+    pub async fn confirm_input_read(&mut self, limit: Duration) -> Result<bool, RfbError> {
+        self.request_framebuffer_update(false, 0, 0, 1, 1).await?;
+        let answered = tokio::time::timeout(limit, async {
+            loop {
+                if let ServerEvent::FramebufferUpdated { .. } = self.next_message().await? {
+                    return Ok::<(), RfbError>(());
+                }
+            }
+        })
+        .await;
+        match answered {
+            Ok(result) => result.map(|()| true),
+            Err(_elapsed) => Ok(false),
+        }
     }
 
     // ---- internal helpers -------------------------------------------------
