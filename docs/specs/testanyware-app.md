@@ -1562,6 +1562,16 @@ The human agreed these three seams in `plan-k1`.
     an oracle with `agent set-value` first shows that the agent reads the field.
     `input:live` runs it, and it takes `APP=<bundle>` for a candidate.
 
+  Release 2.7.0 carries the change for GitHub issue 12. The tag `v2.7.0` names
+  the commit `65bc05c9`. The GitHub release and `linkuistics/taps` hold the
+  artifacts of that build.
+
+  `task input:live` passed both checks twice on this Mac. The first run used
+  the bundle and the Host CLI of the candidate. The second run used the
+  installed release, after `brew upgrade` of the formula and of the cask. The
+  checks `queue:live`, the herdr acceptance run and the Linux host harness
+  passed on the candidate too.
+
 ## Open risks
 
 - **An alert after an upgrade.** At one upgrade in three with a new UUID, macOS
