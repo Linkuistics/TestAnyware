@@ -377,6 +377,49 @@ against final-01, and passes 15,049 item checks over 3,466 distinct read subject
 It checks equal before/after hashes; it does not establish immutable publication
 or resolve the inspection/storage limitations.
 
+### Bounded inspection design
+
+The [inspection spec](../specs/diagnostic-process-inspection.md) selects one
+prestarted worker for helper creation, exec, capture and wait. The outer
+controller remains the sole workload signal/reap owner. Worker results cross
+bounded nonblocking channels and are accepted only in their original observation
+epoch. Expiring that epoch fails the evidence while safety actions continue.
+This is a design awaiting review and implementation; k23-final-01 remains the
+delivered controller condition, with its inspection limitation unchanged.
+
+- [Ownership](../specs/diagnostic-process-inspection.md#ownership) — Assigned target signal authority to the controller and helper mechanics to the worker, with separate pinned groups.
+- [Deadlines and safety ordering](../specs/diagnostic-process-inspection.md#deadlines-and-safety-ordering) — Defined asynchronous observations, unchanged grace/kill/reap caps, sticky failure and no worker replacement.
+- [Test seams and required controls](../specs/diagnostic-process-inspection.md#test-seams-and-required-controls) — Required real delayed inspection, actual timeout/KILL followed by a controlled wait stall, genuine EPERM, malformed handoff and independent helper cleanup controls.
+- [Visual document](../design/diagnostic-process-inspection/README.md) — Added editable ownership, deadline and helper-registration views for review.
+
+The source evidence is `_group_snapshot`, `_terminate`, `_call` and `execute`
+in [controller.py](../../experiments/exec-reliability/controller.py) at parent
+commit `44dc137e`. The synchronous `subprocess.run` is inside the same call
+path that must return before `execute` enters teardown. The worker design
+removes that inspection dependency; it does not fix workload command spawn or
+evidence filesystem stalls. Python's own
+[subprocess documentation](https://docs.python.org/3.12/library/subprocess.html#subprocess.run)
+confirms that `run` waits for the killed helper and that creation can exceed
+the timeout. Apple's
+[kill documentation](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kill.2.html)
+defines signal 0 as an error-checking probe and documents group EPERM; neither
+fact makes EPERM evidence of absence.
+
+Tier 2 graph discovery and coverage used project
+`Users-antony-Development-AbstractingComputers-TestAnyware.gh-issue-14`, generation
+`2026-11-01T05:03:14Z`. The four diagnostic source paths, Taskfile, glossary,
+cited routing/transfer ADRs and this report had matching coverage metadata with
+no recorded gap. Targeted search/trace pages were complete; the trace supplied
+spurious cross-language callees, so only exact source supports the dependency
+claim. No exhaustive graph claim or new runtime measurement is made.
+
+The design requires no new ADR: the local diagnostic ownership choice is
+reversible. Its durable spec is the shared contract for retained-file evidence
+and the separately owned stalled-storage design. A bounded planning successor
+must cut the concrete implementation and its review before retained-evidence-k21;
+the design review runs before that planner. k17 cannot close until those
+deliverables and k21 account for the whole node contract.
+
 ### Earlier foundation controls
 
 This section describes the unchanged original producer conditions. Use the

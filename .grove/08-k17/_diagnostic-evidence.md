@@ -60,3 +60,22 @@ durable handoff. Sampling latency and the helper's unbounded post-timeout wait
 remain real issues: bounded-inspection design and reviewed implementation must
 precede retained-evidence-k21. The present controller cannot promise independent
 disposal while ps creation/kill-wait blocks. Storage isolation is still k18.
+
+Bounded-inspection-k24 delivers
+`docs/specs/diagnostic-process-inspection.md` and its linked visual document.
+It selects a prestarted read-only inspection worker with registered helper
+creation, bounded handoff and sticky observation failure. The controller alone
+owns workload signals and reaping; a worker timeout must not defer either or
+resource teardown. The design review precedes a bounded planning successor,
+which must cut the concrete implementation and ensure review-impl/reconciliation
+before k21. This follows the design kind's planning boundary. No implementation
+guarantee is discharged by the spec. k17 remains open through that chain and k21.
+
+The implementation preserves live-final-group failure after normal/PID-only
+leader exit, visible residual members/remedies and unchanged PID-only scope.
+Its controls must cover real delayed creation/inspection, actual KILL followed
+by a controlled wait stall, genuine permission failure/unknown classification,
+late/contradictory handoff, and independent itemized helper cleanup. Simulated
+unreapability is explicitly distinguished from an actual kernel task. All old
+conditions remain unchanged. k18 consumes the nonblocking in-memory handoff and
+owns blocking evidence I/O; it must not introduce another workload signal owner.

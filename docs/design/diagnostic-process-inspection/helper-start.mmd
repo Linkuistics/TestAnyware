@@ -1,0 +1,21 @@
+sequenceDiagram
+  participant C as Controller
+  participant W as Worker
+  participant H as Gated helper
+  C->>W: Request token, target, epoch, deadline
+  W-->>C: Creation intent
+  W->>H: Fork behind exec gate
+  W-->>C: Register PID, parent, PGID, request token
+  alt Epoch open and before deadline
+    C->>C: Record helper ownership in memory
+    C->>W: ACK exact token
+    W->>H: Release gate
+    H->>H: Check expiry, close unrelated descriptors, exec ps
+    H-->>W: Bounded bytes and exit
+    W-->>C: Terminal result and helper reap evidence
+  else Missing registration, expiry or invalid identity
+    C->>C: Sticky failure, known helper or unknown creation
+    C->>W: Retire worker, signal only pinned worker group
+    C->>C: Continue workload safety and resource teardown
+    Note over W,H: Late creation cannot get a new ACK, residual audit remains required
+  end

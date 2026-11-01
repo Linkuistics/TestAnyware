@@ -14,6 +14,16 @@ audit 04 in the handoff. The bounded-inspection design/implementation/review
 continuation runs first; use its delivered sources rather than treating k23's
 conditional timing as a proved bound.
 
+Read `docs/specs/diagnostic-process-inspection.md` and the implementation chosen
+by its bounded planning continuation, after design and implementation reviews
+are reconciled. Preserve observation intervals, sticky failed snapshots,
+worker/helper identities and cleanup verdicts when pinning result identity.
+Do not hash a late valid snapshot into an earlier failed result as a correction.
+Inspection-unavailable safety actions remain uncertain even when their command
+exit is zero. A surviving writer still fails termination and retains its
+identity/remedy; the late-byte verdict is additional. PID-only interruption
+never widens to a group signal. k18 still owns stalled storage.
+
 ## Done when
 
 - Pin each raw stream's byte length and digest at an explicit monotonic

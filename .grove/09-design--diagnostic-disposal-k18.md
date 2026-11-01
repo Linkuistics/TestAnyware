@@ -18,6 +18,14 @@ subprocess.run timeout kills ps then waits without a bound. k17's bounded-inspec
 continuation owns that design and reviewed implementation before k21. Coordinate
 the ownership handoff with it; this leaf still owns stalled evidence storage.
 
+The selected inspection contract is
+`docs/specs/diagnostic-process-inspection.md`. Consume its immutable observation
+and residual values from a bounded in-memory channel. Evidence publication
+must not be an acknowledgement needed for workload signalling, reaping or
+disposal. Preserve the controller's sole signal ownership and worker failure
+semantics; account for evidence descriptors used by safety commands as part of
+storage isolation. The spec is not proof that either continuation has shipped.
+
 ## Done when
 
 - Specify the smallest ownership and I/O separation that keeps independent

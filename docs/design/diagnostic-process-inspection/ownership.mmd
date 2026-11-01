@@ -1,0 +1,12 @@
+flowchart TB
+  C["Start here: controller<br/>Deadlines and ledger"]:::start
+  W["Inspection worker<br/>Own session"]
+  H["ps helper<br/>Read-only query"]
+  L["Workload group<br/>Pinned leader"]
+  D["Resource teardown"]
+  C -->|"Requests and worker cleanup"| W
+  W -->|"Register then exec"| H
+  C -->|"Sole signal and reap owner"| L
+  C -->|"Continues on inspection failure"| D
+  H -.->|"Reads only"| L
+  classDef start fill:#17354b,color:#fff,stroke:#17354b,font-weight:bold

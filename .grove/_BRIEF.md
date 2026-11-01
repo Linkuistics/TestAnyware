@@ -239,6 +239,15 @@ continues to own storage isolation; k17 cannot close on k20/k21 alone until
 inspection supervision is accounted for. The durable handoff withdraws the old
 joined-command scratch-path counts while preserving every original audit.
 
+Bounded-inspection-k24 specifies the inspection worker and controller ownership
+contract in `docs/specs/diagnostic-process-inspection.md`. Its design review
+precedes a bounded planning continuation that cuts concrete implementation and
+review ahead of k21. This planning handoff follows the design kind's scope;
+the delivered k23 controller and every earlier condition remain unchanged.
+k17's process-inspection guarantee is still open until that reviewed code lands.
+k18 separately owns blocking evidence storage and consumes the spec's immutable
+outcomes without adding a wait or a second workload signal owner.
+
 `diagnostic-foundation-k11` owns the reusable controller, ledger, forced-failure
 self-checks and the per-OS build/routing prerequisite table. Causal leaves reuse
 that handoff and add only their question's concrete fixtures and diagnostics.

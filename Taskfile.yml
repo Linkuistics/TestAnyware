@@ -10,6 +10,11 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  design:inspection-preview:
+    desc: Serve the bounded-inspection design at localhost (PORT defaults to 8764); stop with Ctrl-C
+    cmds:
+      - python3 -m http.server {{.PORT | default "8764" | shellQuote}} --bind 127.0.0.1 --directory {{.ROOT_DIR | shellQuote}}/docs/design/diagnostic-process-inspection
+
   diagnostic:self-check:
     desc: Retain lint/type/per-test verdicts and bounded local diagnostic receipts. Requires OUT=<new evidence directory>
     dir: '{{.ROOT_DIR}}'
