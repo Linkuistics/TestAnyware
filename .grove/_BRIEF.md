@@ -160,29 +160,40 @@ from the source leads alone.
 
 ### Working increments and dependency order
 
-The first increments deliver reusable diagnostics and evidence without changing
-the production lifecycle. Each is a complete, independently runnable inquiry;
-the ordering gives related inquiries a reusable starting point, not permission
-to merge their conclusions. Each fits a leaf; decompose one only if its own
-bounded question proves larger than a session.
+The first increment delivers the shared controller and verifies diagnostic
+routes. The causal increments then deliver independently runnable diagnostics
+and evidence without changing the production lifecycle. Their order gives
+related inquiries a reusable starting point, not permission to merge their
+conclusions. Each fits a leaf; decompose one if its bounded question proves
+larger than a session.
 
-1. `macos-completion-k3`: establish the ordinary-command wait boundary and
+1. `diagnostic-foundation-k11`: self-check the reusable bounded controller and
+   resource ledger; establish each public isolated-build route or state its
+   concrete unavailable prerequisite before causal measurement.
+2. `macos-completion-k3`: establish the ordinary-command wait boundary and
    build identity; safely scope the existing process-test cleanup first.
-2. `macos-timeout-inspection-k4`: distinguish timeout cleanup, descendant
+3. `macos-timeout-inspection-k4`: distinguish timeout cleanup, descendant
    inspection and the later command's wait from the ordinary-completion case.
-3. `linux-timeout-lifecycle-k5`: separate deadline classification, partial
+4. `macos-exec-outcomes-k12`: measure numeric exit, signal, spawn failure,
+   deadline and exact/partial capture through process/HTTP/Host CLI seams.
+5. `macos-disconnect-availability-k13`: measure known-child survival and
+   independent request responsiveness after macOS CLI interruption.
+6. `linux-timeout-lifecycle-k5`: separate deadline classification, partial
    capture and known-child survival through agent and Host CLI boundaries.
-4. `linux-disconnect-availability-k6`: measure client interruption and serial
+7. `linux-disconnect-availability-k6`: measure client interruption and serial
    request availability independently of timeout classification and cleanup.
-5. `download-consistency-k7`: locate the successful truncated download across
-   file identity, handler framing, transport and host finalization, including
-   mutable and immutable controls.
-6. `lifecycle-evidence-k8`: consume all five findings and specify the smallest
-   coherent supported lifecycle and evidence contract. An unresolved cause is
-   retained as uncertainty or gets a precise new investigation before design
-   relies on it; it is never filled by a source-based guess.
+8. `download-consistency-k7`: locate the historical macOS successful truncated
+   download across file identity, framing, transport and host finalization;
+   deliver reusable file/HTTP diagnostics.
+9. `linux-download-consistency-k14`: reuse those diagnostics for the separate
+   Linux comparison; a Linux result is not a historical macOS diagnosis.
+10. `lifecycle-evidence-k8`: consume all eight causal reports and k11's route
+    evidence and specify the smallest coherent supported lifecycle and evidence
+    contract. An unresolved cause is retained as uncertainty or gets a precise
+    new investigation before design relies on it; it is never filled by a
+    source-based guess.
 
-The five causal leaves hand off green ordinary checks plus explicitly named
+The causal leaves hand off green ordinary checks plus explicitly named
 diagnostic commands that can report the known defect. Do not turn the normal
 suite red for queued repair work, or assert the broken behavior as the desired
 contract. Keep a controlled old-path reproducer outside the passing regression
@@ -191,6 +202,14 @@ Any narrow test seam is exercised through the existing process/HTTP/transport
 boundary and separately identified from an uninstrumented production build.
 
 ### Common investigation contract
+
+`diagnostic-foundation-k11` owns the reusable controller, ledger, forced-failure
+self-checks and the per-OS build/routing prerequisite table. Causal leaves reuse
+that handoff and add only their question's concrete fixtures and diagnostics.
+They verify the answering app/agent identities for their run rather than assume
+the earlier preflight is still current. Preparation proves neither a cause nor
+a production correction. A route still unavailable stays visible in each
+affected report; k8 must insert further work before relying on a missing fact.
 
 Each causal leaf reads issue #14 and the retained report, then freezes a finite
 case list, tools, checker, budgets and inputs before its diagnostic run. It
@@ -230,6 +249,10 @@ connection files or route directly to a guest. Golden creation retains only
 ADR-0004's existing exception. Verify which app and agent actually answer before
 measuring; an unresolved isolated-build/routing prerequisite makes that condition
 unavailable, not a reason to overwrite the installed app or retained golden.
+The route table names any required owner action, such as a Terminal-only
+golden-build recipe or temporary app-socket availability. Do not stop an
+installed app without separate explicit authorization. Verify supported public
+agent-install alternatives before assuming golden creation is necessary.
 
 The outer controller owns a resource ledger with exact VM/image/process/group,
 temporary directory, archive and test-app identities. It remains alive when
@@ -253,25 +276,35 @@ instrument. Preserve raw interface errors even when lower-level evidence works.
 
 ### Required continuation after the causal increments
 
-The design producer must cut a concrete `review-design` leaf when its spec/ADR
-set exists; the review cuts reconciliation only for actionable findings, placed
-before any later live sibling. After a clean review or reconciled design, that
-session cuts a planning leaf to identify dependency-ordered working product
-increments from the actual contract. Do not leave the tree with no live work
-while the root's acceptance conditions remain unmet.
+The design producer owns its continuation: once its spec/ADR set exists, it
+cuts a concrete `planning` successor for dependency-ordered working product
+increments, then inserts its specific `review-design` ahead of that successor
+as its last producer act. A clean review creates nothing and retires; the
+planning successor is already live. Actionable findings insert reconciliation
+before the first later live sibling. Substantial redesign becomes a new
+design/review chain ahead of dependent planning, rather than an unreviewed
+rewrite inside integration. Do not leave the tree with no live work while the
+root's acceptance conditions remain unmet.
 
 The later planner separates independently useful lifecycle, transfer,
 compatibility/documentation and validation increments wherever each handoff
 works. Keep protocol expansion and the reader that makes it useful together
-when neither works alone. Each material implementation producer commissions
-`review-impl` once the change exists, and its findings are reconciled before
-freezing acceptance. No empty review or integration leaves are cut now.
+when neither works alone. That planner also owns concrete preparation, full
+acceptance and durable handoff/resource-audit leaves after the implementation
+increments, with bodies stating their actual inputs and gates. Each material
+implementation producer inserts `review-impl` before its next live consumer
+once the change exists; findings insert reconciliation before that consumer.
+This also applies to material diagnostic implementation. A clean review cuts
+nothing; the next consumer already exists. No empty review or integration
+leaves are cut now.
 
-After reviewed fixes, grow concrete preparation, frozen full acceptance and
-durable handoff/resource-audit work. Preparation validates the independent
-controller and all corruption controls, identifies isolated production test
-builds and disposable baselines, and freezes every subject and all new phase
-bounds. Acceptance then runs the complete inventory above on five fresh macOS
+After reviewed fixes, the planned preparation leaf validates the independent
+controller and all four corruption controls against the selected lifecycle
+record format. Transfer inquiries own byte/framing controls only; they do not
+invent terminal outcomes or contradictory termination records before design.
+Preparation identifies isolated production test builds and disposable baselines,
+and freezes every subject and all new phase bounds. Acceptance then runs the
+complete inventory above on five fresh macOS
 clones followed by five fresh Linux clones, sequentially, with item-by-item
 outcomes. A defect fails the trial; subsequent safety observations preserve the
 failure, and unreached cases remain incomplete. Any revised candidate is a new
@@ -279,9 +312,10 @@ condition and trial, never a replacement sample. The final handoff states what
 Ravel-Strategies must rerun and audits every owned resource. The historical
 0/10 unavailable trial is unchanged. This tree's planning is not a repair claim.
 
-The planning artifact itself warrants a fresh `review-planning` before the
-investigations: check causal separation, measurable leaf scope, safe ownership
-and preservation of the full acceptance/continuation obligations.
+The initial planning artifact's review is `execution-reliability-k9`, with
+reconciliation in `execution-reliability-k10` before the investigations. These
+planning checks do not replace the later design and material implementation
+reviews or any acceptance obligation.
 
 ## Pointers
 

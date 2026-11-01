@@ -18,6 +18,9 @@ regression candidate where the responsible ordering can be established.
 - `ProcessRunnerTests.swift` has broad `pkill` cleanup. Replace it with
   positively identified owned fixtures before invoking `agent:macos:test`.
 - The root brief supplies the common evidence, isolation and resource contract.
+- Reuse `diagnostic-foundation-k11`'s controller, ledger and route table;
+  report unavailable instrumented conditions explicitly rather than building
+  a second shared harness in this inquiry.
 
 ## Done when
 

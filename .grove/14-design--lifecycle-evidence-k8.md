@@ -10,10 +10,13 @@ contract from the causal findings, including compatibility and validation.
 
 ## Context
 
-- Read the five `docs/experiments/exec-reliability-*.md` reports from
+- Read the eight causal `docs/experiments/exec-reliability-*.md` reports from
   `macos-completion-k3`, `macos-timeout-inspection-k4`,
-  `linux-timeout-lifecycle-k5`, `linux-disconnect-availability-k6` and
-  `download-consistency-k7`, including their raw evidence and test invocations.
+  `macos-exec-outcomes-k12`, `macos-disconnect-availability-k13`,
+  `linux-timeout-lifecycle-k5`, `linux-disconnect-availability-k6`,
+  `download-consistency-k7` and `linux-download-consistency-k14`, including
+  their raw evidence and test invocations. Read k11's diagnostic-foundation
+  report for the controller, routes and unavailable prerequisites.
 - Read affected current protocol types and exact dependencies; reconcile public
   help/schema with `agent-protocol.md` and `cli-design-contract.md`.
 - The root's agreed seams, acceptance inventory/bounds, ten-clone trial,
@@ -52,11 +55,16 @@ contract from the causal findings, including compatibility and validation.
   durable downstream handoff/resource audit. Keep every root case, byte oracle
   and unchanged comparison ceiling; declare boot/slot/export/new phase bounds
   before measurement. Baseline and deterministic passes never replace acceptance.
-- Cut a specific `review-design` leaf for the finished spec/ADR set as the last
-  producer act. Ask it to challenge causal premises, races/ownership bounds,
-  evidence consistency, compatibility and acceptance feasibility. The clean
-  review or its reconciliation must cut the next planning leaf for concrete
-  implementation increments and preserve final trial/handoff work.
+- After the spec/ADR set exists, cut a concrete `planning` successor for the
+  reviewed contract's implementation increments and later preparation, full
+  acceptance and handoff/resource audit. Its body names this producer and the
+  artifacts; it must read the intervening review and any reconciliation before
+  relying on them. Then insert a specific `review-design` ahead of that live
+  successor as the last producer act. Ask it to challenge causal premises,
+  races/ownership bounds, evidence consistency, compatibility and acceptance
+  feasibility. A clean review cuts nothing. Findings insert reconciliation
+  before planning; substantial redesign gets its own producer/review chain
+  before dependent planning. Do not rely on a reviewer to create continuation.
 
 ## Notes
 
