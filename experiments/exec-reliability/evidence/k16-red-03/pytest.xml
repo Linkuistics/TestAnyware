@@ -1,0 +1,263 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="9" skipped="0" tests="11" time="1.470" timestamp="2026-11-01T15:16:17.746770+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_review_expected_interruption_continues_same_resource" time="0.004"><failure message="AssertionError: assert 'expected_reason' in {'expected_exit', 'budget', 'expected_stdout', 'interrupt_after', 'name', 'argv'}">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_expected_interrupt0')
+
+    def test_review_expected_interruption_continues_same_resource(tmp_path):
+&gt;       assert "expected_reason" in {field.name for field in fields(Call)}
+E       AssertionError: assert 'expected_reason' in {'expected_exit', 'budget', 'expected_stdout', 'interrupt_after', 'name', 'argv'}
+
+test_controller.py:193: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_unexpected_interruption_still_stops" time="0.386" /><testcase classname="test_controller" name="test_review_resource_deadline_cannot_be_declared_success" time="0.002"><failure message="AssertionError: assert 'expected_reason' in {'expected_exit', 'budget', 'expected_stdout', 'interrupt_after', 'name', 'argv'}">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_resource_deadline_0')
+
+    def test_review_resource_deadline_cannot_be_declared_success(tmp_path):
+&gt;       assert "expected_reason" in {field.name for field in fields(Call)}
+E       AssertionError: assert 'expected_reason' in {'expected_exit', 'budget', 'expected_stdout', 'interrupt_after', 'name', 'argv'}
+
+test_controller.py:221: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[plan]" time="0.113"><failure message="FileExistsError: [Errno 17] File exists: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/099624bfe3ac4651955a88bb2d7740ce/plan.json'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_reserved_names_rej0')
+name = 'plan'
+
+    @pytest.mark.parametrize("name", ["plan", "result", "subjects-before", "intent-1"])
+    def test_review_reserved_names_rejected_before_acquisition(tmp_path, name):
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        owned = replace(owned, cleanup=replace(owned.cleanup, name=name))
+        with pytest.raises(ValueError, match="reserved"):
+&gt;           run(tmp_path, [], [owned], run_id=run_id)
+
+test_controller.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_controller.py:38: in run
+    path = execute(plan, root)
+           ^^^^^^^^^^^^^^^^^^^
+controller.py:288: in execute
+    cleanup = _call(resource.cleanup, root, plan)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+controller.py:234: in _call
+    write_json(root / f"{call.name}.json", receipt)
+controller.py:57: in write_json
+    with path.open("x") as stream:
+         ^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/099624bfe3ac4651955a88bb2d7740ce/plan.json')
+mode = 'x', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+&gt;       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileExistsError: [Errno 17] File exists: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/099624bfe3ac4651955a88bb2d7740ce/plan.json'
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1013: FileExistsError</failure></testcase><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[result]" time="0.228"><failure message="FileExistsError: [Errno 17] File exists: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/9435098748494d6f8a1b024d56328986/result.json'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_reserved_names_rej1')
+name = 'result'
+
+    @pytest.mark.parametrize("name", ["plan", "result", "subjects-before", "intent-1"])
+    def test_review_reserved_names_rejected_before_acquisition(tmp_path, name):
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        owned = replace(owned, cleanup=replace(owned.cleanup, name=name))
+        with pytest.raises(ValueError, match="reserved"):
+&gt;           run(tmp_path, [], [owned], run_id=run_id)
+
+test_controller.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_controller.py:38: in run
+    path = execute(plan, root)
+           ^^^^^^^^^^^^^^^^^^^
+controller.py:305: in execute
+    write_json(
+controller.py:57: in write_json
+    with path.open("x") as stream:
+         ^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/9435098748494d6f8a1b024d56328986/result.json')
+mode = 'x', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+&gt;       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileExistsError: [Errno 17] File exists: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/9435098748494d6f8a1b024d56328986/result.json'
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1013: FileExistsError</failure></testcase><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[subjects-before]" time="0.116"><failure message="FileExistsError: [Errno 17] File exists: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/42eb3accfb53427690db8518c319b8c1/subjects-before.json'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_reserved_names_rej2')
+name = 'subjects-before'
+
+    @pytest.mark.parametrize("name", ["plan", "result", "subjects-before", "intent-1"])
+    def test_review_reserved_names_rejected_before_acquisition(tmp_path, name):
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        owned = replace(owned, cleanup=replace(owned.cleanup, name=name))
+        with pytest.raises(ValueError, match="reserved"):
+&gt;           run(tmp_path, [], [owned], run_id=run_id)
+
+test_controller.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_controller.py:38: in run
+    path = execute(plan, root)
+           ^^^^^^^^^^^^^^^^^^^
+controller.py:288: in execute
+    cleanup = _call(resource.cleanup, root, plan)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+controller.py:234: in _call
+    write_json(root / f"{call.name}.json", receipt)
+controller.py:57: in write_json
+    with path.open("x") as stream:
+         ^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/42eb3accfb53427690db8518c319b8c1/subjects-before.json')
+mode = 'x', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+&gt;       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileExistsError: [Errno 17] File exists: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/42eb3accfb53427690db8518c319b8c1/subjects-before.json'
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1013: FileExistsError</failure></testcase><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[intent-1]" time="0.114"><failure message="FileExistsError: [Errno 17] File exists: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/2c7712d4f04e48ab8636135327c3c485/intent-1.json'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_reserved_names_rej3')
+name = 'intent-1'
+
+    @pytest.mark.parametrize("name", ["plan", "result", "subjects-before", "intent-1"])
+    def test_review_reserved_names_rejected_before_acquisition(tmp_path, name):
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        owned = replace(owned, cleanup=replace(owned.cleanup, name=name))
+        with pytest.raises(ValueError, match="reserved"):
+&gt;           run(tmp_path, [], [owned], run_id=run_id)
+
+test_controller.py:236: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_controller.py:38: in run
+    path = execute(plan, root)
+           ^^^^^^^^^^^^^^^^^^^
+controller.py:288: in execute
+    cleanup = _call(resource.cleanup, root, plan)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+controller.py:234: in _call
+    write_json(root / f"{call.name}.json", receipt)
+controller.py:57: in write_json
+    with path.open("x") as stream:
+         ^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/2c7712d4f04e48ab8636135327c3c485/intent-1.json')
+mode = 'x', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+&gt;       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileExistsError: [Errno 17] File exists: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/2c7712d4f04e48ab8636135327c3c485/intent-1.json'
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1013: FileExistsError</failure></testcase><testcase classname="test_controller" name="test_review_receipt_io_exception_cannot_skip_other_disposal" time="0.164"><failure message="OSError: forced receipt storage failure">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_receipt_io_excepti0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107513260&gt;
+
+    def test_review_receipt_io_exception_cannot_skip_other_disposal(tmp_path, monkeypatch):
+        import controller
+    
+        run_id = uuid.uuid4().hex
+        first = resource(tmp_path, run_id)
+        second = resource(tmp_path, run_id)
+        identity = f"diag-{run_id}-second"
+        second = replace(
+            second,
+            identity=identity,
+            **{
+                action: replace(
+                    getattr(second, action),
+                    name=f"second-{action}",
+                    argv=tuple(identity if arg == first.identity else arg
+                               for arg in getattr(second, action).argv),
+                )
+                for action in ("acquire", "cleanup", "dispose", "inspect")
+            },
+        )
+        original = controller.write_json
+    
+        def fail_one_receipt(path, value):
+            if path.name == "second-cleanup.json":
+                raise OSError("forced receipt storage failure")
+            original(path, value)
+    
+        monkeypatch.setattr(controller, "write_json", fail_one_receipt)
+&gt;       _, result = run(tmp_path, [], [first, second], run_id=run_id)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_controller.py:268: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_controller.py:38: in run
+    path = execute(plan, root)
+           ^^^^^^^^^^^^^^^^^^^
+controller.py:288: in execute
+    cleanup = _call(resource.cleanup, root, plan)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+controller.py:234: in _call
+    write_json(root / f"{call.name}.json", receipt)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+path = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-red-03/runs/dbe137970e4b47c984dd9601182842b4/second-cleanup.json')
+value = {'name': 'second-cleanup', 'argv': ('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiment...st-of-antony/pytest-3978/test_review_receipt_io_excepti0'), 'budget': 0.2, 'started_monotonic': 1455071.438842666, ...}
+
+    def fail_one_receipt(path, value):
+        if path.name == "second-cleanup.json":
+&gt;           raise OSError("forced receipt storage failure")
+E           OSError: forced receipt storage failure
+
+test_controller.py:264: OSError</failure></testcase><testcase classname="test_controller" name="test_review_skipped_acquisitions_are_unreached" time="0.027"><failure message="AssertionError: assert [] == ['acquire']&#10;  &#10;  Right contains one more item: 'acquire'&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  + []&#10;  - [&#10;  -     'acquire',&#10;  - ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_skipped_acquisitio0')
+
+    def test_review_skipped_acquisitions_are_unreached(tmp_path):
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        _, result = run(tmp_path, [], [owned], subjects=[tmp_path / "missing"], run_id=run_id)
+        assert result["ok"] is False
+&gt;       assert result["unreached"] == ["acquire"]
+E       AssertionError: assert [] == ['acquire']
+E         
+E         Right contains one more item: 'acquire'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E         + []
+E         - [
+E         -     'acquire',
+E         - ]
+
+test_controller.py:281: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_zero_exit_wrong_stdout_is_failure" time="0.079" /><testcase classname="test_controller" name="test_review_preflight_keeps_missing_declared_subjects" time="0.017"><failure message="AssertionError: assert (PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_preflight_keeps_mi0') / 'missing-repo/Taskfile.yml') in (PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/preflight.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py'), PosixPath('/Users/antony/Development/AbstractingCompute...&#10;[+1 more line; full report in element text]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_preflight_keeps_mi0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1075136b0&gt;
+
+    def test_review_preflight_keeps_missing_declared_subjects(tmp_path, monkeypatch):
+        import preflight
+    
+        seen = []
+        monkeypatch.setattr(preflight, "REPO", tmp_path / "missing-repo")
+        monkeypatch.setattr(sys, "argv", ["preflight.py", str(tmp_path / "preflight")])
+        monkeypatch.setattr(preflight.shutil, "which", lambda _name: "/usr/bin/true")
+        monkeypatch.setattr(preflight, "execute", lambda plan, _output: seen.append(plan) or tmp_path)
+        preflight.main()
+        assert seen
+&gt;       assert tmp_path / "missing-repo/Taskfile.yml" in seen[0].subjects
+E       AssertionError: assert (PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3978/test_review_preflight_keeps_mi0') / 'missing-repo/Taskfile.yml') in (PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/preflight.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/test_controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/pyproject.toml'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/uv.lock'), PosixPath('/usr/bin/true'), PosixPath('/usr/bin/true'), PosixPath('/Applications/TestAnyware.app/Contents/MacOS/testanyware-app'), PosixPath('/Applications/TestAnyware.app/Contents/Info.plist'))
+E        +  where (PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/preflight.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/test_controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/pyproject.toml'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/uv.lock'), PosixPath('/usr/bin/true'), PosixPath('/usr/bin/true'), PosixPath('/Applications/TestAnyware.app/Contents/MacOS/testanyware-app'), PosixPath('/Applications/TestAnyware.app/Contents/Info.plist')) = Plan(run_id='c8d64154a7914b0b9335e37e8106510c', calls=(Call(name='cli-version', argv=('/usr/bin/true', '--version'), budget=10, expected_exit=0, expected_stdout=None, interrupt_after=None),), resources=(), subjects=(PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/preflight.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/test_controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/pyproject.toml'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/uv.lock'), PosixPath('/usr/bin/true'), PosixPath('/usr/bin/true'), PosixPath('/Applications/TestAnyware.app/Contents/MacOS/testanyware-app'), PosixPath('/Applications/TestAnyware.app/Contents/Info.plist')), term_grace=2, kill_wait=2).subjects
+
+test_controller.py:304: AssertionError</failure></testcase></testsuite></testsuites>

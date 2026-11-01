@@ -85,7 +85,7 @@ def main() -> None:
         Plan(
             uuid.uuid4().hex,
             (Call(name, argv, budget),),
-            subjects=tuple(p for p in subjects if p.is_file()),
+            subjects=subjects,
         )
         for name, argv, budget in commands
     )

@@ -1,0 +1,10 @@
+task: [diagnostic:self-check] uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/self_check.py experiments/exec-reliability/evidence/k16-final-01
+Traceback (most recent call last):
+  File "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/self_check.py", line 117, in <module>
+    main()
+  File "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/self_check.py", line 21, in main
+    output.mkdir(parents=True, exist_ok=False)
+  File "/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py", line 1311, in mkdir
+    os.mkdir(self, mode)
+FileExistsError: [Errno 17] File exists: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k16-final-01'
+task: Failed to run task "diagnostic:self-check": exit status 1

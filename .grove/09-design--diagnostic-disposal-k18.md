@@ -1,0 +1,33 @@
+# diagnostic-disposal-k18
+
+## Goal
+
+Establish how the independent outer controller can preserve owned-resource
+teardown when evidence storage itself stalls or fails.
+
+## Context
+
+Read F3 of review `diagnostic-foundation-k15` in commit `4bb47c05`, integration
+`diagnostic-foundation-k16`, and `diagnostic-evidence-k17`. The integration
+catches raised OSError per action; synchronous evidence open/read/write/hash
+can still block the only thread responsible for disposal. Such a stall voids
+its disposal ceiling. This is an architecture question, not permission to
+raise a timeout or silently exclude a required acceptance property.
+
+## Done when
+
+- Specify the smallest ownership and I/O separation that keeps independent
+  disposal runnable, with frozen identity handoff, concrete grace/kill/reap
+  bounds, failure reporting and explicit controller-crash limits.
+- Define deterministic stalled-evidence and storage-error controls that show
+  safety work still occurs within its ceiling. Clarify which timing guarantees
+  remain conditional on OS scheduling or uninterruptible operations.
+- Deliver the spec/ADR only where each earns its place. Cut a concrete planning
+  or implementation successor before `diagnostic-routes-k19`, then insert this
+  artifact's `review-design` before that successor as the final producer act.
+  Its repair must land and be reviewed before live measurement relies on it.
+
+## Notes
+
+No live VM needed for this design. No installed app changes. Preserve all old
+failed conditions and the historical 0/10 unavailable trial.

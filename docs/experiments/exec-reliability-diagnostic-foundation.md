@@ -1,18 +1,22 @@
 # Execution reliability diagnostic foundation
 
-The local diagnostic controller passes its forced-failure self-check on a
-macOS host. This establishes an instrument for the causal inquiries in
+The local diagnostic controller passes its revised forced-failure self-check on a
+macOS host. Review integration repaired interruption sequencing and raised-I/O
+exception handling. Process-group evidence, stalled-storage disposal and live
+route preparation still need the work named below before causal use.
+This is preparation for the causal inquiries in
 [issue #14](https://github.com/Linkuistics/TestAnyware/issues/14), not a repair
 of TestAnyware. No guest was booted, no guest command was run, and no app was
-started or stopped. Live guest routes remain unavailable under the conditions
-listed below. The historical acceptance result remains **0/10, unavailable**.
+started or stopped. Installed live guest routes are **not yet tested**; the
+isolated app routes have the missing prerequisites listed below. The historical
+acceptance result remains **0/10, unavailable**.
 
 ## Use and boundaries
 
 From the repository root:
 
 ```sh
-mise exec -- task diagnostic:self-check RUN=self-check-new-condition
+mise exec -- task diagnostic:self-check OUT=experiments/exec-reliability/evidence/self-check-new-condition
 mise exec -- task diagnostic:preflight OUT=experiments/exec-reliability/evidence/preflight-new-condition
 ```
 
@@ -21,7 +25,10 @@ The self-check uses the locked Python project in
 Its [`controller.py`](../../experiments/exec-reliability/controller.py) exposes
 immutable `Call`, `Resource` and `Plan` declarations and `execute(plan, evidence_root)`.
 The evidence directory is created exclusively from a fresh `uuid.uuid4().hex`.
-An existing directory is rejected. Calls have unique names and explicit absolute
+An existing directory is rejected. The self-check now requires explicit `OUT`,
+creates it exclusively, and retains checker logs, JUnit per-test verdicts and a
+separate overall verdict. `RUN` no longer selects a shared evidence directory.
+Calls have unique names and explicit absolute
 executables. The declaration is written before acquisition or measurement.
 
 For example, a causal fixture can retain one independently bounded call:
@@ -57,6 +64,15 @@ causal checkers must separately validate the guest receipt. Raw output remains
 available even if JSON is malformed. An optional exact stdout oracle supports
 positive absence checks. There is no decoding or newline normalization.
 
+`expected_reason` defaults to `"exit"`. A workload may explicitly expect
+`"interrupted"` or `"deadline"`, with the exact `expected_exit` still required.
+For example, an interruption of a TERM-ignoring fixture expects reason
+`"interrupted"` and host return code `-9`. A match allows later observations in
+the same plan and on the same resource. The raw reason and return code remain
+unchanged. Unexpected interruptions, observation/spawn errors and mismatched
+exit/stdout still stop cases. Resource actions must expect ordinary exit;
+expected interruption cannot turn a timed-out disposal into success.
+
 The controller creates a separate process session for each command. A call
 deadline signals its recorded local process group with TERM, grants at most
 two seconds, then sends KILL and bounds leader reaping by at most two seconds.
@@ -88,15 +104,97 @@ oracle succeed; otherwise the ledger retains `uncertain` and the exact remedy
 argv. The manifest is trusted code: identity validation is not hostile-command
 containment. Choose exact owned commands, never broad process-name kills.
 
-The first failed case stops the declared workload and later cases are listed
-as unreached. Safety cleanup still runs. Controller crash, disk failure,
+The names `plan`, `result`, `subjects-before` and the `intent-` prefix are
+reserved before acquisition. Raised `OSError` from an action's evidence I/O
+becomes a failed in-memory receipt; later teardown actions still run. An intent
+write error prevents acquisition and still attempts safety work. Failure to
+write the final result can still leave no result file. A **stalled** synchronous
+open/read/write/hash can still block this controller, including its `finally`:
+the 45-second disposal ceiling does not hold under that condition. The separate
+`diagnostic-disposal-k18` design and its reviewed implementation must address
+this before live measurement relies on independent disposal.
+
+The first unexpected failed case stops the declared workload; later cases and
+skipped acquisitions are listed as unreached. Safety cleanup still runs subject
+to the I/O limit above. Controller crash, disk failure,
 uninterruptible kernel operations, arbitrary descendant containment and guest
 cleanup correctness are outside this instrument's demonstrated guarantee.
 Normal local command completion alone proves neither absence of local helper
 descendants nor guest process cleanup. Later fixtures must positively inspect
 their known child identities. Mock disposal is not evidence of live VM disposal.
 
+## Review integration and remaining prerequisites
+
+Review `diagnostic-foundation-k15` is committed at `4bb47c05`, against producer
+`dfd48c9e`. Integration `diagnostic-foundation-k16` records these dispositions:
+
+| Finding | Disposition and practical limit |
+| --- | --- |
+| F1, interruption prevents later observation | Applied: explicit expected reason, exact host exit, reaped leader and stdout oracle govern continuation. Default failures still stop. |
+| F2, live routes described as unavailable without a prerequisite | Applied clarification; actual probe, bounds and dual-inventory checker move to `diagnostic-routes-k19` ahead of causal consumers. No installed live route is proved here. |
+| F3, raised or stalled controller I/O skips disposal | Applied reserved-name validation and per-action raised-I/O isolation. Blocking-storage architecture moves to `diagnostic-disposal-k18` and its implementation/review continuation. A blocked evidence filesystem still voids the disposal ceiling. |
+| F4, unconditional escalation and ambiguous group evidence | Real, moved to `diagnostic-evidence-k17`. Current code still waits the whole TERM grace and attempts KILL unconditionally. No TERM-exit timestamp or post-termination member oracle exists; EPERM is unresolved. The old fork peer exercises KILL because of its wait-lock deadlock. |
+| F5, mutable raw captures and no stream/result identity | Real, moved to k17. The self-check wrapper now hashes retained artifacts after the suite, including result files; general `execute` receipts still lack stream lengths/digests and cannot freeze a surviving writer. Neither a snapshot nor normal leader exit proves stable publication. |
+| F6, weak controls and missing checker verdict | Partly applied: zero-exit/wrong-stdout rejection, raw checker logs and per-test JUnit verdicts. Wrong-signal-scope controls, the real controller-survival observation and the fork fixture move to k17. The old self-check index has no generating recipe and stays historical; the new runner emits its own manifest. |
+| F7, incomplete historical fake-resource audit | Applied by new itemized local audits. Every historical uncertain entry has its exact path checked; original uncertain receipts remain unchanged. See the audit below. |
+| F8, already-absent disposal remains uncertain | Retain the conservative result now. k19 must demonstrate a specific VM_NOT_FOUND outcome plus independent absence before accepting it; arbitrary exit 3 is insufficient. Existing remedy argv may fail for an absent resource. |
+| F9, small inconsistencies | Applied explicit exclusive OUT, preservation of missing preflight subjects, acquisition accounting and macOS docstring. Existing-golden refusal moves to k19: NAME-nonempty alone is insufficient. Do not use those recipes as a demonstrated safe replacement guard. |
+
+These are three new working increments before the causal leaves. k17 delivers
+the process/evidence controls and cuts its review; k18 delivers the storage
+isolation design and cuts its concrete implementation/planning and review chain;
+k19 verifies routes only after those repairs. This integration does not convert
+their open properties into an instrument guarantee.
+
+The new evidence is separate from all historical runs:
+
+- [`k16-red-01`](../../experiments/exec-reliability/evidence/k16-red-01/) retains a checker-launch failure: resolving the venv interpreter symlink selected a Python without pytest. It supplies no controller failure evidence.
+- [`k16-red-02`](../../experiments/exec-reliability/evidence/k16-red-02/) has eight failing new controls and two passing controls against the unchanged controller. [`k16-red-03`](../../experiments/exec-reliability/evidence/k16-red-03/) adds the failing missing-subject control: nine fail, two pass. The expected-reason controls first fail on the missing declaration field; the collision and receipt-exception controls execute the failing old paths.
+- [`k16-green-01`](../../experiments/exec-reliability/evidence/k16-green-01/) passes all 24 tests but fails the runner's strict argv typing. [`k16-green-02`](../../experiments/exec-reliability/evidence/k16-green-02/) passes all four checks after that annotation repair.
+- [`k16-final-01`](../../experiments/exec-reliability/evidence/k16-final-01/) passes all four checks with explicit root Python lint subjects, so archived audit scripts do not silently become new checker inputs. The missing-OUT guard initially failed during template expansion; the Taskfile now gives its intended actionable precondition message. [`k16-final-02`](../../experiments/exec-reliability/evidence/k16-final-02/) is the delivered condition after that Taskfile repair: Ruff lint/format, strict Pyright and **24/24 tests** pass. Its [verdict](../../experiments/exec-reliability/evidence/k16-final-02/verdict.json) records every checker exit, before/after subject hashes and each retained artifact digest. Its [JUnit record](../../experiments/exec-reliability/evidence/k16-final-02/pytest.xml) maps each test to its verdict. Forced command failures remain failed raw outcomes in the run receipts.
+
+The new behavioral controls cover same-resource observation after an expected
+interruption, stopping on unexpected interruption, rejecting expected resource
+deadlines, four reserved-name collisions, continued disposal of two resources
+after a receipt exception, missing-subject acquisition accounting, wrong stdout
+with exit 0, and preflight subject preservation. There is no new claim of
+PID-versus-group behavioral separation. The self-check runner freezes 30 seconds
+each for lint/format/types and 60 seconds for pytest, with at most 2 seconds TERM
+and 2 seconds KILL/reap on checker timeout. That wrapper does not contain child
+sessions created by the controller; its timeout means uncertain local cleanup.
+The retained passing final suite did not exercise the wrapper timeout path.
+No guest, boot, slot, export or production comparison ceiling was raised.
+
+The [first local audit](../../experiments/exec-reliability/evidence/k16-audit-01/result.json)
+checks historical and interim integration samples. The second audit adds the
+first final suite. The
+[final local audit](../../experiments/exec-reliability/evidence/k16-audit-03/result.json)
+adds the delivered suite: all 54 declared fake-resource entries are checked, with 18
+original uncertain ledger entries preserved, including all six from the two
+historical conditions. It removes the final owned blocked-disposal marker and
+checks every exact marker path absent. The first audit had already removed two
+interim markers; the second audit removed its own remaining marker. Earlier pytest paths are absent; their old remedy argv is
+obsolete, not evidence that disposal succeeded originally. For 229 recorded
+leader/known-child PIDs, the bounded `ps` returns exit 1 with **both** stdout and
+stderr empty. No process is signaled. The audit script and every input file are
+digested before/after with equality. These checks establish local absence at
+audit time, not process-history provenance or live VM disposal. No local fake
+marker or recorded process remains observed; the venv and retained evidence
+are intentional artifacts.
+
+The delivered controller SHA-256 is
+`18158d76db1f4b083da769598592742fe4c0b33183d9c621fe829b90ea8afb8b`;
+the final suite verdict SHA-256 is
+`335ca0bec8f58c80103708c3a7c45c47d48378238acb7b291dfc125cbc8a768a`;
+the final audit result SHA-256 is
+`bdb35407a7773408e35c965ea2055d3e6af566b1c9b69354d6e1f5bfbea7f569`.
+The source parent for this integration is `4bb47c05`; its own task commit pins
+the delivered diff. These identities describe separate measured conditions.
+
 ## Forced-failure evidence
+
+This section describes the unchanged original producer conditions. Use the
+integration verdict above for the revised controller.
 
 `mise exec -- task diagnostic:self-check RUN=self-check-final` passed **13 tests**
 on 1 November 2026, including Ruff lint/format and strict Pyright. The interpreter
@@ -162,10 +260,10 @@ running guest. Checkout debug CLI/app, development bundle and release macOS
 agent paths were absent. No retained image was exported or rehashed in this
 preparatory run; its current archive identity remains unverified.
 
-| Guest OS and route | Established fact | Live condition unavailable / next action |
+| Guest OS and route | Established fact | Untested or unavailable condition / next action |
 | --- | --- | --- |
-| macOS, unchanged installed CLI/app/agent | Installed CLI/app identities and stopped `testanyware-golden-macos-27` selector found | No owned clone or fresh agent identity/health. Declare boot/slot/export bounds, ledger a new ID, start a clone through `vm start --platform macos --base testanyware-golden-macos-27 --id <run-id> --json`, then one health/identity probe by VM ID. Preserve the stopped golden. |
-| Linux, unchanged installed CLI/app/agent | Same installed host route; stopped `testanyware-golden-linux-24.04` found | Same missing owned clone and fresh agent proof. Use `--platform linux --base testanyware-golden-linux-24.04` with a new ID; verify the selected backend and answering source hashes. |
+| macOS, unchanged installed CLI/app/agent | Installed CLI/app identities and stopped `testanyware-golden-macos-27` selector found | Untested, not a proved missing prerequisite. Installed start help both denies macOS support and gives macOS examples; checkout routing cannot prove this binary. k19 resolves public support and freezes boot/slot/probe/disposal bounds before one owned-clone identity/health probe by VM ID. |
+| Linux, unchanged installed CLI/app/agent | Same installed host route; stopped `testanyware-golden-linux-24.04` found | Untested. k19 freezes bounds and a dual-inventory absence checker before one owned-clone identity/health probe. A missing probe is not an unavailable prerequisite; QEMU help's 10–14 minute agent wait must be accounted for explicitly. |
 | macOS, checkout CLI through installed app | Source supports the ordinary public app route and explicit executable paths | CLI not built. `mise exec -- task cli:build` supplies an isolated CLI, but it still reaches the installed 2.7.0 app. Record that mixed condition explicitly; do not call it an isolated app run. |
 | Linux, checkout CLI through installed app | Same host-side routing; Linux agent is Python source, not a compiled build | Same CLI build prerequisite and mixed-app limit; checkout agent is not installed in any guest. |
 | macOS, checkout CLI + checkout app + checkout agent | Build/sign and uniquely named golden recipes exist | All three builds absent; installed app occupies default socket; development bundle has no observed grant. Build with `cli:build`, `app:bundle-dev`, `agent:macos:build`. A person must arrange the app handover and allow the development bundle's Local Network request. Then build a **new named** baseline using `vm:create-golden-macos NAME=<unique>` from Terminal. No live proof yet. |
@@ -225,7 +323,7 @@ build 26A434, arm64. Stable before/after preflight identities include:
 | Installed Host CLI | `2298b1bd55af4f208286c57b6ff67b98e79a5ea8641c1c584632895bcc707720` |
 | Installed app executable | `b7a51852f24ae4402185cd18f7239ac7f7baf0a02ff4314bd138bcf8ddfc60bb` |
 | Tart 2.41.1 | `a5e51a515d1b96c14e369e10352532f9aa5230c2233e8f39b611122bf6852276` |
-| Final diagnostic controller | `907f73196a76588b43825eec365e6232247705794df8f36e8531b65e6f3503b4` |
+| Original producer's final diagnostic controller | `907f73196a76588b43825eec365e6232247705794df8f36e8531b65e6f3503b4` |
 | Diagnostic uv.lock | `1c3ab314b597770f6568fa159164b8ac72af7d9c3c9fc74ef3d9cf47b73cfd89` |
 | cli-rs/Cargo.lock | `96ee8c89fbc69a1e74f97af03df5e85528bae27ddacd1143ab568468607793e2` |
 
@@ -238,12 +336,14 @@ OS/agent hash or baseline archive attestation exists in this run.
 The independent
 [resource audit](../../experiments/exec-reliability/evidence/resource-audit/6440c5d98be14627a702a4a30a6770d0/result.json)
 checked the exact recorded local process PIDs and known fork children: `ps`
-returned exit 1 and empty stdout, so none of those identities was present at
-audit time. It removed the remaining fake-VM marker
+returned exit 1 with empty stdout and stderr, so none of those identities was
+present at audit time. It removed one fake-VM marker
 `diag-444a6cccc6b546599ef421539c5a01a9-vm` and positively checked absence.
 Original uncertain-disposal receipts remain unchanged. Earlier pytest-owned
 scratch directories may already have been pruned by pytest; this is not live
-VM disposal. The diagnostic venv and retained raw evidence are intentional
+VM disposal. This original audit did not account for all six historical
+uncertain entries; the integration's new itemized audits above do. The diagnostic
+venv and retained raw evidence are intentional
 workspace artifacts. No VM, image, archive or test app was acquired by this
 leaf, so there is no live VM/image/app teardown to report.
 
@@ -255,10 +355,11 @@ is in `testanyware-cli/src/{main,resolve,commands/vm}.rs`,
 `testanyware-app/src/main.rs`, `testanyware-vm/src/golden_linux.rs`,
 `scripts/build-app.sh`, and the two `vm:create-golden-*` Taskfile entries.
 
-The next macOS inquiry can scope the unsafe process-test cleanup and run
-owned local process/HTTP controls. The unchanged live macOS/Linux inquiries
-have an identified installed host route but must still create their bounded
-owned clone and verify fresh answering identities. Checkout agent/app live
+Before the next causal inquiry, the diagnostic evidence, disposal and route
+increments named above must deliver their reviewed handoffs. The later macOS
+inquiry owns scoping the unsafe process-test cleanup. Unchanged installed
+macOS/Linux live routes have not yet been demonstrated; k19 owns preparation
+rather than leaving hidden setup in the first causal sample. Checkout agent/app live
 conditions cannot be claimed until the table's build/install/grant facts are
 established. If that preparation requires its own session, insert it before
 measurement; do not absorb an unbounded setup into a causal sample. The

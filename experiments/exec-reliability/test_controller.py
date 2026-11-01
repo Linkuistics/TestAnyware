@@ -5,7 +5,10 @@ import os
 import signal
 import sys
 import uuid
+from dataclasses import fields, replace
 from pathlib import Path
+
+import pytest
 
 from controller import Call, Plan, Resource, execute
 
@@ -184,3 +187,120 @@ def test_exit_observation_error_fails_and_still_reaps_owned_process(tmp_path, mo
     assert receipt["reaped"] is True
     assert "forced exit observer failure" in receipt["error"]
     assert (path / "observer-error.json").is_file()
+
+
+def test_review_expected_interruption_continues_same_resource(tmp_path):
+    assert "expected_reason" in {field.name for field in fields(Call)}
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    interrupted = replace(
+        call("interrupt", "ignore-term", interrupt_after=0.2),
+        expected_reason="interrupted",
+        expected_exit=-signal.SIGKILL,
+    )
+    path, result = run(
+        tmp_path, [interrupted, call("observe-after", "bytes")], [owned], run_id=run_id
+    )
+    assert result["ok"] is True
+    assert result["unreached"] == []
+    assert result["calls"][1]["reason"] == "interrupted"
+    assert (path / "observe-after.stdout").read_bytes() == bytes.fromhex("00ff80410a")
+    assert result["resources"][0]["state"] == "disposed"
+
+
+def test_review_unexpected_interruption_still_stops(tmp_path):
+    _, result = run(
+        tmp_path,
+        [call("interrupt", "ignore-term", interrupt_after=0.2), call("later", "bytes")],
+    )
+    assert result["ok"] is False
+    assert result["unreached"] == ["later"]
+
+
+def test_review_resource_deadline_cannot_be_declared_success(tmp_path):
+    assert "expected_reason" in {field.name for field in fields(Call)}
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    owned = replace(owned, dispose=replace(owned.dispose, expected_reason="deadline"))
+    with pytest.raises(ValueError, match="resource.*exit"):
+        run(tmp_path, [], [owned], run_id=run_id)
+    assert not (tmp_path / owned.identity).exists()
+
+
+@pytest.mark.parametrize("name", ["plan", "result", "subjects-before", "intent-1"])
+def test_review_reserved_names_rejected_before_acquisition(tmp_path, name):
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    owned = replace(owned, cleanup=replace(owned.cleanup, name=name))
+    with pytest.raises(ValueError, match="reserved"):
+        run(tmp_path, [], [owned], run_id=run_id)
+    assert not (tmp_path / owned.identity).exists()
+
+
+def test_review_receipt_io_exception_cannot_skip_other_disposal(tmp_path, monkeypatch):
+    import controller
+
+    run_id = uuid.uuid4().hex
+    first = resource(tmp_path, run_id)
+    second = resource(tmp_path, run_id)
+    identity = f"diag-{run_id}-second"
+    second = replace(
+        second,
+        identity=identity,
+        **{
+            action: replace(
+                getattr(second, action),
+                name=f"second-{action}",
+                argv=tuple(
+                    identity if arg == first.identity else arg
+                    for arg in getattr(second, action).argv
+                ),
+            )
+            for action in ("acquire", "cleanup", "dispose", "inspect")
+        },
+    )
+    original = controller.write_json
+
+    def fail_one_receipt(path, value):
+        if path.name == "second-cleanup.json":
+            raise OSError("forced receipt storage failure")
+        original(path, value)
+
+    monkeypatch.setattr(controller, "write_json", fail_one_receipt)
+    _, result = run(tmp_path, [], [first, second], run_id=run_id)
+    assert result["ok"] is False
+    assert not (tmp_path / first.identity).exists()
+    assert not (tmp_path / second.identity).exists()
+    assert all(item["state"] == "disposed" for item in result["resources"])
+    assert any(item.get("reason") == "controller_io_error" for item in result["calls"])
+
+
+def test_review_skipped_acquisitions_are_unreached(tmp_path):
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    _, result = run(tmp_path, [], [owned], subjects=[tmp_path / "missing"], run_id=run_id)
+    assert result["ok"] is False
+    assert result["unreached"] == ["acquire"]
+    assert result["resources"] == []
+
+
+def test_review_zero_exit_wrong_stdout_is_failure(tmp_path):
+    bad_oracle = replace(call("wrong-absence", "bytes"), expected_stdout=b"absent\n")
+    _, result = run(tmp_path, [bad_oracle, call("later", "bytes")])
+    assert result["calls"][0]["returncode"] == 0
+    assert result["calls"][0]["stdout_matches"] is False
+    assert result["ok"] is False
+    assert result["unreached"] == ["later"]
+
+
+def test_review_preflight_keeps_missing_declared_subjects(tmp_path, monkeypatch):
+    import preflight
+
+    seen = []
+    monkeypatch.setattr(preflight, "REPO", tmp_path / "missing-repo")
+    monkeypatch.setattr(sys, "argv", ["preflight.py", str(tmp_path / "preflight")])
+    monkeypatch.setattr(preflight.shutil, "which", lambda _name: "/usr/bin/true")
+    monkeypatch.setattr(preflight, "execute", lambda plan, _output: seen.append(plan) or tmp_path)
+    preflight.main()
+    assert seen
+    assert tmp_path / "missing-repo/Taskfile.yml" in seen[0].subjects

@@ -11,15 +11,22 @@ vars:
 
 tasks:
   diagnostic:self-check:
-    desc: Check the bounded execution diagnostic controller with owned local processes and fake VM peers; preserve raw receipts under experiments/exec-reliability/evidence/self-check
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
-    env:
-      DIAGNOSTIC_EVIDENCE: '{{.ROOT_DIR}}/experiments/exec-reliability/evidence/{{.RUN | default "self-check"}}'
+    desc: Retain lint/type/per-test verdicts and bounded local diagnostic receipts. Requires OUT=<new evidence directory>
+    dir: '{{.ROOT_DIR}}'
+    preconditions:
+      - sh: test -n "{{.OUT | default ""}}"
+        msg: 'set OUT=<a new evidence directory>; earlier conditions must not be reused'
     cmds:
-      - uv run --locked ruff check .
-      - uv run --locked ruff format --check .
-      - uv run --locked pyright
-      - uv run --locked pytest -q
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/self_check.py {{.OUT | default "" | shellQuote}}
+
+  diagnostic:review-controls:
+    desc: Retain only the review regression controls, including their expected failure against the old controller. Requires OUT=<new evidence directory>
+    dir: '{{.ROOT_DIR}}'
+    preconditions:
+      - sh: test -n "{{.OUT | default ""}}"
+        msg: 'set OUT=<a new evidence directory>'
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/self_check.py {{.OUT | default "" | shellQuote}} --controls-only
 
   diagnostic:preflight:
     desc: Read-only installed tool help, public app status, VM/Tart inventories and build prerequisites; no boot, guest workload, installation or app quit. Requires OUT=<new evidence directory>

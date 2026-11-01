@@ -209,6 +209,17 @@ prerequisites are documented in
 Its live-route unavailable classifications are preparation limits, not causes
 or repair results. Recheck answering identities for each new diagnostic run.
 
+Review integration `diagnostic-foundation-k16` corrects the installed routes to
+**untested**, and inserts three prerequisites ahead of causal consumers:
+`diagnostic-evidence-k17` for process/evidence guarantees,
+`diagnostic-disposal-k18` for stalled-storage isolation and its reviewed
+implementation continuation, and `diagnostic-routes-k19` for the bounded live
+identity/health probes and dual-inventory disposal oracle. The current controller
+handles raised I/O exceptions but a blocked evidence filesystem still voids its
+disposal ceiling. Do not rely on that open guarantee or move route preparation
+into a causal sample. These producers cut their concrete reviews when their
+artifacts exist. The k16 report records all review dispositions and local audits.
+
 `diagnostic-foundation-k11` owns the reusable controller, ledger, forced-failure
 self-checks and the per-OS build/routing prerequisite table. Causal leaves reuse
 that handoff and add only their question's concrete fixtures and diagnostics.

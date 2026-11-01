@@ -1,4 +1,4 @@
-"""Bounded diagnostic calls and exact owned-resource teardown (POSIX hosts only).
+"""Bounded diagnostic calls and exact owned-resource teardown (macOS hosts only).
 
 This is an evidence instrument, not a guest execution or cancellation service.
 Callers supply trusted, frozen argv and every file their fixtures read.
@@ -20,6 +20,7 @@ import time
 from contextlib import closing
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -30,6 +31,7 @@ class Call:
     expected_exit: int = 0
     expected_stdout: bytes | None = None
     interrupt_after: float | None = None
+    expected_reason: Literal["exit", "interrupted", "deadline"] = "exit"
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,8 @@ def _validate(plan: Plan) -> None:
             raise ValueError("resource identity must be unique and contain this run_id")
         identities.add(resource.identity)
         for call in (resource.acquire, resource.cleanup, resource.dispose, resource.inspect):
+            if call.expected_reason != "exit":
+                raise ValueError("resource actions must expect ordinary exit")
             if resource.identity not in call.argv:
                 raise ValueError("resource action must name the exact identity as an argv token")
             calls.append(call)
@@ -102,6 +106,8 @@ def _validate(plan: Plan) -> None:
             raise ValueError("absence inspection needs an exact stdout oracle")
     names: set[str] = set()
     for call in calls:
+        if call.name in {"plan", "result", "subjects-before"} or call.name.startswith("intent-"):
+            raise ValueError("call name is reserved for controller receipts")
         if not re.fullmatch(r"[a-zA-Z0-9_-]+", call.name) or call.name in names:
             raise ValueError("call names must be unique safe filenames")
         names.add(call.name)
@@ -111,6 +117,12 @@ def _validate(plan: Plan) -> None:
             raise ValueError("each call needs a positive finite budget")
         if call.interrupt_after is not None and not 0 < call.interrupt_after <= call.budget:
             raise ValueError("interruption must be within the call budget")
+        if call.expected_reason not in {"exit", "interrupted", "deadline"}:
+            raise ValueError("unsupported expected controller reason")
+        if call.expected_reason == "interrupted" and call.interrupt_after is None:
+            raise ValueError("expected interruption needs interrupt_after")
+        if call.expected_reason == "deadline" and call.interrupt_after is not None:
+            raise ValueError("expected deadline cannot declare interruption")
 
 
 def _exited(pid: int) -> bool:
@@ -223,7 +235,9 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
             except subprocess.TimeoutExpired:
                 receipt["reap_error"] = "leader unreaped; manual identity inspection required"
             receipt["ok"] = (
-                receipt["reason"] == "exit" and receipt["returncode"] == call.expected_exit
+                receipt["reason"] == call.expected_reason
+                and receipt["returncode"] == call.expected_exit
+                and receipt["reaped"] is True
             )
     if call.expected_stdout is not None:
         receipt["stdout_matches"] = (
@@ -233,6 +247,21 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
     receipt["elapsed"] = time.monotonic() - start
     write_json(root / f"{call.name}.json", receipt)
     return receipt
+
+
+def _safe_call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
+    # A raised receipt/read/open error must not skip independent safety actions.
+    # This handles exceptions, not a filesystem operation which never returns.
+    try:
+        return _call(call, root, plan)
+    except OSError as error:
+        return {
+            "name": call.name,
+            "argv": call.argv,
+            "ok": False,
+            "reason": "controller_io_error",
+            "error": str(error),
+        }
 
 
 def execute(plan: Plan, evidence_root: Path) -> Path:
@@ -265,29 +294,44 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
     receipts: list[dict[str, object]] = []
     ledger: list[dict[str, object]] = []
     attempted: list[Resource] = []
-    unreached = [call.name for call in plan.calls]
+    unreached = [resource.acquire.name for resource in plan.resources] + [
+        call.name for call in plan.calls
+    ]
     ok = not any(value.startswith("unavailable:") for value in before.values())
     try:
         for resource in plan.resources:
             if not ok:
                 break
             attempted.append(resource)
-            write_json(root / f"intent-{len(attempted)}.json", asdict(resource))
-            receipt = _call(resource.acquire, root, plan)
+            try:
+                write_json(root / f"intent-{len(attempted)}.json", asdict(resource))
+            except OSError as error:
+                receipts.append(
+                    {
+                        "name": resource.acquire.name,
+                        "ok": False,
+                        "reason": "intent_io_error",
+                        "error": str(error),
+                    }
+                )
+                ok = False
+                break
+            unreached.remove(resource.acquire.name)
+            receipt = _safe_call(resource.acquire, root, plan)
             receipts.append(receipt)
             ok = receipt["ok"] is True
         for call in plan.calls:
             if not ok:
                 break
             unreached.remove(call.name)
-            receipt = _call(call, root, plan)
+            receipt = _safe_call(call, root, plan)
             receipts.append(receipt)
             ok = receipt["ok"] is True
     finally:
         for resource in reversed(attempted):
-            cleanup = _call(resource.cleanup, root, plan)
-            disposal = _call(resource.dispose, root, plan)
-            inspection = _call(resource.inspect, root, plan)
+            cleanup = _safe_call(resource.cleanup, root, plan)
+            disposal = _safe_call(resource.dispose, root, plan)
+            inspection = _safe_call(resource.inspect, root, plan)
             receipts.extend((cleanup, disposal, inspection))
             disposed = disposal["ok"] is True and inspection["ok"] is True
             ledger.append(
