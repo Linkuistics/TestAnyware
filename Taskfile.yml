@@ -10,6 +10,18 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  diagnostic:test:
+    desc: Run local diagnostic tests, with optional pytest arguments after --
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m pytest {{.CLI_ARGS}}
+
+  diagnostic:format:
+    desc: Format the local diagnostic Python sources
+    dir: '{{.ROOT_DIR}}'
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python -m ruff format experiments/exec-reliability
+
   design:inspection-preview:
     desc: Serve the bounded-inspection design at localhost (PORT defaults to 8764); stop with Ctrl-C
     cmds:

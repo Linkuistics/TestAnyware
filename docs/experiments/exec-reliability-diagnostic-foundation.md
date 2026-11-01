@@ -4,8 +4,12 @@ The local diagnostic controller passes its revised forced-failure self-check on 
 macOS host. It now observes graceful leader exit, distinguishes PID and group
 interruption with real child controls, and records group inspection before
 reaping. Review integration corrects false success with live group members,
-fixture cleanup and checker timeout reporting. Independently supervised process
-inspection, retained-file identity, stalled-storage disposal and live route
+fixture cleanup and checker timeout reporting. Initial fork admission now rejects
+extra Python or native threads, changed SIGCHLD and unavailable native observations
+before acquisition, retaining failed results. Its measured condition is k29-final-01;
+the specific implementation review precedes the remaining scheduler work.
+Independently supervised process inspection, retained-file identity,
+stalled-storage disposal and live route
 preparation still need the work named below before causal use. In particular,
 the present `ps` helper can outlive its timeout and block disposal.
 This is preparation for the causal inquiries in
@@ -52,7 +56,8 @@ evidence = execute(plan, Path("evidence"))
 
 The caller must declare **every fixture/input file it reads**, including
 checkers, manifests, exclusions and image/export identities. The controller
-automatically hashes itself, the interpreter and explicit command executables;
+automatically hashes itself, its inspection module, the interpreter and explicit
+command executables;
 it also hashes declared subjects before and after. It does not discover
 transitive Python imports, dynamic libraries, subprocess dependencies or guest
 images automatically. Record those dependencies and their identities in the
@@ -323,7 +328,7 @@ The frozen conditions use the existing Taskfile commands and Python 3.12.15:
 | [k23-green-01](../../experiments/exec-reliability/evidence/k23-green-01/verdict.json) | All 42 tests pass; lint/format/type failures are retained. |
 | [k23-red-02](../../experiments/exec-reliability/evidence/k23-red-02/verdict.json) | Old fork fixture fails independent child publication; 29 passes, one failure, 13 deselected. |
 | [k23-green-02](../../experiments/exec-reliability/evidence/k23-green-02/verdict.json) | All four checkers and 54 tests pass, including early-reap, bound and self-signal mutations. |
-| [k23-final-01](../../experiments/exec-reliability/evidence/k23-final-01/verdict.json) | Delivered source condition: all four checkers and 54 tests pass; failed checker fixture artifacts are now retained with other run artifacts. |
+| [k23-final-01](../../experiments/exec-reliability/evidence/k23-final-01/verdict.json) | Historical delivered source condition: all four checkers and 54 tests pass; failed checker fixture artifacts are now retained with other run artifacts. |
 
 Each condition pins its actual source, manifest, lockfile, Taskfile, interpreter
 and per-artifact digests. The final [JUnit record](../../experiments/exec-reliability/evidence/k23-final-01/pytest.xml)
@@ -385,9 +390,11 @@ controller remains the sole workload signal/reap owner. Worker results cross
 bounded nonblocking channels and are accepted only in their original observation
 epoch. A missed observation deadline fails the evidence while safety actions continue.
 Review k26 is reconciled by integration k27. Planner k25 assigns implementation
-to bounded-inspection-k28 before k21, with its specific review cut when the
-artifact exists. k23-final-01 remains the delivered controller condition,
-with its inspection limitation unchanged. The historical acceptance result is
+to bounded-inspection-k28 before k21. k28 now contains the measured initial
+admission slice k29 and the remaining complete worker/scheduler slice k30.
+k29-final-01 is the current measured source condition, pending its specific
+implementation review; the inspection limitation measured at k23-final-01
+remains unchanged. The historical acceptance result is
 still **0/10, unavailable**.
 
 - [Ownership](../specs/diagnostic-process-inspection.md#ownership) — Assigned target signal authority to the controller and helper mechanics to the worker, with separate pinned groups.
@@ -491,6 +498,76 @@ precise design continuation before its consumer. No empty integration is cut.
 k17 remains open through reviewed implementation and k21, with every missing
 real control visible when its whole contract is checked. This planning change
 runs no diagnostic workload and changes no earlier receipt or runtime source.
+
+#### Initial fork admission (k29)
+
+The first independently useful child of k28 rejects an unsafe initial controller
+environment through the real `execute` boundary. It records Python and native
+thread counts, SIGCHLD disposition, and native-observation error/errno in
+`result.json`. Rejection happens before the resource intent ledger: acquisition
+and workload stay unreached, with no calls or resource ownership reported.
+A default single-threaded controller still acquires, runs, cleans, disposes and
+positively checks absence. The controller includes `inspection.py` in its
+before/after subject hashes.
+
+Native thread observation uses macOS libproc `PROC_PIDTASKINFO`. The ctypes ABI
+uses the [XNU task-info structure and flavor](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/proc_info.h):
+six 64-bit fields then twelve 32-bit fields, including `pti_threadnum`.
+Unavailable libraries/symbols, a return length other than 96 bytes, and
+nonpositive thread counts all fail closed. System dynamic libraries are not
+automatically hashed; the retained observations describe this host condition.
+
+The frozen [k29-final-01 verdict](../../experiments/exec-reliability/evidence/k29-final-01/verdict.json)
+records zero exits for lint, formatting, strict runtime types and pytest.
+All 67 tests passed in 18.81 seconds under Python 3.12.15. The
+[JUnit record](../../experiments/exec-reliability/evidence/k29-final-01/pytest.xml)
+identifies each case, including these 13 admission controls:
+
+| Control | Observed boundary |
+| --- | --- |
+| Default single-threaded controller | All five resource/workload calls run; resource disposed. |
+| Live Python thread | Failed `python_threads` receipt, Python/native counts 2/2. |
+| Real native pthread absent from Python registry | Failed `native_threads` receipt, counts 1/2; fixture joins its pthread. |
+| SIG_IGN and installed SIGCHLD handler | Separate failed `sigchld` receipts with no acquisition. |
+| Native returns 0, -1, 95 or 97 bytes | Four failed native-observation receipts. |
+| Native returns 96 bytes with count 0 or -1 | Two failed native-observation receipts. |
+| Native library unavailable or query symbol missing | Separate retained ENOENT and ENOSYS failures. |
+
+All twelve rejection results remain failed, with no calls/resources, acquisition
+and workload unreached, and unchanged declared subject hashes. Native
+short/error/library cases use explicit adapters; the Python thread, pthread and
+signal controls exercise real host state. Development runs exposed the old
+boundary and the missing-symbol error before their fixes; those transient red
+runs are not a separate frozen countercondition. No fixture is a guest or a
+production reliability measurement.
+
+The independent [audit 02 result](../../experiments/exec-reliability/evidence/k29-audit-02/result.json)
+retains before/after hashes of the condition, auditor, runtime/test sources,
+manifest, lockfile, Taskfile, interpreter, ps and true. All 94 recorded PIDs,
+including independently published fork children and checker identities, were
+absent in the later observation. Its exact absence predicate rejected live,
+mixed and invalid selectors and accepted a freshly reaped helper. It checked
+21 marker resource declarations and removed 67 exact fixture directories;
+the deliberately blocked-disposal marker was present and was removed after
+identity/content validation. Preflight scratch evidence was copied before
+removal. The simulated unreapable-checker PID is explicitly excluded. These are
+later observations, without an escaped-descendant or inspection-time proof.
+[Audit 01](../../experiments/exec-reliability/evidence/k29-audit-01/failure.json)
+failed on a readiness marker mistaken for a PID, before any process controls
+or cleanup. Its failure and original script remain unchanged.
+
+This admission snapshot does not lock out a new host thread or changed signal
+state. No inspection worker, nonblocking channel, helper ownership protocol or
+single deadline scheduler is delivered. The old synchronous ps creation and
+post-timeout wait can still block resource safety. The unintegrated worker draft
+was replaced rather than shipped; jj snapshot `0f8aca80` preserves it for
+reference, without any correctness claim. bounded-inspection-k30 retains the
+full parent spec/control inventory and must repeat admission before every actual
+fork, implement signal masking/reset and worker/helper lifecycle, and demonstrate
+resource safety during inspection stalls. Its specific review must still precede
+k21. The immediate fork-admission review precedes k30; no empty integration was
+created. k17, k21 and k18 remain open, and historical acceptance remains
+**0/10, unavailable**.
 
 ### Earlier foundation controls
 

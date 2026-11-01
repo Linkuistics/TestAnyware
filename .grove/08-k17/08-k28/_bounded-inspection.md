@@ -1,4 +1,4 @@
-# bounded-inspection-k28
+# bounded-inspection-k28 — brief
 
 ## Goal
 
@@ -159,7 +159,45 @@ audits known fixture children and helpers without using the faulted worker.
   post-bootstrap preparation exits and healthy orderly close under the declared
   invocation bounds, including already-retiring-worker cleanup.
 
+## Decisions (running log)
+
+- Keep the end-to-end increment selected by k25. The reviewed spec and plan
+  settle the design and test seams. Implement inline in the isolated jj workspace.
+  Controller scheduling and workload authority stay in `controller.py`; a private
+  `inspection.py` owns worker transport and helper mechanics. Add failing controls,
+  implement the boundary, migrate inspection stubs to value cases, freeze and run
+  Taskfile checks, audit owned identities, update the handoff, and cut the required
+  review before retirement. No in-session reviewer is added beside that review.
+- Tier 2 discovery uses graph generation `2026-11-01T05:48:26Z`. Complete targeted
+  controller search and execute trace identify synchronous inspection and blocking
+  reap; cross-language heuristic edges are not evidence. Runtime/config coverage
+  matches with no recorded gap. Changed brief/report metadata and the newly
+  retired planner require direct reads, performed here.
+- The owner requested a stop for Grove reconfiguration during implementation.
+  Leave this leaf live and preserve the open jj change; do not retire, cut its
+  review or seal it as a completed producer. `inspection.py` is an unfinished,
+  unintegrated worker/protocol draft. `test_inspection.py` starts the real-controller
+  controls. The first test was observed failing because `controller.InspectionConfig`
+  does not yet exist. Neither `controller.py` nor the runner/configuration has
+  changed, and no new worker/helper or resource fixture was launched. The
+  delivered runtime condition remains k23-final-01.
+- At interruption, both new Python files compile. Targeted Ruff check fails
+  on formatting/import order (19 findings); no Taskfile measurement or type
+  check has run. These checks are exploratory tool output, not retained control
+  evidence or a repaired-boundary claim. On resumption, review the draft against
+  the complete spec before integrating it: scheduler/workload authority, bounded
+  retained protocol state, late identity reconciliation, terminal/close ordering,
+  helper cleanup accounting and fault adapters are still unfinished. Then add
+  the remaining test-first controls, runner/hash/type-check subjects and frozen
+  evidence/audits before the required review. All earlier evidence stays intact.
+
 ## Notes
+
+The resumed implementation decomposed at an independently useful green boundary:
+fork-admission-k29 rejects unsafe environments before resource acquisition;
+bounded-inspection-k30 retains all remaining end-to-end requirements above.
+k29's review runs before k30. Partial admission delivery does not satisfy this
+node, repair synchronous inspection stalls, or change the acceptance claim.
 
 No live guest, installed-app change, unsafe macOS process suite or acceptance
 claim. Workload process creation, stalled evidence storage, arbitrary escaped

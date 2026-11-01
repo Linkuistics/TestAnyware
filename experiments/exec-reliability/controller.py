@@ -22,6 +22,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal, TypedDict, cast
 
+from inspection import fork_admission
+
 
 @dataclass(frozen=True)
 class Call:
@@ -447,6 +449,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
         dict.fromkeys(
             (
                 Path(__file__).resolve(),
+                Path(__file__).with_name("inspection.py").resolve(),
                 Path(sys.executable).resolve(),
                 Path("/bin/ps"),
                 *plan.subjects,
@@ -463,7 +466,8 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
     unreached = [resource.acquire.name for resource in plan.resources] + [
         call.name for call in plan.calls
     ]
-    ok = not any(value.startswith("unavailable:") for value in before.values())
+    admission = fork_admission()
+    ok = admission["ok"] and not any(value.startswith("unavailable:") for value in before.values())
     try:
         for resource in plan.resources:
             if not ok:
@@ -517,6 +521,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
             {
                 "run_id": plan.run_id,
                 "ok": ok,
+                "fork_admission": admission,
                 "calls": receipts,
                 "resources": ledger,
                 "unreached": unreached,
