@@ -158,6 +158,131 @@ from the source leads alone.
 - `execution-reliability-k2`: plan the first causal investigations and the
   evidence-dependent design handoff.
 
+### Working increments and dependency order
+
+The first increments deliver reusable diagnostics and evidence without changing
+the production lifecycle. Each is a complete, independently runnable inquiry;
+the ordering gives related inquiries a reusable starting point, not permission
+to merge their conclusions. Each fits a leaf; decompose one only if its own
+bounded question proves larger than a session.
+
+1. `macos-completion-k3`: establish the ordinary-command wait boundary and
+   build identity; safely scope the existing process-test cleanup first.
+2. `macos-timeout-inspection-k4`: distinguish timeout cleanup, descendant
+   inspection and the later command's wait from the ordinary-completion case.
+3. `linux-timeout-lifecycle-k5`: separate deadline classification, partial
+   capture and known-child survival through agent and Host CLI boundaries.
+4. `linux-disconnect-availability-k6`: measure client interruption and serial
+   request availability independently of timeout classification and cleanup.
+5. `download-consistency-k7`: locate the successful truncated download across
+   file identity, handler framing, transport and host finalization, including
+   mutable and immutable controls.
+6. `lifecycle-evidence-k8`: consume all five findings and specify the smallest
+   coherent supported lifecycle and evidence contract. An unresolved cause is
+   retained as uncertainty or gets a precise new investigation before design
+   relies on it; it is never filled by a source-based guess.
+
+The five causal leaves hand off green ordinary checks plus explicitly named
+diagnostic commands that can report the known defect. Do not turn the normal
+suite red for queued repair work, or assert the broken behavior as the desired
+contract. Keep a controlled old-path reproducer outside the passing regression
+gate until its correction lands, with exact expected failure and invocation.
+Any narrow test seam is exercised through the existing process/HTTP/transport
+boundary and separately identified from an uninstrumented production build.
+
+### Common investigation contract
+
+Each causal leaf reads issue #14 and the retained report, then freezes a finite
+case list, tools, checker, budgets and inputs before its diagnostic run. It
+records hypotheses, contrary evidence, per-case observations and unanswered
+questions in its own durable `docs/experiments/` report. Raw evidence and runnable
+fixtures belong under a project-owned `experiments/exec-reliability/` subject
+directory, with hashes and stable references from the report; preserve earlier
+artifacts in place and do not commit private host configuration. Report a
+missing original as unavailable rather than reconstructing it. Old failures,
+instrumented controls and corrected acceptance have distinct identities.
+
+For live work, use at most one unchanged clone and one isolated instrumented
+clone per affected OS in each causal leaf. Declare every workload and its count
+before running; a failed clone is retained as a failed sample, never replaced.
+Further diagnostic conditions require a stated new condition and, if larger
+than this bounded inquiry, a new leaf. Lower-level deterministic fixtures use
+unique temporary directories and positively identified processes; bound their
+whole invocation independently, including failed wait/inspection cleanup.
+
+Record the source commit and dirty diff, lockfiles and dependencies, executable
+hashes and versions, app bundle/build/signing identity, agent binary or source
+hashes, guest OS and baseline image identity. A matching version string is not
+source provenance. The old macOS binary's source remains unproved unless the
+investigation establishes it. Hash every read subject before and after the run,
+use unique run IDs and one writer, retain argv/raw streams/status, HTTP or
+transport evidence where available, and monotonic phase timings. No edits
+under a measurement, retries, padding sleeps or raised comparison ceilings.
+
+Read public help/schema to select supported commands. Reach each live guest by
+VM id through the TestAnyware app and Host CLI library. Baseline runs may use
+the identified installed tools unchanged. Instrumented runs use explicit paths
+to checkout-built Host CLI/app/agents and new, uniquely named disposable test
+baselines or owned clones. Clone retained stopped images without booting or
+modifying them; install test agents only in owned disposable resources using
+supported installation/public transfer interfaces. Do not read private
+connection files or route directly to a guest. Golden creation retains only
+ADR-0004's existing exception. Verify which app and agent actually answer before
+measuring; an unresolved isolated-build/routing prerequisite makes that condition
+unavailable, not a reason to overwrite the installed app or retained golden.
+
+The outer controller owns a resource ledger with exact VM/image/process/group,
+temporary directory, archive and test-app identities. It remains alive when
+the command CLI is interrupted. Its `finally` independently disposes only owned
+VMs within 45 seconds, even after observation/transfer/guest cleanup failure.
+Record guest cleanup within 30 seconds and disposal separately; inspect public
+VM and hypervisor inventories for the recorded identities. Failed inspection
+is uncertainty. Stop only a test app this run started. Dispose temporary
+baselines/archives after evidence retention; report each residual identity and
+concrete remedy. Never stop unrelated processes or use broad name-based kills.
+Before invoking the existing macOS process suite, replace its broad `pkill`
+cleanup with ownership-scoped fixtures in `macos-completion-k3`.
+
+Extend `Taskfile.yml` only with the concrete recipes each inquiry establishes,
+run them through `mise exec -- task`, and verify their failure detection with
+controlled damaged inputs or forced failures. Reuse `cli:test`,
+`app:routing-test`, `agent:macos:test` and the existing agent/client fixtures as
+applicable; do not run the unsafe process suite before its cleanup is scoped.
+Distinguish a passing instrument self-check from a defect detected by that
+instrument. Preserve raw interface errors even when lower-level evidence works.
+
+### Required continuation after the causal increments
+
+The design producer must cut a concrete `review-design` leaf when its spec/ADR
+set exists; the review cuts reconciliation only for actionable findings, placed
+before any later live sibling. After a clean review or reconciled design, that
+session cuts a planning leaf to identify dependency-ordered working product
+increments from the actual contract. Do not leave the tree with no live work
+while the root's acceptance conditions remain unmet.
+
+The later planner separates independently useful lifecycle, transfer,
+compatibility/documentation and validation increments wherever each handoff
+works. Keep protocol expansion and the reader that makes it useful together
+when neither works alone. Each material implementation producer commissions
+`review-impl` once the change exists, and its findings are reconciled before
+freezing acceptance. No empty review or integration leaves are cut now.
+
+After reviewed fixes, grow concrete preparation, frozen full acceptance and
+durable handoff/resource-audit work. Preparation validates the independent
+controller and all corruption controls, identifies isolated production test
+builds and disposable baselines, and freezes every subject and all new phase
+bounds. Acceptance then runs the complete inventory above on five fresh macOS
+clones followed by five fresh Linux clones, sequentially, with item-by-item
+outcomes. A defect fails the trial; subsequent safety observations preserve the
+failure, and unreached cases remain incomplete. Any revised candidate is a new
+condition and trial, never a replacement sample. The final handoff states what
+Ravel-Strategies must rerun and audits every owned resource. The historical
+0/10 unavailable trial is unchanged. This tree's planning is not a repair claim.
+
+The planning artifact itself warrants a fresh `review-planning` before the
+investigations: check causal separation, measurable leaf scope, safe ownership
+and preservation of the full acceptance/continuation obligations.
+
 ## Pointers
 
 - Required ADRs: `docs/adr/0001-streaming-file-transfer.md` and

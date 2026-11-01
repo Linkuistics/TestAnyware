@@ -91,3 +91,50 @@ control at the highest existing interface when a race needs deterministic
 forcing. Do not preserve old whitespace-trimming assertions where they
 contradict the exact evidence requirement. Cleanup must identify the exact
 owned process/group; broad name-based killing is unsuitable.
+
+## Decisions (running log)
+
+2026-11-01 — Keep five independently verifiable causal increments: macOS
+ordinary completion; macOS timeout and subsequent inspection; Linux timeout
+classification/capture and owned-child cleanup; Linux disconnect/request
+availability; and file-transfer consistency. Each delivers a bounded diagnostic,
+retained evidence and a causal report while preserving the working product.
+Use flat sibling leaves because each increment is one focused session; a leaf
+that outgrows that boundary must decompose itself rather than absorb its peers.
+
+2026-11-01 — Put one coherent lifecycle/evidence design after the five reports.
+Do not select cancellation endpoints, server concurrency, process ownership or
+mutable-read semantics from source inspection alone. Later implementation
+increments must be selected from the reviewed design. Their review,
+reconciliation, frozen acceptance and durable handoff remain required work in
+the root charter rather than empty speculative leaves.
+
+2026-11-01 — The retained downstream report is still present at the path in
+the root brief. Read it in place; future investigations must hash and retain
+the exact receipts and source identities they use. The prior trial remains
+0/10 unavailable. This planning session runs no guest workload and establishes
+no repair or new acceptance result.
+
+2026-11-01 — Created `macos-completion-k3`,
+`macos-timeout-inspection-k4`, `linux-timeout-lifecycle-k5`,
+`linux-disconnect-availability-k6`, `download-consistency-k7` and
+`lifecycle-evidence-k8`. The root carries their common finite-run, evidence,
+isolation and resource contract and the required later review/planning/trial
+continuation. No production interface or mutable-read policy was selected.
+
+2026-11-01 — This decomposition is load-bearing enough for a separate
+`review-planning` before the causal leaves. Its specific doubts are whether each
+inquiry fits one session, whether causal attribution can cross the public app
+path without bypassing it, and whether the lazy continuation preserves every
+acceptance obligation. No in-session reviewer was used; integration is created
+only if the review has actionable findings.
+
+2026-11-01 — Verified the source leads with Tier 2 graph search, targeted traces
+and exact snippets/source. Coverage generation `2026-11-01T03:34:33Z` matched
+the targeted source and task/document paths with no recorded gaps; this is
+best-effort coverage, not an exhaustive architecture claim. Discarded heuristic
+Swift-to-unrelated-Rust system-call links. Read the prior requirements commit
+and retained downstream report. All current leaves passed `brief-chain`, and
+`mise exec -- task --list` successfully read the existing workflow. Reviewed the
+full diff against this leaf's done criteria. Validation is for planning notes
+only: no production tests, guest workloads or acceptance trial were run.
