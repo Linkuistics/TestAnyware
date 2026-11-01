@@ -92,3 +92,56 @@ This planning leaf exists because the design kind owns the contract and planning
 owns implementation decomposition. Do not re-interview the already agreed root
 seams or treat the design as an implementation pass. If runtime evidence defeats
 the ownership design, externalize the precise redesign ahead of its consumer.
+
+## Decisions (running log)
+
+- The smallest useful implementation increment is the complete inspection
+  path through `execute`: shared scheduling, worker/helper ownership, bounded
+  messages, epoch validation and failed/residual receipts land together. A
+  standalone worker or scheduler would not demonstrate inspection-independent
+  safety through the existing caller. Keep one implementation leaf before k21;
+  k21's independently useful retained-file contract and k18's storage isolation
+  remain separate later increments. No new node or speculative stages are needed.
+- The implementation owns the controller, a narrow inspection module if useful,
+  local fixtures, tests, runner/configuration and diagnostic handoff together.
+  Preserve immutable declarations and the acquired-resource teardown order.
+  Existing direct subprocess-run stubs migrate to adapter value cases; real
+  scope, reap, live-member and checker controls remain process controls.
+- Require every control in the reconciled spec, including inherited host state,
+  late-grace exit, single-query limits and worker timers during teardown.
+  Ordinary and fault conditions use the same hashed worker source, with helper
+  selection and hold points frozen at bootstrap. Separate the deterministic
+  helper KILL/wait control from actual setuid-ps KILL and privileged UID-based
+  EPERM. Missing real prerequisites produce itemized unavailable receipts and
+  prevent a full guarantee claim; they do not authorise privilege acquisition.
+- This bounded translation of the reviewed design needs no further planning
+  review chain. The material implementation must cut its specific review before
+  k21 once the code and retained controls exist. That review must trace actual
+  runtime creation, drains, waits, destructors and shutdown paths. A runtime
+  counterexample goes to a precise design continuation before its consumer.
+- Created bounded-inspection-k28 before retained-evidence-k21. Its charter owns
+  the complete path and a finite control inventory, requires its own concrete
+  implementation review before k21, and leaves no empty integration. Root/k17,
+  k21, k18 and the durable handoff now name that consumer boundary explicitly.
+- Tier 2 discovery used project
+  `Users-antony-Development-AbstractingComputers-TestAnyware.gh-issue-14`,
+  generation `2026-11-01T05:35:55Z`. Exact controller and self-check snippets
+  confirm the private wait phases and runner subjects; the explicit pyright
+  include list was read directly. Targeted controller/test/runner searches and
+  the one-hop execute trace were complete. An initial broad fixture search hit
+  retained evidence and was replaced by exact source-file searches rather than
+  treated as exhaustive. Cross-language heuristic edges were not credited.
+  Coverage matched the relied-on runtime/config paths with no recorded gap;
+  edited briefs/spec/report had stale or missing metadata and were read directly.
+  These are bounded planning observations, not runtime verification.
+- Verified the new leaf's root-to-leaf brief chain and k21's new path with
+  Grove's tree reader/resolver. Read the complete change and checked the k28
+  charter against each completion condition here and the spec's control table.
+  The whitespace check passed. The enumerated diff contains only the new
+  implementation charter and six planning/handoff documents; no runtime,
+  Taskfile, spec, ADR or retained-evidence change is present. No runtime suite
+  was run and no process fixture, VM, app or privileged resource was acquired.
+  Final graph coverage uses generation `2026-11-01T05:48:26Z` but reports changed
+  metadata for the edited documents; direct reads/diffs supply their evidence.
+  No live review names this planner, so retirement needs no Creator line.
+  k28 and k21 remain live under k17; retirement closes no parent.

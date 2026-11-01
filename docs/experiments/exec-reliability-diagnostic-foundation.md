@@ -384,8 +384,9 @@ prestarted worker for helper creation, exec, capture and wait. The outer
 controller remains the sole workload signal/reap owner. Worker results cross
 bounded nonblocking channels and are accepted only in their original observation
 epoch. A missed observation deadline fails the evidence while safety actions continue.
-Review k26 is reconciled by integration k27. Implementation remains ahead of
-k21 through planner k25. k23-final-01 remains the delivered controller condition,
+Review k26 is reconciled by integration k27. Planner k25 assigns implementation
+to bounded-inspection-k28 before k21, with its specific review cut when the
+artifact exists. k23-final-01 remains the delivered controller condition,
 with its inspection limitation unchanged. The historical acceptance result is
 still **0/10, unavailable**.
 
@@ -460,6 +461,36 @@ Targeted graph pages were complete. Coverage had no recorded source gap, but
 reported Mermaid gaps in ownership lines 1–13 and helper-start line 16.
 Direct reads covered those ranges. This establishes the design repair's basis,
 not a runtime reliability result. k18 still owns blocked evidence storage.
+
+#### Implementation continuation (k25)
+
+The concrete continuation is **bounded-inspection-k28**, one implementation
+increment before retained-evidence-k21. Its observable result must be the real
+`execute` path attempting owned-resource safety actions on unchanged deadlines
+while inspection stalls, with failed observations and residual identities
+retained. Scheduling, worker/helper ownership, bounded messages and epoch
+validation belong together: an isolated worker or scheduler does not establish
+that result at the caller. The independently useful next increments remain
+k21's retained-file integrity and k18's storage isolation.
+
+k28 owns the controller, narrow inspection code, local fixtures/tests, explicit
+runner/hash/type-check subjects, concrete Taskfile recipes and this handoff.
+Its controls include inherited host state, creation/gate races, actual helper
+KILL followed by a wait stall, invalid handoff, signal/reap authority, the sole
+final query's timing limits and worker cleanup deadlines during an open
+teardown command. Real setuid-ps KILL and UID-based EPERM stay separate from
+deterministic helper and classifier controls. Their missing prerequisites
+produce itemized unavailable receipts, never a full guarantee claim. No
+privilege acquisition is authorised by this continuation.
+
+Once its artifact exists, k28 must insert its specific implementation review
+before k21. Review traces actual creation, drains, waits and shutdown hooks,
+including safety-owner blocking and released identities. Actionable findings
+reconcile before k21; a runtime counterexample requiring redesign earns a
+precise design continuation before its consumer. No empty integration is cut.
+k17 remains open through reviewed implementation and k21, with every missing
+real control visible when its whole contract is checked. This planning change
+runs no diagnostic workload and changes no earlier receipt or runtime source.
 
 ### Earlier foundation controls
 

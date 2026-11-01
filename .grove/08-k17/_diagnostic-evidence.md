@@ -90,3 +90,16 @@ The spec declares final-query limitations and every bootstrap/close bound.
 Real setuid-ps KILL and privileged UID-based EPERM controls retain separate
 unavailable prerequisites. k21 preserves these outcomes and k18 preserves the
 scheduler while isolating storage. The delivered code remains k23-final-01.
+
+Planner bounded-inspection-k25 cuts bounded-inspection-k28 as one complete
+implementation increment before retained-evidence-k21. It owns shared scheduling
+through `execute`, the worker/helper lifecycle, bounded protocol, epoch checks,
+all required controls, explicit runner/type-check subjects and the diagnostic
+handoff. Splitting those mechanics would not establish the safety behaviour at
+the caller. k28 must insert its concrete review-impl before k21 after code and
+receipts exist; findings reconcile there before k21 runs. No empty integration
+is planned. k17 remains open through that reviewed handoff and k21's retained
+evidence, with missing real permission/setuid-ps controls still visible at its
+whole-contract check. k18 separately consumes the reviewed scheduler and
+immutable in-memory outcomes while isolating storage. Planning delivers no new
+runtime guarantee or acceptance evidence.

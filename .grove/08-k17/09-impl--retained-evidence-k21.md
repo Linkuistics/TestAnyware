@@ -31,6 +31,15 @@ Missing privileged EPERM or actual setuid-ps KILL evidence remains unavailable.
 A deterministic substitute helper does not fill either gap. Read k25's concrete
 reviewed implementation handoff before adding retained-file guarantees.
 
+The concrete implementation is bounded-inspection-k28. Its producer must insert
+review-impl before this leaf once its artifact exists; consume k28 only after
+that review and any reconciliation. Preserve its failed and unavailable real
+controls, explicit bootstrap/worker-close phases, separate workload/worker/helper
+reaps and unknown creation obligations in result identity. Do not replace their
+verdicts with a later hash or a successful disposal command. k28 does not own
+this leaf's surviving-writer and stream/result integrity work, and neither leaf
+closes k17 while its whole-contract check still has unmet obligations.
+
 ## Done when
 
 - Pin each raw stream's byte length and digest at an explicit monotonic

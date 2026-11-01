@@ -256,6 +256,16 @@ state reset, final-query limits and bootstrap/close bounds. k25 owns the concret
 implementation and its review. k21 and k18 consume that reviewed handoff.
 No delivered inspection or storage guarantee follows from this design repair.
 
+Planner bounded-inspection-k25 cuts bounded-inspection-k28 before k21 as the
+complete inspection increment: shared controller scheduling, worker/helper
+ownership, bounded handoff, epoch validation, controls and retained cleanup
+evidence. k28 must cut its specific implementation review before k21 when the
+artifact exists; actionable findings reconcile before k21. k21 then owns
+retained-file integrity, and k18 separately owns stalled storage. k17's whole
+contract remains open through reviewed implementation and retained evidence;
+unavailable real permission/setuid-ps controls cannot become a full guarantee
+claim. This planning continuation changes no delivered runtime condition.
+
 `diagnostic-foundation-k11` owns the reusable controller, ledger, forced-failure
 self-checks and the per-OS build/routing prerequisite table. Causal leaves reuse
 that handoff and add only their question's concrete fixtures and diagnostics.

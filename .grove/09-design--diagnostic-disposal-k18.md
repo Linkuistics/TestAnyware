@@ -33,6 +33,15 @@ No evidence publication acknowledges helper exec or permits safety progress.
 Bootstrap and worker-close phases have separate declared invocation bounds.
 Consume the final-query failures and known/unknown helper residuals unchanged.
 
+Planner bounded-inspection-k25 assigns the concrete implementation to
+bounded-inspection-k28, before retained-evidence-k21. Read its delivered source,
+control receipts, specific review-impl and any reconciliation before choosing
+the storage boundary. Preserve that scheduler's worker timers while teardown
+commands are open, its sole workload signal/reap authority, fixed failure/close
+deadlines and immutable observation/residual values. Missing real permission or
+setuid-ps evidence remains unavailable. k28 does not isolate blocked evidence
+I/O; that remains this leaf's design and reviewed implementation continuation.
+
 ## Done when
 
 - Specify the smallest ownership and I/O separation that keeps independent
