@@ -59,7 +59,8 @@ def main() -> None:
         except subprocess.TimeoutExpired:
             pass
     elif mode == "fork":
-        child = subprocess.Popen(["/bin/sleep", "60"])
+        release, ready = map(Path, args)
+        child_ready = ready.with_suffix(".child")
         stopping = False
 
         def terminate(_signal: int, _frame: object) -> None:
@@ -67,8 +68,16 @@ def main() -> None:
             stopping = True
 
         signal.signal(signal.SIGTERM, terminate)
+        child = subprocess.Popen(
+            [sys.executable, __file__, "scope-child", str(release), str(child_ready)]
+        )
+        # Publish identity before stdout, which may be closed or unreadable.
+        ready.write_text(str(child.pid))
+        end = time.monotonic() + 4
+        while not child_ready.exists() and time.monotonic() < end:
+            time.sleep(0.005)
         print(child.pid, flush=True)
-        while not stopping:
+        while not stopping and not release.exists() and time.monotonic() < end:
             time.sleep(0.005)
         # Never re-enter Popen.wait from a handler interrupting another wait.
         child.wait(timeout=1)

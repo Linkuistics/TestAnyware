@@ -13,6 +13,10 @@ catches raised OSError per action; synchronous evidence open/read/write/hash
 can still block the only thread responsible for disposal. Such a stall voids
 its disposal ceiling. This is an architecture question, not permission to
 raise a timeout or silently exclude a required acceptance property.
+Termination integration k23 also identifies a distinct blocking path: Python's
+subprocess.run timeout kills ps then waits without a bound. k17's bounded-inspection
+continuation owns that design and reviewed implementation before k21. Coordinate
+the ownership handoff with it; this leaf still owns stalled evidence storage.
 
 ## Done when
 

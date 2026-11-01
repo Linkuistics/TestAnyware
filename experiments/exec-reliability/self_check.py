@@ -66,6 +66,8 @@ def main() -> None:
     for name, argv, budget in commands:
         start = time.monotonic()
         timed_out = False
+        code: int | None = None
+        reaped = False
         with (
             (output / f"{name}.stdout").open("xb") as stdout,
             (output / f"{name}.stderr").open("xb") as stderr,
@@ -87,7 +89,11 @@ def main() -> None:
                     code = process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
                     os.killpg(process.pid, signal.SIGKILL)
-                    code = process.wait(timeout=2)
+                    try:
+                        code = process.wait(timeout=2)
+                    except subprocess.TimeoutExpired:
+                        pass
+            reaped = code is not None
         receipts.append(
             {
                 "name": name,
@@ -96,14 +102,25 @@ def main() -> None:
                 "pgid": process.pid,
                 "returncode": code,
                 "timed_out": timed_out,
+                "reaped": reaped,
+                "residual_remedy": None
+                if reaped
+                else (
+                    "Independently inspect recorded checker PID/PGID and start identity; "
+                    "terminate/reap only the revalidated owned checker. "
+                    "Later checkers were not run."
+                ),
                 "elapsed": time.monotonic() - start,
             }
         )
         print(f"{name}: exit {code}; evidence {output}", flush=True)
+        if not reaped:
+            break
     after = hashes(subjects)
     artifacts = hashes(sorted(path for path in output.rglob("*") if path.is_file()))
     ok = before == after and all(
-        item["returncode"] == 0 and item["timed_out"] is False for item in receipts
+        item["returncode"] == 0 and item["timed_out"] is False and item["reaped"] is True
+        for item in receipts
     )
     verdict = {
         "ok": ok,

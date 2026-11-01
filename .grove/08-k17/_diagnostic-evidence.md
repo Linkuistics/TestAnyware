@@ -51,3 +51,12 @@ then delivers F5, the surviving-writer fixture, stream/result identities and
 late-change controls. Both must be reviewed before k17 closes. F7's historical
 audit remains k16's, unchanged. No live route or causal sample is permitted by
 completion of only the first child.
+
+Review k22 is reconciled by termination-evidence-k23. Live final group members
+now fail termination even with an expected normal exit or PID interruption;
+observed members and a revalidation remedy are retained without widening the
+signal scope. New mutation controls and corrected exact-path audits are in the
+durable handoff. Sampling latency and the helper's unbounded post-timeout wait
+remain real issues: bounded-inspection design and reviewed implementation must
+precede retained-evidence-k21. The present controller cannot promise independent
+disposal while ps creation/kill-wait blocks. Storage isolation is still k18.

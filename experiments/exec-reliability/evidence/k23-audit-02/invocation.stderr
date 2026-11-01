@@ -1,0 +1,11 @@
+task: [diagnostic:resource-audit] uv run --project experiments/exec-reliability --locked python -m ruff check experiments/exec-reliability/evidence/k23-audit-02/audit.py
+task: [diagnostic:resource-audit] uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/k23-audit-02/audit.py
+task: [diagnostic:resource-audit] uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/k23-audit-02/audit.py
+Traceback (most recent call last):
+  File "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k23-audit-02/audit.py", line 322, in <module>
+    main()
+  File "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k23-audit-02/audit.py", line 178, in main
+    assert not absent(live) and not absent(mixed) and not absent(usage) and absent(missing)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError
+task: Failed to run task "diagnostic:resource-audit": exit status 1

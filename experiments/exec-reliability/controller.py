@@ -20,7 +20,7 @@ import time
 from contextlib import closing
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal, TypedDict
+from typing import Literal, TypedDict, cast
 
 
 @dataclass(frozen=True)
@@ -316,6 +316,7 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
         and observer_ok
         and signals_ok
         and all(group["state"] != "unknown" for group in groups)
+        and groups[-1]["state"] == "zombie_only"
     )
     return kill_deadline
 
@@ -368,13 +369,25 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
                 reap_deadline = time.monotonic() + plan.kill_wait
                 group = _group_snapshot(process.pid, reap_deadline)
                 receipt["group_observations"] = [group]
-                receipt["termination_ok"] = group["state"] != "unknown"
+                receipt["termination_ok"] = group["state"] == "zombie_only"
             else:
                 if receipt["reason"] != "observation_error":
                     receipt["reason"] = "interrupted" if call.interrupt_after else "deadline"
                 reap_deadline = _terminate(
                     process.pid, call.interrupt_after is not None, plan, receipt
                 )
+            observations = receipt.get("group_observations")
+            if isinstance(observations, list) and observations:
+                final = cast(GroupObservation, observations[-1])
+                if final["state"] != "zombie_only":
+                    receipt["residual_members"] = final["members"]
+                    receipt["residual_pgid"] = process.pid
+                    receipt["residual_remedy"] = (
+                        "Inspect retained member PID/PGID and command identities independently; "
+                        "release known fixture markers or clean only revalidated owned members. "
+                        "Do not signal this group after leader reap. "
+                        "Unknown inspection is not absence."
+                    )
             try:
                 receipt["returncode"] = process.wait(
                     timeout=max(0, reap_deadline - time.monotonic())

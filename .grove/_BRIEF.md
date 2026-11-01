@@ -227,6 +227,18 @@ stream/result identities and the surviving-writer/late-change controls, followed
 by its own review. Completion of only k20 does not discharge k17 or permit causal
 measurement. The handoff records each retained failed condition and local audit.
 
+Review integration `termination-evidence-k23` corrects live-group false success,
+fork failure cleanup and checker verdict loss, with retained mutation controls
+and corrected audits. A normal exit or expected PID-only interruption with live
+group members now fails and retains residual identities/remedy. k17 also needs
+bounded-inspection design and reviewed implementation before k21: the 10 ms
+sampling reserve is not a proved bound, and Python's timed-out setuid `ps`
+helper can wait without a bound after KILL, blocking disposal independently of
+storage. These are open guarantees, not repaired by a green local suite. k18
+continues to own storage isolation; k17 cannot close on k20/k21 alone until
+inspection supervision is accounted for. The durable handoff withdraws the old
+joined-command scratch-path counts while preserving every original audit.
+
 `diagnostic-foundation-k11` owns the reusable controller, ledger, forced-failure
 self-checks and the per-OS build/routing prerequisite table. Causal leaves reuse
 that handoff and add only their question's concrete fixtures and diagnostics.

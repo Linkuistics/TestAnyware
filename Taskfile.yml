@@ -37,6 +37,17 @@ tasks:
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/preflight.py {{.OUT | shellQuote}}
 
+  diagnostic:resource-audit:
+    desc: Validate and run an explicitly frozen local resource auditor. Requires AUDITOR=<script>
+    dir: '{{.ROOT_DIR}}'
+    preconditions:
+      - sh: test -f {{.AUDITOR | default "" | shellQuote}}
+        msg: 'set AUDITOR=<the frozen audit script>'
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python -m ruff check {{.AUDITOR | shellQuote}}
+      - uv run --project experiments/exec-reliability --locked python -m ruff format --check {{.AUDITOR | shellQuote}}
+      - uv run --project experiments/exec-reliability --locked python {{.AUDITOR | shellQuote}}
+
   default:
     desc: List the available tasks
     silent: true

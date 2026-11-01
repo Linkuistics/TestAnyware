@@ -1,0 +1,151 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability
+configfile: pyproject.toml
+testpaths: test_controller.py
+collecting ... collected 42 items / 13 deselected / 29 selected
+
+test_controller.py::test_review_expected_interruption_continues_same_resource PASSED [  3%]
+test_controller.py::test_review_unexpected_interruption_still_stops PASSED [  6%]
+test_controller.py::test_review_resource_deadline_cannot_be_declared_success PASSED [ 10%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[plan] PASSED [ 13%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[result] PASSED [ 17%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[subjects-before] PASSED [ 20%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[intent-1] PASSED [ 24%]
+test_controller.py::test_review_receipt_io_exception_cannot_skip_other_disposal PASSED [ 27%]
+test_controller.py::test_review_skipped_acquisitions_are_unreached PASSED [ 31%]
+test_controller.py::test_review_zero_exit_wrong_stdout_is_failure PASSED [ 34%]
+test_controller.py::test_review_preflight_keeps_missing_declared_subjects PASSED [ 37%]
+test_controller.py::test_review_graceful_pid_exit_needs_no_kill PASSED   [ 41%]
+test_controller.py::test_review_fork_handler_reaps_gracefully PASSED     [ 44%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[True] PASSED [ 48%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[False] PASSED [ 51%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[True] PASSED [ 55%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[False] PASSED [ 58%]
+test_controller.py::test_review_controller_survival_is_observed_by_another_process PASSED [ 62%]
+test_controller.py::test_review_group_signals_and_inspection_finish_before_reaping PASSED [ 65%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[usage] PASSED [ 68%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[timeout] PASSED [ 72%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[foreign] PASSED [ 75%]
+test_controller.py::test_review_live_signal_permission_failure_is_retained PASSED [ 79%]
+test_controller.py::test_review_zombie_only_eperm_is_separate_from_permission_failure PASSED [ 82%]
+test_controller.py::test_review_exited_leader_does_not_hide_a_surviving_group_member[False] PASSED [ 86%]
+test_controller.py::test_review_exited_leader_does_not_hide_a_surviving_group_member[True] PASSED [ 89%]
+test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[False] FAILED [ 93%]
+test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[True] FAILED [ 96%]
+test_controller.py::test_review_checker_unreaped_timeout_still_retains_verdict FAILED [100%]
+
+=================================== FAILURES ===================================
+___ test_review_live_group_is_failure_even_with_expected_leader_exit[False] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-4014/test_review_live_group_is_fail0')
+interrupted = False
+
+    @pytest.mark.parametrize("interrupted", [False, True])
+    def test_review_live_group_is_failure_even_with_expected_leader_exit(tmp_path, interrupted):
+        release, ready = tmp_path / "release", tmp_path / "ready"
+        workload = call(
+            "live-exit", "scope-parent", release, ready,
+            budget=5, interrupt_after=0.3 if interrupted else None,
+        )
+        workload = replace(workload, expected_reason="interrupted" if interrupted else "exit")
+        path = None
+        child = None
+        try:
+            path, result = run(tmp_path, [workload, call("later", "bytes")])
+            child = int((path / "live-exit.stdout").read_text())
+            receipt = result["calls"][0]
+            assert receipt["returncode"] == 0
+>           assert receipt["termination_ok"] is False
+E           assert True is False
+
+test_controller.py:596: AssertionError
+____ test_review_live_group_is_failure_even_with_expected_leader_exit[True] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-4014/test_review_live_group_is_fail1')
+interrupted = True
+
+    @pytest.mark.parametrize("interrupted", [False, True])
+    def test_review_live_group_is_failure_even_with_expected_leader_exit(tmp_path, interrupted):
+        release, ready = tmp_path / "release", tmp_path / "ready"
+        workload = call(
+            "live-exit", "scope-parent", release, ready,
+            budget=5, interrupt_after=0.3 if interrupted else None,
+        )
+        workload = replace(workload, expected_reason="interrupted" if interrupted else "exit")
+        path = None
+        child = None
+        try:
+            path, result = run(tmp_path, [workload, call("later", "bytes")])
+            child = int((path / "live-exit.stdout").read_text())
+            receipt = result["calls"][0]
+            assert receipt["returncode"] == 0
+>           assert receipt["termination_ok"] is False
+E           assert True is False
+
+test_controller.py:596: AssertionError
+__________ test_review_checker_unreaped_timeout_still_retains_verdict __________
+
+self = <test_controller.test_review_checker_unreaped_timeout_still_retains_verdict.<locals>.Unreapable object at 0x107544920>
+timeout = 30
+
+    def wait(self, timeout):
+>       raise subprocess.TimeoutExpired("forced checker", timeout)
+E       subprocess.TimeoutExpired: Command 'forced checker' timed out after 30 seconds
+
+test_controller.py:620: TimeoutExpired
+
+During handling of the above exception, another exception occurred:
+
+self = <test_controller.test_review_checker_unreaped_timeout_still_retains_verdict.<locals>.Unreapable object at 0x107544920>
+timeout = 2
+
+    def wait(self, timeout):
+>       raise subprocess.TimeoutExpired("forced checker", timeout)
+E       subprocess.TimeoutExpired: Command 'forced checker' timed out after 2 seconds
+
+test_controller.py:620: TimeoutExpired
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-4014/test_review_checker_unreaped_t0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107542360>
+
+    def test_review_checker_unreaped_timeout_still_retains_verdict(tmp_path, monkeypatch):
+        import self_check
+    
+        class Unreapable:
+            pid = 123456789
+    
+            def wait(self, timeout):
+                raise subprocess.TimeoutExpired("forced checker", timeout)
+    
+        monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Unreapable())
+        monkeypatch.setattr(os, "killpg", lambda *args: None)
+        output = tmp_path / "checker-timeout"
+        monkeypatch.setattr(sys, "argv", ["self_check.py", str(output)])
+        with pytest.raises(SystemExit) as status:
+>           self_check.main()
+
+test_controller.py:627: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+self_check.py:90: in main
+    code = process.wait(timeout=2)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <test_controller.test_review_checker_unreaped_timeout_still_retains_verdict.<locals>.Unreapable object at 0x107544920>
+timeout = 2
+
+    def wait(self, timeout):
+>       raise subprocess.TimeoutExpired("forced checker", timeout)
+E       subprocess.TimeoutExpired: Command 'forced checker' timed out after 2 seconds
+
+test_controller.py:620: TimeoutExpired
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k23-red-01/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[False] - assert True is False
+FAILED test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[True] - assert True is False
+FAILED test_controller.py::test_review_checker_unreaped_timeout_still_retains_verdict - subprocess.TimeoutExpired: Command 'forced checker' timed out after 2 seconds
+================= 3 failed, 26 passed, 13 deselected in 12.88s =================

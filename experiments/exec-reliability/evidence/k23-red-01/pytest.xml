@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="29" time="12.810" timestamp="2026-11-01T15:51:54.782625+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_review_expected_interruption_continues_same_resource" time="0.501" /><testcase classname="test_controller" name="test_review_unexpected_interruption_still_stops" time="0.375" /><testcase classname="test_controller" name="test_review_resource_deadline_cannot_be_declared_success" time="0.001" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[plan]" time="0.000" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[result]" time="0.000" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[subjects-before]" time="0.000" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[intent-1]" time="0.000" /><testcase classname="test_controller" name="test_review_receipt_io_exception_cannot_skip_other_disposal" time="0.202" /><testcase classname="test_controller" name="test_review_skipped_acquisitions_are_unreached" time="0.016" /><testcase classname="test_controller" name="test_review_zero_exit_wrong_stdout_is_failure" time="0.038" /><testcase classname="test_controller" name="test_review_preflight_keeps_missing_declared_subjects" time="0.004" /><testcase classname="test_controller" name="test_review_graceful_pid_exit_needs_no_kill" time="0.226" /><testcase classname="test_controller" name="test_review_fork_handler_reaps_gracefully" time="0.330" /><testcase classname="test_controller" name="test_review_signal_scope_has_opposed_child_outcomes[True]" time="0.381" /><testcase classname="test_controller" name="test_review_signal_scope_has_opposed_child_outcomes[False]" time="0.333" /><testcase classname="test_controller" name="test_review_wrong_signal_scope_is_detected[True]" time="0.330" /><testcase classname="test_controller" name="test_review_wrong_signal_scope_is_detected[False]" time="0.784" /><testcase classname="test_controller" name="test_review_controller_survival_is_observed_by_another_process" time="0.445" /><testcase classname="test_controller" name="test_review_group_signals_and_inspection_finish_before_reaping" time="0.373" /><testcase classname="test_controller" name="test_review_failed_group_inspection_is_never_absence[usage]" time="0.668" /><testcase classname="test_controller" name="test_review_failed_group_inspection_is_never_absence[timeout]" time="0.668" /><testcase classname="test_controller" name="test_review_failed_group_inspection_is_never_absence[foreign]" time="0.669" /><testcase classname="test_controller" name="test_review_live_signal_permission_failure_is_retained" time="0.375" /><testcase classname="test_controller" name="test_review_zombie_only_eperm_is_separate_from_permission_failure" time="0.227" /><testcase classname="test_controller" name="test_review_exited_leader_does_not_hide_a_surviving_group_member[False]" time="0.476" /><testcase classname="test_controller" name="test_review_exited_leader_does_not_hide_a_surviving_group_member[True]" time="0.783" /><testcase classname="test_controller" name="test_review_live_group_is_failure_even_with_expected_leader_exit[False]" time="4.125"><failure message="assert True is False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-4014/test_review_live_group_is_fail0')
+interrupted = False
+
+    @pytest.mark.parametrize("interrupted", [False, True])
+    def test_review_live_group_is_failure_even_with_expected_leader_exit(tmp_path, interrupted):
+        release, ready = tmp_path / "release", tmp_path / "ready"
+        workload = call(
+            "live-exit", "scope-parent", release, ready,
+            budget=5, interrupt_after=0.3 if interrupted else None,
+        )
+        workload = replace(workload, expected_reason="interrupted" if interrupted else "exit")
+        path = None
+        child = None
+        try:
+            path, result = run(tmp_path, [workload, call("later", "bytes")])
+            child = int((path / "live-exit.stdout").read_text())
+            receipt = result["calls"][0]
+            assert receipt["returncode"] == 0
+&gt;           assert receipt["termination_ok"] is False
+E           assert True is False
+
+test_controller.py:596: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_live_group_is_failure_even_with_expected_leader_exit[True]" time="0.397"><failure message="assert True is False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-4014/test_review_live_group_is_fail1')
+interrupted = True
+
+    @pytest.mark.parametrize("interrupted", [False, True])
+    def test_review_live_group_is_failure_even_with_expected_leader_exit(tmp_path, interrupted):
+        release, ready = tmp_path / "release", tmp_path / "ready"
+        workload = call(
+            "live-exit", "scope-parent", release, ready,
+            budget=5, interrupt_after=0.3 if interrupted else None,
+        )
+        workload = replace(workload, expected_reason="interrupted" if interrupted else "exit")
+        path = None
+        child = None
+        try:
+            path, result = run(tmp_path, [workload, call("later", "bytes")])
+            child = int((path / "live-exit.stdout").read_text())
+            receipt = result["calls"][0]
+            assert receipt["returncode"] == 0
+&gt;           assert receipt["termination_ok"] is False
+E           assert True is False
+
+test_controller.py:596: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_checker_unreaped_timeout_still_retains_verdict" time="0.010"><failure message="subprocess.TimeoutExpired: Command 'forced checker' timed out after 2 seconds">self = &lt;test_controller.test_review_checker_unreaped_timeout_still_retains_verdict.&lt;locals&gt;.Unreapable object at 0x107544920&gt;
+timeout = 30
+
+    def wait(self, timeout):
+&gt;       raise subprocess.TimeoutExpired("forced checker", timeout)
+E       subprocess.TimeoutExpired: Command 'forced checker' timed out after 30 seconds
+
+test_controller.py:620: TimeoutExpired
+
+During handling of the above exception, another exception occurred:
+
+self = &lt;test_controller.test_review_checker_unreaped_timeout_still_retains_verdict.&lt;locals&gt;.Unreapable object at 0x107544920&gt;
+timeout = 2
+
+    def wait(self, timeout):
+&gt;       raise subprocess.TimeoutExpired("forced checker", timeout)
+E       subprocess.TimeoutExpired: Command 'forced checker' timed out after 2 seconds
+
+test_controller.py:620: TimeoutExpired
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-4014/test_review_checker_unreaped_t0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107542360&gt;
+
+    def test_review_checker_unreaped_timeout_still_retains_verdict(tmp_path, monkeypatch):
+        import self_check
+    
+        class Unreapable:
+            pid = 123456789
+    
+            def wait(self, timeout):
+                raise subprocess.TimeoutExpired("forced checker", timeout)
+    
+        monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Unreapable())
+        monkeypatch.setattr(os, "killpg", lambda *args: None)
+        output = tmp_path / "checker-timeout"
+        monkeypatch.setattr(sys, "argv", ["self_check.py", str(output)])
+        with pytest.raises(SystemExit) as status:
+&gt;           self_check.main()
+
+test_controller.py:627: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+self_check.py:90: in main
+    code = process.wait(timeout=2)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;test_controller.test_review_checker_unreaped_timeout_still_retains_verdict.&lt;locals&gt;.Unreapable object at 0x107544920&gt;
+timeout = 2
+
+    def wait(self, timeout):
+&gt;       raise subprocess.TimeoutExpired("forced checker", timeout)
+E       subprocess.TimeoutExpired: Command 'forced checker' timed out after 2 seconds
+
+test_controller.py:620: TimeoutExpired</failure></testcase></testsuite></testsuites>

@@ -1,6 +1,7 @@
 """Failure controls operate on real local processes and fake VM markers only."""
 
 import errno
+import inspect
 import json
 import os
 import signal
@@ -152,14 +153,10 @@ def test_foreign_resource_and_reused_output_are_rejected_before_calls(tmp_path):
 
 
 def test_owned_fork_is_terminated_and_known_child_absent(tmp_path):
-    import pytest
-
-    path, result = run(tmp_path, [call("fork", "fork", budget=0.3)])
-    child = int((path / "fork.stdout").read_text())
+    _, result, _, observation = owned_fork_run(tmp_path)
     assert result["calls"][0]["reaped"] is True
     assert result["calls"][0]["elapsed"] < 0.3 + 0.15 + 0.3
-    with pytest.raises(ProcessLookupError):
-        os.kill(child, 0)
+    assert observation["state"] == "absent"
 
 
 def test_blocked_cleanup_and_inspection_do_not_skip_disposal(tmp_path):
@@ -324,15 +321,35 @@ def test_review_graceful_pid_exit_needs_no_kill(tmp_path):
 
 
 def test_review_fork_handler_reaps_gracefully(tmp_path):
-    path, result = run(tmp_path, [call("fork", "fork", budget=0.3)])
+    _, result, _, check = owned_fork_run(tmp_path)
     receipt = result["calls"][0]
     assert receipt["returncode"] == 0
     assert receipt["termination_ok"] is True
     assert receipt["group_observations"][-1]["state"] == "zombie_only"
-    child = int((path / "fork.stdout").read_text())
-    check = inspect_pid(child)
-    (path / "known-child-audit.json").write_text(json.dumps(check, indent=2))
     assert check["state"] == "absent"
+
+
+def owned_fork_run(tmp_path):
+    release, ready = tmp_path / "release", tmp_path / "ready"
+    path = None
+    child = None
+    try:
+        path, result = run(tmp_path, [call("fork", "fork", release, ready, budget=0.3)])
+        child = int(ready.read_text())
+        return path, result, child, inspect_pid(child)
+    finally:
+        release.write_bytes(b"release")
+        if child is None and ready.exists():
+            child = int(ready.read_text())
+        if child is not None:
+            end = time.monotonic() + 1
+            observations = [inspect_pid(child)]
+            while observations[-1]["state"] != "absent" and time.monotonic() < end:
+                time.sleep(0.005)
+                observations.append(inspect_pid(child))
+            target = path or tmp_path
+            (target / "known-child-audit.json").write_text(json.dumps(observations, indent=2))
+            assert observations[-1]["state"] == "absent"
 
 
 def inspect_pid(pid):
@@ -576,3 +593,279 @@ def test_review_exited_leader_does_not_hide_a_surviving_group_member(
                 observations.append(inspect_pid(child))
             (path / "known-child-audit.json").write_text(json.dumps(observations, indent=2))
             assert observations[-1]["state"] == "absent"
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_review_live_group_is_failure_even_with_expected_leader_exit(tmp_path, interrupted):
+    release, ready = tmp_path / "release", tmp_path / "ready"
+    workload = call(
+        "live-exit",
+        "scope-parent",
+        release,
+        ready,
+        budget=5,
+        interrupt_after=0.3 if interrupted else None,
+    )
+    workload = replace(workload, expected_reason="interrupted" if interrupted else "exit")
+    path = None
+    child = None
+    try:
+        path, result = run(tmp_path, [workload, call("later", "bytes")])
+        child = int((path / "live-exit.stdout").read_text())
+        receipt = result["calls"][0]
+        assert receipt["returncode"] == 0
+        assert receipt["termination_ok"] is False
+        assert result["ok"] is False
+        assert result["unreached"] == ["later"]
+        assert any(item["pid"] == child for item in receipt["residual_members"])
+        assert receipt["residual_remedy"]
+    finally:
+        release.write_bytes(b"release")
+        if child is not None:
+            end = time.monotonic() + 1
+            observations = [inspect_pid(child)]
+            while observations[-1]["state"] != "absent" and time.monotonic() < end:
+                time.sleep(0.005)
+                observations.append(inspect_pid(child))
+            (path / "known-child-audit.json").write_text(json.dumps(observations, indent=2))
+            assert observations[-1]["state"] == "absent"
+
+
+def test_review_checker_unreaped_timeout_still_retains_verdict(tmp_path, monkeypatch):
+    import self_check
+
+    class Unreapable:
+        pid = 123456789
+
+        def wait(self, timeout):
+            raise subprocess.TimeoutExpired("forced checker", timeout)
+
+    monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Unreapable())
+    monkeypatch.setattr(os, "killpg", lambda *args: None)
+    output = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path)) / uuid.uuid4().hex
+    monkeypatch.setattr(sys, "argv", ["self_check.py", str(output)])
+    with pytest.raises(SystemExit) as status:
+        self_check.main()
+    assert status.value.code == 1
+    verdict = json.loads((output / "verdict.json").read_text())
+    assert verdict["ok"] is False
+    assert len(verdict["checks"]) == 1
+    assert verdict["checks"][0]["reaped"] is False
+    assert verdict["checks"][0]["returncode"] is None
+    assert verdict["checks"][0]["residual_remedy"]
+
+
+def test_review_fork_publishes_child_before_stdout_and_releases_on_failure(tmp_path):
+    release, ready = tmp_path / "release", tmp_path / "ready"
+    peer = subprocess.Popen(
+        (sys.executable, str(PEER), "fork", str(release), str(ready)),
+        stdout=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+    child = None
+    try:
+        end = time.monotonic() + 1
+        while not ready.exists() and time.monotonic() < end:
+            time.sleep(0.005)
+        assert ready.exists(), "child identity was not published independently of stdout"
+        child = int(ready.read_text())
+        assert str(release) in inspect_pid(child)["stdout"]
+        # Model controller failure before the stdout PID can be read.
+        peer.terminate()
+    finally:
+        release.write_bytes(b"release")
+        if child is None:
+            # Old fixture lacks the cooperative release protocol. Its leader
+            # remains pinned here; cleanup only this new session's group.
+            os.killpg(peer.pid, signal.SIGTERM)
+        peer.wait(timeout=2)
+        observations = []
+        if child is not None:
+            end = time.monotonic() + 1
+            observations = [inspect_pid(child)]
+            while observations[-1]["state"] != "absent" and time.monotonic() < end:
+                time.sleep(0.005)
+                observations.append(inspect_pid(child))
+        audit = {"pid": peer.pid, "child": child, "observations": observations}
+        target = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path)) / uuid.uuid4().hex
+        target.mkdir()
+        (target / "fork-failure-audit.json").write_text(json.dumps(audit, indent=2))
+        if child is not None:
+            assert observations[-1]["state"] == "absent"
+
+
+@pytest.mark.parametrize("reaper", [None, "poll", "wait", "waitpid", "wait-any"])
+def test_review_pinning_control_detects_real_early_reap(tmp_path, monkeypatch, reaper):
+    import controller
+
+    processes = {}
+    original_init = subprocess.Popen.__init__
+    original_wait = controller._wait
+    original_snapshot = controller._group_snapshot
+    observations = []
+
+    def register(process, argv, *args, **kwargs):
+        original_init(process, argv, *args, **kwargs)
+        if str(PEER) in argv:
+            processes[process.pid] = process
+
+    def wait(pid, deadline):
+        exited = original_wait(pid, deadline)
+        if exited and reaper:
+            process = processes[pid]
+            if reaper == "poll":
+                process.poll()
+            elif reaper == "wait":
+                process.wait(timeout=1)
+            elif reaper == "waitpid":
+                os.waitpid(pid, 0)
+            else:
+                assert os.wait()[0] == pid
+        return exited
+
+    def pinned_snapshot(pid, deadline):
+        observation = inspect_pid(pid)
+        observations.append(observation)
+        if observation["state"] == "absent":
+            raise RuntimeError("group identity released before inspection")
+        return original_snapshot(pid, deadline)
+
+    monkeypatch.setattr(subprocess.Popen, "__init__", register)
+    monkeypatch.setattr(controller, "_wait", wait)
+    monkeypatch.setattr(controller, "_group_snapshot", pinned_snapshot)
+    run_id = uuid.uuid4().hex
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "evidence")) / run_id
+    try:
+        if reaper:
+            with pytest.raises(RuntimeError, match="identity released"):
+                run(tmp_path, [call("pin-exit", "bytes")], run_id=run_id)
+        else:
+            _, result = run(tmp_path, [call("pin-exit", "bytes")], run_id=run_id)
+            assert result["ok"] is True
+    finally:
+        (root / "pinning-control.json").write_text(
+            json.dumps(
+                {
+                    "reaper": reaper,
+                    "observations": observations,
+                },
+                indent=2,
+            )
+        )
+
+
+def mutate_function(monkeypatch, module, name, old, new):
+    source = inspect.getsource(getattr(module, name))
+    assert source.count(old) == 1
+    namespace = {}
+    exec(
+        compile(source.replace(old, new), f"<controlled-{name}-mutation>", "exec"),
+        module.__dict__,
+        namespace,
+    )
+    monkeypatch.setattr(module, name, namespace[name])
+
+
+@pytest.mark.parametrize("remove_gate", [False, True])
+def test_review_isolated_reap_overrun_and_removed_gate(tmp_path, monkeypatch, remove_gate):
+    import controller
+
+    original_wait = subprocess.Popen.wait
+
+    def delayed_reap(process, *args, **kwargs):
+        code = original_wait(process, *args, **kwargs)
+        if str(PEER) in process.args:
+            time.sleep(0.35)
+        return code
+
+    monkeypatch.setattr(subprocess.Popen, "wait", delayed_reap)
+    if remove_gate:
+        mutate_function(
+            monkeypatch,
+            controller,
+            "_call",
+            'and receipt["within_process_bounds"] is True',
+            "and True",
+        )
+    _, result = run(tmp_path, [call("late-reap", "bytes")])
+    receipt = result["calls"][0]
+    assert receipt["termination_ok"] is True
+    assert receipt["returncode"] == 0
+    assert receipt["within_process_bounds"] is False
+    assert result["ok"] is remove_gate
+
+
+@pytest.mark.parametrize("remove_cap", [False, True])
+def test_review_late_observation_cannot_extend_reap_deadline(tmp_path, monkeypatch, remove_cap):
+    import controller
+
+    original_exited = controller._exited
+    original_killpg = os.killpg
+    term_sent = False
+    delayed = False
+
+    def signal_group(pid, sig):
+        nonlocal term_sent
+        original_killpg(pid, sig)
+        term_sent = term_sent or sig == signal.SIGTERM
+
+    def late_observation(pid):
+        nonlocal delayed
+        if term_sent and not delayed:
+            delayed = True
+            time.sleep(0.2)
+        return original_exited(pid)
+
+    monkeypatch.setattr(os, "killpg", signal_group)
+    monkeypatch.setattr(controller, "_exited", late_observation)
+    if remove_cap:
+        mutate_function(
+            monkeypatch,
+            controller,
+            "_terminate",
+            "min(time.monotonic(), term_deadline)",
+            "time.monotonic()",
+        )
+    _, result = run(tmp_path, [call("late-observe", "hang", budget=0.2)])
+    receipt = result["calls"][0]
+    capped = receipt["kill_reap_deadline_monotonic"] <= receipt["term_deadline_monotonic"] + 0.3
+    assert capped is (not remove_cap)
+
+
+@pytest.mark.parametrize("self_signal", [False, True])
+def test_review_survival_checker_rejects_controller_self_signal(tmp_path, monkeypatch, self_signal):
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "nested-evidence"))
+    root.mkdir(exist_ok=True)
+    owned_file = root / f"self-signal-{uuid.uuid4().hex}.json"
+    # Replace only the inner Python invocation. Its controller deliberately
+    # misdirects the child's SIGTERM to itself. The independent parent stays live.
+    script = f"""
+import json, os, runpy, signal, sys
+from pathlib import Path
+original = os.kill
+def misdirect(pid, sig):
+    if sig == signal.SIGTERM:
+        Path({str(owned_file)!r}).write_text(json.dumps({{"pid": pid}}))
+        original(pid, signal.SIGKILL)
+        original(os.getpid(), sig)
+    else:
+        original(pid, sig)
+os.kill = misdirect
+sys.argv = [{str(PEER)!r}, 'controller', {str(root)!r}]
+runpy.run_path({str(PEER)!r}, run_name='__main__')
+"""
+    workload = call("self-signal", "controller", root)
+    if self_signal:
+        workload = replace(workload, argv=(sys.executable, "-c", script))
+    _, result = run(tmp_path, [workload])
+    assert result["ok"] is (not self_signal)
+    if self_signal:
+        assert result["calls"][0]["returncode"] == -signal.SIGTERM
+        child = json.loads(owned_file.read_text())["pid"]
+        end = time.monotonic() + 1
+        observations = [inspect_pid(child)]
+        while observations[-1]["state"] != "absent" and time.monotonic() < end:
+            time.sleep(0.005)
+            observations.append(inspect_pid(child))
+        owned_file.with_suffix(".audit.json").write_text(json.dumps(observations, indent=2))
+        assert observations[-1]["state"] == "absent"
