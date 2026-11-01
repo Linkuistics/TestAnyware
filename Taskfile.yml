@@ -10,6 +10,26 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  diagnostic:self-check:
+    desc: Check the bounded execution diagnostic controller with owned local processes and fake VM peers; preserve raw receipts under experiments/exec-reliability/evidence/self-check
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    env:
+      DIAGNOSTIC_EVIDENCE: '{{.ROOT_DIR}}/experiments/exec-reliability/evidence/{{.RUN | default "self-check"}}'
+    cmds:
+      - uv run --locked ruff check .
+      - uv run --locked ruff format --check .
+      - uv run --locked pyright
+      - uv run --locked pytest -q
+
+  diagnostic:preflight:
+    desc: Read-only installed tool help, public app status, VM/Tart inventories and build prerequisites; no boot, guest workload, installation or app quit. Requires OUT=<new evidence directory>
+    dir: '{{.ROOT_DIR}}'
+    preconditions:
+      - sh: test -n "{{.OUT}}"
+        msg: 'set OUT=<a new evidence directory>'
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/preflight.py {{.OUT | shellQuote}}
+
   default:
     desc: List the available tasks
     silent: true

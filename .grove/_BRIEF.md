@@ -203,6 +203,12 @@ boundary and separately identified from an uninstrumented production build.
 
 ### Common investigation contract
 
+The controller API, verified failure controls and current public route
+prerequisites are documented in
+[`exec-reliability-diagnostic-foundation.md`](../docs/experiments/exec-reliability-diagnostic-foundation.md).
+Its live-route unavailable classifications are preparation limits, not causes
+or repair results. Recheck answering identities for each new diagnostic run.
+
 `diagnostic-foundation-k11` owns the reusable controller, ledger, forced-failure
 self-checks and the per-OS build/routing prerequisite table. Causal leaves reuse
 that handoff and add only their question's concrete fixtures and diagnostics.

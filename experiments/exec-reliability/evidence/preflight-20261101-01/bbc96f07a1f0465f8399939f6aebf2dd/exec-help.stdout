@@ -1,0 +1,73 @@
+Run a command in the guest, capture stdout/stderr/exit
+
+Usage: testanyware file exec [OPTIONS] <COMMAND>
+
+Arguments:
+  <COMMAND>
+          Command to execute in the guest
+
+Options:
+      --connect <PATH>
+          Path to connection spec JSON file
+
+      --vm <ID>
+          [env: TESTANYWARE_VM_ID=]
+
+      --vnc <HOST:PORT>
+          [env: TESTANYWARE_VNC=]
+
+      --agent <HOST:PORT>
+          [env: TESTANYWARE_AGENT=]
+
+      --platform <PLATFORM>
+          [env: TESTANYWARE_PLATFORM=]
+
+      --timeout <TIMEOUT>
+          Per-command timeout in seconds (the agent enforces; HTTP layer gets a +10s buffer)
+          
+          [default: 30]
+
+      --detach
+          Spawn detached and return immediately without waiting
+
+      --json
+          Emit JSON envelope on stdout (no stdout/stderr passthrough)
+
+      --dry-run
+          Plan the exec but do not run it
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+OUTPUT:
+    Stable formats: stdout/stderr passthrough in text mode (Swift
+    parity); --json emits a single envelope (schema: file-exec). The
+    binary's exit code is the in-VM process's exit code in text mode;
+    --json mode exits 0 on a clean spawn and surfaces the in-VM exit
+    via `details.exit_code` and the top-level `exit_code` field.
+
+EXIT CODES (text mode):
+    <in-VM exit code> (0 on success)
+    1  EXEC_FAILED, generic agent failure
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Application-defined.
+
+EXAMPLES:
+    # Run a quick command in the guest
+    testanyware file exec --vm "$TESTANYWARE_VM_ID" "uname -a"
+
+    # Capture exit code as JSON
+    testanyware file exec --vm "$TESTANYWARE_VM_ID" --json "true"
+
+    # Plan a longer command without spawning it
+    testanyware file exec --vm "$TESTANYWARE_VM_ID" --dry-run --timeout 120 "sleep 60"
+
+SEE ALSO:
+    testanyware file upload, testanyware file download, testanyware doctor

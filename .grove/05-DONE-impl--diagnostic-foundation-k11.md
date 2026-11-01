@@ -54,3 +54,50 @@ undecodable/contradictory bytes without interpreting a future lifecycle format.
 Acceptance preparation later extends and validates it against the chosen
 contract and all four corruption controls. No installed tool, retained golden
 or unrelated guest may change to make a diagnostic route available.
+
+## Decisions (running log)
+
+- Use a small Python standard-library controller at the existing subprocess
+  boundary. A Python API lets causal fixtures declare their finite operations
+  and exact disposal commands without introducing a second guest backend.
+  File-backed raw streams avoid an unbounded pipe EOF wait after CLI death.
+- Freeze the case order, budgets, subjects and ledger before executing calls.
+  Each call gets a separate process session; interruption targets that recorded
+  group. Cleanup, disposal and positive absence inspection have separate receipts.
+  A failed inspection leaves disposal uncertain. Escaped descendants and crashes
+  of the controller remain outside this diagnostic controller's guarantee.
+- Implement and self-check the controller, then perform a finite read-only
+  route preflight (installed help/version, public app status, VM and Tart
+  inventories, source/build existence and signing identities). No guest boot,
+  workload, app launch/quit, golden replacement or installation is authorized
+  by this preflight. Missing live routes will be explicitly unavailable.
+- Use macOS kqueue process-exit observation before reaping, so group signals
+  cannot target a recycled leader identity. Python's macOS build lacks
+  `os.waitid`. Treat observation errors as failed calls with bounded termination.
+  Explicit CLI interruption signals its PID; an overlong local call signals
+  its owned group. Neither action implements guest cancellation.
+- The public preflight found installed 2.7.0 occupying the default socket,
+  stopped baselines but no running guest, and no checkout-built executables.
+  Preserve Doctor's Start at Login failure. Classify live build/guest routes as
+  unavailable with concrete preparation steps rather than stop the installed
+  app, change its configuration, or claim a new guest's health was measured.
+- The final locked self-check passed all 13 tests, lint, formatting and strict
+  typing. Frozen raw evidence retains expected failed operations, and a
+  separate audit removed the remaining fake marker and found the recorded
+  local process identities absent. No live VM/image/app was acquired. The
+  durable handoff is `docs/experiments/exec-reliability-diagnostic-foundation.md`.
+- Insert a specific review before k3: the controller is material diagnostic
+  implementation and its limits are load-bearing for every later inquiry.
+  Do not run an in-session reviewer beside that scheduled review.
+
+## Implementation plan
+
+1. Add failure-first pytest checks and fake command peers under
+   `experiments/exec-reliability/`; observe the missing controller failure.
+2. Implement frozen declarations, bounded calls, raw receipts, subject hashes,
+   exact resource ledger and independent finally disposal. Add the verified
+   Taskfile self-check and preserve forced-failure evidence.
+3. Read public help and relevant implementation, record read-only preflight
+   receipts and per-OS route prerequisites in the durable report.
+4. Verify the artifact, insert its specific review before k3, retire and seal
+   this leaf with jj. The scheduled review owns adversarial verification.

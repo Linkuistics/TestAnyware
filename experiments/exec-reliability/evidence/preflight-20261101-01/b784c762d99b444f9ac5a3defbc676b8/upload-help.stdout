@@ -1,0 +1,62 @@
+Upload a file from host to guest
+
+Usage: testanyware file upload [OPTIONS] <LOCAL> <REMOTE>
+
+Arguments:
+  <LOCAL>
+          
+
+  <REMOTE>
+          
+
+Options:
+      --connect <PATH>
+          Path to connection spec JSON file
+
+      --vm <ID>
+          [env: TESTANYWARE_VM_ID=]
+
+      --vnc <HOST:PORT>
+          [env: TESTANYWARE_VNC=]
+
+      --agent <HOST:PORT>
+          [env: TESTANYWARE_AGENT=]
+
+      --platform <PLATFORM>
+          [env: TESTANYWARE_PLATFORM=]
+
+      --json
+          Emit JSON envelope on stdout
+
+      --dry-run
+          Plan the upload but do not perform it
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+OUTPUT:
+    Stable formats: text (one-line confirmation), --json (schema:
+    file-upload).
+
+EXIT CODES:
+    0  success
+    1  UPLOAD_FAILED, generic agent failure
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Idempotent — overwrites the remote file completely. Retry-safe.
+
+EXAMPLES:
+    # Upload a build artefact
+    testanyware file upload --vm "$TESTANYWARE_VM_ID" ./out.bin /tmp/out.bin
+
+    # Plan only
+    testanyware file upload --vm "$TESTANYWARE_VM_ID" ./out.bin /tmp/out.bin --dry-run
+
+SEE ALSO:
+    testanyware file download, testanyware file exec

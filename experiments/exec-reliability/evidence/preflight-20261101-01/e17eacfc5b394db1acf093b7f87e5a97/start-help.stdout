@@ -1,0 +1,114 @@
+Start a clone of a golden image
+
+Usage: testanyware vm start [OPTIONS] --platform <PLATFORM>
+
+Options:
+      --platform <PLATFORM>
+          Target platform: linux or windows. (macos uses the tart backend, which is not yet ported to the Rust CLI.)
+
+      --base <NAME>
+          Golden image to clone [default: the platform's golden]
+
+      --id <ID>
+          VM instance id [default: testanyware-<hex8>]
+
+      --display <WxH[@2x]>
+          Display resolution, e.g. 1920x1080 [default: 1920x1080 px]. Append @2x for HiDPI/Retina on a macOS guest (e.g. 1920x1080@2x): the guest renders at 2× (physical 3840×2160) while vision/clicks operate in logical 1920×1080. Requires a Retina host (ADR-0016)
+
+      --viewer
+          Open the embedded viewer window after boot (blocks until closed)
+
+      --keep-on-failure
+          If the start fails while its VM is still running, leave the VM (and its sidecars) for inspection instead of removing it; reclaim it with `vm stop`. A VM whose backend process has exited is always removed
+
+      --wait[=<SECONDS>]
+          If the macOS guest limit is full, wait for a slot instead of failing at once with VM_LIMIT_REACHED. Optionally bounded: --wait=SECONDS [default when bare: 600]. At the deadline the start fails with the same VM_LIMIT_REACHED
+
+      --json
+          Emit JSON envelope on stdout
+
+      --dry-run
+          Plan the start but do not perform it
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
+
+OUTPUT:
+    Stable formats: text (the VM id on one line), --json (schema: vm-start).
+    A QEMU-backed start also says whether the guest's TPM was attached or
+    omitted, and why: a line on stderr in text mode, a `tpm` object in --json
+    (`--dry-run` reports it too). Tart-backed starts have no TPM decision and
+    omit it.
+
+EXIT CODES:
+    0  success — the guest has a Healthy agent (see HEALTH)
+    1  TART_FAILED, QEMU_FAILED, SWTPM_MISSING, VM_BACKEND_UNSUPPORTED, SPAWN_FAILED
+       (the backend's own log tail is in `details.tart_error` / `details.qemu_error`)
+    2  USAGE_ERROR / INVALID_PLATFORM
+    3  GOLDEN_NOT_FOUND / UEFI_NOT_FOUND
+    4  KVM_PERMISSION_DENIED
+    6  VM_LIMIT_REACHED — the macOS guest limit (two per Mac) is full; try again
+       later, or start with --wait. `details.holders` names the VMs holding
+       the slots, and `testanyware vm slots` shows each holder and each
+       waiter. With --wait it is also what a wait that ran out returns.
+    7  VM_BOOT_TIMEOUT — the VM is up but a start stage never completed;
+       `details` names the stage (vnc, guest-ip, agent), the last probe error
+       with its OS errno, the attempts and the elapsed time.
+
+HEALTH:
+    On every backend (tart: macOS, Linux-on-tart; QEMU: Windows,
+    Linux-on-qcow2) `vm start` succeeds only once the guest's agent answers
+    /health. If the backend process dies, the start ends at once and the error
+    carries its log tail (TART_FAILED / QEMU_FAILED); if the agent never comes
+    up the error is VM_BOOT_TIMEOUT. A QEMU guest gets 120 probes 5 s apart
+    (ten to fourteen minutes) for its agent, because Windows boots slowly.
+
+WAITING FOR A SLOT:
+    Only two macOS guests can run on a Mac at once. Without --wait a start
+    that finds both slots taken fails at once (VM_LIMIT_REACHED, exit 6).
+    With --wait the start waits in the queue of the TestAnyware app, then
+    starts; bare --wait gives up after 600 s, --wait=SECONDS after that many.
+    The app serves the waiters in order: no later start takes a slot that
+    frees before an earlier one. `testanyware vm slots` shows the queue: the
+    holders, each waiter with its place, and who asked. Sometimes the framework refuses a start
+    although the app counts a free slot, for example because a guest of
+    another user holds one. Then the app puts the start back at the head of
+    the queue and tries it again after a pause of 3 s. The retries reuse one
+    clone, and stderr names the VMs holding the slots while the start waits
+    (--json still prints only the final result). When the wait runs out the
+    start fails with VM_LIMIT_REACHED as before. Interrupting a waiting start
+    (Ctrl-C, SIGTERM) removes its clone. --wait does not change a failure of
+    any other kind.
+
+IDEMPOTENCY:
+    Not idempotent — each call without --id clones a fresh VM. Retry-safe:
+    a failed start removes its own VM and sidecars, unless --keep-on-failure
+    leaves a still-running VM behind (reclaim it with `vm stop`).
+
+EXAMPLES:
+    # Start a Windows guest at 1080p
+    testanyware vm start --platform windows --display 1920x1080
+
+    # Start a Linux guest, capture the id as JSON
+    testanyware vm start --platform linux --json
+
+    # Plan a start without performing it
+    testanyware vm start --platform windows --dry-run
+
+    # Start a guest and open the embedded viewer (blocks until closed)
+    testanyware vm start --platform linux --viewer
+
+    # Start a macOS guest at HiDPI/Retina (2× backing scale, Retina host only)
+    testanyware vm start --platform macos --display 1920x1080@2x
+
+    # Investigate a macOS start that fails: keep the VM for a post-mortem
+    testanyware vm start --platform macos --keep-on-failure
+
+    # Wait up to 5 minutes for a free macOS slot instead of failing at once
+    testanyware vm start --platform macos --wait=300
+
+SEE ALSO:
+    testanyware vm stop, testanyware vm list, testanyware doctor, testanyware viewer
