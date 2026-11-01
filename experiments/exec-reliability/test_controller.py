@@ -1,9 +1,12 @@
 """Failure controls operate on real local processes and fake VM markers only."""
 
+import errno
 import json
 import os
 import signal
+import subprocess
 import sys
+import time
 import uuid
 from dataclasses import fields, replace
 from pathlib import Path
@@ -31,7 +34,14 @@ def run(tmp_path, calls, resources=(), subjects=(), run_id=None):
         run_id or uuid.uuid4().hex,
         tuple(calls),
         tuple(resources),
-        (PEER, Path(__file__), HERE / "pyproject.toml", HERE / "uv.lock", *subjects),
+        (
+            PEER,
+            Path(__file__),
+            HERE / "pyproject.toml",
+            HERE / "uv.lock",
+            Path("/bin/sleep"),
+            *subjects,
+        ),
         term_grace=0.15,
         kill_wait=0.3,
     )
@@ -75,14 +85,12 @@ def test_overlong_call_fails_and_retains_partial_bytes(tmp_path):
 
 
 def test_cli_interruption_kills_term_ignorer_and_controller_survives(tmp_path):
-    controller_pid = os.getpid()
     _, result = run(tmp_path, [call("interrupt", "ignore-term", interrupt_after=0.3)])
     receipt = result["calls"][0]
     assert receipt["reason"] == "interrupted"
     assert receipt["returncode"] == -signal.SIGKILL
     assert [event["signal"] for event in receipt["signals"]] == ["TERM", "KILL"]
     assert receipt["reaped"] is True
-    assert os.getpid() == controller_pid
 
 
 def test_finally_disposal_independent_of_blocked_channel_and_failed_cleanup(tmp_path):
@@ -304,3 +312,267 @@ def test_review_preflight_keeps_missing_declared_subjects(tmp_path, monkeypatch)
     preflight.main()
     assert seen
     assert tmp_path / "missing-repo/Taskfile.yml" in seen[0].subjects
+
+
+def test_review_graceful_pid_exit_needs_no_kill(tmp_path):
+    _, result = run(tmp_path, [call("term-exit", "hang", interrupt_after=0.2)])
+    receipt = result["calls"][0]
+    assert [event["signal"] for event in receipt["signals"]] == ["TERM"]
+    assert receipt["leader_exit_monotonic"] >= receipt["signals"][0]["monotonic"]
+    assert receipt["leader_exit_monotonic"] <= receipt["term_deadline_monotonic"]
+    assert receipt["reaped_monotonic"] >= receipt["leader_exit_monotonic"]
+
+
+def test_review_fork_handler_reaps_gracefully(tmp_path):
+    path, result = run(tmp_path, [call("fork", "fork", budget=0.3)])
+    receipt = result["calls"][0]
+    assert receipt["returncode"] == 0
+    assert receipt["termination_ok"] is True
+    assert receipt["group_observations"][-1]["state"] == "zombie_only"
+    child = int((path / "fork.stdout").read_text())
+    check = inspect_pid(child)
+    (path / "known-child-audit.json").write_text(json.dumps(check, indent=2))
+    assert check["state"] == "absent"
+
+
+def inspect_pid(pid):
+    check = subprocess.run(
+        ["/bin/ps", "-p", str(pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+        capture_output=True,
+        timeout=1,
+    )
+    state = "unknown"
+    if check.returncode == 1 and check.stdout == b"" and check.stderr == b"":
+        state = "absent"
+    elif check.returncode == 0 and check.stderr == b"":
+        fields = check.stdout.split(maxsplit=3)
+        if len(fields) == 4 and int(fields[0]) == pid:
+            state = "zombie" if fields[2].startswith(b"Z") else "live"
+    return {
+        "pid": pid,
+        "state": state,
+        "returncode": check.returncode,
+        "stdout": check.stdout.decode(),
+        "stderr": check.stderr.decode(),
+        "monotonic": time.monotonic(),
+    }
+
+
+def scope_control(tmp_path, *, pid_only):
+    release, ready = tmp_path / "release", tmp_path / "ready"
+    workload = call(
+        "scope",
+        "scope-parent",
+        release,
+        ready,
+        budget=0.3,
+        interrupt_after=0.3 if pid_only else None,
+    )
+    path = None
+    child = None
+    try:
+        path, result = run(tmp_path, [workload])
+        child = int((path / "scope.stdout").read_text())
+        observation = inspect_pid(child)
+        # The expected live child must have this run's unique argv token and
+        # still be in its recorded leader's group, not just reuse its PID.
+        matches = observation["state"] == "live" and str(release) in observation["stdout"]
+        if matches:
+            matches = int(observation["stdout"].split()[1]) == result["calls"][0]["pgid"]
+        verdict = matches if pid_only else observation["state"] == "absent"
+        (path / "scope-control.json").write_text(
+            json.dumps(
+                {
+                    "pid_only": pid_only,
+                    "ok": verdict,
+                    "observation": observation,
+                },
+                indent=2,
+            )
+        )
+        return verdict
+    finally:
+        # Cooperative cleanup cannot signal an identity which has been reused.
+        release.write_bytes(b"release")
+        if child is not None:
+            end = time.monotonic() + 1
+            observations = [inspect_pid(child)]
+            while observations[-1]["state"] == "live" and time.monotonic() < end:
+                time.sleep(0.005)
+                observations.append(inspect_pid(child))
+            (path / "known-child-audit.json").write_text(json.dumps(observations, indent=2))
+            assert observations[-1]["state"] == "absent"
+
+
+@pytest.mark.parametrize("pid_only", [True, False])
+def test_review_signal_scope_has_opposed_child_outcomes(tmp_path, pid_only):
+    assert scope_control(tmp_path, pid_only=pid_only) is True
+
+
+@pytest.mark.parametrize("pid_only", [True, False])
+def test_review_wrong_signal_scope_is_detected(tmp_path, monkeypatch, pid_only):
+    if pid_only:
+        monkeypatch.setattr(os, "kill", os.killpg)
+    else:
+        monkeypatch.setattr(os, "killpg", os.kill)
+    assert scope_control(tmp_path, pid_only=pid_only) is False
+
+
+def test_review_controller_survival_is_observed_by_another_process(tmp_path):
+    nested_root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "nested-evidence"))
+    # Outer controller is a separate parent and sees the inner controller's
+    # actual exit and post-interruption output. A signal to it loses this proof.
+    path, result = run(tmp_path, [call("nested", "controller", nested_root)])
+    assert result["ok"] is True
+    output = (path / "nested.stdout").read_text().splitlines()
+    assert output[-1] == "controller continued"
+    nested = json.loads((Path(output[0]) / "result.json").read_text())
+    assert nested["ok"] is True
+    assert [item["name"] for item in nested["calls"]] == ["interrupt", "after"]
+
+
+def test_review_group_signals_and_inspection_finish_before_reaping(tmp_path, monkeypatch):
+    reaped = set()
+    original_wait = subprocess.Popen.wait
+    original_killpg = os.killpg
+
+    def wait(process, *args, **kwargs):
+        code = original_wait(process, *args, **kwargs)
+        reaped.add(process.pid)
+        return code
+
+    def killpg(pid, sig):
+        if pid in reaped:
+            raise RuntimeError("group identity already released by reap")
+        original_killpg(pid, sig)
+
+    monkeypatch.setattr(subprocess.Popen, "wait", wait)
+    monkeypatch.setattr(os, "killpg", killpg)
+    _, result = run(tmp_path, [call("pin", "ignore-term", budget=0.2)])
+    receipt = result["calls"][0]
+    assert receipt["returncode"] == -9
+    assert receipt["termination_ok"] is True
+    assert all(
+        item["finished_monotonic"] <= receipt["reaped_monotonic"]
+        for item in receipt["group_observations"]
+    )
+    assert receipt["reaped_monotonic"] <= receipt["kill_reap_deadline_monotonic"]
+    assert receipt["within_process_bounds"] is True
+    assert receipt["kill_reap_deadline_monotonic"] <= receipt["term_deadline_monotonic"] + 0.3
+    # Prove this guard rejects a released identity without sending any signal.
+    with pytest.raises(RuntimeError, match="identity already released"):
+        killpg(receipt["pid"], 0)
+
+
+@pytest.mark.parametrize("failure", ["usage", "timeout", "foreign"])
+def test_review_failed_group_inspection_is_never_absence(tmp_path, monkeypatch, failure):
+    original_run = subprocess.run
+
+    def broken_ps(argv, *args, **kwargs):
+        if argv[0] != "/bin/ps":
+            return original_run(argv, *args, **kwargs)
+        if failure == "timeout":
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"], b"partial")
+        if failure == "foreign":
+            return subprocess.CompletedProcess(argv, 0, b"1 1 S\n", b"")
+        return subprocess.CompletedProcess(argv, 1, b"", b"ps: usage error\n")
+
+    monkeypatch.setattr(subprocess, "run", broken_ps)
+    workload = replace(
+        call("unknown", "hang", budget=0.2), expected_reason="deadline", expected_exit=-15
+    )
+    _, result = run(tmp_path, [workload])
+    receipt = result["calls"][0]
+    assert receipt["reaped"] is True
+    assert receipt["returncode"] == -15
+    assert receipt["termination_ok"] is False
+    assert receipt["group_observations"][-1]["state"] == "unknown"
+    assert result["ok"] is False
+
+
+def test_review_live_signal_permission_failure_is_retained(tmp_path, monkeypatch):
+    original = os.killpg
+
+    def deny_term(pid, sig):
+        if sig == signal.SIGTERM:
+            raise PermissionError(errno.EPERM, "forced live permission failure")
+        original(pid, sig)
+
+    monkeypatch.setattr(os, "killpg", deny_term)
+    workload = replace(
+        call("denied", "hang", budget=0.2), expected_reason="deadline", expected_exit=-9
+    )
+    _, result = run(tmp_path, [workload])
+    receipt = result["calls"][0]
+    assert receipt["signals"][0]["outcome"] == "permission_failure"
+    assert receipt["signals"][0]["permission_observation"]["state"] == "live"
+    assert receipt["returncode"] == -9
+    assert receipt["termination_ok"] is False
+    assert result["ok"] is False
+
+
+def test_review_zombie_only_eperm_is_separate_from_permission_failure(tmp_path, monkeypatch):
+    import controller
+
+    original = os.killpg
+
+    def zombie_race(pid, sig):
+        original(pid, sig)
+        if sig == signal.SIGTERM:
+            assert controller._wait(pid, time.monotonic() + 0.1)
+            raise PermissionError(errno.EPERM, "forced zombie-only return race")
+
+    monkeypatch.setattr(os, "killpg", zombie_race)
+    workload = replace(
+        call("zombie", "hang", budget=0.2), expected_reason="deadline", expected_exit=-15
+    )
+    _, result = run(tmp_path, [workload])
+    receipt = result["calls"][0]
+    assert [item["outcome"] for item in receipt["signals"]] == ["zombie_only_eperm"]
+    assert receipt["termination_ok"] is True
+    assert result["ok"] is True
+
+
+@pytest.mark.parametrize("drop_kill", [False, True])
+def test_review_exited_leader_does_not_hide_a_surviving_group_member(
+    tmp_path, monkeypatch, drop_kill
+):
+    release, ready = tmp_path / "release", tmp_path / "ready"
+    original = os.killpg
+
+    def signal_group(pid, sig):
+        if not (drop_kill and sig == signal.SIGKILL):
+            original(pid, sig)
+
+    monkeypatch.setattr(os, "killpg", signal_group)
+    path = None
+    child = None
+    try:
+        path, result = run(
+            tmp_path,
+            [call("stubborn", "scope-parent", release, ready, "stubborn-child", budget=0.3)],
+        )
+        child = int((path / "stubborn.stdout").read_text())
+        receipt = result["calls"][0]
+        assert receipt["returncode"] == 0
+        assert [item["signal"] for item in receipt["signals"]] == ["TERM", "KILL"]
+        assert receipt["leader_exit_monotonic"] < receipt["signals"][1]["monotonic"]
+        assert receipt["termination_ok"] is (not drop_kill)
+        if drop_kill:
+            group = receipt["group_observations"][-1]
+            assert group["state"] == "live"
+            assert any(
+                item["pid"] == child and not item["stat"].startswith("Z")
+                for item in group["members"]
+            )
+            assert inspect_pid(child)["state"] == "live"
+    finally:
+        release.write_bytes(b"release")
+        if child is not None:
+            end = time.monotonic() + 1
+            observations = [inspect_pid(child)]
+            while observations[-1]["state"] != "absent" and time.monotonic() < end:
+                time.sleep(0.005)
+                observations.append(inspect_pid(child))
+            (path / "known-child-audit.json").write_text(json.dumps(observations, indent=2))
+            assert observations[-1]["state"] == "absent"

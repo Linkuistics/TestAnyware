@@ -220,6 +220,13 @@ disposal ceiling. Do not rely on that open guarantee or move route preparation
 into a causal sample. These producers cut their concrete reviews when their
 artifacts exist. The k16 report records all review dispositions and local audits.
 
+`diagnostic-evidence-k17` has decomposed: `termination-evidence-k20` delivers
+conditional escalation, pinned group inspection and real signal-scope controls,
+with its review ahead of `retained-evidence-k21`. That second child still owns
+stream/result identities and the surviving-writer/late-change controls, followed
+by its own review. Completion of only k20 does not discharge k17 or permit causal
+measurement. The handoff records each retained failed condition and local audit.
+
 `diagnostic-foundation-k11` owns the reusable controller, ledger, forced-failure
 self-checks and the per-OS build/routing prerequisite table. Causal leaves reuse
 that handoff and add only their question's concrete fixtures and diagnostics.

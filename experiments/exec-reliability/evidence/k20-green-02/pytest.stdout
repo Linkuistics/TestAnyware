@@ -1,0 +1,80 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability
+configfile: pyproject.toml
+testpaths: test_controller.py
+collecting ... collected 37 items
+
+test_controller.py::test_exact_raw_capture_and_subject_freeze PASSED     [  2%]
+test_controller.py::test_overlong_call_fails_and_retains_partial_bytes PASSED [  5%]
+test_controller.py::test_cli_interruption_kills_term_ignorer_and_controller_survives PASSED [  8%]
+test_controller.py::test_finally_disposal_independent_of_blocked_channel_and_failed_cleanup PASSED [ 10%]
+test_controller.py::test_failed_inspection_is_uncertain_even_after_successful_disposal PASSED [ 13%]
+test_controller.py::test_blocked_disposal_is_bounded_and_retains_exact_residual PASSED [ 16%]
+test_controller.py::test_failed_transfer_preserves_raw_failure PASSED    [ 18%]
+test_controller.py::test_hashing_drift_fails_instead_of_reinterpreting_measurement PASSED [ 21%]
+test_controller.py::test_foreign_resource_and_reused_output_are_rejected_before_calls PASSED [ 24%]
+test_controller.py::test_owned_fork_is_terminated_and_known_child_absent PASSED [ 27%]
+test_controller.py::test_blocked_cleanup_and_inspection_do_not_skip_disposal PASSED [ 29%]
+test_controller.py::test_spawn_error_is_not_numeric_exit PASSED          [ 32%]
+test_controller.py::test_exit_observation_error_fails_and_still_reaps_owned_process PASSED [ 35%]
+test_controller.py::test_review_expected_interruption_continues_same_resource PASSED [ 37%]
+test_controller.py::test_review_unexpected_interruption_still_stops PASSED [ 40%]
+test_controller.py::test_review_resource_deadline_cannot_be_declared_success PASSED [ 43%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[plan] PASSED [ 45%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[result] PASSED [ 48%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[subjects-before] PASSED [ 51%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[intent-1] PASSED [ 54%]
+test_controller.py::test_review_receipt_io_exception_cannot_skip_other_disposal PASSED [ 56%]
+test_controller.py::test_review_skipped_acquisitions_are_unreached PASSED [ 59%]
+test_controller.py::test_review_zero_exit_wrong_stdout_is_failure PASSED [ 62%]
+test_controller.py::test_review_preflight_keeps_missing_declared_subjects PASSED [ 64%]
+test_controller.py::test_review_graceful_pid_exit_needs_no_kill PASSED   [ 67%]
+test_controller.py::test_review_fork_handler_reaps_gracefully PASSED     [ 70%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[True] PASSED [ 72%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[False] PASSED [ 75%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[True] PASSED [ 78%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[False] PASSED [ 81%]
+test_controller.py::test_review_controller_survival_is_observed_by_another_process PASSED [ 83%]
+test_controller.py::test_review_group_signals_and_inspection_finish_before_reaping FAILED [ 86%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[usage] PASSED [ 89%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[timeout] PASSED [ 91%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[foreign] PASSED [ 94%]
+test_controller.py::test_review_live_signal_permission_failure_is_retained PASSED [ 97%]
+test_controller.py::test_review_zombie_only_eperm_is_separate_from_permission_failure PASSED [100%]
+
+=================================== FAILURES ===================================
+________ test_review_group_signals_and_inspection_finish_before_reaping ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3998/test_review_group_signals_and_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106a949b0>
+
+    def test_review_group_signals_and_inspection_finish_before_reaping(tmp_path, monkeypatch):
+        reaped = set()
+        original_wait = subprocess.Popen.wait
+        original_killpg = os.killpg
+    
+        def wait(process, *args, **kwargs):
+            code = original_wait(process, *args, **kwargs)
+            reaped.add(process.pid)
+            return code
+    
+        def killpg(pid, sig):
+            if pid in reaped:
+                raise RuntimeError("group identity already released by reap")
+            original_killpg(pid, sig)
+    
+        monkeypatch.setattr(subprocess.Popen, "wait", wait)
+        monkeypatch.setattr(os, "killpg", killpg)
+        _, result = run(tmp_path, [call("pin", "ignore-term", budget=0.2)])
+        receipt = result["calls"][0]
+        assert receipt["returncode"] == -9
+>       assert receipt["termination_ok"] is True
+E       assert False is True
+
+test_controller.py:464: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k20-green-02/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_review_group_signals_and_inspection_finish_before_reaping - assert False is True
+======================== 1 failed, 36 passed in 10.08s =========================

@@ -20,7 +20,7 @@ import time
 from contextlib import closing
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Literal, TypedDict
 
 
 @dataclass(frozen=True)
@@ -151,6 +151,175 @@ def _wait(pid: int, deadline: float) -> bool:
     return True
 
 
+class GroupObservation(TypedDict):
+    started_monotonic: float
+    finished_monotonic: float
+    state: Literal["live", "zombie_only", "unknown"]
+    members: list[dict[str, str | int]]
+    stdout: bytes
+    stderr: bytes
+    returncode: int | None
+    probe_errno: int | None
+    probe_outcome: str
+    error: str | None
+
+
+def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
+    """Observe only while the unreaped session leader pins this group identity."""
+    observation: GroupObservation = {
+        "started_monotonic": time.monotonic(),
+        "finished_monotonic": time.monotonic(),
+        "state": "unknown",
+        "members": [],
+        "stdout": b"",
+        "stderr": b"",
+        "returncode": None,
+        "probe_errno": None,
+        "probe_outcome": "not_attempted",
+        "error": None,
+    }
+    try:
+        # -g selects the process group; Z is dead, not an executable member.
+        # https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man1/ps.1.html
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("group inspection phase exhausted")
+        check = subprocess.run(
+            ("/bin/ps", "-g", str(pid), "-o", "pid=,pgid=,stat="),
+            capture_output=True,
+            timeout=remaining,
+        )
+        observation.update(stdout=check.stdout, stderr=check.stderr, returncode=check.returncode)
+        if check.returncode != 0 or check.stderr:
+            raise ValueError("ps did not return a clean process table")
+        members: list[dict[str, str | int]] = []
+        for line in check.stdout.splitlines():
+            member_pid, pgid, state = line.split()
+            if int(pgid) != pid:
+                raise ValueError("ps returned a foreign process group")
+            members.append({"pid": int(member_pid), "pgid": int(pgid), "stat": state.decode()})
+        if not any(member["pid"] == pid for member in members):
+            raise ValueError("unreaped leader missing from group inspection")
+        observation["members"] = members
+        observation["state"] = (
+            "zombie_only"
+            if all(str(member["stat"]).startswith("Z") for member in members)
+            else "live"
+        )
+        # Signal 0 checks permissions/existence without delivering a signal.
+        # EPERM alone never establishes either executable survival or absence.
+        # https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kill.2.html
+        try:
+            os.killpg(pid, 0)
+            observation["probe_outcome"] = "permitted"
+        except OSError as error:
+            observation["probe_errno"] = error.errno
+            observation["probe_outcome"] = (
+                "zombie_only_eperm"
+                if error.errno == errno.EPERM and observation["state"] == "zombie_only"
+                else "permission_failure"
+                if error.errno == errno.EPERM
+                else "unknown"
+            )
+            if error.errno != errno.EPERM:
+                observation["state"] = "unknown"
+                observation["error"] = str(error)
+    except subprocess.TimeoutExpired as error:
+        observation.update(stdout=error.stdout or b"", stderr=error.stderr or b"", error=str(error))
+    except (OSError, ValueError) as error:
+        observation["error"] = str(error)
+    observation["finished_monotonic"] = time.monotonic()
+    return observation
+
+
+def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object]) -> float:
+    """Finish all signals/observations before returning the one reap deadline."""
+    events: list[dict[str, object]] = []
+    groups: list[GroupObservation] = []
+    receipt.update(signals=events, group_observations=groups)
+    observer_ok = True
+    signals_ok = True
+    leader_exit: float | None = None
+
+    def observe(deadline: float) -> bool:
+        nonlocal observer_ok, leader_exit
+        try:
+            if _exited(pid) and leader_exit is None:
+                leader_exit = time.monotonic()
+                receipt["leader_exit_monotonic"] = leader_exit
+        except OSError as error:
+            observer_ok = False
+            receipt["exit_observation_error"] = str(error)
+        # Do not launch another ps with only a sub-millisecond tail of the
+        # phase left. Reserve a 10 ms sampling window inside the existing
+        # allowance; kqueue polling continues to the actual phase deadline.
+        if not pid_only and (not groups or deadline - time.monotonic() >= 0.01):
+            groups.append(_group_snapshot(pid, deadline))
+        return leader_exit is not None and (pid_only or groups[-1]["state"] == "zombie_only")
+
+    def send(sig: signal.Signals, deadline: float) -> None:
+        nonlocal signals_ok
+        event: dict[str, object] = {
+            "signal": sig.name.removeprefix("SIG"),
+            "scope": "pid" if pid_only else "group",
+            "target": pid,
+            "monotonic": time.monotonic(),
+            "outcome": "sent",
+        }
+        try:
+            if pid_only:
+                os.kill(pid, sig)
+            else:
+                os.killpg(pid, sig)
+        except OSError as error:
+            event.update(errno=error.errno, error=str(error), outcome="signal_error")
+            if not pid_only and error.errno == errno.EPERM:
+                observe(deadline)
+                event["permission_observation"] = groups[-1]
+                event["outcome"] = (
+                    "zombie_only_eperm"
+                    if leader_exit is not None and groups[-1]["state"] == "zombie_only"
+                    else "permission_failure"
+                    if groups[-1]["state"] == "live"
+                    else "permission_unknown"
+                )
+            signals_ok = signals_ok and event["outcome"] == "zombie_only_eperm"
+        event["finished_monotonic"] = time.monotonic()
+        events.append(event)
+
+    term_deadline = time.monotonic() + plan.term_grace
+    receipt["term_deadline_monotonic"] = term_deadline
+    send(signal.SIGTERM, term_deadline)
+    complete = observe(term_deadline)
+    while not complete and time.monotonic() < term_deadline:
+        time.sleep(min(0.005, max(0, term_deadline - time.monotonic())))
+        if time.monotonic() < term_deadline:
+            complete = observe(term_deadline)
+    # This single deadline covers KILL, all following observations AND reaping.
+    kill_deadline = min(time.monotonic(), term_deadline) + plan.kill_wait
+    receipt["kill_reap_deadline_monotonic"] = kill_deadline
+    if not complete:
+        # An expired final ps observation is unknown, so refresh within the
+        # kill phase before deciding whether the group still needs a signal.
+        complete = observe(kill_deadline)
+        if not complete:
+            send(signal.SIGKILL, kill_deadline)
+            complete = observe(kill_deadline)
+        while not complete and time.monotonic() < kill_deadline:
+            time.sleep(min(0.005, max(0, kill_deadline - time.monotonic())))
+            if time.monotonic() < kill_deadline:
+                complete = observe(kill_deadline)
+    if pid_only:
+        groups.append(_group_snapshot(pid, kill_deadline))
+    receipt["termination_ok"] = (
+        complete
+        and observer_ok
+        and signals_ok
+        and all(group["state"] != "unknown" for group in groups)
+    )
+    return kill_deadline
+
+
 def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
     start = time.monotonic()
     receipt: dict[str, object] = {
@@ -195,49 +364,32 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
                 exited = False
             if exited:
                 receipt["reason"] = "exit"
+                receipt["leader_exit_monotonic"] = time.monotonic()
+                reap_deadline = time.monotonic() + plan.kill_wait
+                group = _group_snapshot(process.pid, reap_deadline)
+                receipt["group_observations"] = [group]
+                receipt["termination_ok"] = group["state"] != "unknown"
             else:
                 if receipt["reason"] != "observation_error":
                     receipt["reason"] = "interrupted" if call.interrupt_after else "deadline"
-                for sig, grace in (
-                    (signal.SIGTERM, plan.term_grace),
-                    (signal.SIGKILL, plan.kill_wait),
-                ):
-                    try:
-                        if call.interrupt_after is not None:
-                            os.kill(process.pid, sig)
-                        else:
-                            os.killpg(process.pid, sig)
-                        events.append(
-                            {"signal": sig.name.removeprefix("SIG"), "monotonic": time.monotonic()}
-                        )
-                    except ProcessLookupError:
-                        events.append(
-                            {
-                                "signal": sig.name.removeprefix("SIG"),
-                                "monotonic": time.monotonic(),
-                                "absent": True,
-                            }
-                        )
-                    except OSError as error:
-                        events.append(
-                            {
-                                "signal": sig.name.removeprefix("SIG"),
-                                "monotonic": time.monotonic(),
-                                "error": str(error),
-                            }
-                        )
-                    if sig == signal.SIGTERM:
-                        # Give the entire declared group its grace, even if its leader exits.
-                        time.sleep(grace)
+                reap_deadline = _terminate(
+                    process.pid, call.interrupt_after is not None, plan, receipt
+                )
             try:
-                receipt["returncode"] = process.wait(timeout=plan.kill_wait)
+                receipt["returncode"] = process.wait(
+                    timeout=max(0, reap_deadline - time.monotonic())
+                )
                 receipt["reaped"] = True
+                receipt["reaped_monotonic"] = time.monotonic()
+                receipt["within_process_bounds"] = time.monotonic() <= reap_deadline
             except subprocess.TimeoutExpired:
                 receipt["reap_error"] = "leader unreaped; manual identity inspection required"
             receipt["ok"] = (
                 receipt["reason"] == call.expected_reason
                 and receipt["returncode"] == call.expected_exit
                 and receipt["reaped"] is True
+                and receipt["termination_ok"] is True
+                and receipt["within_process_bounds"] is True
             )
     if call.expected_stdout is not None:
         receipt["stdout_matches"] = (
@@ -283,6 +435,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
             (
                 Path(__file__).resolve(),
                 Path(sys.executable).resolve(),
+                Path("/bin/ps"),
                 *plan.subjects,
                 *(Path(call.argv[0]).resolve() for call in all_calls),
             )

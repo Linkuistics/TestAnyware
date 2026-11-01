@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="18" time="9.244" timestamp="2026-11-01T15:28:34.177073+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_review_expected_interruption_continues_same_resource" time="1.096" /><testcase classname="test_controller" name="test_review_unexpected_interruption_still_stops" time="0.462" /><testcase classname="test_controller" name="test_review_resource_deadline_cannot_be_declared_success" time="0.006" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[plan]" time="0.004" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[result]" time="0.004" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[subjects-before]" time="0.005" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[intent-1]" time="0.003" /><testcase classname="test_controller" name="test_review_receipt_io_exception_cannot_skip_other_disposal" time="1.466" /><testcase classname="test_controller" name="test_review_skipped_acquisitions_are_unreached" time="0.138" /><testcase classname="test_controller" name="test_review_zero_exit_wrong_stdout_is_failure" time="0.825" /><testcase classname="test_controller" name="test_review_preflight_keeps_missing_declared_subjects" time="0.021" /><testcase classname="test_controller" name="test_review_graceful_pid_exit_needs_no_kill" time="0.436"><failure message="AssertionError: assert ['TERM', 'KILL'] == ['TERM']&#10;  &#10;  Left contains one more item: 'KILL'&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;        'TERM',&#10;  +     'KILL',&#10;    ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3991/test_review_graceful_pid_exit_0')
+
+    def test_review_graceful_pid_exit_needs_no_kill(tmp_path):
+        _, result = run(tmp_path, [call("term-exit", "hang", interrupt_after=0.2)])
+        receipt = result["calls"][0]
+&gt;       assert [event["signal"] for event in receipt["signals"]] == ["TERM"]
+E       AssertionError: assert ['TERM', 'KILL'] == ['TERM']
+E         
+E         Left contains one more item: 'KILL'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               'TERM',
+E         +     'KILL',
+E           ]
+
+test_controller.py:312: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_fork_handler_reaps_gracefully" time="0.524"><failure message="assert -9 == 0">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3991/test_review_fork_handler_reaps0')
+
+    def test_review_fork_handler_reaps_gracefully(tmp_path):
+        path, result = run(tmp_path, [call("fork", "fork", budget=0.3)])
+        receipt = result["calls"][0]
+&gt;       assert receipt["returncode"] == 0
+E       assert -9 == 0
+
+test_controller.py:321: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_signal_scope_has_opposed_child_outcomes[True]" time="0.601" /><testcase classname="test_controller" name="test_review_signal_scope_has_opposed_child_outcomes[False]" time="0.571" /><testcase classname="test_controller" name="test_review_wrong_signal_scope_is_detected[True]" time="0.692" /><testcase classname="test_controller" name="test_review_wrong_signal_scope_is_detected[False]" time="0.636" /><testcase classname="test_controller" name="test_review_controller_survival_is_observed_by_another_process" time="0.939" /></testsuite></testsuites>

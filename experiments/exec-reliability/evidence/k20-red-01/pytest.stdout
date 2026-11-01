@@ -1,0 +1,71 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability
+configfile: pyproject.toml
+testpaths: test_controller.py
+collecting ... collected 31 items / 13 deselected / 18 selected
+
+test_controller.py::test_review_expected_interruption_continues_same_resource PASSED [  5%]
+test_controller.py::test_review_unexpected_interruption_still_stops PASSED [ 11%]
+test_controller.py::test_review_resource_deadline_cannot_be_declared_success PASSED [ 16%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[plan] PASSED [ 22%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[result] PASSED [ 27%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[subjects-before] PASSED [ 33%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[intent-1] PASSED [ 38%]
+test_controller.py::test_review_receipt_io_exception_cannot_skip_other_disposal PASSED [ 44%]
+test_controller.py::test_review_skipped_acquisitions_are_unreached PASSED [ 50%]
+test_controller.py::test_review_zero_exit_wrong_stdout_is_failure PASSED [ 55%]
+test_controller.py::test_review_preflight_keeps_missing_declared_subjects PASSED [ 61%]
+test_controller.py::test_review_graceful_pid_exit_needs_no_kill FAILED   [ 66%]
+test_controller.py::test_review_fork_handler_reaps_gracefully FAILED     [ 72%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[True] PASSED [ 77%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[False] PASSED [ 83%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[True] PASSED [ 88%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[False] PASSED [ 94%]
+test_controller.py::test_review_controller_survival_is_observed_by_another_process PASSED [100%]
+
+=================================== FAILURES ===================================
+_________________ test_review_graceful_pid_exit_needs_no_kill __________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3991/test_review_graceful_pid_exit_0')
+
+    def test_review_graceful_pid_exit_needs_no_kill(tmp_path):
+        _, result = run(tmp_path, [call("term-exit", "hang", interrupt_after=0.2)])
+        receipt = result["calls"][0]
+>       assert [event["signal"] for event in receipt["signals"]] == ["TERM"]
+E       AssertionError: assert ['TERM', 'KILL'] == ['TERM']
+E         
+E         Left contains one more item: 'KILL'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               'TERM',
+E         +     'KILL',
+E           ]
+
+test_controller.py:312: AssertionError
+__________________ test_review_fork_handler_reaps_gracefully ___________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-3991/test_review_fork_handler_reaps0')
+
+    def test_review_fork_handler_reaps_gracefully(tmp_path):
+        path, result = run(tmp_path, [call("fork", "fork", budget=0.3)])
+        receipt = result["calls"][0]
+>       assert receipt["returncode"] == 0
+E       assert -9 == 0
+
+test_controller.py:321: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k20-red-01/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_review_graceful_pid_exit_needs_no_kill - AssertionError: assert ['TERM', 'KILL'] == ['TERM']
+  
+  Left contains one more item: 'KILL'
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+        'TERM',
+  +     'KILL',
+    ]
+FAILED test_controller.py::test_review_fork_handler_reaps_gracefully - assert -9 == 0
+================= 2 failed, 16 passed, 13 deselected in 9.97s ==================

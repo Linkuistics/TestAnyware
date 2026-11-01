@@ -1,9 +1,11 @@
 # Execution reliability diagnostic foundation
 
 The local diagnostic controller passes its revised forced-failure self-check on a
-macOS host. Review integration repaired interruption sequencing and raised-I/O
-exception handling. Process-group evidence, stalled-storage disposal and live
-route preparation still need the work named below before causal use.
+macOS host. It now observes graceful leader exit, distinguishes PID and group
+interruption with real child controls, and records group inspection before
+reaping. That implementation awaits its scheduled review. Retained-file
+identity, stalled-storage disposal and live route preparation still need the
+work named below before causal use.
 This is preparation for the causal inquiries in
 [issue #14](https://github.com/Linkuistics/TestAnyware/issues/14), not a repair
 of TestAnyware. No guest was booted, no guest command was run, and no app was
@@ -83,6 +85,29 @@ macOS kqueue observes exit before reaping so the leader identity is retained
 until signals finish. Observation errors fail the call and still attempt
 bounded termination/reaping.
 
+TERM now records a monotonic leader-exit observation. PID-only interruption
+skips KILL when the leader has exited; group deadlines still escalate when
+executable members remain after leader exit. Each group snapshot retains its
+monotonic start/end, raw `ps` stdout/stderr (hex in JSON), status, member
+PID/PGID/state and signal-0 result. The leader stays unreaped through every
+snapshot and signal. Only a clean table containing that leader can classify
+the observed group as live or zombie-only. A missing leader, usage error,
+timeout, malformed table or other failed inspection stays unknown and fails
+the call. EPERM with observed live members is permission failure; observed
+zombie-only EPERM is distinct; EPERM with failed inspection remains unknown.
+These observations do not establish the kernel's historical cause for an
+earlier EPERM or containment of arbitrary descendants.
+
+The group poll reserves a 10 ms sampling window **inside** the declared phase;
+kqueue polling continues to the actual deadline. KILL, further inspection and
+leader reaping share one deadline, capped by the original TERM deadline plus
+`kill_wait`. The receipt's `within_process_bounds` must be true for success.
+There is no fresh reap allowance after inspection. Snapshots describe only
+their recorded intervals, and group probes stop before reaping permits identity
+reuse. The known-child fixtures perform separate exact-PID observations and
+cooperative cleanup. Normal exit can still leave a writer: stream/result
+digests and demonstrated late-write rejection remain the next increment.
+
 `budget` is the pre-termination waiting budget. Allow its value plus
 `term_grace + kill_wait` within the operation's comparison ceiling: for example,
 use at most 41 seconds with default termination bounds for a 45-second disposal.
@@ -133,15 +158,16 @@ Review `diagnostic-foundation-k15` is committed at `4bb47c05`, against producer
 | F1, interruption prevents later observation | Applied: explicit expected reason, exact host exit, reaped leader and stdout oracle govern continuation. Default failures still stop. |
 | F2, live routes described as unavailable without a prerequisite | Applied clarification; actual probe, bounds and dual-inventory checker move to `diagnostic-routes-k19` ahead of causal consumers. No installed live route is proved here. |
 | F3, raised or stalled controller I/O skips disposal | Applied reserved-name validation and per-action raised-I/O isolation. Blocking-storage architecture moves to `diagnostic-disposal-k18` and its implementation/review continuation. A blocked evidence filesystem still voids the disposal ceiling. |
-| F4, unconditional escalation and ambiguous group evidence | Real, moved to `diagnostic-evidence-k17`. Current code still waits the whole TERM grace and attempts KILL unconditionally. No TERM-exit timestamp or post-termination member oracle exists; EPERM is unresolved. The old fork peer exercises KILL because of its wait-lock deadlock. |
+| F4, unconditional escalation and ambiguous group evidence | Implemented in k17's first child, `termination-evidence-k20`, awaiting its review. Monotonic exit, conditional escalation, pinned group snapshots, permission/uncertainty controls and a corrected fork handler are demonstrated below. |
 | F5, mutable raw captures and no stream/result identity | Real, moved to k17. The self-check wrapper now hashes retained artifacts after the suite, including result files; general `execute` receipts still lack stream lengths/digests and cannot freeze a surviving writer. Neither a snapshot nor normal leader exit proves stable publication. |
-| F6, weak controls and missing checker verdict | Partly applied: zero-exit/wrong-stdout rejection, raw checker logs and per-test JUnit verdicts. Wrong-signal-scope controls, the real controller-survival observation and the fork fixture move to k17. The old self-check index has no generating recipe and stays historical; the new runner emits its own manifest. |
+| F6, weak controls and missing checker verdict | k16 supplies wrong-stdout rejection and checker verdicts. k20 adds opposed PID/group fixtures, deliberate scope mutations, a separately observed controller survivor and graceful fork reaping. Remaining late-writer controls belong to `retained-evidence-k21`. The old index stays historical. |
 | F7, incomplete historical fake-resource audit | Applied by new itemized local audits. Every historical uncertain entry has its exact path checked; original uncertain receipts remain unchanged. See the audit below. |
 | F8, already-absent disposal remains uncertain | Retain the conservative result now. k19 must demonstrate a specific VM_NOT_FOUND outcome plus independent absence before accepting it; arbitrary exit 3 is insufficient. Existing remedy argv may fail for an absent resource. |
 | F9, small inconsistencies | Applied explicit exclusive OUT, preservation of missing preflight subjects, acquisition accounting and macOS docstring. Existing-golden refusal moves to k19: NAME-nonempty alone is insufficient. Do not use those recipes as a demonstrated safe replacement guard. |
 
-These are three new working increments before the causal leaves. k17 delivers
-the process/evidence controls and cuts its review; k18 delivers the storage
+These are three working increments before the causal leaves. k17 is now a node:
+k20 delivers process controls, followed by its review, then k21 delivers
+retained-file controls and its review. k18 delivers the storage
 isolation design and cuts its concrete implementation/planning and review chain;
 k19 verifies routes only after those repairs. This integration does not convert
 their open properties into an instrument guarantee.
@@ -157,8 +183,9 @@ The new behavioral controls cover same-resource observation after an expected
 interruption, stopping on unexpected interruption, rejecting expected resource
 deadlines, four reserved-name collisions, continued disposal of two resources
 after a receipt exception, missing-subject acquisition accounting, wrong stdout
-with exit 0, and preflight subject preservation. There is no new claim of
-PID-versus-group behavioral separation. The self-check runner freezes 30 seconds
+with exit 0, and preflight subject preservation. Those k16 controls made no claim
+of PID-versus-group behavioral separation; k20 supplies that control below.
+The self-check runner freezes 30 seconds
 each for lint/format/types and 60 seconds for pytest, with at most 2 seconds TERM
 and 2 seconds KILL/reap on checker timeout. That wrapper does not contain child
 sessions created by the controller; its timeout means uncertain local cleanup.
@@ -193,6 +220,64 @@ the delivered diff. These identities describe separate measured conditions.
 
 ## Forced-failure evidence
 
+### Termination evidence (k20)
+
+Run new conditions through the same `diagnostic:self-check OUT=...` recipe.
+This producer starts from commit `16d7e86084b79ce2b5daf1566bbbd790b69647af`.
+The delivered commit carries the dirty source changes; each condition pins its
+actual Python sources, Taskfile, manifest, lockfile and interpreter. Controller
+receipts additionally hash `/bin/ps`; the last condition explicitly declares
+the fork fixture's `/bin/sleep` executable. Python is 3.12.15. There are no guest,
+agent, image or app identities for these local-only conditions.
+
+| Condition | Retained checker outcome |
+| --- | --- |
+| [`k20-red-01`](../../experiments/exec-reliability/evidence/k20-red-01/) | Old controller: 2 failures, 16 passes, 13 deselected. Graceful PID exit still receives KILL; the reentrant fork handler exits -9. |
+| [`k20-green-01`](../../experiments/exec-reliability/evidence/k20-green-01/) | 31 tests and strict types pass; test-source line length fails lint. |
+| [`k20-green-02`](../../experiments/exec-reliability/evidence/k20-green-02/) | 36/37 tests pass. A group poll launched with 0.7 ms left causes a retained inspection timeout. |
+| [`k20-green-03`](../../experiments/exec-reliability/evidence/k20-green-03/) | All four checkers and 39 tests pass after reserving inspection time within each phase. |
+| [`k20-final-01`](../../experiments/exec-reliability/evidence/k20-final-01/) | All four checkers and 39 tests pass; nested controller source is now retained in peer.py, and checker/runner PIDs are recorded. |
+| [`k20-final-02`](../../experiments/exec-reliability/evidence/k20-final-02/) | All four checkers and 39 tests pass with the capped combined TERM/KILL/reap deadline and measured-bound check. |
+| [`k20-final-03`](../../experiments/exec-reliability/evidence/k20-final-03/) | All four checkers and 39 tests pass, additionally declaring `/bin/sleep`; its verdict and JUnit record pin exact source hashes and itemized checks. |
+
+The tests compare opposite real outcomes: PID-only interruption leaves the
+known child live with this run's unique release-marker argv and recorded PGID;
+group interruption removes it. Swapping the actual signal primitives makes
+the same scope checker return false. Dropping KILL leaves a positively observed
+child after leader exit and makes `termination_ok` false. Each known child is
+then released and checked independently. A separate outer controller observes
+the nested controller's continuation output, successful exit, inner result and
+later call, replacing the old tautological assertion. A guard rejects even a
+signal-0 attempt after observed reaping before it reaches the OS.
+
+The permission controls distinguish a forced live TERM denial from a forced
+zombie-only return race; the latter sends the real TERM first and waits for
+unreaped leader exit. This is an instrumented classification control, not a
+claim that a real permission denial was repaired. Usage, timeout and foreign
+group tables stay unknown despite a reaped leader and matching numeric exit.
+Ordinary process checks are green; these local fixtures establish neither a
+production lifecycle repair nor the ten-clone acceptance result.
+
+New itemized local audits preserve all original receipts:
+[`k20-audit-01`](../../experiments/exec-reliability/evidence/k20-audit-01/result.json)
+checks the first five conditions, and
+[`k20-audit-02`](../../experiments/exec-reliability/evidence/k20-audit-02/result.json)
+adds final-02. Each audit pins every retained input before/after, checks exact
+fake-marker paths, records known child PIDs, removes only known pytest fixture
+outputs and checks the resulting scratch-directory absence. The process oracle
+requires exit 1 and empty stdout **and** stderr; live-process and usage-error
+controls demonstrate rejection. The final
+[`k20-audit-03`](../../experiments/exec-reliability/evidence/k20-audit-03/result.json)
+includes final-03: all 414 recorded workload/checker/member PIDs, 49 known-child
+references, 52 fake-resource entries and 115 exact scratch directories are
+absent at audit completion. This is a later absence observation, not a rewrite
+of any original uncertain receipt. No process was signaled by these audits.
+The inspection commands themselves return through `subprocess.run`, which
+waits for their direct child; snapshots do not enumerate arbitrary descendants.
+The venv and evidence directories remain intentional workspace artifacts.
+
+### Earlier foundation controls
+
 This section describes the unchanged original producer conditions. Use the
 integration verdict above for the revised controller.
 
@@ -205,7 +290,7 @@ The [item index](../../experiments/exec-reliability/evidence/self-check-index.js
 also includes the earlier 12-test condition under `self-check/`; those receipts
 describe their own earlier source digest and are not relabelled as the final build.
 
-The rows below name final-condition run directories. Their `result.json` may
+The rows below name the original foundation's final-condition run directories. Their `result.json` may
 correctly say `ok: false`: the **test passes because the forced failure was
 detected**, not because that command succeeded.
 
@@ -213,7 +298,7 @@ detected**, not because that command succeeded.
 | --- | --- | --- |
 | Exact binary stdout and separate stderr | `b744181d8c2d42309bc146c6aeb2f7a5` | `00ff80410a` and `separate stderr\n` preserved exactly; subject hashes equal |
 | Overlong call | `30fe9008e3954abc97d23ec8cf9e5957` | Deadline, exit -15, partial stdout retained; next case unreached; 0.352 s |
-| CLI ignores TERM | `b22264e5d64f49099e3045929ea7db5e` | PID-only TERM then KILL, exit -9, reaped; controller survived; 0.460 s |
+| CLI ignores TERM | `b22264e5d64f49099e3045929ea7db5e` | PID-only TERM then KILL, exit -9, reaped; original survival assertion was tautological; k20 supplies independent observation; 0.460 s |
 | Owned local fork | `b7edf56ad7804d9eb9ce968f9f237ee8` | Group deadline; known child absent by independent PID check; leader reaped; 0.458 s |
 | Blocked transfer and failed cleanup | `be30cc27bafb4dc280e95e7bd07da2fc` | Transfer deadline and cleanup exit 23 retained; disposal and absence check still succeeded; unrelated marker intact |
 | Failed inspection | `242a2ddd302a4c1eb253212db8ab6aea` | Inspection exit 23 leaves disposal uncertain despite successful disposal command |

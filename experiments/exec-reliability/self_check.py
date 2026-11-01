@@ -55,6 +55,7 @@ def main() -> None:
     ]
     before = hashes(subjects)
     declaration = {
+        "runner_pid": os.getpid(),
         "commands": commands,
         "subjects_before": before,
         "bounds": "TERM 2 seconds then KILL/reap 2 seconds per checker timeout",
@@ -91,6 +92,8 @@ def main() -> None:
             {
                 "name": name,
                 "argv": argv,
+                "pid": process.pid,
+                "pgid": process.pid,
                 "returncode": code,
                 "timed_out": timed_out,
                 "elapsed": time.monotonic() - start,
