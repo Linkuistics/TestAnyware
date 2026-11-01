@@ -7,9 +7,7 @@ process-table query stalls. The existing helper timeout can block during helper
 creation or the wait after KILL. Detecting an overrun after that wait returns
 does not make teardown independent.
 
-This is the selected design for the macOS-host diagnostic controller, pending
-design review and implementation. It is not a delivered reliability result.
-The historical tutorial trial remains **0/10, unavailable**. The public Host CLI
+This contract covers the macOS-host diagnostic controller. The public Host CLI
 and TestAnyware app keep their existing routing and protocol contracts. This
 design changes no In-VM agent or guest cancellation interface.
 
@@ -59,8 +57,7 @@ PID immediately; the child establishes its session and reports readiness.
 The controller accepts no request until it has acknowledged that readiness.
 Before confirmed session creation, cleanup targets only the pinned worker PID;
 group cleanup requires the confirmed worker PGID. No helper may start earlier.
-No fork occurs from a controller with active threads. Bootstrap readiness has
-a declared one-second ceiling. Failure prevents acquisition. Bootstrap failure
+Bootstrap readiness has a declared one-second ceiling. Failure prevents acquisition. Bootstrap failure
 uses at most two seconds TERM grace and two seconds KILL/reap, records the worker
 or unresolved creation attempt, and fails preparation. A kernel stall in fork
 itself is outside a hard real-time guarantee; it happens before external
@@ -68,28 +65,64 @@ resources are owned and must not be represented as successful preparation.
 Every later preparation exit, including subject-hash or declaration failure,
 still closes and accounts for an already started worker.
 
+Before every worker or helper fork, the parent verifies that it has one thread
+and SIGCHLD has disposition SIG_DFL. The thread check must account for native
+threads as well as Python threads. An unsupported check or a failed precondition
+fails preparation or the request before fork. SIGCHLD remains SIG_DFL throughout
+child ownership, including workload ownership. An embedding host that changes
+these conditions cannot use this fork boundary. Python's fork warning alone is
+not a precondition check.
+
+The fork boundary blocks catchable signals while the child resets inherited
+state. The parent restores its previous mask immediately after fork. The child
+resets catchable signal dispositions to SIG_DFL, including SIGTERM, SIGINT,
+SIGHUP, SIGPIPE and SIGCHLD, and clears the inherited signal wakeup descriptor.
+It closes inherited descriptors except its explicitly owned protocol endpoints.
+The worker keeps only its two channels. A helper keeps only its exec gate and
+capture endpoints, and closes the gate before exec. Neither retains host
+evidence or pytest capture descriptors. The child then unblocks signals.
+
+Each child uses fresh local ownership state. It must not invoke inherited
+subprocess cleanup, host callbacks, finalisers or exit hooks. Worker return,
+bootstrap failure and every child exception leave through `os._exit`, without
+unwinding into the host. Helper failure before exec follows the same rule.
+Fork hooks supplied by an embedding host must satisfy these ownership rules
+too. An unsupported host environment fails preparation rather than silently
+weakening the boundary.
+
 After acquisition the controller never creates a process-table helper. For
 each request, the worker uses this handshake:
 
 1. Publish a creation intent carrying run, request and worker identities.
-2. Fork one helper, keeping it behind a gate before exec. The worker publishes
-   its PID, parent PID, group and unique request token. It keeps the helper
-   unreaped while registration is outstanding.
-3. The controller records the helper in its in-memory ledger and acknowledges
-   that exact request only if its epoch is still open and its deadline has not
-   expired. Registration does not authorize a signal to the workload.
-4. The worker opens the gate. The helper checks the request deadline and token
-   before exec and closes unrelated inherited descriptors. Parent EOF, a missed
-   deadline or a rejected token prevents exec. No evidence file is a gate.
+2. Fork one helper, keeping it behind a gate before exec. Publish its PID,
+   parent PID, group and unique request token on the control channel.
+   Keep the helper unreaped until publication completes or the attempt fails.
+3. After complete publication, release the gate without a controller ACK.
+   If publication fails or exceeds the deadline, keep the gate closed.
+   The controller records each received identity in its in-memory ledger,
+   including late identities needed for cleanup. Registration never authorises
+   a signal to the workload.
+4. The helper checks the request deadline and token before exec. Parent EOF,
+   a missed deadline or a rejected token prevents exec. No evidence file is
+   a gate. The controller validates the epoch when it receives the result.
 5. The worker captures bounded bytes, publishes the terminal outcome and reaps
    its helper. Each helper reap is recorded with its PID and request token.
 
-Creation intent without registration is an **unknown creation attempt**. The
-controller stops accepting that request and signals only the pinned worker
-group. A late child cannot obtain a new acknowledgement; even a previously
-acknowledged child must check expiry before exec. A child stalled across that
-check can still run late under OS scheduling: its result is invalid and its
-identity remains a cleanup obligation. No handshake promises atomic scheduling.
+A timely explicit fork-failure result records that no helper was created for
+that request, with the real errno and no helper residual. Creation intent with
+neither that result nor a published identity is an **unknown creation attempt**.
+The controller makes that classification at the request deadline or observed
+worker exit, whichever comes first. It retires the worker and signals only its
+pinned worker group. A late identity refines the residual ledger but cannot
+repair the failed observation. A published helper remains a known cleanup
+obligation until its reap evidence is accounted for.
+
+Publication before exec preserves identity evidence without requiring the
+controller to record it before exec. Controller-crash recovery is outside this
+contract, so a per-helper ACK adds no required guarantee. The helper still
+checks expiry at its gate. A child stalled across that check can run late under
+OS scheduling. Its result is invalid and its identity remains a cleanup
+obligation. No handshake promises atomic scheduling.
 
 Every known helper gets an itemized outcome, including exec errors, denied
 signals and missing reap acknowledgement. A worker death never establishes
@@ -142,7 +175,7 @@ Classify the table separately from signal permission:
 | Any executable member observed | `live`; final termination fails, retaining members and remedy |
 | Valid table, all members zombie, leader exit observed | `zombie_only_observed`; permits the observation-based completion decision |
 | EPERM with a valid live table | `permission_failure`; fails, preserves the real errno and attempted scope |
-| EPERM with a valid zombie-only table | `zombie_only_eperm`; not proof of why an earlier signal failed |
+| EPERM with a valid zombie-only table | `zombie_only_eperm`; permits observation-based completion and does not itself fail termination. Other failures remain sticky. This does not explain an earlier denied signal. |
 | EPERM with missing/invalid table | `permission_unknown`; fails |
 | ESRCH, missing leader, invalid/late/missing table or worker failure | `unknown`; fails, never absence |
 
@@ -154,22 +187,29 @@ normal exit and after PID-only interruption, even when exit status matches.
 
 ## Deadlines and safety ordering
 
-Inspection is asynchronous. The controller checks its monotonic clock and
-pending safety events before processing messages. It never starts a synchronous
-query to decide whether a signal is due.
+Inspection is asynchronous. One controller scheduler serves workload waits,
+termination, nonblocking reaps, resource teardown, both channels and worker
+cleanup timers. Each phase returns control to that scheduler after a bounded
+step. No phase owns a private wait loop or blocking `Popen.wait`. The scheduler
+waits only until the earliest active deadline or ready event, then checks the
+clock and due safety actions before processing messages. The channel byte cap
+also applies across each turn. A teardown command cannot suspend worker timers.
 
-Let **T** be TERM start plus declared grace (at most two seconds). Let **K** be
-the earlier of grace completion and T, plus declared kill/drain/reap allowance
-(at most two seconds). K never exceeds T plus that allowance. When the leader
-exits normally, K is the observed exit time plus the same allowance. All work
-described below, including final observation and leader reap, shares K.
+Let **T** be TERM start plus declared grace, at most two seconds. Let **A** be
+the declared kill/drain/reap allowance, at most two seconds. For group
+termination, **K = T + A**. For PID-only interruption, **K = min(G, T) + A**,
+where **G** is the controller's decision time when it observes leader exit
+during grace. If it makes no such decision, K is T + A. For normal exit,
+K is the controller's observed exit time plus A. A late scheduler turn never
+moves T or K. Final observation and leader reap share K.
 
-For group termination, observe leader exit without reaping. On that event during grace,
-request one pre-escalation snapshot with deadline T. If timely evidence shows
-only zombies, signals can finish early. Otherwise, at T send KILL immediately
-to the still-pinned workload group; an in-flight snapshot does not defer it.
-The KILL attempt changes the signal epoch and invalidates older observations for the
-final decision. No fresh pre-KILL inspection is inserted at T.
+For group termination, observe leader exit without reaping, but perform no
+inspection during grace. At T, attempt KILL on the still-pinned workload group,
+even if the leader already exited. The attempt advances the signal epoch,
+including when the kernel denies it. Only then can the final query start.
+There is no snapshot deadline at T and no latency reserve for an early query.
+The accepted cost is the full grace duration and a possibly redundant KILL
+attempt on a zombie-only group. Early group completion is not supported.
 
 For PID-only interruption, TERM and any required KILL target only the leader.
 An observed leader exit suppresses PID KILL. Unknown exit observation causes
@@ -178,13 +218,18 @@ never authorizes widening to a group signal. Normal leader exit likewise does
 not authorize group cleanup. Both paths still require a final group observation
 and retain residual identities/remedies if it is live or unknown.
 
-Request at most one final snapshot after the last signal and leader-exit
-observation. A timely pre-escalation zombie-only result can serve as final if no
-signal or epoch changed. If no leader exit is observed, final termination is
-unknown. Allocate **R = min(100 ms, kill allowance / 4)** inside K for closing
-authority and attempting reap; the final inspection cutoff is K minus R. This
-allocation is not an estimate or proof of helper latency. Late evidence is a
-real instrument failure; no sample is retried, replaced or reclassified.
+Request at most one final snapshot after the last signal attempt and leader-exit
+observation. Allocate **R = min(100 ms, A / 4)** inside K for closing authority
+and attempting reap. The final inspection cutoff is K minus R. If the controller
+has not observed leader exit before that cutoff, it starts no query and records
+`unknown`. A failed or absent exit observation never proves completion.
+
+This single observation has explicit limits. A healthy helper can miss its
+cutoff if leader exit leaves too little time. Members still exiting at query
+time can produce a final `live` result. Each case fails the call, even if all
+members later exit. The controller does not retry or poll for a better table.
+R allocates reap time and proves nothing about helper latency. Every late
+required observation remains a failed sample.
 
 At cutoff, close the target epoch, disable every target signal/probe entry point
 and discard later results for decision purposes. Attempt leader reap using
@@ -195,8 +240,9 @@ failure. An already-exited leader may be reaped earlier once final observation
 is settled and target signal authority is closed. Reaping forbids all later
 target group operations, including cleanup callbacks and signal 0.
 
-There is at most one in-flight inspection. A snapshot deadline or protocol
-failure permanently disables the worker for this run. Do not create a replacement
+There is at most one in-flight inspection. A snapshot deadline, helper creation
+or execution failure, or protocol failure permanently disables the worker for
+this run. Do not create a replacement
 worker, retry the query or queue a final query behind a stalled one. Retain late
 bytes only as rejected evidence within the same size cap. Later workload calls
 remain unreached. Resource cleanup, disposal and their public absence commands
@@ -215,9 +261,19 @@ records; one whose exit was observed can no longer signal its helpers.
 
 After the last safety action, a healthy worker receives a close request with no
 inspection outstanding and exits after accounting for its last helper. The
-controller observes and reaps it nonblockingly. The same two-second grace and
-two-second KILL/reap caps apply if orderly close does not finish; successful
-workload results do not excuse a missing worker/helper cleanup outcome.
+controller observes and reaps it nonblockingly. The close request starts the
+declared grace clock. At its expiry, an unfinished close enters worker KILL/reap
+without another grace interval. Successful workload results do not excuse a
+missing worker/helper cleanup outcome.
+
+Before the run freezes, its plan declares bootstrap readiness, bootstrap-failure
+TERM grace and KILL/reap, worker-failure TERM grace and KILL/reap, and orderly
+close grace and KILL/reap. Readiness is at most one second. Each grace and
+KILL/reap phase is at most two seconds. Bootstrap failure can therefore consume
+five seconds including readiness. Orderly close can add four seconds after the
+last safety action. A worker already retiring keeps its original deadline.
+These are declared invocation phases, never additions to a workload or disposal
+ceiling. Receipts record their absolute starts, deadlines, outcomes and overruns.
 
 These are conditional scheduling guarantees, not hard real-time guarantees.
 The controller's own fork, signal and nonblocking kernel calls still require
@@ -237,13 +293,12 @@ a damaged sample passes the control, while that sample's receipt stays failed.
 
 The controller's in-memory resource ledger and deadlines are sufficient to
 start safety actions. Inspection has no filesystem dependency on its control
-channel. Persisting its receipt still uses the existing evidence sink until
-the separate stalled-storage design lands. That design must consume immutable
-inspection outcomes and residual identities without making publication an
-acknowledgement required for signalling, reaping or disposal. It owns blocking
-open/read/write/hash and end-to-end storage-independent safety, including the
-evidence descriptors used by teardown commands. This spec alone does not close
-that guarantee.
+channel. The storage boundary consumes immutable inspection outcomes and
+residual identities. Publication must not be an acknowledgement required for
+signalling, reaping or disposal. Storage isolation covers blocking
+open/read/write/hash and evidence descriptors used by teardown commands.
+This inspection contract alone establishes no storage-independent safety
+guarantee.
 
 Residual records distinguish known helper, unknown creation attempt, worker,
 workload leader and observed group members. Retain PID/PGID, run/request token,
@@ -258,8 +313,14 @@ kill or signal a merely reused PID.
 
 Use the agreed local subprocess/transport boundary through the real controller.
 Configure a private inspection-worker adapter at that composition point for
-delayed creation, malformed transport and wait fault injection. Keep policy and
-table validation as value transformations with explicit clock values. Tests of
+delayed creation, malformed transport and wait fault injection. The adapter
+freezes its helper executable and hold points from the plan at worker bootstrap.
+Hold points cover before fork, between fork and identity publication, before
+exec, and after actual helper KILL at wait return. They are never per-request
+switches. The same hashed worker source runs with all holds disabled in ordinary
+conditions. Each control records the distinct adapter configuration and helper
+identity. Keep policy and table validation as value transformations with explicit
+clock values. Tests of
 those transformations supplement, rather than replace, real process controls.
 No public pluggable backend or new guest interface is needed.
 
@@ -272,14 +333,17 @@ to certify its own cleanup.
 | Control | Required observation |
 | --- | --- |
 | Real delayed inspector | An owned real worker/helper is held beyond the request deadline; target KILL/reap attempts and a marker-producing disposal command occur on their unchanged deadlines. Releasing it later cannot turn the receipt green. |
-| Creation and gate races | Hold before fork, between fork and registration, before ACK, and before exec. The outer controller continues safety work; every published helper is audited, unpublished creation stays unknown, and late ACK/expired token cannot start a valid query. |
-| Real timeout/KILL/wait sequence | A real helper exceeds its budget, receives actual KILL, then the worker is held at the wait-return seam. Safety still runs. Retain the actual helper PID and signal result, then independently release/terminate and account for worker and helper. |
+| Inherited state | Start with host signal handlers, an exit hook, wakeup and evidence descriptors. Deliver TERM to a healthy worker while a workload is live. Independently show no worker-origin workload signal, evidence write or host hook. Reject extra-thread and non-default SIGCHLD preconditions before fork. |
+| Creation and gate races | Hold before fork, between fork and publication, and before exec. Exercise explicit fork failure separately from silence after intent. Every published helper is audited. Unpublished creation stays unknown, and expired tokens cannot produce valid observations. |
+| Real timeout/KILL/wait sequence | The adapter selects an identified owned helper that deterministically exceeds its budget. It receives actual KILL before the worker stops at the wait-return seam. Safety still runs. Retain the helper PID and signal result, then independently account for worker and helper. |
+| Setuid ps signal path | Separately attempt KILL against a positively owned, unreaped instance of the actual identified ps executable. Record its real/effective UIDs, signal result and reap evidence. A helper that exits before the attempt is not proof of KILL delivery. Retain this nondeterministic control as unavailable when its timing prerequisite fails. |
 | Simulated unreapability | A wait adapter reports no completion through the kill/reap deadline. A failed residual receipt is emitted without blocking. Explicitly label the simulation; it is not an actual uninterruptible kernel task. |
-| Genuine permission failure | A narrowly confined test controller receives a real kernel EPERM when signalling its positively owned fixture; a separate authorised owner cleans it. Freeze the confinement mechanism and verify that it actually denies the signal. If unavailable, retain that prerequisite as unavailable; an injected errno does not satisfy this control. Do not acquire privileges or signal unrelated processes. |
+| Genuine permission failure | Use an independently owned fixture whose real and effective UIDs both differ from the signalling controller's UIDs. A separately authorised privileged owner creates and cleans it. Retain the actual kernel EPERM. Expect this control to be unavailable unattended. Its receipt names the missing owner/privilege, fixture and sender identities or unreached fields, intended denial and cleanup method, and operations not attempted. An injected errno does not satisfy it. Do not acquire privilege or signal unrelated processes. |
 | Permission uncertainty | Combine the real denied signal with a missing/failed table and require `permission_unknown`. Separately retain observed zombie-only EPERM without claiming its cause, and injected classifier cases clearly marked as such. |
 | Handoff defects | Wrong epoch/identity, duplicate/conflicting terminal result, partial frame, stderr, output overflow and post-cutoff delivery fail, while independent safety markers still appear. |
 | Signal authority and reuse | Real early reap mutations are rejected before any later OS group operation. Deliver a stale callback after authority closes; no signal-0/TERM/KILL may occur. Audit worker-group authority separately from workload authority. |
-| Timing and scope | Delay inspection across T; KILL is not delayed. Remove the shared deadline cap or overrun failure predicate and show the checker fail. Preserve opposed PID/group child outcomes, conditional PID KILL, normal-exit live child failure and controller-survival mutation controls. |
+| Timing and scope | Make the leader exit within the last 30 ms of group grace. No query starts before KILL at T, and a healthy final query gets the remaining final budget. Exercise exit observed after K minus R and members still exiting during the sole final query. Remove the shared cap or overrun failure predicate and show rejection. Preserve PID-only scope and conditional KILL, live-child failure and controller-survival controls. |
+| Shared scheduling | Hold a teardown command open while worker TERM, KILL and reap deadlines expire. Each worker action occurs on its original deadline. Exercise bootstrap failure and orderly close against their declared invocation bounds. |
 | Audit and evidence | Independently enumerate each known helper and fixture child, record actual wait/absence evidence, and reject live, reused, malformed-selector and uncertain outcomes. Keep exact argv paths, source hashes and per-case verdicts. |
 
 The actual uninterruptible-kernel-task case is not deliberately induced. Its
@@ -288,24 +352,7 @@ only the simulated wait and real delayed-worker paths are demonstrated by these
 controls. Helper creation and uninterruptible behaviour cannot be proven bounded
 by a successful ordinary run.
 
-## Migration and review criteria
-
-Keep the caller's immutable call/plan/resource declarations and independent
-cleanup/disposal ordering. Replace the synchronous table-query dependency;
-move signal-0 to the controller and add the worker lifecycle, bounded protocol,
-epoch validation and residual ledger. Extend the diagnostic receipts coherently
-and keep old retained receipts readable as historical evidence. Update the
-self-check's explicit source/hash/type-check lists for any new module.
-
-Retain all useful existing scope, reap, live-member, checker and exact-path
-audit controls. The retained-file continuation must add stream/result identity
-and surviving-writer checks without weakening live-group failure. The storage
-continuation must preserve this sole signal owner and nonblocking handoff.
-
-The design is acceptable only if review cannot find a helper wait, creation
-handshake, result drain or shutdown hook that can block the safety owner, or a
-worker callback that can act on a released target. If the proposed Python
-worker cannot meet those rules with the actual runtime, return that concrete
-counterexample to design before implementation claims the guarantee. A larger
-timeout, another thread, replacement inspector or wider signal scope is not a
-repair of this contract.
+On macOS, a setuid-root ps retains the caller's real UID. The documented signal
+permission rule allows a sender whose real or effective UID matches the
+receiver's real or effective UID. Setuid status alone therefore supplies no
+EPERM fixture. Actual signal and reap evidence remain necessary.

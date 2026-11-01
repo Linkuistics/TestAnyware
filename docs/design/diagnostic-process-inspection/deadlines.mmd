@@ -6,15 +6,16 @@ sequenceDiagram
   C->>L: TERM, group deadline scope
   Note over C,L: T = TERM start + grace, at most 2 seconds
   L-->>C: Leader exit notification (no reap)
-  C->>W: Pre-escalation snapshot, deadline T
-  Note over W: Helper creation or wait stalls
-  C->>L: At T: KILL without waiting for snapshot
-  Note over C,W: Old epoch invalid, missing snapshot remains failure
-  Note over C,L: K = capped phase start + kill/reap allowance, at most 2 seconds
-  C->>W: Disable worker, bounded worker cleanup starts
+  Note over C,W: No inspection during group grace, even after leader exit
+  C->>L: At T: unconditional group KILL attempt
+  Note over C,W: Advance epoch, including a denied attempt
+  Note over C,L: K = T + A, A at most 2 seconds
+  C->>W: One final query after KILL and observed exit, deadline K minus R
+  Note over W: Example failure: helper creation or wait stalls
+  C->>W: At cutoff: retire worker, bounded cleanup starts
   C->>C: At K minus R: close target signal authority
   C->>L: Nonblocking leader reap attempts, only through K
   C->>D: Continue cleanup and disposal
   W-->>C: Late result (if any)
   C->>C: Retain as rejected, never change failed verdict
-  Note over C,D: Worker cleanup runs concurrently, no extra target allowance
+  Note over C,D: One scheduler serves teardown and worker timers, no extra target allowance

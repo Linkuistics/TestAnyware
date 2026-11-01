@@ -383,14 +383,16 @@ The [inspection spec](../specs/diagnostic-process-inspection.md) selects one
 prestarted worker for helper creation, exec, capture and wait. The outer
 controller remains the sole workload signal/reap owner. Worker results cross
 bounded nonblocking channels and are accepted only in their original observation
-epoch. Expiring that epoch fails the evidence while safety actions continue.
-This is a design awaiting review and implementation; k23-final-01 remains the
-delivered controller condition, with its inspection limitation unchanged.
+epoch. A missed observation deadline fails the evidence while safety actions continue.
+Review k26 is reconciled by integration k27. Implementation remains ahead of
+k21 through planner k25. k23-final-01 remains the delivered controller condition,
+with its inspection limitation unchanged. The historical acceptance result is
+still **0/10, unavailable**.
 
 - [Ownership](../specs/diagnostic-process-inspection.md#ownership) — Assigned target signal authority to the controller and helper mechanics to the worker, with separate pinned groups.
-- [Deadlines and safety ordering](../specs/diagnostic-process-inspection.md#deadlines-and-safety-ordering) — Defined asynchronous observations, unchanged grace/kill/reap caps, sticky failure and no worker replacement.
-- [Test seams and required controls](../specs/diagnostic-process-inspection.md#test-seams-and-required-controls) — Required real delayed inspection, actual timeout/KILL followed by a controlled wait stall, genuine EPERM, malformed handoff and independent helper cleanup controls.
-- [Visual document](../design/diagnostic-process-inspection/README.md) — Added editable ownership, deadline and helper-registration views for review.
+- [Deadlines and safety ordering](../specs/diagnostic-process-inspection.md#deadlines-and-safety-ordering) — One scheduler serves all waits and timers. Group grace has no query. KILL at T precedes the sole final query. PID-only KILL remains conditional.
+- [Test seams and required controls](../specs/diagnostic-process-inspection.md#test-seams-and-required-controls) — Frozen bootstrap adapters cover inherited state, creation races, real helper KILL/wait and independent cleanup. Setuid ps and genuine EPERM have separate evidence prerequisites.
+- [Visual document](../design/diagnostic-process-inspection/README.md) — Editable ownership, deadline and helper-publication views express the reconciled contract.
 
 The source evidence is `_group_snapshot`, `_terminate`, `_call` and `execute`
 in [controller.py](../../experiments/exec-reliability/controller.py) at parent
@@ -417,8 +419,47 @@ The design requires no new ADR: the local diagnostic ownership choice is
 reversible. Its durable spec is the shared contract for retained-file evidence
 and the separately owned stalled-storage design. A bounded planning successor
 must cut the concrete implementation and its review before retained-evidence-k21;
-the design review runs before that planner. k17 cannot close until those
+the reconciled design supplies that planner. k17 cannot close until those
 deliverables and k21 account for the whole node contract.
+
+#### Design review integration (k27)
+
+Review commit `12d0bdba` contains seven findings against producer `53589d41`.
+The integration accepts each finding, with the distinctions below. It changes
+the design and its consumers, not the delivered controller or retained samples.
+
+| Finding | Disposition and repair |
+| --- | --- |
+| F1, query near grace expiry retires a healthy worker | Real issue. Select the review's first alternative: no pre-escalation query, unconditional group KILL at T, then one final query. Accept full grace and a redundant KILL attempt on zombies. Preserve conditional PID-only KILL. |
+| F2, inherited fork state | Unclear contract. Require checked thread/SIGCHLD preconditions, child signal/wakeup/descriptor reset, fresh ownership state and `os._exit`. Add host-state and worker-TERM controls. Unsupported embedding environments fail preparation. |
+| F3, per-helper ACK | Real trade-off. Remove the ACK. Publication before gate release and helper expiry checks remain. Controller-crash recovery is excluded, so recording before exec supplies no required guarantee. Bootstrap readiness still has an ACK. |
+| F4, controls exceed the stated adapter | Unclear contract. Freeze hold points and helper identity at bootstrap. Separate deterministic helper KILL from the actual setuid-ps path. A privileged owner must supply and clean the genuine UID-based EPERM fixture. Unavailable prerequisites stay itemised. |
+| F5, undefined deadline terms and outcomes | Unclear contract. Define K for group, PID-only and normal exit. State zombie-only EPERM's non-failing consequence, final-query limits, fork-failure taxonomy and declared bootstrap/close bounds. |
+| F6, concurrent timers without a scheduler | Unclear contract with implementation consequences. One scheduler must serve all wait phases and worker timers. k25 explicitly owns that restructuring and migration of subprocess-run stubs to adapter value cases. |
+| F7, status and work orders in the spec | Real artifact issue. Keep delivery status here and migration orders in k25. The spec, README and manifest describe the contract. |
+
+The single final query retains two limits: late observed leader exit can leave
+insufficient inspection time, and members still exiting can yield a live table.
+Both fail the call, even if the processes later exit. These controls remain
+required. No retry, added allowance or later valid observation repairs a failure.
+
+The fork reset follows Python's documented
+[signal handling](https://docs.python.org/3.12/library/signal.html) and
+[child exit](https://docs.python.org/3.12/library/os.html#os._exit) behaviour.
+`os._exit` avoids cleanup handlers and stdio flushing. The worker must also
+avoid inherited host callbacks before exit. Apple's
+[signal permission rule](https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kill.2.html)
+allows a matching real or effective UID. A setuid-root ps retains the caller's
+real UID, so setuid status alone does not produce EPERM. Actual setuid-ps KILL
+can lose its timing window. That result stays unavailable rather than becoming
+proof from the deterministic substitute helper.
+
+Integration source checks used Tier 2 graph generation `2026-11-01T05:35:55Z`
+and direct reads of `_wait`, `_terminate`, `_call` and the existing test stubs.
+Targeted graph pages were complete. Coverage had no recorded source gap, but
+reported Mermaid gaps in ownership lines 1–13 and helper-start line 16.
+Direct reads covered those ranges. This establishes the design repair's basis,
+not a runtime reliability result. k18 still owns blocked evidence storage.
 
 ### Earlier foundation controls
 

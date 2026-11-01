@@ -63,7 +63,7 @@ disposal while ps creation/kill-wait blocks. Storage isolation is still k18.
 
 Bounded-inspection-k24 delivers
 `docs/specs/diagnostic-process-inspection.md` and its linked visual document.
-It selects a prestarted read-only inspection worker with registered helper
+It selects a prestarted read-only inspection worker with published helper
 creation, bounded handoff and sticky observation failure. The controller alone
 owns workload signals and reaping; a worker timeout must not defer either or
 resource teardown. The design review precedes a bounded planning successor,
@@ -79,3 +79,14 @@ late/contradictory handoff, and independent itemized helper cleanup. Simulated
 unreapability is explicitly distinguished from an actual kernel task. All old
 conditions remain unchanged. k18 consumes the nonblocking in-memory handoff and
 owns blocking evidence I/O; it must not introduce another workload signal owner.
+
+Review k26 is reconciled by bounded-inspection-k27. The contract now omits
+pre-escalation queries and sends group KILL at T, with conditional PID-only
+KILL unchanged. Helper publication precedes exec without a per-helper ACK.
+The worker resets inherited host state. One controller scheduler serves every
+wait, teardown action and worker timer. k25 owns that explicit restructuring,
+the frozen bootstrap adapter and migration of existing inspection stubs.
+The spec declares final-query limitations and every bootstrap/close bound.
+Real setuid-ps KILL and privileged UID-based EPERM controls retain separate
+unavailable prerequisites. k21 preserves these outcomes and k18 preserves the
+scheduler while isolating storage. The delivered code remains k23-final-01.

@@ -248,6 +248,14 @@ k17's process-inspection guarantee is still open until that reviewed code lands.
 k18 separately owns blocking evidence storage and consumes the spec's immutable
 outcomes without adding a wait or a second workload signal owner.
 
+Bounded-inspection-k27 reconciles design review k26 before planner k25.
+Group grace now has no inspection and group KILL occurs at T. PID-only KILL
+stays conditional. One scheduler must serve every controller wait and worker
+timer. Helper publication needs no per-helper ACK. The spec declares inherited
+state reset, final-query limits and bootstrap/close bounds. k25 owns the concrete
+implementation and its review. k21 and k18 consume that reviewed handoff.
+No delivered inspection or storage guarantee follows from this design repair.
+
 `diagnostic-foundation-k11` owns the reusable controller, ledger, forced-failure
 self-checks and the per-OS build/routing prerequisite table. Causal leaves reuse
 that handoff and add only their question's concrete fixtures and diagnostics.

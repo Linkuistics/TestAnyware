@@ -24,6 +24,13 @@ exit is zero. A surviving writer still fails termination and retains its
 identity/remedy; the late-byte verdict is additional. PID-only interruption
 never widens to a group signal. k18 still owns stalled storage.
 
+Integration bounded-inspection-k27 reconciles the design review. Retain its
+explicit final-query limits, fork-failure versus unknown-creation outcomes,
+inherited-state controls and declared bootstrap/close bounds in result identity.
+Missing privileged EPERM or actual setuid-ps KILL evidence remains unavailable.
+A deterministic substitute helper does not fill either gap. Read k25's concrete
+reviewed implementation handoff before adding retained-file guarantees.
+
 ## Done when
 
 - Pin each raw stream's byte length and digest at an explicit monotonic

@@ -1,6 +1,6 @@
 {
   "title": "Diagnostic process inspection",
-  "intro": "Selected design awaiting review and implementation. Dark Start here nodes mark graph entry; sequence diagrams begin at their first message. The historical acceptance result remains 0/10, unavailable.",
+  "intro": "Inspection ownership and timing contract. Dark Start here nodes mark graph entry; sequence diagrams begin at their first message. Delivery evidence lives in the diagnostic foundation report.",
   "groups": [
     {"id": "ownership", "title": "Ownership", "description": "Keep target signal authority and reaping with one owner."},
     {"id": "deadlines", "title": "Deadlines", "description": "An inspection timeout fails evidence while safety actions continue."},
@@ -8,18 +8,18 @@
   ],
   "discussion": {
     "title": "Keep inspection off the teardown path",
-    "status": "Selected design — review pending",
-    "summary": "One prestarted read-only worker owns ps creation and waits. The outer controller owns workload signals and reaping. A failed worker is retired without replacement; teardown continues with uncertainty retained. Storage isolation remains a separate prerequisite.",
+    "status": "Ownership and timing contract",
+    "summary": "One prestarted read-only worker owns ps creation and waits. One controller scheduler serves workload safety, teardown and worker timers. Group KILL occurs at T without pre-escalation inspection. Helper identity publication precedes exec without a per-helper ACK. A failed worker is retired without replacement. Storage isolation is a separate boundary.",
     "diagramIds": ["ownership", "deadlines", "helper-start"],
     "updatedDiagrams": [
-      {"id": "ownership", "summary": "Assigned target signals and reap to the controller, and helper mechanics to a read-only worker."},
-      {"id": "deadlines", "summary": "Made KILL independent of snapshot completion and closed target authority before reap."},
-      {"id": "helper-start", "summary": "Added creation intent, registered helper identity and a deadline-checked exec gate."}
+      {"id": "ownership", "summary": "One controller scheduler serves every wait and timer. The worker resets inherited host state."},
+      {"id": "deadlines", "summary": "Group grace has no query. KILL at T precedes the sole final query, whose cutoff lies inside K."},
+      {"id": "helper-start", "summary": "Publication before exec needs no controller ACK. Explicit fork failure differs from unknown creation."}
     ]
   },
   "diagrams": [
-    {"id": "ownership", "group": "ownership", "title": "Keep signals with the controller", "source": "ownership.mmd", "caption": "Local process ownership. The worker may signal only its own unreaped direct helper; it never signals the workload. Both group leaders remain pinned until their group signal authority closes. Storage isolation is still unimplemented."},
-    {"id": "deadlines", "group": "deadlines", "title": "Expire evidence without delaying safety", "source": "deadlines.mmd", "caption": "Delayed-inspection failure path for group termination. PID-only interruption keeps PID-only signals and skips KILL after leader exit. R is a time allocation inside K, not a ps latency guarantee. OS scheduling limits apply."},
-    {"id": "helper-start", "group": "creation", "title": "Register before exec", "source": "helper-start.mmd", "caption": "Registration is in memory. A creation race can leave an unknown helper, which remains a failed residual. An acknowledged child scheduled after expiry is still invalid evidence; the gate is not an atomic scheduling guarantee."}
+    {"id": "ownership", "group": "ownership", "title": "Keep signals with the controller", "source": "ownership.mmd", "caption": "The worker may signal only its own unreaped direct helper. Both group leaders stay pinned until their group signal authority closes. A teardown command cannot suspend worker timers. Storage isolation has its own contract."},
+    {"id": "deadlines", "group": "deadlines", "title": "Expire evidence without delaying safety", "source": "deadlines.mmd", "caption": "Group termination waits through grace and attempts KILL at T. This example observes leader exit during grace, then shows a stalled final query. PID-only interruption skips KILL after observed exit. Late leader exit can prevent a final query, and still-exiting members can fail it. R reserves reap time, not ps latency. OS scheduling limits apply."},
+    {"id": "helper-start", "group": "creation", "title": "Publish before exec", "source": "helper-start.mmd", "caption": "The worker publishes identity before gate release. The controller need not receive it before exec. Expiry and epoch validation reject late results. A timely fork error has no helper residual. Missing identity at deadline or worker exit leaves unknown creation. Bootstrap readiness still has its separate ACK."}
   ]
 }

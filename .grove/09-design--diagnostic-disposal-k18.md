@@ -26,6 +26,13 @@ disposal. Preserve the controller's sole signal ownership and worker failure
 semantics; account for evidence descriptors used by safety commands as part of
 storage isolation. The spec is not proof that either continuation has shipped.
 
+Integration bounded-inspection-k27 requires one controller scheduler to serve
+all workload and teardown waits, channels and worker cleanup timers. Storage
+isolation must leave those timers runnable and keep their existing deadlines.
+No evidence publication acknowledges helper exec or permits safety progress.
+Bootstrap and worker-close phases have separate declared invocation bounds.
+Consume the final-query failures and known/unknown helper residuals unchanged.
+
 ## Done when
 
 - Specify the smallest ownership and I/O separation that keeps independent

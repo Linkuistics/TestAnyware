@@ -4,18 +4,29 @@ sequenceDiagram
   participant H as Gated helper
   C->>W: Request token, target, epoch, deadline
   W-->>C: Creation intent
-  W->>H: Fork behind exec gate
-  W-->>C: Register PID, parent, PGID, request token
-  alt Epoch open and before deadline
-    C->>C: Record helper ownership in memory
-    C->>W: ACK exact token
-    W->>H: Release gate
-    H->>H: Check expiry, close unrelated descriptors, exec ps
-    H-->>W: Bounded bytes and exit
-    W-->>C: Terminal result and helper reap evidence
-  else Missing registration, expiry or invalid identity
-    C->>C: Sticky failure, known helper or unknown creation
+  alt Explicit fork failure
+    W-->>C: Timely fork errno, no helper created
+    C->>C: Failed observation, no helper residual
+  else Helper created
+    W->>H: Fork behind exec gate
+    W-->>C: Publish PID, parent, PGID, request token
+    alt Publication complete and before deadline
+      W->>H: Release gate without controller ACK
+      H->>H: Check token and expiry, close gate, exec ps
+      C->>C: Record helper ownership in memory
+      Note over C,H: Receipt processing need not precede exec
+      H-->>W: Bounded bytes and exit
+      W-->>C: Terminal result and helper reap evidence
+      C->>C: Validate epoch, identity and deadline
+    else Publication fails or expires
+      W->>H: Gate stays closed, account for owned helper
+      C->>C: Fail request, retain any published identity
+    end
+  else No outcome at deadline or observed worker exit
+    C->>C: Sticky failure, unknown creation attempt
+  end
+  opt Failed request
     C->>W: Retire worker, signal only pinned worker group
     C->>C: Continue workload safety and resource teardown
-    Note over W,H: Late creation cannot get a new ACK, residual audit remains required
+    Note over W,H: Late identity refines residuals only, expired query cannot pass
   end
