@@ -196,6 +196,18 @@ tasks:
       - shellcheck -x {{.SCRIPTS}}
       - shfmt -i 2 -ci -d {{.SCRIPTS}}
 
+  # ---- Agent skill plugin --------------------------------------------------
+
+  plugin:check:
+    desc: Validate the Claude Code plugin in plugins/testanyware, or skip when Claude Code is not installed
+    cmds:
+      - |
+        if ! command -v claude >/dev/null 2>&1; then
+          echo "skipping plugin:check: Claude Code is not installed"
+          exit 0
+        fi
+        claude plugin validate '{{.ROOT_DIR}}/plugins/testanyware'
+
   # ---- Live checks (macOS host) --------------------------------------------
 
   vm:slot-exhaustion:

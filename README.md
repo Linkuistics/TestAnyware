@@ -611,6 +611,10 @@ connection open yourself. The troubleshooting entry "A tart guest dies when
   /plans/TestAnyware-Unification.plan.md
   /prompts/TestAnyware-Unification.prompt.md
 
+/plugins/testanyware         # Agent skill plugin: the using-testanyware skill
+  /.claude-plugin/plugin.json  #   Claude Code plugin manifest
+  /skills/using-testanyware/   #   SKILL.md, the only file of the skill
+
 /LLM_STATE                   # Ravel-Lite plan state (session memory & learnings)
   /core/                     #   general backlog
   /vision-pipeline/          #   OCR/matching insights
@@ -623,3 +627,25 @@ You can drive TestAnyware from another LLM, that is, use it as a tool from
 within an LLM-driven workflow. For the complete CLI surface, command reference,
 vision-pipeline stages, and workflow patterns, see
 [LLM_INSTRUCTIONS.md](LLM_INSTRUCTIONS.md).
+
+### Agent skill
+
+The skill `using-testanyware` tells an agent when to use TestAnyware and how.
+It is the only file of the plugin directory `plugins/testanyware`. The skill
+names no other file. It sends the agent to the installed command, such as
+`testanyware llm-instructions`, for the command reference. Install the
+`testanyware` command and the TestAnyware app first, as
+[Install (Homebrew)](#install-homebrew) states.
+
+The plugin directory is the Claude Code plugin root and the Ravel source
+directory. Its only Ravel root is `skills`. Do not use the repository root as a
+source directory, because it holds build output in `target/`.
+
+- **Ravel.** Add a `local` record to `skills.sources` in
+  `~/.config/ravel/settings.json`. Its `path` is the absolute path of
+  `plugins/testanyware` in a checkout, and its `roots` are `["skills"]`.
+- **Claude Code.** Install `testanyware@linkuistics` from the Linkuistics
+  marketplace. The marketplace pins a commit of this repository.
+
+`task plugin:check` checks the plugin with `claude plugin validate`. It skips
+when Claude Code is not installed.
