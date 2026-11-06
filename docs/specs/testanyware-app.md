@@ -190,6 +190,11 @@ ADR-0020 records the choices of this section and their trade-offs.
   Local Network row with a release.
 - The formula `testanyware` stays the Host CLI on macOS and on Linux. One
   release tag versions the formula and the cask together.
+- The formula also installs the Ravel source of the skill `using-testanyware`.
+  Each host archive holds `plugins/testanyware` of the release commit at
+  `share/ravel/skills/testanyware`, and Homebrew links it into Ravel's default
+  skill directory. `release_candidate.py verify` compares those files with the
+  commit's tree, by path, Git mode and blob ID.
 - The cask keeps the quarantine attribute, as Koine's does. Its `uninstall quit:`
   names the bundle id. Its zap names the app's own support and log directories
   and never the VM state.

@@ -36,6 +36,10 @@
 #   - _testanyware-paths.sh + helpers/* (all three goldens are now in-process
 #     `vm create-golden --platform <os>` subcommands — macOS 110, Windows
 #     220/020, Linux 230 — so no golden shell script ships)
+#   - share/ravel/skills/testanyware/  — plugins/testanyware of the tagged commit, the Ravel
+#     source of the skill using-testanyware. The formula installs it in the keg, and Homebrew
+#     links it into Ravel's default skill directory, $(brew --prefix)/share/ravel/skills.
+#     release_candidate.py verify compares it with the commit's tree.
 #
 # Linux bundles additionally carry:
 #   - lib/libav*.so* + libsw*.so*  — the BtbN ffmpeg-8 gpl-shared runtime libs
@@ -79,6 +83,7 @@ readonly CANDIDATE_PY="$REPO_ROOT/scripts/release_candidate.py"
 # Set in main() from the tag. DIST_DIR is the candidate's directory.
 DIST_DIR=""
 BUILD_REVISION=""
+BUILD_COMMIT=""
 APP_ZIP=""
 readonly CLI_RS="$REPO_ROOT/cli-rs"
 readonly CARGO_TOML="$CLI_RS/Cargo.toml"
@@ -278,6 +283,21 @@ stage_helpers() {
   cp -R "$REPO_ROOT/provisioner/helpers/." "$stage_helpers/"
 }
 
+# Stage the Ravel source of the skill: plugins/testanyware of the tagged commit, at the path that
+# Homebrew links into Ravel's default skill directory. git archive exports only tracked files, with
+# their Git modes, so the copy equals a clean plain checkout of the commit. Git's global and system
+# configuration stay off, so no filter of this machine changes a file.
+stage_skill() {
+  local dest="$1/share/ravel/skills/testanyware"
+  echo "release-build: staging the skill source plugins/testanyware" >&2
+  mkdir -p "$dest"
+  GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
+    git -C "$REPO_ROOT" archive --format=tar "$BUILD_COMMIT:plugins/testanyware" \
+    | tar -xf - -C "$dest"
+  [[ -f "$dest/skills/using-testanyware/SKILL.md" ]] \
+    || die "the skill source of $BUILD_COMMIT lacks skills/using-testanyware/SKILL.md"
+}
+
 # Build the host-arch agents + stage scripts/helpers ONCE into a shared dir;
 # every per-target bundle copies them in. The Swift/.NET agent builds are
 # host-arch and identical across bundles, so this avoids rebuilding them per
@@ -314,6 +334,7 @@ assemble_bundle() {
   cp -R "$shared/agents" "$bundle_root/share/testanyware/agents"
   cp -R "$shared/scripts" "$bundle_root/share/testanyware/scripts"
   cp -R "$shared/helpers" "$bundle_root/share/testanyware/helpers"
+  stage_skill "$bundle_root"
 
   cp "$REPO_ROOT/README.md" "$bundle_root/README.md"
   [[ -f "$REPO_ROOT/LICENSE" ]] && cp "$REPO_ROOT/LICENSE" "$bundle_root/LICENSE"
@@ -328,7 +349,12 @@ package_bundle() {
   local name; name="$(basename "$bundle_root")"
   local archive="$DIST_DIR/${name}.tar.xz"
   echo "release-build: packaging $archive" >&2
-  tar -C "$DIST_DIR/staging" -cJf "$archive" "$name" >&2
+  # --no-mac-metadata: without it, macOS tar writes an AppleDouble member (._<name>) for each entry
+  # that has an extended attribute, and macOS gives com.apple.provenance to each file that a build
+  # writes. macOS tar hides those members when it lists or unpacks an archive, but GNU tar on a
+  # Linux host unpacks each one as a file into the keg. release_candidate.py verify refuses one in
+  # the skill source.
+  tar -C "$DIST_DIR/staging" --no-mac-metadata -cJf "$archive" "$name" >&2
   echo "$archive"
 }
 
@@ -388,6 +414,7 @@ main() {
   trap restore_cli_version EXIT
   version="${tag#v}"
   BUILD_REVISION="$tag"
+  BUILD_COMMIT="$commit"
   DIST_DIR="$CANDIDATES_DIR/$tag"
 
   echo "release-build: building candidate $tag ($commit)"

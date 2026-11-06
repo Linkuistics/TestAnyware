@@ -41,6 +41,10 @@ class Testanyware < Formula
   def install
     bin.install "bin/testanyware"
     pkgshare.install Dir["share/testanyware/*"]
+    # The Ravel source of the skill using-testanyware. Homebrew links the keg's share/ into the
+    # prefix, so the source appears in Ravel's default skill directory,
+    # $(brew --prefix)/share/ravel/skills/testanyware. The move keeps each file's mode.
+    (share/"ravel/skills").install "share/ravel/skills/testanyware"
 
     on_linux do
       # The cross binary hard-NEEDs the BtbN ffmpeg-8 sonames (which match no
@@ -64,5 +68,6 @@ class Testanyware < Formula
 
   test do
     assert_match "testanyware", shell_output("#{bin}/testanyware --help")
+    assert_path_exists share/"ravel/skills/testanyware/skills/using-testanyware/SKILL.md"
   end
 end

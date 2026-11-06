@@ -14,8 +14,12 @@
 # It never creates a tag and it never rebuilds: `gh release create --verify-tag` aborts when the
 # tag is absent on the remote, where gh would otherwise make one from the default branch.
 #
-# Env: TESTANYWARE_TAP_DIR (default ~/Development/homebrew-taps), TESTANYWARE_RELEASE_REMOTE
+# Env: TESTANYWARE_TAP_DIR (default ~/Development/Delivery/homebrew-taps), TESTANYWARE_RELEASE_REMOTE
 # (default origin; tests name a local repository).
+#
+# A tap clone with a .jj directory is a colocated jj repository, whose git HEAD is detached. The
+# script then fetches, commits and pushes the bookmark main through jj, as Grove's release does. A
+# plain git clone must be on a branch with an upstream.
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -23,7 +27,7 @@ IFS=$'\n\t'
 readonly REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 readonly CANDIDATES_DIR="$REPO_ROOT/target/candidates"
 readonly CANDIDATE_PY="$REPO_ROOT/scripts/release_candidate.py"
-readonly TAP_DIR="${TESTANYWARE_TAP_DIR:-$HOME/Development/homebrew-taps}"
+readonly TAP_DIR="${TESTANYWARE_TAP_DIR:-$HOME/Development/Delivery/homebrew-taps}"
 readonly REMOTE="${TESTANYWARE_RELEASE_REMOTE:-origin}"
 readonly GITHUB_REPO=Linkuistics/TestAnyware
 
@@ -38,9 +42,19 @@ preflight() {
   [[ -d "$TAP_DIR/.git" ]] || die "tap clone not found at $TAP_DIR (set TESTANYWARE_TAP_DIR)"
   [[ -z "$(git -C "$TAP_DIR" status --porcelain)" ]] \
     || die "the tap clone at $TAP_DIR has uncommitted changes"
-  git -C "$TAP_DIR" fetch --quiet || die "cannot fetch the tap at $TAP_DIR"
-  # A tap that is behind rejects the push after the release exists, and leaves a half publication.
-  if git -C "$TAP_DIR" rev-parse --verify --quiet '@{u}' >/dev/null; then
+  # A tap that is behind, or that cannot push, fails after the release exists, and leaves a half
+  # publication. So each check runs before the first push.
+  if [[ -d "$TAP_DIR/.jj" ]]; then
+    command -v jj >/dev/null || die "the tap at $TAP_DIR is a jj repository, and jj is not on PATH"
+    jj -R "$TAP_DIR" git fetch --quiet || die "cannot fetch the tap at $TAP_DIR"
+    [[ -n "$(jj -R "$TAP_DIR" log --no-graph -r 'main & main@origin' -T commit_id)" ]] \
+      || die "the bookmark main of the tap at $TAP_DIR differs from main@origin; integrate or push it first"
+  else
+    git -C "$TAP_DIR" symbolic-ref --quiet HEAD >/dev/null \
+      || die "the tap clone at $TAP_DIR is on a detached HEAD; switch to the branch that publishes"
+    git -C "$TAP_DIR" rev-parse --verify --quiet '@{u}' >/dev/null \
+      || die "the branch of the tap clone at $TAP_DIR has no upstream"
+    git -C "$TAP_DIR" fetch --quiet || die "cannot fetch the tap at $TAP_DIR"
     [[ "$(git -C "$TAP_DIR" rev-list --count 'HEAD..@{u}')" == 0 ]] \
       || die "the tap clone at $TAP_DIR is behind its upstream; pull it first"
   fi
@@ -84,12 +98,20 @@ create_github_release() {
 push_tap() {
   local tag="$1" dir="$2"
   echo "release-publish: pushing the formula and the cask to $TAP_DIR"
+  [[ -d "$TAP_DIR/.jj" ]] && jj -R "$TAP_DIR" new main
   mkdir -p "$TAP_DIR/Formula" "$TAP_DIR/Casks"
   cp "$dir/testanyware.rb" "$TAP_DIR/Formula/testanyware.rb"
   cp "$dir/testanyware-app.rb" "$TAP_DIR/Casks/testanyware-app.rb"
-  git -C "$TAP_DIR" add Formula/testanyware.rb Casks/testanyware-app.rb
-  git -C "$TAP_DIR" commit -m "testanyware $tag"
-  git -C "$TAP_DIR" push
+  if [[ -d "$TAP_DIR/.jj" ]]; then
+    jj -R "$TAP_DIR" describe -m "testanyware $tag"
+    jj -R "$TAP_DIR" bookmark set main -r @
+    jj -R "$TAP_DIR" new main
+    jj -R "$TAP_DIR" git push -b main
+  else
+    git -C "$TAP_DIR" add Formula/testanyware.rb Casks/testanyware-app.rb
+    git -C "$TAP_DIR" commit -m "testanyware $tag"
+    git -C "$TAP_DIR" push
+  fi
 }
 
 main() {

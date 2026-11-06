@@ -233,6 +233,9 @@ Python source) under `$(brew --prefix testanyware)/share/testanyware/`.
 The golden builders read agent artifacts from that location
 automatically — there is nothing to build on the host.
 
+The formula also installs the agent skill `using-testanyware`, and Ravel
+delivers it, as [Agent skill](#agent-skill) states.
+
 All three goldens (macOS, Linux, Windows) are in-process
 `testanyware vm create-golden --platform <os>` commands. No golden shell
 scripts ship any more. The Windows golden builds Windows 11 ARM64
@@ -611,8 +614,8 @@ connection open yourself. The troubleshooting entry "A tart guest dies when
   /plans/TestAnyware-Unification.plan.md
   /prompts/TestAnyware-Unification.prompt.md
 
-/plugins/testanyware         # Agent skill plugin: the using-testanyware skill
-  /.claude-plugin/plugin.json  #   Claude Code plugin manifest
+/plugins/testanyware         # Ravel source of the using-testanyware skill
+  /.claude-plugin/plugin.json  #   plugin manifest that task plugin:check validates
   /skills/using-testanyware/   #   SKILL.md, the only file of the skill
 
 /LLM_STATE                   # Ravel-Lite plan state (session memory & learnings)
@@ -631,21 +634,34 @@ vision-pipeline stages, and workflow patterns, see
 ### Agent skill
 
 The skill `using-testanyware` tells an agent when to use TestAnyware and how.
-It is the only file of the plugin directory `plugins/testanyware`. The skill
+It is the only file of its folder in `plugins/testanyware/skills`. The skill
 names no other file. It sends the agent to the installed command, such as
 `testanyware llm-instructions`, for the command reference. Install the
 `testanyware` command and the TestAnyware app first, as
 [Install (Homebrew)](#install-homebrew) states.
 
-The plugin directory is the Claude Code plugin root and the Ravel source
-directory. Its only Ravel root is `skills`. Do not use the repository root as a
+The `testanyware` formula installs the skill. Each release archive holds the
+plugin directory `plugins/testanyware` of the release commit at
+`share/ravel/skills/testanyware`, and the formula installs it in the keg.
+Homebrew links it into `$(brew --prefix)/share/ravel/skills/`, so
+`brew install` and `brew upgrade` are the whole skill setup.
+
+Ravel delivers the skill. Ravel 2.0.0 reads that directory when its settings
+name no sources, and it gives each session that it starts the skills of the
+root `skills`. No harness finds the skill in the keg alone, and the skill has
+no native marketplace entry or installer step.
+
+`scripts/release_candidate.py verify` checks each release archive. Its
+`share/ravel/skills/testanyware` must hold the files of `plugins/testanyware`
+at the release commit, each with its Git mode.
+
+#### A checkout as a skill source
+
+A checkout of this repository can serve as a trial source. Name
+`<checkout>/plugins/testanyware` with the root `skills` in the `skills` object
+of the Ravel settings. Ravel captures the uncommitted changes of the checkout.
+It does not fetch or update the checkout. Do not use the repository root as a
 source directory, because it holds build output in `target/`.
 
-- **Ravel.** Add a `local` record to `skills.sources` in
-  `~/.config/ravel/settings.json`. Its `path` is the absolute path of
-  `plugins/testanyware` in a checkout, and its `roots` are `["skills"]`.
-- **Claude Code.** Install `testanyware@linkuistics` from the Linkuistics
-  marketplace. The marketplace pins a commit of this repository.
-
-`task plugin:check` checks the plugin with `claude plugin validate`. It skips
-when Claude Code is not installed.
+`task plugin:check` checks the plugin manifest with `claude plugin validate`.
+It skips when Claude Code is not installed.
