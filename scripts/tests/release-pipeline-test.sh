@@ -7,7 +7,8 @@
 #   1. scripts/tests/test_release_candidate.py: the tag gate, the manifest, the rendering, and
 #      the skill source that each host archive carries.
 #   2. release-build.sh refuses a bad tag before it touches anything.
-#   3. The cask template renders to valid Ruby with the stanzas that ADR-0020 requires.
+#   3. The cask template renders to valid Ruby with the stanzas that ADR-0020 requires. The formula
+#      template renders the keg layout of the skill source and no revision.
 #   4. verify-app.sh on real signed bundles: a development bundle, a bundle of another team and a
 #      release bundle that is not notarised are refused. A release bundle passes the identity check.
 #   5. release-publish.sh against local bare repositories and a fake gh: the order of the steps, and
@@ -66,7 +67,7 @@ expect_refusal "a tag that is not vMAJOR.MINOR.PATCH" "not vMAJOR" "$root/script
   fail "a refused build changed the tree"
 [[ ! -e "$root/target/candidates/v9.9.9" ]] && pass "no candidate directory" || fail "a refused build made a directory"
 
-echo "3. the cask template"
+echo "3. the cask and formula templates"
 "$root/scripts/release_candidate.py" render --template "$root/scripts/templates/testanyware-app.rb.tmpl" \
   --out "$work/testanyware-app.rb" VERSION=1.2.3 SHA_APP=abc123
 cask=$work/testanyware-app.rb
@@ -95,6 +96,18 @@ grep -qE '@[A-Z0-9_]+@' "$work/testanyware.rb" && fail "the formula keeps a plac
 [[ "$(grep -m1 '^ *version ' "$work/testanyware.rb")" == "$(grep -m1 '^ *version ' "$cask")" ]] &&
   grep -q 'version "1.2.3"' "$cask" &&
   pass "the formula and the cask take one version" || fail "the formula and the cask differ in version"
+# "The keg layout" of docs/specs/codex-skill-provisioning.md in Grove: the skill source is a
+# private payload in libexec/skill-sources, and share/ravel/skills holds only its relative alias.
+formula_code=$(grep -v '^ *#' "$work/testanyware.rb")
+formula_has() { grep -qF "$1" <<<"$formula_code" && pass "formula: $1" || fail "formula lacks: $1"; }
+formula_has '(libexec/"skill-sources").install "share/ravel/skills/testanyware"'
+formula_has '(share/"ravel/skills").install_symlink libexec/"skill-sources/testanyware"'
+formula_has 'assert_equal "../../../libexec/skill-sources/testanyware", (share/"ravel/skills/testanyware").readlink.to_s'
+grep -qF '(share/"ravel/skills").install "' <<<"$formula_code" &&
+  fail "the formula installs a real directory in share/ravel/skills" ||
+  pass "the formula installs no real directory in share/ravel/skills"
+grep -qE '^ *revision ' <<<"$formula_code" && fail "the formula renders a revision" ||
+  pass "the formula renders no revision"
 
 echo "4. verify-app.sh on signed bundles"
 dev=$(TESTANYWARE_APP_OUT="$work/app" "$root/scripts/build-app.sh" dev | tail -n1)

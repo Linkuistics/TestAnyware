@@ -642,9 +642,15 @@ names no other file. It sends the agent to the installed command, such as
 
 The `testanyware` formula installs the skill. Each release archive holds the
 plugin directory `plugins/testanyware` of the release commit at
-`share/ravel/skills/testanyware`, and the formula installs it in the keg.
-Homebrew links it into `$(brew --prefix)/share/ravel/skills/`, so
-`brew install` and `brew upgrade` are the whole skill setup.
+`share/ravel/skills/testanyware`. The formula moves that directory into the
+keg as the private source `libexec/skill-sources/testanyware`. A relative
+directory symlink at `share/ravel/skills/testanyware` in the keg is its public
+alias.
+
+Homebrew links that alias into `$(brew --prefix)/share/ravel/skills/`, so
+`brew install` and `brew upgrade` are the whole skill setup. Homebrew never
+links the source's files one by one. "The keg layout" of Grove's
+`docs/specs/codex-skill-provisioning.md` states why.
 
 Ravel delivers the skill. Ravel 2.0.0 reads that directory when its settings
 name no sources, and it gives each session that it starts the skills of the
