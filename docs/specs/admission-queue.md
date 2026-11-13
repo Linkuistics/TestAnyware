@@ -939,6 +939,8 @@ start, to run a long wait in the background, and to read `vm slots`.
   `docs/reference/cli-schemas/`.
 - The `using-testanyware` skill in the Grove repository: a macOS start passes
   `--wait`, and a long wait runs in the background.
+  The skill has since moved into this repository, at
+  `plugins/testanyware/skills/using-testanyware/SKILL.md`.
 
 ## Requirements
 

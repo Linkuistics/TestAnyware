@@ -648,14 +648,20 @@ directory symlink at `share/ravel/skills/testanyware` in the keg is its public
 alias.
 
 Homebrew links that alias into `$(brew --prefix)/share/ravel/skills/`, so
-`brew install` and `brew upgrade` are the whole skill setup. Homebrew never
-links the source's files one by one. "The keg layout" of Grove's
-`docs/specs/codex-skill-provisioning.md` states why.
+`brew install` and `brew upgrade` install and update the skill source with no
+other step. Homebrew never links the source's files one by one. "The keg
+layout" of Grove's `docs/specs/codex-skill-provisioning.md` states why.
 
-Ravel delivers the skill. Ravel 2.0.0 reads that directory when its settings
+Ravel 2 delivers the skill. Ravel 2.0.0 reads that directory when its settings
 name no sources, and it gives each session that it starts the skills of the
 root `skills`. No harness finds the skill in the keg alone, and the skill has
 no native marketplace entry or installer step.
+
+Ravel 1.x delivers no skill, and the `testanyware` formula does not install
+Ravel. While the unversioned `ravel` formula is Ravel 1.x, install Ravel 2 as
+the keg-only `ravel@2`.
+[Chapter 3](https://github.com/Linkuistics/Ravel/blob/main/docs/book/src/03-a-complete-session.md)
+of Ravel's book gives the commands.
 
 `scripts/release_candidate.py verify` checks each release archive. Its
 `share/ravel/skills/testanyware` must hold the files of `plugins/testanyware`
