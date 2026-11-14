@@ -179,9 +179,137 @@ def test_review_live_table_does_not_poison_later_inspection(tmp_path, monkeypatc
     assert all(item["state"] == "absent" for item in audit["leaders"])
     assert result["ok"] is False
     assert result["calls"][0]["termination_ok"] is False
-    assert result["inspection_failure"] is None
     assert result["resources"][0]["state"] == "disposed"
     assert len(queries) == 4
+    # A prior controller without this receipt field can still preserve the
+    # behavior. Keep this control about later inspection, not schema presence.
+    assert result.get("inspection_failure") is None
+
+
+@pytest.mark.parametrize("skipped", ["missing-exit", "cutoff"])
+def test_review_skipped_query_preserves_later_safety_inspection(tmp_path, monkeypatch, skipped):
+    import controller
+
+    original_final = controller._final_snapshot
+    original_run = subprocess.run
+    final_calls, queries = [], []
+
+    def final(pid, deadline, leader_exit):
+        final_calls.append(pid)
+        if len(final_calls) == 2:
+            # Withhold eligibility only for the workload. Real queries and
+            # safety commands remain available after this unobserved call.
+            if skipped == "missing-exit":
+                leader_exit = None
+            else:
+                deadline = time.monotonic()
+        return original_final(pid, deadline, leader_exit)
+
+    def query(argv, *args, **kwargs):
+        if tuple(argv[:2]) == ("/bin/ps", "-g"):
+            queries.append(int(argv[2]))
+        return original_run(argv, *args, **kwargs)
+
+    monkeypatch.setattr(controller, "_final_snapshot", final)
+    monkeypatch.setattr(subprocess, "run", query)
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    path, result = run(
+        tmp_path,
+        [call("unobserved", "bytes"), call("unreached", "bytes")],
+        [owned],
+        run_id=run_id,
+    )
+    audit = {
+        "adapter": f"workload final query gate: {skipped}",
+        "queries": queries,
+        "leaders": [inspect_pid(item["pid"]) for item in result["calls"]],
+        "marker_absent": not (tmp_path / owned.identity).exists(),
+    }
+    (path / "skipped-query-audit.json").write_text(json.dumps(audit, indent=2))
+    assert all(item["state"] == "absent" for item in audit["leaders"])
+    assert audit["marker_absent"] is True
+    assert result["ok"] is False
+    assert result["unreached"] == ["unreached"]
+    assert result["calls"][1]["termination_ok"] is False
+    assert result["inspection_failure"] is None
+    observation = result["calls"][1]["group_observations"][0]
+    assert observation["state"] == "unknown"
+    assert observation["query_attempted"] is False
+    assert observation["probe_outcome"] == "not_attempted"
+    assert observation["error"] == (
+        "no observed leader exit before inspection cutoff"
+        if skipped == "missing-exit"
+        else "inspection cutoff exhausted before final query"
+    )
+    assert queries == [item["pid"] for item in result["calls"] if item["name"] != "unobserved"]
+    assert [item["name"] for item in result["calls"][2:]] == ["cleanup", "dispose", "inspect"]
+    assert all(item["termination_ok"] for item in result["calls"][2:])
+    assert result["resources"][0]["state"] == "disposed"
+
+
+def test_review_real_ps_failure_disables_later_queries_and_probes(tmp_path, monkeypatch):
+    original_run, original_killpg = subprocess.run, os.killpg
+    queries, probes = [], []
+
+    def query(argv, *args, **kwargs):
+        if tuple(argv[:2]) == ("/bin/ps", "-g"):
+            queries.append(int(argv[2]))
+            if len(queries) == 2:
+                # Exercise a real ps usage failure, keeping the controller's
+                # parser and failure propagation intact. Later queries would
+                # succeed if the controller incorrectly attempted them.
+                return original_run(("/bin/ps", "-o"), *args, **kwargs)
+        return original_run(argv, *args, **kwargs)
+
+    def killpg(pid, sig):
+        if sig == 0:
+            probes.append(pid)
+        return original_killpg(pid, sig)
+
+    monkeypatch.setattr(subprocess, "run", query)
+    monkeypatch.setattr(os, "killpg", killpg)
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    path, result = run(
+        tmp_path,
+        [call("failed-query", "bytes"), call("unreached", "bytes")],
+        [owned],
+        subjects=(Path("/bin/ps"),),
+        run_id=run_id,
+    )
+    audit = {
+        "adapter": "second group query invokes real /bin/ps -o (missing format)",
+        "queries": queries,
+        "probes": probes,
+        "leaders": [inspect_pid(item["pid"]) for item in result["calls"]],
+        "marker_absent": not (tmp_path / owned.identity).exists(),
+    }
+    (path / "real-ps-failure-audit.json").write_text(json.dumps(audit, indent=2))
+    assert all(item["state"] == "absent" for item in audit["leaders"])
+    assert audit["marker_absent"] is True
+    assert result["ok"] is False
+    assert result["unreached"] == ["unreached"]
+    assert all(item["reaped"] for item in result["calls"])
+    assert queries == [item["pid"] for item in result["calls"][:2]]
+    assert probes == [result["calls"][0]["pid"]]
+    first = result["calls"][1]["group_observations"][0]
+    assert first["state"] == "unknown"
+    assert first["query_attempted"] is True
+    assert first["returncode"] != 0
+    assert "usage:" in bytes.fromhex(first["stderr"]).decode().lower()
+    assert first["error"] == "ps did not return a clean process table"
+    assert result["inspection_failure"] == {"call": "failed-query", "observation": first}
+    assert [item["name"] for item in result["calls"][2:]] == ["cleanup", "dispose", "inspect"]
+    for item in result["calls"][2:]:
+        observation = item["group_observations"][0]
+        assert observation["state"] == "unknown"
+        assert observation["query_attempted"] is False
+        assert observation["probe_outcome"] == "not_attempted"
+        assert observation["returncode"] is None
+        assert observation["stdout"] == observation["stderr"] == ""
+        assert item["termination_ok"] is False
+    assert result["resources"][0]["state"] == "uncertain"
 
 
 @pytest.mark.parametrize("pid_only", [False, True])
@@ -211,6 +339,7 @@ def test_review_final_query_requires_observed_exit(tmp_path, monkeypatch, pid_on
     assert receipt["reaped"] is True
     assert result["ok"] is False
     assert queries == []
+    assert result["inspection_failure"] is None
     assert receipt["group_observations"][0]["state"] == "unknown"
     assert receipt["group_observations"][0]["probe_outcome"] == "not_attempted"
 

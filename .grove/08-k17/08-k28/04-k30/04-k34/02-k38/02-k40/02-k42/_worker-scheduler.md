@@ -41,6 +41,17 @@ The complete k40 Done when remains authoritative and must not be narrowed.
   contract and final bounded-inspection review; no requirement is discharged by
   decomposition. k43 has its own specific material review before k44.
 - Use an explicit execution-owned inspection state passed through private call
-  paths. Latch unknown observations, preserving the first call and raw receipt;
+  paths. Latch unknown observations from attempted queries, preserving the first
+  call and raw receipt;
   valid live observations remain termination failures rather than inspector
   failures. No global state or replacement query is introduced.
+- k46 integrates k45: `GroupObservation.query_attempted` distinguishes skipped
+  final queries (missing leader exit or exhausted cutoff) from a failed helper.
+  A skipped query fails its call and stops remaining workload without disabling
+  later independent safety inspection. A real `/bin/ps` usage-error control
+  confirms query failures still disable every later local table and probe.
+  k46-final-01 passes 119 tests, Ruff and strict Pyright; k46-audit-01 accounts
+  for 300 real PIDs, 72 markers and 92 argv-derived scratch directories.
+  The old k43 valid-live replay failed on a missing receipt field, not changed
+  query continuation; the durable report corrects that interpretation.
+  k44 retains the complete remaining contract and final subsystem review.

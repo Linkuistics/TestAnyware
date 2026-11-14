@@ -156,6 +156,7 @@ def _wait(pid: int, deadline: float) -> bool:
 class GroupObservation(TypedDict):
     started_monotonic: float
     finished_monotonic: float
+    query_attempted: bool
     state: Literal["live", "zombie_only", "unknown"]
     members: list[dict[str, str | int]]
     stdout: bytes
@@ -219,6 +220,7 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
     observation: GroupObservation = {
         "started_monotonic": time.monotonic(),
         "finished_monotonic": time.monotonic(),
+        "query_attempted": False,
         "state": "unknown",
         "members": [],
         "stdout": b"",
@@ -234,6 +236,7 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise TimeoutError("group inspection phase exhausted")
+        observation["query_attempted"] = True
         check = subprocess.run(
             ("/bin/ps", "-g", str(pid), "-o", "pid=,pgid=,stat="),
             capture_output=True,
@@ -319,6 +322,7 @@ def _final_snapshot(pid: int, deadline: float, leader_exit: float | None) -> Gro
     return {
         "started_monotonic": now,
         "finished_monotonic": now,
+        "query_attempted": False,
         "state": "unknown",
         "members": [],
         "stdout": b"",
@@ -349,6 +353,7 @@ class _InspectionState:
             return {
                 "started_monotonic": now,
                 "finished_monotonic": now,
+                "query_attempted": False,
                 "state": "unknown",
                 "members": [],
                 "stdout": b"",
@@ -359,7 +364,7 @@ class _InspectionState:
                 "error": f"local inspection unavailable after {self.failure['call']}",
             }
         observation = _final_snapshot(pid, deadline, leader_exit)
-        if observation["state"] == "unknown":
+        if observation["query_attempted"] and observation["state"] == "unknown":
             self.failure = {"call": call, "observation": observation}
         return observation
 

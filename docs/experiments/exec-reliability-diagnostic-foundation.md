@@ -938,7 +938,8 @@ acceptance follows from this slice. Historical acceptance remains
 A failed local observation previously allowed teardown to query again and mark
 resource disposal certain. The controller now owns one inspection state per
 `execute` invocation. Its first unknown observation retains the call name and
-original observation in `result.json` as `inspection_failure`. Later commands
+original observation in `result.json` as `inspection_failure` (narrowed to an
+attempted query by the k46 refinement below). Later commands
 receive an unknown observation with no local query or signal-zero probe. The
 remaining workload stays unreached, while independent safety commands run in
 reverse resource order and retain failed disposal certainty. A valid live table
@@ -988,6 +989,71 @@ remain live in worker-scheduler-k44 under k42. A specific k43 review precedes th
 work; the final full-subsystem review remains mandatory. No guest or privileged
 acceptance follows from this slice. Historical acceptance remains
 **0/10, unavailable**.
+
+### Skipped queries remain distinct from inspection failure (k46)
+
+Review k45 found that k43 also latched the synthetic unknown observations for
+an unobserved leader exit or an exhausted final-query cutoff. Neither case
+attempts inspection. Both must fail the affected call, while later independent
+safety calls retain their opportunity to inspect.
+
+`GroupObservation.query_attempted` is now false until the controller invokes
+the process-table helper. The execution-owned latch accepts an unknown result
+only when that field is true. Skipped and previously disabled observations keep
+it false, retain their distinct error strings, and make no signal-zero probe.
+The remaining workload still stops after the unobserved call. Later cleanup,
+disposal and public inspection can establish disposal when their own process
+observations succeed. A real query failure still retains its first receipt and
+disables every later local query and probe within that execution.
+
+The [pre-fix controls](../../experiments/exec-reliability/evidence/k46-red-01/verdict.json)
+retain **4 failed, 76 passed**. Both skip-reason controls and both real withheld-exit
+controls fail specifically because `inspection_failure` is populated for a
+query that never ran. The new real-helper control passes in this condition:
+an argv adapter invokes actual `/bin/ps -o` without its required format on the
+workload's query. Its nonzero status and usage stderr flow through the actual
+parser and latch. The subsequent cleanup, disposal and public inspection run
+and reap, but issue no group table or signal-zero probe; resource certainty
+stays failed despite removal of the marker. This is a deliberate real usage
+failure, not evidence of a spontaneous system-table fault or permission denial.
+
+The [delivered self-check](../../experiments/exec-reliability/evidence/k46-final-01/verdict.json)
+passes Ruff lint/format, strict Pyright and
+[119/119 tests](../../experiments/exec-reliability/evidence/k46-final-01/pytest.xml).
+No checker timed out, every checker was reaped, and source hashes stayed equal
+within each measured condition. The
+[before](../../experiments/exec-reliability/evidence/k46-inputs-01/before.json) and
+[after](../../experiments/exec-reliability/evidence/k46-inputs-01/after.json)
+snapshots retain the exact sources; only `controller.py` and `test_controller.py`
+differ. The latter difference adds two assertions of the new field to the
+already-passing real-helper control. The four failing controls are unchanged.
+
+The advisory k45 finding also corrects the interpretation of the k43 expanded
+replay. Its valid-live control failed with `KeyError: 'inspection_failure'`,
+not a later-inspection behavior difference. The retained prior audit shows all
+four local queries ran and its result records the resource disposed. The
+[new comparison](../../experiments/exec-reliability/evidence/k46-audit-01/comparison.json)
+checks those original receipts. The control now checks query continuation
+before using a schema-neutral lookup for the optional historical field. The
+old evidence remains unchanged; its seventh failure is not a seventh behavioral
+regression repaired by k43.
+
+The [independent audit](../../experiments/exec-reliability/evidence/k46-audit-01/result.json)
+verifies the frozen sources and indexed raw artifacts without changing the
+measured conditions. All 300 recorded real PIDs are absent in its later exact-PID
+observation; the explicitly simulated checker PID is excluded. Live, mixed,
+invalid-selector and freshly reaped controls contest the absence predicate.
+All 72 declared resource markers and 92 scratch directories derived from exact
+retained argv paths are absent after allowlisted cleanup. The auditor's initial
+lint check rejected one long line before any measurement or cleanup; that line
+was wrapped before the successful audit.
+
+These controls discharge k45's findings on this slice. Synchronous helper
+creation, capture and waits remain conditionally bounded. The complete private
+worker, shared scheduler, concurrent teardown, shutdown and fault inventory
+remain live on worker-scheduler-k44; its final full-subsystem review is still
+required. No guest or privileged-process acceptance follows. Historical
+acceptance remains **0/10, unavailable**.
 
 ### Earlier foundation controls
 

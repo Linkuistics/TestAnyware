@@ -1,0 +1,86 @@
+{
+  "name": "late-observe",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py",
+    "hang"
+  ],
+  "budget": 0.2,
+  "started_monotonic": 261937.049658,
+  "wall_start_ns": 1794644656744431000,
+  "reason": "deadline",
+  "returncode": -15,
+  "reaped": true,
+  "ok": false,
+  "signals": [
+    {
+      "signal": "TERM",
+      "scope": "group",
+      "target": 63674,
+      "monotonic": 261937.250111583,
+      "outcome": "sent",
+      "finished_monotonic": 261937.250139416
+    },
+    {
+      "signal": "KILL",
+      "scope": "group",
+      "target": 63674,
+      "monotonic": 261937.455311291,
+      "outcome": "zombie_only_eperm",
+      "errno": 1,
+      "error": "[Errno 1] Operation not permitted",
+      "finished_monotonic": 261937.455394291,
+      "permission_observation": {
+        "started_monotonic": 261937.4554185,
+        "finished_monotonic": 261937.468747375,
+        "state": "zombie_only",
+        "members": [
+          {
+            "pid": 63674,
+            "pgid": 63674,
+            "stat": "Z"
+          }
+        ],
+        "stdout": "3633363734203633363734205a2020200a",
+        "stderr": "",
+        "returncode": 0,
+        "probe_errno": 1,
+        "probe_outcome": "zombie_only_eperm",
+        "error": null
+      }
+    }
+  ],
+  "pid": 63674,
+  "pgid": 63674,
+  "signal_scope": "group",
+  "group_observations": [
+    {
+      "started_monotonic": 261937.4554185,
+      "finished_monotonic": 261937.468747375,
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 63674,
+          "pgid": 63674,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3633363734203633363734205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "term_deadline_monotonic": 261937.400018291,
+  "leader_exit_monotonic": 261937.455276375,
+  "kill_reap_deadline_monotonic": 261937.70001829098,
+  "inspection_deadline_monotonic": 261937.62501829097,
+  "termination_ok": true,
+  "authority_closed_monotonic": 261937.468839833,
+  "reap_deadline_monotonic": 261937.70001829098,
+  "within_process_bounds": true,
+  "reaped_monotonic": 261937.468858708,
+  "elapsed": 0.4194192909926642
+}
