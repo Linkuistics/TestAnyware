@@ -103,7 +103,13 @@ def _child(control: int, result: int, token: str, argv: tuple[str, ...], deadlin
             message = {**identity, "token": token, "deadline_monotonic": deadline}
             _write(control, json.dumps(message, allow_nan=False).encode() + b"\n", deadline)
 
-        capture = inspection.capture_helper(argv, deadline, publish_created=publish_created)
+        def publish_fork_error(failure: inspection.ForkFailure) -> None:
+            message = {**failure, "token": token, "deadline_monotonic": deadline}
+            _write(control, json.dumps(message, allow_nan=False).encode() + b"\n", deadline)
+
+        capture = inspection.capture_helper(
+            argv, deadline, publish_created=publish_created, publish_fork_error=publish_fork_error
+        )
         body = asdict(capture)
         body.update(stdout=capture.stdout.hex(), stderr=capture.stderr.hex(), token=token)
         payload = json.dumps(body, allow_nan=False).encode()
@@ -205,6 +211,30 @@ def _created(
     ):
         raise ValueError("invalid helper creation identity")
     return identity
+
+
+def _fork_failed(
+    line: bytes | bytearray, token: str, dispatched: float, deadline: float
+) -> dict[str, object]:
+    decoded = _load_json(line)
+    if not isinstance(decoded, dict):
+        raise ValueError("invalid helper fork failure object")
+    failure = cast(dict[str, object], decoded)
+    if set(failure) != {"token", "errno", "failed_monotonic", "deadline_monotonic"}:
+        raise ValueError("invalid helper fork failure fields")
+    stamp = failure["failed_monotonic"]
+    if (
+        failure["token"] != token
+        or type(failure["errno"]) is not int
+        or failure["errno"] <= 0
+        or type(failure["deadline_monotonic"]) not in {int, float}
+        or failure["deadline_monotonic"] != deadline
+        or type(stamp) not in {int, float}
+        or not isinstance(stamp, int | float)
+        or not dispatched <= stamp <= time.monotonic() < deadline
+    ):
+        raise ValueError("invalid helper fork failure identity")
+    return failure
 
 
 def _decode(
@@ -354,6 +384,8 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     received: float | None = None
     published_times: dict[str, float | None] | None = None
     helper_identity: dict[str, object] | None = None
+    fork_failure: dict[str, object] | None = None
+    creation_conflict = False
     control_bytes = 0
     buffers = [bytearray(), bytearray()]
     try:
@@ -425,10 +457,20 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                         raise ValueError("invalid helper creation intent")
                     intent = True
                 else:
-                    if helper_identity is not None:
+                    if helper_identity is not None or fork_failure is not None:
+                        creation_conflict = True
+                    message = _load_json(line)
+                    if isinstance(message, dict) and "errno" in message:
+                        failure = _fork_failed(line, token, dispatched, query_deadline)
+                        if not creation_conflict:
+                            fork_failure = failure
+                    else:
+                        identity = _created(line, owner, token, dispatched, query_deadline)
+                        if helper_identity is None:
+                            helper_identity = identity
+                            _helper_obligations[token] = dict(identity)
+                    if creation_conflict:
                         raise ValueError("duplicate helper creation publication")
-                    helper_identity = _created(line, owner, token, dispatched, query_deadline)
-                    _helper_obligations[token] = dict(helper_identity)
             if not streams and time.monotonic() < query_deadline:
                 received = time.monotonic()
                 if not owner.ready or not intent or buffers[0] or len(buffers[1]) < HEADER.size:
@@ -436,6 +478,9 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 size = HEADER.unpack(buffers[1][: HEADER.size])[0]
                 if size > FRAME_CAP or len(buffers[1]) != HEADER.size + size:
                     raise ValueError("invalid worker frame length")
+                # A complete contradictory terminal must not retain no-child
+                # authority merely because its own validation fails first.
+                creation_conflict = fork_failure is not None
                 decoded_receipt = _decode(
                     bytes(buffers[1][HEADER.size :]),
                     token,
@@ -444,6 +489,18 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     dispatched,
                     received,
                 )
+                if fork_failure is not None and (
+                    decoded_receipt.pid is not None
+                    or decoded_receipt.error_errno != fork_failure["errno"]
+                    or decoded_receipt.admission is None
+                    or not decoded_receipt.admission["ok"]
+                    or not decoded_receipt.started_monotonic
+                    <= cast(float, fork_failure["failed_monotonic"])
+                    <= decoded_receipt.finished_monotonic
+                ):
+                    creation_conflict = True
+                    raise ValueError("worker result/fork failure mismatch")
+                creation_conflict = False
                 if decoded_receipt.pid is None:
                     if helper_identity is not None:
                         raise ValueError("worker denied published helper creation")
@@ -486,10 +543,16 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 if not owner.reaped:
                     time.sleep(min(0.001, max(0, deadline - time.monotonic())))
             _reap(owner)
+            confirmed_failure = fork_failure is not None and not creation_conflict
+            unknown_creation = not complete and helper_identity is None and not confirmed_failure
+            if confirmed_failure and fork_failure is not None and not complete:
+                receipt.error_errno = cast(int, fork_failure["errno"])
             receipt.worker = {
                 **asdict(owner),
                 "intent": intent,
-                "unknown_helper_creation": not complete and helper_identity is None,
+                "unknown_helper_creation": unknown_creation,
+                "fork_failure": fork_failure,
+                "creation_conflict": creation_conflict,
                 "helper_identity": helper_identity,
                 "helper_obligation_retained": token in _helper_obligations,
                 "signal_scope": "group" if owner.ready else "pid",
@@ -504,7 +567,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 receipt.error = (
                     receipt.error or "worker did not exit cleanly within fixed allowance"
                 )
-            if not complete or not owner.reaped:
+            if not owner.reaped or (not complete and not confirmed_failure):
                 receipt.residual_remedy = (
                     "Retained helper identity requires its own matching reap receipt; unpublished "
                     "interrupted creation remains unknown. Worker reap/group signals do not "

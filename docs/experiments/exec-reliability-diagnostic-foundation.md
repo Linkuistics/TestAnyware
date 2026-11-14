@@ -1799,3 +1799,8 @@ resource census of every existing test. The full original aggregate charter is
 preserved in flat sibling `complete-worker-scheduler-k67`, preceded by a separate
 review of this admission change. Every aggregate ancestor remains open;
 ten-clone acceptance remains **0/10, unavailable**.
+
+
+### k69 explicit helper fork-error handoff
+
+The interim worker separately publishes the actual helper fork OSError with errno, request/deadline and monotonic timing. Validated no-child evidence survives terminal loss while the query remains failed; silence, setup failure, late/malformed messages and conflicting identity/terminal evidence remain conservative. The complete locked self-check passes 311 tests plus lint, formatting and strict types. The independent audit found all 1,808 retained exact positive PID selectors absent and confirmed 65,742 prior evidence files unchanged. These later observations do not resolve unknown creation or acknowledge helper reap. See the [k69 retained report](../../experiments/exec-reliability/evidence/helper-fork-error-k69/report.md) for every failed sample, injected-versus-real distinction and audit limits. The unchanged full scheduler charter continues in k71; aggregate ancestors remain open and ten-clone acceptance stays 0/10 unavailable.

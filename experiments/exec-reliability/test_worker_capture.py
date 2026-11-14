@@ -80,7 +80,7 @@ def test_worker_failure_consistency(tmp_path, monkeypatch, mode, reason):
     root.mkdir(parents=True, exist_ok=True)
     witness = root / f"failure-publication-{mode}-{time.time_ns()}.json"
 
-    def synthetic_capture(argv, deadline, *, publish_created=None):
+    def synthetic_capture(argv, deadline, *, publish_created=None, publish_fork_error=None):
         # Only the helper receipt is synthetic; no helper is created. Worker
         # admission/fork/reset/framing/channels/decoding/shutdown remain real.
         now = time.monotonic()
@@ -303,12 +303,17 @@ def test_review_worker_preserves_real_helper_admission_refusal(tmp_path, monkeyp
 
     original = inspection.capture_helper
 
-    def threaded_capture(argv, deadline, *, publish_created=None):
+    def threaded_capture(argv, deadline, *, publish_created=None, publish_fork_error=None):
         stop = threading.Event()
         thread = threading.Thread(target=stop.wait)
         thread.start()
         try:
-            return original(argv, deadline, publish_created=publish_created)
+            return original(
+                argv,
+                deadline,
+                publish_created=publish_created,
+                publish_fork_error=publish_fork_error,
+            )
         finally:
             stop.set()
             thread.join(timeout=0.1)
@@ -347,7 +352,7 @@ def test_worker_terminal_consistency(tmp_path, monkeypatch, mode, reason):
     root.mkdir(parents=True, exist_ok=True)
     witness = root / f"terminal-publication-{mode}-{time.time_ns()}.json"
 
-    def synthetic_capture(argv, deadline, *, publish_created=None):
+    def synthetic_capture(argv, deadline, *, publish_created=None, publish_fork_error=None):
         # Only the helper receipt is synthetic. The ordinary worker child builds
         # its frame, publishes on real channels, and exits through os._exit.
         now = time.monotonic()
@@ -1131,3 +1136,170 @@ def test_review_worker_exit_after_publication_keeps_gate_closed(tmp_path, monkey
     assert not marker.exists()
     identity = worker["helper_identity"]
     assert worker_capture._helper_obligations[identity["token"]] == identity
+
+
+@pytest.mark.parametrize("mode", ["fork-error", "lost-result", "setup-error", "silent"])
+def test_review_worker_fork_failure_evidence(tmp_path, monkeypatch, mode):
+    import errno
+
+    import worker_capture
+
+    controller_pid = os.getpid()
+    original_fork = os.fork
+    original_pipe = inspection._capture_pipe
+    original_write = worker_capture._write
+
+    def fork():
+        if os.getpid() != controller_pid:
+            if mode == "silent":
+                os._exit(70)
+            raise OSError(errno.EAGAIN, "injected at helper fork boundary")
+        return original_fork()
+
+    def pipe():
+        if mode == "setup-error":
+            raise OSError(errno.EMFILE, "injected before helper fork")
+        return original_pipe()
+
+    def write(fd, data, deadline):
+        if mode in {"lost-result", "setup-error"} and not data.endswith(b"\n"):
+            os._exit(70)
+        return original_write(fd, data, deadline)
+
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(inspection, "_capture_pipe", pipe)
+    monkeypatch.setattr(worker_capture, "_write", write)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 1)
+    retain(tmp_path, "fork-failure-" + mode, receipt)
+    worker = receipt.worker
+    assert worker["reaped"] is True
+    assert receipt.error is not None
+    assert receipt.pid is None
+    assert worker["helper_identity"] is None
+    assert worker["helper_obligation_retained"] is False
+    confirmed = mode in {"fork-error", "lost-result"}
+    assert worker["unknown_helper_creation"] is (not confirmed)
+    if confirmed:
+        assert worker["fork_failure"]["errno"] == errno.EAGAIN
+        assert receipt.error_errno == errno.EAGAIN
+    else:
+        assert worker["fork_failure"] is None
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "errno-bool",
+        "errno-zero",
+        "errno-negative",
+        "errno-string",
+        "errno-missing",
+        "extra-field",
+        "wrong-token",
+        "wrong-deadline",
+        "before-dispatch",
+        "future",
+        "nan",
+        "duplicate-key",
+        "duplicate",
+        "failure-then-created",
+        "created-then-failure",
+        "terminal-errno",
+        "terminal-admission",
+        "terminal-time",
+        "late",
+    ],
+)
+def test_review_worker_rejects_invalid_fork_failure(tmp_path, monkeypatch, mode):
+    import errno
+
+    import worker_capture
+
+    controller_pid = os.getpid()
+    original_fork = os.fork
+    original_write = worker_capture._write
+    failure_stamp = None
+
+    def fork():
+        if os.getpid() != controller_pid:
+            raise OSError(errno.EAGAIN, "injected helper fork failure")
+        return original_fork()
+
+    def write(fd, data, deadline):
+        nonlocal failure_stamp
+        if data.startswith(b"{") and b'"failed_monotonic"' in data:
+            value = json.loads(data)
+            failure_stamp = value["failed_monotonic"]
+            if mode.startswith("errno-"):
+                if mode == "errno-missing":
+                    value.pop("errno")
+                else:
+                    value["errno"] = {
+                        "errno-bool": True,
+                        "errno-zero": 0,
+                        "errno-negative": -1,
+                        "errno-string": "11",
+                    }[mode]
+            elif mode == "extra-field":
+                value["extra"] = 1
+            elif mode == "wrong-token":
+                value["token"] = "different"
+            elif mode == "wrong-deadline":
+                value["deadline_monotonic"] += 1
+            elif mode == "before-dispatch":
+                value["failed_monotonic"] = 0
+            elif mode == "future":
+                value["failed_monotonic"] = deadline + 1
+            elif mode == "nan":
+                value["failed_monotonic"] = float("nan")
+            elif mode == "late":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.01)
+            data = json.dumps(value).encode() + b"\n"
+            if mode == "duplicate-key":
+                data = data[:-2] + b', "errno": 11}\n'
+            created = (
+                json.dumps(
+                    {
+                        "token": value["token"],
+                        "deadline_monotonic": deadline,
+                        "pid": 987654321,
+                        "ppid": os.getpid(),
+                        "pgid": os.getpgrp(),
+                        "created_monotonic": time.monotonic(),
+                    }
+                ).encode()
+                + b"\n"
+            )
+            if mode == "created-then-failure":
+                data = created + data
+            elif mode == "failure-then-created":
+                data += created
+            elif mode == "duplicate":
+                data += data
+        elif not data.endswith(b"\n") and mode.startswith("terminal-"):
+            value = json.loads(data[worker_capture.HEADER.size :])
+            if mode == "terminal-errno":
+                value["error_errno"] = errno.ENOMEM
+            elif mode == "terminal-admission":
+                value["admission"]["ok"] = False
+            else:
+                value["started_monotonic"] = failure_stamp + 0.000001
+            payload = json.dumps(value).encode()
+            data = worker_capture.HEADER.pack(len(payload)) + payload
+        return original_write(fd, data, deadline)
+
+    before = set(worker_capture._helper_obligations)
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(worker_capture, "_write", write)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.6)
+    retain(tmp_path, "invalid-fork-failure-" + mode, receipt)
+    assert receipt.error is not None
+    assert receipt.worker["reaped"] is True
+    known = mode in {"created-then-failure", "failure-then-created"}
+    assert receipt.worker["unknown_helper_creation"] is (not known)
+    assert receipt.worker["helper_obligation_retained"] is known
+    if known:
+        assert receipt.worker["helper_identity"]["pid"] == 987654321
+        # This fixture published a synthetic identity; never signal it.
+        for token in set(worker_capture._helper_obligations) - before:
+            worker_capture._helper_obligations.pop(token)

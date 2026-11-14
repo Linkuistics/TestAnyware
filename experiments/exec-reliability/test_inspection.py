@@ -89,9 +89,14 @@ def test_review_native_auto_reap_rejected_before_creation(tmp_path, flags, bound
 def test_review_worker_transports_real_native_auto_reap_refusal(tmp_path, monkeypatch, flags):
     original = inspection.capture_helper
 
-    def auto_reaping_capture(argv, deadline, *, publish_created=None):
+    def auto_reaping_capture(argv, deadline, *, publish_created=None, publish_fork_error=None):
         with native_auto_reap(flags):
-            return original(argv, deadline, publish_created=publish_created)
+            return original(
+                argv,
+                deadline,
+                publish_created=publish_created,
+                publish_fork_error=publish_fork_error,
+            )
 
     monkeypatch.setattr(inspection, "capture_helper", auto_reaping_capture)
     receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 1)

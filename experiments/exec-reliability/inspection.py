@@ -168,6 +168,11 @@ class HelperIdentity(TypedDict):
     created_monotonic: float
 
 
+class ForkFailure(TypedDict):
+    errno: int
+    failed_monotonic: float
+
+
 def _await_gate(fd: int, token: bytes, deadline: float) -> bool:
     received = bytearray()
     while time.monotonic() < deadline:
@@ -230,6 +235,7 @@ def _spawn_helper(
     argv: tuple[str, ...],
     receipt: HelperCapture,
     publish_created: Callable[[HelperIdentity], None] | None = None,
+    publish_fork_error: Callable[[ForkFailure], None] | None = None,
 ) -> _HelperProcess:
     streams: list[BinaryIO] = []
     writes: list[int] = []
@@ -252,7 +258,12 @@ def _spawn_helper(
         # https://docs.python.org/3.12/library/signal.html#signal.pthread_sigmask
         previous = signal.pthread_sigmask(signal.SIG_BLOCK, signal.valid_signals())
         try:
-            pid = os.fork()
+            try:
+                pid = os.fork()
+            except OSError as error:
+                if publish_fork_error is not None and error.errno is not None:
+                    publish_fork_error({"errno": error.errno, "failed_monotonic": time.monotonic()})
+                raise
             if pid == 0:
                 _helper_child(
                     argv, writes[1], writes[2], gate_read, token, receipt.capture_deadline_monotonic
@@ -324,6 +335,7 @@ def capture_helper(
     deadline: float,
     *,
     publish_created: Callable[[HelperIdentity], None] | None = None,
+    publish_fork_error: Callable[[ForkFailure], None] | None = None,
 ) -> HelperCapture:
     """Cap both pipes and spend only the caller's fixed allowance on reap waits.
 
@@ -351,11 +363,12 @@ def capture_helper(
     process: _HelperProcess | None = None
     output = [bytearray(), bytearray()]
     try:
-        process = (
-            _spawn_helper(argv, receipt)
-            if publish_created is None
-            else _spawn_helper(argv, receipt, publish_created)
-        )
+        if publish_fork_error is not None:
+            process = _spawn_helper(argv, receipt, publish_created, publish_fork_error)
+        elif publish_created is not None:
+            process = _spawn_helper(argv, receipt, publish_created)
+        else:
+            process = _spawn_helper(argv, receipt)
         streams = {process.stdout.fileno(): 0, process.stderr.fileno(): 1}
         for fd in streams:
             os.set_blocking(fd, False)
