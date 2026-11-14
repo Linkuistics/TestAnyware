@@ -926,12 +926,12 @@ def test_review_group_snapshot_uses_real_worker(tmp_path):
     import controller
 
     # This unreaped session leader pins the queried group throughout observation.
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
     process = subprocess.Popen(["/bin/sleep", "10"], start_new_session=True)
     try:
         observation = controller._group_snapshot(process.pid, time.monotonic() + 1)
         helper = observation["helper"]
-        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
-        root.mkdir(parents=True, exist_ok=True)
         data = {
             **observation,
             "stdout": observation["stdout"].hex(),
@@ -952,9 +952,24 @@ def test_review_group_snapshot_uses_real_worker(tmp_path):
         assert any(item["pid"] == process.pid for item in observation["members"])
         assert helper["reaped"] is True
         assert helper["worker"]["reaped"] is True
+        worker = helper["worker"]
+        query = worker["published_times"]
+        assert (
+            observation["started_monotonic"]
+            <= worker["dispatch_monotonic"]
+            <= query["started_monotonic"]
+            <= query["finished_monotonic"]
+            <= worker["receipt_monotonic"]
+            <= observation["probe_started_monotonic"]
+            <= observation["probe_finished_monotonic"]
+            <= observation["finished_monotonic"]
+        )
     finally:
         os.killpg(process.pid, signal.SIGKILL)
-        process.wait(timeout=1)
+        status = process.wait(timeout=1)
+        (root / f"worker-group-snapshot-audit-{time.time_ns()}.json").write_text(
+            json.dumps({"pid": process.pid, "returncode": status, "reaped": True}, indent=2)
+        )
 
 
 def test_review_worker_retains_timing_for_real_killed_helper(tmp_path):

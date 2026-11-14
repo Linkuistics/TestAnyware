@@ -1542,3 +1542,84 @@ def test_group_snapshot_rejects_late_observation(monkeypatch, late_during):
     assert "deadline" in observation["error"]
     assert observation["stdout"] == b"123 123 Z\n"
     assert probes == ([] if late_during == "helper" else [(123, 0)])
+
+
+@pytest.mark.parametrize(
+    ("table_state", "probe_errno", "late", "expected_state", "outcome"),
+    [
+        ("S", None, False, "live", "permitted"),
+        ("S", errno.EPERM, False, "live", "permission_failure"),
+        ("Z", errno.EPERM, False, "zombie_only", "zombie_only_eperm"),
+        ("Z", errno.ESRCH, False, "unknown", "unknown"),
+        ("Z", None, True, "unknown", "permitted"),
+    ],
+)
+def test_group_snapshot_records_probe_interval(
+    monkeypatch, table_state, probe_errno, late, expected_state, outcome
+):
+    import controller
+
+    now = [10.0]
+    query_times = {"started_monotonic": 10.1, "finished_monotonic": 10.2}
+
+    def helper(*args, **kwargs):
+        now[0] = 10.4  # Query, receipt validation and worker cleanup have finished.
+        return HelperCapture(
+            f"123 123 {table_state}\n".encode(),
+            b"",
+            0,
+            reaped=True,
+            worker={"published_times": dict(query_times)},
+        )
+
+    def probe(pid, sig):
+        assert (pid, sig) == (123, 0)
+        now[0] = 11.0 if late else 10.6
+        if probe_errno is not None:
+            raise OSError(probe_errno, os.strerror(probe_errno))
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller, "capture_helper", helper)
+    monkeypatch.setattr(controller.os, "killpg", probe)
+    observation = controller._group_snapshot(123, 11.0)
+    assert observation["probe_started_monotonic"] == 10.4
+    assert observation["probe_finished_monotonic"] == (11.0 if late else 10.6)
+    assert observation["helper"]["worker"]["published_times"] == query_times
+    assert observation["started_monotonic"] == 10.0
+    assert observation["finished_monotonic"] == observation["probe_finished_monotonic"]
+    assert observation["state"] == expected_state
+    assert observation["probe_outcome"] == outcome
+    assert observation["probe_errno"] == probe_errno
+    if late:
+        assert "deadline exhausted after probe" in observation["error"]
+
+
+@pytest.mark.parametrize("reason", ["invalid_table", "no_exit", "cutoff", "sticky_failure"])
+def test_skipped_group_snapshot_has_no_probe_interval(monkeypatch, reason):
+    import controller
+
+    def forbidden_probe(*args):
+        pytest.fail("skipped observation must not probe")
+
+    monkeypatch.setattr(controller.os, "killpg", forbidden_probe)
+    monkeypatch.setattr(
+        controller,
+        "capture_helper",
+        lambda *args: HelperCapture(b"bad table\n", b"", 0, reaped=True),
+    )
+    deadline = time.monotonic() + 1
+    if reason == "invalid_table":
+        observation = controller._group_snapshot(123, deadline)
+    elif reason == "no_exit":
+        observation = controller._final_snapshot(123, deadline, None)
+    elif reason == "cutoff":
+        observation = controller._final_snapshot(123, deadline - 2, deadline - 3)
+    else:
+        state = controller._InspectionState()
+        first = state.snapshot("first", 123, deadline, deadline - 1)
+        assert first["query_attempted"] is True
+        observation = state.snapshot("suppressed", 123, deadline, deadline - 1)
+        assert observation["query_attempted"] is False
+    assert observation["probe_outcome"] == "not_attempted"
+    assert observation["probe_started_monotonic"] is None
+    assert observation["probe_finished_monotonic"] is None

@@ -164,6 +164,8 @@ class GroupObservation(TypedDict):
     stdout: bytes
     stderr: bytes
     returncode: int | None
+    probe_started_monotonic: float | None
+    probe_finished_monotonic: float | None
     probe_errno: int | None
     probe_outcome: str
     error: str | None
@@ -229,6 +231,8 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
         "stdout": b"",
         "stderr": b"",
         "returncode": None,
+        "probe_started_monotonic": None,
+        "probe_finished_monotonic": None,
         "probe_errno": None,
         "probe_outcome": "not_attempted",
         "error": None,
@@ -292,7 +296,11 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
         # EPERM alone never establishes either executable survival or absence.
         # https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man2/kill.2.html
         try:
-            os.killpg(pid, 0)
+            observation["probe_started_monotonic"] = time.monotonic()
+            try:
+                os.killpg(pid, 0)
+            finally:
+                observation["probe_finished_monotonic"] = time.monotonic()
             observation["probe_outcome"] = "permitted"
         except OSError as error:
             observation["probe_errno"] = error.errno
@@ -331,6 +339,8 @@ def _final_snapshot(pid: int, deadline: float, leader_exit: float | None) -> Gro
         "stdout": b"",
         "stderr": b"",
         "returncode": None,
+        "probe_started_monotonic": None,
+        "probe_finished_monotonic": None,
         "probe_errno": None,
         "probe_outcome": "not_attempted",
         "error": "no observed leader exit before inspection cutoff"
@@ -363,6 +373,8 @@ class _InspectionState:
                 "stdout": b"",
                 "stderr": b"",
                 "returncode": None,
+                "probe_started_monotonic": None,
+                "probe_finished_monotonic": None,
                 "probe_errno": None,
                 "probe_outcome": "not_attempted",
                 "error": f"local inspection unavailable after {self.failure['call']}",
