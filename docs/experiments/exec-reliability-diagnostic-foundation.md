@@ -8,8 +8,10 @@ fixture cleanup and checker timeout reporting. Initial fork admission now reject
 extra Python or native threads, changed Python or kernel SIGCHLD disposition and
 unavailable native observations before acquisition, retaining failed results.
 Review integration k32 independently reproduced and repaired the Python signal
-cache gap. Its measured condition is k32-final-01; the complete worker/scheduler
-boundary remains k30's work.
+cache gap. The current measured condition is k33-final-02: group deadlines now
+attempt KILL at the end of TERM grace before process-table inspection, including
+after leader exit. The complete worker/scheduler boundary remains k30's work,
+continued by k34 after review of this ordering slice.
 Independently supervised process inspection, retained-file identity,
 stalled-storage disposal and live route
 preparation still need the work named below before causal use. In particular,
@@ -94,25 +96,30 @@ macOS kqueue observes exit before reaping so the leader identity is retained
 until signals finish. Observation errors fail the call and still attempt
 bounded termination/reaping.
 
-TERM now records a monotonic leader-exit observation. PID-only interruption
-skips KILL when the leader has exited; group deadlines still escalate when
-executable members remain after leader exit. Each group snapshot retains its
+TERM records a monotonic leader-exit observation without running `ps` during
+grace. PID-only interruption skips KILL when the leader has exited. Group
+deadlines wait until the fixed TERM deadline T and attempt KILL even after
+leader exit, before any process-table query. Each group snapshot retains its
 monotonic start/end, raw `ps` stdout/stderr (hex in JSON), status, member
 PID/PGID/state and signal-0 result. The leader stays unreaped through every
 snapshot and signal. Only a clean table containing that leader can classify
 the observed group as live or zombie-only. A missing leader, usage error,
 timeout, malformed table or other failed inspection stays unknown and fails
-the call. EPERM with observed live members is permission failure; observed
-zombie-only EPERM is distinct; EPERM with failed inspection remains unknown.
+the call. Denied group TERM remains `permission_unknown` and fails termination;
+a later zombie-only table cannot repair that earlier receipt. For group KILL,
+EPERM with observed live members is permission failure, observed zombie-only
+EPERM is distinct, and EPERM with failed inspection remains unknown.
 These observations do not establish the kernel's historical cause for an
 earlier EPERM or containment of arbitrary descendants.
 
-The group poll currently reserves a 10 ms sampling window **inside** the declared phase;
-kqueue polling continues to the actual deadline. This reserve is shorter than
+After KILL, the group poll currently reserves a 10 ms sampling window **inside**
+the declared phase; kqueue polling continues to the actual deadline. This reserve is shorter than
 some retained `ps` observations, so it does not prevent false instrument failures.
 Do not interpret the passing controls as a proved inspection bound. KILL, further inspection and
-leader reaping share one deadline, capped by the original TERM deadline plus
-`kill_wait`. The receipt's `within_process_bounds` must be true for success.
+leader reaping share one deadline: T plus `kill_wait` for group termination,
+or the earlier of observed PID exit and T, plus `kill_wait`, for PID-only
+interruption. Late exit observation does not move the group deadline.
+The receipt's `within_process_bounds` must be true for success.
 There is no fresh reap allowance after inspection. Snapshots describe only
 their recorded intervals, and group probes stop before reaping permits identity
 reuse. The known-child fixtures perform separate exact-PID observations and
@@ -622,6 +629,71 @@ or inspection-time races. The native query is an admission snapshot; k30 still
 must check before every fork and implement the complete worker/scheduler boundary.
 Synchronous ps and stalled-storage limits remain unchanged. No installed CLI,
 app or VM workload was run, and historical acceptance remains **0/10, unavailable**.
+
+### Group KILL ordering slice (k33)
+
+The k30 implementation was decomposed into an independently useful ordering
+repair and the remaining worker/scheduler boundary. This slice changes the real
+controller's termination path; it does not deliver supervised helper ownership,
+bounded protocol handling or shutdown concurrent with teardown. Those obligations
+remain on k30 and its next producer, bounded-inspection-k34.
+
+The [red condition](../../experiments/exec-reliability/evidence/k33-red-01/verdict.json)
+retains 57 passing and five failing review controls against the original
+controller. Four failures demonstrate the behavior being repaired: group KILL
+was skipped after graceful exit, a slow real `ps` operation preceded KILL for a
+TERM-ignoring process, and two earlier TERM-denial receipts were retrospectively
+classified from later tables. The fifth failure is a migrated mutation seam
+absent from the original source, so it is not behavioral disproof.
+The exact eleven red inputs are retained in
+[k33-red-inputs-01](../../experiments/exec-reliability/evidence/k33-red-inputs-01/manifest.json).
+
+The [intermediate full run](../../experiments/exec-reliability/evidence/k33-final-01/verdict.json)
+passed 74 tests and failed one platform expectation: macOS denied KILL to the
+already zombie-only group. Its
+[input snapshot](../../experiments/exec-reliability/evidence/k33-intermediate-inputs-01/manifest.json)
+is separate. The corrected expectation accepts either sent KILL or final
+`zombie_only_eperm`, while requiring the earlier `permission_unknown` and failed
+overall result. The [delivered self-check](../../experiments/exec-reliability/evidence/k33-final-02/verdict.json)
+passes Ruff lint/format, strict Pyright and **75/75 tests** in 20.94 seconds,
+with all eleven input hashes equal before/after. Its
+[JUnit record](../../experiments/exec-reliability/evidence/k33-final-02/pytest.xml)
+retains the individual outcomes.
+
+The ordering controls use real processes, signals and process-table output;
+their adapter delays only a query incorrectly placed before KILL. Both graceful
+and TERM-ignoring cases attempt KILL before their first query, 0.66 ms and
+1.84 ms after T in this run. Existing real-child, early-reap, PID-only scope and
+deadline-overrun mutation controls also pass. These measured timings do not
+establish a hard scheduling bound. Denied TERM controls inject EPERM; they are
+not a genuine privileged-owner control.
+
+The [first audit](../../experiments/exec-reliability/evidence/k33-audit-01/failure.json)
+stopped before scratch cleanup because recorded PID 23889 was present as a
+macOS metadata worker. The original acquire receipt records that diagnostic
+leader reaped, but the audit conservatively made no reuse inference and sent
+no signal. A separate later observation found that PID absent. The
+[second audit](../../experiments/exec-reliability/evidence/k33-audit-02/result.json)
+retains the failed audit as an input, checks all 1,345 indexed artifacts from
+the three conditions and both input snapshots, and records equal before/after
+hashes for all 1,393 audit inputs. All 257 recorded PIDs are absent in that later
+observation. Live, mixed, invalid-selector and freshly reaped controls contest
+the absence predicate. The audit checks 77 declared fake resources, removes two
+remaining owned markers and 212 exact fixture directories after path/content
+validation, and preserves preflight scratch bytes before removal.
+
+These are later PID observations, without escaped-descendant or process-history
+proof. Post-KILL `ps` capture and its kill/wait path remain synchronous and can
+block disposal; repeated snapshots and blocking leader reap also remain for
+k34 to replace. No live guest, app, installed CLI, privilege acquisition or
+kernel-uninterruptible workload was used. Acceptance remains **0/10, unavailable**.
+
+The delivered controller SHA-256 is
+`1fc6e51b494ca48724fb2ba840f646d627e2e821cf00e4ee0ba81d825599a0e8`;
+the final verdict SHA-256 is
+`2fa68b7279e359da0424ce40938bae626a07d9b66aaee57f8ff2ff186fe9f1cb`;
+the final audit result SHA-256 is
+`c9b312c0af9f9b0333c5dda8bbbc05f5a6d5c2abb340cfe550f01a258e36ba1c`.
 
 ### Earlier foundation controls
 

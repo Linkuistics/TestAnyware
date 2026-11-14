@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="0" tests="62" time="16.770" timestamp="2026-11-14T17:33:47.672413+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_review_expected_interruption_continues_same_resource" time="0.505" /><testcase classname="test_controller" name="test_review_unexpected_interruption_still_stops" time="0.380" /><testcase classname="test_controller" name="test_review_resource_deadline_cannot_be_declared_success" time="0.001" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[plan]" time="0.000" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[result]" time="0.000" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[subjects-before]" time="0.000" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[intent-1]" time="0.000" /><testcase classname="test_controller" name="test_review_receipt_io_exception_cannot_skip_other_disposal" time="0.217" /><testcase classname="test_controller" name="test_review_skipped_acquisitions_are_unreached" time="0.016" /><testcase classname="test_controller" name="test_review_zero_exit_wrong_stdout_is_failure" time="0.040" /><testcase classname="test_controller" name="test_review_preflight_keeps_missing_declared_subjects" time="0.010" /><testcase classname="test_controller" name="test_review_graceful_pid_exit_needs_no_kill" time="0.226" /><testcase classname="test_controller" name="test_review_fork_handler_reaps_gracefully" time="0.334" /><testcase classname="test_controller" name="test_review_signal_scope_has_opposed_child_outcomes[True]" time="0.377" /><testcase classname="test_controller" name="test_review_signal_scope_has_opposed_child_outcomes[False]" time="0.341" /><testcase classname="test_controller" name="test_review_wrong_signal_scope_is_detected[True]" time="0.342" /><testcase classname="test_controller" name="test_review_wrong_signal_scope_is_detected[False]" time="0.788" /><testcase classname="test_controller" name="test_review_controller_survival_is_observed_by_another_process" time="0.454" /><testcase classname="test_controller" name="test_review_group_signals_and_inspection_finish_before_reaping" time="0.384" /><testcase classname="test_controller" name="test_review_failed_group_inspection_is_never_absence[usage]" time="0.671" /><testcase classname="test_controller" name="test_review_failed_group_inspection_is_never_absence[timeout]" time="0.669" /><testcase classname="test_controller" name="test_review_failed_group_inspection_is_never_absence[foreign]" time="0.669" /><testcase classname="test_controller" name="test_review_group_kill_precedes_inspection[hang]" time="0.636"><failure message="AssertionError: assert ['TERM'] == ['TERM', 'KILL']&#10;  &#10;  Right contains one more item: 'KILL'&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;        'TERM',&#10;  -     'KILL',&#10;    ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-81/test_review_group_kill_precede0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1075bfc20&gt;
+mode = 'hang'
+
+    @pytest.mark.parametrize("mode", ["hang", "ignore-term"])
+    def test_review_group_kill_precedes_inspection(tmp_path, monkeypatch, mode):
+        # Moving ps into TERM grace or skipping KILL after leader exit must fail.
+        original_run, original_killpg = subprocess.run, os.killpg
+        query_times, kill_times = [], []
+    
+        def slow_ps(argv, *args, **kwargs):
+            if argv[0] == "/bin/ps":
+                query_times.append(time.monotonic())
+                if not kill_times:
+                    # Deliberately slow the real table operation in the broken
+                    # ordering. No fake process rows or signal effects are used.
+                    time.sleep(0.2)
+            return original_run(argv, *args, **kwargs)
+    
+        def signal_group(pid, sig):
+            if sig == signal.SIGKILL:
+                kill_times.append(time.monotonic())
+            original_killpg(pid, sig)
+    
+        monkeypatch.setattr(subprocess, "run", slow_ps)
+        monkeypatch.setattr(os, "killpg", signal_group)
+        workload = replace(
+            call("ordering", mode, budget=0.2),
+            expected_reason="deadline",
+            expected_exit=-15 if mode == "hang" else -9,
+        )
+        path, result = run(tmp_path, [workload])
+        (path / "inspection-order.json").write_text(
+            json.dumps({"queries": query_times, "kills": kill_times}, indent=2) + "\n"
+        )
+        receipt = result["calls"][0]
+&gt;       assert [item["signal"] for item in receipt["signals"]] == ["TERM", "KILL"]
+E       AssertionError: assert ['TERM'] == ['TERM', 'KILL']
+E         
+E         Right contains one more item: 'KILL'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               'TERM',
+E         -     'KILL',
+E           ]
+
+test_controller.py:544: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_group_kill_precedes_inspection[ignore-term]" time="0.627"><failure message="assert 255315.820139666 &lt;= 255315.412331708">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-81/test_review_group_kill_precede1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1075bd9d0&gt;
+mode = 'ignore-term'
+
+    @pytest.mark.parametrize("mode", ["hang", "ignore-term"])
+    def test_review_group_kill_precedes_inspection(tmp_path, monkeypatch, mode):
+        # Moving ps into TERM grace or skipping KILL after leader exit must fail.
+        original_run, original_killpg = subprocess.run, os.killpg
+        query_times, kill_times = [], []
+    
+        def slow_ps(argv, *args, **kwargs):
+            if argv[0] == "/bin/ps":
+                query_times.append(time.monotonic())
+                if not kill_times:
+                    # Deliberately slow the real table operation in the broken
+                    # ordering. No fake process rows or signal effects are used.
+                    time.sleep(0.2)
+            return original_run(argv, *args, **kwargs)
+    
+        def signal_group(pid, sig):
+            if sig == signal.SIGKILL:
+                kill_times.append(time.monotonic())
+            original_killpg(pid, sig)
+    
+        monkeypatch.setattr(subprocess, "run", slow_ps)
+        monkeypatch.setattr(os, "killpg", signal_group)
+        workload = replace(
+            call("ordering", mode, budget=0.2),
+            expected_reason="deadline",
+            expected_exit=-15 if mode == "hang" else -9,
+        )
+        path, result = run(tmp_path, [workload])
+        (path / "inspection-order.json").write_text(
+            json.dumps({"queries": query_times, "kills": kill_times}, indent=2) + "\n"
+        )
+        receipt = result["calls"][0]
+        assert [item["signal"] for item in receipt["signals"]] == ["TERM", "KILL"]
+&gt;       assert kill_times[0] &lt;= query_times[0]
+E       assert 255315.820139666 &lt;= 255315.412331708
+
+test_controller.py:545: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_live_signal_permission_uncertainty_is_retained" time="0.384"><failure message="AssertionError: assert 'permission_failure' == 'permission_unknown'&#10;  &#10;  - permission_unknown&#10;  + permission_failure">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-81/test_review_live_signal_permis0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1075beff0&gt;
+
+    def test_review_live_signal_permission_uncertainty_is_retained(tmp_path, monkeypatch):
+        original = os.killpg
+    
+        def deny_term(pid, sig):
+            if sig == signal.SIGTERM:
+                raise PermissionError(errno.EPERM, "forced live permission failure")
+            original(pid, sig)
+    
+        monkeypatch.setattr(os, "killpg", deny_term)
+        workload = replace(
+            call("denied", "hang", budget=0.2), expected_reason="deadline", expected_exit=-9
+        )
+        _, result = run(tmp_path, [workload])
+        receipt = result["calls"][0]
+&gt;       assert receipt["signals"][0]["outcome"] == "permission_unknown"
+E       AssertionError: assert 'permission_failure' == 'permission_unknown'
+E         
+E         - permission_unknown
+E         + permission_failure
+
+test_controller.py:565: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_later_zombie_table_cannot_repair_earlier_eperm" time="0.227"><failure message="AssertionError: assert ['zombie_only_eperm'] == ['permission_unknown', 'sent']&#10;  &#10;  At index 0 diff: 'zombie_only_eperm' != 'permission_unknown'&#10;  Right contains one more item: 'sent'&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;  +     'zombie_only_eperm',&#10;  -     'permission_unknown',&#10;  -     'sent',&#10;    ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-81/test_review_later_zombie_table0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1075bd580&gt;
+
+    def test_review_later_zombie_table_cannot_repair_earlier_eperm(tmp_path, monkeypatch):
+        import controller
+    
+        original = os.killpg
+    
+        def zombie_race(pid, sig):
+            original(pid, sig)
+            if sig == signal.SIGTERM:
+                assert controller._wait(pid, time.monotonic() + 0.1)
+                raise PermissionError(errno.EPERM, "forced zombie-only return race")
+    
+        monkeypatch.setattr(os, "killpg", zombie_race)
+        workload = replace(
+            call("zombie", "hang", budget=0.2), expected_reason="deadline", expected_exit=-15
+        )
+        _, result = run(tmp_path, [workload])
+        receipt = result["calls"][0]
+&gt;       assert [item["outcome"] for item in receipt["signals"]] == ["permission_unknown", "sent"]
+E       AssertionError: assert ['zombie_only_eperm'] == ['permission_unknown', 'sent']
+E         
+E         At index 0 diff: 'zombie_only_eperm' != 'permission_unknown'
+E         Right contains one more item: 'sent'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         +     'zombie_only_eperm',
+E         -     'permission_unknown',
+E         -     'sent',
+E           ]
+
+test_controller.py:589: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_exited_leader_does_not_hide_a_surviving_group_member[False]" time="0.475" /><testcase classname="test_controller" name="test_review_exited_leader_does_not_hide_a_surviving_group_member[True]" time="0.788" /><testcase classname="test_controller" name="test_review_live_group_is_failure_even_with_expected_leader_exit[False]" time="4.091" /><testcase classname="test_controller" name="test_review_live_group_is_failure_even_with_expected_leader_exit[True]" time="0.376" /><testcase classname="test_controller" name="test_review_checker_unreaped_timeout_still_retains_verdict" time="0.017" /><testcase classname="test_controller" name="test_review_fork_publishes_child_before_stdout_and_releases_on_failure" time="0.052" /><testcase classname="test_controller" name="test_review_pinning_control_detects_real_early_reap[None]" time="0.041" /><testcase classname="test_controller" name="test_review_pinning_control_detects_real_early_reap[poll]" time="0.043" /><testcase classname="test_controller" name="test_review_pinning_control_detects_real_early_reap[wait]" time="0.041" /><testcase classname="test_controller" name="test_review_pinning_control_detects_real_early_reap[waitpid]" time="0.038" /><testcase classname="test_controller" name="test_review_pinning_control_detects_real_early_reap[wait-any]" time="0.042" /><testcase classname="test_controller" name="test_review_isolated_reap_overrun_and_removed_gate[False]" time="0.396" /><testcase classname="test_controller" name="test_review_isolated_reap_overrun_and_removed_gate[True]" time="0.399" /><testcase classname="test_controller" name="test_review_late_observation_cannot_extend_reap_deadline[False]" time="0.425" /><testcase classname="test_controller" name="test_review_late_observation_cannot_extend_reap_deadline[True]" time="0.001"><failure message="assert 0 == 1&#10; +  where 0 = &lt;built-in method count of str object at 0x78595de000&gt;('term_deadline + plan.kill_wait')&#10;[+1 more line; full report in element text]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-81/test_review_late_observation_c1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107602480&gt;
+remove_cap = True
+
+    @pytest.mark.parametrize("remove_cap", [False, True])
+    def test_review_late_observation_cannot_extend_reap_deadline(tmp_path, monkeypatch, remove_cap):
+        import controller
+    
+        original_exited = controller._exited
+        original_killpg = os.killpg
+        term_sent = False
+        delayed = False
+    
+        def signal_group(pid, sig):
+            nonlocal term_sent
+            original_killpg(pid, sig)
+            term_sent = term_sent or sig == signal.SIGTERM
+    
+        def late_observation(pid):
+            nonlocal delayed
+            if term_sent and not delayed:
+                delayed = True
+                time.sleep(0.2)
+            return original_exited(pid)
+    
+        monkeypatch.setattr(os, "killpg", signal_group)
+        monkeypatch.setattr(controller, "_exited", late_observation)
+        if remove_cap:
+&gt;           mutate_function(
+                monkeypatch,
+                controller,
+                "_terminate",
+                "term_deadline + plan.kill_wait",
+                "time.monotonic() + plan.kill_wait",
+            )
+
+test_controller.py:864: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107602480&gt;
+module = &lt;module 'controller' from '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py'&gt;
+name = '_terminate', old = 'term_deadline + plan.kill_wait'
+new = 'time.monotonic() + plan.kill_wait'
+
+    def mutate_function(monkeypatch, module, name, old, new):
+        source = inspect.getsource(getattr(module, name))
+&gt;       assert source.count(old) == 1
+E       assert 0 == 1
+E        +  where 0 = &lt;built-in method count of str object at 0x78595de000&gt;('term_deadline + plan.kill_wait')
+E        +    where &lt;built-in method count of str object at 0x78595de000&gt; = 'def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object]) -&gt; float:\n    """Finish all signals/observations before returning the one reap deadline."""\n    events: list[dict[str, object]] = []\n    groups: list[GroupObservation] = []\n    receipt.update(signals=events, group_observations=groups)\n    observer_ok = True\n    signals_ok = True\n    leader_exit: float | None = None\n\n    def observe(deadline: float) -&gt; bool:\n        nonlocal observer_ok, leader_exit\n        try:\n            if _exited(pid) and leader_exit is None:\n                leader_exit = time.monotonic()\n                receipt["leader_exit_monotonic"] = leader_exit\n        except OSError as error:\n            observer_ok = False\n            receipt["exit_observation_error"] = str(error)\n        # Do not launch another ps with only a sub-millisecond tail of the\n        # phase left. Reserve a 10 ms sampling window inside the existing\n        # allowance; kqueue polling continues to the actual phase deadline.\n        if not pid_only and (not groups or deadline - time.monotonic() &gt;= 0.01):\n            groups.append(_group_snapshot(pid, deadline))\n        return leader_exit is not None and (pid_only or groups[-1]["state"] == "zombie_only")\n\n    def send(sig: signal.Signals, deadline: float) -&gt; None:\n        nonlocal signals_ok\n        event: dict[str, object] = {\n            "signal": sig.name.removeprefix("SIG"),\n            "scope": "pid" if pid_only else "group",\n            "target": pid,\n            "monotonic": time.monotonic(),\n            "outcome": "sent",\n        }\n        try:\n            if pid_only:\n                os.kill(pid, sig)\n            else:\n                os.killpg(pid, sig)\n        except OSError as error:\n            event.update(errno=error.errno, error=str(error), outcome="signal_error")\n            if not pid_only and error.errno == errno.EPERM:\n                observe(deadline)\n                event["permission_observation"] = groups[-1]\n                event["outcome"] = (\n                    "zombie_only_eperm"\n                    if leader_exit is not None and groups[-1]["state"] == "zombie_only"\n                    else "permission_failure"\n                    if groups[-1]["state"] == "live"\n                    else "permission_unknown"\n                )\n            signals_ok = signals_ok and event["outcome"] == "zombie_only_eperm"\n        event["finished_monotonic"] = time.monotonic()\n        events.append(event)\n\n    term_deadline = time.monotonic() + plan.term_grace\n    receipt["term_deadline_monotonic"] = term_deadline\n    send(signal.SIGTERM, term_deadline)\n    complete = observe(term_deadline)\n    while not complete and time.monotonic() &lt; term_deadline:\n        time.sleep(min(0.005, max(0, term_deadline - time.monotonic())))\n        if time.monotonic() &lt; term_deadline:\n            complete = observe(term_deadline)\n    # This single deadline covers KILL, all following observations AND reaping.\n    kill_deadline = min(time.monotonic(), term_deadline) + plan.kill_wait\n    receipt["kill_reap_deadline_monotonic"] = kill_deadline\n    if not complete:\n        # An expired final ps observation is unknown, so refresh within the\n        # kill phase before deciding whether the group still needs a signal.\n        complete = observe(kill_deadline)\n        if not complete:\n            send(signal.SIGKILL, kill_deadline)\n            complete = observe(kill_deadline)\n        while not complete and time.monotonic() &lt; kill_deadline:\n            time.sleep(min(0.005, max(0, kill_deadline - time.monotonic())))\n            if time.monotonic() &lt; kill_deadline:\n                complete = observe(kill_deadline)\n    if pid_only:\n        groups.append(_group_snapshot(pid, kill_deadline))\n    receipt["termination_ok"] = (\n        complete\n        and observer_ok\n        and signals_ok\n        and all(group["state"] != "unknown" for group in groups)\n        and groups[-1]["state"] == "zombie_only"\n    )\n    return kill_deadline\n'.count
+
+test_controller.py:801: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_survival_checker_rejects_controller_self_signal[False]" time="0.452" /><testcase classname="test_controller" name="test_review_survival_checker_rejects_controller_self_signal[True]" time="0.261" /><testcase classname="test_inspection" name="test_review_admission_allows_default_single_thread_controller" time="0.139" /><testcase classname="test_inspection" name="test_review_admission_rejects_live_python_thread_before_acquisition" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_native_pthread_absent_from_python_registry" time="0.016" /><testcase classname="test_inspection" name="test_review_admission_rejects_nondefault_sigchld_before_acquisition[1]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_nondefault_sigchld_before_acquisition[&lt;lambda&gt;]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_native_sigchld_hidden_from_python[ignore]" time="0.016" /><testcase classname="test_inspection" name="test_review_admission_rejects_native_sigchld_hidden_from_python[handler]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[0-1]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[-1-1]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[95-1]" time="0.019" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[97-1]" time="0.019" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[96-0]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[96--1]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_native_sigchld[library]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_native_sigchld[symbol]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_native_sigchld[errno]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_native_sigchld[unexpected_return]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_retains_native_library_error_before_acquisition" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_retains_missing_native_query_before_acquisition" time="0.015" /></testsuite></testsuites>

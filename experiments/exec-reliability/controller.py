@@ -243,7 +243,7 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
     signals_ok = True
     leader_exit: float | None = None
 
-    def observe(deadline: float) -> bool:
+    def observe_exit() -> bool:
         nonlocal observer_ok, leader_exit
         try:
             if _exited(pid) and leader_exit is None:
@@ -252,12 +252,16 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
         except OSError as error:
             observer_ok = False
             receipt["exit_observation_error"] = str(error)
+        return leader_exit is not None
+
+    def observe(deadline: float) -> bool:
+        exited = observe_exit()
         # Do not launch another ps with only a sub-millisecond tail of the
         # phase left. Reserve a 10 ms sampling window inside the existing
         # allowance; kqueue polling continues to the actual phase deadline.
         if not pid_only and (not groups or deadline - time.monotonic() >= 0.01):
             groups.append(_group_snapshot(pid, deadline))
-        return leader_exit is not None and (pid_only or groups[-1]["state"] == "zombie_only")
+        return exited and (pid_only or groups[-1]["state"] == "zombie_only")
 
     def send(sig: signal.Signals, deadline: float) -> None:
         nonlocal signals_ok
@@ -275,7 +279,11 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
                 os.killpg(pid, sig)
         except OSError as error:
             event.update(errno=error.errno, error=str(error), outcome="signal_error")
-            if not pid_only and error.errno == errno.EPERM:
+            if not pid_only and error.errno == errno.EPERM and sig == signal.SIGTERM:
+                # No group inspection may defer KILL during TERM grace. A
+                # later table cannot explain this earlier denied attempt.
+                event["outcome"] = "permission_unknown"
+            elif not pid_only and error.errno == errno.EPERM:
                 observe(deadline)
                 event["permission_observation"] = groups[-1]
                 event["outcome"] = (
@@ -292,21 +300,23 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
     term_deadline = time.monotonic() + plan.term_grace
     receipt["term_deadline_monotonic"] = term_deadline
     send(signal.SIGTERM, term_deadline)
-    complete = observe(term_deadline)
-    while not complete and time.monotonic() < term_deadline:
+    complete = observe_exit()
+    while (not pid_only or not complete) and time.monotonic() < term_deadline:
         time.sleep(min(0.005, max(0, term_deadline - time.monotonic())))
         if time.monotonic() < term_deadline:
-            complete = observe(term_deadline)
+            complete = observe_exit()
     # This single deadline covers KILL, all following observations AND reaping.
-    kill_deadline = min(time.monotonic(), term_deadline) + plan.kill_wait
+    kill_deadline = (
+        min(time.monotonic(), term_deadline) + plan.kill_wait
+        if pid_only
+        else term_deadline + plan.kill_wait
+    )
     receipt["kill_reap_deadline_monotonic"] = kill_deadline
-    if not complete:
-        # An expired final ps observation is unknown, so refresh within the
-        # kill phase before deciding whether the group still needs a signal.
+    if not pid_only or not complete:
+        # A pinned, exited leader does not establish group absence. Attempt
+        # group KILL at T before any potentially blocking table inspection.
+        send(signal.SIGKILL, kill_deadline)
         complete = observe(kill_deadline)
-        if not complete:
-            send(signal.SIGKILL, kill_deadline)
-            complete = observe(kill_deadline)
         while not complete and time.monotonic() < kill_deadline:
             time.sleep(min(0.005, max(0, kill_deadline - time.monotonic())))
             if time.monotonic() < kill_deadline:

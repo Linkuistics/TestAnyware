@@ -509,7 +509,46 @@ def test_review_failed_group_inspection_is_never_absence(tmp_path, monkeypatch, 
     assert result["ok"] is False
 
 
-def test_review_live_signal_permission_failure_is_retained(tmp_path, monkeypatch):
+@pytest.mark.parametrize("mode", ["hang", "ignore-term"])
+def test_review_group_kill_precedes_inspection(tmp_path, monkeypatch, mode):
+    # Moving ps into TERM grace or skipping KILL after leader exit must fail.
+    original_run, original_killpg = subprocess.run, os.killpg
+    query_times, kill_times = [], []
+
+    def slow_ps(argv, *args, **kwargs):
+        if argv[0] == "/bin/ps":
+            query_times.append(time.monotonic())
+            if not kill_times:
+                # Deliberately slow the real table operation in the broken
+                # ordering. No fake process rows or signal effects are used.
+                time.sleep(0.2)
+        return original_run(argv, *args, **kwargs)
+
+    def signal_group(pid, sig):
+        if sig == signal.SIGKILL:
+            kill_times.append(time.monotonic())
+        original_killpg(pid, sig)
+
+    monkeypatch.setattr(subprocess, "run", slow_ps)
+    monkeypatch.setattr(os, "killpg", signal_group)
+    workload = replace(
+        call("ordering", mode, budget=0.2),
+        expected_reason="deadline",
+        expected_exit=-15 if mode == "hang" else -9,
+    )
+    path, result = run(tmp_path, [workload])
+    (path / "inspection-order.json").write_text(
+        json.dumps({"queries": query_times, "kills": kill_times}, indent=2) + "\n"
+    )
+    receipt = result["calls"][0]
+    assert [item["signal"] for item in receipt["signals"]] == ["TERM", "KILL"]
+    assert kill_times[0] <= query_times[0]
+    assert 0 <= kill_times[0] - receipt["term_deadline_monotonic"] < 0.06
+    assert receipt["reaped"] is True
+    assert result["ok"] is True
+
+
+def test_review_live_signal_permission_uncertainty_is_retained(tmp_path, monkeypatch):
     original = os.killpg
 
     def deny_term(pid, sig):
@@ -523,14 +562,14 @@ def test_review_live_signal_permission_failure_is_retained(tmp_path, monkeypatch
     )
     _, result = run(tmp_path, [workload])
     receipt = result["calls"][0]
-    assert receipt["signals"][0]["outcome"] == "permission_failure"
-    assert receipt["signals"][0]["permission_observation"]["state"] == "live"
+    assert receipt["signals"][0]["outcome"] == "permission_unknown"
+    assert "permission_observation" not in receipt["signals"][0]
     assert receipt["returncode"] == -9
     assert receipt["termination_ok"] is False
     assert result["ok"] is False
 
 
-def test_review_zombie_only_eperm_is_separate_from_permission_failure(tmp_path, monkeypatch):
+def test_review_later_zombie_table_cannot_repair_earlier_eperm(tmp_path, monkeypatch):
     import controller
 
     original = os.killpg
@@ -547,9 +586,13 @@ def test_review_zombie_only_eperm_is_separate_from_permission_failure(tmp_path, 
     )
     _, result = run(tmp_path, [workload])
     receipt = result["calls"][0]
-    assert [item["outcome"] for item in receipt["signals"]] == ["zombie_only_eperm"]
-    assert receipt["termination_ok"] is True
-    assert result["ok"] is True
+    assert receipt["signals"][0]["outcome"] == "permission_unknown"
+    # macOS may deny KILL to an already zombie-only group. That final
+    # observation still cannot repair the earlier denied TERM receipt.
+    assert receipt["signals"][1]["outcome"] in {"sent", "zombie_only_eperm"}
+    assert receipt["group_observations"][-1]["state"] == "zombie_only"
+    assert receipt["termination_ok"] is False
+    assert result["ok"] is False
 
 
 @pytest.mark.parametrize("drop_kill", [False, True])
@@ -825,8 +868,8 @@ def test_review_late_observation_cannot_extend_reap_deadline(tmp_path, monkeypat
             monkeypatch,
             controller,
             "_terminate",
-            "min(time.monotonic(), term_deadline)",
-            "time.monotonic()",
+            "term_deadline + plan.kill_wait",
+            "time.monotonic() + plan.kill_wait",
         )
     _, result = run(tmp_path, [call("late-observe", "hang", budget=0.2)])
     receipt = result["calls"][0]
