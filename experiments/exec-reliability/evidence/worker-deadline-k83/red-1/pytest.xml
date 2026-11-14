@@ -1,0 +1,451 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="6" skipped="0" tests="6" time="2.331" timestamp="2026-11-15T04:59:00.867746+11:00" hostname="byrd.local"><testcase classname="test_worker_capture" name="test_worker_shutdown_deadline_closes_owner_operations[final-reap-pid]" time="0.307"><failure message="AssertionError: assert not [{'operation': 'waitpid', 'pid': 80090, 'flags': 1, 'time': 296421.245745375}]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-275/test_worker_shutdown_deadline_0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x106cb7050&gt;
+ready = False, operation = 'final-reap'
+
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize("operation", ["final-reap", "stale-term", "stale-kill"])
+    def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch, ready, operation):
+        """A deferred wait observation must not reopen expired worker authority."""
+        import worker_capture
+    
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        observed = []
+        end = time.monotonic() + 0.3
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                if ready:
+                    message = {
+                        "token": token,
+                        "pid": os.getpid(),
+                        "pgid": os.getpgrp(),
+                        "sid": os.getsid(0),
+                    }
+                    worker_capture._write(control, json.dumps(message).encode() + b"\n", deadline)
+                # No helper is created. TERM/KILL and child lifetime remain real.
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def waitpid(pid, flags):
+            now = time.monotonic()
+            calls.append({"operation": "waitpid", "pid": pid, "flags": flags, "time": now})
+            # Simulated deferred observation, not kernel unreapability. The child
+            # can really exit, but its status remains pinned until the independent audit.
+            if now &lt; end or operation != "final-reap":
+                return 0, 0
+            result = original_waitpid(pid, flags)
+            observed.append(result)
+            return result
+    
+        def kill(pid, sig):
+            calls.append(
+                {"operation": "kill", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append(
+                {"operation": "killpg", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        worker = receipt.worker
+        pid = worker["pid"]
+        audit = {"pid": pid, "adapter": "deferred parent WNOHANG observation", "reaped": False}
+        try:
+            if operation != "final-reap":
+                owner = worker_capture._owners[pid]
+                worker_capture._signal(
+                    owner, signal.SIGTERM if operation == "stale-term" else signal.SIGKILL
+                )
+                worker_capture._reap(owner)
+            retain(tmp_path, f"worker-deadline-{operation}-{ready}", receipt)
+&gt;           assert not [call for call in calls if call["time"] &gt;= end]
+E           AssertionError: assert not [{'operation': 'waitpid', 'pid': 80090, 'flags': 1, 'time': 296421.245745375}]
+
+test_worker_capture.py:84: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_worker_shutdown_deadline_closes_owner_operations[final-reap-group]" time="0.304"><failure message="AssertionError: assert not [{'operation': 'waitpid', 'pid': 80101, 'flags': 1, 'time': 296421.63987375}]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-275/test_worker_shutdown_deadline_1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x106e2e810&gt;
+ready = True, operation = 'final-reap'
+
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize("operation", ["final-reap", "stale-term", "stale-kill"])
+    def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch, ready, operation):
+        """A deferred wait observation must not reopen expired worker authority."""
+        import worker_capture
+    
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        observed = []
+        end = time.monotonic() + 0.3
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                if ready:
+                    message = {
+                        "token": token,
+                        "pid": os.getpid(),
+                        "pgid": os.getpgrp(),
+                        "sid": os.getsid(0),
+                    }
+                    worker_capture._write(control, json.dumps(message).encode() + b"\n", deadline)
+                # No helper is created. TERM/KILL and child lifetime remain real.
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def waitpid(pid, flags):
+            now = time.monotonic()
+            calls.append({"operation": "waitpid", "pid": pid, "flags": flags, "time": now})
+            # Simulated deferred observation, not kernel unreapability. The child
+            # can really exit, but its status remains pinned until the independent audit.
+            if now &lt; end or operation != "final-reap":
+                return 0, 0
+            result = original_waitpid(pid, flags)
+            observed.append(result)
+            return result
+    
+        def kill(pid, sig):
+            calls.append(
+                {"operation": "kill", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append(
+                {"operation": "killpg", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        worker = receipt.worker
+        pid = worker["pid"]
+        audit = {"pid": pid, "adapter": "deferred parent WNOHANG observation", "reaped": False}
+        try:
+            if operation != "final-reap":
+                owner = worker_capture._owners[pid]
+                worker_capture._signal(
+                    owner, signal.SIGTERM if operation == "stale-term" else signal.SIGKILL
+                )
+                worker_capture._reap(owner)
+            retain(tmp_path, f"worker-deadline-{operation}-{ready}", receipt)
+&gt;           assert not [call for call in calls if call["time"] &gt;= end]
+E           AssertionError: assert not [{'operation': 'waitpid', 'pid': 80101, 'flags': 1, 'time': 296421.63987375}]
+
+test_worker_capture.py:84: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_worker_shutdown_deadline_closes_owner_operations[stale-term-pid]" time="0.304"><failure message="AssertionError: assert not [{'operation': 'waitpid', 'pid': 80102, 'flags': 1, 'time': 296421.970119833}, {'operation': 'kill', 'pid': 80102, 'signal': 15, 'time': 296421.97036025}, {'operation': 'waitpid', 'pid': 80102, 'flags': 1, 'time': 296421.970364333}]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-275/test_worker_shutdown_deadline_2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x106d98bc0&gt;
+ready = False, operation = 'stale-term'
+
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize("operation", ["final-reap", "stale-term", "stale-kill"])
+    def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch, ready, operation):
+        """A deferred wait observation must not reopen expired worker authority."""
+        import worker_capture
+    
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        observed = []
+        end = time.monotonic() + 0.3
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                if ready:
+                    message = {
+                        "token": token,
+                        "pid": os.getpid(),
+                        "pgid": os.getpgrp(),
+                        "sid": os.getsid(0),
+                    }
+                    worker_capture._write(control, json.dumps(message).encode() + b"\n", deadline)
+                # No helper is created. TERM/KILL and child lifetime remain real.
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def waitpid(pid, flags):
+            now = time.monotonic()
+            calls.append({"operation": "waitpid", "pid": pid, "flags": flags, "time": now})
+            # Simulated deferred observation, not kernel unreapability. The child
+            # can really exit, but its status remains pinned until the independent audit.
+            if now &lt; end or operation != "final-reap":
+                return 0, 0
+            result = original_waitpid(pid, flags)
+            observed.append(result)
+            return result
+    
+        def kill(pid, sig):
+            calls.append(
+                {"operation": "kill", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append(
+                {"operation": "killpg", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        worker = receipt.worker
+        pid = worker["pid"]
+        audit = {"pid": pid, "adapter": "deferred parent WNOHANG observation", "reaped": False}
+        try:
+            if operation != "final-reap":
+                owner = worker_capture._owners[pid]
+                worker_capture._signal(
+                    owner, signal.SIGTERM if operation == "stale-term" else signal.SIGKILL
+                )
+                worker_capture._reap(owner)
+            retain(tmp_path, f"worker-deadline-{operation}-{ready}", receipt)
+&gt;           assert not [call for call in calls if call["time"] &gt;= end]
+E           AssertionError: assert not [{'operation': 'waitpid', 'pid': 80102, 'flags': 1, 'time': 296421.970119833}, {'operation': 'kill', 'pid': 80102, 'signal': 15, 'time': 296421.97036025}, {'operation': 'waitpid', 'pid': 80102, 'flags': 1, 'time': 296421.970364333}]
+
+test_worker_capture.py:84: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_worker_shutdown_deadline_closes_owner_operations[stale-term-group]" time="0.303"><failure message="AssertionError: assert not [{'operation': 'waitpid', 'pid': 80112, 'flags': 1, 'time': 296422.301134416}, {'operation': 'killpg', 'pid': 80112, 'signal': 15, 'time': 296422.301315541}, {'operation': 'waitpid', 'pid': 80112, 'flags': 1, 'time': 296422.3013245}]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-275/test_worker_shutdown_deadline_3')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x106e2e480&gt;
+ready = True, operation = 'stale-term'
+
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize("operation", ["final-reap", "stale-term", "stale-kill"])
+    def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch, ready, operation):
+        """A deferred wait observation must not reopen expired worker authority."""
+        import worker_capture
+    
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        observed = []
+        end = time.monotonic() + 0.3
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                if ready:
+                    message = {
+                        "token": token,
+                        "pid": os.getpid(),
+                        "pgid": os.getpgrp(),
+                        "sid": os.getsid(0),
+                    }
+                    worker_capture._write(control, json.dumps(message).encode() + b"\n", deadline)
+                # No helper is created. TERM/KILL and child lifetime remain real.
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def waitpid(pid, flags):
+            now = time.monotonic()
+            calls.append({"operation": "waitpid", "pid": pid, "flags": flags, "time": now})
+            # Simulated deferred observation, not kernel unreapability. The child
+            # can really exit, but its status remains pinned until the independent audit.
+            if now &lt; end or operation != "final-reap":
+                return 0, 0
+            result = original_waitpid(pid, flags)
+            observed.append(result)
+            return result
+    
+        def kill(pid, sig):
+            calls.append(
+                {"operation": "kill", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append(
+                {"operation": "killpg", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        worker = receipt.worker
+        pid = worker["pid"]
+        audit = {"pid": pid, "adapter": "deferred parent WNOHANG observation", "reaped": False}
+        try:
+            if operation != "final-reap":
+                owner = worker_capture._owners[pid]
+                worker_capture._signal(
+                    owner, signal.SIGTERM if operation == "stale-term" else signal.SIGKILL
+                )
+                worker_capture._reap(owner)
+            retain(tmp_path, f"worker-deadline-{operation}-{ready}", receipt)
+&gt;           assert not [call for call in calls if call["time"] &gt;= end]
+E           AssertionError: assert not [{'operation': 'waitpid', 'pid': 80112, 'flags': 1, 'time': 296422.301134416}, {'operation': 'killpg', 'pid': 80112, 'signal': 15, 'time': 296422.301315541}, {'operation': 'waitpid', 'pid': 80112, 'flags': 1, 'time': 296422.3013245}]
+
+test_worker_capture.py:84: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_worker_shutdown_deadline_closes_owner_operations[stale-kill-pid]" time="0.303"><failure message="AssertionError: assert not [{'operation': 'waitpid', 'pid': 80113, 'flags': 1, 'time': 296422.625107541}, {'operation': 'kill', 'pid': 80113, 'signal': 9, 'time': 296422.62532825}, {'operation': 'waitpid', 'pid': 80113, 'flags': 1, 'time': 296422.625330666}]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-275/test_worker_shutdown_deadline_4')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x106e2b080&gt;
+ready = False, operation = 'stale-kill'
+
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize("operation", ["final-reap", "stale-term", "stale-kill"])
+    def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch, ready, operation):
+        """A deferred wait observation must not reopen expired worker authority."""
+        import worker_capture
+    
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        observed = []
+        end = time.monotonic() + 0.3
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                if ready:
+                    message = {
+                        "token": token,
+                        "pid": os.getpid(),
+                        "pgid": os.getpgrp(),
+                        "sid": os.getsid(0),
+                    }
+                    worker_capture._write(control, json.dumps(message).encode() + b"\n", deadline)
+                # No helper is created. TERM/KILL and child lifetime remain real.
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def waitpid(pid, flags):
+            now = time.monotonic()
+            calls.append({"operation": "waitpid", "pid": pid, "flags": flags, "time": now})
+            # Simulated deferred observation, not kernel unreapability. The child
+            # can really exit, but its status remains pinned until the independent audit.
+            if now &lt; end or operation != "final-reap":
+                return 0, 0
+            result = original_waitpid(pid, flags)
+            observed.append(result)
+            return result
+    
+        def kill(pid, sig):
+            calls.append(
+                {"operation": "kill", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append(
+                {"operation": "killpg", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        worker = receipt.worker
+        pid = worker["pid"]
+        audit = {"pid": pid, "adapter": "deferred parent WNOHANG observation", "reaped": False}
+        try:
+            if operation != "final-reap":
+                owner = worker_capture._owners[pid]
+                worker_capture._signal(
+                    owner, signal.SIGTERM if operation == "stale-term" else signal.SIGKILL
+                )
+                worker_capture._reap(owner)
+            retain(tmp_path, f"worker-deadline-{operation}-{ready}", receipt)
+&gt;           assert not [call for call in calls if call["time"] &gt;= end]
+E           AssertionError: assert not [{'operation': 'waitpid', 'pid': 80113, 'flags': 1, 'time': 296422.625107541}, {'operation': 'kill', 'pid': 80113, 'signal': 9, 'time': 296422.62532825}, {'operation': 'waitpid', 'pid': 80113, 'flags': 1, 'time': 296422.625330666}]
+
+test_worker_capture.py:84: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_worker_shutdown_deadline_closes_owner_operations[stale-kill-group]" time="0.305"><failure message="AssertionError: assert not [{'operation': 'waitpid', 'pid': 80114, 'flags': 1, 'time': 296422.955039625}, {'operation': 'killpg', 'pid': 80114, 'signal': 9, 'time': 296422.955297208}, {'operation': 'waitpid', 'pid': 80114, 'flags': 1, 'time': 296422.955311416}]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-275/test_worker_shutdown_deadline_5')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x106e2be90&gt;
+ready = True, operation = 'stale-kill'
+
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize("operation", ["final-reap", "stale-term", "stale-kill"])
+    def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch, ready, operation):
+        """A deferred wait observation must not reopen expired worker authority."""
+        import worker_capture
+    
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        observed = []
+        end = time.monotonic() + 0.3
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                if ready:
+                    message = {
+                        "token": token,
+                        "pid": os.getpid(),
+                        "pgid": os.getpgrp(),
+                        "sid": os.getsid(0),
+                    }
+                    worker_capture._write(control, json.dumps(message).encode() + b"\n", deadline)
+                # No helper is created. TERM/KILL and child lifetime remain real.
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def waitpid(pid, flags):
+            now = time.monotonic()
+            calls.append({"operation": "waitpid", "pid": pid, "flags": flags, "time": now})
+            # Simulated deferred observation, not kernel unreapability. The child
+            # can really exit, but its status remains pinned until the independent audit.
+            if now &lt; end or operation != "final-reap":
+                return 0, 0
+            result = original_waitpid(pid, flags)
+            observed.append(result)
+            return result
+    
+        def kill(pid, sig):
+            calls.append(
+                {"operation": "kill", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append(
+                {"operation": "killpg", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            )
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        worker = receipt.worker
+        pid = worker["pid"]
+        audit = {"pid": pid, "adapter": "deferred parent WNOHANG observation", "reaped": False}
+        try:
+            if operation != "final-reap":
+                owner = worker_capture._owners[pid]
+                worker_capture._signal(
+                    owner, signal.SIGTERM if operation == "stale-term" else signal.SIGKILL
+                )
+                worker_capture._reap(owner)
+            retain(tmp_path, f"worker-deadline-{operation}-{ready}", receipt)
+&gt;           assert not [call for call in calls if call["time"] &gt;= end]
+E           AssertionError: assert not [{'operation': 'waitpid', 'pid': 80114, 'flags': 1, 'time': 296422.955039625}, {'operation': 'killpg', 'pid': 80114, 'signal': 9, 'time': 296422.955297208}, {'operation': 'waitpid', 'pid': 80114, 'flags': 1, 'time': 296422.955311416}]
+
+test_worker_capture.py:84: AssertionError</failure></testcase></testsuite></testsuites>

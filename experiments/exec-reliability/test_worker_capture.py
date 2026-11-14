@@ -13,6 +13,109 @@ import pytest
 import inspection
 
 
+@pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+@pytest.mark.parametrize("operation", ["final-reap", "stale-term", "stale-kill", "at-cutoff"])
+def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch, ready, operation):
+    """A deferred wait observation must not reopen expired worker authority."""
+    import worker_capture
+
+    original_waitpid = os.waitpid
+    original_kill, original_killpg = os.kill, os.killpg
+    calls = []
+    observed = []
+    end = time.monotonic() + 0.3
+
+    def child(control, result, token, argv, deadline):
+        try:
+            inspection.reset_after_fork({control, result})
+            if ready:
+                message = {
+                    "token": token,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                worker_capture._write(control, json.dumps(message).encode() + b"\n", deadline)
+            # No helper is created. TERM/KILL and child lifetime remain real.
+            while True:
+                signal.pause()
+        finally:
+            os._exit(70)
+
+    def waitpid(pid, flags):
+        now = time.monotonic()
+        calls.append({"operation": "waitpid", "pid": pid, "flags": flags, "time": now})
+        # Simulated deferred observation, not kernel unreapability. The child
+        # can really exit, but its status remains pinned until the independent audit.
+        if now < end or operation != "final-reap":
+            return 0, 0
+        result = original_waitpid(pid, flags)
+        observed.append(result)
+        return result
+
+    def kill(pid, sig):
+        calls.append(
+            {"operation": "kill", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+        )
+        return original_kill(pid, sig)
+
+    def killpg(pid, sig):
+        calls.append(
+            {"operation": "killpg", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+        )
+        return original_killpg(pid, sig)
+
+    monkeypatch.setattr(worker_capture, "_child", child)
+    monkeypatch.setattr(os, "waitpid", waitpid)
+    monkeypatch.setattr(os, "kill", kill)
+    monkeypatch.setattr(os, "killpg", killpg)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+    worker = receipt.worker
+    pid = worker["pid"]
+    audit = {"pid": pid, "adapter": "deferred parent WNOHANG observation", "reaped": False}
+    try:
+        if operation != "final-reap":
+            owner = worker_capture._owners[pid]
+            with monkeypatch.context() as clock:
+                if operation == "at-cutoff":
+                    clock.setattr(time, "monotonic", lambda: end)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                worker_capture._signal(
+                    owner, signal.SIGTERM if operation == "stale-term" else signal.SIGKILL
+                )
+                worker_capture._reap(owner)
+        retain(tmp_path, f"worker-deadline-{operation}-{ready}", receipt)
+        assert not [call for call in calls if call["time"] >= end]
+        assert receipt.error and receipt.residual_remedy
+        assert not worker["reaped"] and pid in worker_capture._owners
+        assert worker["shutdown_deadline_monotonic"] == end
+        assert worker["signal_scope"] == ("group" if ready else "pid")
+        assert any(call["operation"] == ("killpg" if ready else "kill") for call in calls)
+        assert any(call["operation"] == "waitpid" for call in calls)
+        assert all(call["flags"] == os.WNOHANG for call in calls if call["operation"] == "waitpid")
+    finally:
+        # Outside the runtime and adapter: audit only this exact unreaped child.
+        # Bounded polling avoids adding a blocking wait to the evidence checker.
+        audit_end = time.monotonic() + 1
+        if observed and observed[-1][0] == pid:
+            audit.update(reaped=True, status=observed[-1][1], source="late runtime reap")
+        else:
+            while time.monotonic() < audit_end:
+                found, status = original_waitpid(pid, os.WNOHANG)
+                if found == pid:
+                    audit.update(reaped=True, status=status, source="independent exact-child reap")
+                    break
+                time.sleep(0.001)
+        if audit["reaped"]:
+            worker_capture._owners.pop(pid, None)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"worker-deadline-audit-{operation}-{ready}-{time.time_ns()}.json").write_text(
+            json.dumps({"audit": audit, "calls": calls, "deadline": end}, indent=2) + "\n"
+        )
+        assert audit["reaped"]
+
+
 @pytest.mark.parametrize(
     ("mode", "reason"),
     [

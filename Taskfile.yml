@@ -78,6 +78,14 @@ tasks:
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/probe-intervals-k81/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}}
 
+  diagnostic:worker-deadline-check:
+    desc: Retain worker shutdown deadline controls against frozen INPUTS in a new OUT directory
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/worker-deadline-k83/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}}
+
   diagnostic:resource-audit:
     desc: Validate and run an explicitly frozen local resource auditor. Requires AUDITOR=<script>
     dir: '{{.ROOT_DIR}}'

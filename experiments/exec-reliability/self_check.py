@@ -53,6 +53,10 @@ def main() -> None:
         HERE.parents[1] / "Taskfile.yml",
         Path(python),
         Path("/bin/ps"),
+        Path("/bin/sh"),
+        Path("/bin/sleep"),
+        Path("/usr/bin/true"),
+        Path("/usr/bin/false"),
     ]
     before = hashes(subjects)
     declaration = {

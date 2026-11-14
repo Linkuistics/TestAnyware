@@ -26,6 +26,7 @@ HEADER = struct.Struct("!I")
 @dataclass
 class _Owner:
     pid: int
+    shutdown_deadline_monotonic: float
     ready: bool = False
     reaped: bool = False
     ownership_lost: bool = False
@@ -42,6 +43,9 @@ _helper_obligations: dict[str, dict[str, object]] = {}
 
 def _reap(owner: _Owner) -> None:
     if owner.reaped or owner.reap_errno is not None:
+        return
+    # Residual ownership pins identity; it does not renew the fixed allowance.
+    if time.monotonic() >= owner.shutdown_deadline_monotonic:
         return
     try:
         pid, status = os.waitpid(owner.pid, os.WNOHANG)
@@ -61,7 +65,10 @@ def _signal(owner: _Owner, sig: signal.Signals) -> None:
     # The unreaped direct child pins the identity; never poll inside a signal.
     if owner.reaped or owner.reap_errno is not None:
         return
-    event: dict[str, object] = {"signal": sig.name, "monotonic": time.monotonic()}
+    now = time.monotonic()
+    if now >= owner.shutdown_deadline_monotonic:
+        return
+    event: dict[str, object] = {"signal": sig.name, "monotonic": now}
     try:
         if owner.ready:
             os.killpg(owner.pid, sig)
@@ -478,7 +485,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
             if pid == 0:
                 _child(control_write, result_write, token, argv, query_deadline)
                 os._exit(71)
-            owner = _Owner(pid)
+            owner = _Owner(pid, deadline)
             _owners[pid] = owner
         finally:
             signal.pthread_sigmask(signal.SIG_SETMASK, previous)
@@ -668,7 +675,6 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 "receipt_monotonic": received,
                 "published_times": published_times,
                 "query_deadline_monotonic": query_deadline,
-                "shutdown_deadline_monotonic": deadline,
                 "reserve_seconds": reserve,
             }
             if not owner.reaped or owner.returncode != 0:
