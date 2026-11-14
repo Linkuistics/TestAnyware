@@ -24,3 +24,13 @@ Independently challenge the shipped worker receipt timing boundary, its retained
 ## Notes
 
 The producer's routine audit is evidence/resource verification, not this independent adversarial review. No guests, installed app modifications, privilege acquisition or unrelated-process cleanup. Historical acceptance remains 0/10 unavailable; stalled-storage and final whole-runtime controls remain separately owned.
+
+## Decisions (running log)
+
+- Scope held to inspection. No test, build, lint or format command ran. Reads covered `worker_capture.py`, `inspection.py`, `test_worker_capture.py`, the controller call site (`controller.py:243-251`), the k52 report section and retained evidence under `experiments/exec-reliability/evidence/`.
+- Sound, no finding: `dispatched` is read immediately before the fork. `received` is read when both channels close and before frame validation. The post-decode check against `query_deadline` runs before acceptance. The parent overwrites `deadline_monotonic` and `finished_monotonic` only after validation. Timestamp types exclude booleans, and NaN and infinity fail the range test. `published_times` is retained separately.
+- Ownership paths are unchanged by k52. `_reap` and `_signal` still decide on the exact worker PID. The residual remedy still says that worker reap and group signals do not prove helper death.
+- Evidence hashes verified. Runner subject digests equal the retained copies for the red, fixed-01 and final source and test files. The red test copy has 10 tests against 11 in the final copy, which matches 178 against 179 tests. fixed-01 differs from final only by the position of `received`, as the report states.
+- Auditor: its oracle controls (live, mixed, invalid, missing) and the limits text agree with the report. No finding.
+- Finding 1 (wrong-reason controls) and Finding 2 (uncoupled stamps) are recorded in complete-worker-scheduler-k57 with source and evidence locations. Considered and not raised: the `late-cutoff` control is rejected by the generic range check, because the cutoff upper bound is already enforced there. The production path retains no raw rejected payload, and the report says so correctly.
+- Integration leaf complete-worker-scheduler-k57 was cut before k55. No `GROVE_PROVIDER_EVIDENCE` is set in this environment, so no Creator line is written.
