@@ -1,0 +1,141 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k90/early-receipt-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 454 items / 434 deselected / 20 selected
+
+test_controller.py::test_termination_cutoff_refuses_late_signals[-0.1-False] PASSED [  5%]
+test_controller.py::test_termination_cutoff_refuses_late_signals[-0.1-True] PASSED [ 10%]
+test_controller.py::test_termination_cutoff_refuses_late_signals[-0.05-False] PASSED [ 15%]
+test_controller.py::test_termination_cutoff_refuses_late_signals[-0.05-True] PASSED [ 20%]
+test_controller.py::test_termination_cutoff_refuses_late_signals[0.0-False] PASSED [ 25%]
+test_controller.py::test_termination_cutoff_refuses_late_signals[0.0-True] PASSED [ 30%]
+test_controller.py::test_termination_cutoff_refuses_late_signals[0.01-False] PASSED [ 35%]
+test_controller.py::test_termination_cutoff_refuses_late_signals[0.01-True] PASSED [ 40%]
+test_controller.py::test_termination_cutoff_receipt_records_admission_sample[False] FAILED [ 45%]
+test_controller.py::test_termination_cutoff_receipt_records_admission_sample[True] FAILED [ 50%]
+test_controller.py::test_termination_cutoff_refuses_expired_first_turn[False] PASSED [ 55%]
+test_controller.py::test_termination_cutoff_refuses_expired_first_turn[True] PASSED [ 60%]
+test_controller.py::test_termination_cutoff_observer_entry_at_equality[False] PASSED [ 65%]
+test_controller.py::test_termination_cutoff_observer_entry_at_equality[True] PASSED [ 70%]
+test_controller.py::test_termination_cutoff_checks_observer_return[False-False] PASSED [ 75%]
+test_controller.py::test_termination_cutoff_checks_observer_return[False-True] PASSED [ 80%]
+test_controller.py::test_termination_cutoff_checks_observer_return[True-False] PASSED [ 85%]
+test_controller.py::test_termination_cutoff_checks_observer_return[True-True] PASSED [ 90%]
+test_controller.py::test_termination_cutoff_real_delayed_observer[False] PASSED [ 95%]
+test_controller.py::test_termination_cutoff_real_delayed_observer[True] PASSED [100%]
+
+=================================== FAILURES ===================================
+_______ test_termination_cutoff_receipt_records_admission_sample[False] ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10791c590>
+pid_only = False
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    def test_termination_cutoff_receipt_records_admission_sample(monkeypatch, pid_only):
+        import controller
+    
+        now = [10.0]
+    
+        class DelayedReceipt(dict):
+            def __setitem__(self, key, value):
+                super().__setitem__(key, value)
+                if key == "term_deadline_monotonic":
+                    now[0] = 12.0
+    
+        def clock():
+            sample = now[0]
+            now[0] += 0.01
+            return sample
+    
+        def forbidden(*args):
+            pytest.fail("target OS operation admitted at expired cutoff")
+    
+        monkeypatch.setattr(controller.time, "monotonic", clock)
+        monkeypatch.setattr(controller, "_exited", forbidden)
+        monkeypatch.setattr(os, "kill", forbidden)
+        monkeypatch.setattr(os, "killpg", forbidden)
+        receipt = DelayedReceipt(name="admission-sample")
+        controller._terminate(
+            123,
+            pid_only,
+            Plan("control", (), term_grace=1, kill_wait=1),
+            receipt,
+            controller._InspectionState(),
+        )
+        for event in receipt["signals"]:
+            assert event["outcome"] == "deadline_exhausted"
+            # With no syscall, the next clock sample closes the event. A separate
+            # earlier receipt timestamp would conceal the actual admission sample.
+>           assert event["finished_monotonic"] - event["monotonic"] == pytest.approx(0.01)
+E           assert 0.019999999999999574 == 0.01 ± 1.0e-08
+E             
+E             comparison failed
+E             Obtained: 0.019999999999999574
+E             Expected: 0.01 ± 1.0e-08
+
+test_controller.py:1359: AssertionError
+________ test_termination_cutoff_receipt_records_admission_sample[True] ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1078eb800>
+pid_only = True
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    def test_termination_cutoff_receipt_records_admission_sample(monkeypatch, pid_only):
+        import controller
+    
+        now = [10.0]
+    
+        class DelayedReceipt(dict):
+            def __setitem__(self, key, value):
+                super().__setitem__(key, value)
+                if key == "term_deadline_monotonic":
+                    now[0] = 12.0
+    
+        def clock():
+            sample = now[0]
+            now[0] += 0.01
+            return sample
+    
+        def forbidden(*args):
+            pytest.fail("target OS operation admitted at expired cutoff")
+    
+        monkeypatch.setattr(controller.time, "monotonic", clock)
+        monkeypatch.setattr(controller, "_exited", forbidden)
+        monkeypatch.setattr(os, "kill", forbidden)
+        monkeypatch.setattr(os, "killpg", forbidden)
+        receipt = DelayedReceipt(name="admission-sample")
+        controller._terminate(
+            123,
+            pid_only,
+            Plan("control", (), term_grace=1, kill_wait=1),
+            receipt,
+            controller._InspectionState(),
+        )
+        for event in receipt["signals"]:
+            assert event["outcome"] == "deadline_exhausted"
+            # With no syscall, the next clock sample closes the event. A separate
+            # earlier receipt timestamp would conceal the actual admission sample.
+>           assert event["finished_monotonic"] - event["monotonic"] == pytest.approx(0.01)
+E           assert 0.019999999999999574 == 0.01 ± 1.0e-08
+E             
+E             comparison failed
+E             Obtained: 0.019999999999999574
+E             Expected: 0.01 ± 1.0e-08
+
+test_controller.py:1359: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k90/early-receipt-1/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_termination_cutoff_receipt_records_admission_sample[False] - assert 0.019999999999999574 == 0.01 ± 1.0e-08
+  
+  comparison failed
+  Obtained: 0.019999999999999574
+  Expected: 0.01 ± 1.0e-08
+FAILED test_controller.py::test_termination_cutoff_receipt_records_admission_sample[True] - assert 0.019999999999999574 == 0.01 ± 1.0e-08
+  
+  comparison failed
+  Obtained: 0.019999999999999574
+  Expected: 0.01 ± 1.0e-08
+================= 2 failed, 18 passed, 434 deselected in 0.64s =================

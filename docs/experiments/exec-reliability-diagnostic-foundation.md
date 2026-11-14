@@ -1853,8 +1853,9 @@ The earlier PID cap and fixed group grace remain in force. These are sampled
 admission checks, without a hard real-time guarantee across OS preemption.
 
 The [k85 retained report](../../experiments/exec-reliability/evidence/termination-cutoff-k85/report.md)
-records fourteen final controls, six single-guard/equality mutations, real direct
-children with simulated delayed observer returns, every failed sample, and a
+records fourteen final controls, six mutations of three deadline comparisons
+(signal admission, observer entry and observer return) and their equality
+operators, real direct children with simulated delayed observer returns, every failed sample, and a
 passing 448-test full replay plus lint, formatting and strict types. Earlier
 full-run permission/empty-PID fixture failures remain unresolved; the replay
 only repairs a frozen checker's metadata path, with runtime/tests unchanged.
@@ -1863,3 +1864,25 @@ This slice does not establish the persistent worker or shared scheduler. The
 full aggregate continues in flat sibling complete-worker-scheduler-k88 with a
 separate required final review; k28/k17 remain open and ten-clone acceptance is
 **0/10, unavailable**.
+
+
+### k90 termination review integration
+
+All workload signals now close at K-R, including equality, with
+R=min(100ms,A/4). Each signal receipt records the same monotonic sample used
+for admission. The original deadline, earlier PID cap, observation guards and
+unsuccessful skipped-signal outcomes remain in force. Sampled checks still
+cannot prevent OS preemption between a clock read and the syscall.
+
+The [k90 report](../../experiments/exec-reliability/evidence/termination-cutoff-k90/report.md)
+retains the original eight failing controls, twenty passing cutoff controls,
+two independent defect-restoration conditions and three invalid-mode controls.
+The reusable runner now rejects missing, unknown or extra modes before output
+creation. The full self-check passes 454 tests, lint, formatting and strict
+types. Historical k85 evidence stays unchanged. Its six comparison/equality
+mutations do not independently test early deadline initialization, the
+observed-exit short circuit or each sticky observation-failure assignment.
+Earlier intermittent full-run fixture failures remain unresolved. The mandatory
+reap attempt after deadline expiry belongs to complete-worker-scheduler-k88,
+alongside the existing worker/scheduler charter and its final aggregate review.
+k28/k17 remain open; ten-clone acceptance remains **0/10, unavailable**.

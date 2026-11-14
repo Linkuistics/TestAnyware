@@ -1291,7 +1291,7 @@ def mutate_function(monkeypatch, module, name, old, new):
 
 
 @pytest.mark.parametrize("pid_only", [False, True])
-@pytest.mark.parametrize("offset", [0.0, 0.01])
+@pytest.mark.parametrize("offset", [-0.1, -0.05, 0.0, 0.01])
 def test_termination_cutoff_refuses_late_signals(monkeypatch, pid_only, offset):
     import controller
 
@@ -1318,6 +1318,45 @@ def test_termination_cutoff_refuses_late_signals(monkeypatch, pid_only, offset):
     assert receipt["signals"][-1]["outcome"] == "deadline_exhausted"
     assert receipt["termination_ok"] is False
     assert receipt["group_observations"][0]["query_attempted"] is False
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+def test_termination_cutoff_receipt_records_admission_sample(monkeypatch, pid_only):
+    import controller
+
+    now = [10.0]
+
+    class DelayedReceipt(dict):
+        def __setitem__(self, key, value):
+            super().__setitem__(key, value)
+            if key == "term_deadline_monotonic":
+                now[0] = 12.0
+
+    def clock():
+        sample = now[0]
+        now[0] += 0.01
+        return sample
+
+    def forbidden(*args):
+        pytest.fail("target OS operation admitted at expired cutoff")
+
+    monkeypatch.setattr(controller.time, "monotonic", clock)
+    monkeypatch.setattr(controller, "_exited", forbidden)
+    monkeypatch.setattr(os, "kill", forbidden)
+    monkeypatch.setattr(os, "killpg", forbidden)
+    receipt = DelayedReceipt(name="admission-sample")
+    controller._terminate(
+        123,
+        pid_only,
+        Plan("control", (), term_grace=1, kill_wait=1),
+        receipt,
+        controller._InspectionState(),
+    )
+    for event in receipt["signals"]:
+        assert event["outcome"] == "deadline_exhausted"
+        # With no syscall, the next clock sample closes the event. A separate
+        # earlier receipt timestamp would conceal the actual admission sample.
+        assert event["finished_monotonic"] - event["monotonic"] == pytest.approx(0.01)
 
 
 @pytest.mark.parametrize("pid_only", [False, True])
@@ -1435,7 +1474,7 @@ def test_termination_cutoff_checks_observer_return(monkeypatch, pid_only, late):
     assert receipt["termination_ok"] is (not late)
     assert all(scope == ("pid" if pid_only else "group") for scope, _, _ in signals)
     assert [sig for _, sig, _ in signals] == (
-        [signal.SIGTERM] if pid_only and not late else [signal.SIGTERM, signal.SIGKILL]
+        [signal.SIGTERM] if late or pid_only else [signal.SIGTERM, signal.SIGKILL]
     )
 
 

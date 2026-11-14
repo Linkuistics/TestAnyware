@@ -433,11 +433,12 @@ def _terminate(
             "signal": sig.name.removeprefix("SIG"),
             "scope": "pid" if pid_only else "group",
             "target": pid,
-            "monotonic": time.monotonic(),
             "outcome": "sent",
         }
         try:
-            if time.monotonic() >= kill_deadline:
+            admitted = time.monotonic()
+            event["monotonic"] = admitted
+            if admitted >= inspection_deadline:
                 event["outcome"] = "deadline_exhausted"
             elif pid_only:
                 os.kill(pid, sig)

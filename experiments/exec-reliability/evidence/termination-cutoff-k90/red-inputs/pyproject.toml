@@ -1,0 +1,23 @@
+[project]
+name = "exec-reliability-diagnostics"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = ["pytest>=9,<10", "ruff>=0.17,<0.18", "pyright>=1.1,<2"]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["test_controller.py", "test_inspection.py", "test_worker_capture.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.pyright]
+typeCheckingMode = "strict"
+include = ["controller.py", "inspection.py", "worker_capture.py", "peer.py", "preflight.py", "self_check.py"]

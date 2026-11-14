@@ -1,0 +1,93 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability
+configfile: pyproject.toml
+collecting ... collected 3 items
+
+experiments/exec-reliability/evidence/termination-cutoff-k90/test_runner_modes.py::test_runner_rejects_invalid_mode[modes0] FAILED [ 33%]
+experiments/exec-reliability/evidence/termination-cutoff-k90/test_runner_modes.py::test_runner_rejects_invalid_mode[modes1] FAILED [ 66%]
+experiments/exec-reliability/evidence/termination-cutoff-k90/test_runner_modes.py::test_runner_rejects_invalid_mode[modes2] FAILED [100%]
+
+=================================== FAILURES ===================================
+___________________ test_runner_rejects_invalid_mode[modes0] ___________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo0')
+modes = []
+
+    @pytest.mark.parametrize("modes", [[], ["ful"], ["full", "extra"]])
+    def test_runner_rejects_invalid_mode(tmp_path, modes):
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        output = root / ("invalid-" + "-".join(modes or ["missing"]))
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).with_name("run_condition.py")),
+             str(Path(__file__).parents[1] / "termination-cutoff-k85/green-v3-inputs"),
+             str(output), *modes],
+            capture_output=True,
+            timeout=20,
+        )
+        root.mkdir(parents=True, exist_ok=True)
+        (root / (output.name + ".stdout")).write_bytes(result.stdout)
+        (root / (output.name + ".stderr")).write_bytes(result.stderr)
+>       assert result.returncode == 2
+E       AssertionError: assert 0 == 2
+E        +  where 0 = CompletedProcess(args=['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k90/run_condition.py', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k85/green-v3-inputs', '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo0/invalid-missing'], returncode=0, stdout=b'pytest: exit 0; evidence /private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo0/invalid-missing\n', stderr=b'').returncode
+
+experiments/exec-reliability/evidence/termination-cutoff-k90/test_runner_modes.py:25: AssertionError
+___________________ test_runner_rejects_invalid_mode[modes1] ___________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo1')
+modes = ['ful']
+
+    @pytest.mark.parametrize("modes", [[], ["ful"], ["full", "extra"]])
+    def test_runner_rejects_invalid_mode(tmp_path, modes):
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        output = root / ("invalid-" + "-".join(modes or ["missing"]))
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).with_name("run_condition.py")),
+             str(Path(__file__).parents[1] / "termination-cutoff-k85/green-v3-inputs"),
+             str(output), *modes],
+            capture_output=True,
+            timeout=20,
+        )
+        root.mkdir(parents=True, exist_ok=True)
+        (root / (output.name + ".stdout")).write_bytes(result.stdout)
+        (root / (output.name + ".stderr")).write_bytes(result.stderr)
+>       assert result.returncode == 2
+E       AssertionError: assert 0 == 2
+E        +  where 0 = CompletedProcess(args=['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k90/run_condition.py', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k85/green-v3-inputs', '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo1/invalid-ful', 'ful'], returncode=0, stdout=b'pytest: exit 0; evidence /private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo1/invalid-ful\n', stderr=b'').returncode
+
+experiments/exec-reliability/evidence/termination-cutoff-k90/test_runner_modes.py:25: AssertionError
+___________________ test_runner_rejects_invalid_mode[modes2] ___________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo2')
+modes = ['full', 'extra']
+
+    @pytest.mark.parametrize("modes", [[], ["ful"], ["full", "extra"]])
+    def test_runner_rejects_invalid_mode(tmp_path, modes):
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        output = root / ("invalid-" + "-".join(modes or ["missing"]))
+        result = subprocess.run(
+            [sys.executable, str(Path(__file__).with_name("run_condition.py")),
+             str(Path(__file__).parents[1] / "termination-cutoff-k85/green-v3-inputs"),
+             str(output), *modes],
+            capture_output=True,
+            timeout=20,
+        )
+        root.mkdir(parents=True, exist_ok=True)
+        (root / (output.name + ".stdout")).write_bytes(result.stdout)
+        (root / (output.name + ".stderr")).write_bytes(result.stderr)
+>       assert result.returncode == 2
+E       AssertionError: assert 0 == 2
+E        +  where 0 = CompletedProcess(args=['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k90/run_condition.py', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k85/green-v3-inputs', '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo2/invalid-full-extra', 'full', 'extra'], returncode=0, stdout=b'pytest: exit 0; evidence /private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo2/invalid-full-extra\n', stderr=b'').returncode
+
+experiments/exec-reliability/evidence/termination-cutoff-k90/test_runner_modes.py:25: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k90/mode-red-1/pytest.xml -
+=========================== short test summary info ============================
+FAILED experiments/exec-reliability/evidence/termination-cutoff-k90/test_runner_modes.py::test_runner_rejects_invalid_mode[modes0] - AssertionError: assert 0 == 2
+ +  where 0 = CompletedProcess(args=['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k90/run_condition.py', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k85/green-v3-inputs', '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo0/invalid-missing'], returncode=0, stdout=b'pytest: exit 0; evidence /private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo0/invalid-missing\n', stderr=b'').returncode
+FAILED experiments/exec-reliability/evidence/termination-cutoff-k90/test_runner_modes.py::test_runner_rejects_invalid_mode[modes1] - AssertionError: assert 0 == 2
+ +  where 0 = CompletedProcess(args=['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k90/run_condition.py', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k85/green-v3-inputs', '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo1/invalid-ful', 'ful'], returncode=0, stdout=b'pytest: exit 0; evidence /private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo1/invalid-ful\n', stderr=b'').returncode
+FAILED experiments/exec-reliability/evidence/termination-cutoff-k90/test_runner_modes.py::test_runner_rejects_invalid_mode[modes2] - AssertionError: assert 0 == 2
+ +  where 0 = CompletedProcess(args=['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k90/run_condition.py', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k85/green-v3-inputs', '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo2/invalid-full-extra', 'full', 'extra'], returncode=0, stdout=b'pytest: exit 0; evidence /private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-330/test_runner_rejects_invalid_mo2/invalid-full-extra\n', stderr=b'').returncode
+============================== 3 failed in 2.04s ===============================
