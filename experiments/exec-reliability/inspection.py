@@ -7,16 +7,16 @@ engine. Persistent worker scheduling remains a separate obligation.
 
 import ctypes
 import errno
+import fcntl
 import gc
 import os
 import select
 import signal
 import struct
-import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import TypedDict
+from typing import BinaryIO, TypedDict
 
 _TASK_INFO = struct.Struct("=6Q12i")
 
@@ -143,15 +143,95 @@ class HelperCapture:
     worker: dict[str, object] | None = None
 
 
-class _HelperProcess(subprocess.Popen[bytes]):
-    def __del__(self) -> None:
-        # CPython's destructor polls and registers live children for later
-        # implicit cleanup. Exact-PID ownership stays in _helper_owners instead.
-        # https://github.com/python/cpython/blob/3.12/Lib/subprocess.py
-        pass
+@dataclass
+class _HelperProcess:
+    pid: int
+    stdout: BinaryIO
+    stderr: BinaryIO
+    returncode: int | None = None
 
 
 _helper_owners: dict[int, _HelperProcess] = {}
+
+
+def _capture_pipe() -> tuple[int, int]:
+    # Keep pipe endpoints above stdio even when the parent closed 0, 1 or 2.
+    # https://docs.python.org/3.12/library/fcntl.html#fcntl.fcntl
+    descriptors = list(os.pipe())
+    try:
+        for index, fd in enumerate(descriptors):
+            if fd < 3:
+                descriptors[index] = fcntl.fcntl(fd, fcntl.F_DUPFD_CLOEXEC, 3)
+                os.close(fd)
+        os.set_blocking(descriptors[0], False)
+        return descriptors[0], descriptors[1]
+    except BaseException:
+        for fd in descriptors:
+            os.close(fd)
+        raise
+
+
+def _helper_child(argv: tuple[str, ...], stdout: int, stderr: int) -> None:
+    try:
+        # Both sources are above stdio; the copies survive exec. Reset closes
+        # every other inherited FD and reopens stdin on /dev/null.
+        # https://docs.python.org/3.12/library/os.html#os.dup2
+        os.dup2(stdout, 1)
+        os.dup2(stderr, 2)
+        reset_after_fork({1, 2})
+        # Reset reopens stdin with os.open, which defaults to close-on-exec.
+        # https://docs.python.org/3.12/library/os.html#os.set_inheritable
+        os.set_inheritable(0, True)
+        os.execvp(argv[0], argv)
+    finally:
+        # Reset/exec failures must never unwind into inherited Python cleanup.
+        # https://docs.python.org/3.12/library/os.html#os._exit
+        os._exit(70)
+
+
+def _spawn_helper(argv: tuple[str, ...], receipt: HelperCapture) -> _HelperProcess:
+    streams: list[BinaryIO] = []
+    writes: list[int] = []
+    owner: _HelperProcess | None = None
+    try:
+        for _ in range(2):
+            read, write = _capture_pipe()
+            writes.append(write)
+            try:
+                streams.append(os.fdopen(read, "rb", buffering=0))
+            except BaseException:
+                os.close(read)
+                raise
+        owner = _HelperProcess(0, streams[0], streams[1])
+        # Block delivery until the child has reset handlers and wakeup state.
+        # https://docs.python.org/3.12/library/signal.html#signal.pthread_sigmask
+        previous = signal.pthread_sigmask(signal.SIG_BLOCK, signal.valid_signals())
+        try:
+            pid = os.fork()
+            if pid == 0:
+                _helper_child(argv, writes[0], writes[1])
+                os._exit(70)
+            # Register before restoring signals or performing fallible cleanup.
+            owner.pid = pid
+            _helper_owners[pid] = owner
+            receipt.pid = pid
+            receipt.created_monotonic = time.monotonic()
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+        return owner
+    finally:
+        for fd in writes:
+            try:
+                os.close(fd)
+            except OSError as error:
+                receipt.close_errors.append(str(error))
+                receipt.error = receipt.error or f"helper pipe close failed: {error}"
+        if owner is None or owner.pid == 0:
+            for stream in streams:
+                try:
+                    stream.close()
+                except OSError as error:
+                    receipt.close_errors.append(str(error))
 
 
 def _reap_helper(process: _HelperProcess, receipt: HelperCapture) -> None:
@@ -178,7 +258,7 @@ def _reap_helper(process: _HelperProcess, receipt: HelperCapture) -> None:
 def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     """Cap both pipes and spend only the caller's fixed allowance on reap waits.
 
-    Popen creation is synchronous. A late return still gets exact-child KILL
+    Fork creation is synchronous. A late return still gets exact-child KILL
     and a final nonblocking observation, without a new wait allowance. Scheduler
     lateness is recorded as failure. The live controller invokes this engine
     inside worker_capture's per-query child, whose parent bounds its own waits.
@@ -202,20 +282,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     process: _HelperProcess | None = None
     output = [bytearray(), bytearray()]
     try:
-        # No context manager, communicate(), wait() or Popen.kill() (which polls).
-        # https://docs.python.org/3.12/library/subprocess.html#subprocess.Popen
-        process = _HelperProcess(
-            argv,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            close_fds=True,
-            bufsize=0,
-        )
-        _helper_owners[process.pid] = process
-        receipt.pid = process.pid
-        receipt.created_monotonic = time.monotonic()
-        assert process.stdout is not None and process.stderr is not None
+        process = _spawn_helper(argv, receipt)
         streams = {process.stdout.fileno(): 0, process.stderr.fileno(): 1}
         for fd in streams:
             os.set_blocking(fd, False)
@@ -252,6 +319,9 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
             receipt.error_errno = error.errno
     finally:
         receipt.stdout, receipt.stderr = bytes(output[0]), bytes(output[1])
+        if process is None and receipt.pid is not None:
+            # A parent-side failure after fork still owns this exact child.
+            process = _helper_owners.get(receipt.pid)
         if process is not None:
             # Only an unreaped child with retained wait ownership pins the PID.
             # A wait error closes signal authority even though the owner remains.
@@ -263,12 +333,11 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     receipt.kill_errno = error.errno
                     receipt.error = receipt.error or f"helper KILL failed: {error}"
             for stream in (process.stdout, process.stderr):
-                if stream is not None:
-                    try:
-                        stream.close()
-                    except (OSError, ValueError) as error:
-                        receipt.close_errors.append(str(error))
-                        receipt.error = receipt.error or f"helper pipe close failed: {error}"
+                try:
+                    stream.close()
+                except (OSError, ValueError) as error:
+                    receipt.close_errors.append(str(error))
+                    receipt.error = receipt.error or f"helper pipe close failed: {error}"
             while not receipt.reaped and receipt.reap_errno is None and time.monotonic() < deadline:
                 _reap_helper(process, receipt)
                 if not receipt.reaped:

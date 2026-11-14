@@ -96,7 +96,23 @@ def test_review_admission_rejects_live_python_thread_before_acquisition(tmp_path
     assert not thread.is_alive()
 
 
-def retain_helper_control(tmp_path, condition, capture):
+def reconcile_helper(pid):
+    # Independent test-fixture cleanup: establish exact-child ownership before
+    # any signal. Never signal a PID after ECHILD or after observing its exit.
+    for attempt in range(200):
+        try:
+            waited, _status = os.waitpid(pid, os.WNOHANG)
+        except ChildProcessError:
+            return
+        if waited == pid:
+            return
+        if attempt == 0:
+            os.kill(pid, signal.SIGKILL)
+        time.sleep(0.005)
+    raise AssertionError(f"test fixture could not reap helper {pid}")
+
+
+def retain_helper_control(tmp_path, condition, capture, observations=None):
     from dataclasses import asdict
 
     root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
@@ -104,7 +120,9 @@ def retain_helper_control(tmp_path, condition, capture):
     receipt = asdict(capture)
     receipt.update(stdout=capture.stdout.hex(), stderr=capture.stderr.hex())
     (root / f"helper-{condition}-{uuid.uuid4().hex}.json").write_text(
-        json.dumps({"condition": condition, "capture": receipt}, indent=2)
+        json.dumps(
+            {"condition": condition, "capture": receipt, "observations": observations}, indent=2
+        )
     )
 
 
@@ -112,7 +130,7 @@ def retain_helper_control(tmp_path, condition, capture):
 def test_review_helper_close_error_preserves_receipt_and_reaps(tmp_path, monkeypatch, failed_pipe):
     import inspection
 
-    original_process = inspection._HelperProcess
+    original_process = inspection._spawn_helper
     created = []
 
     class FaultedClose:
@@ -132,7 +150,7 @@ def test_review_helper_close_error_preserves_receipt_and_reaps(tmp_path, monkeyp
         setattr(process, failed_pipe, FaultedClose(getattr(process, failed_pipe)))
         return process
 
-    monkeypatch.setattr(inspection, "_HelperProcess", create)
+    monkeypatch.setattr(inspection, "_spawn_helper", create)
     try:
         capture = inspection.capture_helper(
             (sys.executable, "-c", "import time; time.sleep(10)"), time.monotonic() + 0.3
@@ -148,7 +166,7 @@ def test_review_helper_close_error_preserves_receipt_and_reaps(tmp_path, monkeyp
     finally:
         # Independent cleanup also runs when the old implementation raises.
         for process in created:
-            process.wait(timeout=1)
+            reconcile_helper(process.pid)
             for stream in (process.stdout, process.stderr):
                 (stream.stream if isinstance(stream, FaultedClose) else stream).close()
             inspection._helper_owners.pop(process.pid, None)
@@ -169,9 +187,12 @@ def test_review_helper_last_sleep_gets_final_nonblocking_observation(tmp_path, m
         returncode=None,
     )
 
-    def create(*_args, **_kwargs):
+    def create(_argv, receipt):
         nonlocal now
         now = 100.99
+        inspection._helper_owners[process.pid] = process
+        receipt.pid = process.pid
+        receipt.created_monotonic = now
         return process
 
     def waitpid(pid, flags):
@@ -183,7 +204,7 @@ def test_review_helper_last_sleep_gets_final_nonblocking_observation(tmp_path, m
         nonlocal now
         now += seconds
 
-    monkeypatch.setattr(inspection, "_HelperProcess", create)
+    monkeypatch.setattr(inspection, "_spawn_helper", create)
     monkeypatch.setattr(inspection, "time", SimpleNamespace(monotonic=lambda: now, sleep=sleep))
     monkeypatch.setattr(os, "waitpid", waitpid)
     monkeypatch.setattr(os, "kill", lambda pid, sig: None)
@@ -204,16 +225,16 @@ def test_review_helper_late_creation_signals_pinned_child_without_new_allowance(
 ):
     import inspection
 
-    original_process = inspection._HelperProcess
+    original_process = inspection._spawn_helper
     created = []
 
     def late_create(*args, **kwargs):
+        time.sleep(0.1)
         process = original_process(*args, **kwargs)
         created.append(process)
-        time.sleep(0.1)
         return process
 
-    monkeypatch.setattr(inspection, "_HelperProcess", late_create)
+    monkeypatch.setattr(inspection, "_spawn_helper", late_create)
     deadline = time.monotonic() + 0.05
     try:
         capture = inspection.capture_helper(
@@ -231,7 +252,7 @@ def test_review_helper_late_creation_signals_pinned_child_without_new_allowance(
         for process in created:
             if process.pid in inspection._helper_owners:
                 os.kill(process.pid, signal.SIGKILL)
-            process.wait(timeout=1)
+            reconcile_helper(process.pid)
             inspection._helper_owners.pop(process.pid, None)
 
 
@@ -566,14 +587,16 @@ def test_review_helper_residual_ownership_never_uses_blocking_wait(tmp_path, mon
         raise AssertionError("helper used implicit blocking wait or destructor poll")
 
     monkeypatch.setattr(os, "waitpid", unreapable)
-    monkeypatch.setattr(inspection._HelperProcess, "wait", forbidden)
-    monkeypatch.setattr(inspection._HelperProcess, "_internal_poll", forbidden)
+    import subprocess
+
+    monkeypatch.setattr(subprocess.Popen, "__init__", forbidden)
     capture = inspection.capture_helper((sys.executable, "-c", "pass"), time.monotonic() + 0.2)
     assert capture.reaped is False
     assert capture.pid in inspection._helper_owners
     assert waited and set(waited) == {capture.pid}
     owner = inspection._helper_owners[capture.pid]
-    owner.__del__()
+    assert not isinstance(owner, subprocess.Popen)
+    assert not hasattr(owner, "__del__")
     # Independent fixture reconciliation after simulated non-observation; the
     # production owner made no blocking wait, retry or post-cutoff signal.
     pid, status = original_waitpid(capture.pid, 0)
@@ -606,7 +629,7 @@ def test_review_helper_admission_rejects_before_creation(monkeypatch):
     thread = threading.Thread(target=release.wait)
     thread.start()
     try:
-        monkeypatch.setattr(inspection, "_HelperProcess", forbidden)
+        monkeypatch.setattr(inspection, "_spawn_helper", forbidden)
         capture = inspection.capture_helper(("/bin/ps",), time.monotonic() + 0.5)
         assert capture.pid is None
         assert capture.admission["reason"] == "python_threads"
@@ -614,3 +637,226 @@ def test_review_helper_admission_rejects_before_creation(monkeypatch):
     finally:
         release.set()
         thread.join(timeout=1)
+
+
+def test_review_raw_helper_resets_before_exec(tmp_path, monkeypatch):
+    import atexit
+    import gc
+
+    import inspection
+
+    marker = tmp_path / "preexec.json"
+    evidence = (tmp_path / "evidence").open("wb")
+    read_fd, write_fd = os.pipe()
+    os.set_blocking(write_fd, False)
+    old_handler = signal.signal(signal.SIGUSR1, lambda *_args: evidence.write(b"inherited"))
+    old_wakeup = signal.set_wakeup_fd(write_fd)
+    old_mask = signal.pthread_sigmask(signal.SIG_BLOCK, {signal.SIGUSR1})
+    old_exec = os.execv
+    parent = os.getpid()
+
+    def inherited_exit():
+        (tmp_path / "exit-hook").write_text("inherited")
+
+    def checked_exec(file, argv):
+        # These observations occur inside the actual raw helper, before exec.
+        state = {
+            "pid": os.getpid(),
+            "ppid": os.getppid(),
+            "pgid": os.getpgrp(),
+            "sid": os.getsid(0),
+            "usr1_default": signal.getsignal(signal.SIGUSR1) == signal.SIG_DFL,
+            "int_default": signal.getsignal(signal.SIGINT) == signal.SIG_DFL,
+            "pipe_default": signal.getsignal(signal.SIGPIPE) == signal.SIG_DFL,
+            "mask": list(signal.pthread_sigmask(signal.SIG_BLOCK, set())),
+            "wakeup": signal.set_wakeup_fd(-1),
+            "gc_disabled": not gc.isenabled(),
+            "owners": list(inspection._helper_owners),
+            "stdio_inheritable": [os.get_inheritable(fd) for fd in (0, 1, 2)],
+        }
+        for name, fd in (("evidence_closed", evidence.fileno()), ("wakeup_closed", write_fd)):
+            try:
+                os.fstat(fd)
+                state[name] = False
+            except OSError as error:
+                state[name] = error.errno == errno.EBADF
+        marker.write_text(json.dumps(state))
+        old_exec(file, argv)
+
+    atexit.register(inherited_exit)
+    monkeypatch.setattr(os, "execv", checked_exec)
+    try:
+        capture = inspection.capture_helper(
+            (sys.executable, "-c", "print('raw-helper-ok')"), time.monotonic() + 1
+        )
+        retain_helper_control(
+            tmp_path,
+            "raw-helper-reset-real-preexec-observation",
+            capture,
+            json.loads(marker.read_text()) if marker.exists() else None,
+        )
+        assert marker.exists(), "helper did not pass through the explicit raw exec boundary"
+        state = json.loads(marker.read_text())
+        assert state["pid"] == state["pgid"] == state["sid"] == capture.pid
+        assert state["ppid"] == parent
+        assert all(
+            state[key]
+            for key in (
+                "usr1_default",
+                "int_default",
+                "pipe_default",
+                "gc_disabled",
+                "evidence_closed",
+                "wakeup_closed",
+            )
+        )
+        assert state["mask"] == state["owners"] == []
+        assert state["stdio_inheritable"] == [True, True, True]
+        assert state["wakeup"] == -1
+        assert capture.reaped and capture.returncode == 0 and capture.error is None
+        assert capture.stdout == b"raw-helper-ok\n" and capture.stderr == b""
+        assert not (tmp_path / "exit-hook").exists()
+        assert evidence.tell() == 0
+        assert signal.getsignal(signal.SIGUSR1) == old_handler or callable(
+            signal.getsignal(signal.SIGUSR1)
+        )
+        assert signal.pthread_sigmask(signal.SIG_BLOCK, set()) == old_mask | {signal.SIGUSR1}
+    finally:
+        atexit.unregister(inherited_exit)
+        signal.pthread_sigmask(signal.SIG_SETMASK, old_mask)
+        signal.signal(signal.SIGUSR1, old_handler)
+        signal.set_wakeup_fd(old_wakeup)
+        evidence.close()
+        os.close(read_fd)
+        os.close(write_fd)
+
+
+@pytest.mark.parametrize("failure", ["reset", "exec", "pending-signal"])
+def test_review_raw_helper_child_failure_uses_exit_without_hooks(tmp_path, monkeypatch, failure):
+    import atexit
+
+    import inspection
+
+    hook_marker = tmp_path / "hook"
+    reset_marker = tmp_path / "reset.json"
+    original = inspection.reset_after_fork
+
+    def inherited_exit():
+        hook_marker.write_text("exit")
+
+    old_handler = signal.signal(signal.SIGUSR1, lambda *_args: hook_marker.write_text("handler"))
+
+    def checked_reset(allowed):
+        mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+        reset_marker.write_text(json.dumps({"pid": os.getpid(), "mask": sorted(mask)}))
+        if failure == "reset":
+            raise OSError(errno.EIO, "injected reset failure")
+        if failure == "pending-signal":
+            os.kill(os.getpid(), signal.SIGUSR1)
+        original(allowed)
+
+    monkeypatch.setattr(inspection, "reset_after_fork", checked_reset)
+    atexit.register(inherited_exit)
+    try:
+        argv = (
+            (str(tmp_path / "missing-executable"),)
+            if failure == "exec"
+            else (
+                sys.executable,
+                "-c",
+                "raise SystemExit('unexpected exec')",
+            )
+        )
+        capture = inspection.capture_helper(argv, time.monotonic() + 1)
+        retain_helper_control(
+            tmp_path,
+            f"raw-helper-{failure}-real-child",
+            capture,
+            json.loads(reset_marker.read_text()) if reset_marker.exists() else None,
+        )
+        assert reset_marker.exists(), "helper bypassed reset"
+        state = json.loads(reset_marker.read_text())
+        assert state["pid"] == capture.pid
+        assert {signal.SIGUSR1, signal.SIGTERM} <= set(state["mask"])
+        assert capture.reaped
+        assert capture.returncode == (-signal.SIGUSR1 if failure == "pending-signal" else 70)
+        assert not hook_marker.exists()
+        assert capture.stderr == b""
+    finally:
+        atexit.unregister(inherited_exit)
+        signal.signal(signal.SIGUSR1, old_handler)
+
+
+@pytest.mark.parametrize("failure", ["fork", "parent-mask-restore"])
+def test_review_raw_helper_parent_failure_keeps_ownership(tmp_path, monkeypatch, failure):
+    import inspection
+
+    previous = signal.pthread_sigmask(signal.SIG_BLOCK, set())
+    original_mask = signal.pthread_sigmask
+    raised = False
+    before = set(os.listdir("/dev/fd"))
+
+    def refused_fork():
+        raise OSError(errno.EAGAIN, "injected fork refusal; not kernel resource-pressure proof")
+
+    def failed_restore(how, mask):
+        nonlocal raised
+        if how == signal.SIG_SETMASK and os.getpid() == parent and not raised:
+            raised = True
+            raise OSError(errno.EIO, "injected parent mask restore failure")
+        return original_mask(how, mask)
+
+    parent = os.getpid()
+    if failure == "fork":
+        monkeypatch.setattr(os, "fork", refused_fork)
+    else:
+        monkeypatch.setattr(signal, "pthread_sigmask", failed_restore)
+    try:
+        capture = inspection.capture_helper(("/bin/sleep", "10"), time.monotonic() + 0.5)
+        retain_helper_control(tmp_path, f"raw-helper-{failure}-error-adapter", capture)
+        assert capture.error
+        assert capture.error_errno == (errno.EAGAIN if failure == "fork" else errno.EIO)
+        if failure == "fork":
+            assert capture.pid is None
+            assert capture.created_monotonic is None
+        else:
+            assert raised
+            assert capture.pid is not None
+            assert capture.reaped and capture.returncode == -signal.SIGKILL
+            assert capture.pid not in inspection._helper_owners
+        assert set(os.listdir("/dev/fd")) == before
+    finally:
+        original_mask(signal.SIG_SETMASK, previous)
+
+
+def test_review_raw_helper_accepts_closed_standard_descriptors(tmp_path):
+    import subprocess
+
+    marker = tmp_path / "closed-stdio.json"
+    source = """
+import json, os, sys, time
+from dataclasses import asdict
+from pathlib import Path
+import inspection
+for fd in (0, 1, 2):
+    os.close(fd)
+capture = inspection.capture_helper((sys.executable, '-c',
+    'import os; assert os.read(0,1)==b""; os.write(1,b"out"); os.write(2,b"err")'),
+    time.monotonic() + 1)
+result = asdict(capture)
+result.update(stdout=capture.stdout.hex(), stderr=capture.stderr.hex())
+Path(sys.argv[1]).write_text(json.dumps(result))
+os._exit(0)
+"""
+    completed = subprocess.run(
+        (sys.executable, "-c", source, str(marker)), cwd=HERE, timeout=3, check=False
+    )
+    assert completed.returncode == 0
+    result = json.loads(marker.read_text())
+    assert result["reaped"] and result["returncode"] == 0 and result["error"] is None
+    assert result["stdout"] == b"out".hex() and result["stderr"] == b"err".hex()
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
+    (root / f"helper-raw-closed-stdio-{uuid.uuid4().hex}.json").write_text(
+        json.dumps(result, indent=2)
+    )

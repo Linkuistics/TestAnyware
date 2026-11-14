@@ -35,3 +35,5 @@ Read its review and any reconciliation before changing the ownership boundary.
 ## Notes
 k21 retained-file integrity and k18 stalled-storage isolation remain live; the
 historical ten-clone acceptance remains 0/10 unavailable.
+
+- 2026-11-14: k62 narrowed to raw helper fork/reset and explicit local ownership; complete-worker-scheduler-k64 carries its full unchanged aggregate runtime/controls contract. This flat split adds no context layer and closes no aggregate requirement.

@@ -405,7 +405,7 @@ def test_review_worker_bounds_real_delayed_helper_creation(tmp_path, monkeypatch
         time.sleep(10)
         raise AssertionError("delayed creation escaped worker termination")
 
-    monkeypatch.setattr(inspection, "_HelperProcess", delayed)
+    monkeypatch.setattr(inspection, "_spawn_helper", delayed)
     started = time.monotonic()
     receipt = capture_helper(("/bin/ps", "-p", str(os.getpid())), started + 0.5)
     retain(tmp_path, "delayed-creation", receipt)
@@ -431,7 +431,7 @@ def test_review_worker_bounds_real_delayed_helper_creation(tmp_path, monkeypatch
 def test_review_worker_resets_handlers_masks_wakeup_and_evidence_fd(tmp_path, monkeypatch):
     from worker_capture import capture_helper
 
-    original = inspection._HelperProcess
+    original = inspection._spawn_helper
     marker = tmp_path / "child.json"
     evidence = (tmp_path / "parent-evidence").open("wb")
     read_fd, write_fd = os.pipe()
@@ -461,7 +461,7 @@ def test_review_worker_resets_handlers_masks_wakeup_and_evidence_fd(tmp_path, mo
         marker.write_text(json.dumps(state))
         return original(*args, **kwargs)
 
-    monkeypatch.setattr(inspection, "_HelperProcess", checked)
+    monkeypatch.setattr(inspection, "_spawn_helper", checked)
     try:
         receipt = capture_helper((sys.executable, "-c", "print('worker-ok')"), time.monotonic() + 1)
         retain(tmp_path, "reset", receipt)
@@ -937,10 +937,8 @@ def test_review_worker_retains_timing_for_real_killed_helper(tmp_path):
     )
 
 
-@pytest.mark.parametrize("mode", ["early-exit", "spawn-failure"])
+@pytest.mark.parametrize("mode", ["early-exit", "exec-failure"])
 def test_review_worker_accepts_genuine_terminal_receipts(tmp_path, mode):
-    import errno
-
     from worker_capture import capture_helper
 
     # /usr/bin/false exits immediately; the other path is absent in a new fixture.
@@ -952,13 +950,9 @@ def test_review_worker_accepts_genuine_terminal_receipts(tmp_path, mode):
     times = worker["published_times"]
     assert times is not None
     assert times["kill_monotonic"] is None
-    if mode == "early-exit":
-        assert receipt.error is None
-        assert receipt.returncode == 1 and receipt.reaped
-        assert receipt.pid is not None and times["created_monotonic"] is not None
-        assert times["reaped_monotonic"] is not None
-    else:
-        assert receipt.error_errno == errno.ENOENT
-        assert receipt.error and not receipt.error.startswith("worker capture failed:")
-        assert receipt.pid is None and times["created_monotonic"] is None
-        assert not receipt.reaped and times["reaped_monotonic"] is None
+    # Raw fork returns a known child; failed exec uses its explicit _exit(70).
+    # No child-error channel exists yet, so this does not claim an exec errno.
+    assert receipt.error is None and receipt.error_errno is None
+    assert receipt.returncode == (1 if mode == "early-exit" else 70) and receipt.reaped
+    assert receipt.pid is not None and times["created_monotonic"] is not None
+    assert times["reaped_monotonic"] is not None

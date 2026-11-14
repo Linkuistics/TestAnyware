@@ -1,0 +1,133 @@
+{
+  "name": "denied",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py",
+    "hang"
+  ],
+  "budget": 0.2,
+  "started_monotonic": 276109.034229875,
+  "wall_start_ns": 1794658828937802000,
+  "reason": "deadline",
+  "returncode": -9,
+  "reaped": true,
+  "ok": false,
+  "signals": [
+    {
+      "signal": "TERM",
+      "scope": "group",
+      "target": 9060,
+      "monotonic": 276109.236417291,
+      "outcome": "permission_unknown",
+      "errno": 1,
+      "error": "[Errno 1] forced live permission failure",
+      "finished_monotonic": 276109.236473583
+    },
+    {
+      "signal": "KILL",
+      "scope": "group",
+      "target": 9060,
+      "monotonic": 276109.386492041,
+      "outcome": "sent",
+      "finished_monotonic": 276109.386512
+    }
+  ],
+  "pid": 9060,
+  "pgid": 9060,
+  "signal_scope": "group",
+  "group_observations": [
+    {
+      "started_monotonic": 276109.393250583,
+      "finished_monotonic": 276109.406767208,
+      "query_attempted": true,
+      "helper": {
+        "stdout": "2039303630202039303630205a2020200a",
+        "stderr": "",
+        "returncode": 0,
+        "pid": 9072,
+        "argv": [
+          "/bin/ps",
+          "-g",
+          "9060",
+          "-o",
+          "pid=,pgid=,stat="
+        ],
+        "admission": {
+          "ok": true,
+          "reason": "ready",
+          "python_threads": 1,
+          "native_threads": 1,
+          "sigchld": "SIG_DFL",
+          "native_sigchld": "SIG_DFL",
+          "error": null,
+          "errno": null
+        },
+        "started_monotonic": 276109.395863375,
+        "created_monotonic": 276109.396491125,
+        "capture_deadline_monotonic": 276109.51995749975,
+        "deadline_monotonic": 276109.611322208,
+        "finished_monotonic": 276109.40662625,
+        "kill_monotonic": null,
+        "kill_errno": null,
+        "reaped": true,
+        "reaped_monotonic": 276109.405163541,
+        "reap_errno": null,
+        "ownership_lost": false,
+        "close_errors": [],
+        "error": null,
+        "error_errno": null,
+        "residual_remedy": null,
+        "worker": {
+          "pid": 9071,
+          "ready": true,
+          "reaped": true,
+          "ownership_lost": false,
+          "returncode": 0,
+          "signals": [],
+          "reap_errno": null,
+          "intent": true,
+          "unknown_helper_creation": false,
+          "signal_scope": "group",
+          "dispatch_monotonic": 276109.393609833,
+          "receipt_monotonic": 276109.406214166,
+          "published_times": {
+            "started_monotonic": 276109.395863375,
+            "created_monotonic": 276109.396491125,
+            "capture_deadline_monotonic": 276109.51995749975,
+            "deadline_monotonic": 276109.561322208,
+            "finished_monotonic": 276109.405209875,
+            "kill_monotonic": null,
+            "reaped_monotonic": 276109.405163541
+          },
+          "query_deadline_monotonic": 276109.561322208,
+          "shutdown_deadline_monotonic": 276109.611322208,
+          "reserve_seconds": 0.05
+        }
+      },
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 9060,
+          "pgid": 9060,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "2039303630202039303630205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "term_deadline_monotonic": 276109.38632220804,
+  "kill_reap_deadline_monotonic": 276109.686322208,
+  "inspection_deadline_monotonic": 276109.611322208,
+  "leader_exit_monotonic": 276109.393237458,
+  "termination_ok": false,
+  "authority_closed_monotonic": 276109.406788166,
+  "reap_deadline_monotonic": 276109.686322208,
+  "within_process_bounds": true,
+  "reaped_monotonic": 276109.406793583,
+  "elapsed": 0.37266854097833857
+}
