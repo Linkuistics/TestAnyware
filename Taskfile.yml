@@ -595,3 +595,11 @@ tasks:
       vars: [TAG]
     cmds:
       - scripts/release-publish.sh {{.TAG}}
+
+  diagnostic:persistent-worker-check:
+    desc: Retain frozen persistent worker lifecycle controls or the full suite
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/persistent-worker-k94/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'

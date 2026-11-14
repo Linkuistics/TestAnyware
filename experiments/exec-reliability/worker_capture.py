@@ -1,8 +1,10 @@
-"""Interim per-query worker: isolate helper creation from the controller.
+"""Persistent and standalone workers with gated helper creation publication.
 
-Helpers are gated by creation publication. Persistent startup and shared
-scheduling remain open. Interrupted unpublished creation is never absence.
+Controller runs reuse one direct child. Shared scheduling remains open;
+interrupted unpublished creation is never absence.
 """
+
+from __future__ import annotations
 
 import errno
 import json
@@ -93,6 +95,28 @@ def _write(fd: int, data: bytes, deadline: float) -> None:
             data = data[count:]
 
 
+def _publish(control: int, result: int, token: str, argv: tuple[str, ...], deadline: float) -> None:
+    _write(control, b"intent\n", deadline)
+
+    def publish_created(identity: inspection.HelperIdentity) -> None:
+        message = {**identity, "token": token, "deadline_monotonic": deadline}
+        _write(control, json.dumps(message, allow_nan=False).encode() + b"\n", deadline)
+
+    def publish_fork_error(failure: inspection.ForkFailure) -> None:
+        message = {**failure, "token": token, "deadline_monotonic": deadline}
+        _write(control, json.dumps(message, allow_nan=False).encode() + b"\n", deadline)
+
+    capture = inspection.capture_helper(
+        argv, deadline, publish_created=publish_created, publish_fork_error=publish_fork_error
+    )
+    body = asdict(capture)
+    body.update(stdout=capture.stdout.hex(), stderr=capture.stderr.hex(), token=token)
+    payload = json.dumps(body, allow_nan=False).encode()
+    if len(payload) > FRAME_CAP:
+        raise ValueError("worker frame cap exceeded")
+    _write(result, HEADER.pack(len(payload)) + payload, deadline)
+
+
 def _child(control: int, result: int, token: str, argv: tuple[str, ...], deadline: float) -> None:
     # Never unwind this fork into inherited atexit hooks, owners or destructors.
     # https://docs.python.org/3.12/library/os.html#os._exit
@@ -104,28 +128,225 @@ def _child(control: int, result: int, token: str, argv: tuple[str, ...], deadlin
         inspection.reset_after_fork({control, result})
         ready = {"token": token, "pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
         _write(control, json.dumps(ready).encode() + b"\n", deadline)
-        _write(control, b"intent\n", deadline)
-
-        def publish_created(identity: inspection.HelperIdentity) -> None:
-            message = {**identity, "token": token, "deadline_monotonic": deadline}
-            _write(control, json.dumps(message, allow_nan=False).encode() + b"\n", deadline)
-
-        def publish_fork_error(failure: inspection.ForkFailure) -> None:
-            message = {**failure, "token": token, "deadline_monotonic": deadline}
-            _write(control, json.dumps(message, allow_nan=False).encode() + b"\n", deadline)
-
-        capture = inspection.capture_helper(
-            argv, deadline, publish_created=publish_created, publish_fork_error=publish_fork_error
-        )
-        body = asdict(capture)
-        body.update(stdout=capture.stdout.hex(), stderr=capture.stderr.hex(), token=token)
-        payload = json.dumps(body, allow_nan=False).encode()
-        if len(payload) > FRAME_CAP:
-            raise ValueError("worker frame cap exceeded")
-        _write(result, HEADER.pack(len(payload)) + payload, deadline)
+        _publish(control, result, token, argv, deadline)
         os._exit(0)
     except BaseException:
         os._exit(70)
+
+
+def _service(command: int, control: int, result: int, session: str, deadline: float) -> None:
+    """Reset once, then handle one admitted request at a time without an ACK."""
+    try:
+        global _owners, _helper_obligations
+        _owners, _helper_obligations = {}, {}
+        inspection.reset_after_fork({command, control, result})
+        identity = {
+            "session": session,
+            "pid": os.getpid(),
+            "pgid": os.getpgrp(),
+            "sid": os.getsid(0),
+        }
+        _write(control, json.dumps(identity).encode() + b"\n", deadline)
+        pending = bytearray()
+        while True:
+            readable, _, _ = select.select([command], [], [], 0.05)
+            if not readable:
+                continue
+            chunk = os.read(command, 4097 - len(pending))
+            if not chunk:
+                if pending:
+                    raise ValueError("partial worker command at close")
+                os._exit(0)
+            pending.extend(chunk)
+            if len(pending) > 4096:
+                raise ValueError("worker command cap exceeded")
+            if b"\n" not in pending:
+                continue
+            line, _, tail = pending.partition(b"\n")
+            if tail:
+                raise ValueError("queued worker commands forbidden")
+            pending.clear()
+            request = _load_json(line)
+            if not isinstance(request, dict):
+                raise ValueError("invalid worker command")
+            raw = cast(dict[str, object], request)
+            if set(raw) != {"session", "token", "argv", "deadline"} or raw["session"] != session:
+                raise ValueError("worker command session mismatch")
+            token, argv, end = raw["token"], raw["argv"], raw["deadline"]
+            if (
+                not isinstance(token, str)
+                or not token
+                or not isinstance(argv, list)
+                or not argv
+                or not all(
+                    isinstance(arg, str) and arg and "\x00" not in arg
+                    for arg in cast(list[object], argv)
+                )
+                or type(end) not in (int, float)
+            ):
+                raise ValueError("invalid worker command values")
+            end = cast(float, end)
+            if not time.monotonic() < end < float("inf"):
+                raise ValueError("worker command deadline exhausted")
+            ready = {"token": token, "pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
+            _write(control, json.dumps(ready).encode() + b"\n", end)
+            _publish(control, result, token, tuple(cast(list[str], argv)), end)
+            _write(control, json.dumps({"complete": token}).encode() + b"\n", end)
+    except BaseException:
+        os._exit(70)
+
+
+@dataclass
+class Worker:
+    """One controller-owned session. Failure and retirement never permit restart."""
+
+    session_token: str = field(default_factory=lambda: uuid.uuid4().hex)
+    owner: _Owner | None = None
+    failure: str | None = None
+    channels: list[int] = field(default_factory=list[int])
+    command: int | None = None
+    control: int | None = None
+    result: int | None = None
+    started: bool = False
+    closed: bool = False
+    admission: ForkAdmission | None = None
+    startup_started: float | None = None
+    startup_finished: float | None = None
+    shutdown_started: float | None = None
+    shutdown_finished: float | None = None
+    kill_at: float | None = None
+
+    def start(self) -> bool:
+        if self.started or self.closed or self.failure is not None:
+            return self.started and not self.closed and self.failure is None
+        self.startup_started = time.monotonic()
+        deadline = self.startup_started + 1.0
+        try:
+            self.admission = inspection.fork_admission()
+            if not self.admission["ok"]:
+                raise ValueError(f"worker startup admission rejected: {self.admission['reason']}")
+            for _ in range(3):
+                pair = inspection.capture_pipe()
+                self.channels.extend(pair)
+            command_read, command_write, control_read, control_write, result_read, result_write = (
+                self.channels
+            )
+            blocked = signal.valid_signals() - {signal.SIGKILL, signal.SIGSTOP}
+            previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
+            try:
+                self.admission = inspection.fork_admission()
+                if not self.admission["ok"]:
+                    raise ValueError(
+                        f"worker startup admission rejected: {self.admission['reason']}"
+                    )
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("worker startup deadline exhausted before fork")
+                # https://docs.python.org/3.12/library/os.html#os.fork
+                pid = os.fork()
+                if pid == 0:
+                    _service(
+                        command_read, control_write, result_write, self.session_token, deadline
+                    )
+                    os._exit(71)
+                self.owner = _Owner(pid, float("inf"))
+                _owners[pid] = self.owner
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+            for fd in (command_read, control_write, result_write):
+                os.close(fd)
+                self.channels.remove(fd)
+            self.command, self.control, self.result = command_write, control_read, result_read
+            pending = bytearray()
+            while time.monotonic() < deadline:
+                ready, _, _ = select.select(
+                    [control_read], [], [], min(0.005, max(0, deadline - time.monotonic()))
+                )
+                if not ready:
+                    continue
+                chunk = os.read(control_read, 4097 - len(pending))
+                pending.extend(chunk)
+                if not chunk or len(pending) > 4096:
+                    raise ValueError("invalid worker startup frame")
+                if b"\n" in pending:
+                    line, _, tail = pending.partition(b"\n")
+                    if tail or _load_json(line) != {
+                        "session": self.session_token,
+                        "pid": pid,
+                        "pgid": pid,
+                        "sid": pid,
+                    }:
+                        raise ValueError("invalid worker startup identity")
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("late worker readiness")
+                    self.owner.ready = True
+                    self.started = True
+                    return True
+            raise TimeoutError("worker readiness deadline exhausted")
+        except (OSError, ValueError) as error:
+            self.failure = str(error)
+            self.close()
+            return False
+        finally:
+            self.startup_finished = time.monotonic()
+
+    def close(self) -> None:
+        if self.closed:
+            return
+        self.closed = True
+        self.shutdown_started = time.monotonic()
+        owner = self.owner
+        if owner is not None:
+            # A request failure may already have fixed an earlier deadline.
+            owner.shutdown_deadline_monotonic = min(
+                owner.shutdown_deadline_monotonic, self.shutdown_started + 4
+            )
+            self.kill_at = min(owner.shutdown_deadline_monotonic, self.shutdown_started + 2)
+        if self.command is not None and self.command in self.channels:
+            try:
+                os.close(self.command)
+            except OSError as error:
+                self.failure = self.failure or f"worker command close failed: {error}"
+            self.channels.remove(self.command)
+        if owner is not None:
+            if self.failure:
+                _signal(owner, signal.SIGTERM)
+            while time.monotonic() < owner.shutdown_deadline_monotonic:
+                _reap(owner)
+                if owner.reaped or owner.reap_errno is not None:
+                    break
+                if time.monotonic() >= cast(float, self.kill_at):
+                    _signal(owner, signal.SIGKILL)
+                    self.kill_at = float("inf")
+                time.sleep(min(0.001, max(0, owner.shutdown_deadline_monotonic - time.monotonic())))
+            _reap(owner)
+            if not owner.reaped or owner.returncode != 0:
+                self.failure = self.failure or "worker close did not return cleanly"
+        for fd in self.channels:
+            try:
+                os.close(fd)
+            except OSError as error:
+                self.failure = self.failure or f"worker channel close failed: {error}"
+        self.channels.clear()
+        self.shutdown_finished = time.monotonic()
+
+    def evidence(self) -> dict[str, object]:
+        return {
+            "session_token": self.session_token,
+            "owner": asdict(self.owner) if self.owner else None,
+            "failure": self.failure,
+            "admission": self.admission,
+            "startup_started_monotonic": self.startup_started,
+            "startup_finished_monotonic": self.startup_finished,
+            "shutdown_started_monotonic": self.shutdown_started,
+            "shutdown_finished_monotonic": self.shutdown_finished,
+            "closed": self.closed,
+            "residual_remedy": (
+                "Retained exact worker child requires independent identity reconciliation and "
+                "reap. Shutdown authority is closed; no replacement or later runtime signals."
+                if self.closed and self.owner is not None and not self.owner.reaped
+                else None
+            ),
+        }
 
 
 def _load_json(payload: bytes | bytearray) -> object:
@@ -367,7 +588,9 @@ def _decode(
     return receipt
 
 
-def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
+def capture_helper(
+    argv: tuple[str, ...], deadline: float, *, worker: Worker | None = None
+) -> HelperCapture:
     """Bound parent waiting even when the worker's helper creation never returns.
 
     The raw worker fork is admitted, but remains a synchronous OS operation.
@@ -377,10 +600,29 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     reserve = min(0.05, max(0, deadline - started) / 4)
     query_deadline = deadline - reserve
     receipt = HelperCapture(argv=argv, started_monotonic=started, deadline_monotonic=deadline)
-    admission: ForkAdmission = inspection.fork_admission()
+    admission: ForkAdmission | None = (
+        inspection.fork_admission() if worker is None else worker.admission
+    )
     receipt.admission = admission
-    if not admission["ok"] or time.monotonic() >= query_deadline:
-        receipt.error = f"worker not started: {admission['reason']} or exhausted allowance"
+    if worker is not None and (not worker.started or worker.closed or worker.failure is not None):
+        receipt.error = f"persistent worker unavailable: {worker.failure or 'not running'}"
+        receipt.finished_monotonic = time.monotonic()
+        return receipt
+    if admission is None or not admission["ok"] or time.monotonic() >= query_deadline:
+        reason = admission["reason"] if admission else "unavailable"
+        receipt.error = f"worker not started: {reason} or exhausted allowance"
+        if worker is not None:
+            worker.failure = receipt.error
+            if worker.owner is not None:
+                worker.owner.shutdown_deadline_monotonic = min(
+                    worker.owner.shutdown_deadline_monotonic, deadline
+                )
+            worker.close()
+            if worker.owner is not None and not worker.owner.reaped:
+                receipt.residual_remedy = (
+                    "Request allowance exhausted; independently reconcile the retained exact "
+                    "worker child after command EOF. No renewed signal/reap allowance."
+                )
         receipt.finished_monotonic = time.monotonic()
         return receipt
     token = uuid.uuid4().hex
@@ -402,10 +644,11 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     control_invalid = False
     buffers = [bytearray(), bytearray()]
     result_size: int | None = None
+    request_done = False
 
     def consume_control(cleanup_only: bool) -> None:
         nonlocal control_ready, control_invalid, intent, creation_conflict
-        nonlocal helper_identity, fork_failure
+        nonlocal helper_identity, fork_failure, request_done
         if control_invalid or owner is None or dispatched is None:
             return
         while b"\n" in buffers[0]:
@@ -432,6 +675,14 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                         raise ValueError("invalid helper creation intent")
                     intent = True
                 else:
+                    message = _load_json(line)
+                    if worker is not None and message == {"complete": token}:
+                        if request_done:
+                            raise ValueError("duplicate worker completion")
+                        request_done = True
+                        continue
+                    if request_done:
+                        raise ValueError("worker control after completion")
                     if helper_identity is not None or fork_failure is not None:
                         creation_conflict = True
                     message = _load_json(line)
@@ -463,39 +714,69 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     break
 
     try:
-        for _ in range(2):
-            pair = os.pipe()
-            channels.extend(pair)
-            for fd in pair:
-                os.set_blocking(fd, False)
-        control_read, control_write, result_read, result_write = channels
-        blocked = signal.valid_signals() - {signal.SIGKILL, signal.SIGSTOP}
-        previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
-        try:
-            # Revalidate after channel/mask preparation and retain that snapshot.
-            admission = inspection.fork_admission()
-            receipt.admission = admission
-            if not admission["ok"]:
-                raise ValueError(f"worker fork admission rejected: {admission['reason']}")
-            if time.monotonic() >= query_deadline:
-                raise ValueError("worker query deadline exhausted before creation")
-            # https://docs.python.org/3.12/library/os.html#os.fork
+        if worker is not None:
+            owner = worker.owner
+            if (
+                owner is None
+                or worker.command is None
+                or worker.control is None
+                or worker.result is None
+            ):
+                raise ValueError("persistent worker channels unavailable")
+            owner.shutdown_deadline_monotonic = deadline
+            control_read, result_read = worker.control, worker.result
             dispatched = time.monotonic()
-            pid = os.fork()
-            if pid == 0:
-                _child(control_write, result_write, token, argv, query_deadline)
-                os._exit(71)
-            owner = _Owner(pid, deadline)
-            _owners[pid] = owner
-        finally:
-            signal.pthread_sigmask(signal.SIG_SETMASK, previous)
-        os.close(control_write)
-        channels.remove(control_write)
-        os.close(result_write)
-        channels.remove(result_write)
+            command = (
+                json.dumps(
+                    {
+                        "session": worker.session_token,
+                        "token": token,
+                        "argv": argv,
+                        "deadline": query_deadline,
+                    },
+                    allow_nan=False,
+                ).encode()
+                + b"\n"
+            )
+            if len(command) > 4096:
+                raise ValueError("worker command cap exceeded")
+            _write(worker.command, command, query_deadline)
+        else:
+            for _ in range(2):
+                pair = os.pipe()
+                channels.extend(pair)
+                for fd in pair:
+                    os.set_blocking(fd, False)
+            control_read, control_write, result_read, result_write = channels
+            blocked = signal.valid_signals() - {signal.SIGKILL, signal.SIGSTOP}
+            previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
+            try:
+                # Revalidate after channel/mask preparation and retain that snapshot.
+                admission = inspection.fork_admission()
+                receipt.admission = admission
+                if not admission["ok"]:
+                    raise ValueError(f"worker fork admission rejected: {admission['reason']}")
+                if time.monotonic() >= query_deadline:
+                    raise ValueError("worker query deadline exhausted before creation")
+                # https://docs.python.org/3.12/library/os.html#os.fork
+                dispatched = time.monotonic()
+                pid = os.fork()
+                if pid == 0:
+                    _child(control_write, result_write, token, argv, query_deadline)
+                    os._exit(71)
+                owner = _Owner(pid, deadline)
+                _owners[pid] = owner
+            finally:
+                signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+            os.close(control_write)
+            channels.remove(control_write)
+            os.close(result_write)
+            channels.remove(result_write)
         streams = {control_read: 0, result_read: 1}
         while time.monotonic() < query_deadline:
             _reap(owner)
+            if worker is not None and owner.reaped:
+                raise ValueError("persistent worker exited during request")
             if owner.reap_errno is not None:
                 raise OSError(owner.reap_errno, "worker ownership observation failed")
             remaining = query_deadline - time.monotonic()
@@ -548,7 +829,13 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 ):
                     raise ValueError("worker channel cap exceeded")
             consume_control(cleanup_only=False)
-            if not streams and time.monotonic() < query_deadline:
+            framed = (
+                worker is not None
+                and request_done
+                and result_size is not None
+                and len(buffers[1]) == HEADER.size + result_size
+            )
+            if (not streams or framed) and time.monotonic() < query_deadline:
                 received = time.monotonic()
                 # Partial control or terminal bytes cannot preserve no-child
                 # authority by failing an earlier framing guard.
@@ -604,51 +891,62 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 break
         if not complete:
             raise TimeoutError("worker query deadline exhausted")
+        if worker is not None and receipt.error is not None:
+            worker.failure = receipt.error
     except (OSError, ValueError) as error:
         receipt.error = f"worker capture failed: {error}"
+        if worker is not None:
+            worker.failure = receipt.error
         if isinstance(error, OSError):
             receipt.error_errno = error.errno
     finally:
         if owner is not None:
-            _reap(owner)
-            if not owner.reaped:
-                _signal(owner, signal.SIGTERM)
-            # One fixed shutdown reserve, never a renewed per-phase allowance.
-            kill_at = min(deadline, time.monotonic() + reserve / 4)
-            # Parse buffered controls even after observing worker exit. Never
-            # decode late terminal/reap receipts or confirm a late fork failure.
-            if not complete:
-                consume_control(cleanup_only=True)
-            cleanup_open = not complete and control_read is not None and 0 not in closed_channels
-            while time.monotonic() < deadline:
-                if not owner.reaped and owner.reap_errno is None and time.monotonic() >= kill_at:
-                    _signal(owner, signal.SIGKILL)
-                    kill_at = float("inf")
+            if worker is None or worker.failure is not None:
                 _reap(owner)
-                if cleanup_open and control_read is not None:
-                    # Nonblocking, one read per turn, cumulative cap plus one
-                    # overflow-detection byte; no EOF-dependent wait or renewal.
-                    if control_bytes > 4096 or control_invalid:
-                        cleanup_open = False
-                    else:
-                        try:
-                            chunk = os.read(control_read, min(TURN_CAP, 4097 - control_bytes))
-                        except BlockingIOError:
-                            chunk = None
-                        except OSError:
-                            chunk = None
+                if not owner.reaped:
+                    _signal(owner, signal.SIGTERM)
+                # One fixed shutdown reserve, never a renewed per-phase allowance.
+                kill_at = min(deadline, time.monotonic() + reserve / 4)
+                # Parse buffered controls even after observing worker exit. Never
+                # decode late terminal/reap receipts or confirm a late fork failure.
+                if not complete:
+                    consume_control(cleanup_only=True)
+                cleanup_open = (
+                    not complete and control_read is not None and 0 not in closed_channels
+                )
+                while time.monotonic() < deadline:
+                    if (
+                        not owner.reaped
+                        and owner.reap_errno is None
+                        and time.monotonic() >= kill_at
+                    ):
+                        _signal(owner, signal.SIGKILL)
+                        kill_at = float("inf")
+                    _reap(owner)
+                    if cleanup_open and control_read is not None:
+                        # Nonblocking, one read per turn, cumulative cap plus one
+                        # overflow-detection byte; no EOF-dependent wait or renewal.
+                        if control_bytes > 4096 or control_invalid:
                             cleanup_open = False
-                        if chunk is not None:
-                            cleanup_open = bool(chunk)
-                            buffers[0].extend(chunk[: max(0, 4096 - control_bytes)])
-                            control_bytes += len(chunk)
-                            if chunk and fork_failure is not None:
-                                creation_conflict = True
-                            consume_control(cleanup_only=True)
-                if (owner.reaped or owner.reap_errno is not None) and not cleanup_open:
-                    break
-                time.sleep(min(0.001, max(0, deadline - time.monotonic())))
-            _reap(owner)
+                        else:
+                            try:
+                                chunk = os.read(control_read, min(TURN_CAP, 4097 - control_bytes))
+                            except BlockingIOError:
+                                chunk = None
+                            except OSError:
+                                chunk = None
+                                cleanup_open = False
+                            if chunk is not None:
+                                cleanup_open = bool(chunk)
+                                buffers[0].extend(chunk[: max(0, 4096 - control_bytes)])
+                                control_bytes += len(chunk)
+                                if chunk and fork_failure is not None:
+                                    creation_conflict = True
+                                consume_control(cleanup_only=True)
+                    if (owner.reaped or owner.reap_errno is not None) and not cleanup_open:
+                        break
+                    time.sleep(min(0.001, max(0, deadline - time.monotonic())))
+                _reap(owner)
             if not complete and fork_failure is not None and (buffers[0] or buffers[1]):
                 # Incremental rejection can bypass the final decoder. Partial
                 # control/terminal data still revokes clean no-child authority.
@@ -676,12 +974,18 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 "published_times": published_times,
                 "query_deadline_monotonic": query_deadline,
                 "reserve_seconds": reserve,
+                "request_token": token,
+                "session_token": worker.session_token if worker is not None else None,
             }
-            if not owner.reaped or owner.returncode != 0:
+            if (worker is None or worker.failure is not None) and (
+                not owner.reaped or owner.returncode != 0
+            ):
                 receipt.error = (
                     receipt.error or "worker did not exit cleanly within fixed allowance"
                 )
-            if not owner.reaped or (not complete and not confirmed_failure):
+            if (worker is None or worker.failure is not None) and (
+                not owner.reaped or (not complete and not confirmed_failure)
+            ):
                 receipt.residual_remedy = (
                     "Retained helper identity requires its own matching reap receipt; unpublished "
                     "interrupted creation remains unknown. Worker reap/group signals do not "
@@ -693,6 +997,9 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     "Retained helper identity requires its own matching reap receipt; "
                     "worker reap does not resolve the helper obligation."
                 )
+        if worker is not None:
+            if worker.failure is not None:
+                worker.close()
         for fd in channels:
             try:
                 os.close(fd)
@@ -702,4 +1009,15 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
         receipt.finished_monotonic = time.monotonic()
         if receipt.finished_monotonic > deadline:
             receipt.error = receipt.error or "worker fixed deadline exceeded"
+        if worker is not None:
+            if receipt.error is not None and worker.failure is None:
+                worker.failure = receipt.error
+                worker.close()
+                if owner is not None and not owner.reaped:
+                    receipt.residual_remedy = receipt.residual_remedy or (
+                        "Worker finalization exceeded its request allowance; independently "
+                        "reconcile the retained exact child without renewed runtime authority."
+                    )
+            elif complete and worker.failure is None and owner is not None:
+                owner.shutdown_deadline_monotonic = float("inf")
     return receipt

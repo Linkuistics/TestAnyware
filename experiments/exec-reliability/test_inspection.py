@@ -392,29 +392,33 @@ def test_review_helper_failure_keeps_execute_safety_and_stops_queries(
     tmp_path, monkeypatch, failure
 ):
     import controller
-    from inspection import capture_helper
+    from worker_capture import capture_helper
 
     queries = []
+    parent = os.getpid()
+    admissions = []
+    original_admission = inspection.fork_admission
 
-    def helper(argv, deadline):
+    def admission():
+        value = original_admission()
+        if os.getpid() != parent:
+            admissions.append(True)
+            if failure == "admission" and len(admissions) == 3:
+                value.update(ok=False, reason="native_threads", native_threads=2)
+        return value
+
+    monkeypatch.setattr(inspection, "fork_admission", admission)
+
+    def helper(argv, deadline, **kwargs):
         queries.append(argv)
-        if len(queries) != 2:
-            return capture_helper(argv, deadline)
-        if failure == "admission":
-            release = threading.Event()
-            thread = threading.Thread(target=release.wait)
-            thread.start()
-            try:
-                return capture_helper(argv, deadline)
-            finally:
-                release.set()
-                thread.join(timeout=1)
+        if len(queries) != 2 or failure == "admission":
+            return capture_helper(argv, deadline, **kwargs)
         source = (
             "import time; time.sleep(10)"
             if failure == "hang"
             else f"import os;\nwhile True: os.write({1 if failure == 'stdout' else 2},b'x'*16384)"
         )
-        return capture_helper((sys.executable, "-c", source), deadline)
+        return capture_helper((sys.executable, "-c", source), deadline, **kwargs)
 
     monkeypatch.setattr(controller, "capture_helper", helper)
     plan = configured_plan(tmp_path)
@@ -438,7 +442,7 @@ def test_review_helper_failure_keeps_execute_safety_and_stops_queries(
     assert helper_receipt["finished_monotonic"] <= helper_receipt["deadline_monotonic"]
     if failure == "admission":
         assert helper_receipt["pid"] is None
-        assert helper_receipt["admission"]["reason"] == "python_threads"
+        assert helper_receipt["admission"]["reason"] == "native_threads"
     else:
         assert helper_receipt["pid"] is not None
         assert helper_receipt["reaped"] is True

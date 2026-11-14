@@ -1,0 +1,26 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 496 items / 481 deselected / 15 selected
+
+test_controller.py::test_persistent_worker_starts_before_resources_and_reuses_for_safety PASSED [  6%]
+test_controller.py::test_persistent_worker_startup_failure_leaves_resources_unacquired PASSED [ 13%]
+test_controller.py::test_persistent_worker_death_stops_workloads_but_attempts_safety PASSED [ 20%]
+test_controller.py::test_persistent_worker_closes_when_safety_adapter_raises PASSED [ 26%]
+test_worker_capture.py::test_persistent_worker_reuses_exact_direct_child PASSED [ 33%]
+test_worker_capture.py::test_persistent_worker_failure_never_restarts PASSED [ 40%]
+test_worker_capture.py::test_persistent_worker_rejects_startup_admission PASSED [ 46%]
+test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[silent] PASSED [ 53%]
+test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[identity] PASSED [ 60%]
+test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[late] PASSED [ 66%]
+test_worker_capture.py::test_persistent_worker_rechecks_admission_after_preparation PASSED [ 73%]
+test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace PASSED [ 80%]
+test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[missing] PASSED [ 86%]
+test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[duplicate] PASSED [ 93%]
+test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[token] PASSED [100%]
+
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/green-2/pytest.xml -
+====================== 15 passed, 481 deselected in 5.91s ======================

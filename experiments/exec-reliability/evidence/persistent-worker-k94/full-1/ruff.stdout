@@ -1,0 +1,12 @@
+E501 Line too long (123 > 100)
+   --> worker_capture.py:599:101
+    |
+597 |         return receipt
+598 |     if admission is None or not admission["ok"] or time.monotonic() >= query_deadline:
+599 |         receipt.error = f"worker not started: {admission['reason'] if admission else 'unavailable'} or exhausted allowance"
+    |                                                                                                     ^^^^^^^^^^^^^^^^^^^^^^^
+600 |         receipt.finished_monotonic = time.monotonic()
+601 |         return receipt
+    |
+
+Found 1 error.

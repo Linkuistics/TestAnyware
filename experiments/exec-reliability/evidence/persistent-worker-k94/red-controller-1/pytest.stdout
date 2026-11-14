@@ -1,0 +1,106 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 487 items / 481 deselected / 6 selected
+
+test_controller.py::test_persistent_worker_starts_before_resources_and_reuses_for_safety FAILED [ 16%]
+test_controller.py::test_persistent_worker_startup_failure_leaves_resources_unacquired FAILED [ 33%]
+test_controller.py::test_persistent_worker_death_stops_workloads_but_attempts_safety FAILED [ 50%]
+test_worker_capture.py::test_persistent_worker_reuses_exact_direct_child PASSED [ 66%]
+test_worker_capture.py::test_persistent_worker_failure_never_restarts PASSED [ 83%]
+test_worker_capture.py::test_persistent_worker_rejects_startup_admission PASSED [100%]
+
+=================================== FAILURES ===================================
+_____ test_persistent_worker_starts_before_resources_and_reuses_for_safety _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-410/test_persistent_worker_starts_0')
+
+    def test_persistent_worker_starts_before_resources_and_reuses_for_safety(tmp_path):
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        _, result = run(tmp_path, [call("workload", "bytes")], resources=[owned], run_id=run_id)
+        assert result["ok"] is True
+>       lifecycle = result["inspection_worker"]
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'inspection_worker'
+
+test_controller.py:2249: KeyError
+______ test_persistent_worker_startup_failure_leaves_resources_unacquired ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-410/test_persistent_worker_startup0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108b7be00>
+
+    def test_persistent_worker_startup_failure_leaves_resources_unacquired(tmp_path, monkeypatch):
+        import worker_capture
+    
+        def fail(self):
+            self.failure = "injected startup failure"
+            return False
+    
+        monkeypatch.setattr(worker_capture.Worker, "start", fail)
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        path, result = run(tmp_path, [call("unreached", "bytes")], resources=[owned], run_id=run_id)
+>       assert result["ok"] is False
+E       assert True is False
+
+test_controller.py:2273: AssertionError
+_______ test_persistent_worker_death_stops_workloads_but_attempts_safety _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-410/test_persistent_worker_death_s0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108b79670>
+
+    def test_persistent_worker_death_stops_workloads_but_attempts_safety(tmp_path, monkeypatch):
+        import controller
+    
+        original = controller._safe_call
+        worker_pid = []
+    
+        def fail_after_acquire(call, root, plan, state):
+            receipt = original(call, root, plan, state)
+            if call.name == "acquire":
+                worker_pid.append(state.worker.owner.pid)
+                os.kill(worker_pid[0], signal.SIGKILL)
+            return receipt
+    
+        monkeypatch.setattr(controller, "_safe_call", fail_after_acquire)
+        run_id = uuid.uuid4().hex
+>       _, result = run(
+            tmp_path,
+            [call("first", "bytes"), call("unreached", "bytes")],
+            resources=[resource(tmp_path, run_id)],
+            run_id=run_id,
+        )
+
+test_controller.py:2295: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_controller.py:875: in run
+    path = execute(plan, root)
+           ^^^^^^^^^^^^^^^^^^^
+controller.py:683: in execute
+    receipt = _safe_call(resource.acquire, root, plan, inspection_state)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+call = Call(name='acquire', argv=('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-re...stent_worker_death_s0'), budget=3, expected_exit=0, expected_stdout=None, interrupt_after=None, expected_reason='exit')
+root = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/red-controller-1/runs/90aa317466344f19930e68005ffd4e3f')
+plan = Plan(run_id='90aa317466344f19930e68005ffd4e3f', calls=(Call(name='first', argv=('/Users/antony/Development/Abstracting...stAnyware.gh-issue-14/experiments/exec-reliability/uv.lock'), PosixPath('/bin/sleep')), term_grace=0.15, kill_wait=0.3)
+state = _InspectionState(failure=None)
+
+    def fail_after_acquire(call, root, plan, state):
+        receipt = original(call, root, plan, state)
+        if call.name == "acquire":
+>           worker_pid.append(state.worker.owner.pid)
+                              ^^^^^^^^^^^^
+E           AttributeError: '_InspectionState' object has no attribute 'worker'
+
+test_controller.py:2289: AttributeError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/red-controller-1/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_persistent_worker_starts_before_resources_and_reuses_for_safety - KeyError: 'inspection_worker'
+FAILED test_controller.py::test_persistent_worker_startup_failure_leaves_resources_unacquired - assert True is False
+FAILED test_controller.py::test_persistent_worker_death_stops_workloads_but_attempts_safety - AttributeError: '_InspectionState' object has no attribute 'worker'
+================= 3 failed, 3 passed, 481 deselected in 1.64s ==================

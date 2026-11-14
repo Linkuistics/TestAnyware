@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="6" time="1.626" timestamp="2026-11-15T08:18:27.263296+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_persistent_worker_starts_before_resources_and_reuses_for_safety" time="0.341"><failure message="KeyError: 'inspection_worker'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-410/test_persistent_worker_starts_0')
+
+    def test_persistent_worker_starts_before_resources_and_reuses_for_safety(tmp_path):
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        _, result = run(tmp_path, [call("workload", "bytes")], resources=[owned], run_id=run_id)
+        assert result["ok"] is True
+&gt;       lifecycle = result["inspection_worker"]
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'inspection_worker'
+
+test_controller.py:2249: KeyError</failure></testcase><testcase classname="test_controller" name="test_persistent_worker_startup_failure_leaves_resources_unacquired" time="0.350"><failure message="assert True is False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-410/test_persistent_worker_startup0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x108b7be00&gt;
+
+    def test_persistent_worker_startup_failure_leaves_resources_unacquired(tmp_path, monkeypatch):
+        import worker_capture
+    
+        def fail(self):
+            self.failure = "injected startup failure"
+            return False
+    
+        monkeypatch.setattr(worker_capture.Worker, "start", fail)
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        path, result = run(tmp_path, [call("unreached", "bytes")], resources=[owned], run_id=run_id)
+&gt;       assert result["ok"] is False
+E       assert True is False
+
+test_controller.py:2273: AssertionError</failure></testcase><testcase classname="test_controller" name="test_persistent_worker_death_stops_workloads_but_attempts_safety" time="0.312"><failure message="AttributeError: '_InspectionState' object has no attribute 'worker'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-410/test_persistent_worker_death_s0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x108b79670&gt;
+
+    def test_persistent_worker_death_stops_workloads_but_attempts_safety(tmp_path, monkeypatch):
+        import controller
+    
+        original = controller._safe_call
+        worker_pid = []
+    
+        def fail_after_acquire(call, root, plan, state):
+            receipt = original(call, root, plan, state)
+            if call.name == "acquire":
+                worker_pid.append(state.worker.owner.pid)
+                os.kill(worker_pid[0], signal.SIGKILL)
+            return receipt
+    
+        monkeypatch.setattr(controller, "_safe_call", fail_after_acquire)
+        run_id = uuid.uuid4().hex
+&gt;       _, result = run(
+            tmp_path,
+            [call("first", "bytes"), call("unreached", "bytes")],
+            resources=[resource(tmp_path, run_id)],
+            run_id=run_id,
+        )
+
+test_controller.py:2295: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_controller.py:875: in run
+    path = execute(plan, root)
+           ^^^^^^^^^^^^^^^^^^^
+controller.py:683: in execute
+    receipt = _safe_call(resource.acquire, root, plan, inspection_state)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+call = Call(name='acquire', argv=('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-re...stent_worker_death_s0'), budget=3, expected_exit=0, expected_stdout=None, interrupt_after=None, expected_reason='exit')
+root = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/red-controller-1/runs/90aa317466344f19930e68005ffd4e3f')
+plan = Plan(run_id='90aa317466344f19930e68005ffd4e3f', calls=(Call(name='first', argv=('/Users/antony/Development/Abstracting...stAnyware.gh-issue-14/experiments/exec-reliability/uv.lock'), PosixPath('/bin/sleep')), term_grace=0.15, kill_wait=0.3)
+state = _InspectionState(failure=None)
+
+    def fail_after_acquire(call, root, plan, state):
+        receipt = original(call, root, plan, state)
+        if call.name == "acquire":
+&gt;           worker_pid.append(state.worker.owner.pid)
+                              ^^^^^^^^^^^^
+E           AttributeError: '_InspectionState' object has no attribute 'worker'
+
+test_controller.py:2289: AttributeError</failure></testcase><testcase classname="test_worker_capture" name="test_persistent_worker_reuses_exact_direct_child" time="0.031" /><testcase classname="test_worker_capture" name="test_persistent_worker_failure_never_restarts" time="0.008" /><testcase classname="test_worker_capture" name="test_persistent_worker_rejects_startup_admission" time="0.000" /></testsuite></testsuites>

@@ -208,6 +208,18 @@ def _capture_pipe() -> tuple[int, int]:
         raise
 
 
+def capture_pipe() -> tuple[int, int]:
+    """Share promoted descriptors with the persistent worker; both ends never block."""
+    pair = _capture_pipe()
+    try:
+        os.set_blocking(pair[1], False)
+        return pair
+    except BaseException:
+        for fd in pair:
+            os.close(fd)
+        raise
+
+
 def _helper_child(
     argv: tuple[str, ...], stdout: int, stderr: int, gate: int, token: bytes, deadline: float
 ) -> None:

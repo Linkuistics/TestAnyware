@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Literal, TypedDict, cast
 
 from inspection import fork_admission
-from worker_capture import capture_helper
+from worker_capture import Worker, capture_helper
 
 
 @dataclass(frozen=True)
@@ -231,7 +231,7 @@ def _reap_leader(process: _WorkloadProcess, deadline: float, receipt: dict[str, 
     )
 
 
-def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
+def _group_snapshot(pid: int, deadline: float, *, worker: Worker | None = None) -> GroupObservation:
     """Observe only while the unreaped session leader pins this group identity."""
     observation: GroupObservation = {
         "started_monotonic": time.monotonic(),
@@ -259,6 +259,7 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
         check = capture_helper(
             ("/bin/ps", "-g", str(pid), "-o", "pid=,pgid=,stat="),
             deadline,
+            **({"worker": worker} if worker is not None else {}),
         )
         observation["helper"] = asdict(check)
         observation.update(stdout=check.stdout, stderr=check.stderr, returncode=check.returncode)
@@ -336,11 +337,13 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
     return observation
 
 
-def _final_snapshot(pid: int, deadline: float, leader_exit: float | None) -> GroupObservation:
+def _final_snapshot(
+    pid: int, deadline: float, leader_exit: float | None, *, worker: Worker | None = None
+) -> GroupObservation:
     """Spend the sole table request only after exit and before the cutoff."""
     now = time.monotonic()
     if leader_exit is not None and leader_exit <= now < deadline:
-        return _group_snapshot(pid, deadline)
+        return _group_snapshot(pid, deadline, **({"worker": worker} if worker is not None else {}))
     return {
         "started_monotonic": now,
         "finished_monotonic": now,
@@ -369,6 +372,7 @@ class _InspectionFailure(TypedDict):
 @dataclass
 class _InspectionState:
     failure: _InspectionFailure | None = None
+    worker: Worker | None = None
 
     def snapshot(
         self, call: str, pid: int, deadline: float, leader_exit: float | None
@@ -391,7 +395,12 @@ class _InspectionState:
                 "probe_outcome": "not_attempted",
                 "error": f"local inspection unavailable after {self.failure['call']}",
             }
-        observation = _final_snapshot(pid, deadline, leader_exit)
+        observation = _final_snapshot(
+            pid,
+            deadline,
+            leader_exit,
+            **({"worker": self.worker} if self.worker is not None else {}),
+        )
         if observation["query_attempted"] and observation["state"] == "unknown":
             self.failure = {"call": call, "observation": observation}
         return observation
@@ -653,7 +662,8 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
     before = _hashes(subjects)
     write_json(root / "subjects-before.json", before)
     receipts: list[dict[str, object]] = []
-    inspection_state = _InspectionState()
+    worker = Worker()
+    inspection_state = _InspectionState(worker=worker)
     ledger: list[dict[str, object]] = []
     attempted: list[Resource] = []
     unreached = [resource.acquire.name for resource in plan.resources] + [
@@ -662,6 +672,8 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
     admission = fork_admission()
     ok = admission["ok"] and not any(value.startswith("unavailable:") for value in before.values())
     try:
+        if ok:
+            ok = worker.start()
         for resource in plan.resources:
             if not ok:
                 break
@@ -691,22 +703,26 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
             receipts.append(receipt)
             ok = receipt["ok"] is True
     finally:
-        for resource in reversed(attempted):
-            cleanup = _safe_call(resource.cleanup, root, plan, inspection_state)
-            disposal = _safe_call(resource.dispose, root, plan, inspection_state)
-            inspection = _safe_call(resource.inspect, root, plan, inspection_state)
-            receipts.extend((cleanup, disposal, inspection))
-            disposed = disposal["ok"] is True and inspection["ok"] is True
-            ledger.append(
-                {
-                    "kind": resource.kind,
-                    "identity": resource.identity,
-                    "state": "disposed" if disposed else "uncertain",
-                    "cleanup_ok": cleanup["ok"],
-                    "remedy_argv": resource.dispose.argv,
-                }
-            )
-            ok = ok and cleanup["ok"] is True and disposed
+        try:
+            for resource in reversed(attempted):
+                cleanup = _safe_call(resource.cleanup, root, plan, inspection_state)
+                disposal = _safe_call(resource.dispose, root, plan, inspection_state)
+                inspection = _safe_call(resource.inspect, root, plan, inspection_state)
+                receipts.extend((cleanup, disposal, inspection))
+                disposed = disposal["ok"] is True and inspection["ok"] is True
+                ledger.append(
+                    {
+                        "kind": resource.kind,
+                        "identity": resource.identity,
+                        "state": "disposed" if disposed else "uncertain",
+                        "cleanup_ok": cleanup["ok"],
+                        "remedy_argv": resource.dispose.argv,
+                    }
+                )
+                ok = ok and cleanup["ok"] is True and disposed
+        finally:
+            worker.close()
+        ok = ok and worker.failure is None
         after = _hashes(subjects)
         ok = ok and before == after
         write_json(
@@ -716,6 +732,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
                 "ok": ok,
                 "fork_admission": admission,
                 "inspection_failure": inspection_state.failure,
+                "inspection_worker": worker.evidence(),
                 "calls": receipts,
                 "resources": ledger,
                 "unreached": unreached,

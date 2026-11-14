@@ -1,0 +1,27 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/inputs-final-2
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 497 items / 481 deselected / 16 selected
+
+test_controller.py::test_persistent_worker_starts_before_resources_and_reuses_for_safety PASSED [  6%]
+test_controller.py::test_persistent_worker_startup_failure_leaves_resources_unacquired PASSED [ 12%]
+test_controller.py::test_persistent_worker_death_stops_workloads_but_attempts_safety PASSED [ 18%]
+test_controller.py::test_persistent_worker_closes_when_safety_adapter_raises PASSED [ 25%]
+test_worker_capture.py::test_persistent_worker_reuses_exact_direct_child PASSED [ 31%]
+test_worker_capture.py::test_persistent_worker_failure_never_restarts PASSED [ 37%]
+test_worker_capture.py::test_persistent_worker_rejects_startup_admission PASSED [ 43%]
+test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[silent] PASSED [ 50%]
+test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[identity] PASSED [ 56%]
+test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[late] PASSED [ 62%]
+test_worker_capture.py::test_persistent_worker_rechecks_admission_after_preparation PASSED [ 68%]
+test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace PASSED [ 75%]
+test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[missing] PASSED [ 81%]
+test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[duplicate] PASSED [ 87%]
+test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[token] PASSED [ 93%]
+test_worker_capture.py::test_persistent_worker_expired_request_is_sticky PASSED [100%]
+
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/green-final-2/pytest.xml -
+====================== 16 passed, 481 deselected in 5.10s ======================

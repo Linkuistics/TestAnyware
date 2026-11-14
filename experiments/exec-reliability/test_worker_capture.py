@@ -2072,3 +2072,255 @@ def test_complete_result_frame_requires_control_eof(tmp_path, monkeypatch):
     finally:
         for key in set(worker_capture._helper_obligations) - before:
             worker_capture._helper_obligations.pop(key)
+
+
+def test_persistent_worker_reuses_exact_direct_child(tmp_path):
+    import worker_capture
+
+    worker = worker_capture.Worker()
+    try:
+        assert worker.start()
+        pid = worker.owner.pid
+        assert os.getpgid(pid) == pid
+        receipts = [
+            worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 1, worker=worker)
+            for _ in range(3)
+        ]
+        for index, receipt in enumerate(receipts):
+            retain(tmp_path, f"persistent-reuse-{index}", receipt)
+            assert receipt.error is None
+            assert receipt.reaped and receipt.returncode == 0
+            assert receipt.worker["pid"] == pid
+            assert receipt.worker["reaped"] is False
+        assert len({item.worker["request_token"] for item in receipts}) == 3
+        assert len({item.worker["session_token"] for item in receipts}) == 1
+        assert os.waitpid(pid, os.WNOHANG) == (0, 0)
+    finally:
+        worker.close()
+    assert worker.owner.reaped
+    assert worker.owner.returncode == 0
+    with pytest.raises(ChildProcessError):
+        os.waitpid(pid, os.WNOHANG)
+
+
+def test_persistent_worker_failure_never_restarts(tmp_path, monkeypatch):
+    import worker_capture
+
+    worker = worker_capture.Worker()
+    assert worker.start()
+    pid = worker.owner.pid
+    os.kill(pid, signal.SIGKILL)
+    original_fork = os.fork
+    forks = []
+
+    def fork():
+        forks.append(True)
+        return original_fork()
+
+    monkeypatch.setattr(os, "fork", fork)
+    try:
+        first = worker_capture.capture_helper(
+            ("/usr/bin/true",), time.monotonic() + 0.3, worker=worker
+        )
+        second = worker_capture.capture_helper(
+            ("/usr/bin/true",), time.monotonic() + 0.3, worker=worker
+        )
+        retain(tmp_path, "persistent-failure-first", first)
+        retain(tmp_path, "persistent-failure-second", second)
+        assert first.error and second.error
+        assert worker.failure
+        assert worker.start() is False
+        assert not forks
+        assert worker.owner.pid == pid
+    finally:
+        worker.close()
+    assert worker.owner.reaped
+    with pytest.raises(ChildProcessError):
+        os.waitpid(pid, os.WNOHANG)
+
+
+def test_persistent_worker_rejects_startup_admission(monkeypatch):
+    import worker_capture
+
+    calls = []
+    original = inspection.fork_admission
+
+    def deny():
+        value = original()
+        value.update(ok=False, reason="native_threads", native_threads=2)
+        return value
+
+    monkeypatch.setattr(inspection, "fork_admission", deny)
+    monkeypatch.setattr(os, "fork", lambda: calls.append(True))
+    worker = worker_capture.Worker()
+    assert worker.start() is False
+    assert worker.failure
+    worker.close()
+    assert not calls
+
+
+@pytest.mark.parametrize("fault", ["silent", "identity", "late"])
+def test_persistent_worker_startup_fault_is_bounded_and_reaped(tmp_path, monkeypatch, fault):
+    import worker_capture
+
+    def service(command, control, result, session, deadline):
+        try:
+            inspection.reset_after_fork({command, control, result})
+            if fault == "identity":
+                os.write(control, b'{"session":"wrong"}\n')
+            elif fault == "late":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                os.write(control, b'{"session":"late"}\n')
+            while True:
+                signal.pause()
+        finally:
+            os._exit(70)
+
+    monkeypatch.setattr(worker_capture, "_service", service)
+    worker = worker_capture.Worker()
+    assert worker.start() is False
+    assert worker.failure and worker.closed
+    assert worker.owner.reaped
+    assert worker.startup_finished - worker.startup_started < 1.5
+    path = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+    path.mkdir(parents=True, exist_ok=True)
+    (path / f"persistent-startup-{fault}-{time.time_ns()}.json").write_text(
+        json.dumps(worker.evidence(), indent=2)
+    )
+    with pytest.raises(ChildProcessError):
+        os.waitpid(worker.owner.pid, os.WNOHANG)
+
+
+def test_persistent_worker_rechecks_admission_after_preparation(monkeypatch):
+    import worker_capture
+
+    original = inspection.fork_admission
+    snapshots = []
+    forks = []
+
+    def admission():
+        value = original()
+        snapshots.append(value)
+        if len(snapshots) == 2:
+            value.update(ok=False, reason="native_threads", native_threads=2)
+        return value
+
+    monkeypatch.setattr(inspection, "fork_admission", admission)
+    monkeypatch.setattr(os, "fork", lambda: forks.append(True))
+    worker = worker_capture.Worker()
+    assert worker.start() is False
+    assert worker.admission is snapshots[-1]
+    assert len(snapshots) == 2 and not forks
+    assert not worker.channels
+
+
+def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch):
+    import worker_capture
+
+    def service(command, control, result, session, deadline):
+        try:
+            inspection.reset_after_fork({command, control, result})
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            identity = {
+                "session": session,
+                "pid": os.getpid(),
+                "pgid": os.getpgrp(),
+                "sid": os.getsid(0),
+            }
+            worker_capture._write(control, json.dumps(identity).encode() + b"\n", deadline)
+            while True:
+                signal.pause()
+        finally:
+            os._exit(70)
+
+    monkeypatch.setattr(worker_capture, "_service", service)
+    worker = worker_capture.Worker()
+    assert worker.start()
+    worker.close()
+    deadline = worker.owner.shutdown_deadline_monotonic
+    worker.close()
+    assert worker.owner.shutdown_deadline_monotonic == deadline
+    assert worker.owner.reaped and worker.owner.returncode == -signal.SIGKILL
+    assert 2 <= worker.shutdown_finished - worker.shutdown_started < 4
+    assert [item["signal"] for item in worker.owner.signals] == ["SIGKILL"]
+    path = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+    path.mkdir(parents=True, exist_ok=True)
+    (path / f"persistent-close-{time.time_ns()}.json").write_text(
+        json.dumps(worker.evidence(), indent=2)
+    )
+    with pytest.raises(ChildProcessError):
+        os.waitpid(worker.owner.pid, os.WNOHANG)
+
+
+@pytest.mark.parametrize("fault", ["missing", "duplicate", "token"])
+def test_persistent_worker_rejects_invalid_completion(tmp_path, monkeypatch, fault):
+    import worker_capture
+
+    original = worker_capture._write
+
+    def write(fd, data, deadline):
+        if data.startswith(b'{"complete":'):
+            if fault == "missing":
+                return
+            if fault == "duplicate":
+                data += data
+            else:
+                data = b'{"complete":"wrong"}\n'
+        original(fd, data, deadline)
+
+    monkeypatch.setattr(worker_capture, "_write", write)
+    worker = worker_capture.Worker()
+    assert worker.start()
+    try:
+        receipt = worker_capture.capture_helper(
+            ("/usr/bin/true",), time.monotonic() + 0.3, worker=worker
+        )
+        retain(tmp_path, f"persistent-completion-{fault}", receipt)
+        assert receipt.error and worker.failure
+        assert worker.closed and worker.owner.reaped
+        assert receipt.worker["helper_obligation_retained"]
+        assert receipt.worker["helper_identity"] is not None
+    finally:
+        worker.close()
+    with pytest.raises(ChildProcessError):
+        os.waitpid(worker.owner.pid, os.WNOHANG)
+
+
+def test_persistent_worker_expired_request_is_sticky(tmp_path):
+    import worker_capture
+
+    worker = worker_capture.Worker()
+    assert worker.start()
+    pid = worker.owner.pid
+    try:
+        receipt = worker_capture.capture_helper(
+            ("/usr/bin/true",), time.monotonic() - 0.01, worker=worker
+        )
+        retain(tmp_path, "persistent-expired-request", receipt)
+        assert receipt.error and worker.failure and worker.closed
+        assert worker.evidence()["residual_remedy"]
+        assert worker.start() is False
+        second = worker_capture.capture_helper(
+            ("/usr/bin/true",), time.monotonic() + 0.5, worker=worker
+        )
+        assert second.error and second.pid is None and second.worker is None
+    finally:
+        worker.close()
+        # The request had no remaining ownership allowance. Independently reconcile
+        # this exact still-owned child after command EOF; never extend runtime authority.
+        if not worker.owner.reaped:
+            end = time.monotonic() + 1
+            while time.monotonic() < end:
+                waited, status = os.waitpid(pid, os.WNOHANG)
+                if waited == pid:
+                    worker.owner.reaped = True
+                    worker.owner.returncode = os.waitstatus_to_exitcode(status)
+                    worker_capture._owners.pop(pid, None)
+                    break
+                time.sleep(0.001)
+        assert worker.owner.reaped
+        path = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        path.mkdir(parents=True, exist_ok=True)
+        (path / f"persistent-expired-independent-{time.time_ns()}.json").write_text(
+            json.dumps(worker.evidence(), indent=2)
+        )

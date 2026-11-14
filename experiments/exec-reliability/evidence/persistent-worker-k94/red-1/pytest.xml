@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="0.225" timestamp="2026-11-15T08:15:11.571671+11:00" hostname="byrd.local"><testcase classname="test_worker_capture" name="test_persistent_worker_reuses_exact_direct_child" time="0.004"><failure message="AttributeError: module 'worker_capture' has no attribute 'Worker'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-406/test_persistent_worker_reuses_0')
+
+    def test_persistent_worker_reuses_exact_direct_child(tmp_path):
+        import worker_capture
+    
+&gt;       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2080: AttributeError</failure></testcase><testcase classname="test_worker_capture" name="test_persistent_worker_failure_never_restarts" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'Worker'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-406/test_persistent_worker_failure0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x106dd43b0&gt;
+
+    def test_persistent_worker_failure_never_restarts(tmp_path, monkeypatch):
+        import worker_capture
+    
+&gt;       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2109: AttributeError</failure></testcase><testcase classname="test_worker_capture" name="test_persistent_worker_rejects_startup_admission" time="0.000"><failure message="AttributeError: module 'worker_capture' has no attribute 'Worker'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x106e1f110&gt;
+
+    def test_persistent_worker_rejects_startup_admission(monkeypatch):
+        import worker_capture
+    
+        calls = []
+        original = inspection.fork_admission
+    
+        def deny():
+            value = original()
+            value.update(ok=False, reason="native_threads", native_threads=2)
+            return value
+    
+        monkeypatch.setattr(inspection, "fork_admission", deny)
+        monkeypatch.setattr(os, "fork", lambda: calls.append(True))
+&gt;       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2151: AttributeError</failure></testcase></testsuite></testsuites>

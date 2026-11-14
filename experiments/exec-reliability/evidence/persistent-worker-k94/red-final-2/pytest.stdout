@@ -1,0 +1,417 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/inputs-baseline-2
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 497 items / 481 deselected / 16 selected
+
+test_controller.py::test_persistent_worker_starts_before_resources_and_reuses_for_safety FAILED [  6%]
+test_controller.py::test_persistent_worker_startup_failure_leaves_resources_unacquired FAILED [ 12%]
+test_controller.py::test_persistent_worker_death_stops_workloads_but_attempts_safety FAILED [ 18%]
+test_controller.py::test_persistent_worker_closes_when_safety_adapter_raises FAILED [ 25%]
+test_worker_capture.py::test_persistent_worker_reuses_exact_direct_child FAILED [ 31%]
+test_worker_capture.py::test_persistent_worker_failure_never_restarts FAILED [ 37%]
+test_worker_capture.py::test_persistent_worker_rejects_startup_admission FAILED [ 43%]
+test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[silent] FAILED [ 50%]
+test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[identity] FAILED [ 56%]
+test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[late] FAILED [ 62%]
+test_worker_capture.py::test_persistent_worker_rechecks_admission_after_preparation FAILED [ 68%]
+test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace FAILED [ 75%]
+test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[missing] FAILED [ 81%]
+test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[duplicate] FAILED [ 87%]
+test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[token] FAILED [ 93%]
+test_worker_capture.py::test_persistent_worker_expired_request_is_sticky FAILED [100%]
+
+=================================== FAILURES ===================================
+_____ test_persistent_worker_starts_before_resources_and_reuses_for_safety _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_starts_0')
+
+    def test_persistent_worker_starts_before_resources_and_reuses_for_safety(tmp_path):
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        path, result = run(tmp_path, [call("workload", "bytes")], resources=[owned], run_id=run_id)
+        assert result["ok"] is True
+>       lifecycle = result["inspection_worker"]
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'inspection_worker'
+
+test_controller.py:2250: KeyError
+______ test_persistent_worker_startup_failure_leaves_resources_unacquired ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_startup0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c177d0>
+
+    def test_persistent_worker_startup_failure_leaves_resources_unacquired(tmp_path, monkeypatch):
+        import worker_capture
+    
+        def fail(self):
+            self.failure = "injected startup failure"
+            return False
+    
+>       monkeypatch.setattr(worker_capture.Worker, "start", fail)
+                            ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_controller.py:2278: AttributeError
+_______ test_persistent_worker_death_stops_workloads_but_attempts_safety _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_death_s0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c1b020>
+
+    def test_persistent_worker_death_stops_workloads_but_attempts_safety(tmp_path, monkeypatch):
+        import controller
+    
+        original = controller._safe_call
+        worker_pid = []
+    
+        def fail_after_acquire(call, root, plan, state):
+            receipt = original(call, root, plan, state)
+            if call.name == "acquire":
+                worker_pid.append(state.worker.owner.pid)
+                os.kill(worker_pid[0], signal.SIGKILL)
+            return receipt
+    
+        monkeypatch.setattr(controller, "_safe_call", fail_after_acquire)
+        run_id = uuid.uuid4().hex
+>       _, result = run(
+            tmp_path,
+            [call("first", "bytes"), call("unreached", "bytes")],
+            resources=[resource(tmp_path, run_id)],
+            run_id=run_id,
+        )
+
+test_controller.py:2304: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_controller.py:876: in run
+    path = execute(plan, root)
+           ^^^^^^^^^^^^^^^^^^^
+controller.py:683: in execute
+    receipt = _safe_call(resource.acquire, root, plan, inspection_state)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+call = Call(name='acquire', argv=('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-re...stent_worker_death_s0'), budget=3, expected_exit=0, expected_stdout=None, interrupt_after=None, expected_reason='exit')
+root = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/red-final-2/runs/17e714b0999f472a97e058e1b2a39ee7')
+plan = Plan(run_id='17e714b0999f472a97e058e1b2a39ee7', calls=(Call(name='first', argv=('/Users/antony/Development/Abstracting...y/evidence/persistent-worker-k94/inputs-baseline-2/uv.lock'), PosixPath('/bin/sleep')), term_grace=0.15, kill_wait=0.3)
+state = _InspectionState(failure=None)
+
+    def fail_after_acquire(call, root, plan, state):
+        receipt = original(call, root, plan, state)
+        if call.name == "acquire":
+>           worker_pid.append(state.worker.owner.pid)
+                              ^^^^^^^^^^^^
+E           AttributeError: '_InspectionState' object has no attribute 'worker'
+
+test_controller.py:2298: AttributeError
+___________ test_persistent_worker_closes_when_safety_adapter_raises ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_closes_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c1b320>
+
+    def test_persistent_worker_closes_when_safety_adapter_raises(tmp_path, monkeypatch):
+        import controller
+        import worker_capture
+    
+>       original_start = worker_capture.Worker.start
+                         ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_controller.py:2328: AttributeError
+_______________ test_persistent_worker_reuses_exact_direct_child _______________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_reuses_0')
+
+    def test_persistent_worker_reuses_exact_direct_child(tmp_path):
+        import worker_capture
+    
+>       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2080: AttributeError
+________________ test_persistent_worker_failure_never_restarts _________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_failure0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c22ae0>
+
+    def test_persistent_worker_failure_never_restarts(tmp_path, monkeypatch):
+        import worker_capture
+    
+>       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2109: AttributeError
+_______________ test_persistent_worker_rejects_startup_admission _______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c23620>
+
+    def test_persistent_worker_rejects_startup_admission(monkeypatch):
+        import worker_capture
+    
+        calls = []
+        original = inspection.fork_admission
+    
+        def deny():
+            value = original()
+            value.update(ok=False, reason="native_threads", native_threads=2)
+            return value
+    
+        monkeypatch.setattr(inspection, "fork_admission", deny)
+        monkeypatch.setattr(os, "fork", lambda: calls.append(True))
+>       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2155: AttributeError
+______ test_persistent_worker_startup_fault_is_bounded_and_reaped[silent] ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_startup1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c172f0>
+fault = 'silent'
+
+    @pytest.mark.parametrize("fault", ["silent", "identity", "late"])
+    def test_persistent_worker_startup_fault_is_bounded_and_reaped(tmp_path, monkeypatch, fault):
+        import worker_capture
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if fault == "identity":
+                    os.write(control, b'{"session":"wrong"}\n')
+                elif fault == "late":
+                    time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                    os.write(control, b'{"session":"late"}\n')
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+>       monkeypatch.setattr(worker_capture, "_service", service)
+E       AttributeError: <module 'worker_capture' from '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/inputs-baseline-2/worker_capture.py'> has no attribute '_service'
+
+test_worker_capture.py:2179: AttributeError
+_____ test_persistent_worker_startup_fault_is_bounded_and_reaped[identity] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_startup2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c1aae0>
+fault = 'identity'
+
+    @pytest.mark.parametrize("fault", ["silent", "identity", "late"])
+    def test_persistent_worker_startup_fault_is_bounded_and_reaped(tmp_path, monkeypatch, fault):
+        import worker_capture
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if fault == "identity":
+                    os.write(control, b'{"session":"wrong"}\n')
+                elif fault == "late":
+                    time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                    os.write(control, b'{"session":"late"}\n')
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+>       monkeypatch.setattr(worker_capture, "_service", service)
+E       AttributeError: <module 'worker_capture' from '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/inputs-baseline-2/worker_capture.py'> has no attribute '_service'
+
+test_worker_capture.py:2179: AttributeError
+_______ test_persistent_worker_startup_fault_is_bounded_and_reaped[late] _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_startup3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c1b0b0>
+fault = 'late'
+
+    @pytest.mark.parametrize("fault", ["silent", "identity", "late"])
+    def test_persistent_worker_startup_fault_is_bounded_and_reaped(tmp_path, monkeypatch, fault):
+        import worker_capture
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if fault == "identity":
+                    os.write(control, b'{"session":"wrong"}\n')
+                elif fault == "late":
+                    time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                    os.write(control, b'{"session":"late"}\n')
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+>       monkeypatch.setattr(worker_capture, "_service", service)
+E       AttributeError: <module 'worker_capture' from '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/inputs-baseline-2/worker_capture.py'> has no attribute '_service'
+
+test_worker_capture.py:2179: AttributeError
+_________ test_persistent_worker_rechecks_admission_after_preparation __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c19610>
+
+    def test_persistent_worker_rechecks_admission_after_preparation(monkeypatch):
+        import worker_capture
+    
+        original = inspection.fork_admission
+        snapshots = []
+        forks = []
+    
+        def admission():
+            value = original()
+            snapshots.append(value)
+            if len(snapshots) == 2:
+                value.update(ok=False, reason="native_threads", native_threads=2)
+            return value
+    
+        monkeypatch.setattr(inspection, "fork_admission", admission)
+        monkeypatch.setattr(os, "fork", lambda: forks.append(True))
+>       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2210: AttributeError
+_______________ test_persistent_worker_close_has_one_fixed_grace _______________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_close_h0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c1af90>
+
+    def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch):
+        import worker_capture
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                worker_capture._write(control, json.dumps(identity).encode() + b"\n", deadline)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+>       monkeypatch.setattr(worker_capture, "_service", service)
+E       AttributeError: <module 'worker_capture' from '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/inputs-baseline-2/worker_capture.py'> has no attribute '_service'
+
+test_worker_capture.py:2236: AttributeError
+__________ test_persistent_worker_rejects_invalid_completion[missing] __________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_rejects0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108a9b410>
+fault = 'missing'
+
+    @pytest.mark.parametrize("fault", ["missing", "duplicate", "token"])
+    def test_persistent_worker_rejects_invalid_completion(tmp_path, monkeypatch, fault):
+        import worker_capture
+    
+        original = worker_capture._write
+    
+        def write(fd, data, deadline):
+            if data.startswith(b'{"complete":'):
+                if fault == "missing":
+                    return
+                if fault == "duplicate":
+                    data += data
+                else:
+                    data = b'{"complete":"wrong"}\n'
+            original(fd, data, deadline)
+    
+        monkeypatch.setattr(worker_capture, "_write", write)
+>       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2272: AttributeError
+_________ test_persistent_worker_rejects_invalid_completion[duplicate] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_rejects1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c23d10>
+fault = 'duplicate'
+
+    @pytest.mark.parametrize("fault", ["missing", "duplicate", "token"])
+    def test_persistent_worker_rejects_invalid_completion(tmp_path, monkeypatch, fault):
+        import worker_capture
+    
+        original = worker_capture._write
+    
+        def write(fd, data, deadline):
+            if data.startswith(b'{"complete":'):
+                if fault == "missing":
+                    return
+                if fault == "duplicate":
+                    data += data
+                else:
+                    data = b'{"complete":"wrong"}\n'
+            original(fd, data, deadline)
+    
+        monkeypatch.setattr(worker_capture, "_write", write)
+>       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2272: AttributeError
+___________ test_persistent_worker_rejects_invalid_completion[token] ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_rejects2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c20500>
+fault = 'token'
+
+    @pytest.mark.parametrize("fault", ["missing", "duplicate", "token"])
+    def test_persistent_worker_rejects_invalid_completion(tmp_path, monkeypatch, fault):
+        import worker_capture
+    
+        original = worker_capture._write
+    
+        def write(fd, data, deadline):
+            if data.startswith(b'{"complete":'):
+                if fault == "missing":
+                    return
+                if fault == "duplicate":
+                    data += data
+                else:
+                    data = b'{"complete":"wrong"}\n'
+            original(fd, data, deadline)
+    
+        monkeypatch.setattr(worker_capture, "_write", write)
+>       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2272: AttributeError
+_______________ test_persistent_worker_expired_request_is_sticky _______________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-430/test_persistent_worker_expired0')
+
+    def test_persistent_worker_expired_request_is_sticky(tmp_path):
+        import worker_capture
+    
+>       worker = worker_capture.Worker()
+                 ^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'Worker'
+
+test_worker_capture.py:2292: AttributeError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/red-final-2/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_persistent_worker_starts_before_resources_and_reuses_for_safety - KeyError: 'inspection_worker'
+FAILED test_controller.py::test_persistent_worker_startup_failure_leaves_resources_unacquired - AttributeError: module 'worker_capture' has no attribute 'Worker'
+FAILED test_controller.py::test_persistent_worker_death_stops_workloads_but_attempts_safety - AttributeError: '_InspectionState' object has no attribute 'worker'
+FAILED test_controller.py::test_persistent_worker_closes_when_safety_adapter_raises - AttributeError: module 'worker_capture' has no attribute 'Worker'
+FAILED test_worker_capture.py::test_persistent_worker_reuses_exact_direct_child - AttributeError: module 'worker_capture' has no attribute 'Worker'
+FAILED test_worker_capture.py::test_persistent_worker_failure_never_restarts - AttributeError: module 'worker_capture' has no attribute 'Worker'
+FAILED test_worker_capture.py::test_persistent_worker_rejects_startup_admission - AttributeError: module 'worker_capture' has no attribute 'Worker'
+FAILED test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[silent] - AttributeError: <module 'worker_capture' from '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/inputs-baseline-2/worker_capture.py'> has no attribute '_service'
+FAILED test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[identity] - AttributeError: <module 'worker_capture' from '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/inputs-baseline-2/worker_capture.py'> has no attribute '_service'
+FAILED test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[late] - AttributeError: <module 'worker_capture' from '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/inputs-baseline-2/worker_capture.py'> has no attribute '_service'
+FAILED test_worker_capture.py::test_persistent_worker_rechecks_admission_after_preparation - AttributeError: module 'worker_capture' has no attribute 'Worker'
+FAILED test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace - AttributeError: <module 'worker_capture' from '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/persistent-worker-k94/inputs-baseline-2/worker_capture.py'> has no attribute '_service'
+FAILED test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[missing] - AttributeError: module 'worker_capture' has no attribute 'Worker'
+FAILED test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[duplicate] - AttributeError: module 'worker_capture' has no attribute 'Worker'
+FAILED test_worker_capture.py::test_persistent_worker_rejects_invalid_completion[token] - AttributeError: module 'worker_capture' has no attribute 'Worker'
+FAILED test_worker_capture.py::test_persistent_worker_expired_request_is_sticky - AttributeError: module 'worker_capture' has no attribute 'Worker'
+====================== 16 failed, 481 deselected in 1.30s ======================

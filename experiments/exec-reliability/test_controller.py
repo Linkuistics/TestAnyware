@@ -15,7 +15,8 @@ from pathlib import Path
 import pytest
 
 from controller import Call, Plan, Resource, execute
-from inspection import HelperCapture, capture_helper
+from inspection import HelperCapture
+from worker_capture import capture_helper
 
 HERE = Path(__file__).resolve().parent
 PEER = HERE / "peer.py"
@@ -30,8 +31,8 @@ def test_review_inspection_failure_is_sticky_during_safety(tmp_path, monkeypatch
     queries = []
     original_snapshot = controller._group_snapshot
 
-    def snapshot(pid, deadline):
-        observation = original_snapshot(pid, deadline)
+    def snapshot(pid, deadline, **kwargs):
+        observation = original_snapshot(pid, deadline, **kwargs)
         queries.append(pid)
         if len(queries) == failure_index:
             # Adapter damage after a real query. Every later real table would
@@ -97,8 +98,8 @@ def test_review_sticky_failure_preserves_reverse_safety_and_signals(tmp_path, mo
     queries = []
     original_snapshot = controller._group_snapshot
 
-    def snapshot(pid, deadline):
-        observation = original_snapshot(pid, deadline)
+    def snapshot(pid, deadline, **kwargs):
+        observation = original_snapshot(pid, deadline, **kwargs)
         queries.append(pid)
         if len(queries) == 3:
             observation.update(state="unknown", error="injected inspector failure")
@@ -160,8 +161,8 @@ def test_review_live_table_does_not_poison_later_inspection(tmp_path, monkeypatc
     original_snapshot = controller._group_snapshot
     queries = []
 
-    def snapshot(pid, deadline):
-        observation = original_snapshot(pid, deadline)
+    def snapshot(pid, deadline, **kwargs):
+        observation = original_snapshot(pid, deadline, **kwargs)
         queries.append(pid)
         if len(queries) == 1:
             # Classification adapter; real live-child behavior has separate controls.
@@ -195,7 +196,7 @@ def test_review_skipped_query_preserves_later_safety_inspection(tmp_path, monkey
     original_run = capture_helper
     final_calls, queries = [], []
 
-    def final(pid, deadline, leader_exit):
+    def final(pid, deadline, leader_exit, **kwargs):
         final_calls.append(pid)
         if len(final_calls) == 2:
             # Withhold eligibility only for the workload. Real queries and
@@ -204,7 +205,7 @@ def test_review_skipped_query_preserves_later_safety_inspection(tmp_path, monkey
                 leader_exit = None
             else:
                 deadline = time.monotonic()
-        return original_final(pid, deadline, leader_exit)
+        return original_final(pid, deadline, leader_exit, **kwargs)
 
     def query(argv, *args, **kwargs):
         if tuple(argv[:2]) == ("/bin/ps", "-g"):
@@ -322,9 +323,9 @@ def test_review_final_query_requires_observed_exit(tmp_path, monkeypatch, pid_on
     queries = []
     original_snapshot = controller._group_snapshot
 
-    def snapshot(pid, deadline):
+    def snapshot(pid, deadline, **kwargs):
         queries.append(time.monotonic())
-        return original_snapshot(pid, deadline)
+        return original_snapshot(pid, deadline, **kwargs)
 
     # Simulate unavailable exit notification, while all signals and reaps act
     # on a real child. No process-table operation is authorized without exit.
@@ -358,8 +359,8 @@ def test_review_final_live_table_cannot_be_retried(tmp_path, monkeypatch):
         if sig != signal.SIGKILL:
             original_killpg(pid, sig)
 
-    def snapshot(pid, deadline):
-        observation = original_snapshot(pid, deadline)
+    def snapshot(pid, deadline, **kwargs):
+        observation = original_snapshot(pid, deadline, **kwargs)
         observations.append(observation)
         # The first real table contains the live gated child. Releasing it
         # makes later tables favorable, but cannot repair that final evidence.
@@ -425,9 +426,9 @@ def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, rea
     targets = []
     original_snapshot = controller._group_snapshot
 
-    def snapshot(pid, deadline):
+    def snapshot(pid, deadline, **kwargs):
         targets.append(pid)
-        result = original_snapshot(pid, deadline)
+        result = original_snapshot(pid, deadline, **kwargs)
         if reap_state == "expired":
             time.sleep(max(0, deadline - time.monotonic()) + 0.11)
         return result
@@ -1615,12 +1616,12 @@ def test_review_pinning_control_detects_real_early_reap(tmp_path, monkeypatch, r
                 assert os.wait()[0] == pid
         return exited
 
-    def pinned_snapshot(pid, deadline):
+    def pinned_snapshot(pid, deadline, **kwargs):
         observation = inspect_pid(pid)
         observations.append(observation)
         if observation["state"] == "absent":
             raise RuntimeError("group identity released before inspection")
-        return original_snapshot(pid, deadline)
+        return original_snapshot(pid, deadline, **kwargs)
 
     monkeypatch.setattr(subprocess.Popen, "__init__", register)
     monkeypatch.setattr(controller, "_wait", wait)
@@ -1810,7 +1811,7 @@ def test_termination_cutoff_checks_observer_return(monkeypatch, pid_only, late):
     monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
     monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
 
-    def snapshot(pid, deadline):
+    def snapshot(pid, deadline, **kwargs):
         return {
             "started_monotonic": now[0],
             "finished_monotonic": now[0],
@@ -2239,3 +2240,115 @@ def test_skipped_group_snapshot_has_no_probe_interval(monkeypatch, reason):
     assert observation["probe_outcome"] == "not_attempted"
     assert observation["probe_started_monotonic"] is None
     assert observation["probe_finished_monotonic"] is None
+
+
+def test_persistent_worker_starts_before_resources_and_reuses_for_safety(tmp_path):
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    path, result = run(tmp_path, [call("workload", "bytes")], resources=[owned], run_id=run_id)
+    assert result["ok"] is True
+    lifecycle = result["inspection_worker"]
+    assert lifecycle["startup_finished_monotonic"] <= result["calls"][0]["started_monotonic"]
+    assert lifecycle["startup_finished_monotonic"] - lifecycle["startup_started_monotonic"] <= 1
+    assert lifecycle["owner"]["reaped"] is True
+    assert lifecycle["owner"]["returncode"] == 0
+    helpers = [item["group_observations"][0]["helper"] for item in result["calls"]]
+    assert len(helpers) == 5
+    assert {item["worker"]["pid"] for item in helpers} == {lifecycle["owner"]["pid"]}
+    assert len({item["worker"]["request_token"] for item in helpers}) == 5
+    pids = {
+        lifecycle["owner"]["pid"],
+        *(item["pid"] for item in helpers),
+        *(item["pid"] for item in result["calls"]),
+    }
+    audit = [inspect_pid(pid) for pid in sorted(pids)]
+    (path / "persistent-worker-independent-audit.json").write_text(json.dumps(audit, indent=2))
+    assert len(audit) == 11 and all(item["state"] == "absent" for item in audit)
+    with pytest.raises(ChildProcessError):
+        os.waitpid(lifecycle["owner"]["pid"], os.WNOHANG)
+
+
+def test_persistent_worker_startup_failure_leaves_resources_unacquired(tmp_path, monkeypatch):
+    import worker_capture
+
+    def fail(self):
+        self.failure = "injected startup failure"
+        return False
+
+    monkeypatch.setattr(worker_capture.Worker, "start", fail)
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    path, result = run(tmp_path, [call("unreached", "bytes")], resources=[owned], run_id=run_id)
+    assert result["ok"] is False
+    assert result["calls"] == []
+    assert result["unreached"] == ["acquire", "unreached"]
+    assert not list(path.glob("intent-*"))
+    assert result["inspection_worker"]["failure"] == "injected startup failure"
+
+
+def test_persistent_worker_death_stops_workloads_but_attempts_safety(tmp_path, monkeypatch):
+    import controller
+
+    original = controller._safe_call
+    worker_pid = []
+
+    def fail_after_acquire(call, root, plan, state):
+        receipt = original(call, root, plan, state)
+        if call.name == "acquire":
+            worker_pid.append(state.worker.owner.pid)
+            os.kill(worker_pid[0], signal.SIGKILL)
+        return receipt
+
+    monkeypatch.setattr(controller, "_safe_call", fail_after_acquire)
+    run_id = uuid.uuid4().hex
+    _, result = run(
+        tmp_path,
+        [call("first", "bytes"), call("unreached", "bytes")],
+        resources=[resource(tmp_path, run_id)],
+        run_id=run_id,
+    )
+    assert result["ok"] is False
+    assert [item["name"] for item in result["calls"]] == [
+        "acquire",
+        "first",
+        "cleanup",
+        "dispose",
+        "inspect",
+    ]
+    assert result["unreached"] == ["unreached"]
+    assert result["inspection_worker"]["owner"]["pid"] == worker_pid[0]
+    assert result["inspection_worker"]["owner"]["reaped"] is True
+    assert all(not item["group_observations"][0]["query_attempted"] for item in result["calls"][2:])
+
+
+def test_persistent_worker_closes_when_safety_adapter_raises(tmp_path, monkeypatch):
+    import controller
+    import worker_capture
+
+    original_start = worker_capture.Worker.start
+    original_call = controller._safe_call
+    workers = []
+
+    def start(worker):
+        workers.append(worker)
+        return original_start(worker)
+
+    def fail(call, root, plan, state):
+        if call.name == "cleanup":
+            raise RuntimeError("injected safety adapter failure")
+        return original_call(call, root, plan, state)
+
+    monkeypatch.setattr(worker_capture.Worker, "start", start)
+    monkeypatch.setattr(controller, "_safe_call", fail)
+    run_id = uuid.uuid4().hex
+    with pytest.raises(RuntimeError, match="injected safety adapter failure"):
+        run(
+            tmp_path,
+            [call("bytes", "bytes")],
+            resources=[resource(tmp_path, run_id)],
+            run_id=run_id,
+        )
+    assert len(workers) == 1 and workers[0].closed
+    assert workers[0].owner.reaped and workers[0].owner.returncode == 0
+    with pytest.raises(ChildProcessError):
+        os.waitpid(workers[0].owner.pid, os.WNOHANG)
