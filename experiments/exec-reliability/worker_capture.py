@@ -371,12 +371,30 @@ class Worker:
         self.closed = True
         self.shutdown_started = time.monotonic()
         owner = self.owner
+        term_at = self.shutdown_started
+        term_sent = False
+        kill_sent = False
         if owner is not None:
+            retiring = owner.shutdown_deadline_monotonic != float("inf") or bool(owner.signals)
+            if self.failure is None and not retiring:
+                term_at += 0.05  # One orderly EOF grace inside the fixed allowance.
+            for attempt in owner.signals:
+                if attempt["signal"] == "SIGTERM":
+                    term_sent = True
+                    term_at = min(term_at, cast(float, attempt["monotonic"]))
+                elif attempt["signal"] == "SIGKILL":
+                    kill_sent = term_sent = True
             # A request failure may already have fixed an earlier deadline.
             owner.shutdown_deadline_monotonic = min(
                 owner.shutdown_deadline_monotonic, self.shutdown_started + 4
             )
-            self.kill_at = min(owner.shutdown_deadline_monotonic, self.shutdown_started + 2)
+            # Reserve half the remaining allowance for KILL/reap. Prior TERM
+            # attempts (including denial) never acquire another two seconds.
+            self.kill_at = min(
+                term_at + 2,
+                self.shutdown_started
+                + max(0, owner.shutdown_deadline_monotonic - self.shutdown_started) / 2,
+            )
         if self.command is not None and self.command in self.channels:
             try:
                 os.close(self.command)
@@ -385,14 +403,18 @@ class Worker:
             self.channels.remove(self.command)
         if owner is not None:
             if self.failure:
-                _signal(owner, signal.SIGTERM)
+                term_at = min(term_at, self.shutdown_started)
             while time.monotonic() < owner.shutdown_deadline_monotonic:
                 _reap(owner)
                 if owner.reaped or owner.reap_errno is not None:
                     break
-                if time.monotonic() >= cast(float, self.kill_at):
+                now = time.monotonic()
+                if not term_sent and now >= term_at:
+                    _signal(owner, signal.SIGTERM)
+                    term_sent = True
+                if not kill_sent and now >= cast(float, self.kill_at):
                     _signal(owner, signal.SIGKILL)
-                    self.kill_at = float("inf")
+                    kill_sent = True
                 time.sleep(min(0.001, max(0, owner.shutdown_deadline_monotonic - time.monotonic())))
             _reap(owner)
             if not owner.reaped or owner.returncode != 0:

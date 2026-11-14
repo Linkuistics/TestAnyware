@@ -20,7 +20,7 @@ tasks:
     desc: Format the local diagnostic Python sources
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
     cmds:
-      - uv run --locked python -m ruff format *.py
+      - uv run --locked python -m ruff format *.py {{.CLI_ARGS}}
 
   design:inspection-preview:
     desc: Serve the bounded-inspection design at localhost (PORT defaults to 8764); stop with Ctrl-C
@@ -611,3 +611,11 @@ tasks:
       vars: [INPUTS, OUT, MODE]
     cmds:
       - uv run --locked python evidence/request-identity-k96/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
+
+  diagnostic:worker-close-check:
+    desc: Retain frozen worker close controls or the full diagnostic suite
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/worker-close-k98/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'

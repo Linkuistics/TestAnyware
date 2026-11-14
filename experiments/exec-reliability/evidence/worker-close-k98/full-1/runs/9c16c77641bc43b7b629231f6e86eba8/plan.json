@@ -1,0 +1,28 @@
+{
+  "run_id": "9c16c77641bc43b7b629231f6e86eba8",
+  "calls": [
+    {
+      "name": "self-signal",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+        "-c",
+        "\nimport json, os, runpy, signal, sys\nfrom pathlib import Path\noriginal = os.kill\ndef misdirect(pid, sig):\n    if sig == signal.SIGTERM:\n        Path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k98/full-1/runs/self-signal-46bc5ae62b324e4d9444598b920e33e0.json').write_text(json.dumps({\"pid\": pid}))\n        original(pid, signal.SIGKILL)\n        original(os.getpid(), sig)\n    else:\n        original(pid, sig)\nos.kill = misdirect\nsys.argv = ['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k98/full-inputs/peer.py', 'controller', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k98/full-1/runs']\nrunpy.run_path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k98/full-inputs/peer.py', run_name='__main__')\n"
+      ],
+      "budget": 3,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    }
+  ],
+  "resources": [],
+  "subjects": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k98/full-inputs/peer.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k98/full-inputs/test_controller.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k98/full-inputs/pyproject.toml",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k98/full-inputs/uv.lock",
+    "/bin/sleep"
+  ],
+  "term_grace": 0.15,
+  "kill_wait": 0.3
+}
