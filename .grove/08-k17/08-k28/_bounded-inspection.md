@@ -13,8 +13,10 @@ section of `docs/experiments/exec-reliability-diagnostic-foundation.md`, and
 bounded-inspection-k27's seven dispositions in commit `dd264245`. Planner
 bounded-inspection-k25 records the increment boundary. The delivered initial
 admission slice is k32-final-01, following k29 and its review integration k32.
-The complete worker/scheduler boundary remains k30's work; the synchronous
-inspection limitation measured at k23-final-01 is unchanged.
+The complete worker/scheduler boundary remains complete-worker-scheduler-k71's
+work after helper-fork-error-k72 reviews k69. Later bounded slices have landed
+without establishing the persistent worker/shared scheduler guarantee; read the
+current foundation report for their measured limits.
 
 Own `experiments/exec-reliability/controller.py`, a narrow inspection module if
 needed, `peer.py` and any owned local helper fixtures, `test_controller.py`,
@@ -161,7 +163,11 @@ audits known fixture children and helpers without using the faulted worker.
   post-bootstrap preparation exits and healthy orderly close under the declared
   invocation bounds, including already-retiring-worker cleanup.
 
-## Decisions (running log)
+## Historical decisions (running log)
+
+The entries below record the original implementation interruption and early
+slices. Their source conditions are historical, not current stop instructions.
+Current routing and promoted acceptance requirements follow under Decomposition.
 
 - Keep the end-to-end increment selected by k25. The reviewed spec and plan
   settle the design and test seams. Implement inline in the isolated jj workspace.
@@ -195,17 +201,62 @@ audits known fixture children and helpers without using the faulted worker.
 
 ## Notes
 
-The resumed implementation decomposed at an independently useful green boundary:
-fork-admission-k29 rejects unsafe environments before resource acquisition;
-bounded-inspection-k30 retains all remaining end-to-end requirements above.
-k29's review runs before k30. Partial admission delivery does not satisfy this
-node, repair synchronous inspection stalls, or change the acceptance claim.
-
-No live guest, installed-app change, unsafe macOS process suite or acceptance
-claim. Workload process creation, stalled evidence storage, arbitrary escaped
-descendants and controller-crash recovery remain outside this increment's
+Fork-admission-k29 and later bounded slices preserve useful checked behaviors,
+not the complete guarantee. Read current producer/review evidence for the slice
+being used. No live guest, installed-app change, unsafe macOS process suite or
+acceptance claim is authorized here. Workload creation, stalled evidence storage,
+arbitrary escaped descendants and controller-crash recovery remain outside the
 demonstrated guarantee. Do not deliberately induce an uninterruptible kernel
-task. k17 stays open through reviewed implementation and k21; unfulfilled real
-controls must remain visible when its whole contract is checked. If this
-increment proves too large, decompose only at independently useful, green
-behaviour boundaries and never claim the complete guarantee from a partial step.
+task. k17 remains open through reviewed implementation and k21; k18 separately
+owns storage isolation. Missing real controls stay visible at whole-contract
+acceptance. Further splits must deliver independently useful green behavior and
+preserve every remaining requirement.
+
+## Decomposition and promoted contract
+
+This node earns its level because the helper-owning worker, bounded transport and
+controller scheduler share one safety contract and real fault-control inventory
+that other k17 tasks do not need. Its joint completion condition is the complete
+Done when and control inventory above, followed by full runtime review and any
+necessary reconciliation before k21. Its sessions are ordered flat siblings;
+implementation repairs and reviews add no new context level.
+
+The owner approved archiving continuation briefs k30, k34, k38, k40, k42, k44 and
+k48 without certifying their unfinished aggregates. Their original text and
+decision logs remain in [Grove brief history](../../../docs/planning/grove-history/README.md).
+Their acceptance now belongs here and in k71; historical references to those
+handles route through that index. In addition to every requirement above:
+
+- Preserve k33/k36 group KILL ordering, k37 strict table acceptance and k39's
+  exact-PID WNOHANG reap until K, no destructor polling and strong workload owner
+  after failed reap. The inspection cutoff is K-min(100 ms,A/4). No late turn
+  extends authority or deadlines; reject stale callbacks.
+- Preserve k41's sole final query after last signal and observed leader exit,
+  no retry after live/unknown, and post-KILL EPERM classification. Preserve
+  k43/k46 sticky attempted-query failure through safety commands.
+  `GroupObservation.query_attempted` separates a skipped final query (which
+  fails its call but permits later independent safety inspection) from a failed
+  helper (which disables later local tables and probes). Valid live observations
+  remain termination failures, rather than inspector failures.
+- Preserve reviewed k47/k50 bounded capture/reap, exact helper identity and
+  distinct retained residual owners. Reconcile the former untrusted draft with
+  the actual runtime specification; its historical snapshot is not delivered code.
+  Per-query worker isolation, raw helper fork/reset, gated publication, native
+  admission repair and explicit fork-error receipts are bounded slices only.
+- Keep real helper KILL and held wait return, simulated unreapability, and
+  unavailable genuine UID denial/setuid-ps timing controls distinct. Freeze
+  every read subject and bound, audit fixture/helper/worker/workload/member and
+  unknown-creation obligations independently, and preserve prior evidence bytes.
+- k72 reviews k69 before k71 relies on explicit fork failure. k71 retains the
+  full remaining runtime charter, every required control and final review. That
+  future review is **Reviews: bounded-inspection-k28**, carrying the former k30
+  aggregate obligation; require actual runtime ownership/waits/destructors/
+  signal authority/concurrency/full-inventory traces. Insert it before k21 and
+  reconcile actionable findings there, with no empty integration.
+
+The complete contract remains unmet. Neither archiving continuation levels nor
+local passing slices closes this node, k17 or the root. Retained-file identity
+remains k21, storage stalls remain k18, and ten-clone acceptance stays 0/10
+unavailable. Historical slice decisions remain in their unchanged task bodies
+and the archived briefs; they do not require rereading seven continuation levels
+to find the current contract.

@@ -106,3 +106,16 @@ evidence, with missing real permission/setuid-ps controls still visible at its
 whole-contract check. k18 separately consumes the reviewed scheduler and
 immutable in-memory outcomes while isolating storage. Planning delivers no new
 runtime guarantee or acceptance evidence.
+
+## Current structure
+
+This node earns its shared context for termination and retained-file integrity: the
+joint completion requires reviewed F4/F5/F6 controls before live diagnostics.
+Bounded-inspection-k28 earns the worker/scheduler subgoal and its shared fault
+inventory. Its sessions are now flat siblings. Former continuation-node handles
+k30/k34/k38/k40/k42/k44/k48 route through
+[Grove brief history](../../docs/planning/grove-history/README.md); their unfinished
+contracts are promoted into k28, with k72 preceding k71 and complete runtime
+review/reconciliation before k21. Historical statements above about k30 or an
+earlier synchronous source condition remain provenance, not acceptance of the
+current runtime. k17 stays open through k28 and k21; storage remains k18.

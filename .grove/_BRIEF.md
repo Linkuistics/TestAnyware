@@ -427,3 +427,12 @@ coverage metadata and no recorded gap; documentation is excluded and was read
 directly. No exhaustive code or call-graph claim is made. The graph returned
 unrelated Rust targets for Swift system calls; only source-confirmed links
 support this brief.
+
+## Grove structure after k73
+
+Only diagnostic-evidence-k17 and bounded-inspection-k28 retain child scopes.
+Former continuation-node references k30/k34/k38/k40/k42/k44/k48 are historical;
+see [their original briefs and current routing](../docs/planning/grove-history/README.md).
+Their unfinished worker/scheduler contracts belong to k28 and live k71, with
+k72 before k71 and final full-runtime review before k21. This structural change
+certifies no aggregate complete and preserves every root acceptance condition.
