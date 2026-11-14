@@ -3,6 +3,7 @@
 import errno
 import json
 import os
+import select
 import signal
 import subprocess
 import sys
@@ -2216,7 +2217,19 @@ def test_persistent_worker_rechecks_admission_after_preparation(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "mode", ["orderly", "term", "kill", "failure", "retiring-term", "retiring-kill", "expired"]
+    "mode",
+    [
+        "orderly",
+        "term",
+        "kill",
+        "failure",
+        "retiring-term",
+        "retiring-kill",
+        "expired",
+        "denied-term",
+        "denied-kill",
+        "command-failure",
+    ],
 )
 def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode):
     """Skipping TERM, repeating retirement or renewing authority must fail this control."""
@@ -2225,7 +2238,7 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
     def service(command, control, result, session, deadline):
         try:
             inspection.reset_after_fork({command, control, result})
-            if mode != "term":
+            if mode not in {"term", "expired"}:
                 signal.signal(signal.SIGTERM, signal.SIG_IGN)
             identity = {
                 "session": session,
@@ -2245,14 +2258,60 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
     assert worker.start()
     owner = worker.owner
     prior_deadline = None
-    if mode == "failure":
-        worker.failure = "controlled sticky failure"
-    if mode.startswith("retiring") or mode == "expired":
-        worker_capture._signal(owner, signal.SIGKILL if mode == "retiring-kill" else signal.SIGTERM)
-        prior_deadline = time.monotonic() + (0 if mode == "expired" else 0.4)
-        owner.shutdown_deadline_monotonic = prior_deadline
+    original_close = os.close
+    command = worker.command
+    close_faults = []
+    exit_observed = False
+
+    def close_command(fd):
+        if fd == command:
+            close_faults.append({"fd": fd, "monotonic": time.monotonic(), "errno": errno.EIO})
+            raise OSError(errno.EIO, "controlled command close failure")
+        return original_close(fd)
+
     audit = {"pid": owner.pid, "reaped": False, "source": "independent exact-child WNOHANG"}
     try:
+        if mode == "command-failure":
+            monkeypatch.setattr(os, "close", close_command)
+        if mode.startswith("denied-"):
+            # A seeded failed attempt is history, not a claim of actual kernel denial.
+            # The child ignores TERM; only the subsequent real KILL can reap it.
+            owner.signals.append(
+                {
+                    "signal": "SIGTERM" if mode == "denied-term" else "SIGKILL",
+                    "monotonic": time.monotonic(),
+                    "errno": errno.EPERM,
+                }
+            )
+            prior_deadline = time.monotonic() + 0.4
+            owner.shutdown_deadline_monotonic = prior_deadline
+        if mode == "failure":
+            worker.failure = "controlled sticky failure"
+        if mode.startswith("retiring") or mode == "expired":
+            if mode == "expired":
+                # Observe the real exit without consuming status. Register first so
+                # close's final reap is guaranteed to encounter a waitable child.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        owner.pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    events = queue.control(None, 1, 1)
+                    exit_observed = any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                    assert exit_observed
+                finally:
+                    queue.close()
+            else:
+                worker_capture._signal(
+                    owner, signal.SIGKILL if mode == "retiring-kill" else signal.SIGTERM
+                )
+            prior_deadline = time.monotonic() + (0 if mode == "expired" else 0.4)
+            owner.shutdown_deadline_monotonic = prior_deadline
         worker.close()
         first = worker.evidence()
         worker.close()
@@ -2265,6 +2324,10 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
             assert worker.failure is None
         elif mode == "expired":
             assert signals == ["SIGTERM"]
+            assert not owner.reaped and owner.pid in worker_capture._owners
+            assert first["residual_remedy"]
+        elif mode == "denied-kill":
+            assert signals == ["SIGKILL"] and owner.signals[0]["errno"] == errno.EPERM
             assert not owner.reaped and owner.pid in worker_capture._owners
             assert first["residual_remedy"]
         else:
@@ -2282,6 +2345,15 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
                 assert 0.04 <= owner.signals[0]["monotonic"] - worker.shutdown_started < 0.5
             if mode == "failure":
                 assert owner.signals[0]["monotonic"] - worker.shutdown_started < 0.1
+            if mode == "command-failure":
+                assert len(close_faults) == 1
+                assert close_faults[0]["fd"] == command and close_faults[0]["errno"] == errno.EIO
+                assert "worker command close failed" in worker.failure
+                assert owner.signals[0]["monotonic"] - worker.shutdown_started < 0.04
+                assert 1.9 <= owner.signals[1]["monotonic"] - worker.shutdown_started <= 2.05
+            if mode == "denied-term":
+                assert owner.signals[0]["errno"] == errno.EPERM
+                assert 0.15 <= owner.signals[1]["monotonic"] - worker.shutdown_started < 0.4
             if len(signals) == 2:
                 assert 0 <= owner.signals[1]["monotonic"] - owner.signals[0]["monotonic"] <= 2.05
                 assert 0 <= worker.shutdown_finished - owner.signals[1]["monotonic"] < 2
@@ -2289,11 +2361,22 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
                 item["monotonic"] < owner.shutdown_deadline_monotonic for item in owner.signals
             )
     finally:
+        monkeypatch.setattr(os, "close", original_close)
+        if mode == "command-failure":
+            original_close(command)  # Fault left this fixture-owned descriptor open.
         # Evidence is captured before independent cleanup changes the owner ledger.
         root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
         root.mkdir(parents=True, exist_ok=True)
         (root / f"persistent-close-{mode}-{time.time_ns()}.json").write_text(
-            json.dumps(worker.evidence(), indent=2) + "\n"
+            json.dumps(
+                {
+                    "runtime": worker.evidence(),
+                    "close_faults": close_faults,
+                    "exit_observed_without_reap": exit_observed,
+                },
+                indent=2,
+            )
+            + "\n"
         )
         if owner.reaped:
             with pytest.raises(ChildProcessError):
@@ -2301,17 +2384,94 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
             audit["reaped"] = True
         else:
             # The unreaped exact direct child pins this fixture identity.
-            os.killpg(owner.pid, signal.SIGKILL)
+            if not exit_observed:
+                os.killpg(owner.pid, signal.SIGKILL)
             end = time.monotonic() + 1
             while time.monotonic() < end:
                 found, status = os.waitpid(owner.pid, os.WNOHANG)
                 if found == owner.pid:
                     audit.update(reaped=True, status=status)
+                    if mode == "expired":
+                        assert os.waitstatus_to_exitcode(status) == -signal.SIGTERM
                     worker_capture._owners.pop(owner.pid, None)
                     break
                 time.sleep(0.001)
         (root / f"persistent-close-audit-{mode}-{time.time_ns()}.json").write_text(
             json.dumps(audit, indent=2) + "\n"
+        )
+        assert audit["reaped"]
+
+
+def test_persistent_worker_close_before_ready_uses_pid(tmp_path, monkeypatch):
+    """A TERM-ignoring child with no ready identity is owned only by exact PID."""
+    import worker_capture
+
+    read_fd, write_fd = os.pipe()
+    pid = os.fork()
+    if pid == 0:
+        try:
+            inspection.reset_after_fork({write_fd}, new_session=False)
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            os.write(write_fd, b"R")  # Fixture synchronization, never a ready message.
+            while True:
+                signal.pause()
+        finally:
+            os._exit(70)
+    os.close(write_fd)
+    owner = worker_capture._Owner(pid, float("inf"))
+    worker_capture._owners[pid] = owner
+    worker = worker_capture.Worker(owner=owner)
+    calls = []
+    original_kill, original_killpg = os.kill, os.killpg
+    audit = {"pid": pid, "reaped": False}
+
+    def kill(target, sig):
+        calls.append({"scope": "pid", "target": target, "signal": int(sig)})
+        return original_kill(target, sig)
+
+    def killpg(target, sig):
+        calls.append({"scope": "group", "target": target, "signal": int(sig)})
+        return original_killpg(target, sig)
+
+    try:
+        readable, _, _ = select.select([read_fd], [], [], 1)
+        assert readable and os.read(read_fd, 1) == b"R"
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        worker.close()
+        first = worker.evidence()
+        worker.close()
+        assert worker.evidence() == first
+        assert not owner.ready
+        assert calls == [
+            {"scope": "pid", "target": pid, "signal": signal.SIGTERM},
+            {"scope": "pid", "target": pid, "signal": signal.SIGKILL},
+        ]
+        assert owner.reaped and owner.returncode == -signal.SIGKILL
+        assert 0.04 <= owner.signals[0]["monotonic"] - worker.shutdown_started < 0.5
+        assert 1.9 <= owner.signals[1]["monotonic"] - worker.shutdown_started <= 2.05
+        assert all(item["monotonic"] < owner.shutdown_deadline_monotonic for item in owner.signals)
+    finally:
+        os.close(read_fd)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        runtime = worker.evidence()
+        if owner.reaped:
+            with pytest.raises(ChildProcessError):
+                os.waitpid(pid, os.WNOHANG)
+            audit["reaped"] = True
+        else:
+            original_kill(pid, signal.SIGKILL)
+            end = time.monotonic() + 1
+            while time.monotonic() < end:
+                found, status = os.waitpid(pid, os.WNOHANG)
+                if found == pid:
+                    audit.update(reaped=True, status=status)
+                    worker_capture._owners.pop(pid, None)
+                    break
+                time.sleep(0.001)
+        (root / f"persistent-close-pid-{time.time_ns()}.json").write_text(
+            json.dumps({"runtime": runtime, "calls": calls, "audit": audit}, indent=2) + "\n"
         )
         assert audit["reaped"]
 

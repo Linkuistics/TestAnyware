@@ -619,3 +619,12 @@ tasks:
       vars: [INPUTS, OUT, MODE]
     cmds:
       - uv run --locked python evidence/worker-close-k98/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
+
+
+  diagnostic:worker-close-review-check:
+    desc: 'Freeze k103 worker-close review controls or full checks; INPUTS=<source snapshot> OUT=<new evidence directory> MODE=controls|full SELECT=<optional pytest expression>'
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/worker-close-k103/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'

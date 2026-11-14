@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.493" timestamp="2026-11-15T10:21:37.024849+11:00" hostname="byrd.local"><testcase classname="test_worker_capture" name="test_persistent_worker_close_has_one_fixed_grace[denied-kill]" time="0.208"><failure message="AssertionError: assert (['SIGKILL', 'SIGTERM', 'SIGKILL'] == ['SIGKILL']&#10;  &#10;  Left contains 2 more items, first extra item: 'SIGTERM'&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;        'SIGKILL',&#10;  +     'SIGTERM',&#10;  +     'SIGKILL',&#10;    ])">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-495/test_persistent_worker_close_h0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10ae83680&gt;
+mode = 'denied-kill'
+
+    @pytest.mark.parametrize(
+        "mode",
+        [
+            "orderly",
+            "term",
+            "kill",
+            "failure",
+            "retiring-term",
+            "retiring-kill",
+            "expired",
+            "denied-term",
+            "denied-kill",
+            "command-failure",
+        ],
+    )
+    def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode):
+        """Skipping TERM, repeating retirement or renewing authority must fail this control."""
+        import worker_capture
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if mode not in {"term", "expired"}:
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                worker_capture._write(control, json.dumps(identity).encode() + b"\n", deadline)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        if mode != "orderly":
+            monkeypatch.setattr(worker_capture, "_service", service)
+        worker = worker_capture.Worker()
+        assert worker.start()
+        owner = worker.owner
+        prior_deadline = None
+        original_close = os.close
+        command = worker.command
+        close_faults = []
+    
+        def close_command(fd):
+            if fd == command:
+                close_faults.append({"fd": fd, "monotonic": time.monotonic(), "errno": errno.EIO})
+                raise OSError(errno.EIO, "controlled command close failure")
+            return original_close(fd)
+    
+        audit = {"pid": owner.pid, "reaped": False, "source": "independent exact-child WNOHANG"}
+        try:
+            if mode == "command-failure":
+                monkeypatch.setattr(os, "close", close_command)
+            if mode.startswith("denied-"):
+                # A seeded failed attempt is history, not a claim of actual kernel denial.
+                # The child ignores TERM; only the subsequent real KILL can reap it.
+                owner.signals.append(
+                    {
+                        "signal": "SIGTERM" if mode == "denied-term" else "SIGKILL",
+                        "monotonic": time.monotonic(),
+                        "errno": errno.EPERM,
+                    }
+                )
+                prior_deadline = time.monotonic() + 0.4
+                owner.shutdown_deadline_monotonic = prior_deadline
+            if mode == "failure":
+                worker.failure = "controlled sticky failure"
+            if mode.startswith("retiring") or mode == "expired":
+                if mode == "expired":
+                    # Observe the real exit without consuming status. Register first so
+                    # close's final reap is guaranteed to encounter a waitable child.
+                    queue = select.kqueue()
+                    try:
+                        event = select.kevent(
+                            owner.pid,
+                            filter=select.KQ_FILTER_PROC,
+                            flags=select.KQ_EV_ADD,
+                            fflags=select.KQ_NOTE_EXIT,
+                        )
+                        queue.control([event], 0, 0)
+                        worker_capture._signal(owner, signal.SIGTERM)
+                        events = queue.control(None, 1, 1)
+                        assert any(item.fflags &amp; select.KQ_NOTE_EXIT for item in events)
+                    finally:
+                        queue.close()
+                else:
+                    worker_capture._signal(
+                        owner, signal.SIGKILL if mode == "retiring-kill" else signal.SIGTERM
+                    )
+                prior_deadline = time.monotonic() + (0 if mode == "expired" else 0.4)
+                owner.shutdown_deadline_monotonic = prior_deadline
+            worker.close()
+            first = worker.evidence()
+            worker.close()
+            assert worker.evidence() == first
+            if prior_deadline is not None:
+                assert owner.shutdown_deadline_monotonic == prior_deadline
+            signals = [item["signal"] for item in owner.signals]
+            if mode == "orderly":
+                assert owner.reaped and owner.returncode == 0 and not signals
+                assert worker.failure is None
+            elif mode == "expired":
+                assert signals == ["SIGTERM"]
+                assert not owner.reaped and owner.pid in worker_capture._owners
+                assert first["residual_remedy"]
+            elif mode == "denied-kill":
+&gt;               assert signals == ["SIGKILL"] and owner.signals[0]["errno"] == errno.EPERM
+E               AssertionError: assert (['SIGKILL', 'SIGTERM', 'SIGKILL'] == ['SIGKILL']
+E                 
+E                 Left contains 2 more items, first extra item: 'SIGTERM'
+E                 
+E                 Full diff: (-: missing in left side, +: extra in left side)
+E                   [
+E                       'SIGKILL',
+E                 +     'SIGTERM',
+E                 +     'SIGKILL',
+E                   ])
+
+test_worker_capture.py:2328: AssertionError</failure></testcase></testsuite></testsuites>

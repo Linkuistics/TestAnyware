@@ -1,0 +1,86 @@
+{
+  "name": "missing-exit",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k103/final-inputs/peer.py",
+    "hang"
+  ],
+  "budget": 0.15,
+  "started_monotonic": 315995.174881041,
+  "wall_start_ns": 1794698715694612000,
+  "reason": "deadline",
+  "returncode": -15,
+  "reaped": true,
+  "ok": false,
+  "signals": [
+    {
+      "signal": "TERM",
+      "scope": "group",
+      "target": 9481,
+      "outcome": "sent",
+      "monotonic": 315995.32535325,
+      "finished_monotonic": 315995.325363666
+    },
+    {
+      "signal": "KILL",
+      "scope": "group",
+      "target": 9481,
+      "outcome": "permission_unknown",
+      "monotonic": 315995.476134333,
+      "errno": 1,
+      "error": "[Errno 1] Operation not permitted",
+      "finished_monotonic": 315995.476191416,
+      "permission_observation": {
+        "started_monotonic": 315995.701694208,
+        "finished_monotonic": 315995.701694208,
+        "query_attempted": false,
+        "helper": null,
+        "state": "unknown",
+        "members": [],
+        "stdout": "",
+        "stderr": "",
+        "returncode": null,
+        "probe_started_monotonic": null,
+        "probe_finished_monotonic": null,
+        "probe_errno": null,
+        "probe_outcome": "not_attempted",
+        "error": "no observed leader exit before inspection cutoff"
+      }
+    }
+  ],
+  "pid": 9481,
+  "pgid": 9481,
+  "signal_scope": "group",
+  "group_observations": [
+    {
+      "started_monotonic": 315995.701694208,
+      "finished_monotonic": 315995.701694208,
+      "query_attempted": false,
+      "helper": null,
+      "state": "unknown",
+      "members": [],
+      "stdout": "",
+      "stderr": "",
+      "returncode": null,
+      "probe_started_monotonic": null,
+      "probe_finished_monotonic": null,
+      "probe_errno": null,
+      "probe_outcome": "not_attempted",
+      "error": "no observed leader exit before inspection cutoff"
+    }
+  ],
+  "term_deadline_monotonic": 315995.475304291,
+  "kill_reap_deadline_monotonic": 315995.775304291,
+  "inspection_deadline_monotonic": 315995.700304291,
+  "termination_ok": false,
+  "residual_members": [],
+  "residual_pgid": 9481,
+  "residual_remedy": "Inspect retained member PID/PGID and command identities independently; release known fixture markers or clean only revalidated owned members. Do not signal this group after leader reap. Unknown inspection is not absence.",
+  "authority_closed_monotonic": 315995.701726125,
+  "reap_deadline_monotonic": 315995.775304291,
+  "within_process_bounds": true,
+  "reap_attempts": 1,
+  "reap_last_result": "reaped",
+  "reaped_monotonic": 315995.701740291,
+  "elapsed": 0.5269514590036124
+}

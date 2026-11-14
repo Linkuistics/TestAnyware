@@ -1,0 +1,160 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k103/close-error-grace-final-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 592 items / 591 deselected / 1 selected
+
+test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[command-failure] FAILED [100%]
+
+=================================== FAILURES ===================================
+______ test_persistent_worker_close_has_one_fixed_grace[command-failure] _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-507/test_persistent_worker_close_h0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108b85400>
+mode = 'command-failure'
+
+    @pytest.mark.parametrize(
+        "mode",
+        [
+            "orderly",
+            "term",
+            "kill",
+            "failure",
+            "retiring-term",
+            "retiring-kill",
+            "expired",
+            "denied-term",
+            "denied-kill",
+            "command-failure",
+        ],
+    )
+    def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode):
+        """Skipping TERM, repeating retirement or renewing authority must fail this control."""
+        import worker_capture
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if mode not in {"term", "expired"}:
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                worker_capture._write(control, json.dumps(identity).encode() + b"\n", deadline)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        if mode != "orderly":
+            monkeypatch.setattr(worker_capture, "_service", service)
+        worker = worker_capture.Worker()
+        assert worker.start()
+        owner = worker.owner
+        prior_deadline = None
+        original_close = os.close
+        command = worker.command
+        close_faults = []
+        exit_observed = False
+    
+        def close_command(fd):
+            if fd == command:
+                close_faults.append({"fd": fd, "monotonic": time.monotonic(), "errno": errno.EIO})
+                raise OSError(errno.EIO, "controlled command close failure")
+            return original_close(fd)
+    
+        audit = {"pid": owner.pid, "reaped": False, "source": "independent exact-child WNOHANG"}
+        try:
+            if mode == "command-failure":
+                monkeypatch.setattr(os, "close", close_command)
+            if mode.startswith("denied-"):
+                # A seeded failed attempt is history, not a claim of actual kernel denial.
+                # The child ignores TERM; only the subsequent real KILL can reap it.
+                owner.signals.append(
+                    {
+                        "signal": "SIGTERM" if mode == "denied-term" else "SIGKILL",
+                        "monotonic": time.monotonic(),
+                        "errno": errno.EPERM,
+                    }
+                )
+                prior_deadline = time.monotonic() + 0.4
+                owner.shutdown_deadline_monotonic = prior_deadline
+            if mode == "failure":
+                worker.failure = "controlled sticky failure"
+            if mode.startswith("retiring") or mode == "expired":
+                if mode == "expired":
+                    # Observe the real exit without consuming status. Register first so
+                    # close's final reap is guaranteed to encounter a waitable child.
+                    queue = select.kqueue()
+                    try:
+                        event = select.kevent(
+                            owner.pid,
+                            filter=select.KQ_FILTER_PROC,
+                            flags=select.KQ_EV_ADD,
+                            fflags=select.KQ_NOTE_EXIT,
+                        )
+                        queue.control([event], 0, 0)
+                        worker_capture._signal(owner, signal.SIGTERM)
+                        events = queue.control(None, 1, 1)
+                        exit_observed = any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                        assert exit_observed
+                    finally:
+                        queue.close()
+                else:
+                    worker_capture._signal(
+                        owner, signal.SIGKILL if mode == "retiring-kill" else signal.SIGTERM
+                    )
+                prior_deadline = time.monotonic() + (0 if mode == "expired" else 0.4)
+                owner.shutdown_deadline_monotonic = prior_deadline
+            worker.close()
+            first = worker.evidence()
+            worker.close()
+            assert worker.evidence() == first
+            if prior_deadline is not None:
+                assert owner.shutdown_deadline_monotonic == prior_deadline
+            signals = [item["signal"] for item in owner.signals]
+            if mode == "orderly":
+                assert owner.reaped and owner.returncode == 0 and not signals
+                assert worker.failure is None
+            elif mode == "expired":
+                assert signals == ["SIGTERM"]
+                assert not owner.reaped and owner.pid in worker_capture._owners
+                assert first["residual_remedy"]
+            elif mode == "denied-kill":
+                assert signals == ["SIGKILL"] and owner.signals[0]["errno"] == errno.EPERM
+                assert not owner.reaped and owner.pid in worker_capture._owners
+                assert first["residual_remedy"]
+            else:
+                assert owner.reaped
+                assert owner.returncode == (-signal.SIGTERM if mode == "term" else -signal.SIGKILL)
+                assert signals == (
+                    ["SIGKILL"]
+                    if mode == "retiring-kill"
+                    else ["SIGTERM", "SIGKILL"]
+                    if mode != "term"
+                    else ["SIGTERM"]
+                )
+                assert worker.failure
+                if mode in {"term", "kill"}:
+                    assert 0.04 <= owner.signals[0]["monotonic"] - worker.shutdown_started < 0.5
+                if mode == "failure":
+                    assert owner.signals[0]["monotonic"] - worker.shutdown_started < 0.1
+                if mode == "command-failure":
+                    assert len(close_faults) == 1
+                    assert close_faults[0]["fd"] == command and close_faults[0]["errno"] == errno.EIO
+                    assert "worker command close failed" in worker.failure
+>                   assert owner.signals[0]["monotonic"] - worker.shutdown_started < 0.04
+E                   AssertionError: assert (315981.4315505 - 315981.380287625) < 0.04
+E                    +  where 315981.380287625 = Worker(session_token='85bc8c91842a4a10bdaf1b885a0e790c', run_id='903e443e5a9a40f492b1265721d3ef23', owner=_Owner(pid=8886, shutdown_deadline_monotonic=315985.380287625, ready=True, reaped=True, ownership_lost=False, returncode=-9, signals=[{'signal': 'SIGTERM', 'monotonic': 315981.4315505}, {'signal': 'SIGKILL', 'monotonic': 315983.380472208}], reap_errno=None), failure='worker command close failed: [Errno 5] controlled command close failure', channels=[], command=12, control=13, result=15, started=True, closed=True, admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, startup_started=315981.377406625, startup_finished=315981.38020275, shutdown_started=315981.380287625, shutdown_finished=315983.381989416, kill_at=315983.380287625).shutdown_started
+
+test_worker_capture.py:2352: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-close-k103/close-error-grace-final/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[command-failure] - AssertionError: assert (315981.4315505 - 315981.380287625) < 0.04
+ +  where 315981.380287625 = Worker(session_token='85bc8c91842a4a10bdaf1b885a0e790c', run_id='903e443e5a9a40f492b1265721d3ef23', owner=_Owner(pid=8886, shutdown_deadline_monotonic=315985.380287625, ready=True, reaped=True, ownership_lost=False, returncode=-9, signals=[{'signal': 'SIGTERM', 'monotonic': 315981.4315505}, {'signal': 'SIGKILL', 'monotonic': 315983.380472208}], reap_errno=None), failure='worker command close failed: [Errno 5] controlled command close failure', channels=[], command=12, control=13, result=15, started=True, closed=True, admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, startup_started=315981.377406625, startup_finished=315981.38020275, shutdown_started=315981.380287625, shutdown_finished=315983.381989416, kill_at=315983.380287625).shutdown_started
+====================== 1 failed, 591 deselected in 2.38s =======================
