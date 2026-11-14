@@ -26,3 +26,14 @@ The original aggregate charter and history are preserved verbatim in complete-wo
 - Review committed source and relevant caller/callee relationships, disclosing graph coverage/freshness and source fallback limits. Material conclusions cite exact source and evidence.
 - Retain a readable findings report and bounded verification artifacts without altering prior evidence. Explain historical failures from evidence rather than assuming a later pass repairs them.
 - Follow review-impl findings/reconciliation routing. Cut integrate-review-impl before k101 only if actionable findings earn it. Leave k101 and parent aggregate open; do not duplicate the future complete-runtime review of k28.
+
+## Decisions (running log)
+
+- Review outcome: no runtime defect in the bounded k98 contract. Three low-severity test-strength findings: F1 (no denied-signal history or PID-only target in the seven modes), F2 (the `expired` mode cannot detect a post-cutoff reap probe) and F3 (no command-close failure test). The report is `experiments/exec-reliability/evidence/worker-close-k102/report.md`.
+- The review ran no test, build, lint or format command and executed no mutation. It ran read-only hash and byte-comparison commands only. The report states which claims rest on source reading alone.
+- Coverage: the code graph predates commit `2228059`. The review used direct source reads and git for every cited path and disclosed that fallback in the report.
+- Evidence verification: GREEN and full inputs equal `HEAD`. RED ran the new tests on the parent runtime. All retained artifact hashes match `HEAD`. The 51 exact-child audits are distinct and reaped. Prior evidence is unchanged, because every changed path under `evidence/` is in `worker-close-k98`.
+- Observations kept out of the findings: wide timing slack, `retiring` treats any finite deadline as retirement, the in-process audit, the lost RED/GREEN runner bytes and the four preservation modes that passed on the unchanged runtime. The report lists each with its source.
+- Pre-existing and aggregate gaps stay with complete-worker-scheduler-k101: the plan declaration of the orderly-close grace, shared scheduling and overlap with controller teardown. The review did not duplicate the final k28 review.
+- Routing: all three findings are actionable. The review cut `complete-worker-scheduler-k103` (integrate-review-impl) before k101. It left k101 and the parent aggregate open.
+- No `**Creator:**` line applies, because the environment carries no provider evidence.
