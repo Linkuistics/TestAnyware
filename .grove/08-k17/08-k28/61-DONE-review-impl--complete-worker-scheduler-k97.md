@@ -25,3 +25,12 @@ The review's bounded contract is one admitted direct-child worker ready within o
 - Review the committed artifact and its relevant ownership/call paths; enumerate changed waits, signal/reap authority and failure exits with source evidence and coverage limitations.
 - Retain a readable findings report and any frozen bounded verification records, preserving all prior evidence bytes. Separate actionable contract violations from the explicitly owned k96 remainder and unestablished timing mechanisms.
 - Follow review-impl's ordinary findings/reconciliation route; create an integrate-review-impl step only when findings earn it, before the next live sibling.
+
+## Decisions (running log)
+
+- 2026-11-15: The review of k94 found no actionable contract violation. No integrate-review-impl sibling is cut. The review was inspection-only: it ran no test, build, lint or format command and executed no counterexample or mutation, so it froze no new subject.
+- 2026-11-15: The report is `experiments/exec-reliability/evidence/persistent-worker-k97/report.md`. It answers the five questions, reconciles the full-1, full-2 and full-4 failures from the retained pytest XML, and separates the k96 remainder.
+- 2026-11-15: Checked by recomputation. The SHA-256 of the four runtime files equals `subjects_after` in the k94 `audit-3/verdict.json`. The k94 commit modifies no path under any earlier evidence tree. Every `os.waitpid` call names one exact PID.
+- 2026-11-15: Observation, not a finding. `_safe_call` catches only `OSError`. The k94 control replaces it wholesale, so it proves worker closure and not later resource cleanup. The baseline had the same behaviour. k96 decides whether to widen it.
+- 2026-11-15: Observation, not a finding. The full-4 `after_term` failures have a plausible mechanism: SIGKILL after `reserve / 4` can precede the fixture witness write. The review did not establish it and makes no causation claim.
+- 2026-11-15: Coverage limit. The review read the three runtime files in full and the tests that name the safety, worker-death and late-identity paths. It did not read every test body.
