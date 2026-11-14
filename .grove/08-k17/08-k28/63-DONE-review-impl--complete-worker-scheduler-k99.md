@@ -38,3 +38,13 @@ Shared scheduling, cutoff closure of epochs, overlapping shutdown/teardown, rema
 ## Done when
 
 ## Notes
+
+## Decisions (running log)
+
+- 2026-11-15: The review of k96 found no runtime defect in the bounded contract. It found two low-severity test-strength gaps, so it cut `complete-worker-scheduler-k100` (integrate-review-impl) ahead of k98.
+- 2026-11-15: The report is `experiments/exec-reliability/evidence/request-identity-k99/report.md`. It lists the identity checks, the acceptance order, the helper-ledger consequences and the controller paths. It reconciles the retained k96 runs.
+- 2026-11-15: F1. No test covers worker-side token replay or the worker-side run ID pin. The mutation-no-check-final run cannot show those checks.
+- 2026-11-15: F2. The ready, intent, created and fork-failure damage cases do not assert the conservative ledger state. The retained receipts show the state is correct today.
+- 2026-11-15: The review was inspection-only. It ran no test, build, lint or format command and executed no counterexample or mutation, so it froze no new subject. It preserved every prior evidence byte.
+- 2026-11-15: Observations, not findings. The epoch counts a `deadline_exhausted` event, the worker run ID is trust-on-first-use, and cleanup drops later valid created frames after a damaged one. k98 settles the epoch wording.
+- 2026-11-15: Coverage limit. The review did not read every test body and did not digest dependency implementations beyond the named subjects. The privileged and ten-clone controls were unavailable and count as not executed.
