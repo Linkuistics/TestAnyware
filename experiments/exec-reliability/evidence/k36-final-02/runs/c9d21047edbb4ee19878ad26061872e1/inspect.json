@@ -1,0 +1,104 @@
+{
+  "name": "inspect",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py",
+    "hang",
+    "diag-c9d21047edbb4ee19878ad26061872e1-vm",
+    "/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-88/test_blocked_cleanup_and_inspe0"
+  ],
+  "budget": 0.2,
+  "started_monotonic": 257012.486526833,
+  "wall_start_ns": 1794639732110991000,
+  "reason": "deadline",
+  "returncode": -15,
+  "reaped": true,
+  "ok": false,
+  "signals": [
+    {
+      "signal": "TERM",
+      "scope": "group",
+      "target": 66571,
+      "monotonic": 257012.688570291,
+      "outcome": "sent",
+      "finished_monotonic": 257012.688578958
+    },
+    {
+      "signal": "KILL",
+      "scope": "group",
+      "target": 66571,
+      "monotonic": 257012.839392375,
+      "outcome": "zombie_only_eperm",
+      "errno": 1,
+      "error": "[Errno 1] Operation not permitted",
+      "permission_observation": {
+        "started_monotonic": 257012.839421375,
+        "finished_monotonic": 257012.842192083,
+        "state": "zombie_only",
+        "members": [
+          {
+            "pid": 66571,
+            "pgid": 66571,
+            "stat": "Z"
+          }
+        ],
+        "stdout": "3636353731203636353731205a2020200a",
+        "stderr": "",
+        "returncode": 0,
+        "probe_errno": 1,
+        "probe_outcome": "zombie_only_eperm",
+        "error": null
+      },
+      "finished_monotonic": 257012.8421945
+    }
+  ],
+  "pid": 66571,
+  "pgid": 66571,
+  "signal_scope": "group",
+  "group_observations": [
+    {
+      "started_monotonic": 257012.839421375,
+      "finished_monotonic": 257012.842192083,
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 66571,
+          "pgid": 66571,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3636353731203636353731205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    },
+    {
+      "started_monotonic": 257012.842204583,
+      "finished_monotonic": 257012.845737583,
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 66571,
+          "pgid": 66571,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3636353731203636353731205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "term_deadline_monotonic": 257012.838534583,
+  "leader_exit_monotonic": 257012.696129708,
+  "kill_reap_deadline_monotonic": 257013.13853458298,
+  "termination_ok": true,
+  "reaped_monotonic": 257012.845782416,
+  "within_process_bounds": true,
+  "stdout_matches": false,
+  "elapsed": 0.35948529199231416
+}

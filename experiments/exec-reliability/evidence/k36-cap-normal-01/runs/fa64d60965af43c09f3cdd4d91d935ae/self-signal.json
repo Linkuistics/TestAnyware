@@ -1,0 +1,44 @@
+{
+  "name": "self-signal",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k36-cap-inputs-01/normal/experiments/exec-reliability/.venv/bin/python",
+    "-c",
+    "\nimport json, os, runpy, signal, sys\nfrom pathlib import Path\noriginal = os.kill\ndef misdirect(pid, sig):\n    if sig == signal.SIGTERM:\n        Path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k36-cap-normal-01/runs/self-signal-e060068263624176ba46865b7964d3e9.json').write_text(json.dumps({\"pid\": pid}))\n        original(pid, signal.SIGKILL)\n        original(os.getpid(), sig)\n    else:\n        original(pid, sig)\nos.kill = misdirect\nsys.argv = ['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k36-cap-inputs-01/normal/experiments/exec-reliability/peer.py', 'controller', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k36-cap-normal-01/runs']\nrunpy.run_path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k36-cap-inputs-01/normal/experiments/exec-reliability/peer.py', run_name='__main__')\n"
+  ],
+  "budget": 3,
+  "started_monotonic": 256914.315655958,
+  "wall_start_ns": 1794639633938626000,
+  "reason": "exit",
+  "returncode": -15,
+  "reaped": true,
+  "ok": false,
+  "signals": [],
+  "pid": 8383,
+  "pgid": 8383,
+  "signal_scope": "group",
+  "leader_exit_monotonic": 256914.553232083,
+  "group_observations": [
+    {
+      "started_monotonic": 256914.553241416,
+      "finished_monotonic": 256914.55580375,
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 8383,
+          "pgid": 8383,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "2038333833202038333833205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "termination_ok": true,
+  "reaped_monotonic": 256914.555814708,
+  "within_process_bounds": true,
+  "elapsed": 0.24016462499275804
+}

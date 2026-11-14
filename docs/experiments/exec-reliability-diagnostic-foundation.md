@@ -679,8 +679,20 @@ the three conditions and both input snapshots, and records equal before/after
 hashes for all 1,393 audit inputs. All 257 recorded PIDs are absent in that later
 observation. Live, mixed, invalid-selector and freshly reaped controls contest
 the absence predicate. The audit checks 77 declared fake resources, removes two
-remaining owned markers and 212 exact fixture directories after path/content
-validation, and preserves preflight scratch bytes before removal.
+remaining owned markers and 212 fixture directories after path/content
+validation, and preserves preflight scratch bytes before removal. Of those
+directories, 107 came from retained argv paths and 105 from session-wide
+`test_*` enumeration in pytest-81, pytest-82 and pytest-83. The latter were
+validated before deletion, but the receipts do not establish exact attribution
+to the three retained conditions. This clarifies the existing audit's scope;
+its code and evidence have not been rerun or changed.
+
+The sticky TERM EPERM is an accepted fail-safe trade-off. If the group has
+already become zombie-only when TERM is denied, the call can still fail:
+a later zombie-only table cannot explain the earlier permission denial. That
+possible false failure remains visible rather than being reclassified as
+successful disposal. No earlier inspection is added before KILL; genuine
+permission evidence and the complete worker/scheduler contract remain with k34.
 
 These are later PID observations, without escaped-descendant or process-history
 proof. Post-KILL `ps` capture and its kill/wait path remain synchronous and can
@@ -694,6 +706,64 @@ the final verdict SHA-256 is
 `2fa68b7279e359da0424ce40938bae626a07d9b66aaee57f8ff2ff186fe9f1cb`;
 the final audit result SHA-256 is
 `c9b312c0af9f9b0333c5dda8bbbc05f5a6d5c2abb340cfe550f01a258e36ba1c`.
+
+### k36 review integration: PID-only late observation
+
+The k35 review identified a real coverage gap: the existing deadline mutation
+exercised the group branch after k33, leaving the PID-only cap untested. The new
+`test_review_pid_late_observation_cannot_extend_reap_deadline` interrupts a real
+PID-only `hang` call, observes actual TERM delivery and delays the first later
+exit observation by 0.2 seconds. It requires leader reap, PID-only signaling,
+an observation after T and a reap deadline no later than T + 0.3 seconds.
+Production code is unchanged.
+
+The [frozen-input manifest](../../experiments/exec-reliability/evidence/k36-cap-inputs-01/manifest.json)
+retains two repository-shaped input trees, equal except for replacing
+`min(time.monotonic(), term_deadline) + plan.kill_wait` with
+`time.monotonic() + plan.kill_wait` in the PID-only branch. The trees reuse this
+checkout's existing virtual environment via explicit symlinks. Running their
+copied Taskfiles' `diagnostic:review-controls` recipes gives **63 passed** in
+[normal](../../experiments/exec-reliability/evidence/k36-cap-normal-01/verdict.json)
+and **62 passed, 1 failed** in
+[removed-cap](../../experiments/exec-reliability/evidence/k36-cap-removed-01/verdict.json).
+Only the new PID test changes outcome: the removed cap chooses deadline
+256944.37021325, exceeding T + A = 256944.312743041. Raw streams, JUnit results,
+controller receipts and before/after input hashes are retained in both runs.
+
+The [first full check](../../experiments/exec-reliability/evidence/k36-final-01/verdict.json)
+passes lint, formatting, types and 75 tests; the existing resource-continuation
+test fails when 0.2-second cleanup/disposal budgets expire and later `ps`
+queries time out. That condition is preserved. An unchanged-input
+[second full check](../../experiments/exec-reliability/evidence/k36-final-02/verdict.json),
+run with `mise exec -- task diagnostic:self-check
+OUT=experiments/exec-reliability/evidence/k36-final-02`, passes lint, formatting,
+strict Pyright and **all 76 tests** in 27.17 seconds. The new PID test passes
+in both full conditions; this rerun does not remove the conditional scheduling
+limits assigned to k34.
+
+The independent later
+[k36 audit](../../experiments/exec-reliability/evidence/k36-audit-01/result.json)
+verifies the frozen trees and sole mutation, all 1,742 indexed artifacts across
+the four conditions, the control's outcome difference, and equal before/after
+hashes for 1,782 audit inputs. All 332 recorded PIDs, including known-child
+receipts, are absent at that observation; live, mixed, invalid-selector and
+freshly reaped controls contest its oracle. It validates 100 resource
+declarations, removes three remaining owned markers and 246 fixture directories,
+and preserves preflight scratch bytes. The directory scope is explicitly
+138 retained-argv paths plus 108 session-enumerated `test_*` paths; the latter
+have path/content validation but no exact attribution claim. These are later
+PID observations, with the same escaped-descendant and synchronous wait limits
+as k33. The earlier k33 audit and receipts remain unchanged. The corrected k33
+directory attribution above resolves finding 2 as an unclear scope claim;
+the documented sticky TERM EPERM resolves finding 3 as an accepted trade-off.
+Acceptance remains **0/10, unavailable**.
+
+The controller SHA-256 remains
+`1fc6e51b494ca48724fb2ba840f646d627e2e821cf00e4ee0ba81d825599a0e8`;
+the k36 final verdict SHA-256 is
+`c14f7fa1525730061e5f1a9884f9ed83b8554c7a9d086a2d17a27b7ad6d321a8`;
+the k36 audit result SHA-256 is
+`c94a0709024efd0c3b00c7fb7a36cd1ef13d49dd7617353c954cda31d6aa4d50`.
 
 ### Earlier foundation controls
 

@@ -1,0 +1,76 @@
+{
+  "name": "dispose",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py",
+    "dispose",
+    "diag-6835b1c8bb28411ab89b381d6e6aa00a-vm",
+    "/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-87/test_review_expected_interrupt0"
+  ],
+  "budget": 0.2,
+  "started_monotonic": 256957.761590125,
+  "wall_start_ns": 1794639677385222000,
+  "reason": "deadline",
+  "returncode": -15,
+  "reaped": true,
+  "ok": false,
+  "signals": [
+    {
+      "signal": "TERM",
+      "scope": "group",
+      "target": 57984,
+      "monotonic": 256957.963438708,
+      "outcome": "sent",
+      "finished_monotonic": 256957.963453333
+    },
+    {
+      "signal": "KILL",
+      "scope": "group",
+      "target": 57984,
+      "monotonic": 256958.113605125,
+      "outcome": "permission_unknown",
+      "errno": 1,
+      "error": "[Errno 1] Operation not permitted",
+      "permission_observation": {
+        "started_monotonic": 256958.113635583,
+        "finished_monotonic": 256958.416537,
+        "state": "unknown",
+        "members": [],
+        "stdout": "",
+        "stderr": "",
+        "returncode": null,
+        "probe_errno": null,
+        "probe_outcome": "not_attempted",
+        "error": "Command '('/bin/ps', '-g', '57984', '-o', 'pid=,pgid=,stat=')' timed out after 0.29971791699063033 seconds"
+      },
+      "finished_monotonic": 256958.416561916
+    }
+  ],
+  "pid": 57984,
+  "pgid": 57984,
+  "signal_scope": "group",
+  "group_observations": [
+    {
+      "started_monotonic": 256958.113635583,
+      "finished_monotonic": 256958.416537,
+      "state": "unknown",
+      "members": [],
+      "stdout": "",
+      "stderr": "",
+      "returncode": null,
+      "probe_errno": null,
+      "probe_outcome": "not_attempted",
+      "error": "Command '('/bin/ps', '-g', '57984', '-o', 'pid=,pgid=,stat=')' timed out after 0.29971791699063033 seconds"
+    }
+  ],
+  "term_deadline_monotonic": 256958.113369375,
+  "leader_exit_monotonic": 256957.970924958,
+  "kill_reap_deadline_monotonic": 256958.413369375,
+  "termination_ok": false,
+  "residual_members": [],
+  "residual_pgid": 57984,
+  "residual_remedy": "Inspect retained member PID/PGID and command identities independently; release known fixture markers or clean only revalidated owned members. Do not signal this group after leader reap. Unknown inspection is not absence.",
+  "reaped_monotonic": 256958.416625166,
+  "within_process_bounds": false,
+  "elapsed": 0.6550484159961343
+}

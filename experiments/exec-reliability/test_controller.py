@@ -877,6 +877,38 @@ def test_review_late_observation_cannot_extend_reap_deadline(tmp_path, monkeypat
     assert capped is (not remove_cap)
 
 
+def test_review_pid_late_observation_cannot_extend_reap_deadline(tmp_path, monkeypatch):
+    import controller
+
+    original_exited = controller._exited
+    original_kill = os.kill
+    term_sent = False
+    delayed = False
+
+    def signal_pid(pid, sig):
+        nonlocal term_sent
+        original_kill(pid, sig)
+        term_sent = term_sent or sig == signal.SIGTERM
+
+    def late_observation(pid):
+        nonlocal delayed
+        if term_sent and not delayed:
+            delayed = True
+            time.sleep(0.2)
+        return original_exited(pid)
+
+    monkeypatch.setattr(os, "kill", signal_pid)
+    monkeypatch.setattr(controller, "_exited", late_observation)
+    _, result = run(tmp_path, [call("pid-late-observe", "hang", interrupt_after=0.2)])
+    receipt = result["calls"][0]
+    assert delayed
+    assert receipt["reason"] == "interrupted"
+    assert receipt["leader_exit_monotonic"] > receipt["term_deadline_monotonic"]
+    assert receipt["reaped"] is True
+    assert all(event["scope"] == "pid" for event in receipt["signals"])
+    assert receipt["kill_reap_deadline_monotonic"] <= receipt["term_deadline_monotonic"] + 0.3
+
+
 @pytest.mark.parametrize("self_signal", [False, True])
 def test_review_survival_checker_rejects_controller_self_signal(tmp_path, monkeypatch, self_signal):
     root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "nested-evidence"))
