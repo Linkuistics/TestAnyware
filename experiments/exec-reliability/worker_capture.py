@@ -105,16 +105,25 @@ def _child(control: int, result: int, token: str, argv: tuple[str, ...], deadlin
         os._exit(70)
 
 
-def _decode(payload: bytes, token: str, argv: tuple[str, ...], deadline: float) -> HelperCapture:
+def _load_json(payload: bytes | bytearray) -> object:
+    """Treat duplicate keys and decoder stack exhaustion as protocol failures."""
+
     def unique(pairs: list[tuple[str, object]]) -> dict[str, object]:
         value: dict[str, object] = {}
         for key, item in pairs:
             if key in value:
-                raise ValueError("duplicate worker result key")
+                raise ValueError("duplicate worker publication key")
             value[key] = item
         return value
 
-    decoded: object = json.loads(payload, object_pairs_hook=unique)
+    try:
+        return json.loads(payload, object_pairs_hook=unique)
+    except RecursionError as error:
+        raise ValueError("worker publication nesting exceeds decoder limit") from error
+
+
+def _decode(payload: bytes, token: str, argv: tuple[str, ...], deadline: float) -> HelperCapture:
+    decoded = _load_json(payload)
     if not isinstance(decoded, dict):
         raise ValueError("invalid worker result object")
     raw = cast(dict[str, object], decoded)
@@ -235,7 +244,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     raise ValueError("worker channel cap exceeded")
             if not owner.ready and b"\n" in buffers[0]:
                 line, _, tail = buffers[0].partition(b"\n")
-                identity = json.loads(line)
+                identity = _load_json(line)
                 if identity != {
                     "token": token,
                     "pid": owner.pid,

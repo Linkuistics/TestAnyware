@@ -1,7 +1,8 @@
 """Admission and bounded post-creation capture for local inspection helpers.
 
 Admission is a snapshot, not a lock on the host's thread or signal state.
-Synchronous creation and controller-local scheduling remain interim limitations.
+The live controller uses worker_capture to isolate this synchronous helper
+engine. Persistent worker scheduling remains a separate obligation.
 """
 
 import ctypes
@@ -179,7 +180,8 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
 
     Popen creation is synchronous. A late return still gets exact-child KILL
     and a final nonblocking observation, without a new wait allowance. Scheduler
-    lateness is recorded as failure; the private worker is still required.
+    lateness is recorded as failure. The live controller invokes this engine
+    inside worker_capture's per-query child, whose parent bounds its own waits.
     """
     started = time.monotonic()
     receipt = HelperCapture(
@@ -307,6 +309,8 @@ def reset_after_fork(allowed: set[int]) -> None:
                 if error.errno != errno.EBADF:
                     raise
     for fd in (0, 1, 2):
+        if fd in allowed:
+            continue
         null = os.open(os.devnull, os.O_RDWR)
         if null != fd:
             os.dup2(null, fd)

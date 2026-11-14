@@ -1432,3 +1432,45 @@ The first auditor, `k51-audit-01`, stopped during schema validation because the
 earliest receipts lack the later worker deadline fields. It performed no process
 checks or cleanup. Its script, frozen inputs and failure are retained; the
 second auditor explicitly validates each historical schema.
+
+### k54: reviewed worker transport repairs
+
+Review k53's closed-stream and decoder findings reproduced against the per-query
+worker. Reset now preserves explicitly allowed descriptors even when they occupy
+0, 1 or 2. A shared readiness/result JSON loader rejects duplicate keys and turns
+decoder recursion exhaustion into a protocol failure. Failed publication retains
+unknown helper creation, shutdown evidence and the existing residual remedy.
+Inspection docstrings now identify the synchronous engine's live worker caller.
+The suggested field-type `TypeError`/`AttributeError` escape was not reproduced:
+the existing type guards reject the bad-field-type control before those operations.
+
+Seven real subprocess controls close every nonempty combination of standard
+streams before invoking the live worker. A separate real controller group query
+observes an owned unreaped sleep session through the live worker, helper and
+parser, then kills and reaps the fixture. Twelve protocol adapters replace only
+child publication to exercise malformed, nested, duplicate-key, wrong-token,
+wrong-timestamp, wrong-type, oversized, partial and early-exit messages. Parent
+channel handling, fork/reset, shutdown and reap remain real. Those adapters are
+not evidence of a live malicious helper or the complete k52 protocol. The
+duplicate-readiness adapter also found last-key-wins decoding in readiness,
+which the shared loader repairs.
+
+| Retained condition | Result |
+| --- | --- |
+| `k54-red-01` | 6 failed, 156 passed: four closed-stream combinations, escaped nested-result recursion, and accepted duplicate readiness. Lint import-order failure retained; format and strict types pass. |
+| `k54-fixed-01` | Ruff lint/format, strict Pyright and all 162 tests pass. Every hostile-publication control returns failure/unknown creation with the worker reaped inside its original allowance. |
+| `k54-audit-01` | Frozen independent audit passes: 949 retained exact process identities absent and 270 fixture directories reconciled. |
+
+Both self-checks retain matching before/after input hashes, checker reap receipts
+and artifact hashes. The escaped-exception baseline separately retains the exact
+worker owner state after shutdown. The auditor validates those envelopes, the
+earlier k51 auditor's recorded evidence hashes, and live/mixed/invalid/missing
+selector controls for its own absence predicate. Every earlier failed sample
+remains unchanged. Later absence observations do not repair original unknown
+creation; k51's missing close-error worker identity remains unknown.
+
+Child-reported helper identity/reap remains conditional evidence. The persistent
+worker, gated publication, independent helper reconciliation and shared scheduler
+remain live in `complete-worker-scheduler-k52`. This repair neither closes an
+ancestor nor changes the guest/app/privilege or acceptance result: **0/10,
+unavailable**.

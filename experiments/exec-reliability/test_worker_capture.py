@@ -3,9 +3,12 @@
 import json
 import os
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
+
+import pytest
 
 import inspection
 
@@ -224,3 +227,181 @@ def test_review_worker_channel_close_error_keeps_receipt_and_other_closes(tmp_pa
     assert receipt.error is not None
     assert receipt.worker["reaped"] is True
     assert all(fd in closed for fd in reads)
+
+
+@pytest.mark.parametrize("closed", [(0,), (1,), (2,), (0, 1), (0, 2), (1, 2), (0, 1, 2)])
+def test_review_worker_captures_with_closed_standard_streams(tmp_path, closed):
+    # Real subprocess: closing pytest's own streams would invalidate the instrument.
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
+    target = root / f"worker-closed-stdio-{''.join(map(str, closed))}-{time.time_ns()}.json"
+    code = """
+import json, os, sys, time
+from dataclasses import asdict
+from pathlib import Path
+from worker_capture import capture_helper
+for fd in map(int, sys.argv[2:]):
+    os.close(fd)
+receipt = capture_helper((sys.executable, '-c', "print('stdio-ok')"), time.monotonic() + 1)
+data = asdict(receipt)
+data.update(stdout=receipt.stdout.hex(), stderr=receipt.stderr.hex(), controller_pid=os.getpid())
+Path(sys.argv[1]).write_text(json.dumps(data, indent=2))
+"""
+    check = subprocess.run(
+        [sys.executable, "-c", code, str(target), *map(str, closed)],
+        capture_output=True,
+        timeout=3,
+    )
+    assert check.returncode == 0, check.stderr
+    receipt = json.loads(target.read_text())
+    assert receipt["error"] is None
+    assert bytes.fromhex(receipt["stdout"]) == b"stdio-ok\n"
+    assert receipt["reaped"] and receipt["worker"]["reaped"]
+    assert receipt["finished_monotonic"] <= receipt["deadline_monotonic"]
+
+
+@pytest.mark.parametrize(
+    "fault",
+    [
+        "nested-result",
+        "nested-readiness",
+        "malformed",
+        "duplicate-key",
+        "bad-token",
+        "bad-timestamp",
+        "bad-field-type",
+        "oversized-frame",
+        "oversized-channel",
+        "partial-frame",
+        "exit-before-intent",
+        "duplicate-readiness",
+    ],
+)
+def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
+    # Protocol adapter replaces only child publication. Fork, reset, pipes, parent
+    # validation, deadline, shutdown and exact waitpid are real; no helper is created.
+    import struct
+    from dataclasses import asdict
+
+    import worker_capture
+
+    owners = []
+    reap = worker_capture._reap
+
+    def track_reap(owner):
+        if not owners:
+            owners.append(owner)
+        reap(owner)
+
+    def publish(control, result, token, argv, deadline):
+        try:
+            inspection.reset_after_fork({control, result})
+            identity = {
+                "token": token,
+                "pid": os.getpid(),
+                "pgid": os.getpgrp(),
+                "sid": os.getsid(0),
+            }
+            ready = json.dumps(identity).encode()
+            if fault == "nested-readiness":
+                ready = b"[" * 1500 + b"]" * 1500
+            elif fault == "duplicate-readiness":
+                ready = b'{"token":"wrong",' + ready[1:]
+            worker_capture._write(control, ready + b"\n", deadline)
+            if fault == "exit-before-intent":
+                os._exit(73)
+            worker_capture._write(control, b"intent\n", deadline)
+            now = time.monotonic()
+            body = asdict(
+                inspection.HelperCapture(
+                    argv=argv,
+                    started_monotonic=now,
+                    deadline_monotonic=deadline,
+                    capture_deadline_monotonic=deadline,
+                    finished_monotonic=now,
+                    admission={"ok": True},
+                )
+            )
+            body.update(stdout="", stderr="", token=token)
+            if fault == "bad-token":
+                body["token"] = "wrong"
+            elif fault == "bad-timestamp":
+                body["started_monotonic"] = deadline + 1
+            elif fault == "bad-field-type":
+                body["stdout"] = []
+            payload = json.dumps(body).encode()
+            if fault == "nested-result":
+                payload = b"[" * 200000 + b"]" * 200000
+            elif fault == "malformed":
+                payload = b"{"
+            elif fault == "duplicate-key":
+                payload = b'{"stdout":"",' + payload[1:]
+            if fault == "oversized-frame":
+                frame = struct.pack("!I", 1024 * 1024 + 1)
+            elif fault == "oversized-channel":
+                frame = struct.pack("!I", 1024 * 1024) + b"x" * (1024 * 1024 + 1)
+            else:
+                frame = struct.pack("!I", len(payload)) + payload
+            if fault == "partial-frame":
+                frame = frame[:-1]
+            worker_capture._write(result, frame, deadline)
+            os._exit(0)
+        except BaseException:
+            os._exit(74)
+
+    monkeypatch.setattr(worker_capture, "_child", publish)
+    monkeypatch.setattr(worker_capture, "_reap", track_reap)
+    receipt = None
+    try:
+        receipt = worker_capture.capture_helper(("/bin/ps",), time.monotonic() + 1)
+    finally:
+        # Keep ownership evidence even if the pre-fix decoder escapes the API.
+        if receipt is not None:
+            retain(tmp_path, f"hostile-{fault}-protocol-adapter", receipt)
+        else:
+            root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+            root.mkdir(parents=True, exist_ok=True)
+            (root / f"escaped-{fault}-{time.time_ns()}.json").write_text(
+                json.dumps({"worker": asdict(owners[0]), "fault": fault}, indent=2)
+            )
+    assert receipt.error is not None
+    assert receipt.worker["unknown_helper_creation"] is True
+    assert receipt.worker["reaped"] is True
+    assert receipt.residual_remedy
+    assert receipt.finished_monotonic <= receipt.deadline_monotonic
+    assert receipt.stdout == receipt.stderr == b""
+
+
+def test_review_group_snapshot_uses_real_worker(tmp_path):
+    import controller
+
+    # This unreaped session leader pins the queried group throughout observation.
+    process = subprocess.Popen(["/bin/sleep", "10"], start_new_session=True)
+    try:
+        observation = controller._group_snapshot(process.pid, time.monotonic() + 1)
+        helper = observation["helper"]
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        data = {
+            **observation,
+            "stdout": observation["stdout"].hex(),
+            "stderr": observation["stderr"].hex(),
+            "fixture_pid": process.pid,
+        }
+        if helper is not None:
+            data["helper"] = {
+                **helper,
+                "stdout": helper["stdout"].hex(),
+                "stderr": helper["stderr"].hex(),
+            }
+        (root / f"worker-group-snapshot-{time.time_ns()}.json").write_text(
+            json.dumps(data, indent=2)
+        )
+        assert observation["error"] is None
+        assert observation["state"] == "live"
+        assert any(item["pid"] == process.pid for item in observation["members"])
+        assert helper["reaped"] is True
+        assert helper["worker"]["reaped"] is True
+    finally:
+        os.killpg(process.pid, signal.SIGKILL)
+        process.wait(timeout=1)
