@@ -1,0 +1,12 @@
+E501 Line too long (103 > 100)
+  --> experiments/exec-reliability/evidence/worker-deadline-k87/audit.py:67:101
+   |
+65 |             source = Path(path)
+66 |             # Full verification ran live, but its exact source bytes are archived.
+67 |             if name.startswith("full-") and (source.parent == LIVE or source == ROOT / "Taskfile.yml"):
+   |                                                                                                     ^^^
+68 |                 source = BASE / "green-inputs" / source.name
+69 |             if source.is_relative_to(BASE):
+   |
+
+Found 1 error.

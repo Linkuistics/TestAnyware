@@ -1,0 +1,835 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-deadline-k87/timing-k83-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 432 items
+
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[acquire] PASSED [  0%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[workload] PASSED [  0%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[cleanup] PASSED [  0%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[dispose] PASSED [  0%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[inspect] PASSED [  1%]
+test_controller.py::test_review_sticky_failure_preserves_reverse_safety_and_signals PASSED [  1%]
+test_controller.py::test_review_live_table_does_not_poison_later_inspection PASSED [  1%]
+test_controller.py::test_review_skipped_query_preserves_later_safety_inspection[missing-exit] PASSED [  1%]
+test_controller.py::test_review_skipped_query_preserves_later_safety_inspection[cutoff] PASSED [  2%]
+test_controller.py::test_review_real_ps_failure_disables_later_queries_and_probes PASSED [  2%]
+test_controller.py::test_review_final_query_requires_observed_exit[False] PASSED [  2%]
+test_controller.py::test_review_final_query_requires_observed_exit[True] PASSED [  2%]
+test_controller.py::test_review_final_live_table_cannot_be_retried PASSED [  3%]
+test_controller.py::test_review_kill_eperm_uses_only_final_postsignal_table PASSED [  3%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[withheld] PASSED [  3%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[missing] PASSED [  3%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[expired] PASSED [  3%]
+test_controller.py::test_exact_raw_capture_and_subject_freeze PASSED     [  4%]
+test_controller.py::test_overlong_call_fails_and_retains_partial_bytes PASSED [  4%]
+test_controller.py::test_cli_interruption_kills_term_ignorer_and_controller_survives PASSED [  4%]
+test_controller.py::test_finally_disposal_independent_of_blocked_channel_and_failed_cleanup PASSED [  4%]
+test_controller.py::test_failed_inspection_is_uncertain_even_after_successful_disposal PASSED [  5%]
+test_controller.py::test_blocked_disposal_is_bounded_and_retains_exact_residual PASSED [  5%]
+test_controller.py::test_failed_transfer_preserves_raw_failure PASSED    [  5%]
+test_controller.py::test_hashing_drift_fails_instead_of_reinterpreting_measurement PASSED [  5%]
+test_controller.py::test_foreign_resource_and_reused_output_are_rejected_before_calls PASSED [  6%]
+test_controller.py::test_owned_fork_is_terminated_and_known_child_absent PASSED [  6%]
+test_controller.py::test_blocked_cleanup_and_inspection_do_not_skip_disposal PASSED [  6%]
+test_controller.py::test_spawn_error_is_not_numeric_exit PASSED          [  6%]
+test_controller.py::test_exit_observation_error_fails_and_still_reaps_owned_process PASSED [  6%]
+test_controller.py::test_review_expected_interruption_continues_same_resource PASSED [  7%]
+test_controller.py::test_review_unexpected_interruption_still_stops PASSED [  7%]
+test_controller.py::test_review_resource_deadline_cannot_be_declared_success PASSED [  7%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[plan] PASSED [  7%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[result] PASSED [  8%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[subjects-before] PASSED [  8%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[intent-1] PASSED [  8%]
+test_controller.py::test_review_receipt_io_exception_cannot_skip_other_disposal PASSED [  8%]
+test_controller.py::test_review_skipped_acquisitions_are_unreached PASSED [  9%]
+test_controller.py::test_review_zero_exit_wrong_stdout_is_failure PASSED [  9%]
+test_controller.py::test_review_preflight_keeps_missing_declared_subjects PASSED [  9%]
+test_controller.py::test_review_graceful_pid_exit_needs_no_kill PASSED   [  9%]
+test_controller.py::test_review_fork_handler_reaps_gracefully FAILED     [  9%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[True] PASSED [ 10%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[False] PASSED [ 10%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[True] PASSED [ 10%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[False] PASSED [ 10%]
+test_controller.py::test_review_controller_survival_is_observed_by_another_process PASSED [ 11%]
+test_controller.py::test_review_group_signals_and_inspection_finish_before_reaping PASSED [ 11%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[usage] PASSED [ 11%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[timeout] PASSED [ 11%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[foreign] PASSED [ 12%]
+test_controller.py::test_review_group_kill_precedes_inspection[hang] PASSED [ 12%]
+test_controller.py::test_review_group_kill_precedes_inspection[ignore-term] PASSED [ 12%]
+test_controller.py::test_review_live_signal_permission_uncertainty_is_retained PASSED [ 12%]
+test_controller.py::test_review_later_zombie_table_cannot_repair_earlier_eperm PASSED [ 12%]
+test_controller.py::test_review_exited_leader_does_not_hide_a_surviving_group_member[False] PASSED [ 13%]
+test_controller.py::test_review_exited_leader_does_not_hide_a_surviving_group_member[True] PASSED [ 13%]
+test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[False] FAILED [ 13%]
+test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[True] FAILED [ 13%]
+test_controller.py::test_review_checker_unreaped_timeout_still_retains_verdict FAILED [ 14%]
+test_controller.py::test_review_fork_publishes_child_before_stdout_and_releases_on_failure FAILED [ 14%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[None] FAILED [ 14%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[poll] FAILED [ 14%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[wait] PASSED [ 15%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[waitpid] PASSED [ 15%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[wait-any] PASSED [ 15%]
+test_controller.py::test_review_isolated_reap_overrun_and_removed_gate[False] PASSED [ 15%]
+test_controller.py::test_review_isolated_reap_overrun_and_removed_gate[True] PASSED [ 15%]
+test_controller.py::test_review_late_observation_cannot_extend_reap_deadline[False] PASSED [ 16%]
+test_controller.py::test_review_late_observation_cannot_extend_reap_deadline[True] PASSED [ 16%]
+test_controller.py::test_review_pid_late_observation_cannot_extend_reap_deadline PASSED [ 16%]
+test_controller.py::test_review_survival_checker_rejects_controller_self_signal[False] PASSED [ 16%]
+test_controller.py::test_review_survival_checker_rejects_controller_self_signal[True] PASSED [ 17%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n123 123 Z\n--0-duplicate process ID] PASSED [ 17%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n0 123 S\n--0-invalid process ID] PASSED [ 17%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n-2 123 S\n--0-invalid process ID] PASSED [ 17%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[+123 123 Z\n--0-invalid process ID] PASSED [ 18%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n124 999 S\n--0-foreign process group] PASSED [ 18%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[124 123 Z\n--0-leader missing] PASSED [ 18%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z--0-incomplete process table] PASSED [ 18%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n124 123--0-incomplete process table] PASSED [ 18%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n\n--0-process table row] PASSED [ 19%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z extra\n--0-process table row] PASSED [ 19%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n124 123 ?\n--0-unsupported process state] PASSED [ 19%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Zgarbage\n--0-unsupported process state] PASSED [ 19%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 \xff\n--0-unsupported process state] PASSED [ 20%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n-warning-0-clean process table] PASSED [ 20%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n--1-clean process table] PASSED [ 20%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[-usage-64-clean process table] PASSED [ 20%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[stdout16--0-output limit] PASSED [ 21%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n-stderr17-0-output limit] PASSED [ 21%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[stdout18--0-row limit] PASSED [ 21%]
+test_controller.py::test_group_snapshot_accepts_valid_tables_and_limits[123 123 Z\n-zombie_only-1] PASSED [ 21%]
+test_controller.py::test_group_snapshot_accepts_valid_tables_and_limits[  123 123 Zs\n124 123 R+\n-live-2] PASSED [ 21%]
+test_controller.py::test_group_snapshot_accepts_valid_tables_and_limits[stdout2-zombie_only-2] PASSED [ 22%]
+test_controller.py::test_group_snapshot_accepts_valid_tables_and_limits[stdout3-zombie_only-4096] PASSED [ 22%]
+test_controller.py::test_group_snapshot_accepts_valid_tables_and_limits[123 123 U<ANELNSsVWX+>\n-live-1] PASSED [ 22%]
+test_controller.py::test_group_snapshot_rejects_late_observation[helper] PASSED [ 22%]
+test_controller.py::test_group_snapshot_rejects_late_observation[probe] PASSED [ 23%]
+test_controller.py::test_group_snapshot_records_probe_interval[S-None-False-live-permitted] PASSED [ 23%]
+test_controller.py::test_group_snapshot_records_probe_interval[S-1-False-live-permission_failure] PASSED [ 23%]
+test_controller.py::test_group_snapshot_records_probe_interval[Z-1-False-zombie_only-zombie_only_eperm] PASSED [ 23%]
+test_controller.py::test_group_snapshot_records_probe_interval[Z-3-False-unknown-unknown] PASSED [ 24%]
+test_controller.py::test_group_snapshot_records_probe_interval[Z-None-True-unknown-permitted] PASSED [ 24%]
+test_controller.py::test_skipped_group_snapshot_has_no_probe_interval[invalid_table] PASSED [ 24%]
+test_controller.py::test_skipped_group_snapshot_has_no_probe_interval[no_exit] PASSED [ 24%]
+test_controller.py::test_skipped_group_snapshot_has_no_probe_interval[cutoff] PASSED [ 25%]
+test_controller.py::test_skipped_group_snapshot_has_no_probe_interval[sticky_failure] PASSED [ 25%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[acquisition-32] PASSED [ 25%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[acquisition-40] PASSED [ 25%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[worker-32] PASSED [ 25%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[worker-40] PASSED [ 26%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[helper-32] PASSED [ 26%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[helper-40] PASSED [ 26%]
+test_inspection.py::test_review_worker_transports_real_native_auto_reap_refusal[32] PASSED [ 26%]
+test_inspection.py::test_review_worker_transports_real_native_auto_reap_refusal[40] PASSED [ 27%]
+test_inspection.py::test_review_admission_allows_default_single_thread_controller PASSED [ 27%]
+test_inspection.py::test_review_admission_rejects_live_python_thread_before_acquisition PASSED [ 27%]
+test_inspection.py::test_review_helper_close_error_preserves_receipt_and_reaps[stdout] PASSED [ 27%]
+test_inspection.py::test_review_helper_close_error_preserves_receipt_and_reaps[stderr] PASSED [ 28%]
+test_inspection.py::test_review_helper_last_sleep_gets_final_nonblocking_observation PASSED [ 28%]
+test_inspection.py::test_review_helper_late_creation_signals_pinned_child_without_new_allowance PASSED [ 28%]
+test_inspection.py::test_review_helper_echild_releases_stale_owner_without_claiming_exit PASSED [ 28%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[hang] PASSED [ 28%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[stdout] PASSED [ 29%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[stderr] PASSED [ 29%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[admission] PASSED [ 29%]
+test_inspection.py::test_review_admission_rejects_native_pthread_absent_from_python_registry PASSED [ 29%]
+test_inspection.py::test_review_admission_rejects_nondefault_sigchld_before_acquisition[1] PASSED [ 30%]
+test_inspection.py::test_review_admission_rejects_nondefault_sigchld_before_acquisition[<lambda>] PASSED [ 30%]
+test_inspection.py::test_review_admission_rejects_native_sigchld_hidden_from_python[ignore] PASSED [ 30%]
+test_inspection.py::test_review_admission_rejects_native_sigchld_hidden_from_python[handler] PASSED [ 30%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[0-1] PASSED [ 31%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[-1-1] PASSED [ 31%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[95-1] PASSED [ 31%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[97-1] PASSED [ 31%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[96-0] PASSED [ 31%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[96--1] PASSED [ 32%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[library] PASSED [ 32%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[symbol] PASSED [ 32%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[errno] PASSED [ 32%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[unexpected_return] PASSED [ 33%]
+test_inspection.py::test_review_admission_retains_native_library_error_before_acquisition PASSED [ 33%]
+test_inspection.py::test_review_admission_retains_missing_native_query_before_acquisition PASSED [ 33%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[healthy] PASSED [ 33%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[partial] PASSED [ 34%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[hang] PASSED [ 34%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[stdout] PASSED [ 34%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[stderr] PASSED [ 34%]
+test_inspection.py::test_review_helper_residual_ownership_never_uses_blocking_wait PASSED [ 34%]
+test_inspection.py::test_review_helper_admission_rejects_before_creation PASSED [ 35%]
+test_inspection.py::test_review_worker_group_kill_reaches_live_raw_helper PASSED [ 35%]
+test_inspection.py::test_review_raw_helper_resets_before_exec PASSED     [ 35%]
+test_inspection.py::test_review_raw_helper_child_failure_uses_exit_without_hooks[reset] PASSED [ 35%]
+test_inspection.py::test_review_raw_helper_child_failure_uses_exit_without_hooks[exec] PASSED [ 36%]
+test_inspection.py::test_review_raw_helper_child_failure_uses_exit_without_hooks[pending-signal] PASSED [ 36%]
+test_inspection.py::test_review_raw_helper_parent_failure_keeps_ownership[fork] PASSED [ 36%]
+test_inspection.py::test_review_raw_helper_parent_failure_keeps_ownership[parent-mask-restore] PASSED [ 36%]
+test_inspection.py::test_review_raw_helper_accepts_closed_standard_descriptors PASSED [ 37%]
+test_inspection.py::test_review_helper_exec_requires_created_publication[release] PASSED [ 37%]
+test_inspection.py::test_review_helper_exec_requires_created_publication[failure] PASSED [ 37%]
+test_inspection.py::test_review_helper_exec_requires_created_publication[expired] PASSED [ 37%]
+test_inspection.py::test_review_real_helper_gate_rejects_wrong_token_or_eof[wrong-token] PASSED [ 37%]
+test_inspection.py::test_review_real_helper_gate_rejects_wrong_token_or_eof[eof] PASSED [ 38%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[python-thread-python_threads-helper] PASSED [ 38%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[python-thread-python_threads-worker] PASSED [ 38%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[native-thread-native_threads-helper] PASSED [ 38%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[native-thread-native_threads-worker] PASSED [ 39%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[sigchld-sigchld-helper] PASSED [ 39%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[sigchld-sigchld-worker] PASSED [ 39%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[native-auto-reap-sigchld-helper] PASSED [ 39%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[native-auto-reap-sigchld-worker] PASSED [ 40%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[observation-error-native_observation_error-helper] PASSED [ 40%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[observation-error-native_observation_error-worker] PASSED [ 40%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[preparation-deadline-None-helper] PASSED [ 40%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[preparation-deadline-None-worker] PASSED [ 40%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[observation-deadline-None-helper] PASSED [ 41%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[observation-deadline-None-worker] PASSED [ 41%]
+test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[final-reap-pid] PASSED [ 41%]
+test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[final-reap-group] PASSED [ 41%]
+test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-term-pid] PASSED [ 42%]
+test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-term-group] PASSED [ 42%]
+test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-kill-pid] PASSED [ 42%]
+test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-kill-group] PASSED [ 42%]
+test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[at-cutoff-pid] PASSED [ 43%]
+test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[at-cutoff-group] PASSED [ 43%]
+test_worker_capture.py::test_worker_failure_consistency[admission-missing-invalid worker admission fields] PASSED [ 43%]
+test_worker_capture.py::test_worker_failure_consistency[admission-extra-invalid worker admission fields] PASSED [ 43%]
+test_worker_capture.py::test_worker_failure_consistency[admission-bool-count-invalid worker admission values] PASSED [ 43%]
+test_worker_capture.py::test_worker_failure_consistency[admission-zero-count-invalid worker admission values] PASSED [ 44%]
+test_worker_capture.py::test_worker_failure_consistency[admission-bool-ok-invalid worker admission values] PASSED [ 44%]
+test_worker_capture.py::test_worker_failure_consistency[admission-bad-signal-invalid worker admission values] PASSED [ 44%]
+test_worker_capture.py::test_worker_failure_consistency[admission-bad-native-signal-invalid worker admission values] PASSED [ 44%]
+test_worker_capture.py::test_worker_failure_consistency[admission-zero-errno-invalid worker admission values] PASSED [ 45%]
+test_worker_capture.py::test_worker_failure_consistency[admission-bool-errno-invalid worker admission values] PASSED [ 45%]
+test_worker_capture.py::test_worker_failure_consistency[admission-ready-thread-inconsistent worker admission] PASSED [ 45%]
+test_worker_capture.py::test_worker_failure_consistency[admission-ready-signal-inconsistent worker admission] PASSED [ 45%]
+test_worker_capture.py::test_worker_failure_consistency[admission-ready-auto-reap-inconsistent worker admission] PASSED [ 46%]
+test_worker_capture.py::test_worker_failure_consistency[admission-ready-error-inconsistent worker admission] PASSED [ 46%]
+test_worker_capture.py::test_worker_failure_consistency[admission-ready-errno-inconsistent worker admission] PASSED [ 46%]
+test_worker_capture.py::test_worker_failure_consistency[admission-missing-native-inconsistent worker admission] PASSED [ 46%]
+test_worker_capture.py::test_worker_failure_consistency[admission-wrong-priority-inconsistent worker admission] PASSED [ 46%]
+test_worker_capture.py::test_worker_failure_consistency[admission-wrong-ok-inconsistent worker admission] PASSED [ 47%]
+test_worker_capture.py::test_worker_failure_consistency[admission-observation-no-error-inconsistent worker admission] PASSED [ 47%]
+test_worker_capture.py::test_worker_failure_consistency[admission-observation-complete-inconsistent worker admission] PASSED [ 47%]
+test_worker_capture.py::test_worker_failure_consistency[admission-refusal-created-worker helper created after admission refusal] PASSED [ 47%]
+test_worker_capture.py::test_worker_failure_consistency[zero-error-errno-invalid worker errno] PASSED [ 48%]
+test_worker_capture.py::test_worker_failure_consistency[negative-kill-errno-invalid worker errno] PASSED [ 48%]
+test_worker_capture.py::test_worker_failure_consistency[zero-reap-errno-invalid worker errno] PASSED [ 48%]
+test_worker_capture.py::test_worker_failure_consistency[empty-error-invalid worker error] PASSED [ 48%]
+test_worker_capture.py::test_worker_failure_consistency[empty-remedy-invalid worker error] PASSED [ 49%]
+test_worker_capture.py::test_worker_failure_consistency[empty-close-error-invalid worker close errors] PASSED [ 49%]
+test_worker_capture.py::test_worker_failure_consistency[errno-without-error-worker failure without error] PASSED [ 49%]
+test_worker_capture.py::test_worker_failure_consistency[kill-without-error-worker failure without error] PASSED [ 49%]
+test_worker_capture.py::test_worker_failure_consistency[close-without-error-worker failure without error] PASSED [ 50%]
+test_worker_capture.py::test_worker_failure_consistency[unreaped-without-error-worker failure without error] PASSED [ 50%]
+test_worker_capture.py::test_worker_failure_consistency[echild-retained-owner-worker ECHILD/ownership mismatch] PASSED [ 50%]
+test_worker_capture.py::test_worker_failure_consistency[lost-owner-without-echild-worker ECHILD/ownership mismatch] PASSED [ 50%]
+test_worker_capture.py::test_worker_failure_consistency[lost-owner-other-errno-worker ECHILD/ownership mismatch] PASSED [ 50%]
+test_worker_capture.py::test_worker_failure_consistency[unreaped-without-remedy-worker residual ownership mismatch] PASSED [ 51%]
+test_worker_capture.py::test_worker_failure_consistency[reaped-with-remedy-worker residual ownership mismatch] PASSED [ 51%]
+test_worker_capture.py::test_worker_failure_consistency[lost-owner-with-remedy-worker residual ownership mismatch] PASSED [ 51%]
+test_worker_capture.py::test_worker_failure_consistency[wait-without-child-worker helper failure without creation] PASSED [ 51%]
+test_worker_capture.py::test_worker_failure_consistency[output-without-child-worker helper failure without creation] PASSED [ 52%]
+test_worker_capture.py::test_worker_failure_consistency[close-without-child-worker helper failure without creation] PASSED [ 52%]
+test_worker_capture.py::test_worker_failure_consistency[success-None] PASSED [ 52%]
+test_worker_capture.py::test_worker_failure_consistency[failed-read-reaped-None] PASSED [ 52%]
+test_worker_capture.py::test_worker_failure_consistency[failed-kill-reaped-None] PASSED [ 53%]
+test_worker_capture.py::test_worker_failure_consistency[failed-close-reaped-None] PASSED [ 53%]
+test_worker_capture.py::test_worker_failure_consistency[retained-owner-None] PASSED [ 53%]
+test_worker_capture.py::test_worker_failure_consistency[lost-owner-None] PASSED [ 53%]
+test_worker_capture.py::test_worker_failure_consistency[python-refusal-None] PASSED [ 53%]
+test_worker_capture.py::test_worker_failure_consistency[native-refusal-None] PASSED [ 54%]
+test_worker_capture.py::test_worker_failure_consistency[signal-refusal-None] PASSED [ 54%]
+test_worker_capture.py::test_worker_failure_consistency[native-signal-refusal-None] PASSED [ 54%]
+test_worker_capture.py::test_worker_failure_consistency[native-auto-reap-refusal-None] PASSED [ 54%]
+test_worker_capture.py::test_worker_failure_consistency[observation-refusal-None] PASSED [ 55%]
+test_worker_capture.py::test_worker_failure_consistency[observation-refusal-no-errno-None] PASSED [ 55%]
+test_worker_capture.py::test_review_worker_preserves_real_helper_admission_refusal PASSED [ 55%]
+test_worker_capture.py::test_worker_terminal_consistency[status-without-reap-worker status/reap mismatch] PASSED [ 55%]
+test_worker_capture.py::test_worker_terminal_consistency[reap-without-status-worker status/reap mismatch] PASSED [ 56%]
+test_worker_capture.py::test_worker_terminal_consistency[reaped-with-error-worker reaped helper has failed ownership] PASSED [ 56%]
+test_worker_capture.py::test_worker_terminal_consistency[reaped-with-lost-owner-worker reaped helper has failed ownership] PASSED [ 56%]
+test_worker_capture.py::test_worker_terminal_consistency[success-None] PASSED [ 56%]
+test_worker_capture.py::test_worker_terminal_consistency[nonzero-None] PASSED [ 56%]
+test_worker_capture.py::test_worker_terminal_consistency[unreaped-error-None] PASSED [ 57%]
+test_worker_capture.py::test_worker_terminal_consistency[lost-owner-error-None] PASSED [ 57%]
+test_worker_capture.py::test_review_worker_bounds_real_delayed_helper_creation PASSED [ 57%]
+test_worker_capture.py::test_review_worker_resets_handlers_masks_wakeup_and_evidence_fd PASSED [ 57%]
+test_worker_capture.py::test_review_worker_startup_delay_uses_pid_only_without_group_authority PASSED [ 58%]
+test_worker_capture.py::test_review_worker_rejects_fork_before_creation PASSED [ 58%]
+test_worker_capture.py::test_review_worker_retains_real_fork_errno_without_child PASSED [ 58%]
+test_worker_capture.py::test_review_worker_does_not_run_inherited_exit_hook PASSED [ 58%]
+test_worker_capture.py::test_review_worker_channel_close_error_keeps_receipt_and_other_closes PASSED [ 59%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed0] PASSED [ 59%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed1] PASSED [ 59%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed2] PASSED [ 59%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed3] PASSED [ 59%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed4] PASSED [ 60%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed5] PASSED [ 60%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed6] PASSED [ 60%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[nested-result] PASSED [ 60%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[nested-readiness] PASSED [ 61%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[malformed] PASSED [ 61%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[duplicate-key] PASSED [ 61%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[bad-token] PASSED [ 61%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[bad-timestamp] PASSED [ 62%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[bad-field-type] PASSED [ 62%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[oversized-frame] PASSED [ 62%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[oversized-channel] PASSED [ 62%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[partial-frame] PASSED [ 62%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[exit-before-intent] PASSED [ 63%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[duplicate-readiness] PASSED [ 63%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[predispatch-start] PASSED [ 63%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[reversed-query] PASSED [ 63%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[future-finish] PASSED [ 64%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-start] PASSED [ 64%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-finish] PASSED [ 64%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-deadline] PASSED [ 64%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-cutoff] PASSED [ 65%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[early-cutoff] PASSED [ 65%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[late-cutoff] PASSED [ 65%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[early-created] PASSED [ 65%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[future-created] PASSED [ 65%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[kill-before-create] PASSED [ 66%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[reap-before-kill] PASSED [ 66%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[kill-without-create] PASSED [ 66%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[reaped-without-stamp] PASSED [ 66%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[stamp-without-reaped] PASSED [ 67%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[zero-pid] PASSED [ 67%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[negative-pid] PASSED [ 67%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[negative-group-pid] PASSED [ 67%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[boolean-pid] PASSED [ 68%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[string-pid] PASSED [ 68%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[pid-without-created] PASSED [ 68%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[created-without-pid] PASSED [ 68%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[kill-errno-without-kill] PASSED [ 68%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[wrong-cutoff] PASSED [ 69%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[nan-finish] PASSED [ 69%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[infinite-finish] PASSED [ 69%]
+test_worker_capture.py::test_review_group_snapshot_uses_real_worker PASSED [ 69%]
+test_worker_capture.py::test_review_worker_retains_timing_for_real_killed_helper PASSED [ 70%]
+test_worker_capture.py::test_review_worker_accepts_genuine_terminal_receipts[early-exit] PASSED [ 70%]
+test_worker_capture.py::test_review_worker_accepts_genuine_terminal_receipts[exec-failure] PASSED [ 70%]
+test_worker_capture.py::test_review_created_identity_survives_worker_result_loss PASSED [ 70%]
+test_worker_capture.py::test_review_matching_reap_resolves_created_identity PASSED [ 71%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[duplicate] PASSED [ 71%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[token] PASSED [ 71%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[ppid] PASSED [ 71%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[pgid] PASSED [ 71%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[boolean-pid] PASSED [ 72%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[stale] PASSED [ 72%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[future] PASSED [ 72%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[deadline] PASSED [ 72%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[extra] PASSED [ 73%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[result-pid] PASSED [ 73%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[result-created] PASSED [ 73%]
+test_worker_capture.py::test_review_worker_exit_after_publication_keeps_gate_closed PASSED [ 73%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[fork-error] PASSED [ 74%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[lost-result] PASSED [ 74%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[setup-error] PASSED [ 74%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[silent] PASSED [ 74%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-bool] PASSED [ 75%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-zero] PASSED [ 75%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-negative] PASSED [ 75%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-string] PASSED [ 75%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-missing] PASSED [ 75%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[extra-field] PASSED [ 76%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[wrong-token] PASSED [ 76%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[wrong-deadline] PASSED [ 76%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[before-dispatch] PASSED [ 76%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[future] PASSED [ 77%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[nan] PASSED [ 77%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[duplicate-key] PASSED [ 77%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[duplicate] PASSED [ 77%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[failure-then-created] PASSED [ 78%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[created-then-failure] PASSED [ 78%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-errno] PASSED [ 78%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-admission] PASSED [ 78%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-time] PASSED [ 78%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[worker-publication-expired] PASSED [ 79%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[control-tail] PASSED [ 79%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[short-header] PASSED [ 79%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[short-frame] PASSED [ 79%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[oversized] PASSED [ 80%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[open-tail] PASSED [ 80%]
+test_worker_capture.py::test_review_fork_failure_preserves_errno_on_publication_error[timeout] PASSED [ 80%]
+test_worker_capture.py::test_review_fork_failure_preserves_errno_on_publication_error[broken-pipe] PASSED [ 80%]
+test_worker_capture.py::test_review_distinct_created_identities_remain_obligations PASSED [ 81%]
+test_worker_capture.py::test_review_parent_rejects_published_late_fork_failure[read] PASSED [ 81%]
+test_worker_capture.py::test_review_parent_rejects_published_late_fork_failure[select] PASSED [ 81%]
+test_worker_capture.py::test_review_confirmed_fork_failure_keeps_worker_failure[unclean-exit] PASSED [ 81%]
+test_worker_capture.py::test_review_confirmed_fork_failure_keeps_worker_failure[unreaped] PASSED [ 81%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[valid-read] PASSED [ 82%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[valid-select] PASSED [ 82%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[valid-shutdown] PASSED [ 82%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[distinct-read] PASSED [ 82%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[distinct-select] PASSED [ 83%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[distinct-shutdown] PASSED [ 83%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[malformed-read] PASSED [ 83%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[malformed-select] PASSED [ 83%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[malformed-shutdown] PASSED [ 84%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[overflow-read] PASSED [ 84%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[overflow-select] PASSED [ 84%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[overflow-shutdown] PASSED [ 84%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[valid-overflow-read] PASSED [ 84%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[valid-overflow-select] PASSED [ 85%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[valid-overflow-shutdown] PASSED [ 85%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[distinct-overflow-read] PASSED [ 85%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[distinct-overflow-select] PASSED [ 85%]
+test_worker_capture.py::test_late_created_identity_is_cleanup_only[distinct-overflow-shutdown] PASSED [ 86%]
+test_worker_capture.py::test_late_created_identity_rejects_invalid_fields[token] PASSED [ 86%]
+test_worker_capture.py::test_late_created_identity_rejects_invalid_fields[boolean-pid] PASSED [ 86%]
+test_worker_capture.py::test_late_created_identity_rejects_invalid_fields[stale] PASSED [ 86%]
+test_worker_capture.py::test_late_created_identity_rejects_invalid_fields[future] PASSED [ 87%]
+test_worker_capture.py::test_late_created_identity_rejects_invalid_fields[deadline] PASSED [ 87%]
+test_worker_capture.py::test_late_created_identity_rejects_invalid_fields[extra] PASSED [ 87%]
+test_worker_capture.py::test_late_created_identity_rejects_invalid_fields[partial] PASSED [ 87%]
+test_worker_capture.py::test_late_created_identity_prebuffered_before_default_term[valid] PASSED [ 87%]
+test_worker_capture.py::test_late_created_identity_prebuffered_before_default_term[distinct] PASSED [ 88%]
+test_worker_capture.py::test_result_framing_error[oversized-header] PASSED [ 88%]
+test_worker_capture.py::test_result_framing_error[short-header] PASSED   [ 88%]
+test_worker_capture.py::test_result_framing_error[short-body] PASSED     [ 88%]
+test_worker_capture.py::test_result_framing_error[trailing] PASSED       [ 89%]
+test_worker_capture.py::test_result_framing_error[overflow] PASSED       [ 89%]
+test_worker_capture.py::test_result_framing_error[zero-header] PASSED    [ 89%]
+test_worker_capture.py::test_result_framing_error[one-header] PASSED     [ 89%]
+test_worker_capture.py::test_result_framing_error[fragmented-oversized-header] PASSED [ 90%]
+test_worker_capture.py::test_result_framing_term[oversized-header] PASSED [ 90%]
+test_worker_capture.py::test_result_framing_term[short-header] PASSED    [ 90%]
+test_worker_capture.py::test_result_framing_term[short-body] PASSED      [ 90%]
+test_worker_capture.py::test_result_framing_term[trailing] PASSED        [ 90%]
+test_worker_capture.py::test_result_framing_term[overflow] PASSED        [ 91%]
+test_worker_capture.py::test_result_framing_term[zero-header] PASSED     [ 91%]
+test_worker_capture.py::test_result_framing_term[one-header] PASSED      [ 91%]
+test_worker_capture.py::test_result_framing_term[fragmented-oversized-header] PASSED [ 91%]
+test_worker_capture.py::test_result_framing_finish[oversized-header] PASSED [ 92%]
+test_worker_capture.py::test_result_framing_finish[short-header] PASSED  [ 92%]
+test_worker_capture.py::test_result_framing_finish[short-body] PASSED    [ 92%]
+test_worker_capture.py::test_result_framing_finish[trailing] PASSED      [ 92%]
+test_worker_capture.py::test_result_framing_finish[overflow] PASSED      [ 93%]
+test_worker_capture.py::test_result_framing_finish[zero-header] PASSED   [ 93%]
+test_worker_capture.py::test_result_framing_finish[one-header] PASSED    [ 93%]
+test_worker_capture.py::test_result_framing_finish[fragmented-oversized-header] PASSED [ 93%]
+test_worker_capture.py::test_result_framing_deadline[oversized-header] PASSED [ 93%]
+test_worker_capture.py::test_result_framing_deadline[short-header] PASSED [ 94%]
+test_worker_capture.py::test_result_framing_deadline[short-body] PASSED  [ 94%]
+test_worker_capture.py::test_result_framing_deadline[trailing] PASSED    [ 94%]
+test_worker_capture.py::test_result_framing_deadline[overflow] PASSED    [ 94%]
+test_worker_capture.py::test_result_framing_deadline[zero-header] PASSED [ 95%]
+test_worker_capture.py::test_result_framing_deadline[one-header] PASSED  [ 95%]
+test_worker_capture.py::test_result_framing_deadline[fragmented-oversized-header] PASSED [ 95%]
+test_worker_capture.py::test_result_framing_read_budget[oversized-header] PASSED [ 95%]
+test_worker_capture.py::test_result_framing_read_budget[short-header] PASSED [ 96%]
+test_worker_capture.py::test_result_framing_read_budget[short-body] PASSED [ 96%]
+test_worker_capture.py::test_result_framing_read_budget[trailing] PASSED [ 96%]
+test_worker_capture.py::test_result_framing_read_budget[overflow] PASSED [ 96%]
+test_worker_capture.py::test_result_framing_read_budget[zero-header] PASSED [ 96%]
+test_worker_capture.py::test_result_framing_read_budget[one-header] PASSED [ 97%]
+test_worker_capture.py::test_result_framing_read_budget[fragmented-oversized-header] PASSED [ 97%]
+test_worker_capture.py::test_result_framing_byte_count[oversized-header] PASSED [ 97%]
+test_worker_capture.py::test_result_framing_byte_count[short-header] PASSED [ 97%]
+test_worker_capture.py::test_result_framing_byte_count[short-body] PASSED [ 98%]
+test_worker_capture.py::test_result_framing_byte_count[trailing] PASSED  [ 98%]
+test_worker_capture.py::test_result_framing_byte_count[overflow] PASSED  [ 98%]
+test_worker_capture.py::test_result_framing_byte_count[zero-header] PASSED [ 98%]
+test_worker_capture.py::test_result_framing_byte_count[one-header] PASSED [ 99%]
+test_worker_capture.py::test_result_framing_byte_count[fragmented-oversized-header] PASSED [ 99%]
+test_worker_capture.py::test_result_frame_accepts_fragmented_delivery[False] PASSED [ 99%]
+test_worker_capture.py::test_result_frame_accepts_fragmented_delivery[True] PASSED [ 99%]
+test_worker_capture.py::test_complete_result_frame_requires_control_eof PASSED [100%]
+
+=================================== FAILURES ===================================
+__________________ test_review_fork_handler_reaps_gracefully ___________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-283/test_review_fork_handler_reaps0')
+
+    def test_review_fork_handler_reaps_gracefully(tmp_path):
+        _, result, _, check = owned_fork_run(tmp_path)
+        receipt = result["calls"][0]
+>       assert receipt["returncode"] == 0
+E       assert -9 == 0
+
+test_controller.py:786: AssertionError
+___ test_review_live_group_is_failure_even_with_expected_leader_exit[False] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-283/test_review_live_group_is_fail0')
+interrupted = False
+
+    @pytest.mark.parametrize("interrupted", [False, True])
+    def test_review_live_group_is_failure_even_with_expected_leader_exit(tmp_path, interrupted):
+        release, ready = tmp_path / "release", tmp_path / "ready"
+        workload = call(
+            "live-exit",
+            "scope-parent",
+            release,
+            ready,
+            budget=5,
+            interrupt_after=0.3 if interrupted else None,
+        )
+        workload = replace(workload, expected_reason="interrupted" if interrupted else "exit")
+        path = None
+        child = None
+        try:
+            path, result = run(tmp_path, [workload, call("later", "bytes")])
+            child = int((path / "live-exit.stdout").read_text())
+            receipt = result["calls"][0]
+            assert receipt["returncode"] == 0
+            assert receipt["termination_ok"] is False
+            assert result["ok"] is False
+            assert result["unreached"] == ["later"]
+>           assert any(item["pid"] == child for item in receipt["residual_members"])
+E           assert False
+E            +  where False = any(<generator object test_review_live_group_is_failure_even_with_expected_leader_exit.<locals>.<genexpr> at 0x108c4d630>)
+
+test_controller.py:1139: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-283/test_review_live_group_is_fail0')
+interrupted = False
+
+    @pytest.mark.parametrize("interrupted", [False, True])
+    def test_review_live_group_is_failure_even_with_expected_leader_exit(tmp_path, interrupted):
+        release, ready = tmp_path / "release", tmp_path / "ready"
+        workload = call(
+            "live-exit",
+            "scope-parent",
+            release,
+            ready,
+            budget=5,
+            interrupt_after=0.3 if interrupted else None,
+        )
+        workload = replace(workload, expected_reason="interrupted" if interrupted else "exit")
+        path = None
+        child = None
+        try:
+            path, result = run(tmp_path, [workload, call("later", "bytes")])
+            child = int((path / "live-exit.stdout").read_text())
+            receipt = result["calls"][0]
+            assert receipt["returncode"] == 0
+            assert receipt["termination_ok"] is False
+            assert result["ok"] is False
+            assert result["unreached"] == ["later"]
+            assert any(item["pid"] == child for item in receipt["residual_members"])
+            assert receipt["residual_remedy"]
+        finally:
+            release.write_bytes(b"release")
+            if child is not None:
+                end = time.monotonic() + 1
+>               observations = [inspect_pid(child)]
+                                ^^^^^^^^^^^^^^^^^^
+
+test_controller.py:1145: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_controller.py:816: in inspect_pid
+    check = subprocess.run(
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/ps', '-p', '69375', '-o', 'pid=,pgid=,st...>
+endtime = 298620.896437083, orig_timeout = 1, stdout_seq = [], stderr_seq = []
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/ps', '-p', '69375', '-o', 'pid=,pgid=,stat=,lstart=,command=']' timed out after 1 seconds
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:1253: TimeoutExpired
+____ test_review_live_group_is_failure_even_with_expected_leader_exit[True] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-283/test_review_live_group_is_fail1')
+interrupted = True
+
+    @pytest.mark.parametrize("interrupted", [False, True])
+    def test_review_live_group_is_failure_even_with_expected_leader_exit(tmp_path, interrupted):
+        release, ready = tmp_path / "release", tmp_path / "ready"
+        workload = call(
+            "live-exit",
+            "scope-parent",
+            release,
+            ready,
+            budget=5,
+            interrupt_after=0.3 if interrupted else None,
+        )
+        workload = replace(workload, expected_reason="interrupted" if interrupted else "exit")
+        path = None
+        child = None
+        try:
+            path, result = run(tmp_path, [workload, call("later", "bytes")])
+>           child = int((path / "live-exit.stdout").read_text())
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           ValueError: invalid literal for int() with base 10: ''
+
+test_controller.py:1133: ValueError
+__________ test_review_checker_unreaped_timeout_still_retains_verdict __________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-283/test_review_checker_unreaped_t0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108cd25d0>
+
+    def test_review_checker_unreaped_timeout_still_retains_verdict(tmp_path, monkeypatch):
+        import self_check
+    
+        class Unreapable:
+            pid = 123456789
+    
+            def wait(self, timeout):
+                raise subprocess.TimeoutExpired("forced checker", timeout)
+    
+        monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: Unreapable())
+        monkeypatch.setattr(os, "killpg", lambda *args: None)
+        output = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path)) / uuid.uuid4().hex
+        monkeypatch.setattr(sys, "argv", ["self_check.py", str(output)])
+        with pytest.raises(SystemExit) as status:
+>           self_check.main()
+
+test_controller.py:1167: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+self_check.py:57: in main
+    before = hashes(subjects)
+             ^^^^^^^^^^^^^^^^
+self_check.py:16: in hashes
+    return {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+                                      ^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1019: in read_bytes
+    with self.open(mode='rb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/Taskfile.yml')
+mode = 'rb', buffering = -1, encoding = None, errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/Taskfile.yml'
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1013: FileNotFoundError
+____ test_review_fork_publishes_child_before_stdout_and_releases_on_failure ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-283/test_review_fork_publishes_chi0')
+
+    def test_review_fork_publishes_child_before_stdout_and_releases_on_failure(tmp_path):
+        release, ready = tmp_path / "release", tmp_path / "ready"
+        peer = subprocess.Popen(
+            (sys.executable, str(PEER), "fork", str(release), str(ready)),
+            stdout=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        child = None
+        try:
+            end = time.monotonic() + 1
+            while not ready.exists() and time.monotonic() < end:
+                time.sleep(0.005)
+>           assert ready.exists(), "child identity was not published independently of stdout"
+E           AssertionError: child identity was not published independently of stdout
+E           assert False
+E            +  where False = exists()
+E            +    where exists = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-283/test_review_fork_publishes_chi0/ready').exists
+
+test_controller.py:1189: AssertionError
+__________ test_review_pinning_control_detects_real_early_reap[None] ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-283/test_review_pinning_control_de0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108cd1610>
+reaper = None
+
+    @pytest.mark.parametrize("reaper", [None, "poll", "wait", "waitpid", "wait-any"])
+    def test_review_pinning_control_detects_real_early_reap(tmp_path, monkeypatch, reaper):
+        import controller
+    
+        processes = {}
+        original_init = subprocess.Popen.__init__
+        original_wait = controller._wait
+        original_snapshot = controller._group_snapshot
+        observations = []
+    
+        def register(process, argv, *args, **kwargs):
+            original_init(process, argv, *args, **kwargs)
+            if str(PEER) in argv:
+                processes[process.pid] = process
+    
+        def wait(pid, deadline):
+            exited = original_wait(pid, deadline)
+            if exited and reaper:
+                process = processes[pid]
+                if reaper == "poll":
+                    # NOTE_EXIT can arrive before waitpid reports a waitable child.
+                    # Confirm the injected reap before testing released identity.
+                    end = time.monotonic() + 1
+                    while process.poll() is None and time.monotonic() < end:
+                        time.sleep(0.005)
+                    assert process.returncode is not None, "poll control did not reap"
+                elif reaper == "wait":
+                    process.wait(timeout=1)
+                elif reaper == "waitpid":
+                    os.waitpid(pid, 0)
+                else:
+                    assert os.wait()[0] == pid
+            return exited
+    
+        def pinned_snapshot(pid, deadline):
+            observation = inspect_pid(pid)
+            observations.append(observation)
+            if observation["state"] == "absent":
+                raise RuntimeError("group identity released before inspection")
+            return original_snapshot(pid, deadline)
+    
+        monkeypatch.setattr(subprocess.Popen, "__init__", register)
+        monkeypatch.setattr(controller, "_wait", wait)
+        monkeypatch.setattr(controller, "_group_snapshot", pinned_snapshot)
+        run_id = uuid.uuid4().hex
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "evidence")) / run_id
+        try:
+            if reaper:
+                with pytest.raises(RuntimeError, match="identity released"):
+                    run(tmp_path, [call("pin-exit", "bytes")], run_id=run_id)
+            else:
+>               _, result = run(tmp_path, [call("pin-exit", "bytes")], run_id=run_id)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_controller.py:1267: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_controller.py:507: in run
+    path = execute(plan, root)
+           ^^^^^^^^^^^^^^^^^^^
+controller.py:658: in execute
+    receipt = _safe_call(call, root, plan, inspection_state)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+controller.py:582: in _safe_call
+    return _call(call, root, plan, inspection)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+controller.py:535: in _call
+    group = inspection.snapshot(
+controller.py:382: in snapshot
+    observation = _final_snapshot(pid, deadline, leader_exit)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+controller.py:331: in _final_snapshot
+    return _group_snapshot(pid, deadline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+test_controller.py:1251: in pinned_snapshot
+    observation = inspect_pid(pid)
+                  ^^^^^^^^^^^^^^^^
+test_controller.py:816: in inspect_pid
+    check = subprocess.run(
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:550: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:1209: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:2116: in _communicate
+    self._check_timeout(endtime, orig_timeout, stdout, stderr)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <Popen: returncode: -9 args: ['/bin/ps', '-p', '69527', '-o', 'pid=,pgid=,st...>
+endtime = 298624.332598083, orig_timeout = 1, stdout_seq = [], stderr_seq = []
+skip_check_and_raise = False
+
+    def _check_timeout(self, endtime, orig_timeout, stdout_seq, stderr_seq,
+                       skip_check_and_raise=False):
+        """Convenience for checking if a timeout has expired."""
+        if endtime is None:
+            return
+        if skip_check_and_raise or _time() > endtime:
+>           raise TimeoutExpired(
+                    self.args, orig_timeout,
+                    output=b''.join(stdout_seq) if stdout_seq else None,
+                    stderr=b''.join(stderr_seq) if stderr_seq else None)
+E           subprocess.TimeoutExpired: Command '['/bin/ps', '-p', '69527', '-o', 'pid=,pgid=,stat=,lstart=,command=']' timed out after 1 seconds
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:1253: TimeoutExpired
+__________ test_review_pinning_control_detects_real_early_reap[poll] ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-283/test_review_pinning_control_de1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108cc30b0>
+reaper = 'poll'
+
+    @pytest.mark.parametrize("reaper", [None, "poll", "wait", "waitpid", "wait-any"])
+    def test_review_pinning_control_detects_real_early_reap(tmp_path, monkeypatch, reaper):
+        import controller
+    
+        processes = {}
+        original_init = subprocess.Popen.__init__
+        original_wait = controller._wait
+        original_snapshot = controller._group_snapshot
+        observations = []
+    
+        def register(process, argv, *args, **kwargs):
+            original_init(process, argv, *args, **kwargs)
+            if str(PEER) in argv:
+                processes[process.pid] = process
+    
+        def wait(pid, deadline):
+            exited = original_wait(pid, deadline)
+            if exited and reaper:
+                process = processes[pid]
+                if reaper == "poll":
+                    # NOTE_EXIT can arrive before waitpid reports a waitable child.
+                    # Confirm the injected reap before testing released identity.
+                    end = time.monotonic() + 1
+                    while process.poll() is None and time.monotonic() < end:
+                        time.sleep(0.005)
+                    assert process.returncode is not None, "poll control did not reap"
+                elif reaper == "wait":
+                    process.wait(timeout=1)
+                elif reaper == "waitpid":
+                    os.waitpid(pid, 0)
+                else:
+                    assert os.wait()[0] == pid
+            return exited
+    
+        def pinned_snapshot(pid, deadline):
+            observation = inspect_pid(pid)
+            observations.append(observation)
+            if observation["state"] == "absent":
+                raise RuntimeError("group identity released before inspection")
+            return original_snapshot(pid, deadline)
+    
+        monkeypatch.setattr(subprocess.Popen, "__init__", register)
+        monkeypatch.setattr(controller, "_wait", wait)
+        monkeypatch.setattr(controller, "_group_snapshot", pinned_snapshot)
+        run_id = uuid.uuid4().hex
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "evidence")) / run_id
+        try:
+            if reaper:
+>               with pytest.raises(RuntimeError, match="identity released"):
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E               Failed: DID NOT RAISE RuntimeError
+
+test_controller.py:1264: Failed
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-deadline-k87/timing-k83-1/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_review_fork_handler_reaps_gracefully - assert -9 == 0
+FAILED test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[False] - subprocess.TimeoutExpired: Command '['/bin/ps', '-p', '69375', '-o', 'pid=,pgid=,stat=,lstart=,command=']' timed out after 1 seconds
+FAILED test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[True] - ValueError: invalid literal for int() with base 10: ''
+FAILED test_controller.py::test_review_checker_unreaped_timeout_still_retains_verdict - FileNotFoundError: [Errno 2] No such file or directory: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/Taskfile.yml'
+FAILED test_controller.py::test_review_fork_publishes_child_before_stdout_and_releases_on_failure - AssertionError: child identity was not published independently of stdout
+assert False
+ +  where False = exists()
+ +    where exists = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-283/test_review_fork_publishes_chi0/ready').exists
+FAILED test_controller.py::test_review_pinning_control_detects_real_early_reap[None] - subprocess.TimeoutExpired: Command '['/bin/ps', '-p', '69527', '-o', 'pid=,pgid=,stat=,lstart=,command=']' timed out after 1 seconds
+FAILED test_controller.py::test_review_pinning_control_detects_real_early_reap[poll] - Failed: DID NOT RAISE RuntimeError
+=================== 7 failed, 425 passed in 73.89s (0:01:13) ===================

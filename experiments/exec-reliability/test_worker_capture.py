@@ -14,13 +14,18 @@ import inspection
 
 
 @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
-@pytest.mark.parametrize("operation", ["final-reap", "stale-term", "stale-kill", "at-cutoff"])
+@pytest.mark.parametrize(
+    "operation", ["final-reap", "stale-term", "stale-kill", "at-cutoff", "cleanup-cutoff"]
+)
 def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch, ready, operation):
     """A deferred wait observation must not reopen expired worker authority."""
     import worker_capture
 
     original_waitpid = os.waitpid
     original_kill, original_killpg = os.kill, os.killpg
+    original_signal = worker_capture._signal
+    original_monotonic = time.monotonic
+    cleanup_cutoff = False
     calls = []
     observed = []
     end = time.monotonic() + 0.3
@@ -65,16 +70,32 @@ def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch,
         )
         return original_killpg(pid, sig)
 
+    def monotonic():
+        return end if cleanup_cutoff else original_monotonic()
+
+    def signal_at_cleanup_cutoff(owner, sig):
+        nonlocal cleanup_cutoff
+        if operation == "cleanup-cutoff" and sig == signal.SIGKILL:
+            # capture_helper's cleanup loop has admitted this turn before end.
+            # Cross to equality at its KILL entry; the following reap sees the
+            # same original cutoff. No stale callback is invoked in this case.
+            cleanup_cutoff = True
+        return original_signal(owner, sig)
+
+    monkeypatch.setattr(time, "monotonic", monotonic)
+    monkeypatch.setattr(worker_capture, "_signal", signal_at_cleanup_cutoff)
     monkeypatch.setattr(worker_capture, "_child", child)
     monkeypatch.setattr(os, "waitpid", waitpid)
     monkeypatch.setattr(os, "kill", kill)
     monkeypatch.setattr(os, "killpg", killpg)
     receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+    crossed_in_cleanup = cleanup_cutoff
+    cleanup_cutoff = False  # The independent audit uses the real clock.
     worker = receipt.worker
     pid = worker["pid"]
     audit = {"pid": pid, "adapter": "deferred parent WNOHANG observation", "reaped": False}
     try:
-        if operation != "final-reap":
+        if operation not in {"final-reap", "cleanup-cutoff"}:
             owner = worker_capture._owners[pid]
             with monkeypatch.context() as clock:
                 if operation == "at-cutoff":
@@ -85,6 +106,7 @@ def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch,
                 )
                 worker_capture._reap(owner)
         retain(tmp_path, f"worker-deadline-{operation}-{ready}", receipt)
+        assert crossed_in_cleanup is (operation == "cleanup-cutoff")
         assert not [call for call in calls if call["time"] >= end]
         assert receipt.error and receipt.residual_remedy
         assert not worker["reaped"] and pid in worker_capture._owners
@@ -111,7 +133,16 @@ def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch,
         root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
         root.mkdir(parents=True, exist_ok=True)
         (root / f"worker-deadline-audit-{operation}-{ready}-{time.time_ns()}.json").write_text(
-            json.dumps({"audit": audit, "calls": calls, "deadline": end}, indent=2) + "\n"
+            json.dumps(
+                {
+                    "audit": audit,
+                    "calls": calls,
+                    "deadline": end,
+                    "cleanup_cutoff": crossed_in_cleanup,
+                },
+                indent=2,
+            )
+            + "\n"
         )
         assert audit["reaped"]
 

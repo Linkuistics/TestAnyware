@@ -43,7 +43,7 @@ def main() -> None:
                 f"--junitxml={output / 'pytest.xml'}",
                 *(("-k", "review_") if controls else ()),
             ),
-            60,
+            120,
         )
     )
     subjects = [
