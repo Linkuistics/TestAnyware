@@ -643,6 +643,209 @@ def test_leader_reap_caller_closes_target_authority(tmp_path, monkeypatch, outco
         assert all(item["state"] == "absent" for item in audits)
 
 
+@pytest.mark.parametrize("entry", [1.0, 1.001])
+def test_workload_wait_no_observation_at_deadline(monkeypatch, entry):
+    import controller
+
+    def forbidden(pid):
+        raise AssertionError("exit observation admitted at/after workload deadline")
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: entry)
+    monkeypatch.setattr(controller, "_exited", forbidden)
+    assert controller._wait(123, 1.0) is False
+
+
+@pytest.mark.parametrize("observed", [False, True])
+@pytest.mark.parametrize("returned", [1.0, 1.001])
+def test_workload_wait_rejects_late_result(monkeypatch, observed, returned):
+    import controller
+
+    now = 0.999
+    entries = []
+
+    def observation(pid):
+        nonlocal now
+        entries.append([pid, now])
+        now = returned
+        return observed
+
+    def forbidden_sleep(seconds):
+        raise AssertionError("late result must return without sleeping")
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now)
+    monkeypatch.setattr(controller.time, "sleep", forbidden_sleep)
+    monkeypatch.setattr(controller, "_exited", observation)
+    assert controller._wait(123, 1.0) is False
+    assert entries == [[123, 0.999]]
+
+
+@pytest.mark.parametrize("wake", [1.0, 1.001])
+def test_workload_wait_no_observation_after_sleep_overrun(monkeypatch, wake):
+    import controller
+
+    now = 0.999
+    entries = []
+    sleeps = []
+
+    def observation(pid):
+        entries.append([pid, now])
+        assert len(entries) == 1, "poll sleep overrun admitted another observation"
+        return False
+
+    def sleep(seconds):
+        nonlocal now
+        sleeps.append(seconds)
+        now = wake
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now)
+    monkeypatch.setattr(controller.time, "sleep", sleep)
+    monkeypatch.setattr(controller, "_exited", observation)
+    assert controller._wait(123, 1.0) is False
+    assert entries == [[123, 0.999]]
+    assert sleeps == [pytest.approx(0.001)]
+
+
+@pytest.mark.parametrize("polls", [0, 1])
+def test_workload_wait_accepts_timely_result(monkeypatch, polls):
+    import controller
+
+    now = 0.98
+    entries = []
+    sleeps = []
+
+    def observation(pid):
+        nonlocal now
+        entries.append([pid, now])
+        now += 0.001
+        return len(entries) > polls
+
+    def sleep(seconds):
+        nonlocal now
+        sleeps.append(seconds)
+        now += seconds
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now)
+    monkeypatch.setattr(controller.time, "sleep", sleep)
+    monkeypatch.setattr(controller, "_exited", observation)
+    assert controller._wait(123, 1.0) is True
+    assert len(entries) == polls + 1
+    assert sleeps == [0.005] * polls
+    assert now < 1.0
+
+
+@pytest.mark.parametrize("interrupt", [False, True])
+def test_workload_wait_late_real_exit_still_terminates_and_disposes(
+    tmp_path, monkeypatch, interrupt
+):
+    import controller
+
+    original_wait = controller._wait
+    original_exited = controller._exited
+    original_call = controller._call
+    observations = []
+    active_name = None
+
+    def selected_call(workload, root, plan, inspection):
+        nonlocal active_name
+        active_name = workload.name
+        return original_call(workload, root, plan, inspection)
+
+    def wait(pid, deadline):
+        # Delay only the selected workload's first real NOTE_EXIT observation.
+        # The healthy byte-writing child exits during this wall-clock hold.
+        # Other calls, termination observations and the final query stay real.
+        if active_name != "late-exit":
+            return original_wait(pid, deadline)
+
+        def delayed(target):
+            entry = time.monotonic()
+            time.sleep(max(0, deadline - time.monotonic()) + 0.04)
+            observed = original_exited(target)
+            observations.append(
+                {
+                    "pid": target,
+                    "entry": entry,
+                    "deadline": deadline,
+                    "returned": time.monotonic(),
+                    "exit": observed,
+                }
+            )
+            return observed
+
+        with monkeypatch.context() as patch:
+            patch.setattr(controller, "_exited", delayed)
+            return original_wait(pid, deadline)
+
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    monkeypatch.setattr(controller, "_wait", wait)
+    monkeypatch.setattr(controller, "_call", selected_call)
+    path, result = run(
+        tmp_path,
+        [
+            call("late-exit", "bytes", budget=0.2, interrupt_after=0.15 if interrupt else None),
+            call("unreached", "bytes"),
+        ],
+        [owned],
+        run_id=run_id,
+    )
+    receipt = next(item for item in result["calls"] if item["name"] == "late-exit")
+    inspectors = []
+    for item in result["calls"]:
+        for observation in item["group_observations"]:
+            helper = observation["helper"]
+            worker = helper["worker"]
+            inspectors.append(
+                {
+                    "identity": worker["helper_identity"],
+                    "helper": inspect_pid(helper["pid"]),
+                    "worker": inspect_pid(worker["pid"]),
+                }
+            )
+    audit = {
+        "fault": "real NOTE_EXIT result held past workload/interruption deadline",
+        "observations": observations,
+        "leaders": [inspect_pid(item["pid"]) for item in result["calls"]],
+        "inspectors": inspectors,
+        "marker_absent": not (tmp_path / owned.identity).exists(),
+    }
+    (path / "workload-wait-audit.json").write_text(json.dumps(audit, indent=2))
+    assert len(observations) == 1
+    assert observations[0]["exit"] is True
+    assert observations[0]["pid"] == receipt["pid"]
+    assert observations[0]["entry"] < observations[0]["deadline"] < observations[0]["returned"]
+    assert result["ok"] is False
+    assert result["unreached"] == ["unreached"]
+    assert receipt["reason"] == ("interrupted" if interrupt else "deadline")
+    assert [event["signal"] for event in receipt["signals"]] == (
+        ["TERM"] if interrupt else ["TERM", "KILL"]
+    )
+    assert all(event["scope"] == ("pid" if interrupt else "group") for event in receipt["signals"])
+    assert len(receipt["group_observations"]) == 1
+    assert receipt["group_observations"][0]["state"] == "zombie_only"
+    # Darwin can deny group TERM against an already-zombie leader. This is a
+    # real local observation, not evidence for the privileged UID fixture.
+    # Such a denied TERM must remain sticky even if final KILL is classified.
+    assert receipt["termination_ok"] is all(
+        event["outcome"] in {"sent", "zombie_only_eperm"} for event in receipt["signals"]
+    )
+    assert receipt["returncode"] == 0
+    assert all(item["reaped"] for item in result["calls"])
+    assert all(item["state"] == "absent" for item in audit["leaders"])
+    assert all(
+        item[role]["state"] == "absent" for item in inspectors for role in ("helper", "worker")
+    )
+    assert audit["marker_absent"] is True
+    assert result["resources"][0]["state"] == "disposed"
+    assert [item["name"] for item in result["calls"]] == [
+        "acquire",
+        "late-exit",
+        "cleanup",
+        "dispose",
+        "inspect",
+    ]
+
+
 def call(name, mode, *args, budget=3, interrupt_after=None):
     return Call(
         name,

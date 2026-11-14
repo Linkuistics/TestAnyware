@@ -146,12 +146,15 @@ def _exited(pid: int) -> bool:
 
 
 def _wait(pid: int, deadline: float) -> bool:
-    while not _exited(pid):
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
+    while time.monotonic() < deadline:
+        exited = _exited(pid)
+        observed = time.monotonic()
+        if observed >= deadline:
             return False
-        time.sleep(min(0.005, remaining))
-    return True
+        if exited:
+            return True
+        time.sleep(min(0.005, deadline - observed))
+    return False
 
 
 class GroupObservation(TypedDict):

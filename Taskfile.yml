@@ -94,6 +94,21 @@ tasks:
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/termination-cutoff-k90/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
 
+  diagnostic:workload-wait-check:
+    desc: Run frozen workload-wait controls; fresh OUT, MODE=full for full suite
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/workload-wait-k91/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
+
+  diagnostic:workload-wait-tools:
+    desc: Check the retained workload-wait runner
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python -m ruff check experiments/exec-reliability/evidence/workload-wait-k91/run_condition.py
+      - uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/workload-wait-k91/run_condition.py
+      - uv run --project experiments/exec-reliability --locked python -m pyright experiments/exec-reliability/evidence/workload-wait-k91/run_condition.py
+
   diagnostic:leader-reap-check:
     desc: Run frozen first-reap controls; fresh OUT, MODE=full for full suite
     dir: '{{.ROOT_DIR}}'

@@ -1,0 +1,187 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/workload-wait-k91/inputs-mutant-admission
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 481 items / 469 deselected / 12 selected
+
+test_controller.py::test_workload_wait_no_observation_at_deadline[1.0] FAILED [  8%]
+test_controller.py::test_workload_wait_no_observation_at_deadline[1.001] FAILED [ 16%]
+test_controller.py::test_workload_wait_rejects_late_result[1.0-False] PASSED [ 25%]
+test_controller.py::test_workload_wait_rejects_late_result[1.0-True] PASSED [ 33%]
+test_controller.py::test_workload_wait_rejects_late_result[1.001-False] PASSED [ 41%]
+test_controller.py::test_workload_wait_rejects_late_result[1.001-True] PASSED [ 50%]
+test_controller.py::test_workload_wait_no_observation_after_sleep_overrun[1.0] FAILED [ 58%]
+test_controller.py::test_workload_wait_no_observation_after_sleep_overrun[1.001] FAILED [ 66%]
+test_controller.py::test_workload_wait_accepts_timely_result[0] PASSED   [ 75%]
+test_controller.py::test_workload_wait_accepts_timely_result[1] PASSED   [ 83%]
+test_controller.py::test_workload_wait_late_real_exit_still_terminates_and_disposes[False] PASSED [ 91%]
+test_controller.py::test_workload_wait_late_real_exit_still_terminates_and_disposes[True] PASSED [100%]
+
+=================================== FAILURES ===================================
+______________ test_workload_wait_no_observation_at_deadline[1.0] ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b6fb410>
+entry = 1.0
+
+    @pytest.mark.parametrize("entry", [1.0, 1.001])
+    def test_workload_wait_no_observation_at_deadline(monkeypatch, entry):
+        import controller
+    
+        def forbidden(pid):
+            raise AssertionError("exit observation admitted at/after workload deadline")
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: entry)
+        monkeypatch.setattr(controller, "_exited", forbidden)
+>       assert controller._wait(123, 1.0) is False
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_controller.py:655: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:150: in _wait
+    exited = _exited(pid)
+             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 123
+
+    def forbidden(pid):
+>       raise AssertionError("exit observation admitted at/after workload deadline")
+E       AssertionError: exit observation admitted at/after workload deadline
+
+test_controller.py:651: AssertionError
+_____________ test_workload_wait_no_observation_at_deadline[1.001] _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b86f2f0>
+entry = 1.001
+
+    @pytest.mark.parametrize("entry", [1.0, 1.001])
+    def test_workload_wait_no_observation_at_deadline(monkeypatch, entry):
+        import controller
+    
+        def forbidden(pid):
+            raise AssertionError("exit observation admitted at/after workload deadline")
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: entry)
+        monkeypatch.setattr(controller, "_exited", forbidden)
+>       assert controller._wait(123, 1.0) is False
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_controller.py:655: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:150: in _wait
+    exited = _exited(pid)
+             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 123
+
+    def forbidden(pid):
+>       raise AssertionError("exit observation admitted at/after workload deadline")
+E       AssertionError: exit observation admitted at/after workload deadline
+
+test_controller.py:651: AssertionError
+__________ test_workload_wait_no_observation_after_sleep_overrun[1.0] __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b86d7c0>
+wake = 1.0
+
+    @pytest.mark.parametrize("wake", [1.0, 1.001])
+    def test_workload_wait_no_observation_after_sleep_overrun(monkeypatch, wake):
+        import controller
+    
+        now = 0.999
+        entries = []
+        sleeps = []
+    
+        def observation(pid):
+            entries.append([pid, now])
+            assert len(entries) == 1, "poll sleep overrun admitted another observation"
+            return False
+    
+        def sleep(seconds):
+            nonlocal now
+            sleeps.append(seconds)
+            now = wake
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now)
+        monkeypatch.setattr(controller.time, "sleep", sleep)
+        monkeypatch.setattr(controller, "_exited", observation)
+>       assert controller._wait(123, 1.0) is False
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_controller.py:703: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:150: in _wait
+    exited = _exited(pid)
+             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 123
+
+    def observation(pid):
+        entries.append([pid, now])
+>       assert len(entries) == 1, "poll sleep overrun admitted another observation"
+E       AssertionError: poll sleep overrun admitted another observation
+E       assert 2 == 1
+E        +  where 2 = len([[123, 0.999], [123, 1.0]])
+
+test_controller.py:692: AssertionError
+_________ test_workload_wait_no_observation_after_sleep_overrun[1.001] _________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b8700e0>
+wake = 1.001
+
+    @pytest.mark.parametrize("wake", [1.0, 1.001])
+    def test_workload_wait_no_observation_after_sleep_overrun(monkeypatch, wake):
+        import controller
+    
+        now = 0.999
+        entries = []
+        sleeps = []
+    
+        def observation(pid):
+            entries.append([pid, now])
+            assert len(entries) == 1, "poll sleep overrun admitted another observation"
+            return False
+    
+        def sleep(seconds):
+            nonlocal now
+            sleeps.append(seconds)
+            now = wake
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now)
+        monkeypatch.setattr(controller.time, "sleep", sleep)
+        monkeypatch.setattr(controller, "_exited", observation)
+>       assert controller._wait(123, 1.0) is False
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_controller.py:703: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:150: in _wait
+    exited = _exited(pid)
+             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 123
+
+    def observation(pid):
+        entries.append([pid, now])
+>       assert len(entries) == 1, "poll sleep overrun admitted another observation"
+E       AssertionError: poll sleep overrun admitted another observation
+E       assert 2 == 1
+E        +  where 2 = len([[123, 0.999], [123, 1.001]])
+
+test_controller.py:692: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/workload-wait-k91/mutant-admission/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_workload_wait_no_observation_at_deadline[1.0] - AssertionError: exit observation admitted at/after workload deadline
+FAILED test_controller.py::test_workload_wait_no_observation_at_deadline[1.001] - AssertionError: exit observation admitted at/after workload deadline
+FAILED test_controller.py::test_workload_wait_no_observation_after_sleep_overrun[1.0] - AssertionError: poll sleep overrun admitted another observation
+assert 2 == 1
+ +  where 2 = len([[123, 0.999], [123, 1.0]])
+FAILED test_controller.py::test_workload_wait_no_observation_after_sleep_overrun[1.001] - AssertionError: poll sleep overrun admitted another observation
+assert 2 == 1
+ +  where 2 = len([[123, 0.999], [123, 1.001]])
+================= 4 failed, 8 passed, 469 deselected in 1.90s ==================

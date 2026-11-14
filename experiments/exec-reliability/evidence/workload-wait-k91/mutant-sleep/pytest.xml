@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="12" time="1.235" timestamp="2026-11-15T07:55:37.143350+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_workload_wait_no_observation_at_deadline[1.0]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_no_observation_at_deadline[1.001]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_rejects_late_result[1.0-False]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_rejects_late_result[1.0-True]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_rejects_late_result[1.001-False]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_rejects_late_result[1.001-True]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_no_observation_after_sleep_overrun[1.0]" time="0.000"><failure message="AssertionError: poll sleep overrun admitted another observation&#10;assert 2 == 1&#10; +  where 2 = len([[123, 0.999], [123, 1.0]])">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b6030e0&gt;
+wake = 1.0
+
+    @pytest.mark.parametrize("wake", [1.0, 1.001])
+    def test_workload_wait_no_observation_after_sleep_overrun(monkeypatch, wake):
+        import controller
+    
+        now = 0.999
+        entries = []
+        sleeps = []
+    
+        def observation(pid):
+            entries.append([pid, now])
+            assert len(entries) == 1, "poll sleep overrun admitted another observation"
+            return False
+    
+        def sleep(seconds):
+            nonlocal now
+            sleeps.append(seconds)
+            now = wake
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now)
+        monkeypatch.setattr(controller.time, "sleep", sleep)
+        monkeypatch.setattr(controller, "_exited", observation)
+&gt;       assert controller._wait(123, 1.0) is False
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_controller.py:703: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:152: in _wait
+    exited = _exited(pid)
+             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 123
+
+    def observation(pid):
+        entries.append([pid, now])
+&gt;       assert len(entries) == 1, "poll sleep overrun admitted another observation"
+E       AssertionError: poll sleep overrun admitted another observation
+E       assert 2 == 1
+E        +  where 2 = len([[123, 0.999], [123, 1.0]])
+
+test_controller.py:692: AssertionError</failure></testcase><testcase classname="test_controller" name="test_workload_wait_no_observation_after_sleep_overrun[1.001]" time="0.000"><failure message="AssertionError: poll sleep overrun admitted another observation&#10;assert 2 == 1&#10; +  where 2 = len([[123, 0.999], [123, 1.001]])">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b77b110&gt;
+wake = 1.001
+
+    @pytest.mark.parametrize("wake", [1.0, 1.001])
+    def test_workload_wait_no_observation_after_sleep_overrun(monkeypatch, wake):
+        import controller
+    
+        now = 0.999
+        entries = []
+        sleeps = []
+    
+        def observation(pid):
+            entries.append([pid, now])
+            assert len(entries) == 1, "poll sleep overrun admitted another observation"
+            return False
+    
+        def sleep(seconds):
+            nonlocal now
+            sleeps.append(seconds)
+            now = wake
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now)
+        monkeypatch.setattr(controller.time, "sleep", sleep)
+        monkeypatch.setattr(controller, "_exited", observation)
+&gt;       assert controller._wait(123, 1.0) is False
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_controller.py:703: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:152: in _wait
+    exited = _exited(pid)
+             ^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+pid = 123
+
+    def observation(pid):
+        entries.append([pid, now])
+&gt;       assert len(entries) == 1, "poll sleep overrun admitted another observation"
+E       AssertionError: poll sleep overrun admitted another observation
+E       assert 2 == 1
+E        +  where 2 = len([[123, 0.999], [123, 1.001]])
+
+test_controller.py:692: AssertionError</failure></testcase><testcase classname="test_controller" name="test_workload_wait_accepts_timely_result[0]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_accepts_timely_result[1]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_late_real_exit_still_terminates_and_disposes[False]" time="0.592" /><testcase classname="test_controller" name="test_workload_wait_late_real_exit_still_terminates_and_disposes[True]" time="0.378" /></testsuite></testsuites>
