@@ -482,9 +482,13 @@ def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, rea
         (path / "leader-reap-audit.json").write_text(json.dumps(audit, indent=2))
 
 
-@pytest.mark.parametrize("deadline", [100.0, 99.0], ids=["equality", "expired"])
+@pytest.mark.parametrize(
+    "deadline,step",
+    [(100.0, 0.001), (99.0, 0.001), (100.0, 0.0)],
+    ids=["equality", "expired", "exact-success"],
+)
 @pytest.mark.parametrize("outcome", ["ready", "withheld", "missing"])
-def test_leader_reap_first_attempt_at_deadline(tmp_path, monkeypatch, deadline, outcome):
+def test_leader_reap_first_attempt_at_deadline(tmp_path, monkeypatch, deadline, step, outcome):
     import controller
 
     process = controller._WorkloadProcess(("/usr/bin/true",), start_new_session=True)
@@ -493,12 +497,15 @@ def test_leader_reap_first_attempt_at_deadline(tmp_path, monkeypatch, deadline, 
     receipt = {"reaped": False, "returncode": None}
     attempts = []
     audit = {"pid": process.pid, "deadline": deadline, "outcome": outcome}
-    tick = 99.999
+    tick = 100.0 - step
 
     def clock():
         nonlocal tick
-        tick += 0.001
-        return round(tick, 6)
+        tick += step
+        result = round(tick, 6)
+        if step == 0 and outcome != "ready":
+            tick += 0.001
+        return result
 
     def waitpid(pid, options):
         assert receipt["authority_closed_monotonic"] == 100.0
@@ -525,11 +532,16 @@ def test_leader_reap_first_attempt_at_deadline(tmp_path, monkeypatch, deadline, 
         audit.update(receipt=receipt, attempts=attempts)
         assert attempts == [(process.pid, os.WNOHANG)]
         assert receipt["reap_deadline_monotonic"] == deadline
-        assert receipt["within_process_bounds"] is False
+        assert receipt["reap_attempts"] == 1
+        assert (
+            receipt["reap_last_result"]
+            == {"ready": "reaped", "withheld": "not_ready", "missing": "error"}[outcome]
+        )
+        assert receipt["within_process_bounds"] is (outcome == "ready" and step == 0)
         if outcome == "ready":
             assert receipt["reaped"] is True
             assert receipt["returncode"] == process.returncode == 0
-            assert receipt["reaped_monotonic"] > deadline
+            assert receipt["reaped_monotonic"] == (100.0 if step == 0 else 100.001)
             assert process.pid not in controller._workload_owners
             assert "residual_leader_pid" not in receipt
             with pytest.raises(ChildProcessError):
@@ -551,6 +563,84 @@ def test_leader_reap_first_attempt_at_deadline(tmp_path, monkeypatch, deadline, 
         root.mkdir(parents=True, exist_ok=True)
         controller.write_json(root / f"leader-reap-{uuid.uuid4().hex}.json", audit)
         assert audit["after"]["state"] == "absent"
+
+
+@pytest.mark.parametrize("outcome", ["ready", "withheld", "missing"])
+@pytest.mark.parametrize("late", [False, True], ids=["exact", "late"])
+def test_leader_reap_caller_closes_target_authority(tmp_path, monkeypatch, outcome, late):
+    import controller
+
+    original_reap = controller._reap_leader
+    original_waitpid = os.waitpid
+    targets = []
+    events = []
+    original_killpg = os.killpg
+    original_kill = os.kill
+
+    def killpg(pid, sig):
+        events.append([pid, sig, pid in targets, "group"])
+        assert pid not in targets, "group signal/probe after authority closure"
+        return original_killpg(pid, sig)
+
+    def kill(pid, sig):
+        events.append([pid, sig, pid in targets, "pid"])
+        assert pid not in targets, "PID signal/probe after authority closure"
+        return original_kill(pid, sig)
+
+    def reap(process, deadline, receipt):
+        targets.append(process.pid)
+
+        # Keep real exit observation and final ps table, then freeze only reap time.
+        def waitpid(pid, options):
+            assert pid == process.pid and options == os.WNOHANG
+            if outcome == "missing":
+                raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+            if outcome == "withheld":
+                return 0, 0
+            return original_waitpid(pid, options)
+
+        def forbidden_sleep(seconds):
+            raise AssertionError("boundary reap must not sleep")
+
+        with monkeypatch.context() as patch:
+            patch.setattr(controller.time, "monotonic", lambda: deadline + (0.001 if late else 0))
+            patch.setattr(controller.time, "sleep", forbidden_sleep)
+            patch.setattr(controller.os, "waitpid", waitpid)
+            original_reap(process, deadline, receipt)
+
+    monkeypatch.setattr(controller, "_reap_leader", reap)
+    monkeypatch.setattr(os, "killpg", killpg)
+    monkeypatch.setattr(os, "kill", kill)
+    audit = {"simulation": outcome, "late": late, "events": events}
+    path = None
+    try:
+        path, result = run(tmp_path, [call("boundary-leader", "bytes")])
+        receipt = result["calls"][0]
+        audit["receipt"] = receipt
+        assert len(targets) == 1
+        assert result["ok"] is (outcome == "ready" and not late)
+        assert receipt["ok"] is (outcome == "ready" and not late)
+        assert receipt["reap_attempts"] == 1
+        assert receipt["termination_ok"] is True
+        if outcome == "ready":
+            assert receipt["returncode"] == 0
+            assert targets[0] not in controller._workload_owners
+        else:
+            assert receipt["residual_leader_pid"] == targets[0]
+            assert targets[0] in controller._workload_owners
+            if outcome == "missing":
+                assert receipt["reap_errno"] == errno.ECHILD
+    finally:
+        audits = []
+        for pid in targets:
+            owner = controller._workload_owners.pop(pid, None)
+            if owner is not None:
+                owner.wait(timeout=2)
+            audits.append(inspect_pid(pid))
+        audit["after"] = audits
+        if path is not None:
+            (path / "caller-reap-audit.json").write_text(json.dumps(audit, indent=2))
+        assert all(item["state"] == "absent" for item in audits)
 
 
 def call(name, mode, *args, budget=3, interrupt_after=None):

@@ -100,7 +100,28 @@ tasks:
     requires:
       vars: [INPUTS, OUT]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/leader-reap-k88/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/leader-reap-k93/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
+
+  diagnostic:leader-reap-tools:
+    desc: Check the retained first-reap runner and evidence auditor
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python -m ruff check experiments/exec-reliability/evidence/leader-reap-k93/run_condition.py experiments/exec-reliability/evidence/leader-reap-k93/audit.py
+      - uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/leader-reap-k93/run_condition.py experiments/exec-reliability/evidence/leader-reap-k93/audit.py
+      - uv run --project experiments/exec-reliability --locked python -m pyright experiments/exec-reliability/evidence/leader-reap-k93/run_condition.py experiments/exec-reliability/evidence/leader-reap-k93/audit.py
+
+  diagnostic:leader-reap-audit-controls:
+    desc: Reject corrupted inventories, archives, receipts and case identities with the final auditor
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/leader-reap-k93/run_condition.py experiments/exec-reliability {{.OUT | shellQuote}} audit-controls
+
+  diagnostic:leader-reap-audit:
+    desc: Audit retained first-reap outcomes and historical evidence hashes
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/leader-reap-k93/audit.py {{.OUT | shellQuote}}
 
   diagnostic:worker-evidence-check:
     desc: Run frozen worker deadline controls or a timing suite; fresh OUT, MODE=full for suite
@@ -559,17 +580,3 @@ tasks:
       vars: [TAG]
     cmds:
       - scripts/release-publish.sh {{.TAG}}
-
-  diagnostic:leader-reap-tools:
-    desc: Check the retained first-reap runner and evidence auditor
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python -m ruff check experiments/exec-reliability/evidence/leader-reap-k88/run_condition.py experiments/exec-reliability/evidence/leader-reap-k88/audit.py
-      - uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/leader-reap-k88/run_condition.py experiments/exec-reliability/evidence/leader-reap-k88/audit.py
-      - uv run --project experiments/exec-reliability --locked python -m pyright experiments/exec-reliability/evidence/leader-reap-k88/run_condition.py experiments/exec-reliability/evidence/leader-reap-k88/audit.py
-
-  diagnostic:leader-reap-audit:
-    desc: Audit retained first-reap outcomes and historical evidence hashes
-    requires:
-      vars: [OUT]
-    cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/leader-reap-k88/audit.py {{.OUT | shellQuote}}

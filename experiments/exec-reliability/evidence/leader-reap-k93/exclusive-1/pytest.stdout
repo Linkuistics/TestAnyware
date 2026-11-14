@@ -1,0 +1,166 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/leader-reap-k93/exclusive-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 469 items / 444 deselected / 25 selected
+
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[withheld] PASSED [  4%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[missing] PASSED [  8%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[expired] PASSED [ 12%]
+test_controller.py::test_leader_reap_first_attempt_at_deadline[ready-equality] PASSED [ 16%]
+test_controller.py::test_leader_reap_first_attempt_at_deadline[ready-expired] PASSED [ 20%]
+test_controller.py::test_leader_reap_first_attempt_at_deadline[ready-exact-success] FAILED [ 24%]
+test_controller.py::test_leader_reap_first_attempt_at_deadline[withheld-equality] PASSED [ 28%]
+test_controller.py::test_leader_reap_first_attempt_at_deadline[withheld-expired] PASSED [ 32%]
+test_controller.py::test_leader_reap_first_attempt_at_deadline[withheld-exact-success] PASSED [ 36%]
+test_controller.py::test_leader_reap_first_attempt_at_deadline[missing-equality] PASSED [ 40%]
+test_controller.py::test_leader_reap_first_attempt_at_deadline[missing-expired] PASSED [ 44%]
+test_controller.py::test_leader_reap_first_attempt_at_deadline[missing-exact-success] PASSED [ 48%]
+test_controller.py::test_leader_reap_caller_closes_target_authority[exact-ready] FAILED [ 52%]
+test_controller.py::test_leader_reap_caller_closes_target_authority[exact-withheld] PASSED [ 56%]
+test_controller.py::test_leader_reap_caller_closes_target_authority[exact-missing] PASSED [ 60%]
+test_controller.py::test_leader_reap_caller_closes_target_authority[late-ready] PASSED [ 64%]
+test_controller.py::test_leader_reap_caller_closes_target_authority[late-withheld] PASSED [ 68%]
+test_controller.py::test_leader_reap_caller_closes_target_authority[late-missing] PASSED [ 72%]
+test_controller.py::test_review_isolated_reap_overrun_and_removed_gate[False] PASSED [ 76%]
+test_controller.py::test_review_isolated_reap_overrun_and_removed_gate[True] PASSED [ 80%]
+test_controller.py::test_review_late_observation_cannot_extend_reap_deadline[False] PASSED [ 84%]
+test_controller.py::test_review_late_observation_cannot_extend_reap_deadline[True] PASSED [ 88%]
+test_controller.py::test_review_pid_late_observation_cannot_extend_reap_deadline PASSED [ 92%]
+test_controller.py::test_group_snapshot_rejects_late_observation[helper] PASSED [ 96%]
+test_controller.py::test_group_snapshot_rejects_late_observation[probe] PASSED [100%]
+
+=================================== FAILURES ===================================
+_______ test_leader_reap_first_attempt_at_deadline[ready-exact-success] ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-367/test_leader_reap_first_attempt2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108d6eea0>
+deadline = 100.0, step = 0.0, outcome = 'ready'
+
+    @pytest.mark.parametrize(
+        "deadline,step", [(100.0, 0.001), (99.0, 0.001), (100.0, 0.0)],
+        ids=["equality", "expired", "exact-success"],
+    )
+    @pytest.mark.parametrize("outcome", ["ready", "withheld", "missing"])
+    def test_leader_reap_first_attempt_at_deadline(tmp_path, monkeypatch, deadline, step, outcome):
+        import controller
+    
+        process = controller._WorkloadProcess(("/usr/bin/true",), start_new_session=True)
+        controller._workload_owners[process.pid] = process
+        original_waitpid = os.waitpid
+        receipt = {"reaped": False, "returncode": None}
+        attempts = []
+        audit = {"pid": process.pid, "deadline": deadline, "outcome": outcome}
+        tick = 100.0 - step
+    
+        def clock():
+            nonlocal tick
+            tick += step
+            result = round(tick, 6)
+            if step == 0 and outcome != "ready":
+                tick += 0.001
+            return result
+    
+        def waitpid(pid, options):
+            assert receipt["authority_closed_monotonic"] == 100.0
+            assert pid == process.pid and options == os.WNOHANG
+            attempts.append((pid, options))
+            if outcome == "missing":
+                raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+            if outcome == "withheld":
+                return 0, 0
+            return original_waitpid(pid, options)
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("expired reap must not sleep or renew polling")
+    
+        try:
+            assert controller._wait(process.pid, time.monotonic() + 2)
+            audit["before"] = inspect_pid(process.pid)
+            assert audit["before"]["state"] == "zombie"
+            with monkeypatch.context() as patch:
+                patch.setattr(controller.time, "monotonic", clock)
+                patch.setattr(controller.time, "sleep", forbidden_sleep)
+                patch.setattr(controller.os, "waitpid", waitpid)
+                controller._reap_leader(process, deadline, receipt)
+            audit.update(receipt=receipt, attempts=attempts)
+            assert attempts == [(process.pid, os.WNOHANG)]
+            assert receipt["reap_deadline_monotonic"] == deadline
+            assert receipt["reap_attempts"] == 1
+            assert receipt["reap_last_result"] == {
+                "ready": "reaped", "withheld": "not_ready", "missing": "error"
+            }[outcome]
+>           assert receipt["within_process_bounds"] is (outcome == "ready" and step == 0)
+E           AssertionError: assert False is (('ready' == 'ready'
+E             
+E               ready and 0.0 == 0))
+
+test_controller.py:538: AssertionError
+_________ test_leader_reap_caller_closes_target_authority[exact-ready] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-367/test_leader_reap_caller_closes0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108d75fa0>
+outcome = 'ready', late = False
+
+    @pytest.mark.parametrize("outcome", ["ready", "withheld", "missing"])
+    @pytest.mark.parametrize("late", [False, True], ids=["exact", "late"])
+    def test_leader_reap_caller_closes_target_authority(tmp_path, monkeypatch, outcome, late):
+        import controller
+    
+        original_reap = controller._reap_leader
+        original_waitpid = os.waitpid
+        targets = []
+        events = []
+        original_killpg = os.killpg
+    
+        def killpg(pid, sig):
+            assert pid not in targets, "group signal/probe after authority closure"
+            events.append([pid, sig])
+            return original_killpg(pid, sig)
+    
+        def reap(process, deadline, receipt):
+            targets.append(process.pid)
+            # Keep real exit observation and final ps table, then freeze only reap time.
+            def waitpid(pid, options):
+                assert pid == process.pid and options == os.WNOHANG
+                if outcome == "missing":
+                    raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+                if outcome == "withheld":
+                    return 0, 0
+                return original_waitpid(pid, options)
+    
+            def forbidden_sleep(seconds):
+                raise AssertionError("boundary reap must not sleep")
+    
+            with monkeypatch.context() as patch:
+                patch.setattr(controller.time, "monotonic", lambda: deadline + (0.001 if late else 0))
+                patch.setattr(controller.time, "sleep", forbidden_sleep)
+                patch.setattr(controller.os, "waitpid", waitpid)
+                original_reap(process, deadline, receipt)
+    
+        monkeypatch.setattr(controller, "_reap_leader", reap)
+        monkeypatch.setattr(os, "killpg", killpg)
+        audit = {"simulation": outcome, "late": late, "events": events}
+        path = None
+        try:
+            path, result = run(tmp_path, [call("boundary-leader", "bytes")])
+            receipt = result["calls"][0]
+            audit["receipt"] = receipt
+            assert len(targets) == 1
+>           assert result["ok"] is (outcome == "ready" and not late)
+E           AssertionError: assert False is (('ready' == 'ready'
+E             
+E               ready and not False))
+
+test_controller.py:611: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/leader-reap-k93/exclusive-1/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_leader_reap_first_attempt_at_deadline[ready-exact-success] - AssertionError: assert False is (('ready' == 'ready'
+  
+    ready and 0.0 == 0))
+FAILED test_controller.py::test_leader_reap_caller_closes_target_authority[exact-ready] - AssertionError: assert False is (('ready' == 'ready'
+  
+    ready and not False))
+================= 2 failed, 23 passed, 444 deselected in 3.78s =================
