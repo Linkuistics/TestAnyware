@@ -80,12 +80,12 @@ def test_worker_failure_consistency(tmp_path, monkeypatch, mode, reason):
     root.mkdir(parents=True, exist_ok=True)
     witness = root / f"failure-publication-{mode}-{time.time_ns()}.json"
 
-    def synthetic_capture(argv, deadline):
+    def synthetic_capture(argv, deadline, *, publish_created=None):
         # Only the helper receipt is synthetic; no helper is created. Worker
         # admission/fork/reset/framing/channels/decoding/shutdown remain real.
         now = time.monotonic()
         body = inspection.HelperCapture(
-            pid=os.getpid(),
+            pid=987654321,
             argv=argv,
             admission=inspection.fork_admission(),
             started_monotonic=now,
@@ -242,6 +242,15 @@ def test_worker_failure_consistency(tmp_path, monkeypatch, mode, reason):
         body = inspection.HelperCapture(**raw)
         encoded = {**raw, "stdout": body.stdout.hex(), "stderr": body.stderr.hex()}
         witness.write_text(json.dumps({"mode": mode, "synthetic_helper": True, "body": encoded}))
+        if reason is None and body.pid is not None:
+            publish_created(
+                {
+                    "pid": body.pid,
+                    "ppid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "created_monotonic": body.created_monotonic,
+                }
+            )
         return body
 
     monkeypatch.setattr(inspection, "capture_helper", synthetic_capture)
@@ -274,6 +283,14 @@ def test_worker_failure_consistency(tmp_path, monkeypatch, mode, reason):
             "residual_remedy",
             "close_errors",
         ):
+            if key == "residual_remedy" and mode == "lost-owner":
+                assert body[key] is None
+                assert receipt.residual_remedy and worker["helper_obligation_retained"]
+                assert (
+                    worker["helper_identity"]
+                    == worker_capture._helper_obligations[worker["helper_identity"]["token"]]
+                )
+                continue
             assert getattr(receipt, key) == body[key]
         assert receipt.stdout.hex() == body["stdout"]
         assert worker["published_times"] is not None
@@ -286,12 +303,12 @@ def test_review_worker_preserves_real_helper_admission_refusal(tmp_path, monkeyp
 
     original = inspection.capture_helper
 
-    def threaded_capture(argv, deadline):
+    def threaded_capture(argv, deadline, *, publish_created=None):
         stop = threading.Event()
         thread = threading.Thread(target=stop.wait)
         thread.start()
         try:
-            return original(argv, deadline)
+            return original(argv, deadline, publish_created=publish_created)
         finally:
             stop.set()
             thread.join(timeout=0.1)
@@ -330,12 +347,12 @@ def test_worker_terminal_consistency(tmp_path, monkeypatch, mode, reason):
     root.mkdir(parents=True, exist_ok=True)
     witness = root / f"terminal-publication-{mode}-{time.time_ns()}.json"
 
-    def synthetic_capture(argv, deadline):
+    def synthetic_capture(argv, deadline, *, publish_created=None):
         # Only the helper receipt is synthetic. The ordinary worker child builds
         # its frame, publishes on real channels, and exits through os._exit.
         now = time.monotonic()
         body = inspection.HelperCapture(
-            pid=os.getpid(),
+            pid=987654321,
             argv=argv,
             admission=inspection.fork_admission(),
             started_monotonic=now,
@@ -366,6 +383,15 @@ def test_worker_terminal_consistency(tmp_path, monkeypatch, mode, reason):
         raw = asdict(body)
         raw.update(stdout=body.stdout.hex(), stderr=body.stderr.hex())
         witness.write_text(json.dumps({"mode": mode, "synthetic_helper": True, "body": raw}))
+        if reason is None and body.pid is not None:
+            publish_created(
+                {
+                    "pid": body.pid,
+                    "ppid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "created_monotonic": body.created_monotonic,
+                }
+            )
         return body
 
     monkeypatch.setattr(inspection, "capture_helper", synthetic_capture)
@@ -964,3 +990,144 @@ def test_review_worker_accepts_genuine_terminal_receipts(tmp_path, mode):
     assert receipt.returncode == (1 if mode == "early-exit" else 70) and receipt.reaped
     assert receipt.pid is not None and times["created_monotonic"] is not None
     assert times["reaped_monotonic"] is not None
+
+
+def test_review_created_identity_survives_worker_result_loss(tmp_path, monkeypatch):
+    """Dropping the result must retain the published real helper identity."""
+    import worker_capture
+
+    original = worker_capture._write
+
+    def lose_result(fd, data, deadline):
+        if data.startswith(worker_capture.HEADER.pack(len(data) - worker_capture.HEADER.size)):
+            raise OSError("injected terminal publication loss")
+        return original(fd, data, deadline)
+
+    monkeypatch.setattr(worker_capture, "_write", lose_result)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 1)
+    retain(tmp_path, "created-result-loss", receipt)
+    worker = receipt.worker
+    assert worker["reaped"]
+    identity = worker.get("helper_identity")
+    assert identity is not None, "worker loss discarded the helper identity"
+    assert identity["ppid"] == worker["pid"] == identity["pgid"]
+    assert identity["pid"] != worker["pid"]
+    assert worker["helper_obligation_retained"]
+    assert not worker["unknown_helper_creation"]
+    assert worker_capture._helper_obligations[identity["token"]] == identity
+    assert receipt.error and receipt.residual_remedy
+
+
+def test_review_matching_reap_resolves_created_identity(tmp_path):
+    import worker_capture
+
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 1)
+    retain(tmp_path, "created-reap", receipt)
+    assert receipt.error is None and receipt.reaped
+    identity = receipt.worker.get("helper_identity")
+    assert identity is not None, "successful capture omitted the creation publication"
+    assert identity["pid"] == receipt.pid
+    assert identity["created_monotonic"] == receipt.created_monotonic
+    assert not receipt.worker["helper_obligation_retained"]
+    assert identity["token"] not in worker_capture._helper_obligations
+
+
+@pytest.mark.parametrize(
+    "mode",
+    [
+        "duplicate",
+        "token",
+        "ppid",
+        "pgid",
+        "boolean-pid",
+        "stale",
+        "future",
+        "deadline",
+        "extra",
+        "result-pid",
+        "result-created",
+    ],
+)
+def test_review_created_identity_rejects_conflicts(tmp_path, monkeypatch, mode):
+    import worker_capture
+
+    original = worker_capture._write
+
+    def corrupt(fd, data, deadline):
+        if data.startswith(b"{"):
+            message = json.loads(data)
+            if "created_monotonic" in message:
+                if mode == "duplicate":
+                    original(fd, data, deadline)
+                elif mode == "token":
+                    message["token"] = "another-query"
+                elif mode in {"ppid", "pgid"}:
+                    message[mode] += 1
+                elif mode == "boolean-pid":
+                    message["pid"] = True
+                elif mode == "stale":
+                    message["created_monotonic"] = 0
+                elif mode == "future":
+                    message["created_monotonic"] = deadline + 1
+                elif mode == "deadline":
+                    message["deadline_monotonic"] += 1
+                elif mode == "extra":
+                    message["unexpected"] = 1
+                data = json.dumps(message).encode() + b"\n"
+        elif mode.startswith("result-") and len(data) > 4:
+            if worker_capture.HEADER.unpack(data[:4])[0] == len(data) - 4:
+                message = json.loads(data[4:])
+                message["pid" if mode == "result-pid" else "created_monotonic"] += (
+                    1 if mode == "result-pid" else 0.000001
+                )
+                payload = json.dumps(message).encode()
+                data = worker_capture.HEADER.pack(len(payload)) + payload
+        original(fd, data, deadline)
+
+    monkeypatch.setattr(worker_capture, "_write", corrupt)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.6)
+    retain(tmp_path, f"created-conflict-{mode}", receipt)
+    worker = receipt.worker
+    assert worker["reaped"]
+    known = mode in {"duplicate", "result-pid", "result-created"}
+    assert worker["unknown_helper_creation"] is not known
+    assert worker["helper_obligation_retained"] is known
+    assert bool(worker["helper_identity"]) is known
+    assert receipt.error and receipt.residual_remedy
+    expected = (
+        "duplicate helper creation publication"
+        if mode == "duplicate"
+        else "worker result/created identity mismatch"
+        if mode.startswith("result-")
+        else "invalid helper creation fields"
+        if mode == "extra"
+        else "invalid helper creation identity"
+    )
+    assert receipt.error == f"worker capture failed: {expected}"
+    if known:
+        identity = worker["helper_identity"]
+        assert worker_capture._helper_obligations[identity["token"]] == identity
+
+
+def test_review_worker_exit_after_publication_keeps_gate_closed(tmp_path, monkeypatch):
+    import worker_capture
+
+    marker = tmp_path / "executed"
+    original = worker_capture._write
+
+    def exit_after_created(fd, data, deadline):
+        original(fd, data, deadline)
+        if data.startswith(b"{") and "created_monotonic" in json.loads(data):
+            os._exit(70)
+
+    monkeypatch.setattr(worker_capture, "_write", exit_after_created)
+    receipt = worker_capture.capture_helper(
+        ("/bin/sh", "-c", f"echo executed > {marker}"), time.monotonic() + 0.5
+    )
+    retain(tmp_path, "created-pre-gate-worker-exit", receipt)
+    worker = receipt.worker
+    assert worker["reaped"] and worker["returncode"] == 70
+    assert not worker["unknown_helper_creation"] and worker["helper_obligation_retained"]
+    assert not marker.exists()
+    identity = worker["helper_identity"]
+    assert worker_capture._helper_obligations[identity["token"]] == identity

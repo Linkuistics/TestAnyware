@@ -1,0 +1,123 @@
+{
+  "name": "retained-leader",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py",
+    "bytes"
+  ],
+  "budget": 3,
+  "started_monotonic": 280684.305651583,
+  "wall_start_ns": 1794663404279014000,
+  "reason": "exit",
+  "returncode": null,
+  "reaped": false,
+  "ok": false,
+  "signals": [],
+  "pid": 70825,
+  "pgid": 70825,
+  "signal_scope": "group",
+  "leader_exit_monotonic": 280684.328499125,
+  "inspection_deadline_monotonic": 280684.553499125,
+  "group_observations": [
+    {
+      "started_monotonic": 280684.328510166,
+      "finished_monotonic": 280684.340149458,
+      "query_attempted": true,
+      "helper": {
+        "stdout": "3730383235203730383235205a2020200a",
+        "stderr": "",
+        "returncode": 0,
+        "pid": 70827,
+        "argv": [
+          "/bin/ps",
+          "-g",
+          "70825",
+          "-o",
+          "pid=,pgid=,stat="
+        ],
+        "admission": {
+          "ok": true,
+          "reason": "ready",
+          "python_threads": 1,
+          "native_threads": 1,
+          "sigchld": "SIG_DFL",
+          "native_sigchld": "SIG_DFL",
+          "error": null,
+          "errno": null
+        },
+        "started_monotonic": 280684.330475208,
+        "created_monotonic": 280684.3310655,
+        "capture_deadline_monotonic": 280684.46024314576,
+        "deadline_monotonic": 280684.553499125,
+        "finished_monotonic": 280684.34008775,
+        "kill_monotonic": null,
+        "kill_errno": null,
+        "reaped": true,
+        "reaped_monotonic": 280684.339527,
+        "reap_errno": null,
+        "ownership_lost": false,
+        "close_errors": [],
+        "error": null,
+        "error_errno": null,
+        "residual_remedy": null,
+        "worker": {
+          "pid": 70826,
+          "ready": true,
+          "reaped": true,
+          "ownership_lost": false,
+          "returncode": 0,
+          "signals": [],
+          "reap_errno": null,
+          "intent": true,
+          "unknown_helper_creation": false,
+          "helper_identity": {
+            "pid": 70827,
+            "ppid": 70826,
+            "pgid": 70826,
+            "created_monotonic": 280684.3310655,
+            "token": "b6741fd754774eb69a887b441f987822",
+            "deadline_monotonic": 280684.503499125
+          },
+          "helper_obligation_retained": false,
+          "signal_scope": "group",
+          "dispatch_monotonic": 280684.3287015,
+          "receipt_monotonic": 280684.339939666,
+          "published_times": {
+            "started_monotonic": 280684.330475208,
+            "created_monotonic": 280684.3310655,
+            "capture_deadline_monotonic": 280684.46024314576,
+            "deadline_monotonic": 280684.503499125,
+            "finished_monotonic": 280684.33953775,
+            "kill_monotonic": null,
+            "reaped_monotonic": 280684.339527
+          },
+          "query_deadline_monotonic": 280684.503499125,
+          "shutdown_deadline_monotonic": 280684.553499125,
+          "reserve_seconds": 0.05
+        }
+      },
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 70825,
+          "pgid": 70825,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3730383235203730383235205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "termination_ok": true,
+  "authority_closed_monotonic": 280684.340156958,
+  "reap_deadline_monotonic": 280684.628499125,
+  "within_process_bounds": false,
+  "reap_error": "leader unreaped before fixed deadline",
+  "residual_leader_pid": 70825,
+  "residual_leader_remedy": "Leader ownership is retained without further controller signals or waits. Independently inspect the recorded PID/PGID and command identity; only an external owner may reconcile this residual.",
+  "elapsed": 0.32322299998486415
+}

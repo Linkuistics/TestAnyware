@@ -89,9 +89,9 @@ def test_review_native_auto_reap_rejected_before_creation(tmp_path, flags, bound
 def test_review_worker_transports_real_native_auto_reap_refusal(tmp_path, monkeypatch, flags):
     original = inspection.capture_helper
 
-    def auto_reaping_capture(argv, deadline):
+    def auto_reaping_capture(argv, deadline, *, publish_created=None):
         with native_auto_reap(flags):
-            return original(argv, deadline)
+            return original(argv, deadline, publish_created=publish_created)
 
     monkeypatch.setattr(inspection, "capture_helper", auto_reaping_capture)
     receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 1)
@@ -1070,3 +1070,53 @@ os._exit(0)
     (root / f"helper-raw-closed-stdio-{uuid.uuid4().hex}.json").write_text(
         json.dumps(result, indent=2)
     )
+
+
+@pytest.mark.parametrize("mode", ["release", "failure", "expired"])
+def test_review_helper_exec_requires_created_publication(tmp_path, mode):
+    """Release before publication, or release after failure, would write marker."""
+    marker = tmp_path / "executed"
+    publications = []
+    deadline = time.monotonic() + 0.4
+
+    def publish(identity):
+        publications.append(dict(identity))
+        assert not marker.exists(), "helper exec preceded creation publication"
+        assert identity["ppid"] == os.getpid()
+        assert identity["pid"] != os.getpid()
+        assert identity["pgid"] == os.getpgrp()
+        if mode == "failure":
+            raise OSError("injected creation publication failure")
+        if mode == "expired":
+            time.sleep(max(0, deadline - 0.04 - time.monotonic()))
+
+    receipt = inspection.capture_helper(
+        ("/bin/sh", "-c", f"echo executed > {marker}"), deadline, publish_created=publish
+    )
+    retain_helper_control(tmp_path, f"created-gate-{mode}", receipt, publications)
+    assert len(publications) == 1
+    assert receipt.pid == publications[0]["pid"]
+    assert receipt.reaped
+    assert marker.exists() == (mode == "release")
+    assert (receipt.error is None) == (mode == "release")
+
+
+@pytest.mark.parametrize("mode", ["wrong-token", "eof"])
+def test_review_real_helper_gate_rejects_wrong_token_or_eof(tmp_path, monkeypatch, mode):
+    marker = tmp_path / "executed"
+    original = os.write
+
+    def damage_release(fd, data):
+        if len(data) == 32:
+            if mode == "eof":
+                return len(data)
+            data = b"!" * 32
+        return original(fd, data)
+
+    monkeypatch.setattr(os, "write", damage_release)
+    receipt = inspection.capture_helper(
+        ("/bin/sh", "-c", f"echo executed > {marker}"), time.monotonic() + 0.4
+    )
+    retain_helper_control(tmp_path, f"gate-{mode}", receipt)
+    assert receipt.reaped and receipt.returncode == 71
+    assert not marker.exists()

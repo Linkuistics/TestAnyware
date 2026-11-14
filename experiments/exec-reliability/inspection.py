@@ -15,6 +15,8 @@ import signal
 import struct
 import threading
 import time
+import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import BinaryIO, TypedDict
 
@@ -159,6 +161,31 @@ class _HelperProcess:
 _helper_owners: dict[int, _HelperProcess] = {}
 
 
+class HelperIdentity(TypedDict):
+    pid: int
+    ppid: int
+    pgid: int
+    created_monotonic: float
+
+
+def _await_gate(fd: int, token: bytes, deadline: float) -> bool:
+    received = bytearray()
+    while time.monotonic() < deadline:
+        ready, _, _ = select.select([fd], [], [], min(0.005, max(0, deadline - time.monotonic())))
+        if not ready:
+            continue
+        try:
+            chunk = os.read(fd, len(token) + 1 - len(received))
+        except BlockingIOError:
+            continue
+        if not chunk:
+            return False
+        received.extend(chunk)
+        if len(received) >= len(token):
+            return bytes(received) == token and time.monotonic() < deadline
+    return False
+
+
 def _capture_pipe() -> tuple[int, int]:
     # Keep pipe endpoints above stdio even when the parent closed 0, 1 or 2.
     # https://docs.python.org/3.12/library/fcntl.html#fcntl.fcntl
@@ -176,14 +203,19 @@ def _capture_pipe() -> tuple[int, int]:
         raise
 
 
-def _helper_child(argv: tuple[str, ...], stdout: int, stderr: int) -> None:
+def _helper_child(
+    argv: tuple[str, ...], stdout: int, stderr: int, gate: int, token: bytes, deadline: float
+) -> None:
     try:
         # Both sources are above stdio; the copies survive exec. Reset closes
         # every other inherited FD and reopens stdin on /dev/null.
         # https://docs.python.org/3.12/library/os.html#os.dup2
         os.dup2(stdout, 1)
         os.dup2(stderr, 2)
-        reset_after_fork({1, 2}, new_session=False)
+        reset_after_fork({1, 2, gate}, new_session=False)
+        if not _await_gate(gate, token, deadline):
+            os._exit(71)
+        os.close(gate)
         # Reset reopens stdin with os.open, which defaults to close-on-exec.
         # https://docs.python.org/3.12/library/os.html#os.set_inheritable
         os.set_inheritable(0, True)
@@ -194,11 +226,19 @@ def _helper_child(argv: tuple[str, ...], stdout: int, stderr: int) -> None:
         os._exit(70)
 
 
-def _spawn_helper(argv: tuple[str, ...], receipt: HelperCapture) -> _HelperProcess:
+def _spawn_helper(
+    argv: tuple[str, ...],
+    receipt: HelperCapture,
+    publish_created: Callable[[HelperIdentity], None] | None = None,
+) -> _HelperProcess:
     streams: list[BinaryIO] = []
     writes: list[int] = []
     owner: _HelperProcess | None = None
+    gate_read: int | None = None
     try:
+        gate_read, gate_write = _capture_pipe()
+        writes.append(gate_write)
+        token = uuid.uuid4().hex.encode()
         for _ in range(2):
             read, write = _capture_pipe()
             writes.append(write)
@@ -214,7 +254,9 @@ def _spawn_helper(argv: tuple[str, ...], receipt: HelperCapture) -> _HelperProce
         try:
             pid = os.fork()
             if pid == 0:
-                _helper_child(argv, writes[0], writes[1])
+                _helper_child(
+                    argv, writes[1], writes[2], gate_read, token, receipt.capture_deadline_monotonic
+                )
                 os._exit(70)
             # Register before restoring signals or performing fallible cleanup.
             owner.pid = pid
@@ -223,8 +265,25 @@ def _spawn_helper(argv: tuple[str, ...], receipt: HelperCapture) -> _HelperProce
             receipt.created_monotonic = time.monotonic()
         finally:
             signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+        if publish_created is not None:
+            publish_created(
+                {
+                    "pid": pid,
+                    "ppid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "created_monotonic": receipt.created_monotonic,
+                }
+            )
+        if time.monotonic() >= receipt.capture_deadline_monotonic:
+            raise TimeoutError("helper gate deadline exhausted")
+        # One private pipe, one token below PIPE_BUF; there is no controller ACK.
+        # https://docs.python.org/3.12/library/os.html#os.write
+        if os.write(gate_write, token) != len(token):
+            raise OSError(errno.EIO, "incomplete helper gate release")
         return owner
     finally:
+        if gate_read is not None:
+            writes.append(gate_read)
         for fd in writes:
             try:
                 os.close(fd)
@@ -260,7 +319,12 @@ def _reap_helper(process: _HelperProcess, receipt: HelperCapture) -> None:
         del _helper_owners[pid]
 
 
-def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
+def capture_helper(
+    argv: tuple[str, ...],
+    deadline: float,
+    *,
+    publish_created: Callable[[HelperIdentity], None] | None = None,
+) -> HelperCapture:
     """Cap both pipes and spend only the caller's fixed allowance on reap waits.
 
     Fork creation is synchronous. A late return still gets exact-child KILL
@@ -287,7 +351,11 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     process: _HelperProcess | None = None
     output = [bytearray(), bytearray()]
     try:
-        process = _spawn_helper(argv, receipt)
+        process = (
+            _spawn_helper(argv, receipt)
+            if publish_created is None
+            else _spawn_helper(argv, receipt, publish_created)
+        )
         streams = {process.stdout.fileno(): 0, process.stderr.fileno(): 1}
         for fd in streams:
             os.set_blocking(fd, False)

@@ -1,0 +1,251 @@
+"""Read-only audit of k67 frozen conditions, published identities and fixture resources."""
+
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent
+CONDITIONS = {
+    "k67-red-01": (274, 5, [0, 0, 0, 1]),
+    "k67-green-01": (276, 2, [0, 0, 1, 1]),
+    "k67-green-02": (276, 0, [0, 0, 0, 0]),
+    "k67-green-03": (288, 0, [0, 0, 0, 0]),
+}
+INPUTS = [
+    Path(__file__),
+    Path(sys.executable),
+    Path("/bin/ps"),
+    Path("/usr/bin/true"),
+    *sorted(
+        path for name in CONDITIONS for path in (ROOT.parent / name).rglob("*") if path.is_file()
+    ),
+    *sorted(path for path in (ROOT.parent / "k67-inputs-01").iterdir() if path.is_file()),
+]
+
+
+def hashes():
+    return {str(path): hashlib.sha256(path.read_bytes()).hexdigest() for path in INPUTS}
+
+
+def inspect(pids):
+    return subprocess.run(
+        ["/bin/ps", "-p", ",".join(map(str, pids)), "-o", "pid=,ppid=,pgid=,stat=,command="],
+        capture_output=True,
+        timeout=5,
+    )
+
+
+def absent(check):
+    return check.returncode == 1 and check.stdout == check.stderr == b""
+
+
+def main():
+    before = hashes()
+    (ROOT / "subjects-before.json").write_text(json.dumps(before, indent=2) + "\n")
+    pids, excluded, scratch = set(), set(), set()
+    integrity, identity_checks = [], []
+    empty_witnesses = []
+
+    def collect(value):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if (
+                    key
+                    in {
+                        "pid",
+                        "ppid",
+                        "pgid",
+                        "runner_pid",
+                        "child",
+                        "fixture_pid",
+                        "controller_pid",
+                        "residual_leader_pid",
+                    }
+                    and type(item) is int
+                ):
+                    if item <= 0 or item in {123456789, 987654321}:
+                        excluded.add(item)
+                    else:
+                        pids.add(item)
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+        elif isinstance(value, str):
+            for match in re.finditer(
+                r"/[^\s\"'<>]+/pytest-of-antony/pytest-\d+/test_[^\s\"'<>/)]+", value
+            ):
+                scratch.add(Path(match.group()))
+
+    for name, (count, failure_count, codes) in CONDITIONS.items():
+        condition = ROOT.parent / name
+        verdict = json.loads((condition / "verdict.json").read_text())
+        assert verdict["subjects_before"] == verdict["subjects_after"]
+        assert [check["returncode"] for check in verdict["checks"]] == codes
+        assert all(check["reaped"] and not check["timed_out"] for check in verdict["checks"])
+        for path, digest in verdict["artifact_sha256"].items():
+            assert hashlib.sha256(Path(path).read_bytes()).hexdigest() == digest, path
+        cases = ET.parse(condition / "pytest.xml").findall(".//testcase")
+        failures = [case.attrib["name"] for case in cases if case.find("failure") is not None]
+        assert len(cases) == count and len(failures) == failure_count
+        assert not any(
+            case.find("error") is not None or case.find("skipped") is not None for case in cases
+        )
+        if name == "k67-red-01":
+            assert set(failures) == {
+                "test_review_helper_exec_requires_created_publication[release]",
+                "test_review_helper_exec_requires_created_publication[failure]",
+                "test_review_helper_exec_requires_created_publication[expired]",
+                "test_review_created_identity_survives_worker_result_loss",
+                "test_review_matching_reap_resolves_created_identity",
+            }
+        elif name == "k67-green-01":
+            assert set(failures) == {
+                "test_worker_failure_consistency[retained-owner-None]",
+                "test_worker_failure_consistency[lost-owner-None]",
+            }
+        if name == "k67-green-03":
+            for path, digest in verdict["subjects_after"].items():
+                original = Path(path)
+                assert hashlib.sha256(original.read_bytes()).hexdigest() == digest
+                frozen = ROOT.parent / "k67-inputs-01" / original.name
+                if original.suffix == ".py" or original.name in {
+                    "Taskfile.yml",
+                    "pyproject.toml",
+                    "uv.lock",
+                }:
+                    assert hashlib.sha256(frozen.read_bytes()).hexdigest() == digest
+        integrity.append({"condition": name, "cases": count, "failures": failures, "codes": codes})
+        collect((condition / "pytest.xml").read_text())
+        for path in sorted(condition.rglob("*")):
+            if not path.is_file():
+                continue
+            if path.suffix == ".stdout" and path.read_bytes().strip().isdigit():
+                pids.add(int(path.read_bytes()))
+            if path.suffix != ".json":
+                continue
+            raw = path.read_bytes()
+            if not raw:
+                assert re.fullmatch(
+                    r"worker-publication-(nested|duplicate)-readiness-\d+.json", path.name
+                )
+                empty_witnesses.append(str(path))
+                continue
+            value = json.loads(raw)
+            collect(value)
+            if name != "k67-green-03" or not path.name.startswith(
+                (
+                    "worker-created-result-loss-",
+                    "worker-created-reap-",
+                    "worker-created-pre-gate-worker-exit-",
+                    "worker-created-conflict-",
+                )
+            ):
+                continue
+            worker = value["worker"]
+            identity = worker["helper_identity"]
+            assert worker["reaped"]
+            if identity:
+                assert identity["pid"] != worker["pid"]
+                assert identity["ppid"] == identity["pgid"] == worker["pid"]
+                assert worker["dispatch_monotonic"] <= identity["created_monotonic"]
+                assert identity["created_monotonic"] <= identity["deadline_monotonic"]
+                assert not worker["unknown_helper_creation"]
+            resolved = path.name.startswith("worker-created-reap-")
+            assert worker["helper_obligation_retained"] == (bool(identity) and not resolved)
+            if resolved:
+                assert value["reaped"] and value["pid"] == identity["pid"]
+                assert value["created_monotonic"] == identity["created_monotonic"]
+            identity_checks.append(
+                {
+                    "receipt": str(path),
+                    "identity": identity,
+                    "retained": worker["helper_obligation_retained"],
+                }
+            )
+    assert len(identity_checks) == 14
+
+    # Validate the OS-query oracle before relying on a no-row observation.
+    ended = subprocess.Popen(["/usr/bin/true"])
+    assert ended.wait(timeout=1) == 0
+    controls = {
+        "live": inspect([os.getpid()]),
+        "missing": inspect([ended.pid]),
+        "mixed": inspect([os.getpid(), ended.pid]),
+        "invalid": inspect(["invalid"]),
+    }
+    control_receipts = {
+        name: {
+            "returncode": check.returncode,
+            "stdout": check.stdout.decode(),
+            "stderr": check.stderr.decode(),
+            "absent": absent(check),
+        }
+        for name, check in controls.items()
+    }
+    (ROOT / "controls.json").write_text(json.dumps(control_receipts, indent=2) + "\n")
+    assert [absent(check) for check in controls.values()] == [False, True, False, False]
+    assert controls["invalid"].stderr
+    assert pids and all(type(pid) is int and pid > 0 for pid in pids)
+    check = inspect(sorted(pids))
+    (ROOT / "processes.stdout").write_bytes(check.stdout)
+    (ROOT / "processes.stderr").write_bytes(check.stderr)
+    processes = {
+        "pids": sorted(pids),
+        "excluded_simulated": sorted(excluded),
+        "returncode": check.returncode,
+        "absent": absent(check),
+    }
+    (ROOT / "processes.json").write_text(json.dumps(processes, indent=2) + "\n")
+    resources = []
+    for session in {directory.parent for directory in scratch}:
+        if session.is_dir() and not session.is_symlink():
+            scratch.update(
+                path
+                for path in session.iterdir()
+                if path.name.startswith("test_") and path.is_dir() and not path.is_symlink()
+            )
+    for directory in sorted(scratch):
+        assert not directory.is_symlink()
+        markers = list(directory.glob("diag-*")) if directory.is_dir() else []
+        resources.append({"directory": str(directory), "resource_markers": list(map(str, markers))})
+    after = hashes()
+    result = {
+        "integrity": integrity,
+        "identity_checks": identity_checks,
+        "subjects_before": before,
+        "subjects_after": after,
+        "processes": processes,
+        "oracle_controls": control_receipts,
+        "resources": resources,
+        "empty_witnesses": empty_witnesses,
+        "limits": "Read-only later observations of retained exact PIDs only. Unpublished "
+        "helpers in failed/interrupted captures remain unknown. No historical source-copy "
+        "claim for intermediate conditions; final sources are retained. Scratch files are "
+        "retained, no cleanup or signaling. These observations do not repair runtime "
+        "receipts or acknowledge helper reaps. No guest, privilege or acceptance claim.",
+        "ok": before == after
+        and absent(check)
+        and not any(item["resource_markers"] for item in resources),
+    }
+    (ROOT / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+    print(
+        json.dumps(
+            {
+                "ok": result["ok"],
+                "pids": len(pids),
+                "identity_checks": len(identity_checks),
+                "scratch": len(scratch),
+            }
+        )
+    )
+    raise SystemExit(0 if result["ok"] else 1)
+
+
+if __name__ == "__main__":
+    main()

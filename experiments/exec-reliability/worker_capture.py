@@ -1,7 +1,7 @@
 """Interim per-query worker: isolate helper creation from the controller.
 
-This is not yet the persistent worker/gated-publication/shared scheduler in the
-inspection spec. Interrupted creation is conservatively unknown, never absence.
+Helpers are gated by creation publication. Persistent startup and shared
+scheduling remain open. Interrupted unpublished creation is never absence.
 """
 
 import errno
@@ -35,6 +35,9 @@ class _Owner:
 
 
 _owners: dict[int, _Owner] = {}
+# Cleanup obligations are evidence, never authority to signal a non-child PID.
+# Only a matching helper reap receipt retires one; worker exit does not.
+_helper_obligations: dict[str, dict[str, object]] = {}
 
 
 def _reap(owner: _Owner) -> None:
@@ -89,11 +92,18 @@ def _child(control: int, result: int, token: str, argv: tuple[str, ...], deadlin
     try:
         global _owners
         _owners = {}
+        global _helper_obligations
+        _helper_obligations = {}
         inspection.reset_after_fork({control, result})
         ready = {"token": token, "pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
         _write(control, json.dumps(ready).encode() + b"\n", deadline)
         _write(control, b"intent\n", deadline)
-        capture = inspection.capture_helper(argv, deadline)
+
+        def publish_created(identity: inspection.HelperIdentity) -> None:
+            message = {**identity, "token": token, "deadline_monotonic": deadline}
+            _write(control, json.dumps(message, allow_nan=False).encode() + b"\n", deadline)
+
+        capture = inspection.capture_helper(argv, deadline, publish_created=publish_created)
         body = asdict(capture)
         body.update(stdout=capture.stdout.hex(), stderr=capture.stderr.hex(), token=token)
         payload = json.dumps(body, allow_nan=False).encode()
@@ -166,6 +176,35 @@ def _admission(value: object) -> ForkAdmission:
         ):
             raise ValueError("inconsistent worker admission")
     return admission
+
+
+def _created(
+    line: bytes | bytearray, owner: _Owner, token: str, dispatched: float, deadline: float
+) -> dict[str, object]:
+    decoded = _load_json(line)
+    if not isinstance(decoded, dict):
+        raise ValueError("invalid helper creation object")
+    identity = cast(dict[str, object], decoded)
+    if set(identity) != {"token", "pid", "ppid", "pgid", "created_monotonic", "deadline_monotonic"}:
+        raise ValueError("invalid helper creation fields")
+    stamp = identity["created_monotonic"]
+    if (
+        identity["token"] != token
+        or type(identity["pid"]) is not int
+        or identity["pid"] <= 0
+        or identity["pid"] == owner.pid
+        or type(identity["ppid"]) is not int
+        or identity["ppid"] != owner.pid
+        or type(identity["pgid"]) is not int
+        or identity["pgid"] != owner.pid
+        or type(identity["deadline_monotonic"]) not in {int, float}
+        or identity["deadline_monotonic"] != deadline
+        or type(stamp) not in {int, float}
+        or not isinstance(stamp, int | float)
+        or not dispatched <= stamp <= time.monotonic() < deadline
+    ):
+        raise ValueError("invalid helper creation identity")
+    return identity
 
 
 def _decode(
@@ -314,6 +353,8 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     dispatched: float | None = None
     received: float | None = None
     published_times: dict[str, float | None] | None = None
+    helper_identity: dict[str, object] | None = None
+    control_bytes = 0
     buffers = [bytearray(), bytearray()]
     try:
         for _ in range(2):
@@ -358,7 +399,11 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     del streams[fd]
                 else:
                     buffers[index].extend(chunk)
-                if len(buffers[index]) > (4096 if index == 0 else FRAME_CAP + HEADER.size):
+                if index == 0:
+                    control_bytes += len(chunk)
+                if (control_bytes if index == 0 else len(buffers[index])) > (
+                    4096 if index == 0 else FRAME_CAP + HEADER.size
+                ):
                     raise ValueError("worker channel cap exceeded")
             if not owner.ready and b"\n" in buffers[0]:
                 line, _, tail = buffers[0].partition(b"\n")
@@ -372,11 +417,21 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     raise ValueError("invalid worker readiness")
                 owner.ready = True
                 buffers[0] = bytearray(tail)
-            if owner.ready and bytes(buffers[0]) == b"intent\n":
-                intent = True
+            while owner.ready and b"\n" in buffers[0]:
+                line, _, tail = buffers[0].partition(b"\n")
+                buffers[0] = bytearray(tail)
+                if not intent:
+                    if bytes(line) != b"intent":
+                        raise ValueError("invalid helper creation intent")
+                    intent = True
+                else:
+                    if helper_identity is not None:
+                        raise ValueError("duplicate helper creation publication")
+                    helper_identity = _created(line, owner, token, dispatched, query_deadline)
+                    _helper_obligations[token] = dict(helper_identity)
             if not streams and time.monotonic() < query_deadline:
                 received = time.monotonic()
-                if not owner.ready or not intent or len(buffers[1]) < HEADER.size:
+                if not owner.ready or not intent or buffers[0] or len(buffers[1]) < HEADER.size:
                     raise ValueError("incomplete worker publication")
                 size = HEADER.unpack(buffers[1][: HEADER.size])[0]
                 if size > FRAME_CAP or len(buffers[1]) != HEADER.size + size:
@@ -389,6 +444,14 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     dispatched,
                     received,
                 )
+                if decoded_receipt.pid is None:
+                    if helper_identity is not None:
+                        raise ValueError("worker denied published helper creation")
+                elif helper_identity is None or (
+                    decoded_receipt.pid != helper_identity["pid"]
+                    or decoded_receipt.created_monotonic != helper_identity["created_monotonic"]
+                ):
+                    raise ValueError("worker result/created identity mismatch")
                 if time.monotonic() >= query_deadline:
                     raise TimeoutError("worker validation exceeded query deadline")
                 receipt = decoded_receipt
@@ -399,6 +462,8 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 }
                 receipt.deadline_monotonic = deadline
                 complete = True
+                if receipt.reaped:
+                    _helper_obligations.pop(token, None)
                 break
         if not complete:
             raise TimeoutError("worker query deadline exhausted")
@@ -424,7 +489,9 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
             receipt.worker = {
                 **asdict(owner),
                 "intent": intent,
-                "unknown_helper_creation": not complete,
+                "unknown_helper_creation": not complete and helper_identity is None,
+                "helper_identity": helper_identity,
+                "helper_obligation_retained": token in _helper_obligations,
                 "signal_scope": "group" if owner.ready else "pid",
                 "dispatch_monotonic": dispatched,
                 "receipt_monotonic": received,
@@ -439,9 +506,15 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 )
             if not complete or not owner.reaped:
                 receipt.residual_remedy = (
-                    "Interrupted helper creation remains unknown; worker reap/group signals do not "
+                    "Retained helper identity requires its own matching reap receipt; unpublished "
+                    "interrupted creation remains unknown. Worker reap/group signals do not "
                     "prove helper death. Independently reconcile exact worker/helper fixture "
                     "identities. An unreaped worker retains strong ownership without later signals."
+                )
+            elif token in _helper_obligations and not receipt.residual_remedy:
+                receipt.residual_remedy = (
+                    "Retained helper identity requires its own matching reap receipt; "
+                    "worker reap does not resolve the helper obligation."
                 )
         for fd in channels:
             try:
