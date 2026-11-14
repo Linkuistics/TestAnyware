@@ -1581,3 +1581,54 @@ These repairs check consistency of the worker's report. They do not authenticate
 helper identity or independently establish helper reap. The full persistent
 worker, gated publication, shared scheduler and final whole-runtime review
 remain live under k55 and its ancestors. Acceptance stays **0/10, unavailable**.
+
+### k55: positive helper PIDs in worker receipts
+
+The decoder now rejects a reported helper PID of zero or less with
+`invalid worker helper pid`. Such values cannot identify one exact helper.
+The existing integer check still rejects booleans and strings, and a missing PID
+remains valid when helper creation failed and no creation timestamp is reported.
+This is a protocol consistency check; a positive worker-reported PID still does
+not authenticate helper ownership or independently prove reap.
+
+Five added hostile publications carry zero, `-1`, `-123`, a boolean and a string
+PID. Each has a matching creation timestamp, a valid query interval witnessed
+by the parent and the exact derived capture cutoff. The synthetic publisher
+creates no helper. The fork, reset, bounded channels, decoder and worker shutdown
+remain real. Tests require the exact rejection reason, discarded output,
+conservative unknown helper creation, worker reap and completion within the
+original deadline. Existing genuine capture, early-exit, missing-executable and
+killed-helper controls continue to exercise accepted publications.
+
+| Retained condition | Result |
+| --- | --- |
+| `k55-red-01` | 3 failed, 189 passed: zero and both negative PIDs were accepted. Boolean and string controls already reject with `invalid worker integer`. Lint, format and strict types pass. |
+| `k55-fixed-01` | All 192 tests, lint, format and strict Pyright pass after the nonpositive PID check. |
+| `k55-audit-01` | Ruff E501 stops the task before audit execution. The original script and failure record are retained. |
+| `k55-audit-02` | Frozen audit passes: 978 recorded positive PID selectors absent and 330 fixture directories reconciled. |
+
+The two test conditions retain the same per-test JUnit case set, checker reap
+receipts, artifact hashes and equal before/after source digests. Copies in
+`evidence/k55-inputs-01/red` were made after RED launched and match its recorded
+digests; copies in `final` were made before the final run. The audit checks
+every copied source, manifest, lock and Taskfile against the corresponding
+runner record. Its prior-evidence manifest covers 42,688 earlier evidence files;
+those hashes remain unchanged.
+
+The audit verifies the new publication values and their otherwise coherent
+timestamps, exact rejection reasons, retained RED failures and final results.
+It challenges its external process oracle with live, mixed, invalid and
+known-reaped selectors before inspecting recorded process identities. Synthetic
+nonpositive selectors are excluded before inspection. Scratch cleanup is confined
+to the recorded pytest sessions; copied evidence and per-path removal records
+are retained. The audit records equal before/after input hashes in
+[`k55-audit-02/result.json`](../../experiments/exec-reliability/evidence/k55-audit-02/result.json).
+Later absence cannot repair an unknown-creation outcome or identify an unrecorded
+escaped helper.
+
+The full original persistent-worker, gated-publication, independent ownership
+and shared-scheduler contract has moved from k55 into the flat live sibling
+`complete-worker-scheduler-k58`. Every ancestor remains open. A separate
+`review-impl` of this PID-validation increment precedes k58; the final aggregate
+review remains due before retained evidence k21. No guest, installed-app,
+privilege, stalled-storage or acceptance claim changes: **0/10, unavailable**.
