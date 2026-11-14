@@ -20,6 +20,170 @@ HERE = Path(__file__).resolve().parent
 PEER = HERE / "peer.py"
 
 
+@pytest.mark.parametrize("failed_call", ["acquire", "workload", "cleanup", "dispose", "inspect"])
+def test_review_inspection_failure_is_sticky_during_safety(tmp_path, monkeypatch, failed_call):
+    import controller
+
+    order = ["acquire", "workload", "cleanup", "dispose", "inspect"]
+    failure_index = order.index(failed_call) + 1
+    queries = []
+    original_snapshot = controller._group_snapshot
+
+    def snapshot(pid, deadline):
+        observation = original_snapshot(pid, deadline)
+        queries.append(pid)
+        if len(queries) == failure_index:
+            # Adapter damage after a real query. Every later real table would
+            # succeed, but retrying cannot restore the run's inspection authority.
+            observation.update(state="unknown", error="injected invalid table", stdout=b"bad row\n")
+        return observation
+
+    monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    workloads = [call("workload", "bytes")]
+    if failed_call in order[:2]:
+        workloads.append(call("unreached", "bytes"))
+    path, result = run(
+        tmp_path,
+        workloads,
+        [owned],
+        run_id=run_id,
+    )
+    audit = {
+        "adapter": "invalid table after real query",
+        "failed_call": failed_call,
+        "queries": queries,
+        "leaders": [inspect_pid(receipt["pid"]) for receipt in result["calls"]],
+        "marker_absent": not (tmp_path / owned.identity).exists(),
+    }
+    (path / "sticky-inspection-audit.json").write_text(json.dumps(audit, indent=2))
+    assert all(item["state"] == "absent" for item in audit["leaders"])
+    assert audit["marker_absent"] is True
+    assert all(receipt["reaped"] for receipt in result["calls"])
+    assert result["ok"] is False
+    assert result["resources"][0]["state"] == "uncertain"
+    assert len(queries) == failure_index
+    first = next(item for item in result["calls"] if item["name"] == failed_call)
+    assert result["inspection_failure"] == {
+        "call": failed_call,
+        "observation": first["group_observations"][0],
+    }
+    safety = [item for item in result["calls"] if item["name"] in order[2:]]
+    assert [item["name"] for item in safety] == order[2:]
+    for receipt in result["calls"][result["calls"].index(first) + 1 :]:
+        observation = receipt["group_observations"][0]
+        assert observation["state"] == "unknown"
+        assert observation["probe_outcome"] == "not_attempted"
+        assert observation["stdout"] == ""
+        assert failed_call in observation["error"]
+        assert receipt["termination_ok"] is False
+    assert ("unreached" in result["unreached"]) == (failed_call in order[:2])
+
+    # The failure belongs to this execute call, never to the module or next run.
+    monkeypatch.setattr(controller, "_group_snapshot", original_snapshot)
+    healthy_path, healthy = run(tmp_path, [call("fresh-run", "bytes")])
+    assert healthy["ok"] is True
+    assert healthy["inspection_failure"] is None
+    fresh = inspect_pid(healthy["calls"][0]["pid"])
+    (healthy_path / "fresh-run-audit.json").write_text(json.dumps(fresh, indent=2))
+    assert fresh["state"] == "absent"
+
+
+def test_review_sticky_failure_preserves_reverse_safety_and_signals(tmp_path, monkeypatch):
+    import controller
+
+    queries = []
+    original_snapshot = controller._group_snapshot
+
+    def snapshot(pid, deadline):
+        observation = original_snapshot(pid, deadline)
+        queries.append(pid)
+        if len(queries) == 3:
+            observation.update(state="unknown", error="injected inspector failure")
+        return observation
+
+    monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+    run_id = uuid.uuid4().hex
+    resources = []
+    for suffix in ("first", "second"):
+        template = resource(tmp_path, run_id, cleanup="hang" if suffix == "second" else "bytes")
+        identity = f"{template.identity}-{suffix}"
+        actions = {
+            field: replace(
+                getattr(template, field),
+                name=f"{field}-{suffix}",
+                argv=tuple(
+                    identity if token == template.identity else token
+                    for token in getattr(template, field).argv
+                ),
+            )
+            for field in ("acquire", "cleanup", "dispose", "inspect")
+        }
+        resources.append(Resource("vm", identity, **actions))
+    path, result = run(
+        tmp_path,
+        [call("workload", "bytes"), call("unreached", "bytes")],
+        resources,
+        run_id=run_id,
+    )
+    audit = {
+        "adapter": "third real table changed to unknown",
+        "queries": queries,
+        "leaders": [inspect_pid(receipt["pid"]) for receipt in result["calls"]],
+        "markers_absent": [not (tmp_path / item.identity).exists() for item in resources],
+    }
+    (path / "reverse-safety-audit.json").write_text(json.dumps(audit, indent=2))
+    assert all(item["state"] == "absent" for item in audit["leaders"])
+    assert all(audit["markers_absent"])
+    assert result["ok"] is False
+    assert result["unreached"] == ["unreached"]
+    assert [item["name"] for item in result["calls"][3:]] == [
+        f"{action}-{suffix}"
+        for suffix in ("second", "first")
+        for action in ("cleanup", "dispose", "inspect")
+    ]
+    assert len(queries) == 3
+    assert all(item["state"] == "uncertain" for item in result["resources"])
+    stalled = result["calls"][3]
+    assert stalled["reason"] == "deadline"
+    assert [item["signal"] for item in stalled["signals"]] == ["TERM", "KILL"]
+    assert stalled["reaped"] is True
+    assert stalled["within_process_bounds"] is True
+    assert stalled["group_observations"][0]["probe_outcome"] == "not_attempted"
+
+
+def test_review_live_table_does_not_poison_later_inspection(tmp_path, monkeypatch):
+    import controller
+
+    original_snapshot = controller._group_snapshot
+    queries = []
+
+    def snapshot(pid, deadline):
+        observation = original_snapshot(pid, deadline)
+        queries.append(pid)
+        if len(queries) == 1:
+            # Classification adapter; real live-child behavior has separate controls.
+            observation["state"] = "live"
+        return observation
+
+    monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+    run_id = uuid.uuid4().hex
+    path, result = run(tmp_path, [], [resource(tmp_path, run_id)], run_id=run_id)
+    audit = {
+        "adapter": "first real table classified live",
+        "queries": queries,
+        "leaders": [inspect_pid(receipt["pid"]) for receipt in result["calls"]],
+    }
+    (path / "live-classification-audit.json").write_text(json.dumps(audit, indent=2))
+    assert all(item["state"] == "absent" for item in audit["leaders"])
+    assert result["ok"] is False
+    assert result["calls"][0]["termination_ok"] is False
+    assert result["inspection_failure"] is None
+    assert result["resources"][0]["state"] == "disposed"
+    assert len(queries) == 4
+
+
 @pytest.mark.parametrize("pid_only", [False, True])
 def test_review_final_query_requires_observed_exit(tmp_path, monkeypatch, pid_only):
     import controller

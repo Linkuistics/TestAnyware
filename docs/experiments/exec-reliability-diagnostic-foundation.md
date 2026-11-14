@@ -8,7 +8,7 @@ fixture cleanup and checker timeout reporting. Initial fork admission now reject
 extra Python or native threads, changed Python or kernel SIGCHLD disposition and
 unavailable native observations before acquisition, retaining failed results.
 Review integration k32 independently reproduced and repaired the Python signal
-cache gap. The current measured condition is k41-final-01: workload leaders
+cache gap. The current measured condition is k43-final-01: workload leaders
 are reaped with exact-PID nonblocking waits before a fixed deadline; failed
 reaps retain an explicit owner and residual without destructor polling.
 The controller now requests at most one final process table, after the final
@@ -18,7 +18,10 @@ It preserves k37's strict process-table acceptance, k33's KILL ordering and
 k36's PID-only deadline cap. The
 complete worker/scheduler boundary remains k30's work, continued by k34's
 worker-scheduler-k38 subtree, continued by worker-scheduler-k40 and its
-remaining worker-scheduler-k42 leaf.
+worker-scheduler-k42 subtree and its remaining worker-scheduler-k44 leaf.
+A failed local inspection now remains failed throughout that execution.
+Independent cleanup, disposal and public absence commands still run, but later
+local observations cannot restore disposal certainty.
 Independently supervised process inspection, retained-file identity,
 stalled-storage disposal and live route
 preparation still need the work named below before causal use. In particular,
@@ -927,6 +930,62 @@ claim. Synchronous helper creation, capture and waits can still overrun the
 cutoff. The private worker, protocol, shared scheduler, concurrent teardown,
 shutdown and remaining controls stay live on worker-scheduler-k42 under k40.
 The final full-subsystem review remains mandatory. No guest or privileged-process
+acceptance follows from this slice. Historical acceptance remains
+**0/10, unavailable**.
+
+### Sticky inspection failure (k43)
+
+A failed local observation previously allowed teardown to query again and mark
+resource disposal certain. The controller now owns one inspection state per
+`execute` invocation. Its first unknown observation retains the call name and
+original observation in `result.json` as `inspection_failure`. Later commands
+receive an unknown observation with no local query or signal-zero probe. The
+remaining workload stays unreached, while independent safety commands run in
+reverse resource order and retain failed disposal certainty. A valid live table
+remains a termination failure without disabling later local inspection. A fresh
+execution starts with fresh inspection state.
+
+The [first prior-controller replay](../../experiments/exec-reliability/evidence/k43-previous-01/verdict.json)
+retains five failing controls and 70 passing controls. The
+[expanded replay](../../experiments/exec-reliability/evidence/k43-previous-02/verdict.json)
+retains seven failing controls and 70 passing controls. Five controls inject an
+unknown observation after a real process-table query at acquisition, workload,
+cleanup, disposal or public inspection. They check that later local queries stop,
+actual disposal removes its marker, certainty remains failed, and a fresh run
+recovers. The two additional controls check all six reverse safety actions over
+two resources, including a real timed-out cleanup with TERM/KILL and bounded
+reaping, and the distinction between a valid live classification and inspector
+failure. These adapters alter returned classification or raw evidence; they do
+not demonstrate an actual malformed system `ps` response. Existing parser and
+live-child controls remain separate evidence.
+
+The [frozen input comparison](../../experiments/exec-reliability/evidence/k43-inputs-02/manifest.json)
+records the same seven controls against prior and current source; only
+`controller.py` differs between those snapshots. The
+[delivered self-check](../../experiments/exec-reliability/evidence/k43-final-01/verdict.json)
+passes Ruff lint/format, strict Pyright and
+[116/116 tests](../../experiments/exec-reliability/evidence/k43-final-01/pytest.xml).
+Every checker was reaped, no checker timed out, and read-subject hashes stayed
+equal. The [per-test comparison](../../experiments/exec-reliability/evidence/k43-audit-01/comparison.json)
+confirms each expected prior failure passes in the delivered condition.
+
+The [independent audit](../../experiments/exec-reliability/evidence/k43-audit-01/result.json)
+checks 518, 568 and 728 indexed artifacts for the first replay, expanded replay
+and delivered condition, respectively, with equal before/after input hashes.
+All 362 recorded real PIDs are absent in its later exact-PID observation; one
+explicitly simulated checker PID is excluded. Live, mixed, invalid-selector and
+freshly reaped controls contest the absence predicate. It accounts for 94
+resource markers, with one present before cleanup, and 122 scratch directories
+derived from retained argv paths, with 37 already absent. Every checked marker
+and scratch directory is absent afterward; owned leftover files are recorded
+before allowlisted cleanup. Prior samples remain unchanged.
+
+These observations do not prove absence of escaped descendants or account for
+all session scratch. Helper creation, capture and waits remain synchronous and
+can overrun the cutoff. The private worker, protocol, shared scheduler, concurrent
+teardown and shutdown, privilege controls and complete ancestor control inventory
+remain live in worker-scheduler-k44 under k42. A specific k43 review precedes that
+work; the final full-subsystem review remains mandatory. No guest or privileged
 acceptance follows from this slice. Historical acceptance remains
 **0/10, unavailable**.
 

@@ -332,7 +332,45 @@ def _final_snapshot(pid: int, deadline: float, leader_exit: float | None) -> Gro
     }
 
 
-def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object]) -> float:
+class _InspectionFailure(TypedDict):
+    call: str
+    observation: GroupObservation
+
+
+@dataclass
+class _InspectionState:
+    failure: _InspectionFailure | None = None
+
+    def snapshot(
+        self, call: str, pid: int, deadline: float, leader_exit: float | None
+    ) -> GroupObservation:
+        if self.failure is not None:
+            now = time.monotonic()
+            return {
+                "started_monotonic": now,
+                "finished_monotonic": now,
+                "state": "unknown",
+                "members": [],
+                "stdout": b"",
+                "stderr": b"",
+                "returncode": None,
+                "probe_errno": None,
+                "probe_outcome": "not_attempted",
+                "error": f"local inspection unavailable after {self.failure['call']}",
+            }
+        observation = _final_snapshot(pid, deadline, leader_exit)
+        if observation["state"] == "unknown":
+            self.failure = {"call": call, "observation": observation}
+        return observation
+
+
+def _terminate(
+    pid: int,
+    pid_only: bool,
+    plan: Plan,
+    receipt: dict[str, object],
+    inspection: _InspectionState,
+) -> float:
     """Finish all signals/observations before returning the one reap deadline."""
     events: list[dict[str, object]] = []
     groups: list[GroupObservation] = []
@@ -402,7 +440,7 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
         if observe_exit():
             break
         time.sleep(min(0.005, max(0, inspection_deadline - time.monotonic())))
-    final = _final_snapshot(pid, inspection_deadline, leader_exit)
+    final = inspection.snapshot(str(receipt["name"]), pid, inspection_deadline, leader_exit)
     groups.append(final)
     last_signal = events[-1]
     if not pid_only and last_signal["signal"] == "KILL" and last_signal.get("errno") == errno.EPERM:
@@ -423,7 +461,7 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
     return kill_deadline
 
 
-def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
+def _call(call: Call, root: Path, plan: Plan, inspection: _InspectionState) -> dict[str, object]:
     start = time.monotonic()
     receipt: dict[str, object] = {
         "name": call.name,
@@ -473,14 +511,16 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
                 reap_deadline = leader_exit + plan.kill_wait
                 inspection_deadline = reap_deadline - min(0.1, plan.kill_wait / 4)
                 receipt["inspection_deadline_monotonic"] = inspection_deadline
-                group = _final_snapshot(process.pid, inspection_deadline, leader_exit)
+                group = inspection.snapshot(
+                    call.name, process.pid, inspection_deadline, leader_exit
+                )
                 receipt["group_observations"] = [group]
                 receipt["termination_ok"] = group["state"] == "zombie_only"
             else:
                 if receipt["reason"] != "observation_error":
                     receipt["reason"] = "interrupted" if call.interrupt_after else "deadline"
                 reap_deadline = _terminate(
-                    process.pid, call.interrupt_after is not None, plan, receipt
+                    process.pid, call.interrupt_after is not None, plan, receipt, inspection
                 )
             observations = receipt.get("group_observations")
             if isinstance(observations, list) and observations:
@@ -512,11 +552,13 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
     return receipt
 
 
-def _safe_call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
+def _safe_call(
+    call: Call, root: Path, plan: Plan, inspection: _InspectionState
+) -> dict[str, object]:
     # A raised receipt/read/open error must not skip independent safety actions.
     # This handles exceptions, not a filesystem operation which never returns.
     try:
-        return _call(call, root, plan)
+        return _call(call, root, plan, inspection)
     except OSError as error:
         return {
             "name": call.name,
@@ -557,6 +599,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
     before = _hashes(subjects)
     write_json(root / "subjects-before.json", before)
     receipts: list[dict[str, object]] = []
+    inspection_state = _InspectionState()
     ledger: list[dict[str, object]] = []
     attempted: list[Resource] = []
     unreached = [resource.acquire.name for resource in plan.resources] + [
@@ -583,21 +626,21 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
                 ok = False
                 break
             unreached.remove(resource.acquire.name)
-            receipt = _safe_call(resource.acquire, root, plan)
+            receipt = _safe_call(resource.acquire, root, plan, inspection_state)
             receipts.append(receipt)
             ok = receipt["ok"] is True
         for call in plan.calls:
             if not ok:
                 break
             unreached.remove(call.name)
-            receipt = _safe_call(call, root, plan)
+            receipt = _safe_call(call, root, plan, inspection_state)
             receipts.append(receipt)
             ok = receipt["ok"] is True
     finally:
         for resource in reversed(attempted):
-            cleanup = _safe_call(resource.cleanup, root, plan)
-            disposal = _safe_call(resource.dispose, root, plan)
-            inspection = _safe_call(resource.inspect, root, plan)
+            cleanup = _safe_call(resource.cleanup, root, plan, inspection_state)
+            disposal = _safe_call(resource.dispose, root, plan, inspection_state)
+            inspection = _safe_call(resource.inspect, root, plan, inspection_state)
             receipts.extend((cleanup, disposal, inspection))
             disposed = disposal["ok"] is True and inspection["ok"] is True
             ledger.append(
@@ -618,6 +661,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
                 "run_id": plan.run_id,
                 "ok": ok,
                 "fork_admission": admission,
+                "inspection_failure": inspection_state.failure,
                 "calls": receipts,
                 "resources": ledger,
                 "unreached": unreached,
