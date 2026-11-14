@@ -1,0 +1,176 @@
+{
+  "run_id": "dc26a08a6ec74bc08f7ab76e47933eb1",
+  "ok": false,
+  "fork_admission": {
+    "ok": true,
+    "reason": "ready",
+    "python_threads": 1,
+    "native_threads": 1,
+    "sigchld": "SIG_DFL",
+    "native_sigchld": "SIG_DFL",
+    "error": null,
+    "errno": null
+  },
+  "inspection_failure": null,
+  "calls": [
+    {
+      "name": "self-signal",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+        "-c",
+        "\nimport json, os, runpy, signal, sys\nfrom pathlib import Path\noriginal = os.kill\ndef misdirect(pid, sig):\n    if sig == signal.SIGTERM:\n        Path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k77-green-03/runs/self-signal-5294c1dc19654afe9c0e2049be51f9fd.json').write_text(json.dumps({\"pid\": pid}))\n        original(pid, signal.SIGKILL)\n        original(os.getpid(), sig)\n    else:\n        original(pid, sig)\nos.kill = misdirect\nsys.argv = ['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py', 'controller', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k77-green-03/runs']\nrunpy.run_path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py', run_name='__main__')\n"
+      ],
+      "budget": 3,
+      "started_monotonic": 289178.141928583,
+      "wall_start_ns": 1794671898248095000,
+      "reason": "exit",
+      "returncode": -15,
+      "reaped": true,
+      "ok": false,
+      "signals": [],
+      "pid": 20121,
+      "pgid": 20121,
+      "signal_scope": "group",
+      "leader_exit_monotonic": 289178.429614291,
+      "inspection_deadline_monotonic": 289178.654614291,
+      "group_observations": [
+        {
+          "started_monotonic": 289178.429641375,
+          "finished_monotonic": 289178.440785916,
+          "query_attempted": true,
+          "helper": {
+            "stdout": "3230313231203230313231205a2020200a",
+            "stderr": "",
+            "returncode": 0,
+            "pid": 20142,
+            "argv": [
+              "/bin/ps",
+              "-g",
+              "20121",
+              "-o",
+              "pid=,pgid=,stat="
+            ],
+            "admission": {
+              "ok": true,
+              "reason": "ready",
+              "python_threads": 1,
+              "native_threads": 1,
+              "sigchld": "SIG_DFL",
+              "native_sigchld": "SIG_DFL",
+              "error": null,
+              "errno": null
+            },
+            "started_monotonic": 289178.432918291,
+            "created_monotonic": 289178.434031708,
+            "capture_deadline_monotonic": 289178.561690291,
+            "deadline_monotonic": 289178.654614291,
+            "finished_monotonic": 289178.440622958,
+            "kill_monotonic": null,
+            "kill_errno": null,
+            "reaped": true,
+            "reaped_monotonic": 289178.43928425,
+            "reap_errno": null,
+            "ownership_lost": false,
+            "close_errors": [],
+            "error": null,
+            "error_errno": null,
+            "residual_remedy": null,
+            "worker": {
+              "pid": 20141,
+              "ready": true,
+              "reaped": true,
+              "ownership_lost": false,
+              "returncode": 0,
+              "signals": [],
+              "reap_errno": null,
+              "intent": true,
+              "unknown_helper_creation": false,
+              "fork_failure": null,
+              "creation_conflict": false,
+              "helper_identity": {
+                "pid": 20142,
+                "ppid": 20141,
+                "pgid": 20141,
+                "created_monotonic": 289178.434031708,
+                "token": "598c0113310b4fa0bc00f1e47082dbad",
+                "deadline_monotonic": 289178.604614291
+              },
+              "helper_identities": [
+                {
+                  "pid": 20142,
+                  "ppid": 20141,
+                  "pgid": 20141,
+                  "created_monotonic": 289178.434031708,
+                  "token": "598c0113310b4fa0bc00f1e47082dbad",
+                  "deadline_monotonic": 289178.604614291
+                }
+              ],
+              "helper_obligation_retained": false,
+              "signal_scope": "group",
+              "dispatch_monotonic": 289178.430185541,
+              "receipt_monotonic": 289178.440075625,
+              "published_times": {
+                "started_monotonic": 289178.432918291,
+                "created_monotonic": 289178.434031708,
+                "capture_deadline_monotonic": 289178.561690291,
+                "deadline_monotonic": 289178.604614291,
+                "finished_monotonic": 289178.43930675,
+                "kill_monotonic": null,
+                "reaped_monotonic": 289178.43928425
+              },
+              "query_deadline_monotonic": 289178.604614291,
+              "shutdown_deadline_monotonic": 289178.654614291,
+              "reserve_seconds": 0.05
+            }
+          },
+          "state": "zombie_only",
+          "members": [
+            {
+              "pid": 20121,
+              "pgid": 20121,
+              "stat": "Z"
+            }
+          ],
+          "stdout": "3230313231203230313231205a2020200a",
+          "stderr": "",
+          "returncode": 0,
+          "probe_errno": 1,
+          "probe_outcome": "zombie_only_eperm",
+          "error": null
+        }
+      ],
+      "termination_ok": true,
+      "authority_closed_monotonic": 289178.440797375,
+      "reap_deadline_monotonic": 289178.729614291,
+      "within_process_bounds": true,
+      "reaped_monotonic": 289178.440811166,
+      "elapsed": 0.2988987080170773
+    }
+  ],
+  "resources": [],
+  "unreached": [],
+  "subjects_before": {
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py": "73b20371363bd2b4170c1d5f64894d3a73daad02f838690cec24d63f30f9eac2",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/inspection.py": "797e6fda2d2d546a30211850555935933e2cf3fbcf67277f3def40881d68cb2c",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/worker_capture.py": "fb7e7a31ad0d8682098bd5503c6003e5519d5f7add95099522025fb3b7b0b84e",
+    "/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12": "83deb939c9034c3e85a377eeb04e7d9992f8881652a22289cd0eeeb83b98a565",
+    "/bin/ps": "a06fe087161557f1f8c030672eaedcd90bc6a8e92b8f2d44e07cffedc3349205",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py": "a13a9f7304bbc93a9acb31950030286115423987781a9697f3e3f904842d9a51",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/test_controller.py": "d54499fd69fe6903851e5f45a78fe68f96428e632dbe9640e43a3eeeebc8de29",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/pyproject.toml": "4f816cdb528f869ec6291f6401c79c365f2fe2ffd8783ce1112d1648ec3b0f88",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/uv.lock": "1c3ab314b597770f6568fa159164b8ac72af7d9c3c9fc74ef3d9cf47b73cfd89",
+    "/bin/sleep": "38d6b9431656a92cfa223d1325cbea4dc3f56ef29833eb2a3ff7f6ab21f95b5b"
+  },
+  "subjects_after": {
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py": "73b20371363bd2b4170c1d5f64894d3a73daad02f838690cec24d63f30f9eac2",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/inspection.py": "797e6fda2d2d546a30211850555935933e2cf3fbcf67277f3def40881d68cb2c",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/worker_capture.py": "fb7e7a31ad0d8682098bd5503c6003e5519d5f7add95099522025fb3b7b0b84e",
+    "/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12": "83deb939c9034c3e85a377eeb04e7d9992f8881652a22289cd0eeeb83b98a565",
+    "/bin/ps": "a06fe087161557f1f8c030672eaedcd90bc6a8e92b8f2d44e07cffedc3349205",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py": "a13a9f7304bbc93a9acb31950030286115423987781a9697f3e3f904842d9a51",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/test_controller.py": "d54499fd69fe6903851e5f45a78fe68f96428e632dbe9640e43a3eeeebc8de29",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/pyproject.toml": "4f816cdb528f869ec6291f6401c79c365f2fe2ffd8783ce1112d1648ec3b0f88",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/uv.lock": "1c3ab314b597770f6568fa159164b8ac72af7d9c3c9fc74ef3d9cf47b73cfd89",
+    "/bin/sleep": "38d6b9431656a92cfa223d1325cbea4dc3f56ef29833eb2a3ff7f6ab21f95b5b"
+  }
+}

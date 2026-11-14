@@ -398,7 +398,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     def consume_control(cleanup_only: bool) -> None:
         nonlocal control_ready, control_invalid, intent, creation_conflict
         nonlocal helper_identity, fork_failure
-        if control_invalid or control_bytes > 4096 or owner is None or dispatched is None:
+        if control_invalid or owner is None or dispatched is None:
             return
         while b"\n" in buffers[0]:
             line, _, tail = buffers[0].partition(b"\n")
@@ -490,16 +490,26 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     raise TimeoutError("late worker channel receipt")
                 index = streams[fd]
                 try:
-                    chunk = os.read(fd, TURN_CAP // 2)
+                    chunk = os.read(
+                        fd,
+                        min(TURN_CAP // 2, 4097 - control_bytes) if index == 0 else TURN_CAP // 2,
+                    )
                 except BlockingIOError:
                     continue
                 if not chunk:
                     closed_channels.add(index)
                     del streams[fd]
+                elif index == 0:
+                    # Keep only the admitted prefix; the extra byte detects
+                    # overflow and can never complete a protocol line.
+                    buffers[0].extend(chunk[: max(0, 4096 - control_bytes)])
                 else:
                     buffers[index].extend(chunk)
                 if index == 0:
                     control_bytes += len(chunk)
+                    # Complete identities preceding overflow remain cleanup
+                    # evidence, without granting success or signal authority.
+                    consume_control(cleanup_only=control_bytes > 4096)
                 if (control_bytes if index == 0 else len(buffers[index])) > (
                     4096 if index == 0 else FRAME_CAP + HEADER.size
                 ):
@@ -597,8 +607,8 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                             cleanup_open = False
                         if chunk is not None:
                             cleanup_open = bool(chunk)
+                            buffers[0].extend(chunk[: max(0, 4096 - control_bytes)])
                             control_bytes += len(chunk)
-                            buffers[0].extend(chunk)
                             if chunk and fork_failure is not None:
                                 creation_conflict = True
                             consume_control(cleanup_only=True)

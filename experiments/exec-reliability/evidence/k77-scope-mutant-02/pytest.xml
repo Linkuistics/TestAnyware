@@ -1,0 +1,877 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="6" skipped="0" tests="6" time="3.533" timestamp="2026-11-15T02:55:38.605882+11:00" hostname="byrd.local"><testcase classname="test_worker_capture" name="test_late_created_identity_is_cleanup_only[valid-select]" time="0.413"><failure message="AssertionError: assert 'group' == 'pid'&#10;  &#10;  - pid&#10;  + group">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-227/test_late_created_identity_is_0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10a83cda0&gt;
+delay = 'select', publication = 'valid'
+
+    @pytest.mark.parametrize("delay", ["read", "select", "shutdown"])
+    @pytest.mark.parametrize(
+        "publication",
+        ["valid", "distinct", "malformed", "overflow", "valid-overflow", "distinct-overflow"],
+    )
+    def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, publication):
+        """Dropping late controls loses identities; decoding late terminal grants false reap."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_write, original_read = worker_capture._write, os.read
+        original_select = worker_capture.select.select
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        witness = root / f"late-created-{delay}-{publication}-{time.time_ns()}.json"
+        end = time.monotonic() + 0.4
+        delayed = False
+        held = None
+        terminated = False
+        control_reads = []
+        before = set(worker_capture._helper_obligations)
+    
+        def term(sig, frame):
+            nonlocal terminated
+            terminated = True
+    
+        def publish_witness(info):
+            temporary = witness.with_suffix(".tmp")
+            temporary.write_text(json.dumps(info))
+            temporary.replace(witness)
+    
+        def write(fd, data, deadline):
+            nonlocal held
+            if data.startswith(b"{") and b'"created_monotonic"' in data:
+                identity = json.loads(data)
+                publish_witness({"identity": identity, "query_deadline": deadline})
+                if publication == "malformed":
+                    identity["ppid"] = parent
+                    data = json.dumps(identity).encode() + b"\n"
+                elif publication in {"distinct", "distinct-overflow"}:
+                    other = dict(identity, pid=987654322)
+                    data += json.dumps(other).encode() + b"\n"
+                elif publication == "overflow":
+                    data = b"x" * 4097 + b"\n" + data
+                elif publication == "partial":
+                    data = data.rstrip(b"\n")
+                elif publication in {"token", "boolean-pid", "stale", "future", "deadline", "extra"}:
+                    if publication == "token":
+                        identity["token"] = "other-query"
+                    elif publication == "boolean-pid":
+                        identity["pid"] = True
+                    elif publication == "stale":
+                        identity["created_monotonic"] = 0
+                    elif publication == "future":
+                        identity["created_monotonic"] = deadline
+                    elif publication == "deadline":
+                        identity["deadline_monotonic"] += 1
+                    else:
+                        identity["extra"] = 1
+                    data = json.dumps(identity).encode() + b"\n"
+                if publication in {"valid-overflow", "distinct-overflow"}:
+                    data += b"x" * 4097
+                if delay == "shutdown":
+                    # TERM-handler adapter, unlike production SIG_DFL. Hold only
+                    # the publication; the real helper executes and is reaped.
+                    # TERM triggers actual pipe delivery.
+                    signal.signal(signal.SIGTERM, term)
+                    held = (fd, data)
+                    return
+            if delay == "prebuffer" and not data.endswith(b"\n"):
+                # Production SIG_DFL: the helper has completed and been reaped;
+                # its identity is already in the pipe before parent TERM.
+                assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+                info = json.loads(witness.read_text())
+                info.update(pipe_before_term=True, term_disposition="SIG_DFL")
+                publish_witness(info)
+                while time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                os._exit(73)  # Parent TERM must win, otherwise the test fails.
+            if delay == "shutdown" and not data.endswith(b"\n"):
+                while not terminated and time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                assert terminated and held is not None
+                os.write(held[0], held[1])
+                os.write(fd, data)  # Late terminal/reap must never retire the obligation.
+                info = json.loads(witness.read_text())
+                info.update(published_monotonic=time.monotonic(), after_term=terminated)
+                publish_witness(info)
+                return
+            original_write(fd, data, deadline)
+    
+        def pause():
+            nonlocal delayed
+            delayed = True
+            time.sleep(max(0, end - 0.045 - time.monotonic()))
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent and (b'"created_monotonic"' in data or b"x" * 100 in data):
+                control_reads.append(data)
+            if os.getpid() == parent and delay == "read" and not delayed:
+                if b'"created_monotonic"' in data or b"x" * 100 in data:
+                    pause()
+            return data
+    
+        def select(reads, writes, errors, timeout):
+            result = original_select(reads, writes, errors, timeout)
+            if os.getpid() == parent and delay in {"select", "prebuffer"} and not delayed:
+                until = time.monotonic() + 0.15
+                while time.monotonic() &lt; until:
+                    if witness.exists():
+                        info = json.loads(witness.read_text())
+                        if delay == "select" or info.get("pipe_before_term"):
+                            break
+                    time.sleep(0.001)
+                else:
+                    raise AssertionError("worker did not prebuffer the identity")
+                pause()
+            return result
+    
+        monkeypatch.setattr(worker_capture, "_write", write)
+        monkeypatch.setattr(os, "read", read)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+            retain(tmp_path, f"late-created-{delay}-{publication}", receipt)
+            worker = receipt.worker
+            assert receipt.error and receipt.residual_remedy
+            assert worker["reaped"] and worker["shutdown_deadline_monotonic"] == end
+            assert worker["query_deadline_monotonic"] == end - 0.05
+            assert receipt.finished_monotonic &lt;= end + 0.015
+            assert receipt.pid is None and not receipt.reaped
+            assert worker["fork_failure"] is None
+            if delay == "select":
+                # Readiness-flag test: this fixture may already be reaped, so it
+                # makes no claim about an observed PID-versus-group signal.
+&gt;               assert worker["signal_scope"] == "pid"
+E               AssertionError: assert 'group' == 'pid'
+E                 
+E                 - pid
+E                 + group
+
+test_worker_capture.py:1678: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_late_created_identity_is_cleanup_only[distinct-select]" time="0.373"><failure message="AssertionError: assert 'group' == 'pid'&#10;  &#10;  - pid&#10;  + group">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-227/test_late_created_identity_is_1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10a83be60&gt;
+delay = 'select', publication = 'distinct'
+
+    @pytest.mark.parametrize("delay", ["read", "select", "shutdown"])
+    @pytest.mark.parametrize(
+        "publication",
+        ["valid", "distinct", "malformed", "overflow", "valid-overflow", "distinct-overflow"],
+    )
+    def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, publication):
+        """Dropping late controls loses identities; decoding late terminal grants false reap."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_write, original_read = worker_capture._write, os.read
+        original_select = worker_capture.select.select
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        witness = root / f"late-created-{delay}-{publication}-{time.time_ns()}.json"
+        end = time.monotonic() + 0.4
+        delayed = False
+        held = None
+        terminated = False
+        control_reads = []
+        before = set(worker_capture._helper_obligations)
+    
+        def term(sig, frame):
+            nonlocal terminated
+            terminated = True
+    
+        def publish_witness(info):
+            temporary = witness.with_suffix(".tmp")
+            temporary.write_text(json.dumps(info))
+            temporary.replace(witness)
+    
+        def write(fd, data, deadline):
+            nonlocal held
+            if data.startswith(b"{") and b'"created_monotonic"' in data:
+                identity = json.loads(data)
+                publish_witness({"identity": identity, "query_deadline": deadline})
+                if publication == "malformed":
+                    identity["ppid"] = parent
+                    data = json.dumps(identity).encode() + b"\n"
+                elif publication in {"distinct", "distinct-overflow"}:
+                    other = dict(identity, pid=987654322)
+                    data += json.dumps(other).encode() + b"\n"
+                elif publication == "overflow":
+                    data = b"x" * 4097 + b"\n" + data
+                elif publication == "partial":
+                    data = data.rstrip(b"\n")
+                elif publication in {"token", "boolean-pid", "stale", "future", "deadline", "extra"}:
+                    if publication == "token":
+                        identity["token"] = "other-query"
+                    elif publication == "boolean-pid":
+                        identity["pid"] = True
+                    elif publication == "stale":
+                        identity["created_monotonic"] = 0
+                    elif publication == "future":
+                        identity["created_monotonic"] = deadline
+                    elif publication == "deadline":
+                        identity["deadline_monotonic"] += 1
+                    else:
+                        identity["extra"] = 1
+                    data = json.dumps(identity).encode() + b"\n"
+                if publication in {"valid-overflow", "distinct-overflow"}:
+                    data += b"x" * 4097
+                if delay == "shutdown":
+                    # TERM-handler adapter, unlike production SIG_DFL. Hold only
+                    # the publication; the real helper executes and is reaped.
+                    # TERM triggers actual pipe delivery.
+                    signal.signal(signal.SIGTERM, term)
+                    held = (fd, data)
+                    return
+            if delay == "prebuffer" and not data.endswith(b"\n"):
+                # Production SIG_DFL: the helper has completed and been reaped;
+                # its identity is already in the pipe before parent TERM.
+                assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+                info = json.loads(witness.read_text())
+                info.update(pipe_before_term=True, term_disposition="SIG_DFL")
+                publish_witness(info)
+                while time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                os._exit(73)  # Parent TERM must win, otherwise the test fails.
+            if delay == "shutdown" and not data.endswith(b"\n"):
+                while not terminated and time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                assert terminated and held is not None
+                os.write(held[0], held[1])
+                os.write(fd, data)  # Late terminal/reap must never retire the obligation.
+                info = json.loads(witness.read_text())
+                info.update(published_monotonic=time.monotonic(), after_term=terminated)
+                publish_witness(info)
+                return
+            original_write(fd, data, deadline)
+    
+        def pause():
+            nonlocal delayed
+            delayed = True
+            time.sleep(max(0, end - 0.045 - time.monotonic()))
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent and (b'"created_monotonic"' in data or b"x" * 100 in data):
+                control_reads.append(data)
+            if os.getpid() == parent and delay == "read" and not delayed:
+                if b'"created_monotonic"' in data or b"x" * 100 in data:
+                    pause()
+            return data
+    
+        def select(reads, writes, errors, timeout):
+            result = original_select(reads, writes, errors, timeout)
+            if os.getpid() == parent and delay in {"select", "prebuffer"} and not delayed:
+                until = time.monotonic() + 0.15
+                while time.monotonic() &lt; until:
+                    if witness.exists():
+                        info = json.loads(witness.read_text())
+                        if delay == "select" or info.get("pipe_before_term"):
+                            break
+                    time.sleep(0.001)
+                else:
+                    raise AssertionError("worker did not prebuffer the identity")
+                pause()
+            return result
+    
+        monkeypatch.setattr(worker_capture, "_write", write)
+        monkeypatch.setattr(os, "read", read)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+            retain(tmp_path, f"late-created-{delay}-{publication}", receipt)
+            worker = receipt.worker
+            assert receipt.error and receipt.residual_remedy
+            assert worker["reaped"] and worker["shutdown_deadline_monotonic"] == end
+            assert worker["query_deadline_monotonic"] == end - 0.05
+            assert receipt.finished_monotonic &lt;= end + 0.015
+            assert receipt.pid is None and not receipt.reaped
+            assert worker["fork_failure"] is None
+            if delay == "select":
+                # Readiness-flag test: this fixture may already be reaped, so it
+                # makes no claim about an observed PID-versus-group signal.
+&gt;               assert worker["signal_scope"] == "pid"
+E               AssertionError: assert 'group' == 'pid'
+E                 
+E                 - pid
+E                 + group
+
+test_worker_capture.py:1678: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_late_created_identity_is_cleanup_only[malformed-select]" time="0.372"><failure message="AssertionError: assert 'group' == 'pid'&#10;  &#10;  - pid&#10;  + group">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-227/test_late_created_identity_is_2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10a883cb0&gt;
+delay = 'select', publication = 'malformed'
+
+    @pytest.mark.parametrize("delay", ["read", "select", "shutdown"])
+    @pytest.mark.parametrize(
+        "publication",
+        ["valid", "distinct", "malformed", "overflow", "valid-overflow", "distinct-overflow"],
+    )
+    def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, publication):
+        """Dropping late controls loses identities; decoding late terminal grants false reap."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_write, original_read = worker_capture._write, os.read
+        original_select = worker_capture.select.select
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        witness = root / f"late-created-{delay}-{publication}-{time.time_ns()}.json"
+        end = time.monotonic() + 0.4
+        delayed = False
+        held = None
+        terminated = False
+        control_reads = []
+        before = set(worker_capture._helper_obligations)
+    
+        def term(sig, frame):
+            nonlocal terminated
+            terminated = True
+    
+        def publish_witness(info):
+            temporary = witness.with_suffix(".tmp")
+            temporary.write_text(json.dumps(info))
+            temporary.replace(witness)
+    
+        def write(fd, data, deadline):
+            nonlocal held
+            if data.startswith(b"{") and b'"created_monotonic"' in data:
+                identity = json.loads(data)
+                publish_witness({"identity": identity, "query_deadline": deadline})
+                if publication == "malformed":
+                    identity["ppid"] = parent
+                    data = json.dumps(identity).encode() + b"\n"
+                elif publication in {"distinct", "distinct-overflow"}:
+                    other = dict(identity, pid=987654322)
+                    data += json.dumps(other).encode() + b"\n"
+                elif publication == "overflow":
+                    data = b"x" * 4097 + b"\n" + data
+                elif publication == "partial":
+                    data = data.rstrip(b"\n")
+                elif publication in {"token", "boolean-pid", "stale", "future", "deadline", "extra"}:
+                    if publication == "token":
+                        identity["token"] = "other-query"
+                    elif publication == "boolean-pid":
+                        identity["pid"] = True
+                    elif publication == "stale":
+                        identity["created_monotonic"] = 0
+                    elif publication == "future":
+                        identity["created_monotonic"] = deadline
+                    elif publication == "deadline":
+                        identity["deadline_monotonic"] += 1
+                    else:
+                        identity["extra"] = 1
+                    data = json.dumps(identity).encode() + b"\n"
+                if publication in {"valid-overflow", "distinct-overflow"}:
+                    data += b"x" * 4097
+                if delay == "shutdown":
+                    # TERM-handler adapter, unlike production SIG_DFL. Hold only
+                    # the publication; the real helper executes and is reaped.
+                    # TERM triggers actual pipe delivery.
+                    signal.signal(signal.SIGTERM, term)
+                    held = (fd, data)
+                    return
+            if delay == "prebuffer" and not data.endswith(b"\n"):
+                # Production SIG_DFL: the helper has completed and been reaped;
+                # its identity is already in the pipe before parent TERM.
+                assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+                info = json.loads(witness.read_text())
+                info.update(pipe_before_term=True, term_disposition="SIG_DFL")
+                publish_witness(info)
+                while time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                os._exit(73)  # Parent TERM must win, otherwise the test fails.
+            if delay == "shutdown" and not data.endswith(b"\n"):
+                while not terminated and time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                assert terminated and held is not None
+                os.write(held[0], held[1])
+                os.write(fd, data)  # Late terminal/reap must never retire the obligation.
+                info = json.loads(witness.read_text())
+                info.update(published_monotonic=time.monotonic(), after_term=terminated)
+                publish_witness(info)
+                return
+            original_write(fd, data, deadline)
+    
+        def pause():
+            nonlocal delayed
+            delayed = True
+            time.sleep(max(0, end - 0.045 - time.monotonic()))
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent and (b'"created_monotonic"' in data or b"x" * 100 in data):
+                control_reads.append(data)
+            if os.getpid() == parent and delay == "read" and not delayed:
+                if b'"created_monotonic"' in data or b"x" * 100 in data:
+                    pause()
+            return data
+    
+        def select(reads, writes, errors, timeout):
+            result = original_select(reads, writes, errors, timeout)
+            if os.getpid() == parent and delay in {"select", "prebuffer"} and not delayed:
+                until = time.monotonic() + 0.15
+                while time.monotonic() &lt; until:
+                    if witness.exists():
+                        info = json.loads(witness.read_text())
+                        if delay == "select" or info.get("pipe_before_term"):
+                            break
+                    time.sleep(0.001)
+                else:
+                    raise AssertionError("worker did not prebuffer the identity")
+                pause()
+            return result
+    
+        monkeypatch.setattr(worker_capture, "_write", write)
+        monkeypatch.setattr(os, "read", read)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+            retain(tmp_path, f"late-created-{delay}-{publication}", receipt)
+            worker = receipt.worker
+            assert receipt.error and receipt.residual_remedy
+            assert worker["reaped"] and worker["shutdown_deadline_monotonic"] == end
+            assert worker["query_deadline_monotonic"] == end - 0.05
+            assert receipt.finished_monotonic &lt;= end + 0.015
+            assert receipt.pid is None and not receipt.reaped
+            assert worker["fork_failure"] is None
+            if delay == "select":
+                # Readiness-flag test: this fixture may already be reaped, so it
+                # makes no claim about an observed PID-versus-group signal.
+&gt;               assert worker["signal_scope"] == "pid"
+E               AssertionError: assert 'group' == 'pid'
+E                 
+E                 - pid
+E                 + group
+
+test_worker_capture.py:1678: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_late_created_identity_is_cleanup_only[overflow-select]" time="0.364"><failure message="AssertionError: assert 'group' == 'pid'&#10;  &#10;  - pid&#10;  + group">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-227/test_late_created_identity_is_3')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10a80d070&gt;
+delay = 'select', publication = 'overflow'
+
+    @pytest.mark.parametrize("delay", ["read", "select", "shutdown"])
+    @pytest.mark.parametrize(
+        "publication",
+        ["valid", "distinct", "malformed", "overflow", "valid-overflow", "distinct-overflow"],
+    )
+    def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, publication):
+        """Dropping late controls loses identities; decoding late terminal grants false reap."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_write, original_read = worker_capture._write, os.read
+        original_select = worker_capture.select.select
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        witness = root / f"late-created-{delay}-{publication}-{time.time_ns()}.json"
+        end = time.monotonic() + 0.4
+        delayed = False
+        held = None
+        terminated = False
+        control_reads = []
+        before = set(worker_capture._helper_obligations)
+    
+        def term(sig, frame):
+            nonlocal terminated
+            terminated = True
+    
+        def publish_witness(info):
+            temporary = witness.with_suffix(".tmp")
+            temporary.write_text(json.dumps(info))
+            temporary.replace(witness)
+    
+        def write(fd, data, deadline):
+            nonlocal held
+            if data.startswith(b"{") and b'"created_monotonic"' in data:
+                identity = json.loads(data)
+                publish_witness({"identity": identity, "query_deadline": deadline})
+                if publication == "malformed":
+                    identity["ppid"] = parent
+                    data = json.dumps(identity).encode() + b"\n"
+                elif publication in {"distinct", "distinct-overflow"}:
+                    other = dict(identity, pid=987654322)
+                    data += json.dumps(other).encode() + b"\n"
+                elif publication == "overflow":
+                    data = b"x" * 4097 + b"\n" + data
+                elif publication == "partial":
+                    data = data.rstrip(b"\n")
+                elif publication in {"token", "boolean-pid", "stale", "future", "deadline", "extra"}:
+                    if publication == "token":
+                        identity["token"] = "other-query"
+                    elif publication == "boolean-pid":
+                        identity["pid"] = True
+                    elif publication == "stale":
+                        identity["created_monotonic"] = 0
+                    elif publication == "future":
+                        identity["created_monotonic"] = deadline
+                    elif publication == "deadline":
+                        identity["deadline_monotonic"] += 1
+                    else:
+                        identity["extra"] = 1
+                    data = json.dumps(identity).encode() + b"\n"
+                if publication in {"valid-overflow", "distinct-overflow"}:
+                    data += b"x" * 4097
+                if delay == "shutdown":
+                    # TERM-handler adapter, unlike production SIG_DFL. Hold only
+                    # the publication; the real helper executes and is reaped.
+                    # TERM triggers actual pipe delivery.
+                    signal.signal(signal.SIGTERM, term)
+                    held = (fd, data)
+                    return
+            if delay == "prebuffer" and not data.endswith(b"\n"):
+                # Production SIG_DFL: the helper has completed and been reaped;
+                # its identity is already in the pipe before parent TERM.
+                assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+                info = json.loads(witness.read_text())
+                info.update(pipe_before_term=True, term_disposition="SIG_DFL")
+                publish_witness(info)
+                while time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                os._exit(73)  # Parent TERM must win, otherwise the test fails.
+            if delay == "shutdown" and not data.endswith(b"\n"):
+                while not terminated and time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                assert terminated and held is not None
+                os.write(held[0], held[1])
+                os.write(fd, data)  # Late terminal/reap must never retire the obligation.
+                info = json.loads(witness.read_text())
+                info.update(published_monotonic=time.monotonic(), after_term=terminated)
+                publish_witness(info)
+                return
+            original_write(fd, data, deadline)
+    
+        def pause():
+            nonlocal delayed
+            delayed = True
+            time.sleep(max(0, end - 0.045 - time.monotonic()))
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent and (b'"created_monotonic"' in data or b"x" * 100 in data):
+                control_reads.append(data)
+            if os.getpid() == parent and delay == "read" and not delayed:
+                if b'"created_monotonic"' in data or b"x" * 100 in data:
+                    pause()
+            return data
+    
+        def select(reads, writes, errors, timeout):
+            result = original_select(reads, writes, errors, timeout)
+            if os.getpid() == parent and delay in {"select", "prebuffer"} and not delayed:
+                until = time.monotonic() + 0.15
+                while time.monotonic() &lt; until:
+                    if witness.exists():
+                        info = json.loads(witness.read_text())
+                        if delay == "select" or info.get("pipe_before_term"):
+                            break
+                    time.sleep(0.001)
+                else:
+                    raise AssertionError("worker did not prebuffer the identity")
+                pause()
+            return result
+    
+        monkeypatch.setattr(worker_capture, "_write", write)
+        monkeypatch.setattr(os, "read", read)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+            retain(tmp_path, f"late-created-{delay}-{publication}", receipt)
+            worker = receipt.worker
+            assert receipt.error and receipt.residual_remedy
+            assert worker["reaped"] and worker["shutdown_deadline_monotonic"] == end
+            assert worker["query_deadline_monotonic"] == end - 0.05
+            assert receipt.finished_monotonic &lt;= end + 0.015
+            assert receipt.pid is None and not receipt.reaped
+            assert worker["fork_failure"] is None
+            if delay == "select":
+                # Readiness-flag test: this fixture may already be reaped, so it
+                # makes no claim about an observed PID-versus-group signal.
+&gt;               assert worker["signal_scope"] == "pid"
+E               AssertionError: assert 'group' == 'pid'
+E                 
+E                 - pid
+E                 + group
+
+test_worker_capture.py:1678: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_late_created_identity_is_cleanup_only[valid-overflow-select]" time="0.370"><failure message="AssertionError: assert 'group' == 'pid'&#10;  &#10;  - pid&#10;  + group">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-227/test_late_created_identity_is_4')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10a880f20&gt;
+delay = 'select', publication = 'valid-overflow'
+
+    @pytest.mark.parametrize("delay", ["read", "select", "shutdown"])
+    @pytest.mark.parametrize(
+        "publication",
+        ["valid", "distinct", "malformed", "overflow", "valid-overflow", "distinct-overflow"],
+    )
+    def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, publication):
+        """Dropping late controls loses identities; decoding late terminal grants false reap."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_write, original_read = worker_capture._write, os.read
+        original_select = worker_capture.select.select
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        witness = root / f"late-created-{delay}-{publication}-{time.time_ns()}.json"
+        end = time.monotonic() + 0.4
+        delayed = False
+        held = None
+        terminated = False
+        control_reads = []
+        before = set(worker_capture._helper_obligations)
+    
+        def term(sig, frame):
+            nonlocal terminated
+            terminated = True
+    
+        def publish_witness(info):
+            temporary = witness.with_suffix(".tmp")
+            temporary.write_text(json.dumps(info))
+            temporary.replace(witness)
+    
+        def write(fd, data, deadline):
+            nonlocal held
+            if data.startswith(b"{") and b'"created_monotonic"' in data:
+                identity = json.loads(data)
+                publish_witness({"identity": identity, "query_deadline": deadline})
+                if publication == "malformed":
+                    identity["ppid"] = parent
+                    data = json.dumps(identity).encode() + b"\n"
+                elif publication in {"distinct", "distinct-overflow"}:
+                    other = dict(identity, pid=987654322)
+                    data += json.dumps(other).encode() + b"\n"
+                elif publication == "overflow":
+                    data = b"x" * 4097 + b"\n" + data
+                elif publication == "partial":
+                    data = data.rstrip(b"\n")
+                elif publication in {"token", "boolean-pid", "stale", "future", "deadline", "extra"}:
+                    if publication == "token":
+                        identity["token"] = "other-query"
+                    elif publication == "boolean-pid":
+                        identity["pid"] = True
+                    elif publication == "stale":
+                        identity["created_monotonic"] = 0
+                    elif publication == "future":
+                        identity["created_monotonic"] = deadline
+                    elif publication == "deadline":
+                        identity["deadline_monotonic"] += 1
+                    else:
+                        identity["extra"] = 1
+                    data = json.dumps(identity).encode() + b"\n"
+                if publication in {"valid-overflow", "distinct-overflow"}:
+                    data += b"x" * 4097
+                if delay == "shutdown":
+                    # TERM-handler adapter, unlike production SIG_DFL. Hold only
+                    # the publication; the real helper executes and is reaped.
+                    # TERM triggers actual pipe delivery.
+                    signal.signal(signal.SIGTERM, term)
+                    held = (fd, data)
+                    return
+            if delay == "prebuffer" and not data.endswith(b"\n"):
+                # Production SIG_DFL: the helper has completed and been reaped;
+                # its identity is already in the pipe before parent TERM.
+                assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+                info = json.loads(witness.read_text())
+                info.update(pipe_before_term=True, term_disposition="SIG_DFL")
+                publish_witness(info)
+                while time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                os._exit(73)  # Parent TERM must win, otherwise the test fails.
+            if delay == "shutdown" and not data.endswith(b"\n"):
+                while not terminated and time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                assert terminated and held is not None
+                os.write(held[0], held[1])
+                os.write(fd, data)  # Late terminal/reap must never retire the obligation.
+                info = json.loads(witness.read_text())
+                info.update(published_monotonic=time.monotonic(), after_term=terminated)
+                publish_witness(info)
+                return
+            original_write(fd, data, deadline)
+    
+        def pause():
+            nonlocal delayed
+            delayed = True
+            time.sleep(max(0, end - 0.045 - time.monotonic()))
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent and (b'"created_monotonic"' in data or b"x" * 100 in data):
+                control_reads.append(data)
+            if os.getpid() == parent and delay == "read" and not delayed:
+                if b'"created_monotonic"' in data or b"x" * 100 in data:
+                    pause()
+            return data
+    
+        def select(reads, writes, errors, timeout):
+            result = original_select(reads, writes, errors, timeout)
+            if os.getpid() == parent and delay in {"select", "prebuffer"} and not delayed:
+                until = time.monotonic() + 0.15
+                while time.monotonic() &lt; until:
+                    if witness.exists():
+                        info = json.loads(witness.read_text())
+                        if delay == "select" or info.get("pipe_before_term"):
+                            break
+                    time.sleep(0.001)
+                else:
+                    raise AssertionError("worker did not prebuffer the identity")
+                pause()
+            return result
+    
+        monkeypatch.setattr(worker_capture, "_write", write)
+        monkeypatch.setattr(os, "read", read)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+            retain(tmp_path, f"late-created-{delay}-{publication}", receipt)
+            worker = receipt.worker
+            assert receipt.error and receipt.residual_remedy
+            assert worker["reaped"] and worker["shutdown_deadline_monotonic"] == end
+            assert worker["query_deadline_monotonic"] == end - 0.05
+            assert receipt.finished_monotonic &lt;= end + 0.015
+            assert receipt.pid is None and not receipt.reaped
+            assert worker["fork_failure"] is None
+            if delay == "select":
+                # Readiness-flag test: this fixture may already be reaped, so it
+                # makes no claim about an observed PID-versus-group signal.
+&gt;               assert worker["signal_scope"] == "pid"
+E               AssertionError: assert 'group' == 'pid'
+E                 
+E                 - pid
+E                 + group
+
+test_worker_capture.py:1678: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_late_created_identity_is_cleanup_only[distinct-overflow-select]" time="0.373"><failure message="AssertionError: assert 'group' == 'pid'&#10;  &#10;  - pid&#10;  + group">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-227/test_late_created_identity_is_5')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10a882120&gt;
+delay = 'select', publication = 'distinct-overflow'
+
+    @pytest.mark.parametrize("delay", ["read", "select", "shutdown"])
+    @pytest.mark.parametrize(
+        "publication",
+        ["valid", "distinct", "malformed", "overflow", "valid-overflow", "distinct-overflow"],
+    )
+    def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, publication):
+        """Dropping late controls loses identities; decoding late terminal grants false reap."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_write, original_read = worker_capture._write, os.read
+        original_select = worker_capture.select.select
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        witness = root / f"late-created-{delay}-{publication}-{time.time_ns()}.json"
+        end = time.monotonic() + 0.4
+        delayed = False
+        held = None
+        terminated = False
+        control_reads = []
+        before = set(worker_capture._helper_obligations)
+    
+        def term(sig, frame):
+            nonlocal terminated
+            terminated = True
+    
+        def publish_witness(info):
+            temporary = witness.with_suffix(".tmp")
+            temporary.write_text(json.dumps(info))
+            temporary.replace(witness)
+    
+        def write(fd, data, deadline):
+            nonlocal held
+            if data.startswith(b"{") and b'"created_monotonic"' in data:
+                identity = json.loads(data)
+                publish_witness({"identity": identity, "query_deadline": deadline})
+                if publication == "malformed":
+                    identity["ppid"] = parent
+                    data = json.dumps(identity).encode() + b"\n"
+                elif publication in {"distinct", "distinct-overflow"}:
+                    other = dict(identity, pid=987654322)
+                    data += json.dumps(other).encode() + b"\n"
+                elif publication == "overflow":
+                    data = b"x" * 4097 + b"\n" + data
+                elif publication == "partial":
+                    data = data.rstrip(b"\n")
+                elif publication in {"token", "boolean-pid", "stale", "future", "deadline", "extra"}:
+                    if publication == "token":
+                        identity["token"] = "other-query"
+                    elif publication == "boolean-pid":
+                        identity["pid"] = True
+                    elif publication == "stale":
+                        identity["created_monotonic"] = 0
+                    elif publication == "future":
+                        identity["created_monotonic"] = deadline
+                    elif publication == "deadline":
+                        identity["deadline_monotonic"] += 1
+                    else:
+                        identity["extra"] = 1
+                    data = json.dumps(identity).encode() + b"\n"
+                if publication in {"valid-overflow", "distinct-overflow"}:
+                    data += b"x" * 4097
+                if delay == "shutdown":
+                    # TERM-handler adapter, unlike production SIG_DFL. Hold only
+                    # the publication; the real helper executes and is reaped.
+                    # TERM triggers actual pipe delivery.
+                    signal.signal(signal.SIGTERM, term)
+                    held = (fd, data)
+                    return
+            if delay == "prebuffer" and not data.endswith(b"\n"):
+                # Production SIG_DFL: the helper has completed and been reaped;
+                # its identity is already in the pipe before parent TERM.
+                assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+                info = json.loads(witness.read_text())
+                info.update(pipe_before_term=True, term_disposition="SIG_DFL")
+                publish_witness(info)
+                while time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                os._exit(73)  # Parent TERM must win, otherwise the test fails.
+            if delay == "shutdown" and not data.endswith(b"\n"):
+                while not terminated and time.monotonic() &lt; end:
+                    time.sleep(0.001)
+                assert terminated and held is not None
+                os.write(held[0], held[1])
+                os.write(fd, data)  # Late terminal/reap must never retire the obligation.
+                info = json.loads(witness.read_text())
+                info.update(published_monotonic=time.monotonic(), after_term=terminated)
+                publish_witness(info)
+                return
+            original_write(fd, data, deadline)
+    
+        def pause():
+            nonlocal delayed
+            delayed = True
+            time.sleep(max(0, end - 0.045 - time.monotonic()))
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent and (b'"created_monotonic"' in data or b"x" * 100 in data):
+                control_reads.append(data)
+            if os.getpid() == parent and delay == "read" and not delayed:
+                if b'"created_monotonic"' in data or b"x" * 100 in data:
+                    pause()
+            return data
+    
+        def select(reads, writes, errors, timeout):
+            result = original_select(reads, writes, errors, timeout)
+            if os.getpid() == parent and delay in {"select", "prebuffer"} and not delayed:
+                until = time.monotonic() + 0.15
+                while time.monotonic() &lt; until:
+                    if witness.exists():
+                        info = json.loads(witness.read_text())
+                        if delay == "select" or info.get("pipe_before_term"):
+                            break
+                    time.sleep(0.001)
+                else:
+                    raise AssertionError("worker did not prebuffer the identity")
+                pause()
+            return result
+    
+        monkeypatch.setattr(worker_capture, "_write", write)
+        monkeypatch.setattr(os, "read", read)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+            retain(tmp_path, f"late-created-{delay}-{publication}", receipt)
+            worker = receipt.worker
+            assert receipt.error and receipt.residual_remedy
+            assert worker["reaped"] and worker["shutdown_deadline_monotonic"] == end
+            assert worker["query_deadline_monotonic"] == end - 0.05
+            assert receipt.finished_monotonic &lt;= end + 0.015
+            assert receipt.pid is None and not receipt.reaped
+            assert worker["fork_failure"] is None
+            if delay == "select":
+                # Readiness-flag test: this fixture may already be reaped, so it
+                # makes no claim about an observed PID-versus-group signal.
+&gt;               assert worker["signal_scope"] == "pid"
+E               AssertionError: assert 'group' == 'pid'
+E                 
+E                 - pid
+E                 + group
+
+test_worker_capture.py:1678: AssertionError</failure></testcase></testsuite></testsuites>

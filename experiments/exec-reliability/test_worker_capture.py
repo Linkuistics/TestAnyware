@@ -1540,7 +1540,10 @@ def test_review_confirmed_fork_failure_keeps_worker_failure(tmp_path, monkeypatc
 
 
 @pytest.mark.parametrize("delay", ["read", "select", "shutdown"])
-@pytest.mark.parametrize("publication", ["valid", "distinct", "malformed", "overflow"])
+@pytest.mark.parametrize(
+    "publication",
+    ["valid", "distinct", "malformed", "overflow", "valid-overflow", "distinct-overflow"],
+)
 def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, publication):
     """Dropping late controls loses identities; decoding late terminal grants false reap."""
     import worker_capture
@@ -1551,25 +1554,31 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
     root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
     root.mkdir(parents=True, exist_ok=True)
     witness = root / f"late-created-{delay}-{publication}-{time.time_ns()}.json"
-    end = time.monotonic() + 0.6
+    end = time.monotonic() + 0.4
     delayed = False
     held = None
     terminated = False
+    control_reads = []
     before = set(worker_capture._helper_obligations)
 
     def term(sig, frame):
         nonlocal terminated
         terminated = True
 
+    def publish_witness(info):
+        temporary = witness.with_suffix(".tmp")
+        temporary.write_text(json.dumps(info))
+        temporary.replace(witness)
+
     def write(fd, data, deadline):
         nonlocal held
         if data.startswith(b"{") and b'"created_monotonic"' in data:
             identity = json.loads(data)
-            witness.write_text(json.dumps({"identity": identity, "query_deadline": deadline}))
+            publish_witness({"identity": identity, "query_deadline": deadline})
             if publication == "malformed":
                 identity["ppid"] = parent
                 data = json.dumps(identity).encode() + b"\n"
-            elif publication == "distinct":
+            elif publication in {"distinct", "distinct-overflow"}:
                 other = dict(identity, pid=987654322)
                 data += json.dumps(other).encode() + b"\n"
             elif publication == "overflow":
@@ -1590,12 +1599,25 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
                 else:
                     identity["extra"] = 1
                 data = json.dumps(identity).encode() + b"\n"
+            if publication in {"valid-overflow", "distinct-overflow"}:
+                data += b"x" * 4097
             if delay == "shutdown":
-                # Hold only the publication: the real helper still executes and is
-                # reaped by the real worker. TERM triggers actual pipe delivery.
+                # TERM-handler adapter, unlike production SIG_DFL. Hold only
+                # the publication; the real helper executes and is reaped.
+                # TERM triggers actual pipe delivery.
                 signal.signal(signal.SIGTERM, term)
                 held = (fd, data)
                 return
+        if delay == "prebuffer" and not data.endswith(b"\n"):
+            # Production SIG_DFL: the helper has completed and been reaped;
+            # its identity is already in the pipe before parent TERM.
+            assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
+            info = json.loads(witness.read_text())
+            info.update(pipe_before_term=True, term_disposition="SIG_DFL")
+            publish_witness(info)
+            while time.monotonic() < end:
+                time.sleep(0.001)
+            os._exit(73)  # Parent TERM must win, otherwise the test fails.
         if delay == "shutdown" and not data.endswith(b"\n"):
             while not terminated and time.monotonic() < end:
                 time.sleep(0.001)
@@ -1604,7 +1626,7 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
             os.write(fd, data)  # Late terminal/reap must never retire the obligation.
             info = json.loads(witness.read_text())
             info.update(published_monotonic=time.monotonic(), after_term=terminated)
-            witness.write_text(json.dumps(info))
+            publish_witness(info)
             return
         original_write(fd, data, deadline)
 
@@ -1615,6 +1637,8 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
 
     def read(fd, count):
         data = original_read(fd, count)
+        if os.getpid() == parent and (b'"created_monotonic"' in data or b"x" * 100 in data):
+            control_reads.append(data)
         if os.getpid() == parent and delay == "read" and not delayed:
             if b'"created_monotonic"' in data or b"x" * 100 in data:
                 pause()
@@ -1622,11 +1646,16 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
 
     def select(reads, writes, errors, timeout):
         result = original_select(reads, writes, errors, timeout)
-        if os.getpid() == parent and delay == "select" and not delayed:
+        if os.getpid() == parent and delay in {"select", "prebuffer"} and not delayed:
             until = time.monotonic() + 0.15
-            while not witness.exists() and time.monotonic() < until:
+            while time.monotonic() < until:
+                if witness.exists():
+                    info = json.loads(witness.read_text())
+                    if delay == "select" or info.get("pipe_before_term"):
+                        break
                 time.sleep(0.001)
-            assert witness.exists()
+            else:
+                raise AssertionError("worker did not prebuffer the identity")
             pause()
         return result
 
@@ -1644,8 +1673,14 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
         assert receipt.pid is None and not receipt.reaped
         assert worker["fork_failure"] is None
         if delay == "select":
+            # Readiness-flag test: this fixture may already be reaped, so it
+            # makes no claim about an observed PID-versus-group signal.
             assert worker["signal_scope"] == "pid"
         info = json.loads(witness.read_text())
+        if delay == "prebuffer":
+            assert info["pipe_before_term"] and info["term_disposition"] == "SIG_DFL"
+            assert worker["returncode"] == -signal.SIGTERM
+            assert any(item["signal"] == "SIGTERM" for item in worker["signals"])
         if delay == "shutdown":
             assert info["after_term"] and info["published_monotonic"] >= end - 0.05
         else:
@@ -1654,9 +1689,23 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
             worker_capture._helper_obligations[key]
             for key in set(worker_capture._helper_obligations) - before
         ]
-        expected = {info["identity"]["pid"]} if publication in {"valid", "distinct"} else set()
-        if publication == "distinct":
+        expected = (
+            {info["identity"]["pid"]}
+            if publication in {"valid", "distinct", "valid-overflow", "distinct-overflow"}
+            else set()
+        )
+        if publication in {"distinct", "distinct-overflow"}:
             expected.add(987654322)
+        if publication in {"valid-overflow", "distinct-overflow"}:
+            # The identity prefix and overflow must actually share a read.
+            assert len(control_reads) == 1
+            chunk = control_reads[0]
+            assert b'"created_monotonic"' in chunk and chunk.endswith(b"x" * 100)
+            if publication == "distinct-overflow":
+                assert b"987654322" in chunk
+            (root / (witness.stem + "-read.json")).write_text(
+                json.dumps({"bytes": len(chunk), "hex": chunk.hex()})
+            )
         assert {item["pid"] for item in identities} == expected
         assert {item["pid"] for item in worker["helper_identities"]} == expected
         assert worker["unknown_helper_creation"] == (not expected)
@@ -1671,3 +1720,8 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
 )
 def test_late_created_identity_rejects_invalid_fields(tmp_path, monkeypatch, publication):
     test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, "shutdown", publication)
+
+
+@pytest.mark.parametrize("publication", ["valid", "distinct"])
+def test_late_created_identity_prebuffered_before_default_term(tmp_path, monkeypatch, publication):
+    test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, "prebuffer", publication)
