@@ -1,0 +1,818 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="32" skipped="0" tests="82" time="31.005" timestamp="2026-11-15T03:42:03.184885+11:00" hostname="byrd.local"><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[nested-result]" time="0.009" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[nested-readiness]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[malformed]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[duplicate-key]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[bad-token]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[bad-timestamp]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[bad-field-type]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[oversized-frame]" time="0.004"><failure message="assert 291803.260440583 is None">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-239/test_review_worker_rejects_hos7')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10adc09b0&gt;
+fault = 'oversized-frame'
+
+    @pytest.mark.parametrize(
+        "fault",
+        [
+            "nested-result",
+            "nested-readiness",
+            "malformed",
+            "duplicate-key",
+            "bad-token",
+            "bad-timestamp",
+            "bad-field-type",
+            "oversized-frame",
+            "oversized-channel",
+            "partial-frame",
+            "exit-before-intent",
+            "duplicate-readiness",
+            "predispatch-start",
+            "reversed-query",
+            "future-finish",
+            "null-start",
+            "null-finish",
+            "null-deadline",
+            "null-cutoff",
+            "early-cutoff",
+            "late-cutoff",
+            "early-created",
+            "future-created",
+            "kill-before-create",
+            "reap-before-kill",
+            "kill-without-create",
+            "reaped-without-stamp",
+            "stamp-without-reaped",
+            "zero-pid",
+            "negative-pid",
+            "negative-group-pid",
+            "boolean-pid",
+            "string-pid",
+            "pid-without-created",
+            "created-without-pid",
+            "kill-errno-without-kill",
+            "wrong-cutoff",
+            "nan-finish",
+            "infinite-finish",
+        ],
+    )
+    def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
+        # Protocol adapter replaces only child publication. Fork, reset, pipes, parent
+        # validation, deadline, shutdown and exact waitpid are real; no helper is created.
+        import struct
+        from dataclasses import asdict
+    
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        publication = root / f"worker-publication-{fault}-{time.time_ns()}.json"
+        owners = []
+        reap = worker_capture._reap
+    
+        def track_reap(owner):
+            if not owners:
+                owners.append(owner)
+            reap(owner)
+    
+        def publish(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                identity = {
+                    "token": token,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                ready = json.dumps(identity).encode()
+                if fault == "nested-readiness":
+                    ready = b"[" * 1500 + b"]" * 1500
+                elif fault == "duplicate-readiness":
+                    ready = b'{"token":"wrong",' + ready[1:]
+                worker_capture._write(control, ready + b"\n", deadline)
+                if fault == "exit-before-intent":
+                    os._exit(73)
+                worker_capture._write(control, b"intent\n", deadline)
+                now = time.monotonic()
+                body = asdict(
+                    inspection.HelperCapture(
+                        argv=argv,
+                        started_monotonic=now,
+                        deadline_monotonic=deadline,
+                        capture_deadline_monotonic=deadline - min(0.05, (deadline - now) / 4),
+                        finished_monotonic=now,
+                        admission=inspection.fork_admission(),
+                    )
+                )
+                body.update(stdout="", stderr="", token=token)
+                if fault == "bad-token":
+                    body["token"] = "wrong"
+                elif fault == "bad-timestamp":
+                    body["started_monotonic"] = deadline + 1
+                elif fault == "bad-field-type":
+                    body["stdout"] = []
+                # Both witnesses are sampled after dispatch. Only helper event order
+                # changes; no guessed child scheduling delay shifts the query start.
+                finished = time.monotonic()
+                body["finished_monotonic"] = finished
+                changes = {
+                    "predispatch-start": {"started_monotonic": 0},
+                    "reversed-query": {"finished_monotonic": now - 0.001},
+                    "future-finish": {"finished_monotonic": deadline - 0.001},
+                    "null-start": {"started_monotonic": None},
+                    "null-finish": {"finished_monotonic": None},
+                    "null-deadline": {"deadline_monotonic": None},
+                    "null-cutoff": {"capture_deadline_monotonic": None},
+                    "early-cutoff": {"capture_deadline_monotonic": now - 0.001},
+                    "late-cutoff": {"capture_deadline_monotonic": deadline + 0.001},
+                    "early-created": {"pid": os.getpid(), "created_monotonic": now - 0.001},
+                    "future-created": {"pid": os.getpid(), "created_monotonic": deadline - 0.001},
+                    "kill-before-create": {
+                        "pid": os.getpid(),
+                        "created_monotonic": finished,
+                        "kill_monotonic": now,
+                    },
+                    "reap-before-kill": {
+                        "pid": os.getpid(),
+                        "created_monotonic": now,
+                        "kill_monotonic": finished,
+                        "reaped": True,
+                        "reaped_monotonic": now,
+                    },
+                    "kill-without-create": {"kill_monotonic": now},
+                    "reaped-without-stamp": {"reaped": True},
+                    "stamp-without-reaped": {
+                        "pid": os.getpid(),
+                        "created_monotonic": now,
+                        "reaped_monotonic": now,
+                    },
+                    # Matching creation stamps isolate identity validation from the
+                    # existing PID/timestamp coupling and query-order checks.
+                    "zero-pid": {"pid": 0, "created_monotonic": now},
+                    "negative-pid": {"pid": -1, "created_monotonic": now},
+                    "negative-group-pid": {"pid": -123, "created_monotonic": now},
+                    "boolean-pid": {"pid": True, "created_monotonic": now},
+                    "string-pid": {"pid": "123", "created_monotonic": now},
+                    "pid-without-created": {"pid": os.getpid()},
+                    "created-without-pid": {"created_monotonic": now},
+                    "kill-errno-without-kill": {"kill_errno": 1},
+                    "wrong-cutoff": {"capture_deadline_monotonic": deadline},
+                    "nan-finish": {"finished_monotonic": float("nan")},
+                    "infinite-finish": {"finished_monotonic": float("inf")},
+                }
+                body.update(changes.get(fault, {}))
+                payload = json.dumps(body).encode()
+                if fault == "nested-result":
+                    payload = b"[" * 200000 + b"]" * 200000
+                elif fault == "malformed":
+                    payload = b"{"
+                elif fault == "duplicate-key":
+                    payload = b'{"stdout":"",' + payload[1:]
+                if fault == "oversized-frame":
+                    frame = struct.pack("!I", 1024 * 1024 + 1)
+                elif fault == "oversized-channel":
+                    frame = struct.pack("!I", 1024 * 1024) + b"x" * (1024 * 1024 + 1)
+                else:
+                    frame = struct.pack("!I", len(payload)) + payload
+                if fault == "partial-frame":
+                    frame = frame[:-1]
+                publication.write_text(
+                    json.dumps({"fault": fault, "payload_hex": payload.hex(), "frame_hex": frame.hex()})
+                )
+                worker_capture._write(result, frame, deadline)
+                os._exit(0)
+            except BaseException:
+                os._exit(74)
+    
+        monkeypatch.setattr(worker_capture, "_child", publish)
+        monkeypatch.setattr(worker_capture, "_reap", track_reap)
+        receipt = None
+        try:
+            receipt = worker_capture.capture_helper(("/bin/ps",), time.monotonic() + 1)
+        finally:
+            # Keep ownership evidence even if the pre-fix decoder escapes the API.
+            if receipt is not None:
+                retain(tmp_path, f"hostile-{fault}-protocol-adapter", receipt)
+            else:
+                root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+                root.mkdir(parents=True, exist_ok=True)
+                (root / f"escaped-{fault}-{time.time_ns()}.json").write_text(
+                    json.dumps({"worker": asdict(owners[0]), "fault": fault}, indent=2)
+                )
+        assert receipt.error is not None
+        expected_errors = {
+            "oversized-frame": "invalid worker frame length",
+            "partial-frame": "incomplete worker frame length",
+            "bad-timestamp": "invalid worker timestamp",
+            "predispatch-start": "worker query interval outside dispatch/receipt allowance",
+            "reversed-query": "worker query interval outside dispatch/receipt allowance",
+            "future-finish": "worker query interval outside dispatch/receipt allowance",
+            "null-start": "invalid worker timestamp",
+            "null-finish": "invalid worker timestamp",
+            "null-deadline": "invalid worker timestamp",
+            "null-cutoff": "invalid worker timestamp",
+            "early-cutoff": "worker capture cutoff outside query allowance",
+            "late-cutoff": "invalid worker timestamp",
+            "early-created": "worker helper timestamps out of order",
+            "future-created": "worker helper timestamps out of order",
+            "kill-before-create": "worker helper timestamps out of order",
+            "reap-before-kill": "worker helper timestamps out of order",
+            "kill-without-create": "worker helper event without creation timestamp",
+            "reaped-without-stamp": "worker reap state/timestamp mismatch",
+            "stamp-without-reaped": "worker reap state/timestamp mismatch",
+            "zero-pid": "invalid worker helper pid",
+            "negative-pid": "invalid worker helper pid",
+            "negative-group-pid": "invalid worker helper pid",
+            "boolean-pid": "invalid worker integer",
+            "string-pid": "invalid worker integer",
+            "pid-without-created": "worker pid/creation timestamp mismatch",
+            "created-without-pid": "worker pid/creation timestamp mismatch",
+            "kill-errno-without-kill": "worker kill errno without kill timestamp",
+            "wrong-cutoff": "worker capture cutoff mismatch",
+            "nan-finish": "invalid worker timestamp",
+            "infinite-finish": "invalid worker timestamp",
+        }
+        if fault in expected_errors:
+            assert receipt.error == f"worker capture failed: {expected_errors[fault]}"
+        assert receipt.worker["unknown_helper_creation"] is True
+        assert receipt.worker["reaped"] is True
+        assert receipt.worker["dispatch_monotonic"] &lt;= receipt.finished_monotonic
+        assert receipt.worker["published_times"] is None
+        if fault in {"oversized-frame", "partial-frame"}:
+&gt;           assert receipt.worker["receipt_monotonic"] is None
+E           assert 291803.260440583 is None
+
+test_worker_capture.py:912: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[oversized-channel]" time="0.012" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[partial-frame]" time="0.004"><failure message="AssertionError: assert 'worker capture failed: invalid worker frame length' == 'worker capture failed: incomplete worker frame length'&#10;  &#10;  - worker capture failed: incomplete worker frame length&#10;  ?                          ^^^^ ^^^&#10;  + worker capture failed: invalid worker frame length&#10;  ?                          ^^ ^^">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-239/test_review_worker_rejects_hos9')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10ad3b110&gt;
+fault = 'partial-frame'
+
+    @pytest.mark.parametrize(
+        "fault",
+        [
+            "nested-result",
+            "nested-readiness",
+            "malformed",
+            "duplicate-key",
+            "bad-token",
+            "bad-timestamp",
+            "bad-field-type",
+            "oversized-frame",
+            "oversized-channel",
+            "partial-frame",
+            "exit-before-intent",
+            "duplicate-readiness",
+            "predispatch-start",
+            "reversed-query",
+            "future-finish",
+            "null-start",
+            "null-finish",
+            "null-deadline",
+            "null-cutoff",
+            "early-cutoff",
+            "late-cutoff",
+            "early-created",
+            "future-created",
+            "kill-before-create",
+            "reap-before-kill",
+            "kill-without-create",
+            "reaped-without-stamp",
+            "stamp-without-reaped",
+            "zero-pid",
+            "negative-pid",
+            "negative-group-pid",
+            "boolean-pid",
+            "string-pid",
+            "pid-without-created",
+            "created-without-pid",
+            "kill-errno-without-kill",
+            "wrong-cutoff",
+            "nan-finish",
+            "infinite-finish",
+        ],
+    )
+    def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
+        # Protocol adapter replaces only child publication. Fork, reset, pipes, parent
+        # validation, deadline, shutdown and exact waitpid are real; no helper is created.
+        import struct
+        from dataclasses import asdict
+    
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        publication = root / f"worker-publication-{fault}-{time.time_ns()}.json"
+        owners = []
+        reap = worker_capture._reap
+    
+        def track_reap(owner):
+            if not owners:
+                owners.append(owner)
+            reap(owner)
+    
+        def publish(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                identity = {
+                    "token": token,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                ready = json.dumps(identity).encode()
+                if fault == "nested-readiness":
+                    ready = b"[" * 1500 + b"]" * 1500
+                elif fault == "duplicate-readiness":
+                    ready = b'{"token":"wrong",' + ready[1:]
+                worker_capture._write(control, ready + b"\n", deadline)
+                if fault == "exit-before-intent":
+                    os._exit(73)
+                worker_capture._write(control, b"intent\n", deadline)
+                now = time.monotonic()
+                body = asdict(
+                    inspection.HelperCapture(
+                        argv=argv,
+                        started_monotonic=now,
+                        deadline_monotonic=deadline,
+                        capture_deadline_monotonic=deadline - min(0.05, (deadline - now) / 4),
+                        finished_monotonic=now,
+                        admission=inspection.fork_admission(),
+                    )
+                )
+                body.update(stdout="", stderr="", token=token)
+                if fault == "bad-token":
+                    body["token"] = "wrong"
+                elif fault == "bad-timestamp":
+                    body["started_monotonic"] = deadline + 1
+                elif fault == "bad-field-type":
+                    body["stdout"] = []
+                # Both witnesses are sampled after dispatch. Only helper event order
+                # changes; no guessed child scheduling delay shifts the query start.
+                finished = time.monotonic()
+                body["finished_monotonic"] = finished
+                changes = {
+                    "predispatch-start": {"started_monotonic": 0},
+                    "reversed-query": {"finished_monotonic": now - 0.001},
+                    "future-finish": {"finished_monotonic": deadline - 0.001},
+                    "null-start": {"started_monotonic": None},
+                    "null-finish": {"finished_monotonic": None},
+                    "null-deadline": {"deadline_monotonic": None},
+                    "null-cutoff": {"capture_deadline_monotonic": None},
+                    "early-cutoff": {"capture_deadline_monotonic": now - 0.001},
+                    "late-cutoff": {"capture_deadline_monotonic": deadline + 0.001},
+                    "early-created": {"pid": os.getpid(), "created_monotonic": now - 0.001},
+                    "future-created": {"pid": os.getpid(), "created_monotonic": deadline - 0.001},
+                    "kill-before-create": {
+                        "pid": os.getpid(),
+                        "created_monotonic": finished,
+                        "kill_monotonic": now,
+                    },
+                    "reap-before-kill": {
+                        "pid": os.getpid(),
+                        "created_monotonic": now,
+                        "kill_monotonic": finished,
+                        "reaped": True,
+                        "reaped_monotonic": now,
+                    },
+                    "kill-without-create": {"kill_monotonic": now},
+                    "reaped-without-stamp": {"reaped": True},
+                    "stamp-without-reaped": {
+                        "pid": os.getpid(),
+                        "created_monotonic": now,
+                        "reaped_monotonic": now,
+                    },
+                    # Matching creation stamps isolate identity validation from the
+                    # existing PID/timestamp coupling and query-order checks.
+                    "zero-pid": {"pid": 0, "created_monotonic": now},
+                    "negative-pid": {"pid": -1, "created_monotonic": now},
+                    "negative-group-pid": {"pid": -123, "created_monotonic": now},
+                    "boolean-pid": {"pid": True, "created_monotonic": now},
+                    "string-pid": {"pid": "123", "created_monotonic": now},
+                    "pid-without-created": {"pid": os.getpid()},
+                    "created-without-pid": {"created_monotonic": now},
+                    "kill-errno-without-kill": {"kill_errno": 1},
+                    "wrong-cutoff": {"capture_deadline_monotonic": deadline},
+                    "nan-finish": {"finished_monotonic": float("nan")},
+                    "infinite-finish": {"finished_monotonic": float("inf")},
+                }
+                body.update(changes.get(fault, {}))
+                payload = json.dumps(body).encode()
+                if fault == "nested-result":
+                    payload = b"[" * 200000 + b"]" * 200000
+                elif fault == "malformed":
+                    payload = b"{"
+                elif fault == "duplicate-key":
+                    payload = b'{"stdout":"",' + payload[1:]
+                if fault == "oversized-frame":
+                    frame = struct.pack("!I", 1024 * 1024 + 1)
+                elif fault == "oversized-channel":
+                    frame = struct.pack("!I", 1024 * 1024) + b"x" * (1024 * 1024 + 1)
+                else:
+                    frame = struct.pack("!I", len(payload)) + payload
+                if fault == "partial-frame":
+                    frame = frame[:-1]
+                publication.write_text(
+                    json.dumps({"fault": fault, "payload_hex": payload.hex(), "frame_hex": frame.hex()})
+                )
+                worker_capture._write(result, frame, deadline)
+                os._exit(0)
+            except BaseException:
+                os._exit(74)
+    
+        monkeypatch.setattr(worker_capture, "_child", publish)
+        monkeypatch.setattr(worker_capture, "_reap", track_reap)
+        receipt = None
+        try:
+            receipt = worker_capture.capture_helper(("/bin/ps",), time.monotonic() + 1)
+        finally:
+            # Keep ownership evidence even if the pre-fix decoder escapes the API.
+            if receipt is not None:
+                retain(tmp_path, f"hostile-{fault}-protocol-adapter", receipt)
+            else:
+                root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+                root.mkdir(parents=True, exist_ok=True)
+                (root / f"escaped-{fault}-{time.time_ns()}.json").write_text(
+                    json.dumps({"worker": asdict(owners[0]), "fault": fault}, indent=2)
+                )
+        assert receipt.error is not None
+        expected_errors = {
+            "oversized-frame": "invalid worker frame length",
+            "partial-frame": "incomplete worker frame length",
+            "bad-timestamp": "invalid worker timestamp",
+            "predispatch-start": "worker query interval outside dispatch/receipt allowance",
+            "reversed-query": "worker query interval outside dispatch/receipt allowance",
+            "future-finish": "worker query interval outside dispatch/receipt allowance",
+            "null-start": "invalid worker timestamp",
+            "null-finish": "invalid worker timestamp",
+            "null-deadline": "invalid worker timestamp",
+            "null-cutoff": "invalid worker timestamp",
+            "early-cutoff": "worker capture cutoff outside query allowance",
+            "late-cutoff": "invalid worker timestamp",
+            "early-created": "worker helper timestamps out of order",
+            "future-created": "worker helper timestamps out of order",
+            "kill-before-create": "worker helper timestamps out of order",
+            "reap-before-kill": "worker helper timestamps out of order",
+            "kill-without-create": "worker helper event without creation timestamp",
+            "reaped-without-stamp": "worker reap state/timestamp mismatch",
+            "stamp-without-reaped": "worker reap state/timestamp mismatch",
+            "zero-pid": "invalid worker helper pid",
+            "negative-pid": "invalid worker helper pid",
+            "negative-group-pid": "invalid worker helper pid",
+            "boolean-pid": "invalid worker integer",
+            "string-pid": "invalid worker integer",
+            "pid-without-created": "worker pid/creation timestamp mismatch",
+            "created-without-pid": "worker pid/creation timestamp mismatch",
+            "kill-errno-without-kill": "worker kill errno without kill timestamp",
+            "wrong-cutoff": "worker capture cutoff mismatch",
+            "nan-finish": "invalid worker timestamp",
+            "infinite-finish": "invalid worker timestamp",
+        }
+        if fault in expected_errors:
+&gt;           assert receipt.error == f"worker capture failed: {expected_errors[fault]}"
+E           AssertionError: assert 'worker capture failed: invalid worker frame length' == 'worker capture failed: incomplete worker frame length'
+E             
+E             - worker capture failed: incomplete worker frame length
+E             ?                          ^^^^ ^^^
+E             + worker capture failed: invalid worker frame length
+E             ?                          ^^ ^^
+
+test_worker_capture.py:906: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[exit-before-intent]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[duplicate-readiness]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[predispatch-start]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[reversed-query]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[future-finish]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[null-start]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[null-finish]" time="0.006" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[null-deadline]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[null-cutoff]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[early-cutoff]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[late-cutoff]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[early-created]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[future-created]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[kill-before-create]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[reap-before-kill]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[kill-without-create]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[reaped-without-stamp]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[stamp-without-reaped]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[zero-pid]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[negative-pid]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[negative-group-pid]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[boolean-pid]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[string-pid]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[pid-without-created]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[created-without-pid]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[kill-errno-without-kill]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[wrong-cutoff]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[nan-finish]" time="0.003" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[infinite-finish]" time="0.003" /><testcase classname="test_worker_capture" name="test_result_framing_error[oversized-header]" time="0.854"><failure message="AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...erve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291803.432715583, 291804.33271558303, 'oversized-header')
+
+    def test_result_framing_error(invalid_result_frame):
+        receipt, _, _, _, _ = invalid_result_frame
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+&gt;       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291803.432715958, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291804.33271558303, finished_monotonic=291804.285355166, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 43852, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291804.283665875}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291803.43278875, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291804.28271558305, 'shutdown_deadline_monotonic': 291804.33271558303, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1820: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_error[short-header]" time="0.854"><failure message="AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...sted': 32768, 'received': 2}, {'requested': 32768, 'received': 0}], 291804.300345166, 291805.200345166, 'short-header')
+
+    def test_result_framing_error(invalid_result_frame):
+        receipt, _, _, _, _ = invalid_result_frame
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+&gt;       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291804.300345958, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291805.200345166, finished_monotonic=291805.153258625, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 45118, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291805.151580666}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291804.300478708, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291805.15034516604, 'shutdown_deadline_monotonic': 291805.200345166, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1820: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_error[short-body]" time="0.853"><failure message="AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...'requested': 32768, 'received': 5}, {'requested': 32768, 'received': 0}], 291805.1682025, 291806.0682025, 'short-body')
+
+    def test_result_framing_error(invalid_result_frame):
+        receipt, _, _, _, _ = invalid_result_frame
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+&gt;       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291805.168203083, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291806.0682025, finished_monotonic=291806.019876166, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 46423, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291806.018402625}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291805.168339833, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291806.0182025, 'shutdown_deadline_monotonic': 291806.0682025, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1820: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_error[trailing]" time="0.853"><failure message="AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...8041, 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 7}], 291806.035158041, 291806.935158041, 'trailing')
+
+    def test_result_framing_error(invalid_result_frame):
+        receipt, _, _, _, _ = invalid_result_frame
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+&gt;       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291806.035158625, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291806.935158041, finished_monotonic=291806.887006791, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 47697, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291806.885334541}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291806.035311916, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291806.885158041, 'shutdown_deadline_monotonic': 291806.935158041, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1820: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_error[overflow]" time="0.006"><failure message="AssertionError: assert 'worker frame length' in 'worker capture failed: worker channel cap exceeded'&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...8, 'received': 32768}, {'requested': 32768, 'received': 32768}, ...], 291806.901693041, 291807.80169304105, 'overflow')
+
+    def test_result_framing_error(invalid_result_frame):
+        receipt, _, _, _, _ = invalid_result_frame
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+&gt;       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker channel cap exceeded'
+E        +  where 'worker capture failed: worker channel cap exceeded' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291806.901693541, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291807.80169304105, finished_monotonic=291806.906189666, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker channel cap exceeded', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 49022, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291806.904529583}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291806.901828083, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291807.75169304106, 'shutdown_deadline_monotonic': 291807.80169304105, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1820: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_error[zero-header]" time="0.853"><failure message="AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...1, 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291806.920775791, 291807.820775791, 'zero-header')
+
+    def test_result_framing_error(invalid_result_frame):
+        receipt, _, _, _, _ = invalid_result_frame
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+&gt;       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291806.92077625, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291807.820775791, finished_monotonic=291807.772741125, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 49049, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291807.771055125}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291806.920908791, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291807.770775791, 'shutdown_deadline_monotonic': 291807.820775791, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1820: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_error[one-header]" time="0.854"><failure message="AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea..., 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291807.787748583, 291808.68774858303, 'one-header')
+
+    def test_result_framing_error(invalid_result_frame):
+        receipt, _, _, _, _ = invalid_result_frame
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+&gt;       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291807.787749375, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291808.68774858303, finished_monotonic=291808.640437333, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 50353, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291808.639148041}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291807.787891541, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291808.63774858305, 'shutdown_deadline_monotonic': 291808.68774858303, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1820: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_error[fragmented-oversized-header]" time="0.856"><failure message="AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...ceived': 2}, {'requested': 32768, 'received': 1}], 291808.655226083, 291809.55522608303, 'fragmented-oversized-header')
+
+    def test_result_framing_error(invalid_result_frame):
+        receipt, _, _, _, _ = invalid_result_frame
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+&gt;       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291808.655226625, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291809.55522608303, finished_monotonic=291809.509430416, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 51588, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291809.507761625}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291808.6553555, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291809.50522608304, 'shutdown_deadline_monotonic': 291809.55522608303, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1820: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_term[oversized-header]" time="0.853"><failure message="AssertionError: late first TERM&#10;assert (291810.374422375 - 291809.524327041) &lt; 0.45">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...eserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291809.524327041, 291810.424327041, 'oversized-header')
+
+    def test_result_framing_term(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+        assert receipt.worker["signals"][0]["signal"] == "SIGTERM"
+&gt;       assert receipt.worker["signals"][0]["monotonic"] - started &lt; 0.45, "late first TERM"
+E       AssertionError: late first TERM
+E       assert (291810.374422375 - 291809.524327041) &lt; 0.45
+
+test_worker_capture.py:1827: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_term[short-header]" time="0.853"><failure message="AssertionError: late first TERM&#10;assert (291811.241213291 - 291810.391134375) &lt; 0.45">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...ed': 32768, 'received': 2}, {'requested': 32768, 'received': 0}], 291810.391134375, 291811.29113437503, 'short-header')
+
+    def test_result_framing_term(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+        assert receipt.worker["signals"][0]["signal"] == "SIGTERM"
+&gt;       assert receipt.worker["signals"][0]["monotonic"] - started &lt; 0.45, "late first TERM"
+E       AssertionError: late first TERM
+E       assert (291811.241213291 - 291810.391134375) &lt; 0.45
+
+test_worker_capture.py:1827: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_term[short-body]" time="0.855"><failure message="AssertionError: late first TERM&#10;assert (291812.109522833 - 291811.257902041) &lt; 0.45">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...sted': 32768, 'received': 5}, {'requested': 32768, 'received': 0}], 291811.257902041, 291812.15790204104, 'short-body')
+
+    def test_result_framing_term(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+        assert receipt.worker["signals"][0]["signal"] == "SIGTERM"
+&gt;       assert receipt.worker["signals"][0]["monotonic"] - started &lt; 0.45, "late first TERM"
+E       AssertionError: late first TERM
+E       assert (291812.109522833 - 291811.257902041) &lt; 0.45
+
+test_worker_capture.py:1827: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_term[trailing]" time="0.854"><failure message="AssertionError: late first TERM&#10;assert (291812.977503625 - 291812.125984458) &lt; 0.45">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...04, 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 7}], 291812.125984458, 291813.02598445804, 'trailing')
+
+    def test_result_framing_term(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+        assert receipt.worker["signals"][0]["signal"] == "SIGTERM"
+&gt;       assert receipt.worker["signals"][0]["monotonic"] - started &lt; 0.45, "late first TERM"
+E       AssertionError: late first TERM
+E       assert (291812.977503625 - 291812.125984458) &lt; 0.45
+
+test_worker_capture.py:1827: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_term[overflow]" time="0.005" /><testcase classname="test_worker_capture" name="test_result_framing_term[zero-header]" time="0.854"><failure message="AssertionError: late first TERM&#10;assert (291813.849713166 - 291812.998784958) &lt; 0.45">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...8, 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291812.998784958, 291813.898784958, 'zero-header')
+
+    def test_result_framing_term(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+        assert receipt.worker["signals"][0]["signal"] == "SIGTERM"
+&gt;       assert receipt.worker["signals"][0]["monotonic"] - started &lt; 0.45, "late first TERM"
+E       AssertionError: late first TERM
+E       assert (291813.849713166 - 291812.998784958) &lt; 0.45
+
+test_worker_capture.py:1827: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_term[one-header]" time="0.855"><failure message="AssertionError: late first TERM&#10;assert (291814.717545666 - 291813.865885625) &lt; 0.45">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea..., 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291813.865885625, 291814.76588562503, 'one-header')
+
+    def test_result_framing_term(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+        assert receipt.worker["signals"][0]["signal"] == "SIGTERM"
+&gt;       assert receipt.worker["signals"][0]["monotonic"] - started &lt; 0.45, "late first TERM"
+E       AssertionError: late first TERM
+E       assert (291814.717545666 - 291813.865885625) &lt; 0.45
+
+test_worker_capture.py:1827: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_term[fragmented-oversized-header]" time="0.853"><failure message="AssertionError: late first TERM&#10;assert (291815.586579708 - 291814.736499458) &lt; 0.45">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...ceived': 2}, {'requested': 32768, 'received': 1}], 291814.736499458, 291815.63649945805, 'fragmented-oversized-header')
+
+    def test_result_framing_term(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+        assert receipt.worker["signals"][0]["signal"] == "SIGTERM"
+&gt;       assert receipt.worker["signals"][0]["monotonic"] - started &lt; 0.45, "late first TERM"
+E       AssertionError: late first TERM
+E       assert (291815.586579708 - 291814.736499458) &lt; 0.45
+
+test_worker_capture.py:1827: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_finish[oversized-header]" time="0.855"><failure message="AssertionError: late framing return&#10;assert (291816.454995041 - 291815.6014845) &lt; 0.45&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea..., 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291815.6014845, 291816.5014845, 'oversized-header')
+
+    def test_result_framing_finish(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+&gt;       assert receipt.finished_monotonic - started &lt; 0.45, "late framing return"
+E       AssertionError: late framing return
+E       assert (291816.454995041 - 291815.6014845) &lt; 0.45
+E        +  where 291816.454995041 = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291815.601484833, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291816.5014845, finished_monotonic=291816.454995041, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 56909, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291816.453322125}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291815.601615166, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291816.4514845, 'shutdown_deadline_monotonic': 291816.5014845, 'reserve_seconds': 0.05}).finished_monotonic
+
+test_worker_capture.py:1832: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_finish[short-header]" time="0.854"><failure message="AssertionError: late framing return&#10;assert (291817.322933166 - 291816.469727083) &lt; 0.45&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...sted': 32768, 'received': 2}, {'requested': 32768, 'received': 0}], 291816.469727083, 291817.369727083, 'short-header')
+
+    def test_result_framing_finish(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+&gt;       assert receipt.finished_monotonic - started &lt; 0.45, "late framing return"
+E       AssertionError: late framing return
+E       assert (291817.322933166 - 291816.469727083) &lt; 0.45
+E        +  where 291817.322933166 = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291816.4697275, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291817.369727083, finished_monotonic=291817.322933166, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 56952, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291817.321258708}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291816.469874916, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291817.319727083, 'shutdown_deadline_monotonic': 291817.369727083, 'reserve_seconds': 0.05}).finished_monotonic
+
+test_worker_capture.py:1832: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_finish[short-body]" time="0.854"><failure message="AssertionError: late framing return&#10;assert (291818.189833541 - 291817.337158) &lt; 0.45&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...[{'requested': 32768, 'received': 5}, {'requested': 32768, 'received': 0}], 291817.337158, 291818.237158, 'short-body')
+
+    def test_result_framing_finish(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+&gt;       assert receipt.finished_monotonic - started &lt; 0.45, "late framing return"
+E       AssertionError: late framing return
+E       assert (291818.189833541 - 291817.337158) &lt; 0.45
+E        +  where 291818.189833541 = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291817.337158541, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291818.237158, finished_monotonic=291818.189833541, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 56973, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291818.1881695}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291817.33731225, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291818.187158, 'shutdown_deadline_monotonic': 291818.237158, 'reserve_seconds': 0.05}).finished_monotonic
+
+test_worker_capture.py:1832: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_finish[trailing]" time="0.854"><failure message="AssertionError: late framing return&#10;assert (291819.057400041 - 291818.204554666) &lt; 0.45&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...03, 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 7}], 291818.204554666, 291819.10455466603, 'trailing')
+
+    def test_result_framing_finish(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+&gt;       assert receipt.finished_monotonic - started &lt; 0.45, "late framing return"
+E       AssertionError: late framing return
+E       assert (291819.057400041 - 291818.204554666) &lt; 0.45
+E        +  where 291819.057400041 = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291818.204555041, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291819.10455466603, finished_monotonic=291819.057400041, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 57010, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291819.05574675}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291818.204697416, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291819.05455466604, 'shutdown_deadline_monotonic': 291819.10455466603, 'reserve_seconds': 0.05}).finished_monotonic
+
+test_worker_capture.py:1832: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_finish[overflow]" time="0.005" /><testcase classname="test_worker_capture" name="test_result_framing_finish[zero-header]" time="0.853"><failure message="AssertionError: late framing return&#10;assert (291819.929574083 - 291819.077627958) &lt; 0.45&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...8, 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291819.077627958, 291819.977627958, 'zero-header')
+
+    def test_result_framing_finish(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+&gt;       assert receipt.finished_monotonic - started &lt; 0.45, "late framing return"
+E       AssertionError: late framing return
+E       assert (291819.929574083 - 291819.077627958) &lt; 0.45
+E        +  where 291819.929574083 = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291819.07762825, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291819.977627958, finished_monotonic=291819.929574083, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 57039, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291819.92792025}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291819.077716666, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291819.927627958, 'shutdown_deadline_monotonic': 291819.977627958, 'reserve_seconds': 0.05}).finished_monotonic
+
+test_worker_capture.py:1832: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_finish[one-header]" time="0.854"><failure message="AssertionError: late framing return&#10;assert (291820.795864125 - 291819.943794583) &lt; 0.45&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea..., 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291819.943794583, 291820.84379458305, 'one-header')
+
+    def test_result_framing_finish(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+&gt;       assert receipt.finished_monotonic - started &lt; 0.45, "late framing return"
+E       AssertionError: late framing return
+E       assert (291820.795864125 - 291819.943794583) &lt; 0.45
+E        +  where 291820.795864125 = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291819.943794875, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291820.84379458305, finished_monotonic=291820.795864125, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 57055, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291820.794165041}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291819.9439505, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291820.79379458306, 'shutdown_deadline_monotonic': 291820.84379458305, 'reserve_seconds': 0.05}).finished_monotonic
+
+test_worker_capture.py:1832: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_finish[fragmented-oversized-header]" time="0.855"><failure message="AssertionError: late framing return&#10;assert (291821.666245375 - 291820.812206958) &lt; 0.45&#10;[+1 more line; full report in element text]">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...ceived': 2}, {'requested': 32768, 'received': 1}], 291820.812206958, 291821.71220695804, 'fragmented-oversized-header')
+
+    def test_result_framing_finish(invalid_result_frame):
+        receipt, _, started, _, _ = invalid_result_frame
+&gt;       assert receipt.finished_monotonic - started &lt; 0.45, "late framing return"
+E       AssertionError: late framing return
+E       assert (291821.666245375 - 291820.812206958) &lt; 0.45
+E        +  where 291821.666245375 = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=291820.812207666, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=291821.71220695804, finished_monotonic=291821.666245375, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 57083, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 291821.664594083}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 291820.812385875, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 291821.66220695805, 'shutdown_deadline_monotonic': 291821.71220695804, 'reserve_seconds': 0.05}).finished_monotonic
+
+test_worker_capture.py:1832: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_deadline[oversized-header]" time="0.853" /><testcase classname="test_worker_capture" name="test_result_framing_deadline[short-header]" time="0.854" /><testcase classname="test_worker_capture" name="test_result_framing_deadline[short-body]" time="0.855" /><testcase classname="test_worker_capture" name="test_result_framing_deadline[trailing]" time="0.854" /><testcase classname="test_worker_capture" name="test_result_framing_deadline[overflow]" time="0.006" /><testcase classname="test_worker_capture" name="test_result_framing_deadline[zero-header]" time="0.854" /><testcase classname="test_worker_capture" name="test_result_framing_deadline[one-header]" time="0.853" /><testcase classname="test_worker_capture" name="test_result_framing_deadline[fragmented-oversized-header]" time="0.855" /><testcase classname="test_worker_capture" name="test_result_framing_read_budget[oversized-header]" time="0.854"><failure message="AssertionError: result read request exceeds framing budget&#10;assert 32768 &lt;= 4">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...eserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291827.667636458, 291828.567636458, 'oversized-header')
+
+    def test_result_framing_read_budget(invalid_result_frame):
+        import worker_capture
+    
+        _, reads, _, _, mode = invalid_result_frame
+        received = 0
+        declared = {"short-body": 100, "trailing": 2, "overflow": worker_capture.FRAME_CAP}
+        for item in reads:
+            cap = (
+                4 - received
+                if received &lt; 4
+                else min(worker_capture.TURN_CAP // 2, 4 + declared[mode] - received + 1)
+            )
+&gt;           assert item["requested"] &lt;= cap, "result read request exceeds framing budget"
+E           AssertionError: result read request exceeds framing budget
+E           assert 32768 &lt;= 4
+
+test_worker_capture.py:1854: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_read_budget[short-header]" time="0.855"><failure message="AssertionError: result read request exceeds framing budget&#10;assert 32768 &lt;= 4">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...ed': 32768, 'received': 2}, {'requested': 32768, 'received': 0}], 291828.534707333, 291829.43470733304, 'short-header')
+
+    def test_result_framing_read_budget(invalid_result_frame):
+        import worker_capture
+    
+        _, reads, _, _, mode = invalid_result_frame
+        received = 0
+        declared = {"short-body": 100, "trailing": 2, "overflow": worker_capture.FRAME_CAP}
+        for item in reads:
+            cap = (
+                4 - received
+                if received &lt; 4
+                else min(worker_capture.TURN_CAP // 2, 4 + declared[mode] - received + 1)
+            )
+&gt;           assert item["requested"] &lt;= cap, "result read request exceeds framing budget"
+E           AssertionError: result read request exceeds framing budget
+E           assert 32768 &lt;= 4
+
+test_worker_capture.py:1854: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_read_budget[short-body]" time="0.855"><failure message="AssertionError: result read request exceeds framing budget&#10;assert 32768 &lt;= 4">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...uested': 32768, 'received': 5}, {'requested': 32768, 'received': 0}], 291829.403020583, 291830.303020583, 'short-body')
+
+    def test_result_framing_read_budget(invalid_result_frame):
+        import worker_capture
+    
+        _, reads, _, _, mode = invalid_result_frame
+        received = 0
+        declared = {"short-body": 100, "trailing": 2, "overflow": worker_capture.FRAME_CAP}
+        for item in reads:
+            cap = (
+                4 - received
+                if received &lt; 4
+                else min(worker_capture.TURN_CAP // 2, 4 + declared[mode] - received + 1)
+            )
+&gt;           assert item["requested"] &lt;= cap, "result read request exceeds framing budget"
+E           AssertionError: result read request exceeds framing budget
+E           assert 32768 &lt;= 4
+
+test_worker_capture.py:1854: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_read_budget[trailing]" time="0.855"><failure message="AssertionError: result read request exceeds framing budget&#10;assert 32768 &lt;= 4">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...138875, 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 7}], 291830.27138875, 291831.17138875, 'trailing')
+
+    def test_result_framing_read_budget(invalid_result_frame):
+        import worker_capture
+    
+        _, reads, _, _, mode = invalid_result_frame
+        received = 0
+        declared = {"short-body": 100, "trailing": 2, "overflow": worker_capture.FRAME_CAP}
+        for item in reads:
+            cap = (
+                4 - received
+                if received &lt; 4
+                else min(worker_capture.TURN_CAP // 2, 4 + declared[mode] - received + 1)
+            )
+&gt;           assert item["requested"] &lt;= cap, "result read request exceeds framing budget"
+E           AssertionError: result read request exceeds framing budget
+E           assert 32768 &lt;= 4
+
+test_worker_capture.py:1854: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_read_budget[overflow]" time="0.005"><failure message="AssertionError: result read request exceeds framing budget&#10;assert 32768 &lt;= 4">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...768, 'received': 32768}, {'requested': 32768, 'received': 32768}, ...], 291831.139466041, 291832.039466041, 'overflow')
+
+    def test_result_framing_read_budget(invalid_result_frame):
+        import worker_capture
+    
+        _, reads, _, _, mode = invalid_result_frame
+        received = 0
+        declared = {"short-body": 100, "trailing": 2, "overflow": worker_capture.FRAME_CAP}
+        for item in reads:
+            cap = (
+                4 - received
+                if received &lt; 4
+                else min(worker_capture.TURN_CAP // 2, 4 + declared[mode] - received + 1)
+            )
+&gt;           assert item["requested"] &lt;= cap, "result read request exceeds framing budget"
+E           AssertionError: result read request exceeds framing budget
+E           assert 32768 &lt;= 4
+
+test_worker_capture.py:1854: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_read_budget[zero-header]" time="0.854"><failure message="AssertionError: result read request exceeds framing budget&#10;assert 32768 &lt;= 4">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...5, 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291831.156946625, 291832.056946625, 'zero-header')
+
+    def test_result_framing_read_budget(invalid_result_frame):
+        import worker_capture
+    
+        _, reads, _, _, mode = invalid_result_frame
+        received = 0
+        declared = {"short-body": 100, "trailing": 2, "overflow": worker_capture.FRAME_CAP}
+        for item in reads:
+            cap = (
+                4 - received
+                if received &lt; 4
+                else min(worker_capture.TURN_CAP // 2, 4 + declared[mode] - received + 1)
+            )
+&gt;           assert item["requested"] &lt;= cap, "result read request exceeds framing budget"
+E           AssertionError: result read request exceeds framing budget
+E           assert 32768 &lt;= 4
+
+test_worker_capture.py:1854: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_read_budget[one-header]" time="0.854"><failure message="AssertionError: result read request exceeds framing budget&#10;assert 32768 &lt;= 4">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...75, 'reserve_seconds': 0.05}), [{'requested': 32768, 'received': 4}], 291832.023285875, 291832.923285875, 'one-header')
+
+    def test_result_framing_read_budget(invalid_result_frame):
+        import worker_capture
+    
+        _, reads, _, _, mode = invalid_result_frame
+        received = 0
+        declared = {"short-body": 100, "trailing": 2, "overflow": worker_capture.FRAME_CAP}
+        for item in reads:
+            cap = (
+                4 - received
+                if received &lt; 4
+                else min(worker_capture.TURN_CAP // 2, 4 + declared[mode] - received + 1)
+            )
+&gt;           assert item["requested"] &lt;= cap, "result read request exceeds framing budget"
+E           AssertionError: result read request exceeds framing budget
+E           assert 32768 &lt;= 4
+
+test_worker_capture.py:1854: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_framing_read_budget[fragmented-oversized-header]" time="0.853"><failure message="AssertionError: result read request exceeds framing budget&#10;assert 32768 &lt;= 4">invalid_result_frame = (HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'rea...received': 2}, {'requested': 32768, 'received': 1}], 291832.889489291, 291833.789489291, 'fragmented-oversized-header')
+
+    def test_result_framing_read_budget(invalid_result_frame):
+        import worker_capture
+    
+        _, reads, _, _, mode = invalid_result_frame
+        received = 0
+        declared = {"short-body": 100, "trailing": 2, "overflow": worker_capture.FRAME_CAP}
+        for item in reads:
+            cap = (
+                4 - received
+                if received &lt; 4
+                else min(worker_capture.TURN_CAP // 2, 4 + declared[mode] - received + 1)
+            )
+&gt;           assert item["requested"] &lt;= cap, "result read request exceeds framing budget"
+E           AssertionError: result read request exceeds framing budget
+E           assert 32768 &lt;= 4
+
+test_worker_capture.py:1854: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_result_frame_accepts_fragmented_delivery[False]" time="0.017" /><testcase classname="test_worker_capture" name="test_result_frame_accepts_fragmented_delivery[True]" time="0.018" /><testcase classname="test_worker_capture" name="test_complete_result_frame_requires_control_eof" time="0.253" /></testsuite></testsuites>

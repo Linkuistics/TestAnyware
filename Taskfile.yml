@@ -54,6 +54,14 @@ tasks:
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/preflight.py {{.OUT | shellQuote}}
 
+  diagnostic:framing-check:
+    desc: Retain isolated framing controls against frozen INPUTS in a new OUT directory
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/result-framing-k80/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}}
+
   diagnostic:resource-audit:
     desc: Validate and run an explicitly frozen local resource auditor. Requires AUDITOR=<script>
     dir: '{{.ROOT_DIR}}'

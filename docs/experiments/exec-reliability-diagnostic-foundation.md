@@ -1823,3 +1823,21 @@ convert later absence into historical helper reap or resolved unknown creation.
 The full persistent-worker/shared-scheduler charter remains live in k78, preceded
 by a separate review of k75. All aggregate ancestors stay open; ten-clone
 acceptance remains **0/10, unavailable**.
+
+### k80 result framing review integration
+
+The receiver now rejects zero and one-byte declarations at the completed header.
+Independent testcases exercise framing errors, requested-read budgets, cumulative
+byte counts, first TERM, early return and fixed deadlines. Retained RED runs show
+each distinguishing property failing for its own reason. Exact byte counts and unchanged deadlines that already
+passed on the original receiver remain controls. Valid fragmented delivery at
+exactly FRAME_CAP also passes.
+
+The [k80 report](../../experiments/exec-reliability/evidence/result-framing-k80/report.md)
+records both review findings, six frozen conditions and the failed first full
+run. Final verification passes all 401 tests, lint, formatting and strict types.
+The auditor compares exact failure sets and reasons, confirms 80,336 earlier
+evidence files unchanged and observes 2,440 recorded exact PID selectors absent.
+Later absence grants no historical reap authority. The full scheduler charter
+continues unchanged in k78. All aggregate ancestors remain open and ten-clone
+acceptance remains **0/10, unavailable**.

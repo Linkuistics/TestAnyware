@@ -521,7 +521,8 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     buffers[index].extend(chunk)
                     if result_size is None and len(buffers[1]) == HEADER.size:
                         result_size = cast(int, HEADER.unpack(buffers[1])[0])
-                        if result_size > FRAME_CAP:
+                        # A JSON object needs at least the two bytes in {}.
+                        if not 2 <= result_size <= FRAME_CAP:
                             raise ValueError("invalid worker frame length")
                 if index == 0:
                     control_bytes += len(chunk)

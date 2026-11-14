@@ -871,6 +871,9 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
             )
     assert receipt.error is not None
     expected_errors = {
+        "malformed": "invalid worker frame length",
+        "oversized-frame": "invalid worker frame length",
+        "partial-frame": "incomplete worker frame length",
         "bad-timestamp": "invalid worker timestamp",
         "predispatch-start": "worker query interval outside dispatch/receipt allowance",
         "reversed-query": "worker query interval outside dispatch/receipt allowance",
@@ -906,11 +909,11 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
     assert receipt.worker["reaped"] is True
     assert receipt.worker["dispatch_monotonic"] <= receipt.finished_monotonic
     assert receipt.worker["published_times"] is None
-    if publication.exists():
+    if fault in {"malformed", "oversized-frame", "partial-frame"}:
+        assert receipt.worker["receipt_monotonic"] is None
+    elif publication.exists():
         assert receipt.worker["receipt_monotonic"] is not None or fault in {
             "oversized-channel",
-            "oversized-frame",
-            "partial-frame",
             "duplicate-readiness",
             "nested-readiness",
         }
@@ -1729,16 +1732,38 @@ def test_late_created_identity_prebuffered_before_default_term(tmp_path, monkeyp
     test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, "prebuffer", publication)
 
 
-@pytest.mark.parametrize(
-    "mode", ["oversized-header", "short-header", "short-body", "trailing", "overflow"]
+@pytest.fixture(
+    params=[
+        "oversized-header",
+        "short-header",
+        "short-body",
+        "trailing",
+        "overflow",
+        "zero-header",
+        "one-header",
+        "fragmented-oversized-header",
+    ]
 )
-def test_result_framing_rejects_before_control_eof(tmp_path, monkeypatch, mode):
+def invalid_result_frame(tmp_path, monkeypatch, request):
     """EOF-only validation waits out the query despite already-invalid framing."""
     import worker_capture
 
+    mode = request.param
     parent = os.getpid()
     original_read = os.read
     reads = {}
+    result_fd = None
+
+    original_pipe = os.pipe
+    pipes = []
+
+    def pipe():
+        nonlocal result_fd
+        pair = original_pipe()
+        pipes.append(pair)
+        if len(pipes) == 2:
+            result_fd = pair[0]
+        return pair
 
     def read(fd, count):
         data = original_read(fd, count)
@@ -1753,13 +1778,23 @@ def test_result_framing_rejects_before_control_eof(tmp_path, monkeypatch, mode):
             worker_capture._write(control, json.dumps(ready).encode() + b"\nintent\n", deadline)
             frames = {
                 "oversized-header": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                "zero-header": worker_capture.HEADER.pack(0),
+                "one-header": worker_capture.HEADER.pack(1),
+                "fragmented-oversized-header": worker_capture.HEADER.pack(
+                    worker_capture.FRAME_CAP + 1
+                ),
                 "short-header": b"\x00\x00",
                 "short-body": worker_capture.HEADER.pack(100) + b"{",
                 "trailing": worker_capture.HEADER.pack(2) + b"{}x",
                 "overflow": worker_capture.HEADER.pack(worker_capture.FRAME_CAP)
                 + b"x" * (worker_capture.FRAME_CAP + worker_capture.TURN_CAP),
             }
-            worker_capture._write(result, frames[mode], deadline)
+            if mode == "fragmented-oversized-header":
+                for fragment in (frames[mode][:1], frames[mode][1:3], frames[mode][3:]):
+                    worker_capture._write(result, fragment, deadline)
+                    time.sleep(0.002)
+            else:
+                worker_capture._write(result, frames[mode], deadline)
             if mode in {"short-header", "short-body"}:
                 os.close(result)
             # Real open control channel; no helper is ever forked in this fixture.
@@ -1769,40 +1804,91 @@ def test_result_framing_rejects_before_control_eof(tmp_path, monkeypatch, mode):
 
     monkeypatch.setattr(worker_capture, "_child", child)
     monkeypatch.setattr(os, "read", read)
+    monkeypatch.setattr(os, "pipe", pipe)
     started = time.monotonic()
     end = started + 0.9
     receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
     retain(tmp_path, "incremental-frame-" + mode, receipt)
     root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
     (root / f"frame-reads-{mode}-{time.time_ns()}.json").write_text(json.dumps(reads))
+    return receipt, reads[result_fd], started, end, mode
+
+
+def test_result_framing_error(invalid_result_frame):
+    receipt, _, _, _, _ = invalid_result_frame
     assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
     assert receipt.error and receipt.residual_remedy and receipt.pid is None
     assert "worker frame length" in receipt.error
-    assert receipt.worker["signals"][0]["monotonic"] - started < 0.45
+    assert receipt.worker["receipt_monotonic"] is None
+
+
+def test_result_framing_term(invalid_result_frame):
+    receipt, _, started, _, _ = invalid_result_frame
+    assert receipt.worker["signals"][0]["signal"] == "SIGTERM"
+    assert receipt.worker["signals"][0]["monotonic"] - started < 0.45, "late first TERM"
+
+
+def test_result_framing_finish(invalid_result_frame):
+    receipt, _, started, _, _ = invalid_result_frame
+    assert receipt.finished_monotonic - started < 0.45, "late framing return"
+
+
+def test_result_framing_deadline(invalid_result_frame):
+    receipt, _, _, end, _ = invalid_result_frame
     assert receipt.worker["shutdown_deadline_monotonic"] == end
+    assert receipt.worker["query_deadline_monotonic"] == end - 0.05
     assert receipt.finished_monotonic <= end + 0.015
-    # A result read starts with the exact four-byte header budget. The control
-    # pipe has a different, independently bounded read budget.
-    result_reads = [items for items in reads.values() if items[0]["requested"] == 4]
-    assert len(result_reads) == 1
-    result_reads = result_reads[0]
+
+
+def test_result_framing_read_budget(invalid_result_frame):
+    import worker_capture
+
+    _, reads, _, _, mode = invalid_result_frame
+    received = 0
+    declared = {"short-body": 100, "trailing": 2, "overflow": worker_capture.FRAME_CAP}
+    for item in reads:
+        assert received < 4 or mode in declared, "result read after rejected header"
+        cap = (
+            4 - received
+            if received < 4
+            else min(worker_capture.TURN_CAP // 2, 4 + declared[mode] - received + 1)
+        )
+        assert item["requested"] <= cap, "result read request exceeds framing budget"
+        received += item["received"]
+
+
+def test_result_framing_byte_count(invalid_result_frame):
+    import worker_capture
+
+    _, reads, _, _, mode = invalid_result_frame
     expected_bytes = {
         "oversized-header": 4,
+        "fragmented-oversized-header": 4,
+        "zero-header": 4,
+        "one-header": 4,
         "short-header": 2,
         "short-body": 5,
         "trailing": 7,
         "overflow": 4 + worker_capture.FRAME_CAP + 1,
     }
-    assert sum(item["received"] for item in result_reads) == expected_bytes[mode]
+    assert sum(item["received"] for item in reads) == expected_bytes[mode], (
+        "result byte count exceeds framing boundary"
+    )
 
 
-def test_result_frame_accepts_fragmented_delivery(tmp_path, monkeypatch):
+@pytest.mark.parametrize("exact_cap", [False, True])
+def test_result_frame_accepts_fragmented_delivery(tmp_path, monkeypatch, exact_cap):
     import worker_capture
 
     original_write = worker_capture._write
 
     def write(fd, data, deadline):
         if not data.endswith(b"\n"):
+            if exact_cap:
+                body = data[worker_capture.HEADER.size :]
+                body += b" " * (worker_capture.FRAME_CAP - len(body))
+                assert len(body) == worker_capture.FRAME_CAP
+                data = worker_capture.HEADER.pack(len(body)) + body
             for fragment in (data[:1], data[1:4], data[4:17], data[17:]):
                 original_write(fd, fragment, deadline)
                 time.sleep(0.002)
@@ -1811,7 +1897,7 @@ def test_result_frame_accepts_fragmented_delivery(tmp_path, monkeypatch):
 
     monkeypatch.setattr(worker_capture, "_write", write)
     receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.6)
-    retain(tmp_path, "fragmented-frame", receipt)
+    retain(tmp_path, f"fragmented-frame-{exact_cap}", receipt)
     assert receipt.error is None and receipt.reaped and receipt.returncode == 0
     assert receipt.worker["reaped"] and not receipt.worker["helper_obligation_retained"]
 
