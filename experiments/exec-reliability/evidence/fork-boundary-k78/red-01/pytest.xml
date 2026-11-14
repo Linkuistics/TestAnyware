@@ -1,0 +1,1809 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="14" skipped="0" tests="14" time="1.095" timestamp="2026-11-15T04:07:16.779626+11:00" hostname="byrd.local"><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[python-thread-python_threads-helper]" time="0.005"><failure message="assert [293317.115441583] == []&#10;  &#10;  Left contains one more item: 293317.115441583&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.115441583,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10722f620&gt;
+boundary = 'helper', mutation = 'python-thread', reason = 'python_threads'
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.115441583] == []
+E             
+E             Left contains one more item: 293317.115441583
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.115441583,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[python-thread-python_threads-worker]" time="0.004"><failure message="assert [293317.167608208] == []&#10;  &#10;  Left contains one more item: 293317.167608208&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.167608208,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107268b60&gt;
+boundary = 'worker', mutation = 'python-thread', reason = 'python_threads'
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.167608208] == []
+E             
+E             Left contains one more item: 293317.167608208
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.167608208,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[native-thread-native_threads-helper]" time="0.003"><failure message="assert [293317.189134666] == []&#10;  &#10;  Left contains one more item: 293317.189134666&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.189134666,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a2d80&gt;
+boundary = 'helper', mutation = 'native-thread', reason = 'native_threads'
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.189134666] == []
+E             
+E             Left contains one more item: 293317.189134666
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.189134666,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[native-thread-native_threads-worker]" time="0.004"><failure message="assert [293317.212107041] == []&#10;  &#10;  Left contains one more item: 293317.212107041&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.212107041,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech3')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a2d20&gt;
+boundary = 'worker', mutation = 'native-thread', reason = 'native_threads'
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.212107041] == []
+E             
+E             Left contains one more item: 293317.212107041
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.212107041,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[sigchld-sigchld-helper]" time="0.003"><failure message="assert [293317.233719708] == []&#10;  &#10;  Left contains one more item: 293317.233719708&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.233719708,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech4')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10722eed0&gt;
+boundary = 'helper', mutation = 'sigchld', reason = 'sigchld'
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.233719708] == []
+E             
+E             Left contains one more item: 293317.233719708
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.233719708,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[sigchld-sigchld-worker]" time="0.002"><failure message="assert [293317.252170458] == []&#10;  &#10;  Left contains one more item: 293317.252170458&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.252170458,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech5')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a2ba0&gt;
+boundary = 'worker', mutation = 'sigchld', reason = 'sigchld'
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.252170458] == []
+E             
+E             Left contains one more item: 293317.252170458
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.252170458,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[native-auto-reap-sigchld-helper]" time="0.003"><failure message="assert [293317.268005166] == []&#10;  &#10;  Left contains one more item: 293317.268005166&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.268005166,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech6')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a29c0&gt;
+boundary = 'helper', mutation = 'native-auto-reap', reason = 'sigchld'
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.268005166] == []
+E             
+E             Left contains one more item: 293317.268005166
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.268005166,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[native-auto-reap-sigchld-worker]" time="0.002"><failure message="assert [293317.283680708] == []&#10;  &#10;  Left contains one more item: 293317.283680708&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.283680708,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech7')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a5310&gt;
+boundary = 'worker', mutation = 'native-auto-reap', reason = 'sigchld'
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.283680708] == []
+E             
+E             Left contains one more item: 293317.283680708
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.283680708,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[observation-error-native_observation_error-helper]" time="0.003"><failure message="assert [293317.301473458] == []&#10;  &#10;  Left contains one more item: 293317.301473458&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.301473458,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech8')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a5d00&gt;
+boundary = 'helper', mutation = 'observation-error'
+reason = 'native_observation_error'
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.301473458] == []
+E             
+E             Left contains one more item: 293317.301473458
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.301473458,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[observation-error-native_observation_error-worker]" time="0.002"><failure message="assert [293317.323628708] == []&#10;  &#10;  Left contains one more item: 293317.323628708&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.323628708,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech9')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a7ce0&gt;
+boundary = 'worker', mutation = 'observation-error'
+reason = 'native_observation_error'
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.323628708] == []
+E             
+E             Left contains one more item: 293317.323628708
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.323628708,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[preparation-deadline-None-helper]" time="0.148"><failure message="assert [293317.487751083] == []&#10;  &#10;  Left contains one more item: 293317.487751083&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.487751083,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech10')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a0650&gt;
+boundary = 'helper', mutation = 'preparation-deadline', reason = None
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.487751083] == []
+E             
+E             Left contains one more item: 293317.487751083
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.487751083,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[preparation-deadline-None-worker]" time="0.147"><failure message="assert [293317.648846583] == []&#10;  &#10;  Left contains one more item: 293317.648846583&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.648846583,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech11')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a0620&gt;
+boundary = 'worker', mutation = 'preparation-deadline', reason = None
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.648846583] == []
+E             
+E             Left contains one more item: 293317.648846583
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.648846583,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[observation-deadline-None-helper]" time="0.002"><failure message="assert [293317.669369791] == []&#10;  &#10;  Left contains one more item: 293317.669369791&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.669369791,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech12')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a4980&gt;
+boundary = 'helper', mutation = 'observation-deadline', reason = None
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.669369791] == []
+E             
+E             Left contains one more item: 293317.669369791
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.669369791,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_fork_boundary_rechecks_prepared_state[observation-deadline-None-worker]" time="0.002"><failure message="assert [293317.6895045] == []&#10;  &#10;  Left contains one more item: 293317.6895045&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  - []&#10;  + [&#10;  +     293317.6895045,&#10;  + ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-250/test_review_fork_boundary_rech13')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1073a53d0&gt;
+boundary = 'worker', mutation = 'observation-deadline', reason = None
+
+    @pytest.mark.parametrize("boundary", ["helper", "worker"])
+    @pytest.mark.parametrize(
+        ("mutation", "reason"),
+        [
+            ("python-thread", "python_threads"),
+            ("native-thread", "native_threads"),
+            ("sigchld", "sigchld"),
+            ("native-auto-reap", "sigchld"),
+            ("observation-error", "native_observation_error"),
+            ("preparation-deadline", None),
+            ("observation-deadline", None),
+        ],
+    )
+    def test_review_fork_boundary_rechecks_prepared_state(
+        tmp_path, monkeypatch, boundary, mutation, reason
+    ):
+        # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+        # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+        original_mask = signal.pthread_sigmask
+        original_admission = inspection.fork_admission
+        assert original_admission()["ok"]
+        previous_mask = original_mask(signal.SIG_BLOCK, set())
+        before_fds = set(os.listdir("/dev/fd"))
+        before_helpers = set(inspection._helper_owners)
+        before_workers = set(worker_capture._owners)
+        before_obligations = dict(worker_capture._helper_obligations)
+        attempted = []
+        published = []
+        prepared = False
+        release = threading.Event()
+        deadline = time.monotonic() + 0.12
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+        ready = threading.Event()
+    
+        @callback_type
+        def hold(_):
+            ready.set()
+            release.wait(timeout=10)
+            return None
+    
+        libc.pthread_create.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            callback_type,
+            ctypes.c_void_p,
+        ]
+        libc.pthread_create.restype = ctypes.c_int
+        libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+        libc.pthread_join.restype = ctypes.c_int
+        native_thread = ctypes.c_void_p()
+    
+        def forbidden_fork():
+            attempted.append(time.monotonic())
+            raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+    
+        def admission():
+            if prepared and mutation == "observation-deadline":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return original_admission()
+    
+        with ExitStack() as cleanup:
+    
+            def prepare(how, mask):
+                nonlocal prepared
+                result = original_mask(how, mask)
+                if how == signal.SIG_BLOCK and mask and not prepared:
+                    prepared = True
+                    if mutation == "python-thread":
+                        thread = threading.Thread(target=release.wait)
+                        thread.start()
+                        cleanup.callback(thread.join, 1)
+                        cleanup.callback(release.set)
+                    elif mutation == "native-thread":
+                        assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                        cleanup.callback(libc.pthread_join, native_thread, None)
+                        cleanup.callback(release.set)
+                        assert ready.wait(timeout=1)
+                        assert threading.active_count() == 1
+                    elif mutation == "sigchld":
+                        old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                        cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                    elif mutation == "native-auto-reap":
+                        cleanup.enter_context(native_auto_reap(0x0020))
+                    elif mutation == "observation-error":
+    
+                        def unavailable():
+                            raise OSError(errno.EIO, "late native observation adapter")
+    
+                        monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                    elif mutation == "preparation-deadline":
+                        time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                return result
+    
+            monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+            monkeypatch.setattr(inspection, "fork_admission", admission)
+            monkeypatch.setattr(os, "fork", forbidden_fork)
+            if boundary == "helper":
+                capture = inspection.capture_helper(
+                    ("/usr/bin/true",), deadline, publish_fork_error=published.append
+                )
+            else:
+                capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+            observations = {
+                "mutation": mutation,
+                "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+                "adapter": "os.fork tripwire; native query EIO only for observation-error",
+                "fork_attempts": attempted,
+                "fork_error_publications": published,
+                "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+                "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+            }
+            retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+            assert prepared
+&gt;           assert attempted == []
+E           assert [293317.6895045] == []
+E             
+E             Left contains one more item: 293317.6895045
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E             - []
+E             + [
+E             +     293317.6895045,
+E             + ]
+
+test_inspection.py:1244: AssertionError</failure></testcase></testsuite></testsuites>

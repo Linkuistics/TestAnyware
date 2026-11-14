@@ -9,7 +9,7 @@ import sys
 import threading
 import time
 import uuid
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from dataclasses import asdict
 from pathlib import Path
 
@@ -320,15 +320,21 @@ def test_review_helper_late_creation_signals_pinned_child_without_new_allowance(
     import inspection
 
     original_process = inspection._spawn_helper
+    original_fork = os.fork
     created = []
 
-    def late_create(*args, **kwargs):
+    def late_fork():
+        # Delay after admission: model a synchronous kernel fork returning late.
         time.sleep(0.1)
+        return original_fork()
+
+    def late_create(*args, **kwargs):
         process = original_process(*args, **kwargs)
         created.append(process)
         return process
 
     monkeypatch.setattr(inspection, "_spawn_helper", late_create)
+    monkeypatch.setattr(os, "fork", late_fork)
     deadline = time.monotonic() + 0.05
     try:
         capture = inspection.capture_helper(
@@ -1125,3 +1131,136 @@ def test_review_real_helper_gate_rejects_wrong_token_or_eof(tmp_path, monkeypatc
     retain_helper_control(tmp_path, f"gate-{mode}", receipt)
     assert receipt.reaped and receipt.returncode == 71
     assert not marker.exists()
+
+
+@pytest.mark.parametrize("boundary", ["helper", "worker"])
+@pytest.mark.parametrize(
+    ("mutation", "reason"),
+    [
+        ("python-thread", "python_threads"),
+        ("native-thread", "native_threads"),
+        ("sigchld", "sigchld"),
+        ("native-auto-reap", "sigchld"),
+        ("observation-error", "native_observation_error"),
+        ("preparation-deadline", None),
+        ("observation-deadline", None),
+    ],
+)
+def test_review_fork_boundary_rechecks_prepared_state(
+    tmp_path, monkeypatch, boundary, mutation, reason
+):
+    # The fork adapter is a tripwire: RED records an attempted unsafe fork but
+    # creates no child under SIG_IGN/SA_NOCLDWAIT or with a live native thread.
+    original_mask = signal.pthread_sigmask
+    original_admission = inspection.fork_admission
+    assert original_admission()["ok"]
+    previous_mask = original_mask(signal.SIG_BLOCK, set())
+    before_fds = set(os.listdir("/dev/fd"))
+    before_helpers = set(inspection._helper_owners)
+    before_workers = set(worker_capture._owners)
+    before_obligations = dict(worker_capture._helper_obligations)
+    attempted = []
+    published = []
+    prepared = False
+    release = threading.Event()
+    deadline = time.monotonic() + 0.12
+    libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+    callback_type = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+    ready = threading.Event()
+
+    @callback_type
+    def hold(_):
+        ready.set()
+        release.wait(timeout=10)
+        return None
+
+    libc.pthread_create.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        callback_type,
+        ctypes.c_void_p,
+    ]
+    libc.pthread_create.restype = ctypes.c_int
+    libc.pthread_join.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    libc.pthread_join.restype = ctypes.c_int
+    native_thread = ctypes.c_void_p()
+
+    def forbidden_fork():
+        attempted.append(time.monotonic())
+        raise OSError(errno.EAGAIN, "fork tripwire adapter; no kernel fork attempted")
+
+    def admission():
+        if prepared and mutation == "observation-deadline":
+            time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+        return original_admission()
+
+    with ExitStack() as cleanup:
+
+        def prepare(how, mask):
+            nonlocal prepared
+            result = original_mask(how, mask)
+            if how == signal.SIG_BLOCK and mask and not prepared:
+                prepared = True
+                if mutation == "python-thread":
+                    thread = threading.Thread(target=release.wait)
+                    thread.start()
+                    cleanup.callback(thread.join, 1)
+                    cleanup.callback(release.set)
+                elif mutation == "native-thread":
+                    assert libc.pthread_create(ctypes.byref(native_thread), None, hold, None) == 0
+                    cleanup.callback(libc.pthread_join, native_thread, None)
+                    cleanup.callback(release.set)
+                    assert ready.wait(timeout=1)
+                    assert threading.active_count() == 1
+                elif mutation == "sigchld":
+                    old_handler = signal.signal(signal.SIGCHLD, signal.SIG_IGN)
+                    cleanup.callback(signal.signal, signal.SIGCHLD, old_handler)
+                elif mutation == "native-auto-reap":
+                    cleanup.enter_context(native_auto_reap(0x0020))
+                elif mutation == "observation-error":
+
+                    def unavailable():
+                        raise OSError(errno.EIO, "late native observation adapter")
+
+                    monkeypatch.setattr(inspection, "_native_thread_count", unavailable)
+                elif mutation == "preparation-deadline":
+                    time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+            return result
+
+        monkeypatch.setattr(signal, "pthread_sigmask", prepare)
+        monkeypatch.setattr(inspection, "fork_admission", admission)
+        monkeypatch.setattr(os, "fork", forbidden_fork)
+        if boundary == "helper":
+            capture = inspection.capture_helper(
+                ("/usr/bin/true",), deadline, publish_fork_error=published.append
+            )
+        else:
+            capture = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+        observations = {
+            "mutation": mutation,
+            "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+            "adapter": "os.fork tripwire; native query EIO only for observation-error",
+            "fork_attempts": attempted,
+            "fork_error_publications": published,
+            "mask_restored": original_mask(signal.SIG_BLOCK, set()) == previous_mask,
+            "fds_restored": set(os.listdir("/dev/fd")) == before_fds,
+        }
+        retain_helper_control(tmp_path, f"boundary-{boundary}-{mutation}", capture, observations)
+        assert prepared
+        assert attempted == []
+        assert published == []
+        assert capture.pid is None and capture.worker is None
+        assert capture.created_monotonic is None
+        assert capture.error and ("admission" in capture.error or "deadline" in capture.error)
+        assert capture.error_errno is None
+        assert capture.deadline_monotonic == deadline
+        assert observations["mask_restored"] and observations["fds_restored"]
+        assert set(inspection._helper_owners) == before_helpers
+        assert set(worker_capture._owners) == before_workers
+        assert worker_capture._helper_obligations == before_obligations
+        if reason:
+            assert capture.admission["ok"] is False
+            assert capture.admission["reason"] == reason
+        else:
+            assert capture.admission["ok"] is True
+            assert capture.finished_monotonic >= deadline

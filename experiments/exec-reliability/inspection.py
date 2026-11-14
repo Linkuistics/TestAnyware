@@ -258,6 +258,13 @@ def _spawn_helper(
         # https://docs.python.org/3.12/library/signal.html#signal.pthread_sigmask
         previous = signal.pthread_sigmask(signal.SIG_BLOCK, signal.valid_signals())
         try:
+            # Preparation may have changed admission or consumed the allowance.
+            # Keep refusal outside the kernel-fork error publication path.
+            receipt.admission = fork_admission()
+            if not receipt.admission["ok"]:
+                raise ValueError(f"helper fork admission rejected: {receipt.admission['reason']}")
+            if time.monotonic() >= receipt.capture_deadline_monotonic:
+                raise ValueError("helper capture deadline exhausted before creation")
             try:
                 pid = os.fork()
             except OSError as error:

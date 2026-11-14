@@ -62,6 +62,14 @@ tasks:
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/result-framing-k80/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}}
 
+  diagnostic:fork-boundary-check:
+    desc: Retain fork preparation controls against frozen INPUTS in a new OUT directory
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/fork-boundary-k78/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}}
+
   diagnostic:resource-audit:
     desc: Validate and run an explicitly frozen local resource auditor. Requires AUDITOR=<script>
     dir: '{{.ROOT_DIR}}'

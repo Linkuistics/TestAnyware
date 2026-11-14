@@ -465,6 +465,13 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
         blocked = signal.valid_signals() - {signal.SIGKILL, signal.SIGSTOP}
         previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
         try:
+            # Revalidate after channel/mask preparation and retain that snapshot.
+            admission = inspection.fork_admission()
+            receipt.admission = admission
+            if not admission["ok"]:
+                raise ValueError(f"worker fork admission rejected: {admission['reason']}")
+            if time.monotonic() >= query_deadline:
+                raise ValueError("worker query deadline exhausted before creation")
             # https://docs.python.org/3.12/library/os.html#os.fork
             dispatched = time.monotonic()
             pid = os.fork()
