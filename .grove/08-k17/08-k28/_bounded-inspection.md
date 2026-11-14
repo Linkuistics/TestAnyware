@@ -224,7 +224,7 @@ implementation repairs and reviews add no new context level.
 The owner approved archiving continuation briefs k30, k34, k38, k40, k42, k44 and
 k48 without certifying their unfinished aggregates. Their original text and
 decision logs remain in [Grove brief history](../../../docs/planning/grove-history/README.md).
-Their acceptance now belongs here and in k75; historical references to those
+Their acceptance now belongs here and in complete-worker-scheduler-k88; historical references to those
 handles route through that index. In addition to every requirement above:
 
 - Preserve k33/k36 group KILL ordering, k37 strict table acceptance and k39's
@@ -262,3 +262,7 @@ and the archived briefs; they do not require rereading seven continuation levels
 to find the current contract.
 
 - 2026-11-15: k71 owns only cleanup-only late identity retention; k75 carries the entire remaining worker/scheduler contract and aggregate acceptance/review. This flat split ships independently useful behavior and closes no aggregate ancestor.
+
+### k85 workload termination cutoff slice
+
+The full aggregate continues in flat sibling complete-worker-scheduler-k88, including the persistent pre-resource worker, common scheduler, every outstanding control and final aggregate review. k85 only closes signal/exit-observation admission inside `_terminate` at the original deadline and rejects late observer returns. See experiments/exec-reliability/evidence/termination-cutoff-k85/report.md. Its separate review does not replace the required final bounded-inspection review. `_wait`, group query/probe admission, scheduler unification and all remaining waits retain their aggregate obligations. The failed full-1 real fixture observations are retained and remain unresolved; a later full pass is no repair claim. Aggregate ancestors remain open; ten-clone acceptance is 0/10 unavailable.

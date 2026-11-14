@@ -1,0 +1,139 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k85/return-equality-removed-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 448 items / 434 deselected / 14 selected
+
+test_controller.py::test_termination_cutoff_refuses_late_signals[0.0-False] PASSED [  7%]
+test_controller.py::test_termination_cutoff_refuses_late_signals[0.0-True] PASSED [ 14%]
+test_controller.py::test_termination_cutoff_refuses_late_signals[0.01-False] PASSED [ 21%]
+test_controller.py::test_termination_cutoff_refuses_late_signals[0.01-True] PASSED [ 28%]
+test_controller.py::test_termination_cutoff_refuses_expired_first_turn[False] PASSED [ 35%]
+test_controller.py::test_termination_cutoff_refuses_expired_first_turn[True] PASSED [ 42%]
+test_controller.py::test_termination_cutoff_observer_entry_at_equality[False] PASSED [ 50%]
+test_controller.py::test_termination_cutoff_observer_entry_at_equality[True] PASSED [ 57%]
+test_controller.py::test_termination_cutoff_checks_observer_return[False-False] PASSED [ 64%]
+test_controller.py::test_termination_cutoff_checks_observer_return[False-True] PASSED [ 71%]
+test_controller.py::test_termination_cutoff_checks_observer_return[True-False] FAILED [ 78%]
+test_controller.py::test_termination_cutoff_checks_observer_return[True-True] FAILED [ 85%]
+test_controller.py::test_termination_cutoff_real_delayed_observer[False] PASSED [ 92%]
+test_controller.py::test_termination_cutoff_real_delayed_observer[True] PASSED [100%]
+
+=================================== FAILURES ===================================
+__________ test_termination_cutoff_checks_observer_return[True-False] __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ab413a0>
+pid_only = False, late = True
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("late", [False, True])
+    def test_termination_cutoff_checks_observer_return(monkeypatch, pid_only, late):
+        import controller
+    
+        now = [10.0]
+        signals = []
+    
+        def exited(pid):
+            now[0] = max(now[0], 11.9 if late else 10.5)
+            return True
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+        monkeypatch.setattr(controller, "_exited", exited)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+    
+        def snapshot(pid, deadline):
+            return {
+                "started_monotonic": now[0],
+                "finished_monotonic": now[0],
+                "query_attempted": True,
+                "helper": None,
+                "state": "zombie_only",
+                "members": [{"pid": pid, "pgid": pid, "stat": "Z"}],
+                "stdout": f"{pid} {pid} Z\n".encode(),
+                "stderr": b"",
+                "returncode": 0,
+                "probe_started_monotonic": now[0],
+                "probe_finished_monotonic": now[0],
+                "probe_errno": None,
+                "probe_outcome": "permitted",
+                "error": None,
+            }
+    
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        receipt = {"name": "observer-return"}
+        deadline = controller._terminate(
+            123,
+            pid_only,
+            Plan("control", (), term_grace=1, kill_wait=1),
+            receipt,
+            controller._InspectionState(),
+        )
+        assert deadline == (11.5 if pid_only and not late else 12.0)
+>       assert ("leader_exit_monotonic" in receipt) is (not late)
+E       AssertionError: assert ('leader_exit_monotonic' in {'name': 'observer-return', 'signals': [{'signal': 'TERM', 'scope': 'group', 'target': 123, 'monotonic': 10.0, 'outcome': 'sent', 'finished_monotonic': 10.0}, {'signal': 'KILL', 'scope': 'group', 'target': 123, 'monotonic': 11.9, 'outcome': 'sent', 'finished_monotonic': 11.9}], 'group_observations': [{'started_monotonic': 11.9, 'finished_monotonic': 11.9, 'query_attempted': False, 'helper': None, 'state': 'unknown', 'members': [], 'stdout': b'', 'stderr': b'', 'returncode': None, 'probe_started_monotonic': None, 'probe_finished_monotonic': None, 'probe_errno': None, 'probe_outcome': 'not_attempted', 'error': 'inspection cutoff exhausted before final query'}], 'term_deadline_monotonic': 11.0, 'leader_exit_monotonic': 11.9, 'kill_reap_deadline_monotonic': 12.0, 'inspection_deadline_monotonic': 11.9, 'termination_ok': False}) is not True
+
+test_controller.py:1434: AssertionError
+__________ test_termination_cutoff_checks_observer_return[True-True] ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ac26660>
+pid_only = True, late = True
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("late", [False, True])
+    def test_termination_cutoff_checks_observer_return(monkeypatch, pid_only, late):
+        import controller
+    
+        now = [10.0]
+        signals = []
+    
+        def exited(pid):
+            now[0] = max(now[0], 11.9 if late else 10.5)
+            return True
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+        monkeypatch.setattr(controller, "_exited", exited)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+    
+        def snapshot(pid, deadline):
+            return {
+                "started_monotonic": now[0],
+                "finished_monotonic": now[0],
+                "query_attempted": True,
+                "helper": None,
+                "state": "zombie_only",
+                "members": [{"pid": pid, "pgid": pid, "stat": "Z"}],
+                "stdout": f"{pid} {pid} Z\n".encode(),
+                "stderr": b"",
+                "returncode": 0,
+                "probe_started_monotonic": now[0],
+                "probe_finished_monotonic": now[0],
+                "probe_errno": None,
+                "probe_outcome": "permitted",
+                "error": None,
+            }
+    
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        receipt = {"name": "observer-return"}
+        deadline = controller._terminate(
+            123,
+            pid_only,
+            Plan("control", (), term_grace=1, kill_wait=1),
+            receipt,
+            controller._InspectionState(),
+        )
+        assert deadline == (11.5 if pid_only and not late else 12.0)
+>       assert ("leader_exit_monotonic" in receipt) is (not late)
+E       AssertionError: assert ('leader_exit_monotonic' in {'name': 'observer-return', 'signals': [{'signal': 'TERM', 'scope': 'pid', 'target': 123, 'monotonic': 10.0, 'outcome': 'sent', 'finished_monotonic': 10.0}], 'group_observations': [{'started_monotonic': 11.9, 'finished_monotonic': 11.9, 'query_attempted': False, 'helper': None, 'state': 'unknown', 'members': [], 'stdout': b'', 'stderr': b'', 'returncode': None, 'probe_started_monotonic': None, 'probe_finished_monotonic': None, 'probe_errno': None, 'probe_outcome': 'not_attempted', 'error': 'inspection cutoff exhausted before final query'}], 'term_deadline_monotonic': 11.0, 'leader_exit_monotonic': 11.9, 'kill_reap_deadline_monotonic': 12.0, 'inspection_deadline_monotonic': 11.9, 'termination_ok': False}) is not True
+
+test_controller.py:1434: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-cutoff-k85/return-equality-removed-1/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_termination_cutoff_checks_observer_return[True-False] - AssertionError: assert ('leader_exit_monotonic' in {'name': 'observer-return', 'signals': [{'signal': 'TERM', 'scope': 'group', 'target': 123, 'monotonic': 10.0, 'outcome': 'sent', 'finished_monotonic': 10.0}, {'signal': 'KILL', 'scope': 'group', 'target': 123, 'monotonic': 11.9, 'outcome': 'sent', 'finished_monotonic': 11.9}], 'group_observations': [{'started_monotonic': 11.9, 'finished_monotonic': 11.9, 'query_attempted': False, 'helper': None, 'state': 'unknown', 'members': [], 'stdout': b'', 'stderr': b'', 'returncode': None, 'probe_started_monotonic': None, 'probe_finished_monotonic': None, 'probe_errno': None, 'probe_outcome': 'not_attempted', 'error': 'inspection cutoff exhausted before final query'}], 'term_deadline_monotonic': 11.0, 'leader_exit_monotonic': 11.9, 'kill_reap_deadline_monotonic': 12.0, 'inspection_deadline_monotonic': 11.9, 'termination_ok': False}) is not True
+FAILED test_controller.py::test_termination_cutoff_checks_observer_return[True-True] - AssertionError: assert ('leader_exit_monotonic' in {'name': 'observer-return', 'signals': [{'signal': 'TERM', 'scope': 'pid', 'target': 123, 'monotonic': 10.0, 'outcome': 'sent', 'finished_monotonic': 10.0}], 'group_observations': [{'started_monotonic': 11.9, 'finished_monotonic': 11.9, 'query_attempted': False, 'helper': None, 'state': 'unknown', 'members': [], 'stdout': b'', 'stderr': b'', 'returncode': None, 'probe_started_monotonic': None, 'probe_finished_monotonic': None, 'probe_errno': None, 'probe_outcome': 'not_attempted', 'error': 'inspection cutoff exhausted before final query'}], 'term_deadline_monotonic': 11.0, 'leader_exit_monotonic': 11.9, 'kill_reap_deadline_monotonic': 12.0, 'inspection_deadline_monotonic': 11.9, 'termination_ok': False}) is not True
+================= 2 failed, 12 passed, 434 deselected in 0.86s =================

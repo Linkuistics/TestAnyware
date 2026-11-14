@@ -86,6 +86,14 @@ tasks:
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/worker-deadline-k83/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}}
 
+  diagnostic:termination-cutoff-check:
+    desc: Run frozen termination cutoff controls; fresh OUT, MODE=full for full suite
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/termination-cutoff-k85/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
+
   diagnostic:worker-evidence-check:
     desc: Run frozen worker deadline controls or a timing suite; fresh OUT, MODE=full for suite
     dir: '{{.ROOT_DIR}}'

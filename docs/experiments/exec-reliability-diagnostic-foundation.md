@@ -1841,3 +1841,25 @@ evidence files unchanged and observes 2,440 recorded exact PID selectors absent.
 Later absence grants no historical reap authority. The full scheduler charter
 continues unchanged in k78. All aggregate ancestors remain open and ten-clone
 acceptance remains **0/10, unavailable**.
+
+
+### k85 workload termination cutoff admission
+
+Workload termination fixes its outer cleanup deadline before the first TERM or
+exit observation. Signal dispatch and exit-observation entry refuse an expired
+cutoff, including equality; an observation returned at/after its cutoff cannot
+authorize a final table. Skipped signals are explicit unsuccessful receipts.
+The earlier PID cap and fixed group grace remain in force. These are sampled
+admission checks, without a hard real-time guarantee across OS preemption.
+
+The [k85 retained report](../../experiments/exec-reliability/evidence/termination-cutoff-k85/report.md)
+records fourteen final controls, six single-guard/equality mutations, real direct
+children with simulated delayed observer returns, every failed sample, and a
+passing 448-test full replay plus lint, formatting and strict types. Earlier
+full-run permission/empty-PID fixture failures remain unresolved; the replay
+only repairs a frozen checker's metadata path, with runtime/tests unchanged.
+The independent audit records its exact case, identity and prior-byte limits.
+This slice does not establish the persistent worker or shared scheduler. The
+full aggregate continues in flat sibling complete-worker-scheduler-k88 with a
+separate required final review; k28/k17 remain open and ten-clone acceptance is
+**0/10, unavailable**.

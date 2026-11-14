@@ -1,0 +1,473 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="10" skipped="0" tests="12" time="1.150" timestamp="2026-11-15T06:04:32.619236+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_termination_cutoff_refuses_late_signals[0.0-False]" time="0.000"><failure message="AssertionError: assert [('group', &lt;Signals.SIGTERM: 15&gt;, 10.0), ('group', &lt;Signals.SIGKILL: 9&gt;, 12.0)] == [('group', &lt;Signals.SIGTERM: 15&gt;, 10.0)]&#10;  &#10;  Left contains one more item: ('group', &lt;Signals.SIGKILL: 9&gt;, 12.0)&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;        (&#10;            'group',&#10;            &lt;Signals.SIGTERM: 15&gt;,&#10;            10.0,&#10;        ),&#10;  +     (&#10;  +         'group',&#10;  +         &lt;Signals.SIGKILL: 9&gt;,&#10;  +         12.0,&#10;  +     ),&#10;    ]">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10923f560&gt;
+pid_only = False, offset = 0.0
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("offset", [0.0, 0.01])
+    def test_termination_cutoff_refuses_late_signals(monkeypatch, pid_only, offset):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        plan = Plan("cutoff-control", (), term_grace=1, kill_wait=1)
+    
+        def delayed_exit(pid):
+            observations.append(now[0])
+            now[0] = 12.0 + offset
+            return False
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+        monkeypatch.setattr(controller, "_exited", delayed_exit)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+        receipt = {"name": "cutoff-control"}
+        deadline = controller._terminate(123, pid_only, plan, receipt, controller._InspectionState())
+        assert deadline == 12.0
+&gt;       assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+E       AssertionError: assert [('group', &lt;Signals.SIGTERM: 15&gt;, 10.0), ('group', &lt;Signals.SIGKILL: 9&gt;, 12.0)] == [('group', &lt;Signals.SIGTERM: 15&gt;, 10.0)]
+E         
+E         Left contains one more item: ('group', &lt;Signals.SIGKILL: 9&gt;, 12.0)
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               (
+E                   'group',
+E                   &lt;Signals.SIGTERM: 15&gt;,
+E                   10.0,
+E               ),
+E         +     (
+E         +         'group',
+E         +         &lt;Signals.SIGKILL: 9&gt;,
+E         +         12.0,
+E         +     ),
+E           ]
+
+test_controller.py:1316: AssertionError</failure></testcase><testcase classname="test_controller" name="test_termination_cutoff_refuses_late_signals[0.0-True]" time="0.000"><failure message="AssertionError: assert [('pid', &lt;Signals.SIGTERM: 15&gt;, 10.0), ('pid', &lt;Signals.SIGKILL: 9&gt;, 12.0)] == [('pid', &lt;Signals.SIGTERM: 15&gt;, 10.0)]&#10;  &#10;  Left contains one more item: ('pid', &lt;Signals.SIGKILL: 9&gt;, 12.0)&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;        (&#10;            'pid',&#10;            &lt;Signals.SIGTERM: 15&gt;,&#10;            10.0,&#10;        ),&#10;  +     (&#10;  +         'pid',&#10;  +         &lt;Signals.SIGKILL: 9&gt;,&#10;  +         12.0,&#10;  +     ),&#10;    ]">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1093b75c0&gt;
+pid_only = True, offset = 0.0
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("offset", [0.0, 0.01])
+    def test_termination_cutoff_refuses_late_signals(monkeypatch, pid_only, offset):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        plan = Plan("cutoff-control", (), term_grace=1, kill_wait=1)
+    
+        def delayed_exit(pid):
+            observations.append(now[0])
+            now[0] = 12.0 + offset
+            return False
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+        monkeypatch.setattr(controller, "_exited", delayed_exit)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+        receipt = {"name": "cutoff-control"}
+        deadline = controller._terminate(123, pid_only, plan, receipt, controller._InspectionState())
+        assert deadline == 12.0
+&gt;       assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+E       AssertionError: assert [('pid', &lt;Signals.SIGTERM: 15&gt;, 10.0), ('pid', &lt;Signals.SIGKILL: 9&gt;, 12.0)] == [('pid', &lt;Signals.SIGTERM: 15&gt;, 10.0)]
+E         
+E         Left contains one more item: ('pid', &lt;Signals.SIGKILL: 9&gt;, 12.0)
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               (
+E                   'pid',
+E                   &lt;Signals.SIGTERM: 15&gt;,
+E                   10.0,
+E               ),
+E         +     (
+E         +         'pid',
+E         +         &lt;Signals.SIGKILL: 9&gt;,
+E         +         12.0,
+E         +     ),
+E           ]
+
+test_controller.py:1316: AssertionError</failure></testcase><testcase classname="test_controller" name="test_termination_cutoff_refuses_late_signals[0.01-False]" time="0.001"><failure message="AssertionError: assert [('group', &lt;Signals.SIGTERM: 15&gt;, 10.0), ('group', &lt;Signals.SIGKILL: 9&gt;, 12.01)] == [('group', &lt;Signals.SIGTERM: 15&gt;, 10.0)]&#10;  &#10;  Left contains one more item: ('group', &lt;Signals.SIGKILL: 9&gt;, 12.01)&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;        (&#10;            'group',&#10;            &lt;Signals.SIGTERM: 15&gt;,&#10;            10.0,&#10;        ),&#10;  +     (&#10;  +         'group',&#10;  +         &lt;Signals.SIGKILL: 9&gt;,&#10;  +         12.01,&#10;  +     ),&#10;    ]">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1093b5f40&gt;
+pid_only = False, offset = 0.01
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("offset", [0.0, 0.01])
+    def test_termination_cutoff_refuses_late_signals(monkeypatch, pid_only, offset):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        plan = Plan("cutoff-control", (), term_grace=1, kill_wait=1)
+    
+        def delayed_exit(pid):
+            observations.append(now[0])
+            now[0] = 12.0 + offset
+            return False
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+        monkeypatch.setattr(controller, "_exited", delayed_exit)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+        receipt = {"name": "cutoff-control"}
+        deadline = controller._terminate(123, pid_only, plan, receipt, controller._InspectionState())
+        assert deadline == 12.0
+&gt;       assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+E       AssertionError: assert [('group', &lt;Signals.SIGTERM: 15&gt;, 10.0), ('group', &lt;Signals.SIGKILL: 9&gt;, 12.01)] == [('group', &lt;Signals.SIGTERM: 15&gt;, 10.0)]
+E         
+E         Left contains one more item: ('group', &lt;Signals.SIGKILL: 9&gt;, 12.01)
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               (
+E                   'group',
+E                   &lt;Signals.SIGTERM: 15&gt;,
+E                   10.0,
+E               ),
+E         +     (
+E         +         'group',
+E         +         &lt;Signals.SIGKILL: 9&gt;,
+E         +         12.01,
+E         +     ),
+E           ]
+
+test_controller.py:1316: AssertionError</failure></testcase><testcase classname="test_controller" name="test_termination_cutoff_refuses_late_signals[0.01-True]" time="0.001"><failure message="AssertionError: assert [('pid', &lt;Signals.SIGTERM: 15&gt;, 10.0), ('pid', &lt;Signals.SIGKILL: 9&gt;, 12.01)] == [('pid', &lt;Signals.SIGTERM: 15&gt;, 10.0)]&#10;  &#10;  Left contains one more item: ('pid', &lt;Signals.SIGKILL: 9&gt;, 12.01)&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;        (&#10;            'pid',&#10;            &lt;Signals.SIGTERM: 15&gt;,&#10;            10.0,&#10;        ),&#10;  +     (&#10;  +         'pid',&#10;  +         &lt;Signals.SIGKILL: 9&gt;,&#10;  +         12.01,&#10;  +     ),&#10;    ]">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1093bc320&gt;
+pid_only = True, offset = 0.01
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("offset", [0.0, 0.01])
+    def test_termination_cutoff_refuses_late_signals(monkeypatch, pid_only, offset):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        plan = Plan("cutoff-control", (), term_grace=1, kill_wait=1)
+    
+        def delayed_exit(pid):
+            observations.append(now[0])
+            now[0] = 12.0 + offset
+            return False
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+        monkeypatch.setattr(controller, "_exited", delayed_exit)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+        receipt = {"name": "cutoff-control"}
+        deadline = controller._terminate(123, pid_only, plan, receipt, controller._InspectionState())
+        assert deadline == 12.0
+&gt;       assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+E       AssertionError: assert [('pid', &lt;Signals.SIGTERM: 15&gt;, 10.0), ('pid', &lt;Signals.SIGKILL: 9&gt;, 12.01)] == [('pid', &lt;Signals.SIGTERM: 15&gt;, 10.0)]
+E         
+E         Left contains one more item: ('pid', &lt;Signals.SIGKILL: 9&gt;, 12.01)
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               (
+E                   'pid',
+E                   &lt;Signals.SIGTERM: 15&gt;,
+E                   10.0,
+E               ),
+E         +     (
+E         +         'pid',
+E         +         &lt;Signals.SIGKILL: 9&gt;,
+E         +         12.01,
+E         +     ),
+E           ]
+
+test_controller.py:1316: AssertionError</failure></testcase><testcase classname="test_controller" name="test_termination_cutoff_refuses_expired_first_turn[False]" time="0.000"><failure message="Failed: target OS operation admitted at expired cutoff">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1093bdf70&gt;
+pid_only = False
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    def test_termination_cutoff_refuses_expired_first_turn(monkeypatch, pid_only):
+        import controller
+    
+        now = [10.0]
+    
+        class DelayedReceipt(dict):
+            def __setitem__(self, key, value):
+                super().__setitem__(key, value)
+                if key == "term_deadline_monotonic":
+                    now[0] = 12.0
+    
+        def forbidden(*args):
+            pytest.fail("target OS operation admitted at expired cutoff")
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller, "_exited", forbidden)
+        monkeypatch.setattr(os, "kill", forbidden)
+        monkeypatch.setattr(os, "killpg", forbidden)
+        receipt = DelayedReceipt(name="expired-first-turn")
+&gt;       deadline = controller._terminate(
+            123,
+            pid_only,
+            Plan("control", (), term_grace=1, kill_wait=1),
+            receipt,
+            controller._InspectionState(),
+        )
+
+test_controller.py:1343: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:437: in _terminate
+    send(signal.SIGTERM)
+controller.py:425: in send
+    os.killpg(pid, sig)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (123, &lt;Signals.SIGTERM: 15&gt;)
+
+    def forbidden(*args):
+&gt;       pytest.fail("target OS operation admitted at expired cutoff")
+E       Failed: target OS operation admitted at expired cutoff
+
+test_controller.py:1336: Failed</failure></testcase><testcase classname="test_controller" name="test_termination_cutoff_refuses_expired_first_turn[True]" time="0.000"><failure message="Failed: target OS operation admitted at expired cutoff">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1093bd2e0&gt;
+pid_only = True
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    def test_termination_cutoff_refuses_expired_first_turn(monkeypatch, pid_only):
+        import controller
+    
+        now = [10.0]
+    
+        class DelayedReceipt(dict):
+            def __setitem__(self, key, value):
+                super().__setitem__(key, value)
+                if key == "term_deadline_monotonic":
+                    now[0] = 12.0
+    
+        def forbidden(*args):
+            pytest.fail("target OS operation admitted at expired cutoff")
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller, "_exited", forbidden)
+        monkeypatch.setattr(os, "kill", forbidden)
+        monkeypatch.setattr(os, "killpg", forbidden)
+        receipt = DelayedReceipt(name="expired-first-turn")
+&gt;       deadline = controller._terminate(
+            123,
+            pid_only,
+            Plan("control", (), term_grace=1, kill_wait=1),
+            receipt,
+            controller._InspectionState(),
+        )
+
+test_controller.py:1343: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:437: in _terminate
+    send(signal.SIGTERM)
+controller.py:423: in send
+    os.kill(pid, sig)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (123, &lt;Signals.SIGTERM: 15&gt;)
+
+    def forbidden(*args):
+&gt;       pytest.fail("target OS operation admitted at expired cutoff")
+E       Failed: target OS operation admitted at expired cutoff
+
+test_controller.py:1336: Failed</failure></testcase><testcase classname="test_controller" name="test_termination_cutoff_checks_observer_return[False-False]" time="0.000" /><testcase classname="test_controller" name="test_termination_cutoff_checks_observer_return[False-True]" time="0.000" /><testcase classname="test_controller" name="test_termination_cutoff_checks_observer_return[True-False]" time="0.000"><failure message="AssertionError: assert ('leader_exit_monotonic' in {'name': 'observer-return', 'signals': [{'signal': 'TERM', 'scope': 'group', 'target': 123, 'monotonic': 10.0, 'outcome': 'sent', 'finished_monotonic': 10.0}, {'signal': 'KILL', 'scope': 'group', 'target': 123, 'monotonic': 11.9, 'outcome': 'sent', 'finished_monotonic': 11.9}], 'group_observations': [{'started_monotonic': 11.9, 'finished_monotonic': 11.9, 'query_attempted': False, 'helper': None, 'state': 'unknown', 'members': [], 'stdout': b'',...&#10;[truncated; full report in element text]">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10923d370&gt;
+pid_only = False, late = True
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("late", [False, True])
+    def test_termination_cutoff_checks_observer_return(monkeypatch, pid_only, late):
+        import controller
+    
+        now = [10.0]
+        signals = []
+    
+        def exited(pid):
+            now[0] = max(now[0], 11.9 if late else 10.5)
+            return True
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+        monkeypatch.setattr(controller, "_exited", exited)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+    
+        def snapshot(pid, deadline):
+            return {
+                "started_monotonic": now[0],
+                "finished_monotonic": now[0],
+                "query_attempted": True,
+                "helper": None,
+                "state": "zombie_only",
+                "members": [{"pid": pid, "pgid": pid, "stat": "Z"}],
+                "stdout": f"{pid} {pid} Z\n".encode(),
+                "stderr": b"",
+                "returncode": 0,
+                "probe_started_monotonic": now[0],
+                "probe_finished_monotonic": now[0],
+                "probe_errno": None,
+                "probe_outcome": "permitted",
+                "error": None,
+            }
+    
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        receipt = {"name": "observer-return"}
+        deadline = controller._terminate(
+            123,
+            pid_only,
+            Plan("control", (), term_grace=1, kill_wait=1),
+            receipt,
+            controller._InspectionState(),
+        )
+        assert deadline == (11.5 if pid_only and not late else 12.0)
+&gt;       assert ("leader_exit_monotonic" in receipt) is (not late)
+E       AssertionError: assert ('leader_exit_monotonic' in {'name': 'observer-return', 'signals': [{'signal': 'TERM', 'scope': 'group', 'target': 123, 'monotonic': 10.0, 'outcome': 'sent', 'finished_monotonic': 10.0}, {'signal': 'KILL', 'scope': 'group', 'target': 123, 'monotonic': 11.9, 'outcome': 'sent', 'finished_monotonic': 11.9}], 'group_observations': [{'started_monotonic': 11.9, 'finished_monotonic': 11.9, 'query_attempted': False, 'helper': None, 'state': 'unknown', 'members': [], 'stdout': b'', 'stderr': b'', 'returncode': None, 'probe_started_monotonic': None, 'probe_finished_monotonic': None, 'probe_errno': None, 'probe_outcome': 'not_attempted', 'error': 'inspection cutoff exhausted before final query'}], 'term_deadline_monotonic': 11.0, 'leader_exit_monotonic': 11.9, 'kill_reap_deadline_monotonic': 12.0, 'inspection_deadline_monotonic': 11.9, 'termination_ok': False}) is not True
+
+test_controller.py:1401: AssertionError</failure></testcase><testcase classname="test_controller" name="test_termination_cutoff_checks_observer_return[True-True]" time="0.000"><failure message="AssertionError: assert ('leader_exit_monotonic' in {'name': 'observer-return', 'signals': [{'signal': 'TERM', 'scope': 'pid', 'target': 123, 'monotonic': 10.0, 'outcome': 'sent', 'finished_monotonic': 10.0}], 'group_observations': [{'started_monotonic': 11.9, 'finished_monotonic': 11.9, 'query_attempted': False, 'helper': None, 'state': 'unknown', 'members': [], 'stdout': b'', 'stderr': b'', 'returncode': None, 'probe_started_monotonic': None, 'probe_finished_monotonic': None, 'probe_errno': Non...&#10;[truncated; full report in element text]">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x109279af0&gt;
+pid_only = True, late = True
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("late", [False, True])
+    def test_termination_cutoff_checks_observer_return(monkeypatch, pid_only, late):
+        import controller
+    
+        now = [10.0]
+        signals = []
+    
+        def exited(pid):
+            now[0] = max(now[0], 11.9 if late else 10.5)
+            return True
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+        monkeypatch.setattr(controller, "_exited", exited)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+    
+        def snapshot(pid, deadline):
+            return {
+                "started_monotonic": now[0],
+                "finished_monotonic": now[0],
+                "query_attempted": True,
+                "helper": None,
+                "state": "zombie_only",
+                "members": [{"pid": pid, "pgid": pid, "stat": "Z"}],
+                "stdout": f"{pid} {pid} Z\n".encode(),
+                "stderr": b"",
+                "returncode": 0,
+                "probe_started_monotonic": now[0],
+                "probe_finished_monotonic": now[0],
+                "probe_errno": None,
+                "probe_outcome": "permitted",
+                "error": None,
+            }
+    
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        receipt = {"name": "observer-return"}
+        deadline = controller._terminate(
+            123,
+            pid_only,
+            Plan("control", (), term_grace=1, kill_wait=1),
+            receipt,
+            controller._InspectionState(),
+        )
+        assert deadline == (11.5 if pid_only and not late else 12.0)
+&gt;       assert ("leader_exit_monotonic" in receipt) is (not late)
+E       AssertionError: assert ('leader_exit_monotonic' in {'name': 'observer-return', 'signals': [{'signal': 'TERM', 'scope': 'pid', 'target': 123, 'monotonic': 10.0, 'outcome': 'sent', 'finished_monotonic': 10.0}], 'group_observations': [{'started_monotonic': 11.9, 'finished_monotonic': 11.9, 'query_attempted': False, 'helper': None, 'state': 'unknown', 'members': [], 'stdout': b'', 'stderr': b'', 'returncode': None, 'probe_started_monotonic': None, 'probe_finished_monotonic': None, 'probe_errno': None, 'probe_outcome': 'not_attempted', 'error': 'inspection cutoff exhausted before final query'}], 'term_deadline_monotonic': 11.0, 'leader_exit_monotonic': 11.9, 'kill_reap_deadline_monotonic': 12.0, 'inspection_deadline_monotonic': 11.9, 'termination_ok': False}) is not True
+
+test_controller.py:1401: AssertionError</failure></testcase><testcase classname="test_controller" name="test_termination_cutoff_real_delayed_observer[False]" time="0.231"><failure message="AssertionError: assert ([('group', 15, 300353.006386625), ('group', 9, 300353.211394125)] and False)&#10; +  where False = all(&lt;generator object test_termination_cutoff_real_delayed_observer.&lt;locals&gt;.&lt;genexpr&gt; at 0x109d8e6c0&gt;)">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-300/test_termination_cutoff_real_d0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1093bd190&gt;
+pid_only = False
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    def test_termination_cutoff_real_delayed_observer(tmp_path, monkeypatch, pid_only):
+        import controller
+    
+        process = subprocess.Popen(
+            (sys.executable, "-c", "import time; time.sleep(30)"), start_new_session=True
+        )
+        original_exited = controller._exited
+        original_kill = os.kill
+        original_killpg = os.killpg
+        signals = []
+    
+        def signal_pid(pid, sig):
+            signals.append(("pid", int(sig), time.monotonic()))
+            original_kill(pid, sig)
+    
+        def signal_group(pid, sig):
+            signals.append(("group", int(sig), time.monotonic()))
+            original_killpg(pid, sig)
+    
+        def delayed_exit(pid):
+            observed = original_exited(pid)
+            # Actual non-reaping observation, with simulated delayed return. This
+            # does not claim kernel unreapability or a stalled system call.
+            time.sleep(0.2)
+            return observed
+    
+        monkeypatch.setattr(os, "kill", signal_pid)
+        monkeypatch.setattr(os, "killpg", signal_group)
+        monkeypatch.setattr(controller, "_exited", delayed_exit)
+        receipt = {"name": "real-delayed-observer"}
+        audit = {"pid": process.pid, "scope": "pid" if pid_only else "group"}
+        try:
+            deadline = controller._terminate(
+                process.pid,
+                pid_only,
+                Plan("control", (), term_grace=0.03, kill_wait=0.1),
+                receipt,
+                controller._InspectionState(),
+            )
+            audit.update(receipt=receipt, signals=signals, pinned=inspect_pid(process.pid))
+&gt;           assert signals and all(when &lt; deadline for _, _, when in signals)
+E           AssertionError: assert ([('group', 15, 300353.006386625), ('group', 9, 300353.211394125)] and False)
+E            +  where False = all(&lt;generator object test_termination_cutoff_real_delayed_observer.&lt;locals&gt;.&lt;genexpr&gt; at 0x109d8e6c0&gt;)
+
+test_controller.py:1450: AssertionError</failure></testcase><testcase classname="test_controller" name="test_termination_cutoff_real_delayed_observer[True]" time="0.219"><failure message="AssertionError: assert ([('pid', 15, 300353.256715791), ('pid', 9, 300353.461248791)] and False)&#10; +  where False = all(&lt;generator object test_termination_cutoff_real_delayed_observer.&lt;locals&gt;.&lt;genexpr&gt; at 0x1094e1000&gt;)">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-300/test_termination_cutoff_real_d1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1093be0c0&gt;
+pid_only = True
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    def test_termination_cutoff_real_delayed_observer(tmp_path, monkeypatch, pid_only):
+        import controller
+    
+        process = subprocess.Popen(
+            (sys.executable, "-c", "import time; time.sleep(30)"), start_new_session=True
+        )
+        original_exited = controller._exited
+        original_kill = os.kill
+        original_killpg = os.killpg
+        signals = []
+    
+        def signal_pid(pid, sig):
+            signals.append(("pid", int(sig), time.monotonic()))
+            original_kill(pid, sig)
+    
+        def signal_group(pid, sig):
+            signals.append(("group", int(sig), time.monotonic()))
+            original_killpg(pid, sig)
+    
+        def delayed_exit(pid):
+            observed = original_exited(pid)
+            # Actual non-reaping observation, with simulated delayed return. This
+            # does not claim kernel unreapability or a stalled system call.
+            time.sleep(0.2)
+            return observed
+    
+        monkeypatch.setattr(os, "kill", signal_pid)
+        monkeypatch.setattr(os, "killpg", signal_group)
+        monkeypatch.setattr(controller, "_exited", delayed_exit)
+        receipt = {"name": "real-delayed-observer"}
+        audit = {"pid": process.pid, "scope": "pid" if pid_only else "group"}
+        try:
+            deadline = controller._terminate(
+                process.pid,
+                pid_only,
+                Plan("control", (), term_grace=0.03, kill_wait=0.1),
+                receipt,
+                controller._InspectionState(),
+            )
+            audit.update(receipt=receipt, signals=signals, pinned=inspect_pid(process.pid))
+&gt;           assert signals and all(when &lt; deadline for _, _, when in signals)
+E           AssertionError: assert ([('pid', 15, 300353.256715791), ('pid', 9, 300353.461248791)] and False)
+E            +  where False = all(&lt;generator object test_termination_cutoff_real_delayed_observer.&lt;locals&gt;.&lt;genexpr&gt; at 0x1094e1000&gt;)
+
+test_controller.py:1450: AssertionError</failure></testcase></testsuite></testsuites>

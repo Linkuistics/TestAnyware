@@ -399,11 +399,29 @@ def _terminate(
     observer_ok = True
     leader_exit: float | None = None
 
-    def observe_exit() -> bool:
+    # Fix the outer bound before any target operation. A delayed observation
+    # may consume it, but cannot renew authority to signal this pinned leader.
+    started = time.monotonic()
+    term_deadline = started + plan.term_grace
+    kill_deadline = started + plan.term_grace + plan.kill_wait
+    inspection_deadline = kill_deadline - min(0.1, plan.kill_wait / 4)
+
+    def observe_exit(cutoff: float) -> bool:
         nonlocal observer_ok, leader_exit
+        if leader_exit is not None:
+            return True
+        if time.monotonic() >= cutoff:
+            observer_ok = False
+            receipt["exit_observation_error"] = "exit observation cutoff exhausted before entry"
+            return False
         try:
-            if _exited(pid) and leader_exit is None:
-                leader_exit = time.monotonic()
+            exited = _exited(pid)
+            observed = time.monotonic()
+            if observed >= cutoff:
+                observer_ok = False
+                receipt["exit_observation_error"] = "exit observation returned after cutoff"
+            elif exited:
+                leader_exit = observed
                 receipt["leader_exit_monotonic"] = leader_exit
         except OSError as error:
             observer_ok = False
@@ -419,7 +437,9 @@ def _terminate(
             "outcome": "sent",
         }
         try:
-            if pid_only:
+            if time.monotonic() >= kill_deadline:
+                event["outcome"] = "deadline_exhausted"
+            elif pid_only:
                 os.kill(pid, sig)
             else:
                 os.killpg(pid, sig)
@@ -432,14 +452,13 @@ def _terminate(
         event["finished_monotonic"] = time.monotonic()
         events.append(event)
 
-    term_deadline = time.monotonic() + plan.term_grace
     receipt["term_deadline_monotonic"] = term_deadline
     send(signal.SIGTERM)
-    complete = observe_exit()
+    complete = observe_exit(inspection_deadline)
     while (not pid_only or not complete) and time.monotonic() < term_deadline:
         time.sleep(min(0.005, max(0, term_deadline - time.monotonic())))
         if time.monotonic() < term_deadline:
-            complete = observe_exit()
+            complete = observe_exit(inspection_deadline)
     # This single deadline covers KILL, all following observations AND reaping.
     kill_deadline = (
         min(leader_exit if leader_exit is not None else term_deadline, term_deadline)
@@ -458,7 +477,7 @@ def _terminate(
     # Exit notification is the only operation repeated here. A live, malformed
     # or late final table is conclusive failure, never a reason to query again.
     while leader_exit is None and time.monotonic() < inspection_deadline:
-        if observe_exit():
+        if observe_exit(inspection_deadline):
             break
         time.sleep(min(0.005, max(0, inspection_deadline - time.monotonic())))
     final = inspection.snapshot(str(receipt["name"]), pid, inspection_deadline, leader_exit)

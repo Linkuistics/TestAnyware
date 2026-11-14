@@ -1290,6 +1290,215 @@ def mutate_function(monkeypatch, module, name, old, new):
     monkeypatch.setattr(module, name, namespace[name])
 
 
+@pytest.mark.parametrize("pid_only", [False, True])
+@pytest.mark.parametrize("offset", [0.0, 0.01])
+def test_termination_cutoff_refuses_late_signals(monkeypatch, pid_only, offset):
+    import controller
+
+    now = [10.0]
+    signals = []
+    observations = []
+    plan = Plan("cutoff-control", (), term_grace=1, kill_wait=1)
+
+    def delayed_exit(pid):
+        observations.append(now[0])
+        now[0] = 12.0 + offset
+        return False
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+    monkeypatch.setattr(controller, "_exited", delayed_exit)
+    monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+    receipt = {"name": "cutoff-control"}
+    deadline = controller._terminate(123, pid_only, plan, receipt, controller._InspectionState())
+    assert deadline == 12.0
+    assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+    assert observations == [10.0]
+    assert receipt["signals"][-1]["outcome"] == "deadline_exhausted"
+    assert receipt["termination_ok"] is False
+    assert receipt["group_observations"][0]["query_attempted"] is False
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+def test_termination_cutoff_refuses_expired_first_turn(monkeypatch, pid_only):
+    import controller
+
+    now = [10.0]
+
+    class DelayedReceipt(dict):
+        def __setitem__(self, key, value):
+            super().__setitem__(key, value)
+            if key == "term_deadline_monotonic":
+                now[0] = 12.0
+
+    def forbidden(*args):
+        pytest.fail("target OS operation admitted at expired cutoff")
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller, "_exited", forbidden)
+    monkeypatch.setattr(os, "kill", forbidden)
+    monkeypatch.setattr(os, "killpg", forbidden)
+    receipt = DelayedReceipt(name="expired-first-turn")
+    deadline = controller._terminate(
+        123,
+        pid_only,
+        Plan("control", (), term_grace=1, kill_wait=1),
+        receipt,
+        controller._InspectionState(),
+    )
+    assert deadline == 12.0
+    assert all(event["outcome"] == "deadline_exhausted" for event in receipt["signals"])
+    assert receipt["termination_ok"] is False
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+def test_termination_cutoff_observer_entry_at_equality(monkeypatch, pid_only):
+    import controller
+
+    now = [10.0]
+
+    class DelayedReceipt(dict):
+        def __setitem__(self, key, value):
+            super().__setitem__(key, value)
+            if key == "term_deadline_monotonic":
+                now[0] = 11.9
+
+    def forbidden(pid):
+        pytest.fail("exit observation admitted at inspection cutoff")
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller, "_exited", forbidden)
+    monkeypatch.setattr(os, "kill", lambda *args: None)
+    monkeypatch.setattr(os, "killpg", lambda *args: None)
+    receipt = DelayedReceipt(name="observer-entry")
+    deadline = controller._terminate(
+        123,
+        pid_only,
+        Plan("control", (), term_grace=1, kill_wait=1),
+        receipt,
+        controller._InspectionState(),
+    )
+    assert deadline == 12.0
+    assert "leader_exit_monotonic" not in receipt
+    assert receipt["termination_ok"] is False
+    assert receipt["group_observations"][0]["query_attempted"] is False
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+@pytest.mark.parametrize("late", [False, True])
+def test_termination_cutoff_checks_observer_return(monkeypatch, pid_only, late):
+    import controller
+
+    now = [10.0]
+    signals = []
+
+    def exited(pid):
+        now[0] = max(now[0], 11.9 if late else 10.5)
+        return True
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+    monkeypatch.setattr(controller, "_exited", exited)
+    monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+
+    def snapshot(pid, deadline):
+        return {
+            "started_monotonic": now[0],
+            "finished_monotonic": now[0],
+            "query_attempted": True,
+            "helper": None,
+            "state": "zombie_only",
+            "members": [{"pid": pid, "pgid": pid, "stat": "Z"}],
+            "stdout": f"{pid} {pid} Z\n".encode(),
+            "stderr": b"",
+            "returncode": 0,
+            "probe_started_monotonic": now[0],
+            "probe_finished_monotonic": now[0],
+            "probe_errno": None,
+            "probe_outcome": "permitted",
+            "error": None,
+        }
+
+    monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+    receipt = {"name": "observer-return"}
+    deadline = controller._terminate(
+        123,
+        pid_only,
+        Plan("control", (), term_grace=1, kill_wait=1),
+        receipt,
+        controller._InspectionState(),
+    )
+    assert deadline == (11.5 if pid_only and not late else 12.0)
+    assert ("leader_exit_monotonic" in receipt) is (not late)
+    assert receipt["termination_ok"] is (not late)
+    assert all(scope == ("pid" if pid_only else "group") for scope, _, _ in signals)
+    assert [sig for _, sig, _ in signals] == (
+        [signal.SIGTERM] if pid_only and not late else [signal.SIGTERM, signal.SIGKILL]
+    )
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+def test_termination_cutoff_real_delayed_observer(tmp_path, monkeypatch, pid_only):
+    import controller
+
+    process = subprocess.Popen(
+        (sys.executable, "-c", "import time; time.sleep(30)"), start_new_session=True
+    )
+    original_exited = controller._exited
+    original_kill = os.kill
+    original_killpg = os.killpg
+    signals = []
+
+    def signal_pid(pid, sig):
+        signals.append(("pid", int(sig), time.monotonic()))
+        original_kill(pid, sig)
+
+    def signal_group(pid, sig):
+        signals.append(("group", int(sig), time.monotonic()))
+        original_killpg(pid, sig)
+
+    def delayed_exit(pid):
+        observed = original_exited(pid)
+        # Actual non-reaping observation, with simulated delayed return. This
+        # does not claim kernel unreapability or a stalled system call.
+        time.sleep(0.2)
+        return observed
+
+    monkeypatch.setattr(os, "kill", signal_pid)
+    monkeypatch.setattr(os, "killpg", signal_group)
+    monkeypatch.setattr(controller, "_exited", delayed_exit)
+    receipt = {"name": "real-delayed-observer"}
+    audit = {"pid": process.pid, "scope": "pid" if pid_only else "group"}
+    try:
+        deadline = controller._terminate(
+            process.pid,
+            pid_only,
+            Plan("control", (), term_grace=0.03, kill_wait=0.1),
+            receipt,
+            controller._InspectionState(),
+        )
+        audit.update(receipt=receipt, signals=signals, pinned=inspect_pid(process.pid))
+        assert signals and all(when < deadline for _, _, when in signals)
+        assert [sig for _, sig, _ in signals] == [int(signal.SIGTERM)]
+        assert receipt["termination_ok"] is False
+        assert receipt["group_observations"][0]["query_attempted"] is False
+    finally:
+        # Separate exact-child owner reconciles the deliberately failed runtime
+        # attempt; no PID/PGID from a process table is used as authority.
+        try:
+            original_kill(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=2)
+        audit.update(returncode=process.returncode, after=inspect_pid(process.pid))
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        controller.write_json(root / f"termination-cutoff-{uuid.uuid4().hex}.json", audit)
+    assert audit["after"]["state"] == "absent"
+
+
 @pytest.mark.parametrize("remove_gate", [False, True])
 def test_review_isolated_reap_overrun_and_removed_gate(tmp_path, monkeypatch, remove_gate):
     import controller
