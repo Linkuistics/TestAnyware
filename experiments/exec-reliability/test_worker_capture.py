@@ -1537,3 +1537,137 @@ def test_review_confirmed_fork_failure_keeps_worker_failure(tmp_path, monkeypatc
                     }
                 )
             )
+
+
+@pytest.mark.parametrize("delay", ["read", "select", "shutdown"])
+@pytest.mark.parametrize("publication", ["valid", "distinct", "malformed", "overflow"])
+def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, publication):
+    """Dropping late controls loses identities; decoding late terminal grants false reap."""
+    import worker_capture
+
+    parent = os.getpid()
+    original_write, original_read = worker_capture._write, os.read
+    original_select = worker_capture.select.select
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
+    witness = root / f"late-created-{delay}-{publication}-{time.time_ns()}.json"
+    end = time.monotonic() + 0.6
+    delayed = False
+    held = None
+    terminated = False
+    before = set(worker_capture._helper_obligations)
+
+    def term(sig, frame):
+        nonlocal terminated
+        terminated = True
+
+    def write(fd, data, deadline):
+        nonlocal held
+        if data.startswith(b"{") and b'"created_monotonic"' in data:
+            identity = json.loads(data)
+            witness.write_text(json.dumps({"identity": identity, "query_deadline": deadline}))
+            if publication == "malformed":
+                identity["ppid"] = parent
+                data = json.dumps(identity).encode() + b"\n"
+            elif publication == "distinct":
+                other = dict(identity, pid=987654322)
+                data += json.dumps(other).encode() + b"\n"
+            elif publication == "overflow":
+                data = b"x" * 4097 + b"\n" + data
+            elif publication == "partial":
+                data = data.rstrip(b"\n")
+            elif publication in {"token", "boolean-pid", "stale", "future", "deadline", "extra"}:
+                if publication == "token":
+                    identity["token"] = "other-query"
+                elif publication == "boolean-pid":
+                    identity["pid"] = True
+                elif publication == "stale":
+                    identity["created_monotonic"] = 0
+                elif publication == "future":
+                    identity["created_monotonic"] = deadline
+                elif publication == "deadline":
+                    identity["deadline_monotonic"] += 1
+                else:
+                    identity["extra"] = 1
+                data = json.dumps(identity).encode() + b"\n"
+            if delay == "shutdown":
+                # Hold only the publication: the real helper still executes and is
+                # reaped by the real worker. TERM triggers actual pipe delivery.
+                signal.signal(signal.SIGTERM, term)
+                held = (fd, data)
+                return
+        if delay == "shutdown" and not data.endswith(b"\n"):
+            while not terminated and time.monotonic() < end:
+                time.sleep(0.001)
+            assert terminated and held is not None
+            os.write(held[0], held[1])
+            os.write(fd, data)  # Late terminal/reap must never retire the obligation.
+            info = json.loads(witness.read_text())
+            info.update(published_monotonic=time.monotonic(), after_term=terminated)
+            witness.write_text(json.dumps(info))
+            return
+        original_write(fd, data, deadline)
+
+    def pause():
+        nonlocal delayed
+        delayed = True
+        time.sleep(max(0, end - 0.045 - time.monotonic()))
+
+    def read(fd, count):
+        data = original_read(fd, count)
+        if os.getpid() == parent and delay == "read" and not delayed:
+            if b'"created_monotonic"' in data or b"x" * 100 in data:
+                pause()
+        return data
+
+    def select(reads, writes, errors, timeout):
+        result = original_select(reads, writes, errors, timeout)
+        if os.getpid() == parent and delay == "select" and not delayed:
+            until = time.monotonic() + 0.15
+            while not witness.exists() and time.monotonic() < until:
+                time.sleep(0.001)
+            assert witness.exists()
+            pause()
+        return result
+
+    monkeypatch.setattr(worker_capture, "_write", write)
+    monkeypatch.setattr(os, "read", read)
+    monkeypatch.setattr(worker_capture.select, "select", select)
+    try:
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        retain(tmp_path, f"late-created-{delay}-{publication}", receipt)
+        worker = receipt.worker
+        assert receipt.error and receipt.residual_remedy
+        assert worker["reaped"] and worker["shutdown_deadline_monotonic"] == end
+        assert worker["query_deadline_monotonic"] == end - 0.05
+        assert receipt.finished_monotonic <= end + 0.015
+        assert receipt.pid is None and not receipt.reaped
+        assert worker["fork_failure"] is None
+        if delay == "select":
+            assert worker["signal_scope"] == "pid"
+        info = json.loads(witness.read_text())
+        if delay == "shutdown":
+            assert info["after_term"] and info["published_monotonic"] >= end - 0.05
+        else:
+            assert delayed
+        identities = [
+            worker_capture._helper_obligations[key]
+            for key in set(worker_capture._helper_obligations) - before
+        ]
+        expected = {info["identity"]["pid"]} if publication in {"valid", "distinct"} else set()
+        if publication == "distinct":
+            expected.add(987654322)
+        assert {item["pid"] for item in identities} == expected
+        assert {item["pid"] for item in worker["helper_identities"]} == expected
+        assert worker["unknown_helper_creation"] == (not expected)
+    finally:
+        # Tests release evidence-only entries; independent audit checks real PIDs.
+        for key in set(worker_capture._helper_obligations) - before:
+            worker_capture._helper_obligations.pop(key)
+
+
+@pytest.mark.parametrize(
+    "publication", ["token", "boolean-pid", "stale", "future", "deadline", "extra", "partial"]
+)
+def test_late_created_identity_rejects_invalid_fields(tmp_path, monkeypatch, publication):
+    test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, "shutdown", publication)

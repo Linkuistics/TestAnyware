@@ -207,7 +207,8 @@ def _created(
         or identity["deadline_monotonic"] != deadline
         or type(stamp) not in {int, float}
         or not isinstance(stamp, int | float)
-        or not dispatched <= stamp <= time.monotonic() < deadline
+        or not dispatched <= stamp < deadline
+        or not stamp <= time.monotonic()
     ):
         raise ValueError("invalid helper creation identity")
     return identity
@@ -389,7 +390,70 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     creation_conflict = False
     closed_channels: set[int] = set()
     control_bytes = 0
+    control_read: int | None = None
+    control_ready = False
+    control_invalid = False
     buffers = [bytearray(), bytearray()]
+
+    def consume_control(cleanup_only: bool) -> None:
+        nonlocal control_ready, control_invalid, intent, creation_conflict
+        nonlocal helper_identity, fork_failure
+        if control_invalid or control_bytes > 4096 or owner is None or dispatched is None:
+            return
+        while b"\n" in buffers[0]:
+            line, _, tail = buffers[0].partition(b"\n")
+            buffers[0] = bytearray(tail)
+            late = cleanup_only or time.monotonic() >= query_deadline
+            try:
+                if not control_ready:
+                    if _load_json(line) != {
+                        "token": token,
+                        "pid": owner.pid,
+                        "pgid": owner.pid,
+                        "sid": owner.pid,
+                    }:
+                        control_invalid = True
+                        raise ValueError("invalid worker readiness")
+                    control_ready = True
+                    # Late readiness allows parsing only, never wider signals.
+                    if not late:
+                        owner.ready = True
+                elif not intent:
+                    if bytes(line) != b"intent":
+                        control_invalid = True
+                        raise ValueError("invalid helper creation intent")
+                    intent = True
+                else:
+                    if helper_identity is not None or fork_failure is not None:
+                        creation_conflict = True
+                    message = _load_json(line)
+                    if isinstance(message, dict) and "errno" in message:
+                        # Timeliness remains mandatory for no-child authority.
+                        if not late:
+                            failure = _fork_failed(line, token, dispatched, query_deadline)
+                            if not creation_conflict:
+                                fork_failure = failure
+                    else:
+                        identity = _created(line, owner, token, dispatched, query_deadline)
+                        if helper_identity is None:
+                            helper_identity = identity
+                        if not any(known["pid"] == identity["pid"] for known in helper_identities):
+                            helper_identities.append(identity)
+                            key = (
+                                token
+                                if identity is helper_identity
+                                else f"{token}:{identity['pid']}"
+                            )
+                            _helper_obligations[key] = dict(identity)
+                    if creation_conflict:
+                        raise ValueError("duplicate helper creation publication")
+            except ValueError:
+                creation_conflict = True
+                if not late:
+                    raise
+                if control_invalid:
+                    break
+
     try:
         for _ in range(2):
             pair = os.pipe()
@@ -440,48 +504,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     4096 if index == 0 else FRAME_CAP + HEADER.size
                 ):
                     raise ValueError("worker channel cap exceeded")
-            if not owner.ready and b"\n" in buffers[0]:
-                line, _, tail = buffers[0].partition(b"\n")
-                identity = _load_json(line)
-                if identity != {
-                    "token": token,
-                    "pid": owner.pid,
-                    "pgid": owner.pid,
-                    "sid": owner.pid,
-                }:
-                    raise ValueError("invalid worker readiness")
-                owner.ready = True
-                buffers[0] = bytearray(tail)
-            while owner.ready and b"\n" in buffers[0]:
-                line, _, tail = buffers[0].partition(b"\n")
-                buffers[0] = bytearray(tail)
-                if not intent:
-                    if bytes(line) != b"intent":
-                        raise ValueError("invalid helper creation intent")
-                    intent = True
-                else:
-                    if helper_identity is not None or fork_failure is not None:
-                        creation_conflict = True
-                    message = _load_json(line)
-                    if isinstance(message, dict) and "errno" in message:
-                        failure = _fork_failed(line, token, dispatched, query_deadline)
-                        if not creation_conflict:
-                            fork_failure = failure
-                    else:
-                        identity = _created(line, owner, token, dispatched, query_deadline)
-                        if helper_identity is None:
-                            helper_identity = identity
-                            _helper_obligations[token] = dict(identity)
-                        if not any(known["pid"] == identity["pid"] for known in helper_identities):
-                            helper_identities.append(identity)
-                            key = (
-                                token
-                                if identity is helper_identity
-                                else f"{token}:{identity['pid']}"
-                            )
-                            _helper_obligations[key] = dict(identity)
-                    if creation_conflict:
-                        raise ValueError("duplicate helper creation publication")
+            consume_control(cleanup_only=False)
             if not streams and time.monotonic() < query_deadline:
                 received = time.monotonic()
                 # Partial control or terminal bytes cannot preserve no-child
@@ -549,13 +572,39 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 _signal(owner, signal.SIGTERM)
             # One fixed shutdown reserve, never a renewed per-phase allowance.
             kill_at = min(deadline, time.monotonic() + reserve / 4)
-            while not owner.reaped and owner.reap_errno is None and time.monotonic() < deadline:
-                if time.monotonic() >= kill_at:
+            # Parse buffered controls even after observing worker exit. Never
+            # decode late terminal/reap receipts or confirm a late fork failure.
+            if not complete:
+                consume_control(cleanup_only=True)
+            cleanup_open = not complete and control_read is not None and 0 not in closed_channels
+            while time.monotonic() < deadline:
+                if not owner.reaped and owner.reap_errno is None and time.monotonic() >= kill_at:
                     _signal(owner, signal.SIGKILL)
                     kill_at = float("inf")
                 _reap(owner)
-                if not owner.reaped:
-                    time.sleep(min(0.001, max(0, deadline - time.monotonic())))
+                if cleanup_open and control_read is not None:
+                    # Nonblocking, one read per turn, cumulative cap plus one
+                    # overflow-detection byte; no EOF-dependent wait or renewal.
+                    if control_bytes > 4096 or control_invalid:
+                        cleanup_open = False
+                    else:
+                        try:
+                            chunk = os.read(control_read, min(TURN_CAP, 4097 - control_bytes))
+                        except BlockingIOError:
+                            chunk = None
+                        except OSError:
+                            chunk = None
+                            cleanup_open = False
+                        if chunk is not None:
+                            cleanup_open = bool(chunk)
+                            control_bytes += len(chunk)
+                            buffers[0].extend(chunk)
+                            if chunk and fork_failure is not None:
+                                creation_conflict = True
+                            consume_control(cleanup_only=True)
+                if (owner.reaped or owner.reap_errno is not None) and not cleanup_open:
+                    break
+                time.sleep(min(0.001, max(0, deadline - time.monotonic())))
             _reap(owner)
             confirmed_failure = (
                 fork_failure is not None and not creation_conflict and closed_channels == {0, 1}

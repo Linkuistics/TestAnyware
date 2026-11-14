@@ -13,7 +13,7 @@ section of `docs/experiments/exec-reliability-diagnostic-foundation.md`, and
 bounded-inspection-k27's seven dispositions in commit `dd264245`. Planner
 bounded-inspection-k25 records the increment boundary. The delivered initial
 admission slice is k32-final-01, following k29 and its review integration k32.
-The complete worker/scheduler boundary remains complete-worker-scheduler-k71's
+The complete worker/scheduler boundary remains complete-worker-scheduler-k75's
 work after helper-fork-error-k72 reviews k69. Later bounded slices have landed
 without establishing the persistent worker/shared scheduler guarantee; read the
 current foundation report for their measured limits.
@@ -224,7 +224,7 @@ implementation repairs and reviews add no new context level.
 The owner approved archiving continuation briefs k30, k34, k38, k40, k42, k44 and
 k48 without certifying their unfinished aggregates. Their original text and
 decision logs remain in [Grove brief history](../../../docs/planning/grove-history/README.md).
-Their acceptance now belongs here and in k71; historical references to those
+Their acceptance now belongs here and in k75; historical references to those
 handles route through that index. In addition to every requirement above:
 
 - Preserve k33/k36 group KILL ordering, k37 strict table acceptance and k39's
@@ -247,7 +247,7 @@ handles route through that index. In addition to every requirement above:
   unavailable genuine UID denial/setuid-ps timing controls distinct. Freeze
   every read subject and bound, audit fixture/helper/worker/workload/member and
   unknown-creation obligations independently, and preserve prior evidence bytes.
-- k72 reviews k69 before k71 relies on explicit fork failure. k71 retains the
+- k72 reviews k69 before k75 relies on explicit fork failure. k75 retains the
   full remaining runtime charter, every required control and final review. That
   future review is **Reviews: bounded-inspection-k28**, carrying the former k30
   aggregate obligation; require actual runtime ownership/waits/destructors/
@@ -260,3 +260,5 @@ remains k21, storage stalls remain k18, and ten-clone acceptance stays 0/10
 unavailable. Historical slice decisions remain in their unchanged task bodies
 and the archived briefs; they do not require rereading seven continuation levels
 to find the current contract.
+
+- 2026-11-15: k71 owns only cleanup-only late identity retention; k75 carries the entire remaining worker/scheduler contract and aggregate acceptance/review. This flat split ships independently useful behavior and closes no aggregate ancestor.
