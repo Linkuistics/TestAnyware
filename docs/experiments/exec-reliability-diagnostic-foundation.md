@@ -1362,3 +1362,73 @@ later observation of recorded identities, not proof against unrecorded escaped
 children. The audit result is authoritative for completion of that reconciliation.
 No live guest, app route, scheduler-isolation or historical acceptance claim
 changes: acceptance remains **0/10, unavailable**.
+
+## k51: isolate synchronous helper creation
+
+The live controller now calls `worker_capture.capture_helper`. Each query forks
+one private worker; that worker establishes its own session and runs the existing
+k47/k50 helper engine. A helper constructor that blocks in the worker no longer
+blocks the controller's channel loop. Native/Python single-thread and default
+SIGCHLD admission precede the worker fork. Catchable signals are blocked across
+fork, the parent restores its mask, and the child resets handlers, mask, wakeup
+descriptor and inherited descriptors before doing helper work. Child paths use
+`os._exit` so inherited exit hooks do not run.
+
+The parent reads separate nonblocking control/result pipes, at most 64 KiB per
+turn. Control bytes are capped at 4096, result frames at 1 MiB, and combined
+helper output at 256 KiB. A random query token, exact worker session identity,
+frame length, field set, helper argv and child deadline are checked. Up to
+`min(50 ms, remaining allowance / 4)` is reserved inside the original caller
+deadline for worker shutdown. Parent reads stop at the earlier query deadline;
+TERM, KILL and exact-child WNOHANG observations share the original outer deadline.
+No group signal is permitted before readiness establishes PID=PGID=SID. A reaped
+worker closes signal authority. Channel-close errors are recorded independently
+so another close and the final failure receipt still complete.
+
+Real-process controls cover a ten-second delay before helper construction,
+a ten-second startup delay before worker readiness, healthy capture, inherited
+TERM/INT/PIPE handlers, blocked signals, wakeup/evidence descriptors and exit
+hooks. The delayed-construction receipt returns within its original 500 ms
+allowance and records a reaped worker plus unknown helper creation. The startup
+control uses PID-only shutdown and returns within 400 ms. These are local
+creation-boundary controls. The fork-error control injects Darwin EAGAIN without
+creating a child; it does not establish real resource exhaustion or privileged
+denial. The close-error control closes a real parent pipe and then injects EIO.
+Existing direct-engine and controller return-value adapters retain their earlier
+scope; they do not establish the new worker protocol's full adversarial contract.
+
+| Retained condition | Result |
+| --- | --- |
+| `k51-red-01` | Initial two tests fail because the worker module does not exist; JUnit retained without a full runner envelope. |
+| `k51-check-01` | 137 tests pass; strict typing rejects five new-code expressions. |
+| `k51-check-02` | All four checks pass; 141 tests pass. |
+| `k51-close-red-01` | Real-close/injected-EIO control reproduces receipt loss; JUnit retained without a full runner envelope. |
+| `k51-final-01` | Ruff lint/format, strict Pyright and all 142 tests pass; before/after subject hashes agree. |
+
+An intermediate Darwin platform error (`os.pipe2` unavailable) led to using
+`os.pipe` with explicit nonblocking configuration; that targeted failure has no
+separate retained artifact. All retained failed samples remain unchanged. The
+final self-check freezes the worker, tests, local helper engine, controller,
+manifest, lock, runner, Taskfile, interpreter and process inspector. The independent
+`evidence/k51-audit-02` auditor checks these hashes and the retained per-test
+results, challenges its absence predicate with live/mixed/invalid/missing PID
+controls, and accounts for exact fixture paths before removing them. Its result
+records the later process observations and any resource reconciliation. The
+close-error RED lost its receipt, so its worker PID is unavailable to that audit.
+
+This slice uses a worker per query. Raw worker fork remains a synchronous OS
+operation. Worker reap or group KILL never proves helper absence; an incomplete
+result retains unknown creation, and a known helper residual stays in the local
+capture receipt. The persistent worker before acquisition, gated helper identity
+publication, every-helper child reset, complete run/request/workload/epoch/time
+validation, and one scheduler spanning workloads, teardown and worker shutdown
+remain in `complete-worker-scheduler-k52`. Its charter retains the full ancestor
+specification and controls, including overlap, sticky failure, native admission,
+backpressure, malicious frames and independent helper reconciliation. The final
+whole-runtime review still belongs before retained evidence k21. No guest, app,
+privilege, storage independence or acceptance claim changes: **0/10, unavailable**.
+
+The first auditor, `k51-audit-01`, stopped during schema validation because the
+earliest receipts lack the later worker deadline fields. It performed no process
+checks or cleanup. Its script, frozen inputs and failure are retained; the
+second auditor explicitly validates each historical schema.

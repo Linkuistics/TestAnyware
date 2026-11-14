@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.049" timestamp="2026-11-14T20:28:31.087663+11:00" hostname="byrd.local"><testcase classname="test_worker_capture" name="test_review_worker_channel_close_error_keeps_receipt_and_other_closes" time="0.020"><failure message="OSError: [Errno 5] injected channel close error after real close">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-127/test_review_worker_channel_clo0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10a8cb140&gt;
+
+    def test_review_worker_channel_close_error_keeps_receipt_and_other_closes(tmp_path, monkeypatch):
+        import errno
+    
+        from worker_capture import capture_helper
+    
+        parent = os.getpid()
+        pipe = os.pipe
+        close = os.close
+        reads = []
+        closed = []
+    
+        def tracked_pipe():
+            pair = pipe()
+            reads.append(pair[0])
+            return pair
+    
+        def fail_after_close(fd):
+            close(fd)
+            if os.getpid() == parent:
+                closed.append(fd)
+                if reads and fd == reads[0]:
+                    raise OSError(errno.EIO, "injected channel close error after real close")
+    
+        monkeypatch.setattr(os, "pipe", tracked_pipe)
+        monkeypatch.setattr(os, "close", fail_after_close)
+&gt;       receipt = capture_helper((sys.executable, "-c", "print('ok')"), time.monotonic() + 1)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_worker_capture.py:221: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:301: in capture_helper
+    os.close(fd)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+fd = 11
+
+    def fail_after_close(fd):
+        close(fd)
+        if os.getpid() == parent:
+            closed.append(fd)
+            if reads and fd == reads[0]:
+&gt;               raise OSError(errno.EIO, "injected channel close error after real close")
+E               OSError: [Errno 5] injected channel close error after real close
+
+test_worker_capture.py:217: OSError</failure></testcase></testsuite></testsuites>

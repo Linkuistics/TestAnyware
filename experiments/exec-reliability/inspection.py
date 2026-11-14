@@ -6,6 +6,7 @@ Synchronous creation and controller-local scheduling remain interim limitations.
 
 import ctypes
 import errno
+import gc
 import os
 import select
 import signal
@@ -138,6 +139,7 @@ class HelperCapture:
     error: str | None = None
     error_errno: int | None = None
     residual_remedy: str | None = None
+    worker: dict[str, object] | None = None
 
 
 class _HelperProcess(subprocess.Popen[bytes]):
@@ -283,3 +285,31 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
         if receipt.finished_monotonic > deadline:
             receipt.error = receipt.error or "helper fixed deadline exceeded"
     return receipt
+
+
+def reset_after_fork(allowed: set[int]) -> None:
+    """Reset the isolated fork child only; never call this in the controller."""
+    # Signals remain blocked until every inherited handler/wakeup FD is reset.
+    # https://docs.python.org/3.12/library/signal.html#signal.pthread_sigmask
+    gc.disable()
+    signal.set_wakeup_fd(-1)
+    for sig in signal.valid_signals() - {signal.SIGKILL, signal.SIGSTOP}:
+        signal.signal(sig, signal.SIG_DFL)
+    global _helper_owners
+    _helper_owners = {}
+    # /dev/fd enumeration itself closes its directory FD before this loop.
+    for name in os.listdir("/dev/fd"):
+        fd = int(name)
+        if fd not in allowed:
+            try:
+                os.close(fd)
+            except OSError as error:
+                if error.errno != errno.EBADF:
+                    raise
+    for fd in (0, 1, 2):
+        null = os.open(os.devnull, os.O_RDWR)
+        if null != fd:
+            os.dup2(null, fd)
+            os.close(null)
+    os.setsid()
+    signal.pthread_sigmask(signal.SIG_SETMASK, set())

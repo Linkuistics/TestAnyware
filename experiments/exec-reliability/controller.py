@@ -22,7 +22,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal, TypedDict, cast
 
-from inspection import capture_helper, fork_admission
+from inspection import fork_admission
+from worker_capture import capture_helper
 
 
 @dataclass(frozen=True)
@@ -596,6 +597,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
             (
                 Path(__file__).resolve(),
                 Path(__file__).with_name("inspection.py").resolve(),
+                Path(__file__).with_name("worker_capture.py").resolve(),
                 Path(sys.executable).resolve(),
                 Path("/bin/ps"),
                 *plan.subjects,

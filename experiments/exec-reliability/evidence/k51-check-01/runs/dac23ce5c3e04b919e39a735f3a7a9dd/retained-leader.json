@@ -1,0 +1,100 @@
+{
+  "name": "retained-leader",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py",
+    "bytes"
+  ],
+  "budget": 3,
+  "started_monotonic": 265567.859887041,
+  "wall_start_ns": 1794648287604404000,
+  "reason": "exit",
+  "returncode": null,
+  "reaped": false,
+  "ok": false,
+  "signals": [],
+  "pid": 100,
+  "pgid": 100,
+  "signal_scope": "group",
+  "leader_exit_monotonic": 265567.880473583,
+  "inspection_deadline_monotonic": 265568.105473583,
+  "group_observations": [
+    {
+      "started_monotonic": 265567.88048625,
+      "finished_monotonic": 265567.885978958,
+      "query_attempted": true,
+      "helper": {
+        "stdout": "2020313030202020313030205a2020200a",
+        "stderr": "",
+        "returncode": 0,
+        "pid": 102,
+        "argv": [
+          "/bin/ps",
+          "-g",
+          "100",
+          "-o",
+          "pid=,pgid=,stat="
+        ],
+        "admission": {
+          "ok": true,
+          "reason": "ready",
+          "python_threads": 1,
+          "native_threads": 1,
+          "sigchld": "SIG_DFL",
+          "native_sigchld": "SIG_DFL",
+          "error": null,
+          "errno": null
+        },
+        "started_monotonic": 265567.882474958,
+        "created_monotonic": 265567.883782625,
+        "capture_deadline_monotonic": 265568.0122239267,
+        "deadline_monotonic": 265568.105473583,
+        "finished_monotonic": 265567.885906916,
+        "kill_monotonic": null,
+        "kill_errno": null,
+        "reaped": true,
+        "reaped_monotonic": 265567.885108208,
+        "reap_errno": null,
+        "ownership_lost": false,
+        "close_errors": [],
+        "error": null,
+        "error_errno": null,
+        "residual_remedy": null,
+        "worker": {
+          "pid": 101,
+          "ready": true,
+          "reaped": true,
+          "ownership_lost": false,
+          "returncode": 0,
+          "signals": [],
+          "reap_errno": null,
+          "intent": true,
+          "unknown_helper_creation": false,
+          "signal_scope": "group"
+        }
+      },
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 100,
+          "pgid": 100,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "2020313030202020313030205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "termination_ok": true,
+  "authority_closed_monotonic": 265567.885985083,
+  "reap_deadline_monotonic": 265568.180473583,
+  "within_process_bounds": false,
+  "reap_error": "leader unreaped before fixed deadline",
+  "residual_leader_pid": 100,
+  "residual_leader_remedy": "Leader ownership is retained without further controller signals or waits. Independently inspect the recorded PID/PGID and command identity; only an external owner may reconcile this residual.",
+  "elapsed": 0.320708375016693
+}
