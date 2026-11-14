@@ -2439,6 +2439,11 @@ def test_request_identity_rejects_changed_envelope(tmp_path, monkeypatch, messag
         if message in {"result", "complete"}:
             assert receipt.worker["helper_obligation_retained"]
             assert receipt.worker["helper_identity"] is not None
+        elif message in {"ready", "intent", "created", "fork-error"}:
+            assert receipt.worker["helper_identity"] is None
+            assert receipt.worker["unknown_helper_creation"] is True
+            assert receipt.worker["creation_conflict"] is True
+            assert receipt.residual_remedy
         assert worker.start() is False
     finally:
         worker.close()
@@ -2462,6 +2467,86 @@ def test_request_identity_rejects_changed_envelope(tmp_path, monkeypatch, messag
                 indent=2,
             )
         )
+
+
+@pytest.mark.parametrize("second", ["replay", "changed-run", "fresh"])
+def test_request_identity_worker_second_command(tmp_path, monkeypatch, second):
+    """Challenge worker admission directly after a genuinely completed request."""
+    import worker_capture
+
+    publish = worker_capture._publish
+    publications = 0
+    admitted = tmp_path / "second-command-admitted"
+
+    def publish_once(*args, **kwargs):
+        nonlocal publications
+        publications += 1
+        if publications == 1:
+            return publish(*args, **kwargs)
+        # An admitted second command needs no helper for this admission test.
+        # This also keeps a deliberately weakened worker from creating a child.
+        admitted.write_text("admitted")
+
+    monkeypatch.setattr(worker_capture, "_publish", publish_once)
+    worker = worker_capture.Worker(run_id="pinned-run")
+    first = None
+    command = None
+    try:
+        assert worker.start()
+        first = worker_capture.capture_helper(
+            ("/usr/bin/true",),
+            time.monotonic() + 1,
+            worker=worker,
+            scope=worker_capture.RequestScope(os.getpid(), os.getpgrp(), 0, "final"),
+        )
+        retain(tmp_path, f"request-identity-second-{second}-first", first)
+        assert first.error is None and first.reaped
+        assert not first.worker["helper_obligation_retained"]
+        identity = dict(first.worker["request_identity"])
+        identity["deadline_monotonic"] = time.monotonic() + 1
+        identity["signal_epoch"] = 1
+        if second != "replay":
+            identity["request_token"] += "-fresh"
+        if second == "changed-run":
+            identity["run_id"] = "different-run"
+        command = {
+            "session": worker.session_token,
+            "token": identity["request_token"],
+            "argv": ["/usr/bin/true"],
+            "deadline": identity["deadline_monotonic"],
+            "identity": identity,
+        }
+        worker_capture._write(
+            worker.command,
+            json.dumps(command).encode() + b"\n",
+            identity["deadline_monotonic"],
+        )
+    finally:
+        worker.close()
+        assert worker.owner.reaped
+        with pytest.raises(ChildProcessError):
+            os.waitpid(worker.owner.pid, os.WNOHANG)
+        if first is not None and first.pid is not None:
+            with pytest.raises(ProcessLookupError):
+                os.kill(first.pid, 0)
+        path = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        path.mkdir(parents=True, exist_ok=True)
+        (path / f"identity-second-{second}-{time.time_ns()}.json").write_text(
+            json.dumps(
+                {
+                    "command": command,
+                    "worker": worker.evidence(),
+                    "worker_reaped": True,
+                    "helper_pid": first.pid if first else None,
+                    "helper_absent": first is not None and first.pid is not None,
+                    "second_admitted": admitted.exists(),
+                    "second_helper_creation": False,
+                },
+                indent=2,
+            )
+        )
+    assert worker.owner.returncode == (0 if second == "fresh" else 70)
+    assert admitted.exists() is (second == "fresh")
 
 
 def test_request_identity_valid_sequential_scopes(tmp_path):
