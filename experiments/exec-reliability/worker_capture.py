@@ -212,6 +212,10 @@ def _decode(
     capture_deadline = deadline - min(0.05, max(0, deadline - receipt.started_monotonic) / 4)
     if receipt.capture_deadline_monotonic != capture_deadline:
         raise ValueError("worker capture cutoff mismatch")
+    if (receipt.returncode is not None) != receipt.reaped:
+        raise ValueError("worker status/reap mismatch")
+    if receipt.reaped and (receipt.reap_errno is not None or receipt.ownership_lost):
+        raise ValueError("worker reaped helper has failed ownership")
     return receipt
 
 

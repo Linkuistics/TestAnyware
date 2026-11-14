@@ -1632,3 +1632,56 @@ and shared-scheduler contract has moved from k55 into the flat live sibling
 `review-impl` of this PID-validation increment precedes k58; the final aggregate
 review remains due before retained evidence k21. No guest, installed-app,
 privilege, stalled-storage or acceptance claim changes: **0/10, unavailable**.
+
+### k58: terminal helper receipt consistency
+
+The interim worker decoder now requires a returncode exactly when it reports
+helper reap. A reaped helper cannot also report a reap error or lost ownership.
+These four lines reject internally contradictory evidence after the existing
+field, timing, positive-PID and event-coupling guards. They do not authenticate
+worker-reported ownership or independently establish that a helper was reaped.
+
+Eight controls replace only the helper capture result inside the ordinary worker.
+Four publish status without reap, reap without status, reap with a wait error,
+and reap with lost ownership. Four coherent controls cover success, nonzero
+status, an unreaped wait error and an unreaped lost-ownership error. Each helper
+receipt is explicitly synthetic and uses the actual worker PID as its reported
+helper selector; no helper is created. Worker admission, fork, reset, framing,
+channels, parent decoding and worker shutdown are real. Rejections require exact
+reasons, discarded output, conservative unknown creation and real worker reap.
+The retained witness is the serialized receipt body before ordinary framing.
+Existing genuine success, missing executable, early exit and killed-helper
+controls still pass.
+
+| Retained condition | Result |
+| --- | --- |
+| `k58-red-01` | Four new contradictory-receipt cases fail; the other 196 pass. Lint, format and strict types pass. |
+| `k58-fixed-01` | All 200 tests, lint, format and strict Pyright pass. |
+| `k58-audit-01` | Ruff rejects an unused variable before audit execution; original script and failure log retained. |
+| `k58-audit-02` | Frozen audit passes: 994 recorded positive selectors absent; 346 owned fixture directories reconciled. |
+
+Both conditions use identical tests and retain the same individual JUnit case
+set. Frozen source copies were made before each run and match every recorded
+source/manifest/lock/Taskfile digest. The audit verifies each condition's checker
+reap receipts, artifact digests, unchanged before/after subjects, exact expected
+failing cases, publication values and parent dispatch/receipt witnesses. Its
+46,705 frozen input paths include 44,682 earlier evidence files, which remain
+byte-for-byte unchanged. No subject was edited while its measurement ran.
+
+The external process oracle is challenged with live, mixed, invalid and
+known-reaped selectors. Explicit simulated selectors are excluded; no selector
+is signalled. Cleanup is confined to fixture directories in sessions named by
+retained argv or JUnit evidence, with bounded enumeration, copied creation
+witnesses and per-path removal records. See
+[`k58-audit-02/result.json`](../../experiments/exec-reliability/evidence/k58-audit-02/result.json).
+Later absence cannot resolve the original unknown creation or identify an
+unrecorded escaped helper. Graph coverage reported changed/untracked metadata;
+material conclusions use the current source and retained execution evidence.
+
+The complete original runtime charter remains live in flat sibling
+`complete-worker-scheduler-k60`, including persistent bootstrap, gated helper
+publication, independently tracked ownership, the shared scheduler, remaining
+error/admission consistency checks and the full control inventory. All ancestors
+remain open. A separate review of this increment precedes k60; the final aggregate
+review remains due before k21. No guest, installed-app, privilege, stalled-storage
+or ten-clone acceptance claim changes: **0/10, unavailable**.

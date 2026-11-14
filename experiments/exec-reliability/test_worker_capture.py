@@ -13,6 +13,90 @@ import pytest
 import inspection
 
 
+@pytest.mark.parametrize(
+    ("mode", "reason"),
+    [
+        ("status-without-reap", "worker status/reap mismatch"),
+        ("reap-without-status", "worker status/reap mismatch"),
+        ("reaped-with-error", "worker reaped helper has failed ownership"),
+        ("reaped-with-lost-owner", "worker reaped helper has failed ownership"),
+        ("success", None),
+        ("nonzero", None),
+        ("unreaped-error", None),
+        ("lost-owner-error", None),
+    ],
+)
+def test_worker_terminal_consistency(tmp_path, monkeypatch, mode, reason):
+    import errno
+    from dataclasses import asdict
+
+    import worker_capture
+
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
+    witness = root / f"terminal-publication-{mode}-{time.time_ns()}.json"
+
+    def synthetic_capture(argv, deadline):
+        # Only the helper receipt is synthetic. The ordinary worker child builds
+        # its frame, publishes on real channels, and exits through os._exit.
+        now = time.monotonic()
+        body = inspection.HelperCapture(
+            pid=os.getpid(),
+            argv=argv,
+            admission={"ok": True},
+            started_monotonic=now,
+            created_monotonic=now,
+            capture_deadline_monotonic=deadline - min(0.05, (deadline - now) / 4),
+            deadline_monotonic=deadline,
+            finished_monotonic=now,
+            reaped=True,
+            reaped_monotonic=now,
+            returncode=0,
+            stdout=b"synthetic output",
+        )
+        if mode in {"status-without-reap", "unreaped-error", "lost-owner-error"}:
+            body.reaped = False
+            body.reaped_monotonic = None
+        if mode in {"reap-without-status", "unreaped-error", "lost-owner-error"}:
+            body.returncode = None
+        if mode in {"reaped-with-error", "unreaped-error", "lost-owner-error"}:
+            body.reap_errno = errno.ECHILD
+            body.error = "synthetic wait failure"
+        if mode in {"reaped-with-lost-owner", "lost-owner-error"}:
+            body.ownership_lost = True
+            body.error = "synthetic lost ownership"
+        if mode == "nonzero":
+            body.returncode = 1
+        raw = asdict(body)
+        raw.update(stdout=body.stdout.hex(), stderr=body.stderr.hex())
+        witness.write_text(json.dumps({"mode": mode, "synthetic_helper": True, "body": raw}))
+        return body
+
+    monkeypatch.setattr(inspection, "capture_helper", synthetic_capture)
+    started = time.monotonic()
+    receipt = worker_capture.capture_helper(("synthetic-terminal-publication",), started + 1)
+    retain(tmp_path, f"terminal-{mode}", receipt)
+    worker = receipt.worker
+    assert worker["reaped"] and not worker["ownership_lost"]
+    assert worker["unknown_helper_creation"] == (reason is not None)
+    assert receipt.finished_monotonic <= receipt.deadline_monotonic == started + 1
+    body = json.loads(witness.read_text())["body"]
+    assert worker["dispatch_monotonic"] <= body["started_monotonic"]
+    assert body["finished_monotonic"] <= worker["receipt_monotonic"]
+    assert worker["receipt_monotonic"] <= body["deadline_monotonic"]
+    if reason is not None:
+        assert receipt.error == f"worker capture failed: {reason}"
+        assert receipt.stdout == receipt.stderr == b""
+        assert receipt.residual_remedy and worker["published_times"] is None
+    else:
+        assert receipt.stdout == b"synthetic output"
+        assert receipt.returncode == body["returncode"]
+        assert receipt.reaped == body["reaped"]
+        assert receipt.ownership_lost == body["ownership_lost"]
+        assert receipt.reap_errno == body["reap_errno"]
+        assert receipt.error == body["error"]
+
+
 def retain(tmp_path, name, receipt):
     from dataclasses import asdict
 
