@@ -1,0 +1,424 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="30" skipped="0" tests="30" time="0.529" timestamp="2026-11-15T10:38:05.801909+11:00" hostname="byrd.local"><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0-readiness-1]" time="0.011"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1072ff8f0&gt;
+phase = 'readiness', ceiling = 1, invalid = 0
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0-term_grace-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107475fa0&gt;
+phase = 'term_grace', ceiling = 2, invalid = 0
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0-kill_reap-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107477ad0&gt;
+phase = 'kill_reap', ceiling = 2, invalid = 0
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-readiness-1]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected3')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1072ff2f0&gt;
+phase = 'readiness', ceiling = 1, invalid = -1
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-term_grace-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected4')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107477980&gt;
+phase = 'term_grace', ceiling = 2, invalid = -1
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-kill_reap-2]" time="0.002"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected5')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107481850&gt;
+phase = 'kill_reap', ceiling = 2, invalid = -1
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-readiness-1]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected6')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107481370&gt;
+phase = 'readiness', ceiling = 1, invalid = nan
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-term_grace-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected7')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107480aa0&gt;
+phase = 'term_grace', ceiling = 2, invalid = nan
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-kill_reap-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected8')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107481340&gt;
+phase = 'kill_reap', ceiling = 2, invalid = nan
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-readiness-1]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected9')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107482ae0&gt;
+phase = 'readiness', ceiling = 1, invalid = inf
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-term_grace-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected10')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107480170&gt;
+phase = 'term_grace', ceiling = 2, invalid = inf
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-kill_reap-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected11')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1074816a0&gt;
+phase = 'kill_reap', ceiling = 2, invalid = inf
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[True-readiness-1]" time="0.002"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected12')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107484080&gt;
+phase = 'readiness', ceiling = 1, invalid = True
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[True-term_grace-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected13')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107485100&gt;
+phase = 'term_grace', ceiling = 2, invalid = True
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[True-kill_reap-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected14')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1074873b0&gt;
+phase = 'kill_reap', ceiling = 2, invalid = True
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[None-readiness-1]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected15')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107483650&gt;
+phase = 'readiness', ceiling = 1, invalid = None
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[None-term_grace-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected16')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1074816a0&gt;
+phase = 'term_grace', ceiling = 2, invalid = None
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[None-kill_reap-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected17')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107481340&gt;
+phase = 'kill_reap', ceiling = 2, invalid = None
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-readiness-1]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected18')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107481ac0&gt;
+phase = 'readiness', ceiling = 1, invalid = '0.1'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-term_grace-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected19')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107477b30&gt;
+phase = 'term_grace', ceiling = 2, invalid = '0.1'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-kill_reap-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected20')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1074761e0&gt;
+phase = 'kill_reap', ceiling = 2, invalid = '0.1'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[over-readiness-1]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected21')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107487620&gt;
+phase = 'readiness', ceiling = 1, invalid = 'over'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[over-term_grace-2]" time="0.000"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected22')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107485e20&gt;
+phase = 'term_grace', ceiling = 2, invalid = 'over'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[over-kill_reap-2]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_bootstrap_bounds_rejected23')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107486390&gt;
+phase = 'kill_reap', ceiling = 2, invalid = 'over'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+&gt;       bounds = worker_capture.BootstrapBounds(**values)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:25: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[ready]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_declared_bootstrap_real_c0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107486450&gt;
+mode = 'ready'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+&gt;       bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:45: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[term]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_declared_bootstrap_real_c1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107486bd0&gt;
+mode = 'term'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+&gt;       bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:45: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[kill]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_declared_bootstrap_real_c2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107488110&gt;
+mode = 'kill'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+&gt;       bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:45: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[deferred-reap]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_declared_bootstrap_real_c3')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107487c50&gt;
+mode = 'deferred-reap'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+&gt;       bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:45: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[overrun]" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_declared_bootstrap_real_c4')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1074844a0&gt;
+mode = 'overrun'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+&gt;       bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:45: AttributeError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_plan_reaches_real_worker" time="0.001"><failure message="AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-519/test_declared_bootstrap_plan_r0')
+
+    def test_declared_bootstrap_plan_reaches_real_worker(tmp_path):
+        """Dropping Plan's bounds when constructing the worker loses the declaration."""
+&gt;       bounds = worker_capture.BootstrapBounds(readiness=0.4, term_grace=0.05, kill_reap=0.1)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'BootstrapBounds'
+
+test_bootstrap.py:166: AttributeError</failure></testcase></testsuite></testsuites>

@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Literal, TypedDict, cast
 
 from inspection import fork_admission
-from worker_capture import RequestScope, Worker, capture_helper
+from worker_capture import BootstrapBounds, RequestScope, Worker, capture_helper
 
 
 @dataclass(frozen=True)
@@ -55,6 +55,7 @@ class Plan:
     subjects: tuple[Path, ...] = ()
     term_grace: float = 2
     kill_wait: float = 2
+    bootstrap: BootstrapBounds = BootstrapBounds()
 
 
 def write_json(path: Path, value: object) -> None:
@@ -84,6 +85,9 @@ def _hashes(subjects: tuple[Path, ...]) -> dict[str, str]:
 
 
 def _validate(plan: Plan) -> None:
+    if not isinstance(cast(object, plan.bootstrap), BootstrapBounds):
+        raise ValueError("invalid bootstrap bounds")
+    plan.bootstrap.validate()
     if sys.platform != "darwin":
         raise ValueError("this controller currently supports macOS hosts only")
     if not re.fullmatch(r"[0-9a-f]{32}", plan.run_id):
@@ -683,7 +687,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
     before = _hashes(subjects)
     write_json(root / "subjects-before.json", before)
     receipts: list[dict[str, object]] = []
-    worker = Worker(run_id=plan.run_id)
+    worker = Worker(run_id=plan.run_id, bootstrap=plan.bootstrap)
     inspection_state = _InspectionState(worker=worker)
     ledger: list[dict[str, object]] = []
     attempted: list[Resource] = []

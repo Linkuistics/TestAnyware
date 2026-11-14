@@ -26,6 +26,19 @@ HEADER = struct.Struct("!I")
 
 
 @dataclass(frozen=True)
+class BootstrapBounds:
+    readiness: float = 1
+    term_grace: float = 2
+    kill_reap: float = 2
+
+    def validate(self) -> None:
+        for name, ceiling in (("readiness", 1), ("term_grace", 2), ("kill_reap", 2)):
+            value = getattr(self, name)
+            if type(value) not in {int, float} or not 0 < value <= ceiling:
+                raise ValueError(f"bootstrap {name} must be positive and at most {ceiling} seconds")
+
+
+@dataclass(frozen=True)
 class RequestScope:
     workload_pid: int
     workload_pgid: int
@@ -291,12 +304,20 @@ class Worker:
     shutdown_started: float | None = None
     shutdown_finished: float | None = None
     kill_at: float | None = None
+    bootstrap: BootstrapBounds = field(default_factory=BootstrapBounds)
+    startup_deadline: float | None = None
+    readiness_finished: float | None = None
+    bootstrap_shutdown: dict[str, object] | None = None
 
     def start(self) -> bool:
         if self.started or self.closed or self.failure is not None:
             return self.started and not self.closed and self.failure is None
+        if not isinstance(cast(object, self.bootstrap), BootstrapBounds):
+            raise ValueError("invalid bootstrap bounds")
+        self.bootstrap.validate()
         self.startup_started = time.monotonic()
-        deadline = self.startup_started + 1.0
+        deadline = self.startup_started + self.bootstrap.readiness
+        self.startup_deadline = deadline
         try:
             self.admission = inspection.fork_admission()
             if not self.admission["ok"]:
@@ -352,17 +373,21 @@ class Worker:
                         "sid": pid,
                     }:
                         raise ValueError("invalid worker startup identity")
-                    if time.monotonic() >= deadline:
+                    self.readiness_finished = time.monotonic()
+                    if self.readiness_finished >= deadline:
                         raise TimeoutError("late worker readiness")
                     self.owner.ready = True
                     self.started = True
                     return True
             raise TimeoutError("worker readiness deadline exhausted")
         except (OSError, ValueError) as error:
+            self.readiness_finished = time.monotonic()
             self.failure = str(error)
             self.close()
             return False
         finally:
+            if self.readiness_finished is None:
+                self.readiness_finished = time.monotonic()
             self.startup_finished = time.monotonic()
 
     def close(self) -> None:
@@ -374,6 +399,17 @@ class Worker:
         term_at = self.shutdown_started
         term_sent = False
         kill_sent = False
+        failed_bootstrap = (
+            self.startup_started is not None and not self.started and self.failure is not None
+        )
+        if failed_bootstrap:
+            self.bootstrap_shutdown = {
+                "started_monotonic": self.shutdown_started,
+                "term_deadline_monotonic": self.shutdown_started + self.bootstrap.term_grace,
+                "kill_deadline_monotonic": (
+                    self.shutdown_started + self.bootstrap.term_grace + self.bootstrap.kill_reap
+                ),
+            }
         if owner is not None:
             retiring = owner.shutdown_deadline_monotonic != float("inf") or bool(owner.signals)
             if self.failure is None and not retiring:
@@ -386,15 +422,24 @@ class Worker:
                     kill_sent = term_sent = True
             # A request failure may already have fixed an earlier deadline.
             owner.shutdown_deadline_monotonic = min(
-                owner.shutdown_deadline_monotonic, self.shutdown_started + 4
+                owner.shutdown_deadline_monotonic,
+                self.shutdown_started
+                + (self.bootstrap.term_grace + self.bootstrap.kill_reap if failed_bootstrap else 4),
             )
             # Reserve half the remaining allowance for KILL/reap. Prior TERM
             # attempts (including denial) never acquire another two seconds.
             self.kill_at = min(
-                term_at + 2,
-                self.shutdown_started
+                term_at + (self.bootstrap.term_grace if failed_bootstrap else 2),
+                owner.shutdown_deadline_monotonic
+                if failed_bootstrap
+                else self.shutdown_started
                 + max(0, owner.shutdown_deadline_monotonic - self.shutdown_started) / 2,
             )
+            if self.bootstrap_shutdown is not None:
+                self.bootstrap_shutdown.update(
+                    term_deadline_monotonic=self.kill_at,
+                    kill_deadline_monotonic=owner.shutdown_deadline_monotonic,
+                )
         if self.command is not None and self.command in self.channels:
             try:
                 os.close(self.command)
@@ -426,6 +471,21 @@ class Worker:
                 self.failure = self.failure or f"worker channel close failed: {error}"
         self.channels.clear()
         self.shutdown_finished = time.monotonic()
+        if self.bootstrap_shutdown is not None:
+            end = cast(float, self.bootstrap_shutdown["kill_deadline_monotonic"])
+            overrun = self.shutdown_finished > end
+            self.bootstrap_shutdown.update(
+                finished_monotonic=self.shutdown_finished,
+                overrun=overrun,
+                outcome="not_created"
+                if owner is None
+                else "reaped"
+                if owner.reaped
+                else "residual_ownership",
+                signals=list(owner.signals) if owner is not None else [],
+            )
+            if overrun:
+                self.failure = f"{self.failure}; bootstrap shutdown overrun"
 
     def evidence(self) -> dict[str, object]:
         return {
@@ -434,8 +494,18 @@ class Worker:
             "owner": asdict(self.owner) if self.owner else None,
             "failure": self.failure,
             "admission": self.admission,
+            "bootstrap_bounds": asdict(self.bootstrap),
             "startup_started_monotonic": self.startup_started,
+            "startup_deadline_monotonic": self.startup_deadline,
+            "readiness_finished_monotonic": self.readiness_finished,
+            "readiness_outcome": "ready" if self.started else "failed" if self.failure else None,
+            "readiness_overrun": (
+                self.readiness_finished > self.startup_deadline
+                if self.readiness_finished is not None and self.startup_deadline is not None
+                else None
+            ),
             "startup_finished_monotonic": self.startup_finished,
+            "bootstrap_shutdown": self.bootstrap_shutdown,
             "shutdown_started_monotonic": self.shutdown_started,
             "shutdown_finished_monotonic": self.shutdown_finished,
             "closed": self.closed,

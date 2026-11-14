@@ -1,0 +1,1003 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/bootstrap-bounds-k101/inputs-mutant-plan-validation
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py
+collecting ... collected 622 items / 592 deselected / 30 selected
+
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0-readiness-1] FAILED [  3%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0-term_grace-2] FAILED [  6%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0-kill_reap-2] FAILED [ 10%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-readiness-1] FAILED [ 13%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-term_grace-2] FAILED [ 16%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-kill_reap-2] FAILED [ 20%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-readiness-1] FAILED [ 23%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-term_grace-2] FAILED [ 26%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-kill_reap-2] FAILED [ 30%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-readiness-1] FAILED [ 33%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-term_grace-2] FAILED [ 36%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-kill_reap-2] FAILED [ 40%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[True-readiness-1] FAILED [ 43%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[True-term_grace-2] FAILED [ 46%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[True-kill_reap-2] FAILED [ 50%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[None-readiness-1] FAILED [ 53%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[None-term_grace-2] FAILED [ 56%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[None-kill_reap-2] FAILED [ 60%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-readiness-1] FAILED [ 63%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-term_grace-2] FAILED [ 66%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-kill_reap-2] FAILED [ 70%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[over-readiness-1] FAILED [ 73%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[over-term_grace-2] FAILED [ 76%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[over-kill_reap-2] FAILED [ 80%]
+test_bootstrap.py::test_declared_bootstrap_real_child_bounds[ready] PASSED [ 83%]
+test_bootstrap.py::test_declared_bootstrap_real_child_bounds[term] PASSED [ 86%]
+test_bootstrap.py::test_declared_bootstrap_real_child_bounds[kill] PASSED [ 90%]
+test_bootstrap.py::test_declared_bootstrap_real_child_bounds[deferred-reap] PASSED [ 93%]
+test_bootstrap.py::test_declared_bootstrap_real_child_bounds[overrun] PASSED [ 96%]
+test_bootstrap.py::test_declared_bootstrap_plan_reaches_real_worker PASSED [100%]
+
+=================================== FAILURES ===================================
+_____ test_bootstrap_bounds_rejected_before_freeze_or_fork[0-readiness-1] ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c3f200>
+phase = 'readiness', ceiling = 1, invalid = 0
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+_____ test_bootstrap_bounds_rejected_before_freeze_or_fork[0-term_grace-2] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108db2510>
+phase = 'term_grace', ceiling = 2, invalid = 0
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+_____ test_bootstrap_bounds_rejected_before_freeze_or_fork[0-kill_reap-2] ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108db3050>
+phase = 'kill_reap', ceiling = 2, invalid = 0
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+_____ test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-readiness-1] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108c3efc0>
+phase = 'readiness', ceiling = 1, invalid = -1
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-term_grace-2] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc3290>
+phase = 'term_grace', ceiling = 2, invalid = -1
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+_____ test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-kill_reap-2] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected5')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc2900>
+phase = 'kill_reap', ceiling = 2, invalid = -1
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-readiness-1] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected6')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc3350>
+phase = 'readiness', ceiling = 1, invalid = nan
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-term_grace-2] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected7')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc0ad0>
+phase = 'term_grace', ceiling = 2, invalid = nan
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-kill_reap-2] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected8')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc3620>
+phase = 'kill_reap', ceiling = 2, invalid = nan
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-readiness-1] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected9')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc2ea0>
+phase = 'readiness', ceiling = 1, invalid = inf
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-term_grace-2] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected10')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc1760>
+phase = 'term_grace', ceiling = 2, invalid = inf
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-kill_reap-2] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected11')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108db3d10>
+phase = 'kill_reap', ceiling = 2, invalid = inf
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[True-readiness-1] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected12')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc4a70>
+phase = 'readiness', ceiling = 1, invalid = True
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+___ test_bootstrap_bounds_rejected_before_freeze_or_fork[True-term_grace-2] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected13')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc78c0>
+phase = 'term_grace', ceiling = 2, invalid = True
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[True-kill_reap-2] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected14')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc2f60>
+phase = 'kill_reap', ceiling = 2, invalid = True
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[None-readiness-1] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected15')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc23c0>
+phase = 'readiness', ceiling = 1, invalid = None
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+___ test_bootstrap_bounds_rejected_before_freeze_or_fork[None-term_grace-2] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected16')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc6a80>
+phase = 'term_grace', ceiling = 2, invalid = None
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[None-kill_reap-2] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected17')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc5340>
+phase = 'kill_reap', ceiling = 2, invalid = None
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-readiness-1] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected18')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc5ca0>
+phase = 'readiness', ceiling = 1, invalid = '0.1'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-term_grace-2] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected19')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dcc050>
+phase = 'term_grace', ceiling = 2, invalid = '0.1'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-kill_reap-2] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected20')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc5c40>
+phase = 'kill_reap', ceiling = 2, invalid = '0.1'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[over-readiness-1] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected21')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc4380>
+phase = 'readiness', ceiling = 1, invalid = 'over'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+___ test_bootstrap_bounds_rejected_before_freeze_or_fork[over-term_grace-2] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected22')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dc2a50>
+phase = 'term_grace', ceiling = 2, invalid = 'over'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+____ test_bootstrap_bounds_rejected_before_freeze_or_fork[over-kill_reap-2] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-528/test_bootstrap_bounds_rejected23')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dce930>
+phase = 'kill_reap', ceiling = 2, invalid = 'over'
+
+    @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
+    @pytest.mark.parametrize("invalid", [0, -1, float("nan"), float("inf"), True, None, "0.1", "over"])
+    def test_bootstrap_bounds_rejected_before_freeze_or_fork(
+        tmp_path, monkeypatch, phase, ceiling, invalid
+    ):
+        """Removing validation must permit a side effect or an invalid worker start."""
+        values = {phase: ceiling + 0.01 if invalid == "over" else invalid}
+        bounds = worker_capture.BootstrapBounds(**values)
+        plan = controller.Plan(uuid.uuid4().hex, (), bootstrap=bounds)
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("invalid bootstrap bound reached freeze/fork")
+    
+        monkeypatch.setattr(controller, "_hashes", forbidden)
+        monkeypatch.setattr(os, "fork", forbidden)
+        with pytest.raises(ValueError, match="bootstrap"):
+>           controller.execute(plan, tmp_path / "evidence")
+
+test_bootstrap.py:34: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+controller.py:687: in execute
+    before = _hashes(subjects)
+             ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = ((PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evide...Path('/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12'), PosixPath('/bin/ps')),)
+kwargs = {}
+
+    def forbidden(*args, **kwargs):
+>       raise AssertionError("invalid bootstrap bound reached freeze/fork")
+E       AssertionError: invalid bootstrap bound reached freeze/fork
+
+test_bootstrap.py:29: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-validation/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0-readiness-1] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0-term_grace-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0-kill_reap-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-readiness-1] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-term_grace-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-kill_reap-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-readiness-1] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-term_grace-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-kill_reap-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-readiness-1] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-term_grace-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-kill_reap-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[True-readiness-1] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[True-term_grace-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[True-kill_reap-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[None-readiness-1] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[None-term_grace-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[None-kill_reap-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-readiness-1] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-term_grace-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-kill_reap-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[over-readiness-1] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[over-term_grace-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+FAILED test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[over-kill_reap-2] - AssertionError: invalid bootstrap bound reached freeze/fork
+================= 24 failed, 6 passed, 592 deselected in 1.80s =================

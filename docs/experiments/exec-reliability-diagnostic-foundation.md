@@ -1907,3 +1907,29 @@ failures remain unresolved.
 The aggregate persistent worker/shared scheduler charter and its required final
 review continue in complete-worker-scheduler-k91, after the focused k88 review.
 k28/k17 remain open; ten-clone acceptance remains **0/10, unavailable**.
+
+
+### k101 declared inspection-worker bootstrap bounds
+
+`Plan.bootstrap` freezes the immutable readiness, failed-bootstrap TERM and
+KILL/reap allowances before evidence creation or subject hashing. Each allowance
+must be a positive finite number, with ceilings of one, two and two seconds
+respectively. Direct Worker startup validates the same declaration before
+creating pipes or forking. The runtime uses those allowances without extending
+an earlier owner deadline and keeps signal scope at the exact PID until
+readiness confirms the private group.
+
+Worker receipts now include declared bounds, the readiness deadline and outcome,
+and failed-bootstrap shutdown phase deadlines, finish time, overrun and terminal
+ownership outcome. A delayed syscall return can exceed the sampled deadline; it
+records failure and residual ownership rather than authorizing later signals.
+These bounds do not provide a hard real-time guarantee.
+
+The [retained k101 report](../../experiments/exec-reliability/evidence/bootstrap-bounds-k101/report.md)
+contains the failing baseline, real-child controls, independently restored
+source defects and full-suite checks. Deferred observation and delayed syscall
+return are explicitly simulated; TERM/KILL and exact-child cleanup are real.
+The separate producer review precedes complete-worker-scheduler-k104, which
+retains the complete aggregate charter: worker-failure and orderly-close phase
+declarations, the shared scheduler, overlap controls and final k28 review.
+k28/k17 stay open; ten-clone acceptance remains **0/10, unavailable**.

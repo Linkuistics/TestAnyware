@@ -1,0 +1,627 @@
+{
+  "conditions": [
+    {
+      "condition": "full-final",
+      "cases": 622,
+      "passed": 622,
+      "failed": [],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        },
+        {
+          "name": "ruff",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        },
+        {
+          "name": "format",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        },
+        {
+          "name": "pyright",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 5
+    },
+    {
+      "condition": "full-green2",
+      "cases": 622,
+      "passed": 622,
+      "failed": [],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        },
+        {
+          "name": "ruff",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        },
+        {
+          "name": "format",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        },
+        {
+          "name": "pyright",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 5
+    },
+    {
+      "condition": "green1",
+      "cases": 622,
+      "passed": 621,
+      "failed": [
+        "test_declared_bootstrap_real_child_bounds[ready]"
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 1,
+          "timed_out": false,
+          "reaped": true
+        },
+        {
+          "name": "ruff",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        },
+        {
+          "name": "format",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        },
+        {
+          "name": "pyright",
+          "returncode": 1,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 5
+    },
+    {
+      "condition": "green2",
+      "cases": 30,
+      "passed": 30,
+      "failed": [],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 0,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 5
+    },
+    {
+      "condition": "mutant-kill-reap",
+      "cases": 30,
+      "passed": 26,
+      "failed": [
+        "test_declared_bootstrap_real_child_bounds[term]",
+        "test_declared_bootstrap_real_child_bounds[kill]",
+        "test_declared_bootstrap_real_child_bounds[deferred-reap]",
+        "test_declared_bootstrap_real_child_bounds[overrun]"
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 1,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 5
+    },
+    {
+      "condition": "mutant-overrun",
+      "cases": 30,
+      "passed": 29,
+      "failed": [
+        "test_declared_bootstrap_real_child_bounds[overrun]"
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 1,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 5
+    },
+    {
+      "condition": "mutant-plan-validation",
+      "cases": 30,
+      "passed": 6,
+      "failed": [
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[True-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[True-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[True-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[None-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[None-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[None-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[over-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[over-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[over-kill_reap-2]"
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 1,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 5
+    },
+    {
+      "condition": "mutant-plan-wiring",
+      "cases": 30,
+      "passed": 29,
+      "failed": [
+        "test_declared_bootstrap_plan_reaches_real_worker"
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 1,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 5
+    },
+    {
+      "condition": "mutant-readiness",
+      "cases": 30,
+      "passed": 26,
+      "failed": [
+        "test_declared_bootstrap_real_child_bounds[term]",
+        "test_declared_bootstrap_real_child_bounds[kill]",
+        "test_declared_bootstrap_real_child_bounds[deferred-reap]",
+        "test_declared_bootstrap_real_child_bounds[overrun]"
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 1,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 5
+    },
+    {
+      "condition": "mutant-term",
+      "cases": 30,
+      "passed": 28,
+      "failed": [
+        "test_declared_bootstrap_real_child_bounds[kill]",
+        "test_declared_bootstrap_real_child_bounds[deferred-reap]"
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 1,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 5
+    },
+    {
+      "condition": "red",
+      "cases": 30,
+      "passed": 0,
+      "failed": [
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[True-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[True-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[True-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[None-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[None-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[None-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-kill_reap-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[over-readiness-1]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[over-term_grace-2]",
+        "test_bootstrap_bounds_rejected_before_freeze_or_fork[over-kill_reap-2]",
+        "test_declared_bootstrap_real_child_bounds[ready]",
+        "test_declared_bootstrap_real_child_bounds[term]",
+        "test_declared_bootstrap_real_child_bounds[kill]",
+        "test_declared_bootstrap_real_child_bounds[deferred-reap]",
+        "test_declared_bootstrap_real_child_bounds[overrun]",
+        "test_declared_bootstrap_plan_reaches_real_worker"
+      ],
+      "checks": [
+        {
+          "name": "pytest",
+          "returncode": 1,
+          "timed_out": false,
+          "reaped": true
+        }
+      ],
+      "subjects_unchanged": true,
+      "artifact_hash_mismatches": [],
+      "bootstrap_audits": 0
+    }
+  ],
+  "bootstrap_child_audits": [
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/full-final/runs/bootstrap-deferred-reap-1794700002630631000.json",
+      "mode": "deferred-reap",
+      "pid": 51510,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/full-final/runs/bootstrap-kill-1794700002245120000.json",
+      "mode": "kill",
+      "pid": 51500,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/full-final/runs/bootstrap-overrun-1794700003066266000.json",
+      "mode": "overrun",
+      "pid": 51511,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/full-final/runs/bootstrap-ready-1794700001861377000.json",
+      "mode": "ready",
+      "pid": 51498,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/full-final/runs/bootstrap-term-1794700002019093000.json",
+      "mode": "term",
+      "pid": 51499,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/full-green2/runs/bootstrap-deferred-reap-1794699840163816000.json",
+      "mode": "deferred-reap",
+      "pid": 44523,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/full-green2/runs/bootstrap-kill-1794699839777710000.json",
+      "mode": "kill",
+      "pid": 44504,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/full-green2/runs/bootstrap-overrun-1794699840598594000.json",
+      "mode": "overrun",
+      "pid": 44524,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/full-green2/runs/bootstrap-ready-1794699839392280000.json",
+      "mode": "ready",
+      "pid": 44502,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/full-green2/runs/bootstrap-term-1794699839550291000.json",
+      "mode": "term",
+      "pid": 44503,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/green1/runs/bootstrap-deferred-reap-1794699670053560000.json",
+      "mode": "deferred-reap",
+      "pid": 39287,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/green1/runs/bootstrap-kill-1794699669668611000.json",
+      "mode": "kill",
+      "pid": 39268,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/green1/runs/bootstrap-overrun-1794699670483193000.json",
+      "mode": "overrun",
+      "pid": 39297,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/green1/runs/bootstrap-ready-1794699669174587000.json",
+      "mode": "ready",
+      "pid": null,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/green1/runs/bootstrap-term-1794699669442060000.json",
+      "mode": "term",
+      "pid": 39267,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/green2/runs/bootstrap-deferred-reap-1794699726341300000.json",
+      "mode": "deferred-reap",
+      "pid": 40782,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/green2/runs/bootstrap-kill-1794699725957232000.json",
+      "mode": "kill",
+      "pid": 40781,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/green2/runs/bootstrap-overrun-1794699726771350000.json",
+      "mode": "overrun",
+      "pid": 40783,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/green2/runs/bootstrap-ready-1794699725566018000.json",
+      "mode": "ready",
+      "pid": 40770,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/green2/runs/bootstrap-term-1794699725724988000.json",
+      "mode": "term",
+      "pid": 40771,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-kill-reap/runs/bootstrap-deferred-reap-1794699918935255000.json",
+      "mode": "deferred-reap",
+      "pid": 47318,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-kill-reap/runs/bootstrap-kill-1794699914773442000.json",
+      "mode": "kill",
+      "pid": 47295,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-kill-reap/runs/bootstrap-overrun-1794699919366608000.json",
+      "mode": "overrun",
+      "pid": 47508,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-kill-reap/runs/bootstrap-ready-1794699914379329000.json",
+      "mode": "ready",
+      "pid": 47293,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-kill-reap/runs/bootstrap-term-1794699914534705000.json",
+      "mode": "term",
+      "pid": 47294,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-overrun/runs/bootstrap-deferred-reap-1794699920904876000.json",
+      "mode": "deferred-reap",
+      "pid": 47631,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-overrun/runs/bootstrap-kill-1794699920521301000.json",
+      "mode": "kill",
+      "pid": 47595,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-overrun/runs/bootstrap-overrun-1794699921339802000.json",
+      "mode": "overrun",
+      "pid": 47632,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-overrun/runs/bootstrap-ready-1794699920139573000.json",
+      "mode": "ready",
+      "pid": 47584,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-overrun/runs/bootstrap-term-1794699920295663000.json",
+      "mode": "term",
+      "pid": 47585,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-validation/runs/bootstrap-deferred-reap-1794699902590184000.json",
+      "mode": "deferred-reap",
+      "pid": 46731,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-validation/runs/bootstrap-kill-1794699902206657000.json",
+      "mode": "kill",
+      "pid": 46704,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-validation/runs/bootstrap-overrun-1794699903023831000.json",
+      "mode": "overrun",
+      "pid": 46768,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-validation/runs/bootstrap-ready-1794699901826560000.json",
+      "mode": "ready",
+      "pid": 46692,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-validation/runs/bootstrap-term-1794699901981275000.json",
+      "mode": "term",
+      "pid": 46702,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-wiring/runs/bootstrap-deferred-reap-1794699904619480000.json",
+      "mode": "deferred-reap",
+      "pid": 46839,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-wiring/runs/bootstrap-kill-1794699904235476000.json",
+      "mode": "kill",
+      "pid": 46829,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-wiring/runs/bootstrap-overrun-1794699905064866000.json",
+      "mode": "overrun",
+      "pid": 46840,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-wiring/runs/bootstrap-ready-1794699903855318000.json",
+      "mode": "ready",
+      "pid": 46818,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-plan-wiring/runs/bootstrap-term-1794699904010103000.json",
+      "mode": "term",
+      "pid": 46819,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-readiness/runs/bootstrap-deferred-reap-1794699909635894000.json",
+      "mode": "deferred-reap",
+      "pid": 46959,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-readiness/runs/bootstrap-kill-1794699908393246000.json",
+      "mode": "kill",
+      "pid": 46922,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-readiness/runs/bootstrap-overrun-1794699910931549000.json",
+      "mode": "overrun",
+      "pid": 46969,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-readiness/runs/bootstrap-ready-1794699906293997000.json",
+      "mode": "ready",
+      "pid": 46902,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-readiness/runs/bootstrap-term-1794699907304595000.json",
+      "mode": "term",
+      "pid": 46903,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-term/runs/bootstrap-deferred-reap-1794699913051536000.json",
+      "mode": "deferred-reap",
+      "pid": 47222,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-term/runs/bootstrap-kill-1794699912648401000.json",
+      "mode": "kill",
+      "pid": 47198,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-term/runs/bootstrap-overrun-1794699913488007000.json",
+      "mode": "overrun",
+      "pid": 47232,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-term/runs/bootstrap-ready-1794699912100227000.json",
+      "mode": "ready",
+      "pid": 47153,
+      "reaped": true
+    },
+    {
+      "path": "experiments/exec-reliability/evidence/bootstrap-bounds-k101/mutant-term/runs/bootstrap-term-1794699912261402000.json",
+      "mode": "term",
+      "pid": 47163,
+      "reaped": true
+    }
+  ],
+  "bootstrap_child_audit_count": 50,
+  "live_final_input_drift": [],
+  "failures": [],
+  "ok": true,
+  "limits": "Audits are the original exact-child waitpid checks while PID ownership was pinned. Deferred-reap and syscall-return stalls are injected; no later stale PID signal or broad process query is used. This covers bootstrap fixtures and checker parents; aggregate full-suite resources retain their own receipts."
+}
