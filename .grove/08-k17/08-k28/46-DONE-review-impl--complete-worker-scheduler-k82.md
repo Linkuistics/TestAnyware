@@ -54,3 +54,14 @@ without transcribing the finding list. If there are no actionable findings,
 retire with no empty integration. The eventual aggregate review with
 Reviews: bounded-inspection-k28 before k21 is still the final aggregate producer's
 responsibility, not satisfied by this review.
+
+## Decisions (running log)
+
+- 2026-11-15: The review read the k78 producer commit ab963ce by inspection only. It ran no test, build or lint command. It read the two fork sites, the decoder and the new tests against the frozen evidence.
+- Doubt 1 holds. Both sites sample admission after the pipes and the signal mask. Both sites compare the clock with the fixed capture cutoff after that sample. Neither site renews the deadline.
+- Doubt 2 holds. The helper refusal is a `ValueError` raised before the separate `os.fork` `try`. The `OSError` handler never sees it. It creates no PID, owner or kernel errno. The worker decoder still rejects a refusal that carries a PID.
+- Doubt 3 holds. The outer `finally` restores the mask and closes the prepared descriptors. The new test checks both after a native observation failure. It compares `/dev/fd` as a set, so it cannot tell a leak from a swap of equal numbers. No realistic path makes that swap, so this is a recorded limit and not a finding.
+- Doubt 4 holds. All seven mutations run after preparation at both boundaries. The native thread is a real `pthread_create` thread that `threading.active_count()` does not see. The tripwire raises before any kernel fork. The late-return fixture now delays `os.fork` and still signals a real child.
+- Doubt 5 holds. All 14 RED failures in red-01 and red-02 are the `attempted == []` assertion. The full-01 failure is the old late-creation fixture. The final 415-case run passes. Frozen digests match the commit and its parent.
+- Limits. The new tests are Darwin-only, because they use libSystem and libproc. No test drives the new recheck inside a real forked worker child. The existing real-worker refusal test reaches only the early check. The decoder covers the resulting frame shape, so this is a coverage gap and not a defect. Later PID absence is not proof of historical reap. Ten-clone acceptance stays 0/10 unavailable.
+- No finding earns integration. No integrate leaf is cut. No provider evidence applies, because no review leaf names k82.
