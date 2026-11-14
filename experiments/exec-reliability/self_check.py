@@ -52,6 +52,7 @@ def main() -> None:
         HERE / "uv.lock",
         HERE.parents[1] / "Taskfile.yml",
         Path(python),
+        Path("/bin/ps"),
     ]
     before = hashes(subjects)
     declaration = {

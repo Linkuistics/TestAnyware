@@ -8,7 +8,7 @@ fixture cleanup and checker timeout reporting. Initial fork admission now reject
 extra Python or native threads, changed Python or kernel SIGCHLD disposition and
 unavailable native observations before acquisition, retaining failed results.
 Review integration k32 independently reproduced and repaired the Python signal
-cache gap. The current measured condition is k43-final-01: workload leaders
+cache gap. The current measured condition is k47-final-01: workload leaders
 are reaped with exact-PID nonblocking waits before a fixed deadline; failed
 reaps retain an explicit owner and residual without destructor polling.
 The controller now requests at most one final process table, after the final
@@ -18,14 +18,17 @@ It preserves k37's strict process-table acceptance, k33's KILL ordering and
 k36's PID-only deadline cap. The
 complete worker/scheduler boundary remains k30's work, continued by k34's
 worker-scheduler-k38 subtree, continued by worker-scheduler-k40 and its
-worker-scheduler-k42 subtree and its remaining worker-scheduler-k44 leaf.
+worker-scheduler-k42 subtree, worker-scheduler-k44 subtree and remaining
+worker-scheduler-k48 leaf.
 A failed local inspection now remains failed throughout that execution.
 Independent cleanup, disposal and public absence commands still run, but later
 local observations cannot restore disposal certainty.
 Independently supervised process inspection, retained-file identity,
 stalled-storage disposal and live route
 preparation still need the work named below before causal use. In particular,
-the present `ps` helper can outlive its timeout and block disposal.
+helper creation remains synchronous and can still block disposal. Once created,
+the helper now has bounded pipe capture and nonblocking reap attempts, with a
+strong residual owner on failure; controller-local scheduling remains interim.
 This is preparation for the causal inquiries in
 [issue #14](https://github.com/Linkuistics/TestAnyware/issues/14), not a repair
 of TestAnyware. No guest was booted, no guest command was run, and no app was
@@ -122,10 +125,10 @@ EPERM is distinct, and EPERM with failed inspection remains unknown.
 These observations do not establish the kernel's historical cause for an
 earlier EPERM or containment of arbitrary descendants.
 
-After KILL, the group poll currently reserves a 10 ms sampling window **inside**
-the declared phase; kqueue polling continues to the actual deadline. This reserve is shorter than
-some retained `ps` observations, so it does not prevent false instrument failures.
-Do not interpret the passing controls as a proved inspection bound. KILL, further inspection and
+The sole final query must start before K minus min(100 ms, `kill_wait` / 4),
+reserving the tail for workload-leader reap. No query occurs without observed
+leader exit, and a failed or late observation is never retried. Passing controls
+do not establish a full inspection bound. KILL, inspection and
 leader reaping share one deadline: T plus `kill_wait` for group termination,
 or the earlier of observed PID exit and T, plus `kill_wait`, for PID-only
 interruption. Late exit observation does not move the group deadline.
@@ -140,12 +143,12 @@ revalidate and clean known children; no group signal is safe after leader reap.
 Normal exit can still leave a writer: stream/result digests and demonstrated
 late-write rejection remain the next increment.
 
-The timing statements above are conditional on process creation and inspection
-returning. Python 3.12's `subprocess.run(timeout=...)` kills a timed-out helper
-and then waits without a timeout. Its setuid `/bin/ps` child therefore remains
-an unbounded path to disposal, separate from blocked evidence storage. The
-bounded-inspection design and reviewed implementation must resolve this before
-causal use; increasing a sampling reserve cannot establish that property.
+The timing statements above remain conditional on process creation and host
+scheduling. The actual query no longer uses `subprocess.run(timeout=...)` and
+its post-timeout blocking wait. It captures nonblocking pipes and uses
+exact-PID WNOHANG reap with fixed deadlines, as measured in k47 below. The
+private worker and shared scheduler must still isolate creation and permit
+concurrent teardown before causal use. Blocked evidence storage remains separate.
 
 `budget` is the pre-termination waiting budget. Allow its value plus
 `term_grace + kill_wait` within the operation's comparison ceiling: for example,
@@ -1054,6 +1057,70 @@ worker, shared scheduler, concurrent teardown, shutdown and fault inventory
 remain live on worker-scheduler-k44; its final full-subsystem review is still
 required. No guest or privileged-process acceptance follows. Historical
 acceptance remains **0/10, unavailable**.
+
+### Bounded post-creation helper capture (k47)
+
+The actual group query now uses `inspection.capture_helper`. Every helper
+creation gets a fresh Python/native thread and SIGCHLD admission check. Creation
+still uses synchronous Popen in the controller. After creation, stdout and
+stderr are nonblocking, with one read per ready stream per turn (at most 32 KiB)
+and a 256 KiB combined retained-output cap. One excess detection byte fails the
+query without being retained. Partial EOF is captured verbatim; the existing
+strict process-table parser remains responsible for rejecting incomplete rows.
+
+For caller cutoff D, capture stops at D minus min(50 ms, remaining allowance / 4).
+That fixed reserve covers direct exact-PID KILL and WNOHANG reap attempts; there
+is no fresh post-timeout wait allowance. Successful reap or any wait error
+closes helper signal authority. An unreaped helper retains its Popen owner in
+`_helper_owners`, with its PID, argv, admission, timestamps, errno and external
+reconciliation remedy. Its destructor performs no poll or implicit wait. These
+helper receipts remain distinct from workload-leader ownership. A failed
+capture or admission makes inspection sticky for the current execute call;
+cleanup, disposal and public absence commands still run without later local
+query retries.
+
+The [final retained self-check](../../experiments/exec-reliability/evidence/k47-final-01/verdict.json)
+passes Ruff lint/format, strict Pyright and
+[130 tests](../../experiments/exec-reliability/evidence/k47-final-01/pytest.xml)
+in 26.41 seconds. The runner includes every top-level Python source, the locked
+project configuration, Taskfile, interpreter and `/bin/ps` in before/after
+hashes. The earlier [k47-check-01](../../experiments/exec-reliability/evidence/k47-check-01/verdict.json)
+also passed all 130 tests and strict types, but failed lint on an overlong remedy
+and import ordering. It is retained as that failed condition; it was not replaced.
+
+| Real helper control | Final capture elapsed | Retained bytes | Exit |
+| --- | ---: | ---: | ---: |
+| Healthy stdout and stderr | 0.015942 s | 11 | 0 |
+| Partial output then EOF | 0.014994 s | 7 | 0 |
+| Ten-second hang, bounded KILL/reap | 0.456604 s | 0 | -9 |
+| Unbounded stdout, bounded KILL/reap | 0.027784 s | 262144 | -9 |
+| Unbounded stderr, bounded KILL/reap | 0.020463 s | 262144 | -9 |
+
+All five controls used an unchanged 500 ms cutoff. Additional real execute
+controls inject a hang, overflow on each pipe, or a live-thread admission failure
+after resource acquisition. Each records exactly two query attempts, preserves
+all three safety commands, reaps workload leaders and removes the fake marker;
+the resource ledger remains uncertain. A separate adapter makes WNOHANG always
+report non-observation for a real child. It proves strong ownership and absence
+of implicit wait/destructor polling, then independently reaps the fixture. This
+is simulated unreapability, distinct from the real helper KILL controls above.
+
+The [independent audit](../../experiments/exec-reliability/evidence/k47-audit-01/result.json)
+checks every retained input/artifact hash, both suites' per-case verdicts, helper
+bounds, safety controls, every recorded real helper/workload/checker PID and
+exact fixture marker. Live, mixed, invalid-selector and freshly reaped controls
+contest the absence predicate. It removes only allowlisted scratch artifacts
+after later exact-PID absence observations. Counts and itemized paths are in
+the audit receipt; those later observations do not prove process history or
+containment of escaped descendants.
+
+This is the first green child of worker-scheduler-k44. The complete private
+worker, every-fork reset, publication/protocol, shared scheduler, concurrent
+teardown/shutdown and full fault inventory remain live on worker-scheduler-k48,
+including the final whole-runtime review before k21. True UID denial and real
+setuid-ps KILL remain unavailable and distinct from deterministic controls.
+No creation, privilege, storage isolation, immutable-publication or live-guest
+guarantee follows. Historical acceptance remains **0/10, unavailable**.
 
 ### Earlier foundation controls
 

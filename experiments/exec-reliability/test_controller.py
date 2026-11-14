@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from controller import Call, Plan, Resource, execute
+from inspection import HelperCapture, capture_helper
 
 HERE = Path(__file__).resolve().parent
 PEER = HERE / "peer.py"
@@ -191,7 +192,7 @@ def test_review_skipped_query_preserves_later_safety_inspection(tmp_path, monkey
     import controller
 
     original_final = controller._final_snapshot
-    original_run = subprocess.run
+    original_run = capture_helper
     final_calls, queries = [], []
 
     def final(pid, deadline, leader_exit):
@@ -211,7 +212,7 @@ def test_review_skipped_query_preserves_later_safety_inspection(tmp_path, monkey
         return original_run(argv, *args, **kwargs)
 
     monkeypatch.setattr(controller, "_final_snapshot", final)
-    monkeypatch.setattr(subprocess, "run", query)
+    monkeypatch.setattr(controller, "capture_helper", query)
     run_id = uuid.uuid4().hex
     owned = resource(tmp_path, run_id)
     path, result = run(
@@ -249,7 +250,9 @@ def test_review_skipped_query_preserves_later_safety_inspection(tmp_path, monkey
 
 
 def test_review_real_ps_failure_disables_later_queries_and_probes(tmp_path, monkeypatch):
-    original_run, original_killpg = subprocess.run, os.killpg
+    import controller
+
+    original_run, original_killpg = capture_helper, os.killpg
     queries, probes = [], []
 
     def query(argv, *args, **kwargs):
@@ -267,7 +270,7 @@ def test_review_real_ps_failure_disables_later_queries_and_probes(tmp_path, monk
             probes.append(pid)
         return original_killpg(pid, sig)
 
-    monkeypatch.setattr(subprocess, "run", query)
+    monkeypatch.setattr(controller, "capture_helper", query)
     monkeypatch.setattr(os, "killpg", killpg)
     run_id = uuid.uuid4().hex
     owned = resource(tmp_path, run_id)
@@ -952,18 +955,20 @@ def test_review_group_signals_and_inspection_finish_before_reaping(tmp_path, mon
 
 @pytest.mark.parametrize("failure", ["usage", "timeout", "foreign"])
 def test_review_failed_group_inspection_is_never_absence(tmp_path, monkeypatch, failure):
-    original_run = subprocess.run
+    import controller
+
+    original_run = capture_helper
 
     def broken_ps(argv, *args, **kwargs):
         if argv[0] != "/bin/ps":
             return original_run(argv, *args, **kwargs)
         if failure == "timeout":
-            raise subprocess.TimeoutExpired(argv, kwargs["timeout"], b"partial")
+            return HelperCapture(stdout=b"partial", error="injected capture timeout")
         if failure == "foreign":
-            return subprocess.CompletedProcess(argv, 0, b"1 1 S\n", b"")
-        return subprocess.CompletedProcess(argv, 1, b"", b"ps: usage error\n")
+            return HelperCapture(b"1 1 S\n", b"", 0, reaped=True)
+        return HelperCapture(b"", b"ps: usage error\n", 1, reaped=True)
 
-    monkeypatch.setattr(subprocess, "run", broken_ps)
+    monkeypatch.setattr(controller, "capture_helper", broken_ps)
     workload = replace(
         call("unknown", "hang", budget=0.2), expected_reason="deadline", expected_exit=-15
     )
@@ -978,8 +983,10 @@ def test_review_failed_group_inspection_is_never_absence(tmp_path, monkeypatch, 
 
 @pytest.mark.parametrize("mode", ["hang", "ignore-term"])
 def test_review_group_kill_precedes_inspection(tmp_path, monkeypatch, mode):
+    import controller
+
     # Moving ps into TERM grace or skipping KILL after leader exit must fail.
-    original_run, original_killpg = subprocess.run, os.killpg
+    original_run, original_killpg = capture_helper, os.killpg
     query_times, kill_times = [], []
 
     def slow_ps(argv, *args, **kwargs):
@@ -996,7 +1003,7 @@ def test_review_group_kill_precedes_inspection(tmp_path, monkeypatch, mode):
             kill_times.append(time.monotonic())
         original_killpg(pid, sig)
 
-    monkeypatch.setattr(subprocess, "run", slow_ps)
+    monkeypatch.setattr(controller, "capture_helper", slow_ps)
     monkeypatch.setattr(os, "killpg", signal_group)
     workload = replace(
         call("ordering", mode, budget=0.2),
@@ -1454,9 +1461,9 @@ def test_group_snapshot_rejects_invalid_table_before_probe(
 
     probes = []
     monkeypatch.setattr(
-        controller.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], returncode, stdout, stderr),
+        controller,
+        "capture_helper",
+        lambda *args, **kwargs: HelperCapture(stdout, stderr, returncode, reaped=True),
     )
     monkeypatch.setattr(controller.os, "killpg", lambda *args: probes.append(args))
     observation = controller._group_snapshot(123, time.monotonic() + 1)
@@ -1489,9 +1496,9 @@ def test_group_snapshot_accepts_valid_tables_and_limits(monkeypatch, stdout, exp
 
     probes = []
     monkeypatch.setattr(
-        controller.subprocess,
-        "run",
-        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout, b""),
+        controller,
+        "capture_helper",
+        lambda *args, **kwargs: HelperCapture(stdout, b"", 0, reaped=True),
     )
     monkeypatch.setattr(controller.os, "killpg", lambda *args: probes.append(args))
     observation = controller._group_snapshot(123, time.monotonic() + 1)
@@ -1516,14 +1523,14 @@ def test_group_snapshot_rejects_late_observation(monkeypatch, late_during):
     def helper(*args, **kwargs):
         if late_during == "helper":
             now[0] = 11.0
-        return subprocess.CompletedProcess(args[0], 0, b"123 123 Z\n", b"")
+        return HelperCapture(b"123 123 Z\n", b"", 0, reaped=True)
 
     def probe(*args):
         probes.append(args)
         now[0] = 11.0
 
     monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
-    monkeypatch.setattr(controller.subprocess, "run", helper)
+    monkeypatch.setattr(controller, "capture_helper", helper)
     monkeypatch.setattr(controller.os, "killpg", probe)
     observation = controller._group_snapshot(123, 11.0)
     assert observation["state"] == "unknown"

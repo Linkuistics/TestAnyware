@@ -1,15 +1,19 @@
-"""Observe initial fork preconditions without creating an inspection subprocess.
+"""Admission and bounded post-creation capture for local inspection helpers.
 
 Admission is a snapshot, not a lock on the host's thread or signal state.
-A future worker implementation must repeat these checks before every fork.
+Synchronous creation and controller-local scheduling remain interim limitations.
 """
 
 import ctypes
 import errno
 import os
+import select
 import signal
 import struct
+import subprocess
 import threading
+import time
+from dataclasses import dataclass
 from typing import TypedDict
 
 _TASK_INFO = struct.Struct("=6Q12i")
@@ -108,4 +112,159 @@ def fork_admission() -> ForkAdmission:
     else:
         receipt["ok"] = True
         receipt["reason"] = "ready"
+    return receipt
+
+
+@dataclass
+class HelperCapture:
+    stdout: bytes = b""
+    stderr: bytes = b""
+    returncode: int | None = None
+    pid: int | None = None
+    argv: tuple[str, ...] = ()
+    admission: ForkAdmission | None = None
+    started_monotonic: float = 0
+    created_monotonic: float | None = None
+    capture_deadline_monotonic: float = 0
+    deadline_monotonic: float = 0
+    finished_monotonic: float = 0
+    kill_monotonic: float | None = None
+    kill_errno: int | None = None
+    reaped: bool = False
+    reaped_monotonic: float | None = None
+    reap_errno: int | None = None
+    error: str | None = None
+    error_errno: int | None = None
+    residual_remedy: str | None = None
+
+
+class _HelperProcess(subprocess.Popen[bytes]):
+    def __del__(self) -> None:
+        # CPython's destructor polls and registers live children for later
+        # implicit cleanup. Exact-PID ownership stays in _helper_owners instead.
+        # https://github.com/python/cpython/blob/3.12/Lib/subprocess.py
+        pass
+
+
+_helper_owners: dict[int, _HelperProcess] = {}
+
+
+def _reap_helper(process: _HelperProcess, receipt: HelperCapture) -> None:
+    if receipt.reaped or receipt.reap_errno is not None:
+        return
+    try:
+        # https://docs.python.org/3.12/library/os.html#os.waitpid
+        pid, status = os.waitpid(process.pid, os.WNOHANG)
+    except OSError as error:
+        receipt.reap_errno = error.errno
+        receipt.error = f"helper reap failed: {error}"
+        return
+    if pid == process.pid:
+        process.returncode = os.waitstatus_to_exitcode(status)
+        receipt.returncode = process.returncode
+        receipt.reaped = True
+        receipt.reaped_monotonic = time.monotonic()
+        del _helper_owners[pid]
+
+
+def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
+    """Cap both pipes and exact-child reap within a caller's fixed allowance.
+
+    Popen creation is synchronous. A late return retains its owner and cannot
+    extend the deadline. The private worker/scheduler is still required.
+    """
+    started = time.monotonic()
+    receipt = HelperCapture(
+        argv=argv,
+        started_monotonic=started,
+        deadline_monotonic=deadline,
+        capture_deadline_monotonic=deadline - min(0.05, max(0, deadline - started) / 4),
+    )
+    receipt.admission = fork_admission()
+    if not receipt.admission["ok"]:
+        receipt.error = f"helper fork admission rejected: {receipt.admission['reason']}"
+        receipt.finished_monotonic = time.monotonic()
+        return receipt
+    if time.monotonic() >= receipt.capture_deadline_monotonic:
+        receipt.error = "helper capture deadline exhausted before creation"
+        receipt.finished_monotonic = time.monotonic()
+        return receipt
+    process: _HelperProcess | None = None
+    output = [bytearray(), bytearray()]
+    try:
+        # No context manager, communicate(), wait() or Popen.kill() (which polls).
+        # https://docs.python.org/3.12/library/subprocess.html#subprocess.Popen
+        process = _HelperProcess(
+            argv,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            close_fds=True,
+            bufsize=0,
+        )
+        _helper_owners[process.pid] = process
+        receipt.pid = process.pid
+        receipt.created_monotonic = time.monotonic()
+        assert process.stdout is not None and process.stderr is not None
+        streams = {process.stdout.fileno(): 0, process.stderr.fileno(): 1}
+        for fd in streams:
+            os.set_blocking(fd, False)
+        while time.monotonic() < receipt.capture_deadline_monotonic:
+            _reap_helper(process, receipt)
+            if receipt.reap_errno is not None or (receipt.reaped and not streams):
+                break
+            remaining = receipt.capture_deadline_monotonic - time.monotonic()
+            if remaining <= 0:
+                break
+            # One read per ready stream (at most 32 KiB per turn), with a
+            # deadline check between reads. No ready pipe can monopolise a turn.
+            # https://docs.python.org/3.12/library/select.html#select.select
+            ready, _, _ = select.select(list(streams), [], [], min(0.005, remaining))
+            for fd in ready:
+                if time.monotonic() >= receipt.capture_deadline_monotonic:
+                    break
+                available = 256 * 1024 - sum(map(len, output))
+                try:
+                    chunk = os.read(fd, min(16384, available + 1))
+                except BlockingIOError:
+                    continue
+                if not chunk:
+                    del streams[fd]
+                else:
+                    output[streams[fd]].extend(chunk[:available])
+                    if len(chunk) > available:
+                        raise ValueError("ps output limit exceeded")
+        if receipt.error is None and not (receipt.reaped and not streams):
+            receipt.error = "helper capture deadline exhausted"
+    except (OSError, ValueError) as error:
+        receipt.error = str(error)
+        if isinstance(error, OSError):
+            receipt.error_errno = error.errno
+    finally:
+        receipt.stdout, receipt.stderr = bytes(output[0]), bytes(output[1])
+        if process is not None:
+            # Only an unreaped child with retained wait ownership pins the PID.
+            # A wait error closes signal authority even though the owner remains.
+            if not receipt.reaped and receipt.reap_errno is None and time.monotonic() < deadline:
+                receipt.kill_monotonic = time.monotonic()
+                try:
+                    os.kill(process.pid, signal.SIGKILL)
+                except OSError as error:
+                    receipt.kill_errno = error.errno
+                    receipt.error = receipt.error or f"helper KILL failed: {error}"
+            for stream in (process.stdout, process.stderr):
+                if stream is not None:
+                    stream.close()
+            while not receipt.reaped and receipt.reap_errno is None and time.monotonic() < deadline:
+                _reap_helper(process, receipt)
+                if not receipt.reaped:
+                    time.sleep(min(0.005, max(0, deadline - time.monotonic())))
+            if not receipt.reaped:
+                receipt.error = receipt.error or "helper unreaped before fixed deadline"
+                receipt.residual_remedy = (
+                    "Strong helper ownership retained without further signals or waits. "
+                    "Independently validate this PID, parent and argv "
+                    "before external reconciliation."
+                )
+        receipt.finished_monotonic = time.monotonic()
     return receipt

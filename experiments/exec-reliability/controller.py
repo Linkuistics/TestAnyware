@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal, TypedDict, cast
 
-from inspection import fork_admission
+from inspection import capture_helper, fork_admission
 
 
 @dataclass(frozen=True)
@@ -157,6 +157,7 @@ class GroupObservation(TypedDict):
     started_monotonic: float
     finished_monotonic: float
     query_attempted: bool
+    helper: dict[str, object] | None
     state: Literal["live", "zombie_only", "unknown"]
     members: list[dict[str, str | int]]
     stdout: bytes
@@ -221,6 +222,7 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
         "started_monotonic": time.monotonic(),
         "finished_monotonic": time.monotonic(),
         "query_attempted": False,
+        "helper": None,
         "state": "unknown",
         "members": [],
         "stdout": b"",
@@ -237,13 +239,14 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
         if remaining <= 0:
             raise TimeoutError("group inspection phase exhausted")
         observation["query_attempted"] = True
-        check = subprocess.run(
+        check = capture_helper(
             ("/bin/ps", "-g", str(pid), "-o", "pid=,pgid=,stat="),
-            capture_output=True,
-            timeout=remaining,
+            deadline,
         )
+        observation["helper"] = asdict(check)
         observation.update(stdout=check.stdout, stderr=check.stderr, returncode=check.returncode)
-        # Acceptance limits only: subprocess.run still captures/waits synchronously.
+        if check.error is not None or not check.reaped:
+            raise ValueError(check.error or "inspection helper unreaped")
         if len(check.stdout) + len(check.stderr) > 256 * 1024:
             raise ValueError("ps output limit exceeded")
         if check.returncode != 0 or check.stderr:
@@ -323,6 +326,7 @@ def _final_snapshot(pid: int, deadline: float, leader_exit: float | None) -> Gro
         "started_monotonic": now,
         "finished_monotonic": now,
         "query_attempted": False,
+        "helper": None,
         "state": "unknown",
         "members": [],
         "stdout": b"",
@@ -354,6 +358,7 @@ class _InspectionState:
                 "started_monotonic": now,
                 "finished_monotonic": now,
                 "query_attempted": False,
+                "helper": None,
                 "state": "unknown",
                 "members": [],
                 "stdout": b"",

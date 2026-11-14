@@ -6,6 +6,7 @@ import os
 import signal
 import sys
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -92,6 +93,76 @@ def test_review_admission_rejects_live_python_thread_before_acquisition(tmp_path
         release.set()
         thread.join(timeout=1)
     assert not thread.is_alive()
+
+
+@pytest.mark.parametrize("failure", ["hang", "stdout", "stderr", "admission"])
+def test_review_helper_failure_keeps_execute_safety_and_stops_queries(
+    tmp_path, monkeypatch, failure
+):
+    import controller
+    from inspection import capture_helper
+
+    queries = []
+
+    def helper(argv, deadline):
+        queries.append(argv)
+        if len(queries) != 2:
+            return capture_helper(argv, deadline)
+        if failure == "admission":
+            release = threading.Event()
+            thread = threading.Thread(target=release.wait)
+            thread.start()
+            try:
+                return capture_helper(argv, deadline)
+            finally:
+                release.set()
+                thread.join(timeout=1)
+        source = (
+            "import time; time.sleep(10)"
+            if failure == "hang"
+            else f"import os;\nwhile True: os.write({1 if failure == 'stdout' else 2},b'x'*16384)"
+        )
+        return capture_helper((sys.executable, "-c", source), deadline)
+
+    monkeypatch.setattr(controller, "capture_helper", helper)
+    plan = configured_plan(tmp_path)
+    path, result = run_plan(tmp_path, plan)
+    assert result["ok"] is False
+    assert result["inspection_failure"]["call"] == "workload"
+    assert len(queries) == 2
+    assert [item["name"] for item in result["calls"]] == [
+        "acquire",
+        "workload",
+        "cleanup",
+        "dispose",
+        "absent",
+    ]
+    assert all(item["reaped"] for item in result["calls"])
+    assert result["resources"][0]["state"] == "uncertain"
+    assert not (tmp_path / plan.resources[0].identity).exists()
+    observation = result["inspection_failure"]["observation"]
+    helper_receipt = observation["helper"]
+    assert helper_receipt["error"]
+    assert helper_receipt["finished_monotonic"] <= helper_receipt["deadline_monotonic"]
+    if failure == "admission":
+        assert helper_receipt["pid"] is None
+        assert helper_receipt["admission"]["reason"] == "python_threads"
+    else:
+        assert helper_receipt["pid"] is not None
+        assert helper_receipt["reaped"] is True
+        assert helper_receipt["returncode"] == -signal.SIGKILL
+    for receipt in result["calls"][2:]:
+        assert receipt["group_observations"][0]["query_attempted"] is False
+    (path / "helper-safety-control.json").write_text(
+        json.dumps(
+            {
+                "condition": failure,
+                "query_count": len(queries),
+                "marker_absent": True,
+            },
+            indent=2,
+        )
+    )
 
 
 def test_review_admission_rejects_native_pthread_absent_from_python_registry(tmp_path):
@@ -266,3 +337,109 @@ def test_review_admission_retains_missing_native_query_before_acquisition(tmp_pa
     monkeypatch.setattr("inspection.ctypes.CDLL", lambda *_args, **_kwargs: object())
     result = assert_rejected(tmp_path, "native_observation_error")
     assert result["fork_admission"]["errno"] == errno.ENOSYS
+
+
+@pytest.mark.parametrize("mode", ["healthy", "partial", "hang", "stdout", "stderr"])
+def test_review_helper_capture_bounds_real_pipes_and_reaps(tmp_path, mode):
+    from dataclasses import asdict
+
+    from inspection import capture_helper
+
+    source = {
+        "healthy": "import os; os.write(1,b'table\\n'); os.write(2,b'note\\n')",
+        "partial": "import os; os.write(1,b'partial')",
+        "hang": "import time; time.sleep(10)",
+        "stdout": "import os;\nwhile True: os.write(1,b'x'*16384)",
+        "stderr": "import os;\nwhile True: os.write(2,b'x'*16384)",
+    }[mode]
+    deadline = time.monotonic() + 0.5
+    capture = capture_helper((sys.executable, "-c", source), deadline)
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
+    receipt = asdict(capture)
+    receipt["stdout"] = capture.stdout.hex()
+    receipt["stderr"] = capture.stderr.hex()
+    (root / f"helper-{mode}-{uuid.uuid4().hex}.json").write_text(json.dumps(receipt, indent=2))
+    assert capture.pid is not None
+    assert capture.reaped is True
+    assert capture.finished_monotonic <= deadline
+    assert len(capture.stdout) + len(capture.stderr) <= 256 * 1024
+    with pytest.raises(ChildProcessError):
+        os.waitpid(capture.pid, os.WNOHANG)
+    if mode in {"healthy", "partial"}:
+        assert capture.error is None
+        assert capture.stdout == (b"table\n" if mode == "healthy" else b"partial")
+        assert capture.stderr == (b"note\n" if mode == "healthy" else b"")
+        assert capture.returncode == 0
+        assert capture.kill_monotonic is None
+    else:
+        assert capture.error is not None
+        assert capture.kill_monotonic is not None
+        assert capture.returncode == -signal.SIGKILL
+
+
+def test_review_helper_residual_ownership_never_uses_blocking_wait(tmp_path, monkeypatch):
+    from dataclasses import asdict
+
+    import inspection
+
+    original_waitpid = os.waitpid
+    waited = []
+
+    def unreapable(pid, flags):
+        assert flags == os.WNOHANG
+        waited.append(pid)
+        return 0, 0
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("helper used implicit blocking wait or destructor poll")
+
+    monkeypatch.setattr(os, "waitpid", unreapable)
+    monkeypatch.setattr(inspection._HelperProcess, "wait", forbidden)
+    monkeypatch.setattr(inspection._HelperProcess, "_internal_poll", forbidden)
+    capture = inspection.capture_helper((sys.executable, "-c", "pass"), time.monotonic() + 0.2)
+    assert capture.reaped is False
+    assert capture.pid in inspection._helper_owners
+    assert waited and set(waited) == {capture.pid}
+    owner = inspection._helper_owners[capture.pid]
+    owner.__del__()
+    # Independent fixture reconciliation after simulated non-observation; the
+    # production owner made no blocking wait, retry or post-cutoff signal.
+    pid, status = original_waitpid(capture.pid, 0)
+    assert pid == capture.pid
+    owner.returncode = os.waitstatus_to_exitcode(status)
+    del inspection._helper_owners[pid]
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
+    receipt = asdict(capture)
+    receipt.update(stdout=capture.stdout.hex(), stderr=capture.stderr.hex())
+    (root / f"helper-simulated-reap-{uuid.uuid4().hex}.json").write_text(
+        json.dumps(
+            {
+                "adapter": "waitpid always returns (0, 0); real child and KILL",
+                "capture": receipt,
+                "independent_fixture_reap": {"pid": pid, "returncode": owner.returncode},
+            },
+            indent=2,
+        )
+    )
+
+
+def test_review_helper_admission_rejects_before_creation(monkeypatch):
+    import inspection
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("fork attempted after admission rejection")
+
+    release = threading.Event()
+    thread = threading.Thread(target=release.wait)
+    thread.start()
+    try:
+        monkeypatch.setattr(inspection, "_HelperProcess", forbidden)
+        capture = inspection.capture_helper(("/bin/ps",), time.monotonic() + 0.5)
+        assert capture.pid is None
+        assert capture.admission["reason"] == "python_threads"
+        assert capture.error
+    finally:
+        release.set()
+        thread.join(timeout=1)
