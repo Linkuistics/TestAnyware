@@ -53,3 +53,10 @@ eventual Reviews: bounded-inspection-k28 review before k21.
 
 Use the separate review-impl route for the adversarial decision challenge.
 k28/k17 stay open and ten-clone acceptance remains 0/10 unavailable.
+
+## Decisions (running log)
+
+- 2026-11-15: The review read the k75 producer commit f537c5f by inspection only. It ran no test, build or lint command. The receiver reads, the creation-accounting guard, the unchanged deadlines and the frozen evidence mappings all held up.
+- Two findings survive. Finding 1: the RED runs never showed the read-count and early-TERM properties failing, and the hostile-channel test lost an assertion. Finding 2: a zero-length declaration is accepted at the header, and no control covers zero, exact-cap or fragmented-oversized declarations.
+- Cut `incremental-result-framing-k80` as the integrate leaf before k78, because k78 is the first live sibling after this review. The integrator classifies each finding before acting.
+- No provider evidence was present, so no Creator line is written. No review leaf names k79.
