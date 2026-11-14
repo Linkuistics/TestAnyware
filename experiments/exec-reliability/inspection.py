@@ -178,7 +178,7 @@ def _helper_child(argv: tuple[str, ...], stdout: int, stderr: int) -> None:
         # https://docs.python.org/3.12/library/os.html#os.dup2
         os.dup2(stdout, 1)
         os.dup2(stderr, 2)
-        reset_after_fork({1, 2})
+        reset_after_fork({1, 2}, new_session=False)
         # Reset reopens stdin with os.open, which defaults to close-on-exec.
         # https://docs.python.org/3.12/library/os.html#os.set_inheritable
         os.set_inheritable(0, True)
@@ -358,7 +358,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     return receipt
 
 
-def reset_after_fork(allowed: set[int]) -> None:
+def reset_after_fork(allowed: set[int], *, new_session: bool = True) -> None:
     """Reset the isolated fork child only; never call this in the controller."""
     # Signals remain blocked until every inherited handler/wakeup FD is reset.
     # https://docs.python.org/3.12/library/signal.html#signal.pthread_sigmask
@@ -384,5 +384,7 @@ def reset_after_fork(allowed: set[int]) -> None:
         if null != fd:
             os.dup2(null, fd)
             os.close(null)
-    os.setsid()
+    # Workers isolate themselves; helpers retain the worker's signal group.
+    if new_session:
+        os.setsid()
     signal.pthread_sigmask(signal.SIG_SETMASK, set())

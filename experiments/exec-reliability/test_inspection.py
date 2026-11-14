@@ -639,6 +639,125 @@ def test_review_helper_admission_rejects_before_creation(monkeypatch):
         thread.join(timeout=1)
 
 
+def test_review_worker_group_kill_reaches_live_raw_helper(tmp_path):
+    import select
+
+    import inspection
+    import worker_capture
+
+    # A helper setsid regression must leave this actual exec child alive after
+    # the real worker-group KILL. Kernel exit notification is independent of
+    # worker status and killpg's return; it is not helper reap acknowledgement.
+    marker, release = tmp_path / "helper.json", tmp_path / "release"
+    source = """
+import json, os, sys, time
+from pathlib import Path
+marker, release = map(Path, sys.argv[1:])
+state = dict(pid=os.getpid(), ppid=os.getppid(), pgid=os.getpgrp(), sid=os.getsid(0))
+temporary = marker.with_suffix('.tmp')
+temporary.write_text(json.dumps(state))
+temporary.replace(marker)
+end = time.monotonic() + 6
+while not release.exists() and time.monotonic() < end:
+    time.sleep(.005)
+"""
+    receipt = {
+        "real": "production worker _child, helper admission/fork/reset/exec, group SIGKILL, kqueue",
+        "fixture": "Python helper instead of ps; file readiness and cooperative cleanup only",
+        "bounds": {"ready_seconds": 1, "exit_seconds": 0.5, "cleanup_seconds": 2},
+        "helper_reap_acknowledgement": "unavailable after worker death",
+        "helper": None,
+        "helper_exit_event": None,
+        "worker_returncode": None,
+    }
+    assert inspection.fork_admission()["ok"]
+    control_read, control_write = os.pipe()
+    result_read, result_write = os.pipe()
+    queue = select.kqueue()
+    worker = None
+    reaped = False
+    try:
+        previous = signal.pthread_sigmask(signal.SIG_BLOCK, signal.valid_signals())
+        try:
+            worker = os.fork()
+            if worker == 0:
+                worker_capture._child(
+                    control_write,
+                    result_write,
+                    "group-kill-control",
+                    (sys.executable, "-c", source, str(marker), str(release)),
+                    time.monotonic() + 5,
+                )
+                os._exit(70)
+        finally:
+            signal.pthread_sigmask(signal.SIG_SETMASK, previous)
+        receipt["worker_pid"] = worker
+        end = time.monotonic() + 1
+        while not marker.exists() and time.monotonic() < end:
+            time.sleep(0.005)
+        assert marker.exists(), "real helper did not become ready within fixed bound"
+        helper = json.loads(marker.read_text())
+        receipt["helper"] = helper
+        ready_fds, _, _ = select.select([control_read], [], [], max(0, end - time.monotonic()))
+        assert ready_fds, "worker readiness missing"
+        ready = json.loads(os.read(control_read, 4096).splitlines()[0])
+        receipt["worker_ready"] = ready
+        assert ready["pid"] == ready["pgid"] == ready["sid"] == worker
+        assert os.getpgid(worker) == os.getsid(worker) == worker != os.getpgrp()
+        assert helper["ppid"] == worker
+        assert os.getpgid(helper["pid"]) == helper["pgid"]
+        assert os.getsid(helper["pid"]) == helper["sid"]
+        change = select.kevent(
+            helper["pid"],
+            filter=select.KQ_FILTER_PROC,
+            flags=select.KQ_EV_ADD | select.KQ_EV_ONESHOT,
+            fflags=select.KQ_NOTE_EXIT,
+        )
+        assert queue.control([change], 1, 0) == [], "helper already exited"
+        receipt["kill_started_monotonic"] = time.monotonic()
+        os.killpg(worker, signal.SIGKILL)  # Direct child remains unreaped, pinning the group.
+        receipt["kill_returned_monotonic"] = time.monotonic()
+        events = queue.control(None, 1, 0.5)
+        receipt["observation_finished_monotonic"] = time.monotonic()
+        if events:
+            event = events[0]
+            receipt["helper_exit_event"] = dict(
+                pid=event.ident, filter=event.filter, fflags=event.fflags, data=event.data
+            )
+    finally:
+        # Fixture reconciliation only. Release also handles the deliberately red
+        # detached-helper case without signalling an orphan's potentially reused PID.
+        release.touch()
+        end = time.monotonic() + 2
+        if worker is not None:
+            waited, status = os.waitpid(worker, os.WNOHANG)
+            if waited == 0:
+                os.kill(worker, signal.SIGKILL)
+            while waited == 0 and time.monotonic() < end:
+                time.sleep(0.005)
+                waited, status = os.waitpid(worker, os.WNOHANG)
+            reaped = waited == worker
+            if reaped:
+                receipt["worker_returncode"] = os.waitstatus_to_exitcode(status)
+        if receipt["helper"] is not None and receipt["helper_exit_event"] is None:
+            cleanup_events = queue.control(None, 1, max(0, end - time.monotonic()))
+            receipt["fixture_cleanup_exit_pids"] = [event.ident for event in cleanup_events]
+        receipt["worker_reaped"] = reaped
+        for fd in (control_read, control_write, result_read, result_write):
+            os.close(fd)
+        queue.close()
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"worker-group-kill-real-helper-{uuid.uuid4().hex}.json").write_text(
+            json.dumps(receipt, indent=2)
+        )
+    assert reaped and receipt["worker_returncode"] == -signal.SIGKILL
+    assert receipt["helper_exit_event"] is not None, "helper survived worker-group KILL"
+    assert receipt["helper_exit_event"]["pid"] == helper["pid"]
+    assert receipt["helper_exit_event"]["fflags"] & select.KQ_NOTE_EXIT
+    assert helper["pgid"] == helper["sid"] == worker
+
+
 def test_review_raw_helper_resets_before_exec(tmp_path, monkeypatch):
     import atexit
     import gc
@@ -697,7 +816,9 @@ def test_review_raw_helper_resets_before_exec(tmp_path, monkeypatch):
         )
         assert marker.exists(), "helper did not pass through the explicit raw exec boundary"
         state = json.loads(marker.read_text())
-        assert state["pid"] == state["pgid"] == state["sid"] == capture.pid
+        assert state["pid"] == capture.pid
+        assert state["pgid"] == os.getpgrp()
+        assert state["sid"] == os.getsid(0)
         assert state["ppid"] == parent
         assert all(
             state[key]
@@ -746,14 +867,14 @@ def test_review_raw_helper_child_failure_uses_exit_without_hooks(tmp_path, monke
 
     old_handler = signal.signal(signal.SIGUSR1, lambda *_args: hook_marker.write_text("handler"))
 
-    def checked_reset(allowed):
+    def checked_reset(allowed, **kwargs):
         mask = signal.pthread_sigmask(signal.SIG_BLOCK, set())
         reset_marker.write_text(json.dumps({"pid": os.getpid(), "mask": sorted(mask)}))
         if failure == "reset":
             raise OSError(errno.EIO, "injected reset failure")
         if failure == "pending-signal":
             os.kill(os.getpid(), signal.SIGUSR1)
-        original(allowed)
+        original(allowed, **kwargs)
 
     monkeypatch.setattr(inspection, "reset_after_fork", checked_reset)
     atexit.register(inherited_exit)

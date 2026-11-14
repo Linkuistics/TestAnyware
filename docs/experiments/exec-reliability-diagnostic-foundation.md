@@ -1748,3 +1748,26 @@ An independent review of this increment precedes k62; the final aggregate review
 remains due before k21. All aggregate ancestors stay open. No guest, installed-app,
 privilege, stalled-storage or ten-clone acceptance claim changes: **0/10,
 unavailable**.
+
+## Raw-helper containment correction (k66)
+
+The k65 review identified that the raw-helper reset introduced in k62 called
+`setsid()` and placed each helper in a separate group and session. That
+contradicted the worker-group contract and allowed a live helper to survive a
+worker-group KILL. The retained earlier pre-exec receipt and a new failing real
+group-signal control both reproduce the defect.
+
+Helpers now retain the worker's group and session; the worker still creates its
+own session. The reset API defaults to creating a session, and only the helper
+path opts out. The corrected run passes all 259 tests plus lint, format and
+strict types. Its real exec helper shares the worker's group/session, and a
+kernel exit notification independently observes that helper exit after the
+group KILL. Helper reap acknowledgement after worker death remains unavailable.
+
+The [k66 report](../../experiments/exec-reliability/evidence/worker-group-k66/report.md)
+separates actual runtime/kernel operations from fixture coordination, records
+fixed bounds and exact RED/GREEN outcomes, and links source snapshots and
+before/after digests. All 55,603 earlier evidence files remain byte-for-byte
+unchanged. The current full contract remains live in
+`complete-worker-scheduler-k64`; its original body and every aggregate ancestor
+stay unchanged and open. Ten-clone acceptance remains **0/10, unavailable**.
