@@ -1,0 +1,47 @@
+{
+  "name": "self-signal",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "-c",
+    "\nimport json, os, runpy, signal, sys\nfrom pathlib import Path\noriginal = os.kill\ndef misdirect(pid, sig):\n    if sig == signal.SIGTERM:\n        Path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k39-final-01/runs/self-signal-60852c40ee2540cf9c34c8af7c3ef3c8.json').write_text(json.dumps({\"pid\": pid}))\n        original(pid, signal.SIGKILL)\n        original(os.getpid(), sig)\n    else:\n        original(pid, sig)\nos.kill = misdirect\nsys.argv = ['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py', 'controller', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k39-final-01/runs']\nrunpy.run_path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py', run_name='__main__')\n"
+  ],
+  "budget": 3,
+  "started_monotonic": 259003.15802725,
+  "wall_start_ns": 1794641722811848000,
+  "reason": "exit",
+  "returncode": -15,
+  "reaped": true,
+  "ok": false,
+  "signals": [],
+  "pid": 51837,
+  "pgid": 51837,
+  "signal_scope": "group",
+  "leader_exit_monotonic": 259003.39434775,
+  "inspection_deadline_monotonic": 259003.61934916597,
+  "group_observations": [
+    {
+      "started_monotonic": 259003.394352958,
+      "finished_monotonic": 259003.397570458,
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 51837,
+          "pgid": 51837,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3531383337203531383337205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "termination_ok": true,
+  "authority_closed_monotonic": 259003.3975775,
+  "reap_deadline_monotonic": 259003.69434916598,
+  "within_process_bounds": true,
+  "reaped_monotonic": 259003.397581625,
+  "elapsed": 0.23956449999241158
+}

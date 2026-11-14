@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="3" time="1.356" timestamp="2026-11-14T18:34:57.115060+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_review_nonblocking_reap_retains_failed_owner[withheld]" time="0.424"><failure message="KeyError: 'residual_leader_pid'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-98/test_review_nonblocking_reap_r0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10ab341a0&gt;
+reap_state = 'withheld'
+
+    @pytest.mark.parametrize("reap_state", ["withheld", "missing", "expired"])
+    def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, reap_state):
+        import controller
+    
+        original_waitpid = os.waitpid
+        attempts = []
+        targets = []
+        original_snapshot = controller._group_snapshot
+    
+        def snapshot(pid, deadline):
+            targets.append(pid)
+            result = original_snapshot(pid, deadline)
+            if reap_state == "expired":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.11)
+            return result
+    
+        def waitpid(pid, options):
+            if pid in targets:
+                attempts.append((pid, options, time.monotonic()))
+                assert options == os.WNOHANG
+                if reap_state == "missing":
+                    raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+                return (0, 0)
+            return original_waitpid(pid, options)
+    
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        path, result = run(tmp_path, [call("retained-leader", "bytes")])
+        receipt = result["calls"][0]
+        pid = receipt["pid"]
+        audit = {"simulation": reap_state, "pid": pid, "attempts": attempts}
+        try:
+            assert result["ok"] is False
+            assert receipt["reaped"] is False
+&gt;           assert receipt["residual_leader_pid"] == pid
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'residual_leader_pid'
+
+test_controller.py:57: KeyError</failure></testcase><testcase classname="test_controller" name="test_review_nonblocking_reap_retains_failed_owner[missing]" time="0.107"><failure message="assert True is False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-98/test_review_nonblocking_reap_r1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b56d280&gt;
+reap_state = 'missing'
+
+    @pytest.mark.parametrize("reap_state", ["withheld", "missing", "expired"])
+    def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, reap_state):
+        import controller
+    
+        original_waitpid = os.waitpid
+        attempts = []
+        targets = []
+        original_snapshot = controller._group_snapshot
+    
+        def snapshot(pid, deadline):
+            targets.append(pid)
+            result = original_snapshot(pid, deadline)
+            if reap_state == "expired":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.11)
+            return result
+    
+        def waitpid(pid, options):
+            if pid in targets:
+                attempts.append((pid, options, time.monotonic()))
+                assert options == os.WNOHANG
+                if reap_state == "missing":
+                    raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+                return (0, 0)
+            return original_waitpid(pid, options)
+    
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        path, result = run(tmp_path, [call("retained-leader", "bytes")])
+        receipt = result["calls"][0]
+        pid = receipt["pid"]
+        audit = {"simulation": reap_state, "pid": pid, "attempts": attempts}
+        try:
+&gt;           assert result["ok"] is False
+E           assert True is False
+
+test_controller.py:55: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_nonblocking_reap_retains_failed_owner[expired]" time="0.514"><failure message="KeyError: 'residual_leader_pid'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-98/test_review_nonblocking_reap_r2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b56dcd0&gt;
+reap_state = 'expired'
+
+    @pytest.mark.parametrize("reap_state", ["withheld", "missing", "expired"])
+    def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, reap_state):
+        import controller
+    
+        original_waitpid = os.waitpid
+        attempts = []
+        targets = []
+        original_snapshot = controller._group_snapshot
+    
+        def snapshot(pid, deadline):
+            targets.append(pid)
+            result = original_snapshot(pid, deadline)
+            if reap_state == "expired":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.11)
+            return result
+    
+        def waitpid(pid, options):
+            if pid in targets:
+                attempts.append((pid, options, time.monotonic()))
+                assert options == os.WNOHANG
+                if reap_state == "missing":
+                    raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+                return (0, 0)
+            return original_waitpid(pid, options)
+    
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        path, result = run(tmp_path, [call("retained-leader", "bytes")])
+        receipt = result["calls"][0]
+        pid = receipt["pid"]
+        audit = {"simulation": reap_state, "pid": pid, "attempts": attempts}
+        try:
+            assert result["ok"] is False
+            assert receipt["reaped"] is False
+&gt;           assert receipt["residual_leader_pid"] == pid
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'residual_leader_pid'
+
+test_controller.py:57: KeyError</failure></testcase></testsuite></testsuites>

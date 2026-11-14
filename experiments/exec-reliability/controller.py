@@ -166,6 +166,54 @@ class GroupObservation(TypedDict):
     error: str | None
 
 
+class _WorkloadProcess(subprocess.Popen[bytes]):
+    def __del__(self) -> None:
+        # Popen.__del__ polls/reaps and registers survivors for later _cleanup.
+        # Workload ownership ends only through our explicit deadline-bound reap.
+        # https://github.com/python/cpython/blob/v3.15.1/Lib/subprocess.py
+        pass
+
+
+_workload_owners: dict[int, _WorkloadProcess] = {}
+
+
+def _reap_leader(process: _WorkloadProcess, deadline: float, receipt: dict[str, object]) -> None:
+    """Close signal/probe authority, then reap only the exact owned child."""
+    receipt["authority_closed_monotonic"] = time.monotonic()
+    receipt["reap_deadline_monotonic"] = deadline
+    receipt["within_process_bounds"] = False
+    while time.monotonic() < deadline:
+        try:
+            # A positive PID restricts the wait; WNOHANG returns immediately.
+            # https://docs.python.org/3/library/os.html#os.waitpid
+            waited_pid, status = os.waitpid(process.pid, os.WNOHANG)
+        except OSError as error:
+            receipt["reap_error"] = str(error)
+            receipt["reap_errno"] = error.errno
+            break
+        if waited_pid == process.pid:
+            process.returncode = os.waitstatus_to_exitcode(status)
+            finished = time.monotonic()
+            receipt.update(
+                returncode=process.returncode,
+                reaped=True,
+                reaped_monotonic=finished,
+                within_process_bounds=finished <= deadline,
+            )
+            del _workload_owners[process.pid]
+            return
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.005, remaining))
+    receipt.setdefault("reap_error", "leader unreaped before fixed deadline")
+    receipt["residual_leader_pid"] = process.pid
+    receipt["residual_leader_remedy"] = (
+        "Leader ownership is retained without further controller signals or waits. "
+        "Independently inspect the recorded PID/PGID and command identity; "
+        "only an external owner may reconcile this residual."
+    )
+
+
 def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
     """Observe only while the unreaped session leader pins this group identity."""
     observation: GroupObservation = {
@@ -341,17 +389,20 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
         else term_deadline + plan.kill_wait
     )
     receipt["kill_reap_deadline_monotonic"] = kill_deadline
+    # Inspection shares this allowance with reaping; it cannot spend the tail.
+    inspection_deadline = kill_deadline - min(0.1, plan.kill_wait / 4)
+    receipt["inspection_deadline_monotonic"] = inspection_deadline
     if not pid_only or not complete:
         # A pinned, exited leader does not establish group absence. Attempt
         # group KILL at T before any potentially blocking table inspection.
-        send(signal.SIGKILL, kill_deadline)
-        complete = observe(kill_deadline)
-        while not complete and time.monotonic() < kill_deadline:
-            time.sleep(min(0.005, max(0, kill_deadline - time.monotonic())))
-            if time.monotonic() < kill_deadline:
-                complete = observe(kill_deadline)
+        send(signal.SIGKILL, inspection_deadline)
+        complete = observe(inspection_deadline)
+        while not complete and time.monotonic() < inspection_deadline:
+            time.sleep(min(0.005, max(0, inspection_deadline - time.monotonic())))
+            if time.monotonic() < inspection_deadline:
+                complete = observe(inspection_deadline)
     if pid_only:
-        groups.append(_group_snapshot(pid, kill_deadline))
+        groups.append(_group_snapshot(pid, inspection_deadline))
     receipt["termination_ok"] = (
         complete
         and observer_ok
@@ -385,7 +436,7 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
             # Separate session isolates the command CLI from this controller.
             # File streams avoid communicate() waiting for descendant pipe EOF.
             # https://docs.python.org/3.12/library/subprocess.html#subprocess.Popen
-            process = subprocess.Popen(
+            process = _WorkloadProcess(
                 call.argv,
                 stdin=subprocess.DEVNULL,
                 stdout=stdout,
@@ -395,6 +446,7 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
         except OSError as error:
             receipt["error"] = str(error)
         else:
+            _workload_owners[process.pid] = process
             receipt.update(pid=process.pid, pgid=process.pid)
             receipt["signal_scope"] = "pid" if call.interrupt_after is not None else "group"
             deadline = start + (call.interrupt_after or call.budget)
@@ -408,7 +460,9 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
                 receipt["reason"] = "exit"
                 receipt["leader_exit_monotonic"] = time.monotonic()
                 reap_deadline = time.monotonic() + plan.kill_wait
-                group = _group_snapshot(process.pid, reap_deadline)
+                inspection_deadline = reap_deadline - min(0.1, plan.kill_wait / 4)
+                receipt["inspection_deadline_monotonic"] = inspection_deadline
+                group = _group_snapshot(process.pid, inspection_deadline)
                 receipt["group_observations"] = [group]
                 receipt["termination_ok"] = group["state"] == "zombie_only"
             else:
@@ -429,15 +483,7 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
                         "Do not signal this group after leader reap. "
                         "Unknown inspection is not absence."
                     )
-            try:
-                receipt["returncode"] = process.wait(
-                    timeout=max(0, reap_deadline - time.monotonic())
-                )
-                receipt["reaped"] = True
-                receipt["reaped_monotonic"] = time.monotonic()
-                receipt["within_process_bounds"] = time.monotonic() <= reap_deadline
-            except subprocess.TimeoutExpired:
-                receipt["reap_error"] = "leader unreaped; manual identity inspection required"
+            _reap_leader(process, reap_deadline, receipt)
             receipt["ok"] = (
                 receipt["reason"] == call.expected_reason
                 and receipt["returncode"] == call.expected_exit

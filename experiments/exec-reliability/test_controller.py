@@ -20,6 +20,68 @@ HERE = Path(__file__).resolve().parent
 PEER = HERE / "peer.py"
 
 
+@pytest.mark.parametrize("reap_state", ["withheld", "missing", "expired"])
+def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, reap_state):
+    import controller
+
+    original_waitpid = os.waitpid
+    attempts = []
+    targets = []
+    original_snapshot = controller._group_snapshot
+
+    def snapshot(pid, deadline):
+        targets.append(pid)
+        result = original_snapshot(pid, deadline)
+        if reap_state == "expired":
+            time.sleep(max(0, deadline - time.monotonic()) + 0.11)
+        return result
+
+    def waitpid(pid, options):
+        if pid in targets:
+            attempts.append((pid, options, time.monotonic()))
+            assert options == os.WNOHANG
+            if reap_state == "missing":
+                raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+            return (0, 0)
+        return original_waitpid(pid, options)
+
+    monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+    monkeypatch.setattr(os, "waitpid", waitpid)
+    path, result = run(tmp_path, [call("retained-leader", "bytes")])
+    receipt = result["calls"][0]
+    pid = receipt["pid"]
+    audit = {"simulation": reap_state, "pid": pid, "attempts": attempts}
+    try:
+        assert result["ok"] is False
+        assert receipt["reaped"] is False
+        assert receipt["residual_leader_pid"] == pid
+        assert receipt["within_process_bounds"] is False
+        assert (not attempts) if reap_state == "expired" else bool(attempts)
+        assert all(t < receipt["reap_deadline_monotonic"] for _, _, t in attempts)
+        owner = controller._workload_owners[pid]
+        owner.__del__()
+        subprocess.run(("/usr/bin/true",), check=True)
+        audit["before_independent_reap"] = inspect_pid(pid)
+        assert audit["before_independent_reap"]["state"] == "zombie"
+        assert owner.returncode is None
+    finally:
+        # Independent exact-child audit, outside the controller's closed authority.
+        try:
+            waited_pid, status = original_waitpid(pid, os.WNOHANG)
+        except ChildProcessError as error:
+            # Keep the baseline's already-reaped outcome without masking the
+            # behavioral assertion above during the frozen RED replay.
+            audit["independent_wait_error"] = str(error)
+        else:
+            audit["independent_wait"] = [waited_pid, status]
+            assert waited_pid == pid
+            assert os.waitstatus_to_exitcode(status) == 0
+        audit["after_independent_reap"] = inspect_pid(pid)
+        assert audit["after_independent_reap"]["state"] == "absent"
+        getattr(controller, "_workload_owners", {}).pop(pid, None)
+        (path / "leader-reap-audit.json").write_text(json.dumps(audit, indent=2))
+
+
 def call(name, mode, *args, budget=3, interrupt_after=None):
     return Call(
         name,
@@ -451,21 +513,28 @@ def test_review_controller_survival_is_observed_by_another_process(tmp_path):
 
 
 def test_review_group_signals_and_inspection_finish_before_reaping(tmp_path, monkeypatch):
+    import controller
+
     reaped = set()
-    original_wait = subprocess.Popen.wait
+    original_waitpid = os.waitpid
     original_killpg = os.killpg
 
-    def wait(process, *args, **kwargs):
-        code = original_wait(process, *args, **kwargs)
-        reaped.add(process.pid)
-        return code
+    def waitpid(pid, options):
+        outcome = original_waitpid(pid, options)
+        if outcome[0] > 0:
+            reaped.add(outcome[0])
+        return outcome
+
+    def forbidden_wait(*args, **kwargs):
+        raise AssertionError("blocking workload wait")
 
     def killpg(pid, sig):
         if pid in reaped:
             raise RuntimeError("group identity already released by reap")
         original_killpg(pid, sig)
 
-    monkeypatch.setattr(subprocess.Popen, "wait", wait)
+    monkeypatch.setattr(os, "waitpid", waitpid)
+    monkeypatch.setattr(controller._WorkloadProcess, "wait", forbidden_wait)
     monkeypatch.setattr(os, "killpg", killpg)
     _, result = run(tmp_path, [call("pin", "ignore-term", budget=0.2)])
     receipt = result["calls"][0]
@@ -477,6 +546,11 @@ def test_review_group_signals_and_inspection_finish_before_reaping(tmp_path, mon
     )
     assert receipt["reaped_monotonic"] <= receipt["kill_reap_deadline_monotonic"]
     assert receipt["within_process_bounds"] is True
+    assert receipt["authority_closed_monotonic"] <= receipt["reaped_monotonic"]
+    assert all(
+        item["finished_monotonic"] <= receipt["authority_closed_monotonic"]
+        for item in receipt["group_observations"]
+    )
     assert receipt["kill_reap_deadline_monotonic"] <= receipt["term_deadline_monotonic"] + 0.3
     # Prove this guard rejects a released identity without sending any signal.
     with pytest.raises(RuntimeError, match="identity already released"):
@@ -815,15 +889,18 @@ def mutate_function(monkeypatch, module, name, old, new):
 def test_review_isolated_reap_overrun_and_removed_gate(tmp_path, monkeypatch, remove_gate):
     import controller
 
-    original_wait = subprocess.Popen.wait
+    original_waitpid = os.waitpid
 
-    def delayed_reap(process, *args, **kwargs):
-        code = original_wait(process, *args, **kwargs)
-        if str(PEER) in process.args:
+    def delayed_reap(pid, options):
+        outcome = original_waitpid(pid, options)
+        if pid in controller._workload_owners and outcome[0] == pid:
+            assert options == os.WNOHANG
+            # Simulate a delayed return from the nonblocking system call;
+            # retain the late-result gate without pretending OS unreapability.
             time.sleep(0.35)
-        return code
+        return outcome
 
-    monkeypatch.setattr(subprocess.Popen, "wait", delayed_reap)
+    monkeypatch.setattr(os, "waitpid", delayed_reap)
     if remove_gate:
         mutate_function(
             monkeypatch,

@@ -1,0 +1,151 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k39-inputs-01/previous/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k39-inputs-01/previous/experiments/exec-reliability
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py
+collecting ... collected 105 items / 102 deselected / 3 selected
+
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[withheld] FAILED [ 33%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[missing] FAILED [ 66%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[expired] FAILED [100%]
+
+=================================== FAILURES ===================================
+_________ test_review_nonblocking_reap_retains_failed_owner[withheld] __________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-98/test_review_nonblocking_reap_r0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ab341a0>
+reap_state = 'withheld'
+
+    @pytest.mark.parametrize("reap_state", ["withheld", "missing", "expired"])
+    def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, reap_state):
+        import controller
+    
+        original_waitpid = os.waitpid
+        attempts = []
+        targets = []
+        original_snapshot = controller._group_snapshot
+    
+        def snapshot(pid, deadline):
+            targets.append(pid)
+            result = original_snapshot(pid, deadline)
+            if reap_state == "expired":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.11)
+            return result
+    
+        def waitpid(pid, options):
+            if pid in targets:
+                attempts.append((pid, options, time.monotonic()))
+                assert options == os.WNOHANG
+                if reap_state == "missing":
+                    raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+                return (0, 0)
+            return original_waitpid(pid, options)
+    
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        path, result = run(tmp_path, [call("retained-leader", "bytes")])
+        receipt = result["calls"][0]
+        pid = receipt["pid"]
+        audit = {"simulation": reap_state, "pid": pid, "attempts": attempts}
+        try:
+            assert result["ok"] is False
+            assert receipt["reaped"] is False
+>           assert receipt["residual_leader_pid"] == pid
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'residual_leader_pid'
+
+test_controller.py:57: KeyError
+__________ test_review_nonblocking_reap_retains_failed_owner[missing] __________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-98/test_review_nonblocking_reap_r1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b56d280>
+reap_state = 'missing'
+
+    @pytest.mark.parametrize("reap_state", ["withheld", "missing", "expired"])
+    def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, reap_state):
+        import controller
+    
+        original_waitpid = os.waitpid
+        attempts = []
+        targets = []
+        original_snapshot = controller._group_snapshot
+    
+        def snapshot(pid, deadline):
+            targets.append(pid)
+            result = original_snapshot(pid, deadline)
+            if reap_state == "expired":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.11)
+            return result
+    
+        def waitpid(pid, options):
+            if pid in targets:
+                attempts.append((pid, options, time.monotonic()))
+                assert options == os.WNOHANG
+                if reap_state == "missing":
+                    raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+                return (0, 0)
+            return original_waitpid(pid, options)
+    
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        path, result = run(tmp_path, [call("retained-leader", "bytes")])
+        receipt = result["calls"][0]
+        pid = receipt["pid"]
+        audit = {"simulation": reap_state, "pid": pid, "attempts": attempts}
+        try:
+>           assert result["ok"] is False
+E           assert True is False
+
+test_controller.py:55: AssertionError
+__________ test_review_nonblocking_reap_retains_failed_owner[expired] __________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-98/test_review_nonblocking_reap_r2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b56dcd0>
+reap_state = 'expired'
+
+    @pytest.mark.parametrize("reap_state", ["withheld", "missing", "expired"])
+    def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, reap_state):
+        import controller
+    
+        original_waitpid = os.waitpid
+        attempts = []
+        targets = []
+        original_snapshot = controller._group_snapshot
+    
+        def snapshot(pid, deadline):
+            targets.append(pid)
+            result = original_snapshot(pid, deadline)
+            if reap_state == "expired":
+                time.sleep(max(0, deadline - time.monotonic()) + 0.11)
+            return result
+    
+        def waitpid(pid, options):
+            if pid in targets:
+                attempts.append((pid, options, time.monotonic()))
+                assert options == os.WNOHANG
+                if reap_state == "missing":
+                    raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+                return (0, 0)
+            return original_waitpid(pid, options)
+    
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        path, result = run(tmp_path, [call("retained-leader", "bytes")])
+        receipt = result["calls"][0]
+        pid = receipt["pid"]
+        audit = {"simulation": reap_state, "pid": pid, "attempts": attempts}
+        try:
+            assert result["ok"] is False
+            assert receipt["reaped"] is False
+>           assert receipt["residual_leader_pid"] == pid
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           KeyError: 'residual_leader_pid'
+
+test_controller.py:57: KeyError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k39-previous-01/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_review_nonblocking_reap_retains_failed_owner[withheld] - KeyError: 'residual_leader_pid'
+FAILED test_controller.py::test_review_nonblocking_reap_retains_failed_owner[missing] - assert True is False
+FAILED test_controller.py::test_review_nonblocking_reap_retains_failed_owner[expired] - KeyError: 'residual_leader_pid'
+====================== 3 failed, 102 deselected in 1.38s =======================

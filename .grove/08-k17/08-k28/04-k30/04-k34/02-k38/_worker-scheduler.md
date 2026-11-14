@@ -1,4 +1,7 @@
-# worker-scheduler-k38
+# worker-scheduler-k38 — brief
+
+## Running log
+- 2026-11-14: Decomposed at nonblocking-leader-reap-k39, an independently useful runtime boundary. Full Done when remains binding. This first slice does not deliver the private worker, protocol, shared scheduler/teardown or full controls.
 
 ## Goal
 Complete all remaining bounded-inspection-k34 requirements after process-table-validation-k37.

@@ -8,11 +8,13 @@ fixture cleanup and checker timeout reporting. Initial fork admission now reject
 extra Python or native threads, changed Python or kernel SIGCHLD disposition and
 unavailable native observations before acquisition, retaining failed results.
 Review integration k32 independently reproduced and repaired the Python signal
-cache gap. The current measured condition is k37-final-01: process-table
-acceptance now rejects malformed, oversized and late results before trusting
-them. It preserves k33's KILL ordering and k36's PID-only deadline cap. The
+cache gap. The current measured condition is k39-final-01: workload leaders
+are reaped with exact-PID nonblocking waits before a fixed deadline; failed
+reaps retain an explicit owner and residual without destructor polling.
+It preserves k37's strict process-table acceptance, k33's KILL ordering and
+k36's PID-only deadline cap. The
 complete worker/scheduler boundary remains k30's work, continued by k34's
-worker-scheduler-k38 child.
+worker-scheduler-k38 subtree, continued by worker-scheduler-k40.
 Independently supervised process inspection, retained-file identity,
 stalled-storage disposal and live route
 preparation still need the work named below before causal use. In particular,
@@ -811,6 +813,63 @@ The worker, protocol, shared scheduler, shutdown and remaining real-controller
 control inventory remain live in worker-scheduler-k38. The final full-subsystem
 review remains required after those runtime changes. No guest acceptance or
 privileged-process inspection claim follows from this slice.
+
+### Nonblocking workload-leader reap slice (k39)
+
+The actual controller now closes its workload signal/probe authority before
+attempting exact-PID `os.waitpid(pid, os.WNOHANG)`. It attempts no reap once
+the fixed K deadline has expired and performs no later repair wait. A private
+`Popen` subclass suppresses destructor polling and subprocess cleanup
+registration; a strong owner remains registered when reaping fails. Receipts
+distinguish the residual leader from residual group members, retain wait errors
+and errno, and fail the call. A late-returning reap also fails the existing
+within-bounds gate.
+
+Inspection reserves R=min(100 ms,A/4) inside the existing allowance, for normal
+exit and termination paths alike. This leaves a reap window after an unsuccessful
+table or exit observation without extending K. Synchronous inspection can still
+overrun that cutoff; the controller then retains the leader rather than reaping
+it late. Repeated synchronous queries and blocking helper creation/capture/waits
+remain pending work.
+
+The [previous-controller replay](../../experiments/exec-reliability/evidence/k39-previous-01/verdict.json)
+fails all three new controls: withheld wait results, simulated ECHILD, and an
+inspection return after expiry. Its raw failed outcomes remain unchanged.
+The [input manifest](../../experiments/exec-reliability/evidence/k39-inputs-01/manifest.json)
+pins the previous jj revision and both source snapshots; only controller.py
+differs between them. Each control uses a real completed child and independently
+reaps or checks that exact PID afterward. In the delivered condition all three
+remain zombies through explicit destructor invocation and another subprocess
+creation, then are independently reaped with exit zero and observed absent.
+These are injected wait outcomes and timing holds, not genuine OS unreapability
+or actual child-ownership loss.
+
+The [delivered self-check](../../experiments/exec-reliability/evidence/k39-final-01/verdict.json)
+passes Ruff lint/format, strict Pyright and
+[105/105 tests](../../experiments/exec-reliability/evidence/k39-final-01/pytest.xml)
+in 22.33 seconds for pytest. The pinning control forbids workload `Popen.wait`
+and checks signals/observations finish before authority closure and reap. The
+late-result mutation still demonstrates failure when the deadline gate is
+present and false success when removed. Existing early-reap, real-child,
+signal-scope, table-rejection and deadline-cap controls pass.
+Existing checker/input declarations cover the changed top-level sources;
+no runtime module was added.
+
+The [independent audit](../../experiments/exec-reliability/evidence/k39-audit-01/result.json)
+verifies 543 indexed replay/final artifacts and equal before/after hashes for
+581 inputs. All 103 recorded real PIDs are absent in its later observation;
+the explicitly simulated checker PID is excluded. It accounts for 27 declared
+resource markers and removes one remaining owned marker while cleaning 38
+fixture directories derived from exact retained argv paths. All checked paths
+are absent afterward. Live, mixed, invalid-selector and freshly reaped controls
+contest the absence predicate. This audit makes no session-wide scratch,
+escaped-child, helper-supervision or hard scheduling claim.
+
+The complete private worker, protocol, shared scheduler, shutdown/concurrent
+teardown and remaining control inventory stay live on worker-scheduler-k40
+under k38. The final full-subsystem review remains mandatory. This slice makes
+no guest or privileged-process acceptance claim; historical acceptance remains
+**0/10, unavailable**.
 
 ### Earlier foundation controls
 
