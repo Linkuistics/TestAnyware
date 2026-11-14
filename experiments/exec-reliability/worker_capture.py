@@ -201,6 +201,15 @@ def _decode(
         receipt.kill_monotonic is not None or receipt.reaped_monotonic is not None
     ):
         raise ValueError("worker helper event without creation timestamp")
+    if receipt.reaped != (receipt.reaped_monotonic is not None):
+        raise ValueError("worker reap state/timestamp mismatch")
+    if (receipt.pid is not None) != (receipt.created_monotonic is not None):
+        raise ValueError("worker pid/creation timestamp mismatch")
+    if receipt.kill_errno is not None and receipt.kill_monotonic is None:
+        raise ValueError("worker kill errno without kill timestamp")
+    capture_deadline = deadline - min(0.05, max(0, deadline - receipt.started_monotonic) / 4)
+    if receipt.capture_deadline_monotonic != capture_deadline:
+        raise ValueError("worker capture cutoff mismatch")
     return receipt
 
 

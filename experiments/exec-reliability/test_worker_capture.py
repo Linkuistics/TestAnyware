@@ -300,6 +300,12 @@ Path(sys.argv[1]).write_text(json.dumps(data, indent=2))
         "kill-before-create",
         "reap-before-kill",
         "kill-without-create",
+        "reaped-without-stamp",
+        "stamp-without-reaped",
+        "pid-without-created",
+        "created-without-pid",
+        "kill-errno-without-kill",
+        "wrong-cutoff",
         "nan-finish",
         "infinite-finish",
     ],
@@ -347,7 +353,7 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
                     argv=argv,
                     started_monotonic=now,
                     deadline_monotonic=deadline,
-                    capture_deadline_monotonic=deadline,
+                    capture_deadline_monotonic=deadline - min(0.05, (deadline - now) / 4),
                     finished_monotonic=now,
                     admission={"ok": True},
                 )
@@ -359,6 +365,10 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
                 body["started_monotonic"] = deadline + 1
             elif fault == "bad-field-type":
                 body["stdout"] = []
+            # Both witnesses are sampled after dispatch. Only helper event order
+            # changes; no guessed child scheduling delay shifts the query start.
+            finished = time.monotonic()
+            body["finished_monotonic"] = finished
             changes = {
                 "predispatch-start": {"started_monotonic": 0},
                 "reversed-query": {"finished_monotonic": now - 0.001},
@@ -369,20 +379,31 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
                 "null-cutoff": {"capture_deadline_monotonic": None},
                 "early-cutoff": {"capture_deadline_monotonic": now - 0.001},
                 "late-cutoff": {"capture_deadline_monotonic": deadline + 0.001},
-                "early-created": {"created_monotonic": now - 0.001},
-                "future-created": {"created_monotonic": deadline - 0.001},
+                "early-created": {"pid": os.getpid(), "created_monotonic": now - 0.001},
+                "future-created": {"pid": os.getpid(), "created_monotonic": deadline - 0.001},
                 "kill-before-create": {
-                    "started_monotonic": now - 0.002,
-                    "created_monotonic": now,
-                    "kill_monotonic": now - 0.001,
+                    "pid": os.getpid(),
+                    "created_monotonic": finished,
+                    "kill_monotonic": now,
                 },
                 "reap-before-kill": {
-                    "started_monotonic": now - 0.003,
-                    "created_monotonic": now - 0.002,
-                    "kill_monotonic": now,
-                    "reaped_monotonic": now - 0.001,
+                    "pid": os.getpid(),
+                    "created_monotonic": now,
+                    "kill_monotonic": finished,
+                    "reaped": True,
+                    "reaped_monotonic": now,
                 },
                 "kill-without-create": {"kill_monotonic": now},
+                "reaped-without-stamp": {"reaped": True},
+                "stamp-without-reaped": {
+                    "pid": os.getpid(),
+                    "created_monotonic": now,
+                    "reaped_monotonic": now,
+                },
+                "pid-without-created": {"pid": os.getpid()},
+                "created-without-pid": {"created_monotonic": now},
+                "kill-errno-without-kill": {"kill_errno": 1},
+                "wrong-cutoff": {"capture_deadline_monotonic": deadline},
                 "nan-finish": {"finished_monotonic": float("nan")},
                 "infinite-finish": {"finished_monotonic": float("inf")},
             }
@@ -426,6 +447,33 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
                 json.dumps({"worker": asdict(owners[0]), "fault": fault}, indent=2)
             )
     assert receipt.error is not None
+    expected_errors = {
+        "bad-timestamp": "invalid worker timestamp",
+        "predispatch-start": "worker query interval outside dispatch/receipt allowance",
+        "reversed-query": "worker query interval outside dispatch/receipt allowance",
+        "future-finish": "worker query interval outside dispatch/receipt allowance",
+        "null-start": "invalid worker timestamp",
+        "null-finish": "invalid worker timestamp",
+        "null-deadline": "invalid worker timestamp",
+        "null-cutoff": "invalid worker timestamp",
+        "early-cutoff": "worker capture cutoff outside query allowance",
+        "late-cutoff": "invalid worker timestamp",
+        "early-created": "worker helper timestamps out of order",
+        "future-created": "worker helper timestamps out of order",
+        "kill-before-create": "worker helper timestamps out of order",
+        "reap-before-kill": "worker helper timestamps out of order",
+        "kill-without-create": "worker helper event without creation timestamp",
+        "reaped-without-stamp": "worker reap state/timestamp mismatch",
+        "stamp-without-reaped": "worker reap state/timestamp mismatch",
+        "pid-without-created": "worker pid/creation timestamp mismatch",
+        "created-without-pid": "worker pid/creation timestamp mismatch",
+        "kill-errno-without-kill": "worker kill errno without kill timestamp",
+        "wrong-cutoff": "worker capture cutoff mismatch",
+        "nan-finish": "invalid worker timestamp",
+        "infinite-finish": "invalid worker timestamp",
+    }
+    if fault in expected_errors:
+        assert receipt.error == f"worker capture failed: {expected_errors[fault]}"
     assert receipt.worker["unknown_helper_creation"] is True
     assert receipt.worker["reaped"] is True
     assert receipt.worker["dispatch_monotonic"] <= receipt.finished_monotonic
@@ -498,3 +546,30 @@ def test_review_worker_retains_timing_for_real_killed_helper(tmp_path):
         <= worker["query_deadline_monotonic"]
         < worker["shutdown_deadline_monotonic"]
     )
+
+
+@pytest.mark.parametrize("mode", ["early-exit", "spawn-failure"])
+def test_review_worker_accepts_genuine_terminal_receipts(tmp_path, mode):
+    import errno
+
+    from worker_capture import capture_helper
+
+    # /usr/bin/false exits immediately; the other path is absent in a new fixture.
+    argv = ("/usr/bin/false",) if mode == "early-exit" else (str(tmp_path / "missing"),)
+    receipt = capture_helper(argv, time.monotonic() + 1)
+    retain(tmp_path, mode, receipt)
+    worker = receipt.worker
+    assert worker["reaped"] and not worker["unknown_helper_creation"]
+    times = worker["published_times"]
+    assert times is not None
+    assert times["kill_monotonic"] is None
+    if mode == "early-exit":
+        assert receipt.error is None
+        assert receipt.returncode == 1 and receipt.reaped
+        assert receipt.pid is not None and times["created_monotonic"] is not None
+        assert times["reaped_monotonic"] is not None
+    else:
+        assert receipt.error_errno == errno.ENOENT
+        assert receipt.error and not receipt.error.startswith("worker capture failed:")
+        assert receipt.pid is None and times["created_monotonic"] is None
+        assert not receipt.reaped and times["reaped_monotonic"] is None

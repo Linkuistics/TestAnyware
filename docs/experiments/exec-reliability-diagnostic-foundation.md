@@ -1503,6 +1503,13 @@ sleep helper is killed and reaped at its capture cutoff with its timing retained
 These checks establish interval consistency; they do not authenticate a child's
 helper identity or independently prove that helper was reaped.
 
+Review k56 found that the original kill-before-create and reap-before-kill
+fixtures could move query start before parent dispatch. Their generic error
+assertions therefore did not isolate the causal-order check: dispatch validation
+could reject them first. The k52 results remain retained evidence of rejection,
+but do not prove those two controls exercised the intended branch. The corrected
+controls and their causal-loop-disabled run are recorded under k57 below.
+
 | Retained condition | Result |
 | --- | --- |
 | `k52-red-01` | 12 failed, 166 passed: impossible timing publications were accepted. Ruff lint/format and strict types pass. |
@@ -1524,8 +1531,53 @@ or repair an original unknown-creation outcome.
 
 This independently useful slice leaves the full original persistent-worker,
 gated-publication and shared-scheduler contract live in
-`complete-worker-scheduler-k55`; every ancestor remains open. A separate
-`review-impl` leaf precedes that continuation to challenge this timing boundary,
-its evidence and ownership claims. The final whole-runtime review remains due
+`complete-worker-scheduler-k55`; every ancestor remains open. Review k56
+challenged this timing boundary, its evidence and ownership claims; k57 integrates
+its findings below. The final whole-runtime review remains due
 before retained evidence k21. No guest, app, privilege, stalled-storage or
 acceptance claim changes: **0/10, unavailable**.
+
+### k57: causal controls and receipt field consistency
+
+The corrected hostile publisher samples query start and finish after dispatch,
+then reverses only the helper event times. Every synthetic timing fault now
+asserts its exact rejection reason. Four ordering controls fail when the causal
+loop is disabled, including kill-before-create and reap-before-kill; the retained
+payloads also show valid dispatch/receipt intervals and otherwise coherent
+creation/reap fields. This separates causal ordering from the earlier dispatch
+check without assuming a child scheduling delay.
+
+The decoder also requires reap state and reap timestamp to agree, PID and
+creation timestamp to agree, and a kill timestamp whenever a kill errno is
+reported. It verifies the exact capture cutoff derived from query start and the
+immutable query deadline. Six hostile controls cover both directions of the
+first two relationships, the kill errno implication and the cutoff. Genuine
+early-exit and missing-executable controls retain accepted worker publications;
+the existing normal capture and real killed-helper controls also remain valid.
+
+| Retained condition | Result |
+| --- | --- |
+| `k57-order-red-01` | 10 failed, 177 passed: disabling only the causal loop accepts four impossible event orders; the six new consistency cases are also accepted. Lint, format and strict types pass. |
+| `k57-coupling-red-01` | 6 failed, 181 passed: the original decoder rejects the four ordering controls for the exact causal-order reason, but accepts the six inconsistent receipts. Other checks pass. |
+| `k57-fixed-01` | Lint, format, strict Pyright and all 187 tests pass with field relationships and the exact cutoff checked. |
+| `k57-audit-01` | Audit stops before resource inspection on an empty optional nested-readiness publication file. The parent had already rejected readiness; this failed audit remains unchanged. |
+| `k57-audit-02` | Receipt validation passes; resource enumeration stops on the same optional empty witness. This failed audit also remains unchanged. |
+| `k57-audit-03` | Corrected frozen audit passes: 1,452 recorded exact process identities absent and 480 fixture directories reconciled. All earlier evidence digests match. |
+
+Each runner condition has the same complete JUnit case set, retained checker
+reap receipts, artifact hashes and equal before/after input digests. All source,
+manifest, lock and Taskfile copies in `evidence/k57-inputs-01` were frozen before
+their corresponding runs. The prior-evidence manifest records every earlier
+evidence file's digest; no earlier failed or successful run is overwritten.
+The final audit verifies those frozen copies, per-test outcomes, exact new
+rejection reasons, ordering-control payloads and accepted genuine publications.
+Its live, mixed, invalid and known-reaped process selectors challenge the absence
+oracle before resource inspection. It preserves the earlier audit failures,
+reconciles only recorded fixture sessions and reports equal before/after subject
+digests. An empty optional readiness witness is permitted only for the two
+readiness-rejection controls; every timing publication remains required.
+
+These repairs check consistency of the worker's report. They do not authenticate
+helper identity or independently establish helper reap. The full persistent
+worker, gated publication, shared scheduler and final whole-runtime review
+remain live under k55 and its ancestors. Acceptance stays **0/10, unavailable**.
