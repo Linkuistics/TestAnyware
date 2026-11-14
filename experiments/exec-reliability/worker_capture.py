@@ -25,6 +25,46 @@ TURN_CAP = 64 * 1024
 HEADER = struct.Struct("!I")
 
 
+@dataclass(frozen=True)
+class RequestScope:
+    workload_pid: int
+    workload_pgid: int
+    signal_epoch: int
+    phase: str
+
+
+def _request_identity(value: object) -> dict[str, object]:
+    """Validate types before equality: JSON true must never match epoch 1."""
+    if not isinstance(value, dict):
+        raise ValueError("invalid request identity object")
+    raw = cast(dict[str, object], value)
+    strings = {"run_id", "worker_token", "request_token", "phase"}
+    integers = {"worker_pid", "workload_pid", "workload_pgid", "signal_epoch"}
+    if set(raw) != strings | integers | {"deadline_monotonic"}:
+        raise ValueError("invalid request identity fields")
+    for key in strings:
+        item = raw[key]
+        if not isinstance(item, str) or not item.strip() or len(item) > 256 or "\x00" in item:
+            raise ValueError("invalid request identity text")
+    for key in integers:
+        item = raw[key]
+        if type(item) is not int or item < (0 if key == "signal_epoch" else 1):
+            raise ValueError("invalid request identity integer")
+    end = raw["deadline_monotonic"]
+    if (
+        type(end) not in {int, float}
+        or not isinstance(end, int | float)
+        or not 0 < end < float("inf")
+    ):
+        raise ValueError("invalid request identity deadline")
+    return raw
+
+
+def _check_identity(value: object, expected: dict[str, object]) -> None:
+    if _request_identity(value) != expected:
+        raise ValueError("request identity mismatch")
+
+
 @dataclass
 class _Owner:
     pid: int
@@ -95,22 +135,32 @@ def _write(fd: int, data: bytes, deadline: float) -> None:
             data = data[count:]
 
 
-def _publish(control: int, result: int, token: str, argv: tuple[str, ...], deadline: float) -> None:
-    _write(control, b"intent\n", deadline)
+def _publish(
+    control: int,
+    result: int,
+    token: str,
+    argv: tuple[str, ...],
+    deadline: float,
+    *,
+    identity: dict[str, object] | None = None,
+) -> None:
+    envelope = {"identity": identity} if identity is not None else {}
+    intent = json.dumps({"intent": token, **envelope}).encode() + b"\n" if envelope else b"intent\n"
+    _write(control, intent, deadline)
 
     def publish_created(identity: inspection.HelperIdentity) -> None:
-        message = {**identity, "token": token, "deadline_monotonic": deadline}
+        message = {**identity, "token": token, "deadline_monotonic": deadline, **envelope}
         _write(control, json.dumps(message, allow_nan=False).encode() + b"\n", deadline)
 
     def publish_fork_error(failure: inspection.ForkFailure) -> None:
-        message = {**failure, "token": token, "deadline_monotonic": deadline}
+        message = {**failure, "token": token, "deadline_monotonic": deadline, **envelope}
         _write(control, json.dumps(message, allow_nan=False).encode() + b"\n", deadline)
 
     capture = inspection.capture_helper(
         argv, deadline, publish_created=publish_created, publish_fork_error=publish_fork_error
     )
     body = asdict(capture)
-    body.update(stdout=capture.stdout.hex(), stderr=capture.stderr.hex(), token=token)
+    body.update(stdout=capture.stdout.hex(), stderr=capture.stderr.hex(), token=token, **envelope)
     payload = json.dumps(body, allow_nan=False).encode()
     if len(payload) > FRAME_CAP:
         raise ValueError("worker frame cap exceeded")
@@ -148,6 +198,8 @@ def _service(command: int, control: int, result: int, session: str, deadline: fl
         }
         _write(control, json.dumps(identity).encode() + b"\n", deadline)
         pending = bytearray()
+        run_id: object = None
+        used_tokens: set[str] = set()
         while True:
             readable, _, _ = select.select([command], [], [], 0.05)
             if not readable:
@@ -170,7 +222,10 @@ def _service(command: int, control: int, result: int, session: str, deadline: fl
             if not isinstance(request, dict):
                 raise ValueError("invalid worker command")
             raw = cast(dict[str, object], request)
-            if set(raw) != {"session", "token", "argv", "deadline"} or raw["session"] != session:
+            if (
+                set(raw) != {"session", "token", "argv", "deadline", "identity"}
+                or raw["session"] != session
+            ):
                 raise ValueError("worker command session mismatch")
             token, argv, end = raw["token"], raw["argv"], raw["deadline"]
             if (
@@ -188,10 +243,30 @@ def _service(command: int, control: int, result: int, session: str, deadline: fl
             end = cast(float, end)
             if not time.monotonic() < end < float("inf"):
                 raise ValueError("worker command deadline exhausted")
-            ready = {"token": token, "pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
+            identity = _request_identity(raw["identity"])
+            if (
+                identity["worker_token"] != session
+                or identity["worker_pid"] != os.getpid()
+                or identity["request_token"] != token
+                or identity["deadline_monotonic"] != end
+                or (run_id is not None and identity["run_id"] != run_id)
+                or token in used_tokens
+            ):
+                raise ValueError("worker command identity mismatch")
+            run_id = identity["run_id"]
+            used_tokens.add(token)
+            ready = {
+                "token": token,
+                "pid": os.getpid(),
+                "pgid": os.getpgrp(),
+                "sid": os.getsid(0),
+                "identity": identity,
+            }
             _write(control, json.dumps(ready).encode() + b"\n", end)
-            _publish(control, result, token, tuple(cast(list[str], argv)), end)
-            _write(control, json.dumps({"complete": token}).encode() + b"\n", end)
+            _publish(control, result, token, tuple(cast(list[str], argv)), end, identity=identity)
+            _write(
+                control, json.dumps({"complete": token, "identity": identity}).encode() + b"\n", end
+            )
     except BaseException:
         os._exit(70)
 
@@ -201,6 +276,7 @@ class Worker:
     """One controller-owned session. Failure and retirement never permit restart."""
 
     session_token: str = field(default_factory=lambda: uuid.uuid4().hex)
+    run_id: str = field(default_factory=lambda: uuid.uuid4().hex)
     owner: _Owner | None = None
     failure: str | None = None
     channels: list[int] = field(default_factory=list[int])
@@ -331,6 +407,7 @@ class Worker:
 
     def evidence(self) -> dict[str, object]:
         return {
+            "run_id": self.run_id,
             "session_token": self.session_token,
             "owner": asdict(self.owner) if self.owner else None,
             "failure": self.failure,
@@ -473,11 +550,15 @@ def _decode(
     deadline: float,
     dispatched: float,
     received: float,
+    *,
+    identity: dict[str, object] | None = None,
 ) -> HelperCapture:
     decoded = _load_json(payload)
     if not isinstance(decoded, dict):
         raise ValueError("invalid worker result object")
     raw = cast(dict[str, object], decoded)
+    if identity is not None:
+        _check_identity(raw.pop("identity", None), identity)
     if raw.pop("token", None) != token:
         raise ValueError("invalid worker result identity")
     if set(raw) != {item.name for item in fields(HelperCapture)}:
@@ -589,7 +670,11 @@ def _decode(
 
 
 def capture_helper(
-    argv: tuple[str, ...], deadline: float, *, worker: Worker | None = None
+    argv: tuple[str, ...],
+    deadline: float,
+    *,
+    worker: Worker | None = None,
+    scope: RequestScope | None = None,
 ) -> HelperCapture:
     """Bound parent waiting even when the worker's helper creation never returns.
 
@@ -645,6 +730,7 @@ def capture_helper(
     buffers = [bytearray(), bytearray()]
     result_size: int | None = None
     request_done = False
+    request_identity: dict[str, object] | None = None
 
     def consume_control(cleanup_only: bool) -> None:
         nonlocal control_ready, control_invalid, intent, creation_conflict
@@ -656,6 +742,13 @@ def capture_helper(
             buffers[0] = bytearray(tail)
             late = cleanup_only or time.monotonic() >= query_deadline
             try:
+                if request_identity is not None:
+                    decoded = _load_json(line)
+                    if not isinstance(decoded, dict):
+                        raise ValueError("invalid persistent control object")
+                    message = dict(cast(dict[str, object], decoded))
+                    _check_identity(message.pop("identity", None), request_identity)
+                    line = json.dumps(message).encode()
                 if not control_ready:
                     if _load_json(line) != {
                         "token": token,
@@ -670,7 +763,11 @@ def capture_helper(
                     if not late:
                         owner.ready = True
                 elif not intent:
-                    if bytes(line) != b"intent":
+                    if (
+                        _load_json(line) != {"intent": token}
+                        if request_identity is not None
+                        else bytes(line) != b"intent"
+                    ):
                         control_invalid = True
                         raise ValueError("invalid helper creation intent")
                     intent = True
@@ -724,6 +821,17 @@ def capture_helper(
             ):
                 raise ValueError("persistent worker channels unavailable")
             owner.shutdown_deadline_monotonic = deadline
+            scope = scope or RequestScope(os.getpid(), os.getpgrp(), 0, "helper")
+            request_identity = _request_identity(
+                {
+                    "run_id": worker.run_id,
+                    "worker_token": worker.session_token,
+                    "worker_pid": owner.pid,
+                    "request_token": token,
+                    **asdict(scope),
+                    "deadline_monotonic": query_deadline,
+                }
+            )
             control_read, result_read = worker.control, worker.result
             dispatched = time.monotonic()
             command = (
@@ -733,6 +841,7 @@ def capture_helper(
                         "token": token,
                         "argv": argv,
                         "deadline": query_deadline,
+                        "identity": request_identity,
                     },
                     allow_nan=False,
                 ).encode()
@@ -855,6 +964,7 @@ def capture_helper(
                     query_deadline,
                     dispatched,
                     received,
+                    identity=request_identity,
                 )
                 if fork_failure is not None and (
                     decoded_receipt.pid is not None
@@ -975,6 +1085,7 @@ def capture_helper(
                 "query_deadline_monotonic": query_deadline,
                 "reserve_seconds": reserve,
                 "request_token": token,
+                "request_identity": request_identity,
                 "session_token": worker.session_token if worker is not None else None,
             }
             if (worker is None or worker.failure is not None) and (

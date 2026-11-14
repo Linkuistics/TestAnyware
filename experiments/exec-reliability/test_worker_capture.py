@@ -1,5 +1,6 @@
 """Real-process controls for the interim per-query creation boundary."""
 
+import errno
 import json
 import os
 import signal
@@ -2324,3 +2325,211 @@ def test_persistent_worker_expired_request_is_sticky(tmp_path):
         (path / f"persistent-expired-independent-{time.time_ns()}.json").write_text(
             json.dumps(worker.evidence(), indent=2)
         )
+
+
+@pytest.mark.parametrize(
+    "message", ["command", "ready", "intent", "created", "fork-error", "complete", "result"]
+)
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "run_id",
+        "worker_token",
+        "worker_pid",
+        "request_token",
+        "workload_pid",
+        "workload_pgid",
+        "signal_epoch",
+        "phase",
+        "deadline_monotonic",
+        "missing",
+        "boolean",
+    ],
+)
+def test_request_identity_rejects_changed_envelope(tmp_path, monkeypatch, message, damage):
+    """Alter actual pipe traffic after real helper reap; no fabricated death receipt."""
+    import worker_capture
+
+    original = worker_capture._write
+    parent = os.getpid()
+    pending = []
+    result_sent = False
+    applied = tmp_path / "identity-mutation-applied"
+
+    def write(fd, data, deadline):
+        nonlocal result_sent
+        # Startup identity predates requests and retains its own session checks.
+        framed = data[:1] != b"{"
+        if os.getpid() != parent and data.startswith(b'{"session":'):
+            return original(fd, data, deadline)
+        if os.getpid() == parent:
+            kind = "command"
+            value = json.loads(data)
+        elif framed:
+            kind = "result"
+            value = json.loads(data[worker_capture.HEADER.size :])
+        else:
+            value = json.loads(data)
+            kind = (
+                "ready"
+                if "sid" in value
+                else "complete"
+                if "complete" in value
+                else "fork-error"
+                if "errno" in value
+                else "created"
+                if "ppid" in value
+                else "intent"
+            )
+        if kind == message:
+            applied.write_text(kind)
+            identity = value["identity"]
+            if damage == "missing":
+                value.pop("identity")
+            elif damage == "boolean":
+                identity["signal_epoch"] = True
+            elif isinstance(identity[damage], str):
+                identity[damage] += "-stale"
+            else:
+                identity[damage] += 1
+        encoded = json.dumps(value).encode()
+        data = (
+            worker_capture.HEADER.pack(len(encoded)) + encoded
+            if kind == "result"
+            else encoded + b"\n"
+        )
+        if os.getpid() != parent and kind != "result" and not result_sent:
+            pending.append((fd, data))
+            return
+        if kind == "result":
+            # All helpers are really reaped before any damaged control reaches
+            # the controller. Pipe rejection cannot strand a live helper here.
+            for channel, buffered in pending:
+                original(channel, buffered, deadline)
+            pending.clear()
+            result_sent = True
+        original(fd, data, deadline)
+
+    monkeypatch.setattr(worker_capture, "_write", write)
+    if message == "fork-error":
+        publish = worker_capture._publish
+
+        def fail_fork(*args, **kwargs):
+            def denied():
+                raise OSError(errno.EAGAIN, "injected fork admission race")
+
+            monkeypatch.setattr(os, "fork", denied)
+            publish(*args, **kwargs)
+
+        monkeypatch.setattr(worker_capture, "_publish", fail_fork)
+    worker = worker_capture.Worker(run_id="identity-run")
+    before = set(worker_capture._helper_obligations)
+    try:
+        assert worker.start()
+        receipt = worker_capture.capture_helper(
+            ("/usr/bin/true",),
+            time.monotonic() + 0.5,
+            worker=worker,
+            scope=worker_capture.RequestScope(parent, os.getpgrp(), 1, "final"),
+        )
+        retain(tmp_path, f"request-identity-{message}-{damage}", receipt)
+        assert applied.read_text() == message
+        assert receipt.error and worker.failure and worker.closed
+        assert receipt.worker["published_times"] is None
+        if message in {"result", "complete"}:
+            assert receipt.worker["helper_obligation_retained"]
+            assert receipt.worker["helper_identity"] is not None
+        assert worker.start() is False
+    finally:
+        worker.close()
+        assert worker.owner.reaped
+        with pytest.raises(ChildProcessError):
+            os.waitpid(worker.owner.pid, os.WNOHANG)
+        # Test-local evidence is conservative; release only this test's ledger
+        # entries after independently confirming the exact published PID is gone.
+        audit = []
+        for key in set(worker_capture._helper_obligations) - before:
+            identity = worker_capture._helper_obligations[key]
+            with pytest.raises(ProcessLookupError):
+                os.kill(identity["pid"], 0)
+            audit.append({"pid": identity["pid"], "absent": True})
+            worker_capture._helper_obligations.pop(key)
+        path = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        path.mkdir(parents=True, exist_ok=True)
+        (path / f"identity-audit-{message}-{damage}-{time.time_ns()}.json").write_text(
+            json.dumps(
+                {"worker_pid": worker.owner.pid, "worker_reaped": True, "helper_absence": audit},
+                indent=2,
+            )
+        )
+
+
+def test_request_identity_valid_sequential_scopes(tmp_path):
+    import worker_capture
+
+    worker = worker_capture.Worker(run_id="matching-run")
+    scopes = [
+        worker_capture.RequestScope(os.getpid(), os.getpgrp(), index, "final") for index in range(3)
+    ]
+    try:
+        assert worker.start()
+        pid = worker.owner.pid
+        for index, scope in enumerate(scopes):
+            receipt = worker_capture.capture_helper(
+                ("/usr/bin/true",),
+                time.monotonic() + 1,
+                worker=worker,
+                scope=scope,
+            )
+            retain(tmp_path, f"request-identity-valid-{index}", receipt)
+            assert receipt.error is None and receipt.reaped
+            identity = receipt.worker["request_identity"]
+            assert identity["run_id"] == "matching-run"
+            assert identity["worker_token"] == worker.session_token
+            assert identity["worker_pid"] == pid
+            assert identity["workload_pid"] == os.getpid()
+            assert identity["workload_pgid"] == os.getpgrp()
+            assert identity["signal_epoch"] == index
+            assert identity["phase"] == "final"
+            assert identity["request_token"] == receipt.worker["request_token"]
+            assert identity["deadline_monotonic"] == receipt.worker["query_deadline_monotonic"]
+            assert not receipt.worker["helper_obligation_retained"]
+    finally:
+        worker.close()
+    assert worker.owner.reaped and worker.owner.returncode == 0
+
+
+def test_request_identity_matching_explicit_fork_failure(tmp_path, monkeypatch):
+    import worker_capture
+
+    publish = worker_capture._publish
+
+    def failed_publish(*args, **kwargs):
+        def denied():
+            raise OSError(errno.EAGAIN, "injected fork admission race")
+
+        monkeypatch.setattr(os, "fork", denied)
+        publish(*args, **kwargs)
+
+    monkeypatch.setattr(worker_capture, "_publish", failed_publish)
+    worker = worker_capture.Worker(run_id="fork-failure-run")
+    try:
+        assert worker.start()
+        receipt = worker_capture.capture_helper(
+            ("/usr/bin/true",),
+            time.monotonic() + 0.5,
+            worker=worker,
+            scope=worker_capture.RequestScope(os.getpid(), os.getpgrp(), 0, "final"),
+        )
+        retain(tmp_path, "request-identity-matching-fork-failure", receipt)
+        assert receipt.error and worker.failure
+        assert receipt.worker["unknown_helper_creation"] is False
+        assert receipt.worker["creation_conflict"] is False
+        assert receipt.worker["fork_failure"]["errno"] == errno.EAGAIN
+        assert receipt.worker["helper_identity"] is None
+        assert receipt.worker["helper_obligation_retained"] is False
+    finally:
+        worker.close()
+        assert worker.owner.reaped
+        with pytest.raises(ChildProcessError):
+            os.waitpid(worker.owner.pid, os.WNOHANG)

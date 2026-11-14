@@ -1522,6 +1522,18 @@ def test_review_live_group_is_failure_even_with_expected_leader_exit(tmp_path, i
 def test_review_checker_unreaped_timeout_still_retains_verdict(tmp_path, monkeypatch):
     import self_check
 
+    # The checker fixture owns its layout even when this test runs in a frozen
+    # input snapshot nested beneath evidence/.
+    isolated = tmp_path / "checker-root" / "experiments" / "exec-reliability"
+    isolated.mkdir(parents=True)
+    for source in [*HERE.glob("*.py"), HERE / "pyproject.toml", HERE / "uv.lock"]:
+        (isolated / source.name).write_bytes(source.read_bytes())
+    taskfile = HERE / "Taskfile.yml"
+    if not taskfile.exists():
+        taskfile = HERE.parents[1] / "Taskfile.yml"
+    (isolated.parents[1] / "Taskfile.yml").write_bytes(taskfile.read_bytes())
+    monkeypatch.setattr(self_check, "HERE", isolated)
+
     class Unreapable:
         pid = 123456789
 
@@ -2352,3 +2364,38 @@ def test_persistent_worker_closes_when_safety_adapter_raises(tmp_path, monkeypat
     assert workers[0].owner.reaped and workers[0].owner.returncode == 0
     with pytest.raises(ChildProcessError):
         os.waitpid(workers[0].owner.pid, os.WNOHANG)
+
+
+@pytest.mark.parametrize("phase", ["normal", "group-timeout", "pid-interrupt"])
+def test_request_identity_controller_binds_run_workload_and_signal_epoch(tmp_path, phase):
+    run_id = uuid.uuid4().hex
+    target = (
+        call("target", "bytes")
+        if phase == "normal"
+        else Call(
+            "target",
+            ("/bin/sleep", "10"),
+            0.05,
+            interrupt_after=0.02 if phase == "pid-interrupt" else None,
+            expected_reason="interrupted" if phase == "pid-interrupt" else "deadline",
+            expected_exit=-signal.SIGTERM,
+        )
+    )
+    path, result = run(tmp_path, [target], run_id=run_id)
+    receipt = result["calls"][0]
+    helper = receipt["group_observations"][0]["helper"]
+    identity = helper["worker"]["request_identity"]
+    assert result["ok"] is True
+    assert identity["run_id"] == run_id
+    assert identity["worker_pid"] == result["inspection_worker"]["owner"]["pid"]
+    assert identity["worker_token"] == result["inspection_worker"]["session_token"]
+    assert identity["workload_pid"] == receipt["pid"]
+    assert identity["workload_pgid"] == receipt["pgid"]
+    assert identity["signal_epoch"] == len(receipt["signals"])
+    assert identity["phase"] == "final"
+    assert identity["deadline_monotonic"] <= receipt["inspection_deadline_monotonic"]
+    if receipt["signals"]:
+        assert helper["started_monotonic"] >= receipt["signals"][-1]["finished_monotonic"]
+    audit = [inspect_pid(pid) for pid in [receipt["pid"], helper["pid"], identity["worker_pid"]]]
+    (path / "request-identity-independent-audit.json").write_text(json.dumps(audit, indent=2))
+    assert all(item["state"] == "absent" for item in audit)

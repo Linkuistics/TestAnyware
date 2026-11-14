@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Literal, TypedDict, cast
 
 from inspection import fork_admission
-from worker_capture import Worker, capture_helper
+from worker_capture import RequestScope, Worker, capture_helper
 
 
 @dataclass(frozen=True)
@@ -231,7 +231,9 @@ def _reap_leader(process: _WorkloadProcess, deadline: float, receipt: dict[str, 
     )
 
 
-def _group_snapshot(pid: int, deadline: float, *, worker: Worker | None = None) -> GroupObservation:
+def _group_snapshot(
+    pid: int, deadline: float, *, worker: Worker | None = None, signal_epoch: int = 0
+) -> GroupObservation:
     """Observe only while the unreaped session leader pins this group identity."""
     observation: GroupObservation = {
         "started_monotonic": time.monotonic(),
@@ -256,10 +258,13 @@ def _group_snapshot(pid: int, deadline: float, *, worker: Worker | None = None) 
         if remaining <= 0:
             raise TimeoutError("group inspection phase exhausted")
         observation["query_attempted"] = True
-        check = capture_helper(
-            ("/bin/ps", "-g", str(pid), "-o", "pid=,pgid=,stat="),
-            deadline,
-            **({"worker": worker} if worker is not None else {}),
+        argv = ("/bin/ps", "-g", str(pid), "-o", "pid=,pgid=,stat=")
+        check = (
+            capture_helper(argv, deadline)
+            if worker is None
+            else capture_helper(
+                argv, deadline, worker=worker, scope=RequestScope(pid, pid, signal_epoch, "final")
+            )
         )
         observation["helper"] = asdict(check)
         observation.update(stdout=check.stdout, stderr=check.stderr, returncode=check.returncode)
@@ -338,12 +343,19 @@ def _group_snapshot(pid: int, deadline: float, *, worker: Worker | None = None) 
 
 
 def _final_snapshot(
-    pid: int, deadline: float, leader_exit: float | None, *, worker: Worker | None = None
+    pid: int,
+    deadline: float,
+    leader_exit: float | None,
+    *,
+    worker: Worker | None = None,
+    signal_epoch: int = 0,
 ) -> GroupObservation:
     """Spend the sole table request only after exit and before the cutoff."""
     now = time.monotonic()
     if leader_exit is not None and leader_exit <= now < deadline:
-        return _group_snapshot(pid, deadline, **({"worker": worker} if worker is not None else {}))
+        if worker is None:
+            return _group_snapshot(pid, deadline)
+        return _group_snapshot(pid, deadline, worker=worker, signal_epoch=signal_epoch)
     return {
         "started_monotonic": now,
         "finished_monotonic": now,
@@ -375,7 +387,13 @@ class _InspectionState:
     worker: Worker | None = None
 
     def snapshot(
-        self, call: str, pid: int, deadline: float, leader_exit: float | None
+        self,
+        call: str,
+        pid: int,
+        deadline: float,
+        leader_exit: float | None,
+        *,
+        signal_epoch: int = 0,
     ) -> GroupObservation:
         if self.failure is not None:
             now = time.monotonic()
@@ -395,11 +413,12 @@ class _InspectionState:
                 "probe_outcome": "not_attempted",
                 "error": f"local inspection unavailable after {self.failure['call']}",
             }
-        observation = _final_snapshot(
-            pid,
-            deadline,
-            leader_exit,
-            **({"worker": self.worker} if self.worker is not None else {}),
+        observation = (
+            _final_snapshot(pid, deadline, leader_exit)
+            if self.worker is None
+            else _final_snapshot(
+                pid, deadline, leader_exit, worker=self.worker, signal_epoch=signal_epoch
+            )
         )
         if observation["query_attempted"] and observation["state"] == "unknown":
             self.failure = {"call": call, "observation": observation}
@@ -502,7 +521,9 @@ def _terminate(
         if observe_exit(inspection_deadline):
             break
         time.sleep(min(0.005, max(0, inspection_deadline - time.monotonic())))
-    final = inspection.snapshot(str(receipt["name"]), pid, inspection_deadline, leader_exit)
+    final = inspection.snapshot(
+        str(receipt["name"]), pid, inspection_deadline, leader_exit, signal_epoch=len(events)
+    )
     groups.append(final)
     last_signal = events[-1]
     if not pid_only and last_signal["signal"] == "KILL" and last_signal.get("errno") == errno.EPERM:
@@ -662,7 +683,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
     before = _hashes(subjects)
     write_json(root / "subjects-before.json", before)
     receipts: list[dict[str, object]] = []
-    worker = Worker()
+    worker = Worker(run_id=plan.run_id)
     inspection_state = _InspectionState(worker=worker)
     ledger: list[dict[str, object]] = []
     attempted: list[Resource] = []
