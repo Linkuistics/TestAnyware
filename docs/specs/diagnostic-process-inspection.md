@@ -66,8 +66,11 @@ Every later preparation exit, including subject-hash or declaration failure,
 still closes and accounts for an already started worker.
 
 Before every worker or helper fork, the parent verifies that it has one thread
-and SIGCHLD has disposition SIG_DFL. The thread check must account for native
-threads as well as Python threads. An unsupported check or a failed precondition
+and SIGCHLD has disposition SIG_DFL without native SA_NOCLDWAIT auto-reaping.
+Check the kernel action's flags as well as its handler and Python's cached
+disposition: a default handler with SA_NOCLDWAIT can discard child wait status.
+The thread check must account for native threads as well as Python threads.
+An unsupported check or a failed precondition
 fails preparation or the request before fork. SIGCHLD remains SIG_DFL throughout
 child ownership, including workload ownership. An embedding host that changes
 these conditions cannot use this fork boundary. Python's fork warning alone is

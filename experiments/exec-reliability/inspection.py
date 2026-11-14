@@ -61,6 +61,7 @@ class _Sigaction(ctypes.Structure):
     # https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/signal.h
     _fields_ = [("handler", ctypes.c_void_p), ("mask", ctypes.c_uint32), ("flags", ctypes.c_int)]
     handler: int | None
+    flags: int
 
 
 def _native_sigchld() -> str:
@@ -76,6 +77,10 @@ def _native_sigchld() -> str:
     received = query(signal.SIGCHLD, None, ctypes.byref(action))
     if received != 0:
         raise OSError(ctypes.get_errno() or errno.EIO, f"sigaction returned {received}")
+    # Darwin SA_NOCLDWAIT discards wait status even with a SIG_DFL handler.
+    # https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/signal.h
+    if action.handler is None and action.flags & 0x0020:
+        return "SA_NOCLDWAIT"
     return "SIG_DFL" if action.handler is None else "SIG_IGN" if action.handler == 1 else "handler"
 
 

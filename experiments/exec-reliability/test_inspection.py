@@ -9,13 +9,102 @@ import sys
 import threading
 import time
 import uuid
+from contextlib import contextmanager
+from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 
+import inspection
+import worker_capture
 from controller import Call, Plan, Resource, execute
 
 HERE = Path(__file__).resolve().parent
+
+
+@contextmanager
+def native_auto_reap(flags):
+    # Independent public Darwin ABI and literal SDK flags, not inspection's type.
+    class Action(ctypes.Structure):
+        _fields_ = [
+            ("handler", ctypes.c_void_p),
+            ("mask", ctypes.c_uint32),
+            ("flags", ctypes.c_int),
+        ]
+
+    libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+    libc.sigaction.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p]
+    libc.sigaction.restype = ctypes.c_int
+    previous = Action()
+    assert libc.sigaction(signal.SIGCHLD, None, ctypes.byref(previous)) == 0
+    assert previous.handler is None and not previous.flags & 0x0020
+    assert signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL
+    installed = Action(None, 0, flags)
+    try:
+        assert libc.sigaction(signal.SIGCHLD, ctypes.byref(installed), None) == 0
+        observed = Action()
+        assert libc.sigaction(signal.SIGCHLD, None, ctypes.byref(observed)) == 0
+        assert observed.handler is None and observed.flags & 0x0020
+        assert signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL
+        # Fail RED before a broken admission can launch an auto-reaped child.
+        assert inspection.fork_admission()["ok"] is False
+        yield
+    finally:
+        assert libc.sigaction(signal.SIGCHLD, ctypes.byref(previous), None) == 0
+        restored = Action()
+        assert libc.sigaction(signal.SIGCHLD, None, ctypes.byref(restored)) == 0
+        assert (restored.handler, restored.mask, restored.flags) == (
+            previous.handler,
+            previous.mask,
+            previous.flags,
+        )
+
+
+@pytest.mark.parametrize("flags", [0x0020, 0x0028])
+@pytest.mark.parametrize("boundary", ["acquisition", "worker", "helper"])
+def test_review_native_auto_reap_rejected_before_creation(tmp_path, flags, boundary):
+    with native_auto_reap(flags):
+        if boundary == "acquisition":
+            admission = assert_rejected(tmp_path, "sigchld")["fork_admission"]
+        else:
+            capture = (
+                worker_capture.capture_helper if boundary == "worker" else inspection.capture_helper
+            )
+            receipt = capture(("/usr/bin/true",), time.monotonic() + 1)
+            admission = receipt.admission
+            assert receipt.error and "sigchld" in receipt.error
+            assert receipt.pid is None and receipt.created_monotonic is None
+            assert receipt.worker is None
+            assert receipt.stdout == receipt.stderr == b""
+            root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+            root.mkdir(parents=True, exist_ok=True)
+            path = root / f"native-auto-reap-{boundary}-{flags}-{time.time_ns()}.json"
+            path.write_text(json.dumps(asdict(receipt), default=lambda value: value.hex()) + "\n")
+        assert admission["ok"] is False
+        assert admission["native_sigchld"] == "SA_NOCLDWAIT"
+        assert admission["sigchld"] == "SIG_DFL"
+
+
+@pytest.mark.parametrize("flags", [0x0020, 0x0028])
+def test_review_worker_transports_real_native_auto_reap_refusal(tmp_path, monkeypatch, flags):
+    original = inspection.capture_helper
+
+    def auto_reaping_capture(argv, deadline):
+        with native_auto_reap(flags):
+            return original(argv, deadline)
+
+    monkeypatch.setattr(inspection, "capture_helper", auto_reaping_capture)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 1)
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / f"native-auto-reap-worker-refusal-{flags}-{time.time_ns()}.json"
+    path.write_text(json.dumps(asdict(receipt), default=lambda value: value.hex()) + "\n")
+    assert receipt.worker["reaped"] and not receipt.worker["unknown_helper_creation"]
+    assert receipt.error == "helper fork admission rejected: sigchld"
+    assert receipt.admission["native_sigchld"] == "SA_NOCLDWAIT"
+    assert receipt.admission["ok"] is False
+    assert receipt.pid is None and receipt.created_monotonic is None
+    assert receipt.stdout == receipt.stderr == b""
 
 
 def configured_plan(tmp_path):

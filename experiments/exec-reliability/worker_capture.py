@@ -137,7 +137,7 @@ def _admission(value: object) -> ForkAdmission:
         or python_threads < 1
         or (native_threads is not None and (type(native_threads) is not int or native_threads < 1))
         or raw["sigchld"] not in ("SIG_DFL", "SIG_IGN", "handler")
-        or raw["native_sigchld"] not in (None, "SIG_DFL", "SIG_IGN", "handler")
+        or raw["native_sigchld"] not in (None, "SIG_DFL", "SIG_IGN", "handler", "SA_NOCLDWAIT")
         or (error is not None and (not isinstance(error, str) or not error.strip()))
         or (error_number is not None and (type(error_number) is not int or error_number <= 0))
     ):

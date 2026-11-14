@@ -5,11 +5,12 @@ macOS host. It now observes graceful leader exit, distinguishes PID and group
 interruption with real child controls, and records group inspection before
 reaping. Review integration corrects false success with live group members,
 fixture cleanup and checker timeout reporting. Initial fork admission now rejects
-extra Python or native threads, changed Python or kernel SIGCHLD disposition and
-unavailable native observations before acquisition, retaining failed results.
+extra Python or native threads, changed Python or kernel SIGCHLD disposition,
+native SA_NOCLDWAIT auto-reaping and unavailable native observations before
+acquisition, retaining failed results.
 Review integration k32 independently reproduced and repaired the Python signal
-cache gap. The current measured condition is k52-fixed-02: workload leaders
-are reaped with exact-PID nonblocking waits before a fixed deadline; failed
+cache gap. The leader-ownership condition measured in k52-fixed-02 reaps leaders
+with exact-PID nonblocking waits before a fixed deadline; failed
 reaps retain an explicit owner and residual without destructor polling, except
 ECHILD, which closes wait ownership without establishing an exit status.
 The controller now requests at most one final process table, after the final
@@ -21,7 +22,7 @@ complete worker/scheduler boundary remains k30's work, continued by k34's
 worker-scheduler-k38 subtree, continued by worker-scheduler-k40 and its
 worker-scheduler-k42 subtree, worker-scheduler-k44 subtree and remaining
 worker-scheduler-k48 subtree, with its remaining contract in
-complete-worker-scheduler-k55.
+complete-worker-scheduler-k67.
 A failed local inspection now remains failed throughout that execution.
 Independent cleanup, disposal and public absence commands still run, but later
 local observations cannot restore disposal certainty.
@@ -1771,3 +1772,30 @@ before/after digests. All 55,603 earlier evidence files remain byte-for-byte
 unchanged. The current full contract remains live in
 `complete-worker-scheduler-k64`; its original body and every aggregate ancestor
 stay unchanged and open. Ten-clone acceptance remains **0/10, unavailable**.
+
+## Native SIGCHLD auto-reap admission (k64)
+
+The native observation now rejects a default SIGCHLD handler with Darwin's
+`SA_NOCLDWAIT` flag. Python's cached `SIG_DFL` and the native handler alone do
+not establish wait ownership: this flag can discard child status. The existing
+controller acquisition and worker/helper fork admissions reject the distinct
+native state. The worker receipt decoder accepts a coherent refusal and rejects
+a ready claim carrying it. Existing `SIG_IGN` and custom-handler classifications
+are preserved.
+
+The [k64 report](../../experiments/exec-reliability/evidence/native-auto-reap-k64/report.md)
+retains all three conditions: RED has 259 passes and ten new failures; the first
+repair has 268 passes and one existing ignore-classification failure; the final
+repair passes all 269 tests, lint, formatting and strict types. Real libc controls
+cover acquisition and both fork boundaries with exact signal-state restoration;
+two real workers transport native-state helper refusals. Two further decoder
+publications are explicitly synthetic and create no helper.
+
+The independent audit retains its own failed count assumption and corrected
+result. It verifies unchanged inputs and the same individual case inventory,
+57,834 unchanged prior evidence files and absence of 18 exact recorded checker
+and fixture-worker PIDs. It does not claim helper reap acknowledgement or a
+resource census of every existing test. The full original aggregate charter is
+preserved in flat sibling `complete-worker-scheduler-k67`, preceded by a separate
+review of this admission change. Every aggregate ancestor remains open;
+ten-clone acceptance remains **0/10, unavailable**.
