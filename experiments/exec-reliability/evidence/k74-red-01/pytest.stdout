@@ -1,0 +1,763 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 323 items
+
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[acquire] PASSED [  0%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[workload] PASSED [  0%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[cleanup] PASSED [  0%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[dispose] PASSED [  1%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[inspect] PASSED [  1%]
+test_controller.py::test_review_sticky_failure_preserves_reverse_safety_and_signals PASSED [  1%]
+test_controller.py::test_review_live_table_does_not_poison_later_inspection PASSED [  2%]
+test_controller.py::test_review_skipped_query_preserves_later_safety_inspection[missing-exit] PASSED [  2%]
+test_controller.py::test_review_skipped_query_preserves_later_safety_inspection[cutoff] PASSED [  2%]
+test_controller.py::test_review_real_ps_failure_disables_later_queries_and_probes PASSED [  3%]
+test_controller.py::test_review_final_query_requires_observed_exit[False] PASSED [  3%]
+test_controller.py::test_review_final_query_requires_observed_exit[True] PASSED [  3%]
+test_controller.py::test_review_final_live_table_cannot_be_retried PASSED [  4%]
+test_controller.py::test_review_kill_eperm_uses_only_final_postsignal_table PASSED [  4%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[withheld] PASSED [  4%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[missing] PASSED [  4%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[expired] PASSED [  5%]
+test_controller.py::test_exact_raw_capture_and_subject_freeze PASSED     [  5%]
+test_controller.py::test_overlong_call_fails_and_retains_partial_bytes PASSED [  5%]
+test_controller.py::test_cli_interruption_kills_term_ignorer_and_controller_survives PASSED [  6%]
+test_controller.py::test_finally_disposal_independent_of_blocked_channel_and_failed_cleanup PASSED [  6%]
+test_controller.py::test_failed_inspection_is_uncertain_even_after_successful_disposal PASSED [  6%]
+test_controller.py::test_blocked_disposal_is_bounded_and_retains_exact_residual PASSED [  7%]
+test_controller.py::test_failed_transfer_preserves_raw_failure PASSED    [  7%]
+test_controller.py::test_hashing_drift_fails_instead_of_reinterpreting_measurement PASSED [  7%]
+test_controller.py::test_foreign_resource_and_reused_output_are_rejected_before_calls PASSED [  8%]
+test_controller.py::test_owned_fork_is_terminated_and_known_child_absent PASSED [  8%]
+test_controller.py::test_blocked_cleanup_and_inspection_do_not_skip_disposal PASSED [  8%]
+test_controller.py::test_spawn_error_is_not_numeric_exit PASSED          [  8%]
+test_controller.py::test_exit_observation_error_fails_and_still_reaps_owned_process PASSED [  9%]
+test_controller.py::test_review_expected_interruption_continues_same_resource PASSED [  9%]
+test_controller.py::test_review_unexpected_interruption_still_stops PASSED [  9%]
+test_controller.py::test_review_resource_deadline_cannot_be_declared_success PASSED [ 10%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[plan] PASSED [ 10%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[result] PASSED [ 10%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[subjects-before] PASSED [ 11%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[intent-1] PASSED [ 11%]
+test_controller.py::test_review_receipt_io_exception_cannot_skip_other_disposal PASSED [ 11%]
+test_controller.py::test_review_skipped_acquisitions_are_unreached PASSED [ 12%]
+test_controller.py::test_review_zero_exit_wrong_stdout_is_failure PASSED [ 12%]
+test_controller.py::test_review_preflight_keeps_missing_declared_subjects PASSED [ 12%]
+test_controller.py::test_review_graceful_pid_exit_needs_no_kill PASSED   [ 13%]
+test_controller.py::test_review_fork_handler_reaps_gracefully PASSED     [ 13%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[True] PASSED [ 13%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[False] PASSED [ 13%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[True] PASSED [ 14%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[False] PASSED [ 14%]
+test_controller.py::test_review_controller_survival_is_observed_by_another_process PASSED [ 14%]
+test_controller.py::test_review_group_signals_and_inspection_finish_before_reaping PASSED [ 15%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[usage] PASSED [ 15%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[timeout] PASSED [ 15%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[foreign] PASSED [ 16%]
+test_controller.py::test_review_group_kill_precedes_inspection[hang] PASSED [ 16%]
+test_controller.py::test_review_group_kill_precedes_inspection[ignore-term] PASSED [ 16%]
+test_controller.py::test_review_live_signal_permission_uncertainty_is_retained PASSED [ 17%]
+test_controller.py::test_review_later_zombie_table_cannot_repair_earlier_eperm PASSED [ 17%]
+test_controller.py::test_review_exited_leader_does_not_hide_a_surviving_group_member[False] PASSED [ 17%]
+test_controller.py::test_review_exited_leader_does_not_hide_a_surviving_group_member[True] PASSED [ 17%]
+test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[False] PASSED [ 18%]
+test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[True] PASSED [ 18%]
+test_controller.py::test_review_checker_unreaped_timeout_still_retains_verdict PASSED [ 18%]
+test_controller.py::test_review_fork_publishes_child_before_stdout_and_releases_on_failure PASSED [ 19%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[None] PASSED [ 19%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[poll] PASSED [ 19%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[wait] PASSED [ 20%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[waitpid] PASSED [ 20%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[wait-any] PASSED [ 20%]
+test_controller.py::test_review_isolated_reap_overrun_and_removed_gate[False] PASSED [ 21%]
+test_controller.py::test_review_isolated_reap_overrun_and_removed_gate[True] PASSED [ 21%]
+test_controller.py::test_review_late_observation_cannot_extend_reap_deadline[False] PASSED [ 21%]
+test_controller.py::test_review_late_observation_cannot_extend_reap_deadline[True] PASSED [ 21%]
+test_controller.py::test_review_pid_late_observation_cannot_extend_reap_deadline PASSED [ 22%]
+test_controller.py::test_review_survival_checker_rejects_controller_self_signal[False] PASSED [ 22%]
+test_controller.py::test_review_survival_checker_rejects_controller_self_signal[True] PASSED [ 22%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n123 123 Z\n--0-duplicate process ID] PASSED [ 23%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n0 123 S\n--0-invalid process ID] PASSED [ 23%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n-2 123 S\n--0-invalid process ID] PASSED [ 23%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[+123 123 Z\n--0-invalid process ID] PASSED [ 24%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n124 999 S\n--0-foreign process group] PASSED [ 24%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[124 123 Z\n--0-leader missing] PASSED [ 24%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z--0-incomplete process table] PASSED [ 25%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n124 123--0-incomplete process table] PASSED [ 25%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n\n--0-process table row] PASSED [ 25%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z extra\n--0-process table row] PASSED [ 26%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n124 123 ?\n--0-unsupported process state] PASSED [ 26%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Zgarbage\n--0-unsupported process state] PASSED [ 26%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 \xff\n--0-unsupported process state] PASSED [ 26%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n-warning-0-clean process table] PASSED [ 27%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n--1-clean process table] PASSED [ 27%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[-usage-64-clean process table] PASSED [ 27%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[stdout16--0-output limit] PASSED [ 28%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[123 123 Z\n-stderr17-0-output limit] PASSED [ 28%]
+test_controller.py::test_group_snapshot_rejects_invalid_table_before_probe[stdout18--0-row limit] PASSED [ 28%]
+test_controller.py::test_group_snapshot_accepts_valid_tables_and_limits[123 123 Z\n-zombie_only-1] PASSED [ 29%]
+test_controller.py::test_group_snapshot_accepts_valid_tables_and_limits[  123 123 Zs\n124 123 R+\n-live-2] PASSED [ 29%]
+test_controller.py::test_group_snapshot_accepts_valid_tables_and_limits[stdout2-zombie_only-2] PASSED [ 29%]
+test_controller.py::test_group_snapshot_accepts_valid_tables_and_limits[stdout3-zombie_only-4096] PASSED [ 30%]
+test_controller.py::test_group_snapshot_accepts_valid_tables_and_limits[123 123 U<ANELNSsVWX+>\n-live-1] PASSED [ 30%]
+test_controller.py::test_group_snapshot_rejects_late_observation[helper] PASSED [ 30%]
+test_controller.py::test_group_snapshot_rejects_late_observation[probe] PASSED [ 30%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[acquisition-32] PASSED [ 31%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[acquisition-40] PASSED [ 31%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[worker-32] PASSED [ 31%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[worker-40] PASSED [ 32%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[helper-32] PASSED [ 32%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[helper-40] PASSED [ 32%]
+test_inspection.py::test_review_worker_transports_real_native_auto_reap_refusal[32] PASSED [ 33%]
+test_inspection.py::test_review_worker_transports_real_native_auto_reap_refusal[40] PASSED [ 33%]
+test_inspection.py::test_review_admission_allows_default_single_thread_controller PASSED [ 33%]
+test_inspection.py::test_review_admission_rejects_live_python_thread_before_acquisition PASSED [ 34%]
+test_inspection.py::test_review_helper_close_error_preserves_receipt_and_reaps[stdout] PASSED [ 34%]
+test_inspection.py::test_review_helper_close_error_preserves_receipt_and_reaps[stderr] PASSED [ 34%]
+test_inspection.py::test_review_helper_last_sleep_gets_final_nonblocking_observation PASSED [ 34%]
+test_inspection.py::test_review_helper_late_creation_signals_pinned_child_without_new_allowance PASSED [ 35%]
+test_inspection.py::test_review_helper_echild_releases_stale_owner_without_claiming_exit PASSED [ 35%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[hang] PASSED [ 35%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[stdout] PASSED [ 36%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[stderr] PASSED [ 36%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[admission] PASSED [ 36%]
+test_inspection.py::test_review_admission_rejects_native_pthread_absent_from_python_registry PASSED [ 37%]
+test_inspection.py::test_review_admission_rejects_nondefault_sigchld_before_acquisition[1] PASSED [ 37%]
+test_inspection.py::test_review_admission_rejects_nondefault_sigchld_before_acquisition[<lambda>] PASSED [ 37%]
+test_inspection.py::test_review_admission_rejects_native_sigchld_hidden_from_python[ignore] PASSED [ 38%]
+test_inspection.py::test_review_admission_rejects_native_sigchld_hidden_from_python[handler] PASSED [ 38%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[0-1] PASSED [ 38%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[-1-1] PASSED [ 39%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[95-1] PASSED [ 39%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[97-1] PASSED [ 39%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[96-0] PASSED [ 39%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[96--1] PASSED [ 40%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[library] PASSED [ 40%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[symbol] PASSED [ 40%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[errno] PASSED [ 41%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[unexpected_return] PASSED [ 41%]
+test_inspection.py::test_review_admission_retains_native_library_error_before_acquisition PASSED [ 41%]
+test_inspection.py::test_review_admission_retains_missing_native_query_before_acquisition PASSED [ 42%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[healthy] PASSED [ 42%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[partial] PASSED [ 42%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[hang] PASSED [ 43%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[stdout] PASSED [ 43%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[stderr] PASSED [ 43%]
+test_inspection.py::test_review_helper_residual_ownership_never_uses_blocking_wait PASSED [ 43%]
+test_inspection.py::test_review_helper_admission_rejects_before_creation PASSED [ 44%]
+test_inspection.py::test_review_worker_group_kill_reaches_live_raw_helper PASSED [ 44%]
+test_inspection.py::test_review_raw_helper_resets_before_exec PASSED     [ 44%]
+test_inspection.py::test_review_raw_helper_child_failure_uses_exit_without_hooks[reset] PASSED [ 45%]
+test_inspection.py::test_review_raw_helper_child_failure_uses_exit_without_hooks[exec] PASSED [ 45%]
+test_inspection.py::test_review_raw_helper_child_failure_uses_exit_without_hooks[pending-signal] PASSED [ 45%]
+test_inspection.py::test_review_raw_helper_parent_failure_keeps_ownership[fork] PASSED [ 46%]
+test_inspection.py::test_review_raw_helper_parent_failure_keeps_ownership[parent-mask-restore] PASSED [ 46%]
+test_inspection.py::test_review_raw_helper_accepts_closed_standard_descriptors PASSED [ 46%]
+test_inspection.py::test_review_helper_exec_requires_created_publication[release] PASSED [ 47%]
+test_inspection.py::test_review_helper_exec_requires_created_publication[failure] PASSED [ 47%]
+test_inspection.py::test_review_helper_exec_requires_created_publication[expired] PASSED [ 47%]
+test_inspection.py::test_review_real_helper_gate_rejects_wrong_token_or_eof[wrong-token] PASSED [ 47%]
+test_inspection.py::test_review_real_helper_gate_rejects_wrong_token_or_eof[eof] PASSED [ 48%]
+test_worker_capture.py::test_worker_failure_consistency[admission-missing-invalid worker admission fields] PASSED [ 48%]
+test_worker_capture.py::test_worker_failure_consistency[admission-extra-invalid worker admission fields] PASSED [ 48%]
+test_worker_capture.py::test_worker_failure_consistency[admission-bool-count-invalid worker admission values] PASSED [ 49%]
+test_worker_capture.py::test_worker_failure_consistency[admission-zero-count-invalid worker admission values] PASSED [ 49%]
+test_worker_capture.py::test_worker_failure_consistency[admission-bool-ok-invalid worker admission values] PASSED [ 49%]
+test_worker_capture.py::test_worker_failure_consistency[admission-bad-signal-invalid worker admission values] PASSED [ 50%]
+test_worker_capture.py::test_worker_failure_consistency[admission-bad-native-signal-invalid worker admission values] PASSED [ 50%]
+test_worker_capture.py::test_worker_failure_consistency[admission-zero-errno-invalid worker admission values] PASSED [ 50%]
+test_worker_capture.py::test_worker_failure_consistency[admission-bool-errno-invalid worker admission values] PASSED [ 51%]
+test_worker_capture.py::test_worker_failure_consistency[admission-ready-thread-inconsistent worker admission] PASSED [ 51%]
+test_worker_capture.py::test_worker_failure_consistency[admission-ready-signal-inconsistent worker admission] PASSED [ 51%]
+test_worker_capture.py::test_worker_failure_consistency[admission-ready-auto-reap-inconsistent worker admission] PASSED [ 52%]
+test_worker_capture.py::test_worker_failure_consistency[admission-ready-error-inconsistent worker admission] PASSED [ 52%]
+test_worker_capture.py::test_worker_failure_consistency[admission-ready-errno-inconsistent worker admission] PASSED [ 52%]
+test_worker_capture.py::test_worker_failure_consistency[admission-missing-native-inconsistent worker admission] PASSED [ 52%]
+test_worker_capture.py::test_worker_failure_consistency[admission-wrong-priority-inconsistent worker admission] PASSED [ 53%]
+test_worker_capture.py::test_worker_failure_consistency[admission-wrong-ok-inconsistent worker admission] PASSED [ 53%]
+test_worker_capture.py::test_worker_failure_consistency[admission-observation-no-error-inconsistent worker admission] PASSED [ 53%]
+test_worker_capture.py::test_worker_failure_consistency[admission-observation-complete-inconsistent worker admission] PASSED [ 54%]
+test_worker_capture.py::test_worker_failure_consistency[admission-refusal-created-worker helper created after admission refusal] PASSED [ 54%]
+test_worker_capture.py::test_worker_failure_consistency[zero-error-errno-invalid worker errno] PASSED [ 54%]
+test_worker_capture.py::test_worker_failure_consistency[negative-kill-errno-invalid worker errno] PASSED [ 55%]
+test_worker_capture.py::test_worker_failure_consistency[zero-reap-errno-invalid worker errno] PASSED [ 55%]
+test_worker_capture.py::test_worker_failure_consistency[empty-error-invalid worker error] PASSED [ 55%]
+test_worker_capture.py::test_worker_failure_consistency[empty-remedy-invalid worker error] PASSED [ 56%]
+test_worker_capture.py::test_worker_failure_consistency[empty-close-error-invalid worker close errors] PASSED [ 56%]
+test_worker_capture.py::test_worker_failure_consistency[errno-without-error-worker failure without error] PASSED [ 56%]
+test_worker_capture.py::test_worker_failure_consistency[kill-without-error-worker failure without error] PASSED [ 56%]
+test_worker_capture.py::test_worker_failure_consistency[close-without-error-worker failure without error] PASSED [ 57%]
+test_worker_capture.py::test_worker_failure_consistency[unreaped-without-error-worker failure without error] PASSED [ 57%]
+test_worker_capture.py::test_worker_failure_consistency[echild-retained-owner-worker ECHILD/ownership mismatch] PASSED [ 57%]
+test_worker_capture.py::test_worker_failure_consistency[lost-owner-without-echild-worker ECHILD/ownership mismatch] PASSED [ 58%]
+test_worker_capture.py::test_worker_failure_consistency[lost-owner-other-errno-worker ECHILD/ownership mismatch] PASSED [ 58%]
+test_worker_capture.py::test_worker_failure_consistency[unreaped-without-remedy-worker residual ownership mismatch] PASSED [ 58%]
+test_worker_capture.py::test_worker_failure_consistency[reaped-with-remedy-worker residual ownership mismatch] PASSED [ 59%]
+test_worker_capture.py::test_worker_failure_consistency[lost-owner-with-remedy-worker residual ownership mismatch] PASSED [ 59%]
+test_worker_capture.py::test_worker_failure_consistency[wait-without-child-worker helper failure without creation] PASSED [ 59%]
+test_worker_capture.py::test_worker_failure_consistency[output-without-child-worker helper failure without creation] PASSED [ 60%]
+test_worker_capture.py::test_worker_failure_consistency[close-without-child-worker helper failure without creation] PASSED [ 60%]
+test_worker_capture.py::test_worker_failure_consistency[success-None] PASSED [ 60%]
+test_worker_capture.py::test_worker_failure_consistency[failed-read-reaped-None] PASSED [ 60%]
+test_worker_capture.py::test_worker_failure_consistency[failed-kill-reaped-None] PASSED [ 61%]
+test_worker_capture.py::test_worker_failure_consistency[failed-close-reaped-None] PASSED [ 61%]
+test_worker_capture.py::test_worker_failure_consistency[retained-owner-None] PASSED [ 61%]
+test_worker_capture.py::test_worker_failure_consistency[lost-owner-None] PASSED [ 62%]
+test_worker_capture.py::test_worker_failure_consistency[python-refusal-None] PASSED [ 62%]
+test_worker_capture.py::test_worker_failure_consistency[native-refusal-None] PASSED [ 62%]
+test_worker_capture.py::test_worker_failure_consistency[signal-refusal-None] PASSED [ 63%]
+test_worker_capture.py::test_worker_failure_consistency[native-signal-refusal-None] PASSED [ 63%]
+test_worker_capture.py::test_worker_failure_consistency[native-auto-reap-refusal-None] PASSED [ 63%]
+test_worker_capture.py::test_worker_failure_consistency[observation-refusal-None] PASSED [ 64%]
+test_worker_capture.py::test_worker_failure_consistency[observation-refusal-no-errno-None] PASSED [ 64%]
+test_worker_capture.py::test_review_worker_preserves_real_helper_admission_refusal PASSED [ 64%]
+test_worker_capture.py::test_worker_terminal_consistency[status-without-reap-worker status/reap mismatch] PASSED [ 65%]
+test_worker_capture.py::test_worker_terminal_consistency[reap-without-status-worker status/reap mismatch] PASSED [ 65%]
+test_worker_capture.py::test_worker_terminal_consistency[reaped-with-error-worker reaped helper has failed ownership] PASSED [ 65%]
+test_worker_capture.py::test_worker_terminal_consistency[reaped-with-lost-owner-worker reaped helper has failed ownership] PASSED [ 65%]
+test_worker_capture.py::test_worker_terminal_consistency[success-None] PASSED [ 66%]
+test_worker_capture.py::test_worker_terminal_consistency[nonzero-None] PASSED [ 66%]
+test_worker_capture.py::test_worker_terminal_consistency[unreaped-error-None] PASSED [ 66%]
+test_worker_capture.py::test_worker_terminal_consistency[lost-owner-error-None] PASSED [ 67%]
+test_worker_capture.py::test_review_worker_bounds_real_delayed_helper_creation PASSED [ 67%]
+test_worker_capture.py::test_review_worker_resets_handlers_masks_wakeup_and_evidence_fd PASSED [ 67%]
+test_worker_capture.py::test_review_worker_startup_delay_uses_pid_only_without_group_authority PASSED [ 68%]
+test_worker_capture.py::test_review_worker_rejects_fork_before_creation PASSED [ 68%]
+test_worker_capture.py::test_review_worker_retains_real_fork_errno_without_child PASSED [ 68%]
+test_worker_capture.py::test_review_worker_does_not_run_inherited_exit_hook PASSED [ 69%]
+test_worker_capture.py::test_review_worker_channel_close_error_keeps_receipt_and_other_closes PASSED [ 69%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed0] PASSED [ 69%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed1] PASSED [ 69%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed2] PASSED [ 70%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed3] PASSED [ 70%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed4] PASSED [ 70%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed5] PASSED [ 71%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed6] PASSED [ 71%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[nested-result] PASSED [ 71%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[nested-readiness] PASSED [ 72%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[malformed] PASSED [ 72%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[duplicate-key] PASSED [ 72%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[bad-token] PASSED [ 73%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[bad-timestamp] PASSED [ 73%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[bad-field-type] PASSED [ 73%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[oversized-frame] PASSED [ 73%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[oversized-channel] PASSED [ 74%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[partial-frame] PASSED [ 74%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[exit-before-intent] PASSED [ 74%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[duplicate-readiness] PASSED [ 75%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[predispatch-start] PASSED [ 75%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[reversed-query] PASSED [ 75%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[future-finish] PASSED [ 76%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-start] PASSED [ 76%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-finish] PASSED [ 76%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-deadline] PASSED [ 77%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-cutoff] PASSED [ 77%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[early-cutoff] PASSED [ 77%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[late-cutoff] PASSED [ 78%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[early-created] PASSED [ 78%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[future-created] PASSED [ 78%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[kill-before-create] PASSED [ 78%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[reap-before-kill] PASSED [ 79%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[kill-without-create] PASSED [ 79%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[reaped-without-stamp] PASSED [ 79%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[stamp-without-reaped] PASSED [ 80%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[zero-pid] PASSED [ 80%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[negative-pid] PASSED [ 80%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[negative-group-pid] PASSED [ 81%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[boolean-pid] PASSED [ 81%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[string-pid] PASSED [ 81%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[pid-without-created] PASSED [ 82%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[created-without-pid] PASSED [ 82%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[kill-errno-without-kill] PASSED [ 82%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[wrong-cutoff] PASSED [ 82%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[nan-finish] PASSED [ 83%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[infinite-finish] PASSED [ 83%]
+test_worker_capture.py::test_review_group_snapshot_uses_real_worker PASSED [ 83%]
+test_worker_capture.py::test_review_worker_retains_timing_for_real_killed_helper PASSED [ 84%]
+test_worker_capture.py::test_review_worker_accepts_genuine_terminal_receipts[early-exit] PASSED [ 84%]
+test_worker_capture.py::test_review_worker_accepts_genuine_terminal_receipts[exec-failure] PASSED [ 84%]
+test_worker_capture.py::test_review_created_identity_survives_worker_result_loss PASSED [ 85%]
+test_worker_capture.py::test_review_matching_reap_resolves_created_identity PASSED [ 85%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[duplicate] PASSED [ 85%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[token] PASSED [ 86%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[ppid] PASSED [ 86%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[pgid] PASSED [ 86%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[boolean-pid] PASSED [ 86%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[stale] PASSED [ 87%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[future] PASSED [ 87%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[deadline] PASSED [ 87%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[extra] PASSED [ 88%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[result-pid] PASSED [ 88%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[result-created] PASSED [ 88%]
+test_worker_capture.py::test_review_worker_exit_after_publication_keeps_gate_closed PASSED [ 89%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[fork-error] PASSED [ 89%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[lost-result] PASSED [ 89%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[setup-error] PASSED [ 90%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[silent] PASSED [ 90%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-bool] PASSED [ 90%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-zero] PASSED [ 91%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-negative] PASSED [ 91%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-string] PASSED [ 91%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-missing] PASSED [ 91%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[extra-field] PASSED [ 92%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[wrong-token] PASSED [ 92%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[wrong-deadline] PASSED [ 92%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[before-dispatch] PASSED [ 93%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[future] PASSED [ 93%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[nan] PASSED [ 93%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[duplicate-key] PASSED [ 94%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[duplicate] PASSED [ 94%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[failure-then-created] PASSED [ 94%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[created-then-failure] PASSED [ 95%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-errno] PASSED [ 95%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-admission] PASSED [ 95%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-time] PASSED [ 95%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[worker-publication-expired] PASSED [ 96%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[control-tail] FAILED [ 96%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[short-header] FAILED [ 96%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[short-frame] FAILED [ 97%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[oversized] FAILED [ 97%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[open-tail] FAILED [ 97%]
+test_worker_capture.py::test_review_fork_failure_preserves_errno_on_publication_error[timeout] FAILED [ 98%]
+test_worker_capture.py::test_review_fork_failure_preserves_errno_on_publication_error[broken-pipe] FAILED [ 98%]
+test_worker_capture.py::test_review_distinct_created_identities_remain_obligations FAILED [ 98%]
+test_worker_capture.py::test_review_parent_rejects_published_late_fork_failure[read] PASSED [ 99%]
+test_worker_capture.py::test_review_parent_rejects_published_late_fork_failure[select] PASSED [ 99%]
+test_worker_capture.py::test_review_confirmed_fork_failure_keeps_worker_failure[unclean-exit] PASSED [ 99%]
+test_worker_capture.py::test_review_confirmed_fork_failure_keeps_worker_failure[unreaped] PASSED [100%]
+
+=================================== FAILURES ===================================
+______ test_review_fork_failure_requires_clean_channel_end[control-tail] _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-191/test_review_fork_failure_requi0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b6ab650>
+mode = 'control-tail'
+
+    @pytest.mark.parametrize(
+        "mode", ["control-tail", "short-header", "short-frame", "oversized", "open-tail"]
+    )
+    def test_review_fork_failure_requires_clean_channel_end(tmp_path, monkeypatch, mode):
+        import errno
+    
+        import worker_capture
+    
+        parent = os.getpid()
+        original_fork, original_write = os.fork, worker_capture._write
+    
+        def fork():
+            if os.getpid() != parent:
+                raise OSError(errno.EAGAIN, "injected helper fork refusal")
+            return original_fork()
+    
+        def write(fd, data, deadline):
+            if data.startswith(b"{") and b'"failed_monotonic"' in data:
+                original_write(fd, data, deadline)
+                if mode in {"control-tail", "open-tail"}:
+                    original_write(fd, b'{"pid":987654321', deadline)
+                if mode == "open-tail":
+                    time.sleep(2)  # Real open pipe; the parent must retire this worker.
+                return
+            if not data.endswith(b"\n"):
+                data = {
+                    "control-tail": b"",
+                    "short-header": b"\x00",
+                    "short-frame": worker_capture.HEADER.pack(100) + b"{",
+                    "oversized": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                }.get(mode, data)
+                if not data:
+                    os._exit(70)
+            return original_write(fd, data, deadline)
+    
+        monkeypatch.setattr(os, "fork", fork)
+        monkeypatch.setattr(worker_capture, "_write", write)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.5)
+        retain(tmp_path, "fork-failure-channel-" + mode, receipt)
+        assert receipt.worker["fork_failure"]["errno"] == errno.EAGAIN
+>       assert receipt.error and receipt.residual_remedy
+E       AssertionError: assert ('worker capture failed: incomplete worker publication' and None)
+E        +  where 'worker capture failed: incomplete worker publication' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.41090975, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.910909458, finished_monotonic=284862.414616791, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: incomplete worker publication', error_errno=35, residual_remedy=None, worker={'pid': 33100, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 70, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.413917583, 'token': 'e85a41122d27438ca7e40dffd4026b6f', 'deadline_monotonic': 284862.860909458}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.411135708, 'receipt_monotonic': 284862.414459875, 'published_times': None, 'query_deadline_monotonic': 284862.860909458, 'shutdown_deadline_monotonic': 284862.910909458, 'reserve_seconds': 0.05}).error
+E        +  and   None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.41090975, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.910909458, finished_monotonic=284862.414616791, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: incomplete worker publication', error_errno=35, residual_remedy=None, worker={'pid': 33100, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 70, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.413917583, 'token': 'e85a41122d27438ca7e40dffd4026b6f', 'deadline_monotonic': 284862.860909458}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.411135708, 'receipt_monotonic': 284862.414459875, 'published_times': None, 'query_deadline_monotonic': 284862.860909458, 'shutdown_deadline_monotonic': 284862.910909458, 'reserve_seconds': 0.05}).residual_remedy
+
+test_worker_capture.py:1348: AssertionError
+______ test_review_fork_failure_requires_clean_channel_end[short-header] _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-191/test_review_fork_failure_requi1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10af42000>
+mode = 'short-header'
+
+    @pytest.mark.parametrize(
+        "mode", ["control-tail", "short-header", "short-frame", "oversized", "open-tail"]
+    )
+    def test_review_fork_failure_requires_clean_channel_end(tmp_path, monkeypatch, mode):
+        import errno
+    
+        import worker_capture
+    
+        parent = os.getpid()
+        original_fork, original_write = os.fork, worker_capture._write
+    
+        def fork():
+            if os.getpid() != parent:
+                raise OSError(errno.EAGAIN, "injected helper fork refusal")
+            return original_fork()
+    
+        def write(fd, data, deadline):
+            if data.startswith(b"{") and b'"failed_monotonic"' in data:
+                original_write(fd, data, deadline)
+                if mode in {"control-tail", "open-tail"}:
+                    original_write(fd, b'{"pid":987654321', deadline)
+                if mode == "open-tail":
+                    time.sleep(2)  # Real open pipe; the parent must retire this worker.
+                return
+            if not data.endswith(b"\n"):
+                data = {
+                    "control-tail": b"",
+                    "short-header": b"\x00",
+                    "short-frame": worker_capture.HEADER.pack(100) + b"{",
+                    "oversized": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                }.get(mode, data)
+                if not data:
+                    os._exit(70)
+            return original_write(fd, data, deadline)
+    
+        monkeypatch.setattr(os, "fork", fork)
+        monkeypatch.setattr(worker_capture, "_write", write)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.5)
+        retain(tmp_path, "fork-failure-channel-" + mode, receipt)
+        assert receipt.worker["fork_failure"]["errno"] == errno.EAGAIN
+>       assert receipt.error and receipt.residual_remedy
+E       AssertionError: assert ('worker capture failed: incomplete worker publication' and None)
+E        +  where 'worker capture failed: incomplete worker publication' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.466516166, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.966515833, finished_monotonic=284862.470217708, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: incomplete worker publication', error_errno=35, residual_remedy=None, worker={'pid': 33101, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.469564625, 'token': '6ca010871e3a40d2893b73b67938e8f2', 'deadline_monotonic': 284862.916515833}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.466685666, 'receipt_monotonic': 284862.470117291, 'published_times': None, 'query_deadline_monotonic': 284862.916515833, 'shutdown_deadline_monotonic': 284862.966515833, 'reserve_seconds': 0.05}).error
+E        +  and   None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.466516166, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.966515833, finished_monotonic=284862.470217708, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: incomplete worker publication', error_errno=35, residual_remedy=None, worker={'pid': 33101, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.469564625, 'token': '6ca010871e3a40d2893b73b67938e8f2', 'deadline_monotonic': 284862.916515833}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.466685666, 'receipt_monotonic': 284862.470117291, 'published_times': None, 'query_deadline_monotonic': 284862.916515833, 'shutdown_deadline_monotonic': 284862.966515833, 'reserve_seconds': 0.05}).residual_remedy
+
+test_worker_capture.py:1348: AssertionError
+_______ test_review_fork_failure_requires_clean_channel_end[short-frame] _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-191/test_review_fork_failure_requi2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b6aafc0>
+mode = 'short-frame'
+
+    @pytest.mark.parametrize(
+        "mode", ["control-tail", "short-header", "short-frame", "oversized", "open-tail"]
+    )
+    def test_review_fork_failure_requires_clean_channel_end(tmp_path, monkeypatch, mode):
+        import errno
+    
+        import worker_capture
+    
+        parent = os.getpid()
+        original_fork, original_write = os.fork, worker_capture._write
+    
+        def fork():
+            if os.getpid() != parent:
+                raise OSError(errno.EAGAIN, "injected helper fork refusal")
+            return original_fork()
+    
+        def write(fd, data, deadline):
+            if data.startswith(b"{") and b'"failed_monotonic"' in data:
+                original_write(fd, data, deadline)
+                if mode in {"control-tail", "open-tail"}:
+                    original_write(fd, b'{"pid":987654321', deadline)
+                if mode == "open-tail":
+                    time.sleep(2)  # Real open pipe; the parent must retire this worker.
+                return
+            if not data.endswith(b"\n"):
+                data = {
+                    "control-tail": b"",
+                    "short-header": b"\x00",
+                    "short-frame": worker_capture.HEADER.pack(100) + b"{",
+                    "oversized": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                }.get(mode, data)
+                if not data:
+                    os._exit(70)
+            return original_write(fd, data, deadline)
+    
+        monkeypatch.setattr(os, "fork", fork)
+        monkeypatch.setattr(worker_capture, "_write", write)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.5)
+        retain(tmp_path, "fork-failure-channel-" + mode, receipt)
+        assert receipt.worker["fork_failure"]["errno"] == errno.EAGAIN
+>       assert receipt.error and receipt.residual_remedy
+E       AssertionError: assert ('worker capture failed: invalid worker frame length' and None)
+E        +  where 'worker capture failed: invalid worker frame length' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.483443166, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.983442916, finished_monotonic=284862.486909541, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: invalid worker frame length', error_errno=35, residual_remedy=None, worker={'pid': 33102, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.486253041, 'token': '9cc4622413ab4c30a6055d4d72dc76fd', 'deadline_monotonic': 284862.933442916}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.4835955, 'receipt_monotonic': 284862.486776583, 'published_times': None, 'query_deadline_monotonic': 284862.933442916, 'shutdown_deadline_monotonic': 284862.983442916, 'reserve_seconds': 0.05}).error
+E        +  and   None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.483443166, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.983442916, finished_monotonic=284862.486909541, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: invalid worker frame length', error_errno=35, residual_remedy=None, worker={'pid': 33102, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.486253041, 'token': '9cc4622413ab4c30a6055d4d72dc76fd', 'deadline_monotonic': 284862.933442916}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.4835955, 'receipt_monotonic': 284862.486776583, 'published_times': None, 'query_deadline_monotonic': 284862.933442916, 'shutdown_deadline_monotonic': 284862.983442916, 'reserve_seconds': 0.05}).residual_remedy
+
+test_worker_capture.py:1348: AssertionError
+________ test_review_fork_failure_requires_clean_channel_end[oversized] ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-191/test_review_fork_failure_requi3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b6a9b20>
+mode = 'oversized'
+
+    @pytest.mark.parametrize(
+        "mode", ["control-tail", "short-header", "short-frame", "oversized", "open-tail"]
+    )
+    def test_review_fork_failure_requires_clean_channel_end(tmp_path, monkeypatch, mode):
+        import errno
+    
+        import worker_capture
+    
+        parent = os.getpid()
+        original_fork, original_write = os.fork, worker_capture._write
+    
+        def fork():
+            if os.getpid() != parent:
+                raise OSError(errno.EAGAIN, "injected helper fork refusal")
+            return original_fork()
+    
+        def write(fd, data, deadline):
+            if data.startswith(b"{") and b'"failed_monotonic"' in data:
+                original_write(fd, data, deadline)
+                if mode in {"control-tail", "open-tail"}:
+                    original_write(fd, b'{"pid":987654321', deadline)
+                if mode == "open-tail":
+                    time.sleep(2)  # Real open pipe; the parent must retire this worker.
+                return
+            if not data.endswith(b"\n"):
+                data = {
+                    "control-tail": b"",
+                    "short-header": b"\x00",
+                    "short-frame": worker_capture.HEADER.pack(100) + b"{",
+                    "oversized": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                }.get(mode, data)
+                if not data:
+                    os._exit(70)
+            return original_write(fd, data, deadline)
+    
+        monkeypatch.setattr(os, "fork", fork)
+        monkeypatch.setattr(worker_capture, "_write", write)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.5)
+        retain(tmp_path, "fork-failure-channel-" + mode, receipt)
+        assert receipt.worker["fork_failure"]["errno"] == errno.EAGAIN
+>       assert receipt.error and receipt.residual_remedy
+E       AssertionError: assert ('worker capture failed: invalid worker frame length' and None)
+E        +  where 'worker capture failed: invalid worker frame length' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.499482583, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.999482166, finished_monotonic=284862.502847625, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: invalid worker frame length', error_errno=35, residual_remedy=None, worker={'pid': 33103, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.5022195, 'token': 'e3acaa84c3984401ab007d8f440ccc6a', 'deadline_monotonic': 284862.94948216603}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.499616291, 'receipt_monotonic': 284862.502712875, 'published_times': None, 'query_deadline_monotonic': 284862.94948216603, 'shutdown_deadline_monotonic': 284862.999482166, 'reserve_seconds': 0.05}).error
+E        +  and   None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.499482583, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.999482166, finished_monotonic=284862.502847625, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: invalid worker frame length', error_errno=35, residual_remedy=None, worker={'pid': 33103, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.5022195, 'token': 'e3acaa84c3984401ab007d8f440ccc6a', 'deadline_monotonic': 284862.94948216603}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.499616291, 'receipt_monotonic': 284862.502712875, 'published_times': None, 'query_deadline_monotonic': 284862.94948216603, 'shutdown_deadline_monotonic': 284862.999482166, 'reserve_seconds': 0.05}).residual_remedy
+
+test_worker_capture.py:1348: AssertionError
+________ test_review_fork_failure_requires_clean_channel_end[open-tail] ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-191/test_review_fork_failure_requi4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b6aa870>
+mode = 'open-tail'
+
+    @pytest.mark.parametrize(
+        "mode", ["control-tail", "short-header", "short-frame", "oversized", "open-tail"]
+    )
+    def test_review_fork_failure_requires_clean_channel_end(tmp_path, monkeypatch, mode):
+        import errno
+    
+        import worker_capture
+    
+        parent = os.getpid()
+        original_fork, original_write = os.fork, worker_capture._write
+    
+        def fork():
+            if os.getpid() != parent:
+                raise OSError(errno.EAGAIN, "injected helper fork refusal")
+            return original_fork()
+    
+        def write(fd, data, deadline):
+            if data.startswith(b"{") and b'"failed_monotonic"' in data:
+                original_write(fd, data, deadline)
+                if mode in {"control-tail", "open-tail"}:
+                    original_write(fd, b'{"pid":987654321', deadline)
+                if mode == "open-tail":
+                    time.sleep(2)  # Real open pipe; the parent must retire this worker.
+                return
+            if not data.endswith(b"\n"):
+                data = {
+                    "control-tail": b"",
+                    "short-header": b"\x00",
+                    "short-frame": worker_capture.HEADER.pack(100) + b"{",
+                    "oversized": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                }.get(mode, data)
+                if not data:
+                    os._exit(70)
+            return original_write(fd, data, deadline)
+    
+        monkeypatch.setattr(os, "fork", fork)
+        monkeypatch.setattr(worker_capture, "_write", write)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.5)
+        retain(tmp_path, "fork-failure-channel-" + mode, receipt)
+        assert receipt.worker["fork_failure"]["errno"] == errno.EAGAIN
+>       assert receipt.error and receipt.residual_remedy
+E       AssertionError: assert ('worker capture failed: worker query deadline exhausted' and None)
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.5160005, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284863.016000208, finished_monotonic=284862.982994208, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=35, residual_remedy=None, worker={'pid': 33104, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -9, 'signals': [{'signal': 'SIGTERM', 'monotonic': 284862.9678165}, {'signal': 'SIGKILL', 'monotonic': 284862.981317833}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.519162666, 'token': '9f09474d534a468aae898ec409d010a8', 'deadline_monotonic': 284862.966000208}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.51615475, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 284862.966000208, 'shutdown_deadline_monotonic': 284863.016000208, 'reserve_seconds': 0.05}).error
+E        +  and   None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.5160005, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284863.016000208, finished_monotonic=284862.982994208, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=35, residual_remedy=None, worker={'pid': 33104, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -9, 'signals': [{'signal': 'SIGTERM', 'monotonic': 284862.9678165}, {'signal': 'SIGKILL', 'monotonic': 284862.981317833}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.519162666, 'token': '9f09474d534a468aae898ec409d010a8', 'deadline_monotonic': 284862.966000208}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.51615475, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 284862.966000208, 'shutdown_deadline_monotonic': 284863.016000208, 'reserve_seconds': 0.05}).residual_remedy
+
+test_worker_capture.py:1348: AssertionError
+____ test_review_fork_failure_preserves_errno_on_publication_error[timeout] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-191/test_review_fork_failure_prese0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b6aad80>
+mode = 'timeout'
+
+    @pytest.mark.parametrize("mode", ["timeout", "broken-pipe"])
+    def test_review_fork_failure_preserves_errno_on_publication_error(tmp_path, monkeypatch, mode):
+        import errno
+    
+        import worker_capture
+    
+        parent = os.getpid()
+        original_fork, original_write = os.fork, worker_capture._write
+    
+        def fork():
+            if os.getpid() != parent:
+                raise OSError(errno.EAGAIN, "injected helper fork refusal")
+            return original_fork()
+    
+        def write(fd, data, deadline):
+            if data.startswith(b"{") and b'"failed_monotonic"' in data:
+                if mode == "timeout":
+                    raise TimeoutError("injected publication timeout")
+                raise BrokenPipeError(errno.EPIPE, "injected publication broken pipe")
+            return original_write(fd, data, deadline)
+    
+        monkeypatch.setattr(os, "fork", fork)
+        monkeypatch.setattr(worker_capture, "_write", write)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.6)
+        retain(tmp_path, "fork-failure-callback-" + mode, receipt)
+>       assert receipt.error_errno == errno.EAGAIN
+E       AssertionError: assert None == 35
+E        +  where None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.998070875, created_monotonic=None, capture_deadline_monotonic=284863.495085791, deadline_monotonic=284863.59508579096, finished_monotonic=284862.999182, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='injected publication timeout', error_errno=None, residual_remedy=None, worker={'pid': 33154, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.9952435, 'receipt_monotonic': 284862.998957458, 'published_times': {'started_monotonic': 284862.998070875, 'created_monotonic': None, 'capture_deadline_monotonic': 284863.495085791, 'deadline_monotonic': 284863.545085791, 'finished_monotonic': 284862.998469333, 'kill_monotonic': None, 'reaped_monotonic': None}, 'query_deadline_monotonic': 284863.545085791, 'shutdown_deadline_monotonic': 284863.59508579096, 'reserve_seconds': 0.05}).error_errno
+E        +  and   35 = <module 'errno' (built-in)>.EAGAIN
+
+test_worker_capture.py:1378: AssertionError
+__ test_review_fork_failure_preserves_errno_on_publication_error[broken-pipe] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-191/test_review_fork_failure_prese1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b5aa990>
+mode = 'broken-pipe'
+
+    @pytest.mark.parametrize("mode", ["timeout", "broken-pipe"])
+    def test_review_fork_failure_preserves_errno_on_publication_error(tmp_path, monkeypatch, mode):
+        import errno
+    
+        import worker_capture
+    
+        parent = os.getpid()
+        original_fork, original_write = os.fork, worker_capture._write
+    
+        def fork():
+            if os.getpid() != parent:
+                raise OSError(errno.EAGAIN, "injected helper fork refusal")
+            return original_fork()
+    
+        def write(fd, data, deadline):
+            if data.startswith(b"{") and b'"failed_monotonic"' in data:
+                if mode == "timeout":
+                    raise TimeoutError("injected publication timeout")
+                raise BrokenPipeError(errno.EPIPE, "injected publication broken pipe")
+            return original_write(fd, data, deadline)
+    
+        monkeypatch.setattr(os, "fork", fork)
+        monkeypatch.setattr(worker_capture, "_write", write)
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.6)
+        retain(tmp_path, "fork-failure-callback-" + mode, receipt)
+>       assert receipt.error_errno == errno.EAGAIN
+E       AssertionError: assert 32 == 35
+E        +  where 32 = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284863.014520291, created_monotonic=None, capture_deadline_monotonic=284863.512062291, deadline_monotonic=284863.61206229095, finished_monotonic=284863.015682708, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='[Errno 32] injected publication broken pipe', error_errno=32, residual_remedy=None, worker={'pid': 33155, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284863.012218583, 'receipt_monotonic': 284863.015404541, 'published_times': {'started_monotonic': 284863.014520291, 'created_monotonic': None, 'capture_deadline_monotonic': 284863.512062291, 'deadline_monotonic': 284863.56206229096, 'finished_monotonic': 284863.014929166, 'kill_monotonic': None, 'reaped_monotonic': None}, 'query_deadline_monotonic': 284863.56206229096, 'shutdown_deadline_monotonic': 284863.61206229095, 'reserve_seconds': 0.05}).error_errno
+E        +  and   35 = <module 'errno' (built-in)>.EAGAIN
+
+test_worker_capture.py:1378: AssertionError
+__________ test_review_distinct_created_identities_remain_obligations __________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-191/test_review_distinct_created_i0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10af5a1e0>
+
+    def test_review_distinct_created_identities_remain_obligations(tmp_path, monkeypatch):
+        import errno
+    
+        import worker_capture
+    
+        parent = os.getpid()
+        original_fork, original_write = os.fork, worker_capture._write
+        before = set(worker_capture._helper_obligations)
+        fake_pids = {987654321, 987654322}
+    
+        def fork():
+            if os.getpid() != parent:
+                raise OSError(errno.EAGAIN, "injected no real helper")
+            return original_fork()
+    
+        def write(fd, data, deadline):
+            if data.startswith(b"{") and b'"failed_monotonic"' in data:
+                failure = json.loads(data)
+                data = b"".join(
+                    json.dumps(
+                        {
+                            "token": failure["token"],
+                            "deadline_monotonic": deadline,
+                            "pid": pid,
+                            "ppid": os.getpid(),
+                            "pgid": os.getpgrp(),
+                            "created_monotonic": time.monotonic(),
+                        }
+                    ).encode()
+                    + b"\n"
+                    for pid in sorted(fake_pids)
+                )
+            return original_write(fd, data, deadline)
+    
+        monkeypatch.setattr(os, "fork", fork)
+        monkeypatch.setattr(worker_capture, "_write", write)
+        try:
+            receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.6)
+            retain(tmp_path, "distinct-created-identities", receipt)
+            assert receipt.error and receipt.residual_remedy
+            obligations = [
+                worker_capture._helper_obligations[key]
+                for key in set(worker_capture._helper_obligations) - before
+            ]
+>           assert {item["pid"] for item in obligations} == fake_pids
+E           assert {987654321} == {987654321, 987654322}
+E             
+E             Extra items in the right set:
+E             987654322
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E               {
+E                   987654321,
+E             -     987654322,
+E               }
+
+test_worker_capture.py:1429: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k74-red-01/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[control-tail] - AssertionError: assert ('worker capture failed: incomplete worker publication' and None)
+ +  where 'worker capture failed: incomplete worker publication' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.41090975, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.910909458, finished_monotonic=284862.414616791, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: incomplete worker publication', error_errno=35, residual_remedy=None, worker={'pid': 33100, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 70, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.413917583, 'token': 'e85a41122d27438ca7e40dffd4026b6f', 'deadline_monotonic': 284862.860909458}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.411135708, 'receipt_monotonic': 284862.414459875, 'published_times': None, 'query_deadline_monotonic': 284862.860909458, 'shutdown_deadline_monotonic': 284862.910909458, 'reserve_seconds': 0.05}).error
+ +  and   None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.41090975, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.910909458, finished_monotonic=284862.414616791, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: incomplete worker publication', error_errno=35, residual_remedy=None, worker={'pid': 33100, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 70, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.413917583, 'token': 'e85a41122d27438ca7e40dffd4026b6f', 'deadline_monotonic': 284862.860909458}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.411135708, 'receipt_monotonic': 284862.414459875, 'published_times': None, 'query_deadline_monotonic': 284862.860909458, 'shutdown_deadline_monotonic': 284862.910909458, 'reserve_seconds': 0.05}).residual_remedy
+FAILED test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[short-header] - AssertionError: assert ('worker capture failed: incomplete worker publication' and None)
+ +  where 'worker capture failed: incomplete worker publication' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.466516166, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.966515833, finished_monotonic=284862.470217708, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: incomplete worker publication', error_errno=35, residual_remedy=None, worker={'pid': 33101, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.469564625, 'token': '6ca010871e3a40d2893b73b67938e8f2', 'deadline_monotonic': 284862.916515833}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.466685666, 'receipt_monotonic': 284862.470117291, 'published_times': None, 'query_deadline_monotonic': 284862.916515833, 'shutdown_deadline_monotonic': 284862.966515833, 'reserve_seconds': 0.05}).error
+ +  and   None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.466516166, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.966515833, finished_monotonic=284862.470217708, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: incomplete worker publication', error_errno=35, residual_remedy=None, worker={'pid': 33101, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.469564625, 'token': '6ca010871e3a40d2893b73b67938e8f2', 'deadline_monotonic': 284862.916515833}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.466685666, 'receipt_monotonic': 284862.470117291, 'published_times': None, 'query_deadline_monotonic': 284862.916515833, 'shutdown_deadline_monotonic': 284862.966515833, 'reserve_seconds': 0.05}).residual_remedy
+FAILED test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[short-frame] - AssertionError: assert ('worker capture failed: invalid worker frame length' and None)
+ +  where 'worker capture failed: invalid worker frame length' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.483443166, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.983442916, finished_monotonic=284862.486909541, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: invalid worker frame length', error_errno=35, residual_remedy=None, worker={'pid': 33102, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.486253041, 'token': '9cc4622413ab4c30a6055d4d72dc76fd', 'deadline_monotonic': 284862.933442916}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.4835955, 'receipt_monotonic': 284862.486776583, 'published_times': None, 'query_deadline_monotonic': 284862.933442916, 'shutdown_deadline_monotonic': 284862.983442916, 'reserve_seconds': 0.05}).error
+ +  and   None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.483443166, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.983442916, finished_monotonic=284862.486909541, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: invalid worker frame length', error_errno=35, residual_remedy=None, worker={'pid': 33102, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.486253041, 'token': '9cc4622413ab4c30a6055d4d72dc76fd', 'deadline_monotonic': 284862.933442916}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.4835955, 'receipt_monotonic': 284862.486776583, 'published_times': None, 'query_deadline_monotonic': 284862.933442916, 'shutdown_deadline_monotonic': 284862.983442916, 'reserve_seconds': 0.05}).residual_remedy
+FAILED test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[oversized] - AssertionError: assert ('worker capture failed: invalid worker frame length' and None)
+ +  where 'worker capture failed: invalid worker frame length' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.499482583, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.999482166, finished_monotonic=284862.502847625, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: invalid worker frame length', error_errno=35, residual_remedy=None, worker={'pid': 33103, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.5022195, 'token': 'e3acaa84c3984401ab007d8f440ccc6a', 'deadline_monotonic': 284862.94948216603}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.499616291, 'receipt_monotonic': 284862.502712875, 'published_times': None, 'query_deadline_monotonic': 284862.94948216603, 'shutdown_deadline_monotonic': 284862.999482166, 'reserve_seconds': 0.05}).error
+ +  and   None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.499482583, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284862.999482166, finished_monotonic=284862.502847625, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: invalid worker frame length', error_errno=35, residual_remedy=None, worker={'pid': 33103, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.5022195, 'token': 'e3acaa84c3984401ab007d8f440ccc6a', 'deadline_monotonic': 284862.94948216603}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.499616291, 'receipt_monotonic': 284862.502712875, 'published_times': None, 'query_deadline_monotonic': 284862.94948216603, 'shutdown_deadline_monotonic': 284862.999482166, 'reserve_seconds': 0.05}).residual_remedy
+FAILED test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[open-tail] - AssertionError: assert ('worker capture failed: worker query deadline exhausted' and None)
+ +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.5160005, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284863.016000208, finished_monotonic=284862.982994208, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=35, residual_remedy=None, worker={'pid': 33104, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -9, 'signals': [{'signal': 'SIGTERM', 'monotonic': 284862.9678165}, {'signal': 'SIGKILL', 'monotonic': 284862.981317833}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.519162666, 'token': '9f09474d534a468aae898ec409d010a8', 'deadline_monotonic': 284862.966000208}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.51615475, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 284862.966000208, 'shutdown_deadline_monotonic': 284863.016000208, 'reserve_seconds': 0.05}).error
+ +  and   None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.5160005, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=284863.016000208, finished_monotonic=284862.982994208, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=35, residual_remedy=None, worker={'pid': 33104, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -9, 'signals': [{'signal': 'SIGTERM', 'monotonic': 284862.9678165}, {'signal': 'SIGKILL', 'monotonic': 284862.981317833}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': {'errno': 35, 'failed_monotonic': 284862.519162666, 'token': '9f09474d534a468aae898ec409d010a8', 'deadline_monotonic': 284862.966000208}, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.51615475, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 284862.966000208, 'shutdown_deadline_monotonic': 284863.016000208, 'reserve_seconds': 0.05}).residual_remedy
+FAILED test_worker_capture.py::test_review_fork_failure_preserves_errno_on_publication_error[timeout] - AssertionError: assert None == 35
+ +  where None = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284862.998070875, created_monotonic=None, capture_deadline_monotonic=284863.495085791, deadline_monotonic=284863.59508579096, finished_monotonic=284862.999182, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='injected publication timeout', error_errno=None, residual_remedy=None, worker={'pid': 33154, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284862.9952435, 'receipt_monotonic': 284862.998957458, 'published_times': {'started_monotonic': 284862.998070875, 'created_monotonic': None, 'capture_deadline_monotonic': 284863.495085791, 'deadline_monotonic': 284863.545085791, 'finished_monotonic': 284862.998469333, 'kill_monotonic': None, 'reaped_monotonic': None}, 'query_deadline_monotonic': 284863.545085791, 'shutdown_deadline_monotonic': 284863.59508579096, 'reserve_seconds': 0.05}).error_errno
+ +  and   35 = <module 'errno' (built-in)>.EAGAIN
+FAILED test_worker_capture.py::test_review_fork_failure_preserves_errno_on_publication_error[broken-pipe] - AssertionError: assert 32 == 35
+ +  where 32 = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=284863.014520291, created_monotonic=None, capture_deadline_monotonic=284863.512062291, deadline_monotonic=284863.61206229095, finished_monotonic=284863.015682708, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='[Errno 32] injected publication broken pipe', error_errno=32, residual_remedy=None, worker={'pid': 33155, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': 0, 'signals': [], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': False, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 284863.012218583, 'receipt_monotonic': 284863.015404541, 'published_times': {'started_monotonic': 284863.014520291, 'created_monotonic': None, 'capture_deadline_monotonic': 284863.512062291, 'deadline_monotonic': 284863.56206229096, 'finished_monotonic': 284863.014929166, 'kill_monotonic': None, 'reaped_monotonic': None}, 'query_deadline_monotonic': 284863.56206229096, 'shutdown_deadline_monotonic': 284863.61206229095, 'reserve_seconds': 0.05}).error_errno
+ +  and   35 = <module 'errno' (built-in)>.EAGAIN
+FAILED test_worker_capture.py::test_review_distinct_created_identities_remain_obligations - assert {987654321} == {987654321, 987654322}
+  
+  Extra items in the right set:
+  987654322
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    {
+        987654321,
+  -     987654322,
+    }
+======================== 8 failed, 315 passed in 34.81s ========================

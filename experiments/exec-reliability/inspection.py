@@ -262,7 +262,12 @@ def _spawn_helper(
                 pid = os.fork()
             except OSError as error:
                 if publish_fork_error is not None and error.errno is not None:
-                    publish_fork_error({"errno": error.errno, "failed_monotonic": time.monotonic()})
+                    try:
+                        publish_fork_error(
+                            {"errno": error.errno, "failed_monotonic": time.monotonic()}
+                        )
+                    except OSError as publication_error:
+                        receipt.error = f"fork failure publication failed: {publication_error}"
                 raise
             if pid == 0:
                 _helper_child(
@@ -400,7 +405,7 @@ def capture_helper(
         if receipt.error is None and not (receipt.reaped and not streams):
             receipt.error = "helper capture deadline exhausted"
     except (OSError, ValueError) as error:
-        receipt.error = str(error)
+        receipt.error = f"{error}; {receipt.error}" if receipt.error else str(error)
         if isinstance(error, OSError):
             receipt.error_errno = error.errno
     finally:

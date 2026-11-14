@@ -1207,7 +1207,7 @@ def test_review_worker_fork_failure_evidence(tmp_path, monkeypatch, mode):
         "terminal-errno",
         "terminal-admission",
         "terminal-time",
-        "late",
+        "worker-publication-expired",
     ],
 )
 def test_review_worker_rejects_invalid_fork_failure(tmp_path, monkeypatch, mode):
@@ -1252,7 +1252,7 @@ def test_review_worker_rejects_invalid_fork_failure(tmp_path, monkeypatch, mode)
                 value["failed_monotonic"] = deadline + 1
             elif mode == "nan":
                 value["failed_monotonic"] = float("nan")
-            elif mode == "late":
+            elif mode == "worker-publication-expired":
                 time.sleep(max(0, deadline - time.monotonic()) + 0.01)
             data = json.dumps(value).encode() + b"\n"
             if mode == "duplicate-key":
@@ -1303,3 +1303,237 @@ def test_review_worker_rejects_invalid_fork_failure(tmp_path, monkeypatch, mode)
         # This fixture published a synthetic identity; never signal it.
         for token in set(worker_capture._helper_obligations) - before:
             worker_capture._helper_obligations.pop(token)
+
+
+@pytest.mark.parametrize(
+    "mode", ["control-tail", "short-header", "short-frame", "oversized", "open-tail"]
+)
+def test_review_fork_failure_requires_clean_channel_end(tmp_path, monkeypatch, mode):
+    import errno
+
+    import worker_capture
+
+    parent = os.getpid()
+    original_fork, original_write = os.fork, worker_capture._write
+
+    def fork():
+        if os.getpid() != parent:
+            raise OSError(errno.EAGAIN, "injected helper fork refusal")
+        return original_fork()
+
+    def write(fd, data, deadline):
+        if data.startswith(b"{") and b'"failed_monotonic"' in data:
+            original_write(fd, data, deadline)
+            if mode in {"control-tail", "open-tail"}:
+                original_write(fd, b'{"pid":987654321', deadline)
+            if mode == "open-tail":
+                time.sleep(2)  # Real open pipe; the parent must retire this worker.
+            return
+        if not data.endswith(b"\n"):
+            data = {
+                "control-tail": b"",
+                "short-header": b"\x00",
+                "short-frame": worker_capture.HEADER.pack(100) + b"{",
+                "oversized": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+            }.get(mode, data)
+            if not data:
+                os._exit(70)
+        return original_write(fd, data, deadline)
+
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(worker_capture, "_write", write)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.5)
+    retain(tmp_path, "fork-failure-channel-" + mode, receipt)
+    assert receipt.worker["fork_failure"]["errno"] == errno.EAGAIN
+    assert receipt.error and receipt.residual_remedy
+    assert receipt.worker["unknown_helper_creation"]
+    assert receipt.worker["reaped"]
+
+
+@pytest.mark.parametrize("mode", ["timeout", "broken-pipe"])
+def test_review_fork_failure_preserves_errno_on_publication_error(tmp_path, monkeypatch, mode):
+    import errno
+
+    import worker_capture
+
+    parent = os.getpid()
+    original_fork, original_write = os.fork, worker_capture._write
+
+    def fork():
+        if os.getpid() != parent:
+            raise OSError(errno.EAGAIN, "injected helper fork refusal")
+        return original_fork()
+
+    def write(fd, data, deadline):
+        if data.startswith(b"{") and b'"failed_monotonic"' in data:
+            if mode == "timeout":
+                raise TimeoutError("injected publication timeout")
+            raise BrokenPipeError(errno.EPIPE, "injected publication broken pipe")
+        return original_write(fd, data, deadline)
+
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(worker_capture, "_write", write)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.6)
+    retain(tmp_path, "fork-failure-callback-" + mode, receipt)
+    assert receipt.error_errno == errno.EAGAIN
+    assert "injected helper fork refusal" in receipt.error
+    assert "injected publication" in receipt.error
+    assert receipt.worker["fork_failure"] is None
+    assert receipt.worker["reaped"] and receipt.pid is None
+
+
+def test_review_distinct_created_identities_remain_obligations(tmp_path, monkeypatch):
+    import errno
+
+    import worker_capture
+
+    parent = os.getpid()
+    original_fork, original_write = os.fork, worker_capture._write
+    before = set(worker_capture._helper_obligations)
+    fake_pids = {987654321, 987654322}
+
+    def fork():
+        if os.getpid() != parent:
+            raise OSError(errno.EAGAIN, "injected no real helper")
+        return original_fork()
+
+    def write(fd, data, deadline):
+        if data.startswith(b"{") and b'"failed_monotonic"' in data:
+            failure = json.loads(data)
+            data = b"".join(
+                json.dumps(
+                    {
+                        "token": failure["token"],
+                        "deadline_monotonic": deadline,
+                        "pid": pid,
+                        "ppid": os.getpid(),
+                        "pgid": os.getpgrp(),
+                        "created_monotonic": time.monotonic(),
+                    }
+                ).encode()
+                + b"\n"
+                for pid in sorted(fake_pids)
+            )
+        return original_write(fd, data, deadline)
+
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(worker_capture, "_write", write)
+    try:
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.6)
+        retain(tmp_path, "distinct-created-identities", receipt)
+        assert receipt.error and receipt.residual_remedy
+        obligations = [
+            worker_capture._helper_obligations[key]
+            for key in set(worker_capture._helper_obligations) - before
+        ]
+        assert {item["pid"] for item in obligations} == fake_pids
+        assert {item["pid"] for item in receipt.worker["helper_identities"]} == fake_pids
+    finally:
+        # Evidence-only synthetic identities never acquire signal authority.
+        for key in set(worker_capture._helper_obligations) - before:
+            worker_capture._helper_obligations.pop(key)
+
+
+@pytest.mark.parametrize("delay", ["read", "select"])
+def test_review_parent_rejects_published_late_fork_failure(tmp_path, monkeypatch, delay):
+    import errno
+
+    import worker_capture
+
+    parent = os.getpid()
+    original_fork, original_write = os.fork, worker_capture._write
+    original_read, original_select = os.read, worker_capture.select.select
+    marker = tmp_path / "failure-published.json"
+    end = time.monotonic() + 0.6
+    delayed = False
+
+    def fork():
+        if os.getpid() != parent:
+            raise OSError(errno.EAGAIN, "injected helper fork refusal")
+        return original_fork()
+
+    def write(fd, data, deadline):
+        original_write(fd, data, deadline)
+        if data.startswith(b"{") and b'"failed_monotonic"' in data:
+            marker.write_bytes(data)
+
+    def pause():
+        nonlocal delayed
+        delayed = True
+        time.sleep(max(0, end - time.monotonic()) + 0.01)
+
+    def read(fd, count):
+        data = original_read(fd, count)
+        if os.getpid() == parent and delay == "read" and b'"failed_monotonic"' in data:
+            pause()
+        return data
+
+    def select(reads, writes, errors, timeout):
+        result = original_select(reads, writes, errors, timeout)
+        if os.getpid() == parent and delay == "select" and not delayed:
+            until = time.monotonic() + 0.1
+            while not marker.exists() and time.monotonic() < until:
+                time.sleep(0.001)
+            assert marker.exists()
+            pause()
+        return result
+
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(worker_capture, "_write", write)
+    monkeypatch.setattr(os, "read", read)
+    monkeypatch.setattr(worker_capture.select, "select", select)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+    retain(tmp_path, "parent-late-fork-failure-" + delay, receipt)
+    assert marker.exists() and delayed
+    assert receipt.error and receipt.residual_remedy
+    assert receipt.worker["unknown_helper_creation"]
+    assert receipt.worker["fork_failure"] is None
+
+
+@pytest.mark.parametrize("mode", ["unclean-exit", "unreaped"])
+def test_review_confirmed_fork_failure_keeps_worker_failure(tmp_path, monkeypatch, mode):
+    import errno
+
+    import worker_capture
+
+    parent = os.getpid()
+    original_fork, original_write = os.fork, worker_capture._write
+
+    def fork():
+        if os.getpid() != parent:
+            raise OSError(errno.EAGAIN, "injected helper fork refusal")
+        return original_fork()
+
+    def write(fd, data, deadline):
+        original_write(fd, data, deadline)
+        if not data.endswith(b"\n"):
+            os._exit(23)
+
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(worker_capture, "_write", write)
+    if mode == "unreaped":
+        monkeypatch.setattr(worker_capture, "_reap", lambda owner: None)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.6)
+    retain(tmp_path, "fork-failure-worker-" + mode, receipt)
+    worker = receipt.worker
+    try:
+        assert receipt.error and receipt.error_errno == errno.EAGAIN
+        assert not worker["unknown_helper_creation"]
+        if mode == "unclean-exit":
+            assert worker["reaped"] and worker["returncode"] == 23
+        else:
+            assert not worker["reaped"] and receipt.residual_remedy
+    finally:
+        if mode == "unreaped":
+            owner = worker_capture._owners[worker["pid"]]
+            os.waitpid(owner.pid, 0)  # Independent exact-child cleanup after the adapter.
+            worker_capture._owners.pop(owner.pid)
+            (tmp_path / "independent-worker-reap.json").write_text(
+                json.dumps(
+                    {
+                        "pid": owner.pid,
+                        "reaped": True,
+                        "adapter": "withheld parent WNOHANG observation",
+                    }
+                )
+            )

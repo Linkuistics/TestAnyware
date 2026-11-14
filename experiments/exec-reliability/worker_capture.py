@@ -384,8 +384,10 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     received: float | None = None
     published_times: dict[str, float | None] | None = None
     helper_identity: dict[str, object] | None = None
+    helper_identities: list[dict[str, object]] = []
     fork_failure: dict[str, object] | None = None
     creation_conflict = False
+    closed_channels: set[int] = set()
     control_bytes = 0
     buffers = [bytearray(), bytearray()]
     try:
@@ -428,6 +430,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 except BlockingIOError:
                     continue
                 if not chunk:
+                    closed_channels.add(index)
                     del streams[fd]
                 else:
                     buffers[index].extend(chunk)
@@ -469,10 +472,21 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                         if helper_identity is None:
                             helper_identity = identity
                             _helper_obligations[token] = dict(identity)
+                        if not any(known["pid"] == identity["pid"] for known in helper_identities):
+                            helper_identities.append(identity)
+                            key = (
+                                token
+                                if identity is helper_identity
+                                else f"{token}:{identity['pid']}"
+                            )
+                            _helper_obligations[key] = dict(identity)
                     if creation_conflict:
                         raise ValueError("duplicate helper creation publication")
             if not streams and time.monotonic() < query_deadline:
                 received = time.monotonic()
+                # Partial control or terminal bytes cannot preserve no-child
+                # authority by failing an earlier framing guard.
+                creation_conflict = fork_failure is not None and bool(buffers[0] or buffers[1])
                 if not owner.ready or not intent or buffers[0] or len(buffers[1]) < HEADER.size:
                     raise ValueError("incomplete worker publication")
                 size = HEADER.unpack(buffers[1][: HEADER.size])[0]
@@ -543,7 +557,9 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 if not owner.reaped:
                     time.sleep(min(0.001, max(0, deadline - time.monotonic())))
             _reap(owner)
-            confirmed_failure = fork_failure is not None and not creation_conflict
+            confirmed_failure = (
+                fork_failure is not None and not creation_conflict and closed_channels == {0, 1}
+            )
             unknown_creation = not complete and helper_identity is None and not confirmed_failure
             if confirmed_failure and fork_failure is not None and not complete:
                 receipt.error_errno = cast(int, fork_failure["errno"])
@@ -554,7 +570,10 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 "fork_failure": fork_failure,
                 "creation_conflict": creation_conflict,
                 "helper_identity": helper_identity,
-                "helper_obligation_retained": token in _helper_obligations,
+                "helper_identities": helper_identities,
+                "helper_obligation_retained": any(
+                    key == token or key.startswith(token + ":") for key in _helper_obligations
+                ),
                 "signal_scope": "group" if owner.ready else "pid",
                 "dispatch_monotonic": dispatched,
                 "receipt_monotonic": received,
