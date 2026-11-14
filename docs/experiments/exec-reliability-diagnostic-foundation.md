@@ -1804,3 +1804,22 @@ ten-clone acceptance remains **0/10, unavailable**.
 ### k69 explicit helper fork-error handoff
 
 The interim worker separately publishes the actual helper fork OSError with errno, request/deadline and monotonic timing. Validated no-child evidence survives terminal loss while the query remains failed; silence, setup failure, late/malformed messages and conflicting identity/terminal evidence remain conservative. The complete locked self-check passes 311 tests plus lint, formatting and strict types. The independent audit found all 1,808 retained exact positive PID selectors absent and confirmed 65,742 prior evidence files unchanged. These later observations do not resolve unknown creation or acknowledge helper reap. See the [k69 retained report](../../experiments/exec-reliability/evidence/helper-fork-error-k69/report.md) for every failed sample, injected-versus-real distinction and audit limits. The unchanged full scheduler charter continues in k71; aggregate ancestors remain open and ten-clone acceptance stays 0/10 unavailable.
+
+### k75 incremental worker result framing
+
+The interim per-query receiver validates the four-byte result header immediately,
+limits later reads to the declared remainder plus one detection byte, and rejects
+truncated result EOF even while the control pipe remains open. Terminal success
+still requires both clean channel ends. Early-error cleanup preserves creation
+conflicts, so partial contradictory data cannot grant no-child authority.
+
+The [k75 report](../../experiments/exec-reliability/evidence/result-framing-k75/report.md)
+retains five frozen conditions, including both RED runs and the failed first full
+check. The final check passes all 357 tests, lint, formatting and strict types.
+The independent audit reconciles each case, verifies 78,030 prior evidence files
+unchanged, and observes all 1,397 recorded exact positive PID selectors absent.
+It explicitly excludes an exploratory run's lost fixture receipts and does not
+convert later absence into historical helper reap or resolved unknown creation.
+The full persistent-worker/shared-scheduler charter remains live in k78, preceded
+by a separate review of k75. All aggregate ancestors stay open; ten-clone
+acceptance remains **0/10, unavailable**.

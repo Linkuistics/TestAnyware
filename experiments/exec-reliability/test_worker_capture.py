@@ -909,6 +909,8 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
     if publication.exists():
         assert receipt.worker["receipt_monotonic"] is not None or fault in {
             "oversized-channel",
+            "oversized-frame",
+            "partial-frame",
             "duplicate-readiness",
             "nested-readiness",
         }
@@ -1725,3 +1727,113 @@ def test_late_created_identity_rejects_invalid_fields(tmp_path, monkeypatch, pub
 @pytest.mark.parametrize("publication", ["valid", "distinct"])
 def test_late_created_identity_prebuffered_before_default_term(tmp_path, monkeypatch, publication):
     test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, "prebuffer", publication)
+
+
+@pytest.mark.parametrize(
+    "mode", ["oversized-header", "short-header", "short-body", "trailing", "overflow"]
+)
+def test_result_framing_rejects_before_control_eof(tmp_path, monkeypatch, mode):
+    """EOF-only validation waits out the query despite already-invalid framing."""
+    import worker_capture
+
+    parent = os.getpid()
+    original_read = os.read
+    reads = {}
+
+    def read(fd, count):
+        data = original_read(fd, count)
+        if os.getpid() == parent:
+            reads.setdefault(fd, []).append({"requested": count, "received": len(data)})
+        return data
+
+    def child(control, result, token, argv, deadline):
+        try:
+            inspection.reset_after_fork({control, result})
+            ready = {"token": token, "pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
+            worker_capture._write(control, json.dumps(ready).encode() + b"\nintent\n", deadline)
+            frames = {
+                "oversized-header": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                "short-header": b"\x00\x00",
+                "short-body": worker_capture.HEADER.pack(100) + b"{",
+                "trailing": worker_capture.HEADER.pack(2) + b"{}x",
+                "overflow": worker_capture.HEADER.pack(worker_capture.FRAME_CAP)
+                + b"x" * (worker_capture.FRAME_CAP + worker_capture.TURN_CAP),
+            }
+            worker_capture._write(result, frames[mode], deadline)
+            if mode in {"short-header", "short-body"}:
+                os.close(result)
+            # Real open control channel; no helper is ever forked in this fixture.
+            time.sleep(2)
+        finally:
+            os._exit(74)
+
+    monkeypatch.setattr(worker_capture, "_child", child)
+    monkeypatch.setattr(os, "read", read)
+    started = time.monotonic()
+    end = started + 0.9
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+    retain(tmp_path, "incremental-frame-" + mode, receipt)
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    (root / f"frame-reads-{mode}-{time.time_ns()}.json").write_text(json.dumps(reads))
+    assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+    assert receipt.error and receipt.residual_remedy and receipt.pid is None
+    assert "worker frame length" in receipt.error
+    assert receipt.worker["signals"][0]["monotonic"] - started < 0.45
+    assert receipt.worker["shutdown_deadline_monotonic"] == end
+    assert receipt.finished_monotonic <= end + 0.015
+    # A result read starts with the exact four-byte header budget. The control
+    # pipe has a different, independently bounded read budget.
+    result_reads = [items for items in reads.values() if items[0]["requested"] == 4]
+    assert len(result_reads) == 1
+    result_reads = result_reads[0]
+    expected_bytes = {
+        "oversized-header": 4,
+        "short-header": 2,
+        "short-body": 5,
+        "trailing": 7,
+        "overflow": 4 + worker_capture.FRAME_CAP + 1,
+    }
+    assert sum(item["received"] for item in result_reads) == expected_bytes[mode]
+
+
+def test_result_frame_accepts_fragmented_delivery(tmp_path, monkeypatch):
+    import worker_capture
+
+    original_write = worker_capture._write
+
+    def write(fd, data, deadline):
+        if not data.endswith(b"\n"):
+            for fragment in (data[:1], data[1:4], data[4:17], data[17:]):
+                original_write(fd, fragment, deadline)
+                time.sleep(0.002)
+        else:
+            original_write(fd, data, deadline)
+
+    monkeypatch.setattr(worker_capture, "_write", write)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.6)
+    retain(tmp_path, "fragmented-frame", receipt)
+    assert receipt.error is None and receipt.reaped and receipt.returncode == 0
+    assert receipt.worker["reaped"] and not receipt.worker["helper_obligation_retained"]
+
+
+def test_complete_result_frame_requires_control_eof(tmp_path, monkeypatch):
+    import worker_capture
+
+    original_write = worker_capture._write
+    before = set(worker_capture._helper_obligations)
+
+    def write(fd, data, deadline):
+        original_write(fd, data, deadline)
+        if not data.endswith(b"\n"):
+            time.sleep(2)  # Complete terminal in pipe, both channels still open.
+
+    monkeypatch.setattr(worker_capture, "_write", write)
+    try:
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 0.3)
+        retain(tmp_path, "complete-frame-open-control", receipt)
+        assert receipt.error and not receipt.reaped
+        assert receipt.worker["reaped"] and receipt.worker["helper_obligation_retained"]
+        assert receipt.worker["published_times"] is None
+    finally:
+        for key in set(worker_capture._helper_obligations) - before:
+            worker_capture._helper_obligations.pop(key)

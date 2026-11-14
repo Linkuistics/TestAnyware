@@ -1,0 +1,325 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py
+collecting ... collected 357 items / 350 deselected / 7 selected
+
+test_worker_capture.py::test_result_framing_rejects_before_control_eof[oversized-header] FAILED [ 14%]
+test_worker_capture.py::test_result_framing_rejects_before_control_eof[short-header] FAILED [ 28%]
+test_worker_capture.py::test_result_framing_rejects_before_control_eof[short-body] FAILED [ 42%]
+test_worker_capture.py::test_result_framing_rejects_before_control_eof[trailing] FAILED [ 57%]
+test_worker_capture.py::test_result_framing_rejects_before_control_eof[overflow] FAILED [ 71%]
+test_worker_capture.py::test_result_frame_accepts_fragmented_delivery PASSED [ 85%]
+test_worker_capture.py::test_complete_result_frame_requires_control_eof PASSED [100%]
+
+=================================== FAILURES ===================================
+_______ test_result_framing_rejects_before_control_eof[oversized-header] _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-232/test_result_framing_rejects_be0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1072bd730>
+mode = 'oversized-header'
+
+    @pytest.mark.parametrize(
+        "mode", ["oversized-header", "short-header", "short-body", "trailing", "overflow"]
+    )
+    def test_result_framing_rejects_before_control_eof(tmp_path, monkeypatch, mode):
+        """EOF-only validation waits out the query despite already-invalid framing."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_read = os.read
+        reads = {}
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent:
+                reads.setdefault(fd, []).append({"requested": count, "received": len(data)})
+            return data
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                ready = {"token": token, "pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
+                worker_capture._write(control, json.dumps(ready).encode() + b"\nintent\n", deadline)
+                frames = {
+                    "oversized-header": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                    "short-header": b"\x00\x00",
+                    "short-body": worker_capture.HEADER.pack(100) + b"{",
+                    "trailing": worker_capture.HEADER.pack(2) + b"{}x",
+                    "overflow": worker_capture.HEADER.pack(worker_capture.FRAME_CAP)
+                    + b"x" * (worker_capture.FRAME_CAP + worker_capture.TURN_CAP),
+                }
+                worker_capture._write(result, frames[mode], deadline)
+                if mode in {"short-header", "short-body"}:
+                    os.close(result)
+                # Real open control channel; no helper is ever forked in this fixture.
+                time.sleep(2)
+            finally:
+                os._exit(74)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "read", read)
+        started = time.monotonic()
+        end = started + 0.9
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        retain(tmp_path, "incremental-frame-" + mode, receipt)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        (root / f"frame-reads-{mode}-{time.time_ns()}.json").write_text(json.dumps(reads))
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+>       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=290017.756649541, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=290018.65664895804, finished_monotonic=290018.608679208, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 81181, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 290018.607016625}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 290017.756866916, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 290018.60664895806, 'shutdown_deadline_monotonic': 290018.65664895804, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1778: AssertionError
+_________ test_result_framing_rejects_before_control_eof[short-header] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-232/test_result_framing_rejects_be1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107290860>
+mode = 'short-header'
+
+    @pytest.mark.parametrize(
+        "mode", ["oversized-header", "short-header", "short-body", "trailing", "overflow"]
+    )
+    def test_result_framing_rejects_before_control_eof(tmp_path, monkeypatch, mode):
+        """EOF-only validation waits out the query despite already-invalid framing."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_read = os.read
+        reads = {}
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent:
+                reads.setdefault(fd, []).append({"requested": count, "received": len(data)})
+            return data
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                ready = {"token": token, "pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
+                worker_capture._write(control, json.dumps(ready).encode() + b"\nintent\n", deadline)
+                frames = {
+                    "oversized-header": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                    "short-header": b"\x00\x00",
+                    "short-body": worker_capture.HEADER.pack(100) + b"{",
+                    "trailing": worker_capture.HEADER.pack(2) + b"{}x",
+                    "overflow": worker_capture.HEADER.pack(worker_capture.FRAME_CAP)
+                    + b"x" * (worker_capture.FRAME_CAP + worker_capture.TURN_CAP),
+                }
+                worker_capture._write(result, frames[mode], deadline)
+                if mode in {"short-header", "short-body"}:
+                    os.close(result)
+                # Real open control channel; no helper is ever forked in this fixture.
+                time.sleep(2)
+            finally:
+                os._exit(74)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "read", read)
+        started = time.monotonic()
+        end = started + 0.9
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        retain(tmp_path, "incremental-frame-" + mode, receipt)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        (root / f"frame-reads-{mode}-{time.time_ns()}.json").write_text(json.dumps(reads))
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+>       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=290018.631695, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=290019.531694333, finished_monotonic=290019.485808375, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 81255, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 290019.484156833}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 290018.631848375, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 290019.481694333, 'shutdown_deadline_monotonic': 290019.531694333, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1778: AssertionError
+__________ test_result_framing_rejects_before_control_eof[short-body] __________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-232/test_result_framing_rejects_be2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10737fda0>
+mode = 'short-body'
+
+    @pytest.mark.parametrize(
+        "mode", ["oversized-header", "short-header", "short-body", "trailing", "overflow"]
+    )
+    def test_result_framing_rejects_before_control_eof(tmp_path, monkeypatch, mode):
+        """EOF-only validation waits out the query despite already-invalid framing."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_read = os.read
+        reads = {}
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent:
+                reads.setdefault(fd, []).append({"requested": count, "received": len(data)})
+            return data
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                ready = {"token": token, "pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
+                worker_capture._write(control, json.dumps(ready).encode() + b"\nintent\n", deadline)
+                frames = {
+                    "oversized-header": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                    "short-header": b"\x00\x00",
+                    "short-body": worker_capture.HEADER.pack(100) + b"{",
+                    "trailing": worker_capture.HEADER.pack(2) + b"{}x",
+                    "overflow": worker_capture.HEADER.pack(worker_capture.FRAME_CAP)
+                    + b"x" * (worker_capture.FRAME_CAP + worker_capture.TURN_CAP),
+                }
+                worker_capture._write(result, frames[mode], deadline)
+                if mode in {"short-header", "short-body"}:
+                    os.close(result)
+                # Real open control channel; no helper is ever forked in this fixture.
+                time.sleep(2)
+            finally:
+                os._exit(74)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "read", read)
+        started = time.monotonic()
+        end = started + 0.9
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        retain(tmp_path, "incremental-frame-" + mode, receipt)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        (root / f"frame-reads-{mode}-{time.time_ns()}.json").write_text(json.dumps(reads))
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+>       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=290019.499625958, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=290020.399625625, finished_monotonic=290020.3514255, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 81344, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 290020.349780375}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 290019.499761416, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 290020.349625625, 'shutdown_deadline_monotonic': 290020.399625625, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1778: AssertionError
+___________ test_result_framing_rejects_before_control_eof[trailing] ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-232/test_result_framing_rejects_be3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1073c2420>
+mode = 'trailing'
+
+    @pytest.mark.parametrize(
+        "mode", ["oversized-header", "short-header", "short-body", "trailing", "overflow"]
+    )
+    def test_result_framing_rejects_before_control_eof(tmp_path, monkeypatch, mode):
+        """EOF-only validation waits out the query despite already-invalid framing."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_read = os.read
+        reads = {}
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent:
+                reads.setdefault(fd, []).append({"requested": count, "received": len(data)})
+            return data
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                ready = {"token": token, "pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
+                worker_capture._write(control, json.dumps(ready).encode() + b"\nintent\n", deadline)
+                frames = {
+                    "oversized-header": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                    "short-header": b"\x00\x00",
+                    "short-body": worker_capture.HEADER.pack(100) + b"{",
+                    "trailing": worker_capture.HEADER.pack(2) + b"{}x",
+                    "overflow": worker_capture.HEADER.pack(worker_capture.FRAME_CAP)
+                    + b"x" * (worker_capture.FRAME_CAP + worker_capture.TURN_CAP),
+                }
+                worker_capture._write(result, frames[mode], deadline)
+                if mode in {"short-header", "short-body"}:
+                    os.close(result)
+                # Real open control channel; no helper is ever forked in this fixture.
+                time.sleep(2)
+            finally:
+                os._exit(74)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "read", read)
+        started = time.monotonic()
+        end = started + 0.9
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        retain(tmp_path, "incremental-frame-" + mode, receipt)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        (root / f"frame-reads-{mode}-{time.time_ns()}.json").write_text(json.dumps(reads))
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+>       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+E        +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=290020.365188583, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=290021.265188291, finished_monotonic=290021.217621666, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 81363, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 290021.2163095}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 290020.365326, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 290021.21518829104, 'shutdown_deadline_monotonic': 290021.265188291, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1778: AssertionError
+___________ test_result_framing_rejects_before_control_eof[overflow] ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-232/test_result_framing_rejects_be4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1073c36e0>
+mode = 'overflow'
+
+    @pytest.mark.parametrize(
+        "mode", ["oversized-header", "short-header", "short-body", "trailing", "overflow"]
+    )
+    def test_result_framing_rejects_before_control_eof(tmp_path, monkeypatch, mode):
+        """EOF-only validation waits out the query despite already-invalid framing."""
+        import worker_capture
+    
+        parent = os.getpid()
+        original_read = os.read
+        reads = {}
+    
+        def read(fd, count):
+            data = original_read(fd, count)
+            if os.getpid() == parent:
+                reads.setdefault(fd, []).append({"requested": count, "received": len(data)})
+            return data
+    
+        def child(control, result, token, argv, deadline):
+            try:
+                inspection.reset_after_fork({control, result})
+                ready = {"token": token, "pid": os.getpid(), "pgid": os.getpgrp(), "sid": os.getsid(0)}
+                worker_capture._write(control, json.dumps(ready).encode() + b"\nintent\n", deadline)
+                frames = {
+                    "oversized-header": worker_capture.HEADER.pack(worker_capture.FRAME_CAP + 1),
+                    "short-header": b"\x00\x00",
+                    "short-body": worker_capture.HEADER.pack(100) + b"{",
+                    "trailing": worker_capture.HEADER.pack(2) + b"{}x",
+                    "overflow": worker_capture.HEADER.pack(worker_capture.FRAME_CAP)
+                    + b"x" * (worker_capture.FRAME_CAP + worker_capture.TURN_CAP),
+                }
+                worker_capture._write(result, frames[mode], deadline)
+                if mode in {"short-header", "short-body"}:
+                    os.close(result)
+                # Real open control channel; no helper is ever forked in this fixture.
+                time.sleep(2)
+            finally:
+                os._exit(74)
+    
+        monkeypatch.setattr(worker_capture, "_child", child)
+        monkeypatch.setattr(os, "read", read)
+        started = time.monotonic()
+        end = started + 0.9
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), end)
+        retain(tmp_path, "incremental-frame-" + mode, receipt)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+        (root / f"frame-reads-{mode}-{time.time_ns()}.json").write_text(json.dumps(reads))
+        assert receipt.worker["reaped"] and receipt.worker["unknown_helper_creation"]
+        assert receipt.error and receipt.residual_remedy and receipt.pid is None
+>       assert "worker frame length" in receipt.error
+E       AssertionError: assert 'worker frame length' in 'worker capture failed: worker channel cap exceeded'
+E        +  where 'worker capture failed: worker channel cap exceeded' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=290021.231980041, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=290022.13197975, finished_monotonic=290021.236384083, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker channel cap exceeded', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 81395, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 290021.234769541}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 290021.232115041, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 290022.08197975, 'shutdown_deadline_monotonic': 290022.13197975, 'reserve_seconds': 0.05}).error
+
+test_worker_capture.py:1778: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/result-framing-k75/red-02/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_worker_capture.py::test_result_framing_rejects_before_control_eof[oversized-header] - AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+ +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=290017.756649541, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=290018.65664895804, finished_monotonic=290018.608679208, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 81181, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 290018.607016625}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 290017.756866916, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 290018.60664895806, 'shutdown_deadline_monotonic': 290018.65664895804, 'reserve_seconds': 0.05}).error
+FAILED test_worker_capture.py::test_result_framing_rejects_before_control_eof[short-header] - AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+ +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=290018.631695, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=290019.531694333, finished_monotonic=290019.485808375, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 81255, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 290019.484156833}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 290018.631848375, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 290019.481694333, 'shutdown_deadline_monotonic': 290019.531694333, 'reserve_seconds': 0.05}).error
+FAILED test_worker_capture.py::test_result_framing_rejects_before_control_eof[short-body] - AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+ +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=290019.499625958, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=290020.399625625, finished_monotonic=290020.3514255, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 81344, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 290020.349780375}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 290019.499761416, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 290020.349625625, 'shutdown_deadline_monotonic': 290020.399625625, 'reserve_seconds': 0.05}).error
+FAILED test_worker_capture.py::test_result_framing_rejects_before_control_eof[trailing] - AssertionError: assert 'worker frame length' in 'worker capture failed: worker query deadline exhausted'
+ +  where 'worker capture failed: worker query deadline exhausted' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=290020.365188583, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=290021.265188291, finished_monotonic=290021.217621666, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker query deadline exhausted', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 81363, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 290021.2163095}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 290020.365326, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 290021.21518829104, 'shutdown_deadline_monotonic': 290021.265188291, 'reserve_seconds': 0.05}).error
+FAILED test_worker_capture.py::test_result_framing_rejects_before_control_eof[overflow] - AssertionError: assert 'worker frame length' in 'worker capture failed: worker channel cap exceeded'
+ +  where 'worker capture failed: worker channel cap exceeded' = HelperCapture(stdout=b'', stderr=b'', returncode=None, pid=None, argv=('/usr/bin/true',), admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, started_monotonic=290021.231980041, created_monotonic=None, capture_deadline_monotonic=0, deadline_monotonic=290022.13197975, finished_monotonic=290021.236384083, kill_monotonic=None, kill_errno=None, reaped=False, reaped_monotonic=None, reap_errno=None, ownership_lost=False, close_errors=[], error='worker capture failed: worker channel cap exceeded', error_errno=None, residual_remedy='Retained helper identity requires its own matching reap receipt; unpublished interrupted creation remains unknown. Worker reap/group signals do not prove helper death. Independently reconcile exact worker/helper fixture identities. An unreaped worker retains strong ownership without later signals.', worker={'pid': 81395, 'ready': True, 'reaped': True, 'ownership_lost': False, 'returncode': -15, 'signals': [{'signal': 'SIGTERM', 'monotonic': 290021.234769541}], 'reap_errno': None, 'intent': True, 'unknown_helper_creation': True, 'fork_failure': None, 'creation_conflict': False, 'helper_identity': None, 'helper_identities': [], 'helper_obligation_retained': False, 'signal_scope': 'group', 'dispatch_monotonic': 290021.232115041, 'receipt_monotonic': None, 'published_times': None, 'query_deadline_monotonic': 290022.08197975, 'shutdown_deadline_monotonic': 290022.13197975, 'reserve_seconds': 0.05}).error
+================= 5 failed, 2 passed, 350 deselected in 3.85s ==================

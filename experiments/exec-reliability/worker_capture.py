@@ -394,6 +394,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     control_ready = False
     control_invalid = False
     buffers = [bytearray(), bytearray()]
+    result_size: int | None = None
 
     def consume_control(cleanup_only: bool) -> None:
         nonlocal control_ready, control_invalid, intent, creation_conflict
@@ -489,22 +490,39 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 if time.monotonic() >= query_deadline:
                     raise TimeoutError("late worker channel receipt")
                 index = streams[fd]
+                if index == 0:
+                    read_cap = min(TURN_CAP // 2, 4097 - control_bytes)
+                elif result_size is None:
+                    read_cap = HEADER.size - len(buffers[1])
+                else:
+                    # One extra byte detects a trailing/duplicate frame. Do
+                    # not retain it or read beyond the declared boundary.
+                    read_cap = min(TURN_CAP // 2, HEADER.size + result_size - len(buffers[1]) + 1)
                 try:
-                    chunk = os.read(
-                        fd,
-                        min(TURN_CAP // 2, 4097 - control_bytes) if index == 0 else TURN_CAP // 2,
-                    )
+                    chunk = os.read(fd, read_cap)
                 except BlockingIOError:
                     continue
                 if not chunk:
                     closed_channels.add(index)
                     del streams[fd]
+                    if index == 1 and (
+                        result_size is None or len(buffers[1]) != HEADER.size + result_size
+                    ):
+                        raise ValueError("incomplete worker frame length")
                 elif index == 0:
                     # Keep only the admitted prefix; the extra byte detects
                     # overflow and can never complete a protocol line.
                     buffers[0].extend(chunk[: max(0, 4096 - control_bytes)])
                 else:
+                    if result_size is not None and (
+                        len(buffers[1]) + len(chunk) > HEADER.size + result_size
+                    ):
+                        raise ValueError("invalid worker frame length")
                     buffers[index].extend(chunk)
+                    if result_size is None and len(buffers[1]) == HEADER.size:
+                        result_size = cast(int, HEADER.unpack(buffers[1])[0])
+                        if result_size > FRAME_CAP:
+                            raise ValueError("invalid worker frame length")
                 if index == 0:
                     control_bytes += len(chunk)
                     # Complete identities preceding overflow remain cleanup
@@ -616,6 +634,10 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     break
                 time.sleep(min(0.001, max(0, deadline - time.monotonic())))
             _reap(owner)
+            if not complete and fork_failure is not None and (buffers[0] or buffers[1]):
+                # Incremental rejection can bypass the final decoder. Partial
+                # control/terminal data still revokes clean no-child authority.
+                creation_conflict = True
             confirmed_failure = (
                 fork_failure is not None and not creation_conflict and closed_channels == {0, 1}
             )
