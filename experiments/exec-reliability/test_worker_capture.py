@@ -16,6 +16,292 @@ import inspection
 @pytest.mark.parametrize(
     ("mode", "reason"),
     [
+        ("admission-missing", "invalid worker admission fields"),
+        ("admission-extra", "invalid worker admission fields"),
+        ("admission-bool-count", "invalid worker admission values"),
+        ("admission-zero-count", "invalid worker admission values"),
+        ("admission-bool-ok", "invalid worker admission values"),
+        ("admission-bad-signal", "invalid worker admission values"),
+        ("admission-bad-native-signal", "invalid worker admission values"),
+        ("admission-zero-errno", "invalid worker admission values"),
+        ("admission-bool-errno", "invalid worker admission values"),
+        ("admission-ready-thread", "inconsistent worker admission"),
+        ("admission-ready-signal", "inconsistent worker admission"),
+        ("admission-ready-error", "inconsistent worker admission"),
+        ("admission-ready-errno", "inconsistent worker admission"),
+        ("admission-missing-native", "inconsistent worker admission"),
+        ("admission-wrong-priority", "inconsistent worker admission"),
+        ("admission-wrong-ok", "inconsistent worker admission"),
+        ("admission-observation-no-error", "inconsistent worker admission"),
+        ("admission-observation-complete", "inconsistent worker admission"),
+        ("admission-refusal-created", "worker helper created after admission refusal"),
+        ("zero-error-errno", "invalid worker errno"),
+        ("negative-kill-errno", "invalid worker errno"),
+        ("zero-reap-errno", "invalid worker errno"),
+        ("empty-error", "invalid worker error"),
+        ("empty-remedy", "invalid worker error"),
+        ("empty-close-error", "invalid worker close errors"),
+        ("errno-without-error", "worker failure without error"),
+        ("kill-without-error", "worker failure without error"),
+        ("close-without-error", "worker failure without error"),
+        ("unreaped-without-error", "worker failure without error"),
+        ("echild-retained-owner", "worker ECHILD/ownership mismatch"),
+        ("lost-owner-without-echild", "worker ECHILD/ownership mismatch"),
+        ("lost-owner-other-errno", "worker ECHILD/ownership mismatch"),
+        ("unreaped-without-remedy", "worker residual ownership mismatch"),
+        ("reaped-with-remedy", "worker residual ownership mismatch"),
+        ("lost-owner-with-remedy", "worker residual ownership mismatch"),
+        ("wait-without-child", "worker helper failure without creation"),
+        ("output-without-child", "worker helper failure without creation"),
+        ("close-without-child", "worker helper failure without creation"),
+        ("success", None),
+        ("failed-read-reaped", None),
+        ("failed-kill-reaped", None),
+        ("failed-close-reaped", None),
+        ("retained-owner", None),
+        ("lost-owner", None),
+        ("python-refusal", None),
+        ("native-refusal", None),
+        ("signal-refusal", None),
+        ("native-signal-refusal", None),
+        ("observation-refusal", None),
+        ("observation-refusal-no-errno", None),
+    ],
+)
+def test_worker_failure_consistency(tmp_path, monkeypatch, mode, reason):
+    import errno
+    from dataclasses import asdict
+
+    import worker_capture
+
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
+    witness = root / f"failure-publication-{mode}-{time.time_ns()}.json"
+
+    def synthetic_capture(argv, deadline):
+        # Only the helper receipt is synthetic; no helper is created. Worker
+        # admission/fork/reset/framing/channels/decoding/shutdown remain real.
+        now = time.monotonic()
+        body = inspection.HelperCapture(
+            pid=os.getpid(),
+            argv=argv,
+            admission=inspection.fork_admission(),
+            started_monotonic=now,
+            created_monotonic=now,
+            capture_deadline_monotonic=deadline - min(0.05, (deadline - now) / 4),
+            deadline_monotonic=deadline,
+            finished_monotonic=now,
+            reaped=True,
+            reaped_monotonic=now,
+            returncode=0,
+            stdout=b"synthetic output",
+        )
+        raw = asdict(body)
+        admission = raw["admission"]
+        if mode == "admission-missing":
+            del admission["native_threads"]
+        if mode == "admission-extra":
+            admission["unexpected"] = True
+        changes = {
+            "admission-bool-count": {"python_threads": True},
+            "admission-zero-count": {"native_threads": 0},
+            "admission-bool-ok": {"ok": 1},
+            "admission-bad-signal": {"sigchld": "unknown"},
+            "admission-bad-native-signal": {"native_sigchld": "unknown"},
+            "admission-zero-errno": {"errno": 0},
+            "admission-bool-errno": {"errno": True},
+            "admission-ready-thread": {"native_threads": 2},
+            "admission-ready-signal": {"sigchld": "handler"},
+            "admission-ready-error": {"error": "unexpected observation error"},
+            "admission-ready-errno": {"errno": errno.EIO},
+            "admission-missing-native": {"native_threads": None},
+            "admission-wrong-priority": {
+                "ok": False,
+                "reason": "native_threads",
+                "python_threads": 2,
+                "native_threads": 2,
+            },
+            "admission-wrong-ok": {"ok": False},
+            "admission-observation-no-error": {
+                "ok": False,
+                "reason": "native_observation_error",
+                "native_sigchld": None,
+            },
+            "admission-observation-complete": {
+                "ok": False,
+                "reason": "native_observation_error",
+                "error": "synthetic observation failure",
+            },
+            "admission-refusal-created": {
+                "ok": False,
+                "reason": "python_threads",
+                "python_threads": 2,
+            },
+            "python-refusal": {"ok": False, "reason": "python_threads", "python_threads": 2},
+            "native-refusal": {"ok": False, "reason": "native_threads", "native_threads": 2},
+            "signal-refusal": {"ok": False, "reason": "sigchld", "sigchld": "SIG_IGN"},
+            "native-signal-refusal": {
+                "ok": False,
+                "reason": "sigchld",
+                "native_sigchld": "handler",
+            },
+            "observation-refusal": {
+                "ok": False,
+                "reason": "native_observation_error",
+                "native_threads": None,
+                "native_sigchld": None,
+                "error": "synthetic observation failure",
+                "errno": errno.EIO,
+            },
+            "observation-refusal-no-errno": {
+                "ok": False,
+                "reason": "native_observation_error",
+                "native_sigchld": None,
+                "error": "synthetic observation failure",
+            },
+        }
+        admission.update(changes.get(mode, {}))
+        raw_changes = {
+            "zero-error-errno": {"error_errno": 0},
+            "negative-kill-errno": {"kill_errno": -1, "kill_monotonic": now},
+            "zero-reap-errno": {"reap_errno": 0},
+            "empty-error": {"error": ""},
+            "empty-remedy": {"residual_remedy": ""},
+            "empty-close-error": {"close_errors": [""]},
+            "errno-without-error": {"error_errno": errno.EIO},
+            "kill-without-error": {"kill_monotonic": now},
+            "close-without-error": {"close_errors": ["synthetic close failure"]},
+            "failed-read-reaped": {"error_errno": errno.EIO, "error": "synthetic read failure"},
+            "failed-kill-reaped": {
+                "kill_monotonic": now,
+                "kill_errno": errno.ESRCH,
+                "error": "synthetic kill failure",
+            },
+            "failed-close-reaped": {
+                "close_errors": ["synthetic close failure"],
+                "error": "synthetic close failure",
+            },
+            "reaped-with-remedy": {"residual_remedy": "synthetic remedy", "error": "failure"},
+        }
+        raw.update(raw_changes.get(mode, {}))
+        if mode in {
+            "unreaped-without-error",
+            "echild-retained-owner",
+            "lost-owner-without-echild",
+            "lost-owner-other-errno",
+            "unreaped-without-remedy",
+            "lost-owner-with-remedy",
+            "retained-owner",
+            "lost-owner",
+        }:
+            raw.update(
+                reaped=False,
+                reaped_monotonic=None,
+                returncode=None,
+                error="synthetic wait failure",
+                residual_remedy="synthetic remedy",
+            )
+            if mode == "unreaped-without-error":
+                raw["error"] = None
+            if mode in {"echild-retained-owner", "lost-owner-with-remedy", "lost-owner"}:
+                raw["reap_errno"] = errno.ECHILD
+            if mode.startswith("lost-owner"):
+                raw["ownership_lost"] = True
+            if mode == "lost-owner-other-errno" or mode == "retained-owner":
+                raw["reap_errno"] = errno.EIO
+            if mode in {"unreaped-without-remedy", "lost-owner"}:
+                raw["residual_remedy"] = None
+        if (
+            mode.endswith("-refusal")
+            or mode == "observation-refusal-no-errno"
+            or mode.endswith("without-child")
+        ):
+            raw.update(
+                pid=None,
+                created_monotonic=None,
+                reaped=False,
+                reaped_monotonic=None,
+                returncode=None,
+                stdout=b"",
+                error="synthetic precreation failure",
+            )
+            if mode == "wait-without-child":
+                raw["reap_errno"] = errno.EIO
+            if mode == "output-without-child":
+                raw["stdout"] = b"impossible output"
+            if mode == "close-without-child":
+                raw["close_errors"] = ["impossible close failure"]
+        body = inspection.HelperCapture(**raw)
+        encoded = {**raw, "stdout": body.stdout.hex(), "stderr": body.stderr.hex()}
+        witness.write_text(json.dumps({"mode": mode, "synthetic_helper": True, "body": encoded}))
+        return body
+
+    monkeypatch.setattr(inspection, "capture_helper", synthetic_capture)
+    receipt = worker_capture.capture_helper(
+        ("synthetic-failure-publication",), time.monotonic() + 1
+    )
+    retain(tmp_path, f"failure-{mode}", receipt)
+    worker = receipt.worker
+    assert worker["reaped"] and not worker["ownership_lost"]
+    assert receipt.finished_monotonic <= receipt.deadline_monotonic
+    body = json.loads(witness.read_text())["body"]
+    assert worker["dispatch_monotonic"] <= body["started_monotonic"]
+    assert body["finished_monotonic"] <= worker["receipt_monotonic"] <= body["deadline_monotonic"]
+    assert worker["unknown_helper_creation"] == (reason is not None)
+    if reason:
+        assert receipt.error == f"worker capture failed: {reason}"
+        assert receipt.stdout == receipt.stderr == b""
+        assert receipt.residual_remedy and worker["published_times"] is None
+    else:
+        for key in (
+            "pid",
+            "admission",
+            "returncode",
+            "reaped",
+            "ownership_lost",
+            "reap_errno",
+            "kill_errno",
+            "error_errno",
+            "error",
+            "residual_remedy",
+            "close_errors",
+        ):
+            assert getattr(receipt, key) == body[key]
+        assert receipt.stdout.hex() == body["stdout"]
+        assert worker["published_times"] is not None
+
+
+def test_review_worker_preserves_real_helper_admission_refusal(tmp_path, monkeypatch):
+    import threading
+
+    import worker_capture
+
+    original = inspection.capture_helper
+
+    def threaded_capture(argv, deadline):
+        stop = threading.Event()
+        thread = threading.Thread(target=stop.wait)
+        thread.start()
+        try:
+            return original(argv, deadline)
+        finally:
+            stop.set()
+            thread.join(timeout=0.1)
+
+    monkeypatch.setattr(inspection, "capture_helper", threaded_capture)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 1)
+    retain(tmp_path, "real-helper-admission-refusal", receipt)
+    assert receipt.worker["reaped"] and not receipt.worker["unknown_helper_creation"]
+    assert receipt.error == "helper fork admission rejected: python_threads"
+    assert receipt.admission["python_threads"] == receipt.admission["native_threads"] == 2
+    assert not receipt.admission["ok"]
+    assert receipt.pid is None and receipt.created_monotonic is None
+    assert receipt.stdout == receipt.stderr == b"" and not receipt.reaped
+
+
+@pytest.mark.parametrize(
+    ("mode", "reason"),
+    [
         ("status-without-reap", "worker status/reap mismatch"),
         ("reap-without-status", "worker status/reap mismatch"),
         ("reaped-with-error", "worker reaped helper has failed ownership"),
@@ -43,7 +329,7 @@ def test_worker_terminal_consistency(tmp_path, monkeypatch, mode, reason):
         body = inspection.HelperCapture(
             pid=os.getpid(),
             argv=argv,
-            admission={"ok": True},
+            admission=inspection.fork_admission(),
             started_monotonic=now,
             created_monotonic=now,
             capture_deadline_monotonic=deadline - min(0.05, (deadline - now) / 4),
@@ -60,8 +346,10 @@ def test_worker_terminal_consistency(tmp_path, monkeypatch, mode, reason):
         if mode in {"reap-without-status", "unreaped-error", "lost-owner-error"}:
             body.returncode = None
         if mode in {"reaped-with-error", "unreaped-error", "lost-owner-error"}:
-            body.reap_errno = errno.ECHILD
+            body.reap_errno = errno.EIO if mode == "unreaped-error" else errno.ECHILD
             body.error = "synthetic wait failure"
+        if mode == "unreaped-error":
+            body.residual_remedy = "synthetic retained owner requires reconciliation"
         if mode in {"reaped-with-lost-owner", "lost-owner-error"}:
             body.ownership_lost = True
             body.error = "synthetic lost ownership"
@@ -444,7 +732,7 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
                     deadline_monotonic=deadline,
                     capture_deadline_monotonic=deadline - min(0.05, (deadline - now) / 4),
                     finished_monotonic=now,
-                    admission={"ok": True},
+                    admission=inspection.fork_admission(),
                 )
             )
             body.update(stdout="", stderr="", token=token)

@@ -122,6 +122,52 @@ def _load_json(payload: bytes | bytearray) -> object:
         raise ValueError("worker publication nesting exceeds decoder limit") from error
 
 
+def _admission(value: object) -> ForkAdmission:
+    if not isinstance(value, dict):
+        raise ValueError("invalid worker admission fields")
+    raw = cast(dict[str, object], value)
+    if set(raw) != set(ForkAdmission.__annotations__):
+        raise ValueError("invalid worker admission fields")
+    python_threads, native_threads = raw["python_threads"], raw["native_threads"]
+    error, error_number = raw["error"], raw["errno"]
+    if (
+        type(raw["ok"]) is not bool
+        or not isinstance(raw["reason"], str)
+        or type(python_threads) is not int
+        or python_threads < 1
+        or (native_threads is not None and (type(native_threads) is not int or native_threads < 1))
+        or raw["sigchld"] not in ("SIG_DFL", "SIG_IGN", "handler")
+        or raw["native_sigchld"] not in (None, "SIG_DFL", "SIG_IGN", "handler")
+        or (error is not None and (not isinstance(error, str) or not error.strip()))
+        or (error_number is not None and (type(error_number) is not int or error_number <= 0))
+    ):
+        raise ValueError("invalid worker admission values")
+    admission = cast(ForkAdmission, raw)
+    if admission["reason"] == "native_observation_error":
+        if admission["ok"] or error is None or admission["native_sigchld"] is not None:
+            raise ValueError("inconsistent worker admission")
+    else:
+        reason = (
+            "python_threads"
+            if python_threads != 1
+            else "native_threads"
+            if native_threads != 1
+            else "sigchld"
+            if admission["sigchld"] != "SIG_DFL" or admission["native_sigchld"] != "SIG_DFL"
+            else "ready"
+        )
+        if (
+            native_threads is None
+            or admission["native_sigchld"] is None
+            or error is not None
+            or error_number is not None
+            or admission["reason"] != reason
+            or admission["ok"] != (reason == "ready")
+        ):
+            raise ValueError("inconsistent worker admission")
+    return admission
+
+
 def _decode(
     payload: bytes,
     token: str,
@@ -154,6 +200,8 @@ def _decode(
         elif key in {"returncode", "pid", "kill_errno", "reap_errno", "error_errno"}:
             if value is not None and type(value) is not int:
                 raise ValueError("invalid worker integer")
+            if key.endswith("errno") and isinstance(value, int) and value <= 0:
+                raise ValueError("invalid worker errno")
         elif key.endswith("monotonic"):
             optional = key in {"created_monotonic", "kill_monotonic", "reaped_monotonic"}
             if not (optional and value is None) and (
@@ -163,16 +211,15 @@ def _decode(
             ):
                 raise ValueError("invalid worker timestamp")
         elif key in {"error", "residual_remedy"}:
-            if value is not None and not isinstance(value, str):
+            if value is not None and (not isinstance(value, str) or not value.strip()):
                 raise ValueError("invalid worker error")
         elif key == "close_errors":
             if not isinstance(value, list) or not all(
-                isinstance(item, str) for item in cast(list[object], value)
+                isinstance(item, str) and item.strip() for item in cast(list[object], value)
             ):
                 raise ValueError("invalid worker close errors")
         elif key == "admission":
-            if not isinstance(value, dict) or cast(dict[str, object], value).get("ok") is not True:
-                raise ValueError("worker helper admission failed")
+            value = _admission(value)
         elif key == "worker":
             if value is not None:
                 raise ValueError("nested worker result")
@@ -216,6 +263,30 @@ def _decode(
         raise ValueError("worker status/reap mismatch")
     if receipt.reaped and (receipt.reap_errno is not None or receipt.ownership_lost):
         raise ValueError("worker reaped helper has failed ownership")
+    if receipt.admission is not None and not receipt.admission["ok"] and receipt.pid is not None:
+        raise ValueError("worker helper created after admission refusal")
+    if receipt.pid is None and (
+        receipt.reap_errno is not None
+        or receipt.ownership_lost
+        or receipt.stdout
+        or receipt.stderr
+        or receipt.close_errors
+    ):
+        raise ValueError("worker helper failure without creation")
+    if receipt.ownership_lost != (receipt.reap_errno == errno.ECHILD):
+        raise ValueError("worker ECHILD/ownership mismatch")
+    if receipt.error is None and (
+        not receipt.reaped
+        or receipt.error_errno is not None
+        or receipt.kill_monotonic is not None
+        or receipt.reap_errno is not None
+        or receipt.close_errors
+        or receipt.residual_remedy is not None
+    ):
+        raise ValueError("worker failure without error")
+    retained = receipt.pid is not None and not receipt.reaped and not receipt.ownership_lost
+    if (receipt.residual_remedy is not None) != retained:
+        raise ValueError("worker residual ownership mismatch")
     return receipt
 
 

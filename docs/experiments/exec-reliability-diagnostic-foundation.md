@@ -1685,3 +1685,66 @@ error/admission consistency checks and the full control inventory. All ancestors
 remain open. A separate review of this increment precedes k60; the final aggregate
 review remains due before k21. No guest, installed-app, privilege, stalled-storage
 or ten-clone acceptance claim changes: **0/10, unavailable**.
+
+### k60: admission and failure receipt consistency
+
+The interim worker decoder now validates the complete fork-admission record:
+exact fields, boolean decisions, positive thread counts and errnos, signal
+states, refusal priority and native-observation failures. Coherent admission
+refusals survive transport as known no-helper failures. A refusal cannot also
+claim helper creation. Error, remedy and channel-close messages must contain
+text, and failure states must carry an error. ECHILD must agree with lost
+ownership; a remedy is required exactly when an unreaped helper remains owned.
+These checks establish receipt consistency. Worker-reported identity and reap
+still require independent authentication in the remaining runtime work.
+
+Fifty new publication controls include 38 malformed receipts and 12 coherent
+success or failure receipts. They replace only the helper-capture result inside
+the ordinary worker; worker admission, fork, reset, framing, channels, decoding
+and shutdown remain real. Each witness labels its helper evidence synthetic and
+uses the actual worker PID or no PID; these controls create no helper. Rejection
+requires the exact reason, discarded output, conservative unknown creation and
+worker reap within the original allowance. The earlier ECHILD/retained-owner
+positive control now uses EIO and a residual remedy; a separate negative control
+retains the contradictory ECHILD state identified by review k61.
+
+A further control starts a real waiting Python thread inside the worker and
+calls the genuine helper-capture implementation. Both thread observations report
+two threads, so helper admission refuses before creation. The final transport
+preserves that refusal and the known no-helper outcome. Existing genuine success,
+nonzero exit, missing executable and killed-helper controls continue to pass.
+
+| Retained condition | Result |
+| --- | --- |
+| `k60-red-01` | 45 failed, 206 passed: 38 malformed publications, six coherent admission refusals and the genuine thread-refusal control expose the old decoder. Lint, format and strict types pass. |
+| `k60-fixed-01` | All 251 tests pass; lint and format pass. Strict Pyright reports four narrowing errors in the new validator. This attempt remains unchanged. |
+| `k60-fixed-02` | All 251 tests, lint, format and strict Pyright pass after the narrowing correction. |
+| `k60-audit-01` | Lint and format pass; audit execution stops on an ambiguous filename-prefix match before resource reconciliation. The frozen script and failure record remain retained. |
+| `k60-audit-02` | Exact witness-name matching fixes the audit. All checks pass: 1,644 recorded positive selectors absent and 672 fixture directories reconciled. |
+
+All three test conditions retain the same individual JUnit case inventory.
+Source, manifest, lock and Taskfile copies were frozen before each run and match
+its recorded digests. The audit verifies checker reap, artifact hashes,
+before/after subject equality, each expected RED failure, publication contents,
+exact decoder reasons and parent dispatch/receipt timing. Its 50,043 input paths
+include 46,714 earlier evidence files, all unchanged. No measurement subject was
+edited during its run.
+
+The external process oracle is challenged with live, mixed, invalid and
+known-reaped selectors. Explicit simulated identities are excluded and no
+selector is signalled. Scratch reconciliation stays within fixture directories
+in retained pytest sessions, with bounded enumeration, copied creation evidence
+and per-path removal records. See
+[`k60-audit-02/result.json`](../../experiments/exec-reliability/evidence/k60-audit-02/result.json).
+Later absence cannot resolve the original unknown creation or identify an
+unrecorded escaped helper. Graph coverage for the changed runtime, tests, report
+and final auditor has no recorded issue with matching metadata; this is a best
+effort signal, and the conclusions use the source and retained execution records.
+
+The entire original runtime and control charter remains live in flat sibling
+`complete-worker-scheduler-k62`: persistent bootstrap, gated helper publication,
+independent ownership, shared scheduling and the full real-control inventory.
+An independent review of this increment precedes k62; the final aggregate review
+remains due before k21. All aggregate ancestors stay open. No guest, installed-app,
+privilege, stalled-storage or ten-clone acceptance claim changes: **0/10,
+unavailable**.
