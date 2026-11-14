@@ -946,3 +946,117 @@ runpy.run_path({str(PEER)!r}, run_name='__main__')
             observations.append(inspect_pid(child))
         owned_file.with_suffix(".audit.json").write_text(json.dumps(observations, indent=2))
         assert observations[-1]["state"] == "absent"
+
+
+@pytest.mark.parametrize(
+    ("stdout", "stderr", "returncode", "error"),
+    [
+        (b"123 123 Z\n123 123 Z\n", b"", 0, "duplicate process ID"),
+        (b"123 123 Z\n0 123 S\n", b"", 0, "invalid process ID"),
+        (b"123 123 Z\n-2 123 S\n", b"", 0, "invalid process ID"),
+        (b"+123 123 Z\n", b"", 0, "invalid process ID"),
+        (b"123 123 Z\n124 999 S\n", b"", 0, "foreign process group"),
+        (b"124 123 Z\n", b"", 0, "leader missing"),
+        (b"123 123 Z", b"", 0, "incomplete process table"),
+        (b"123 123 Z\n124 123", b"", 0, "incomplete process table"),
+        (b"123 123 Z\n\n", b"", 0, "process table row"),
+        (b"123 123 Z extra\n", b"", 0, "process table row"),
+        (b"123 123 Z\n124 123 ?\n", b"", 0, "unsupported process state"),
+        (b"123 123 Zgarbage\n", b"", 0, "unsupported process state"),
+        (b"123 123 \xff\n", b"", 0, "unsupported process state"),
+        (b"123 123 Z\n", b"warning", 0, "clean process table"),
+        (b"123 123 Z\n", b"", 1, "clean process table"),
+        (b"", b"usage", 64, "clean process table"),
+        (b"123 123 Z\n" + b" " * (256 * 1024), b"", 0, "output limit"),
+        (b"123 123 Z\n", b"x" * (256 * 1024), 0, "output limit"),
+        (
+            b"".join(f"{member} 123 Z\n".encode() for member in range(123, 4220)),
+            b"",
+            0,
+            "row limit",
+        ),
+    ],
+)
+def test_group_snapshot_rejects_invalid_table_before_probe(
+    monkeypatch, stdout, stderr, returncode, error
+):
+    import controller
+
+    probes = []
+    monkeypatch.setattr(
+        controller.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], returncode, stdout, stderr),
+    )
+    monkeypatch.setattr(controller.os, "killpg", lambda *args: probes.append(args))
+    observation = controller._group_snapshot(123, time.monotonic() + 1)
+    assert observation["state"] == "unknown"
+    assert observation["members"] == []
+    assert error in observation["error"]
+    assert observation["stdout"] == stdout
+    assert observation["stderr"] == stderr
+    assert observation["returncode"] == returncode
+    assert observation["probe_outcome"] == "not_attempted"
+    assert probes == []
+
+
+@pytest.mark.parametrize(
+    ("stdout", "expected_state", "count"),
+    [
+        (b"123 123 Z\n", "zombie_only", 1),
+        (b"  123 123 Zs\n124 123 R+\n", "live", 2),
+        (b"123 123 Z\n" + b" " * (256 * 1024 - 20) + b"124 123 Z\n", "zombie_only", 2),
+        (
+            b"".join(f"{member} 123 Z\n".encode() for member in range(123, 4219)),
+            "zombie_only",
+            4096,
+        ),
+        (b"123 123 U<ANELNSsVWX+>\n", "live", 1),
+    ],
+)
+def test_group_snapshot_accepts_valid_tables_and_limits(monkeypatch, stdout, expected_state, count):
+    import controller
+
+    probes = []
+    monkeypatch.setattr(
+        controller.subprocess,
+        "run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(args[0], 0, stdout, b""),
+    )
+    monkeypatch.setattr(controller.os, "killpg", lambda *args: probes.append(args))
+    observation = controller._group_snapshot(123, time.monotonic() + 1)
+    assert observation["error"] is None
+    assert observation["state"] == expected_state
+    assert len(observation["members"]) == count
+    assert observation["members"][0] == {
+        "pid": 123,
+        "pgid": 123,
+        "stat": stdout.split()[2].decode(),
+    }
+    assert probes == [(123, 0)]
+
+
+@pytest.mark.parametrize("late_during", ["helper", "probe"])
+def test_group_snapshot_rejects_late_observation(monkeypatch, late_during):
+    import controller
+
+    now = [10.0]
+    probes = []
+
+    def helper(*args, **kwargs):
+        if late_during == "helper":
+            now[0] = 11.0
+        return subprocess.CompletedProcess(args[0], 0, b"123 123 Z\n", b"")
+
+    def probe(*args):
+        probes.append(args)
+        now[0] = 11.0
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller.subprocess, "run", helper)
+    monkeypatch.setattr(controller.os, "killpg", probe)
+    observation = controller._group_snapshot(123, 11.0)
+    assert observation["state"] == "unknown"
+    assert "deadline" in observation["error"]
+    assert observation["stdout"] == b"123 123 Z\n"
+    assert probes == ([] if late_during == "helper" else [(123, 0)])

@@ -1,0 +1,44 @@
+{
+  "name": "self-signal",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "-c",
+    "\nimport json, os, runpy, signal, sys\nfrom pathlib import Path\noriginal = os.kill\ndef misdirect(pid, sig):\n    if sig == signal.SIGTERM:\n        Path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k37-final-01/runs/self-signal-0d0329c1b45242a3b0725be0d4f3938b.json').write_text(json.dumps({\"pid\": pid}))\n        original(pid, signal.SIGKILL)\n        original(os.getpid(), sig)\n    else:\n        original(pid, sig)\nos.kill = misdirect\nsys.argv = ['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py', 'controller', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k37-final-01/runs']\nrunpy.run_path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py', run_name='__main__')\n"
+  ],
+  "budget": 3,
+  "started_monotonic": 257980.030560375,
+  "wall_start_ns": 1794640699669753000,
+  "reason": "exit",
+  "returncode": -15,
+  "reaped": true,
+  "ok": false,
+  "signals": [],
+  "pid": 14882,
+  "pgid": 14882,
+  "signal_scope": "group",
+  "leader_exit_monotonic": 257980.266701041,
+  "group_observations": [
+    {
+      "started_monotonic": 257980.266705166,
+      "finished_monotonic": 257980.269418291,
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 14882,
+          "pgid": 14882,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3134383832203134383832205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "termination_ok": true,
+  "reaped_monotonic": 257980.269426791,
+  "within_process_bounds": true,
+  "elapsed": 0.23887208302039653
+}

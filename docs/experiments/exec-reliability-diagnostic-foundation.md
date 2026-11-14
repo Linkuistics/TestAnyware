@@ -8,10 +8,11 @@ fixture cleanup and checker timeout reporting. Initial fork admission now reject
 extra Python or native threads, changed Python or kernel SIGCHLD disposition and
 unavailable native observations before acquisition, retaining failed results.
 Review integration k32 independently reproduced and repaired the Python signal
-cache gap. The current measured condition is k33-final-02: group deadlines now
-attempt KILL at the end of TERM grace before process-table inspection, including
-after leader exit. The complete worker/scheduler boundary remains k30's work,
-continued by k34 after review of this ordering slice.
+cache gap. The current measured condition is k37-final-01: process-table
+acceptance now rejects malformed, oversized and late results before trusting
+them. It preserves k33's KILL ordering and k36's PID-only deadline cap. The
+complete worker/scheduler boundary remains k30's work, continued by k34's
+worker-scheduler-k38 child.
 Independently supervised process inspection, retained-file identity,
 stalled-storage disposal and live route
 preparation still need the work named below before causal use. In particular,
@@ -764,6 +765,52 @@ the k36 final verdict SHA-256 is
 `c14f7fa1525730061e5f1a9884f9ed83b8554c7a9d086a2d17a27b7ad6d321a8`;
 the k36 audit result SHA-256 is
 `c94a0709024efd0c3b00c7fb7a36cd1ef13d49dd7617353c954cda31d6aa4d50`.
+
+### Process-table acceptance slice (k37)
+
+The actual controller's `_group_snapshot` now requires a clean helper exit,
+empty stderr, complete rows, unique positive PIDs, matching PGIDs, supported
+macOS process states and the pinned leader. It rejects more than 256 KiB of
+combined raw stdout/stderr or 4096 rows, retaining the original bytes without
+accepting a truncated prefix. Rejected tables cause no group probe. The
+controller checks its deadline before the signal-zero probe and rejects a
+result that becomes late during that probe. These are acceptance limits:
+`subprocess.run` still captures and waits synchronously, so this change does
+not bound helper creation, memory use, capture or disposal time.
+
+The new 26 controls exercise the real observation function with helper output,
+probe and clock adapters below that boundary: 19 rejection cases, five valid
+cases (including exactly 256 KiB and 4096 rows), and two deadline cases.
+The [frozen previous-controller replay](../../experiments/exec-reliability/evidence/k37-previous-01/verdict.json)
+passes its lint, formatting and type checks, then fails exactly 16 of the new
+controls; its other 86 tests pass. The
+[input manifest](../../experiments/exec-reliability/evidence/k37-inputs-01/manifest.json)
+pins that controller's jj revision and the copied current tests and supporting
+sources. Only the controller differs between conditions.
+
+The [delivered self-check](../../experiments/exec-reliability/evidence/k37-final-01/verdict.json),
+run with `mise exec -- task diagnostic:self-check
+OUT=experiments/exec-reliability/evidence/k37-final-01`, passes lint, formatting,
+strict types and [all 102 tests](../../experiments/exec-reliability/evidence/k37-final-01/pytest.xml).
+No checker timed out; all were reaped. The
+[per-test comparison](../../experiments/exec-reliability/evidence/k37-audit-01/comparison.json)
+checks identical case identities and every outcome across both conditions.
+The source and artifact hashes match their frozen declarations.
+
+The [independent later audit](../../experiments/exec-reliability/evidence/k37-audit-01/result.json)
+observes all 194 retained real PIDs absent, excludes the explicitly simulated
+unreapable PID, and accounts for 54 exact fixture resource markers. Two markers
+were still present before audit cleanup; all are absent afterward. It accounts
+for 152 scratch directories: 76 from exact retained argv paths and 76 from
+enumerating those same pytest sessions. Live, mixed, invalid-selector and
+already-reaped controls verify the absence predicate. This is a later
+observation of recorded identities, not proof against escaped children or a
+bound on the auditor's own helper creation and wait.
+
+The worker, protocol, shared scheduler, shutdown and remaining real-controller
+control inventory remain live in worker-scheduler-k38. The final full-subsystem
+review remains required after those runtime changes. No guest acceptance or
+privileged-process inspection claim follows from this slice.
 
 ### Earlier foundation controls
 

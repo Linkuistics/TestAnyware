@@ -192,16 +192,41 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
             timeout=remaining,
         )
         observation.update(stdout=check.stdout, stderr=check.stderr, returncode=check.returncode)
+        # Acceptance limits only: subprocess.run still captures/waits synchronously.
+        if len(check.stdout) + len(check.stderr) > 256 * 1024:
+            raise ValueError("ps output limit exceeded")
         if check.returncode != 0 or check.stderr:
             raise ValueError("ps did not return a clean process table")
+        if not check.stdout.endswith(b"\n"):
+            raise ValueError("incomplete process table")
+        lines = check.stdout.split(b"\n")[:-1]
+        if len(lines) > 4096:
+            raise ValueError("ps row limit exceeded")
         members: list[dict[str, str | int]] = []
-        for line in check.stdout.splitlines():
-            member_pid, pgid, state = line.split()
+        seen: set[int] = set()
+        for line in lines:
+            fields = line.split()
+            if len(fields) != 3:
+                raise ValueError("invalid process table row")
+            member_pid, pgid, state = fields
+            if not re.fullmatch(rb"[0-9]+", member_pid) or int(member_pid) <= 0:
+                raise ValueError("invalid process ID")
+            if int(member_pid) in seen:
+                raise ValueError("duplicate process ID")
+            seen.add(int(member_pid))
+            if not re.fullmatch(rb"[0-9]+", pgid):
+                raise ValueError("invalid process group ID")
             if int(pgid) != pid:
                 raise ValueError("ps returned a foreign process group")
+            # macOS ps(1): run state, then zero or more documented modifiers.
+            # https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man1/ps.1.html
+            if not re.fullmatch(rb"[IRSTUZ][+<>AELNSsVWX]*", state):
+                raise ValueError("unsupported process state")
             members.append({"pid": int(member_pid), "pgid": int(pgid), "stat": state.decode()})
         if not any(member["pid"] == pid for member in members):
             raise ValueError("unreaped leader missing from group inspection")
+        if time.monotonic() >= deadline:
+            raise TimeoutError("group inspection deadline exhausted before probe")
         observation["members"] = members
         observation["state"] = (
             "zombie_only"
@@ -226,9 +251,13 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
             if error.errno != errno.EPERM:
                 observation["state"] = "unknown"
                 observation["error"] = str(error)
+        if time.monotonic() >= deadline:
+            raise TimeoutError("group inspection deadline exhausted after probe")
     except subprocess.TimeoutExpired as error:
         observation.update(stdout=error.stdout or b"", stderr=error.stderr or b"", error=str(error))
     except (OSError, ValueError) as error:
+        observation["state"] = "unknown"
+        observation["members"] = []
         observation["error"] = str(error)
     observation["finished_monotonic"] = time.monotonic()
     return observation
