@@ -311,13 +311,33 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
     return observation
 
 
+def _final_snapshot(pid: int, deadline: float, leader_exit: float | None) -> GroupObservation:
+    """Spend the sole table request only after exit and before the cutoff."""
+    now = time.monotonic()
+    if leader_exit is not None and leader_exit <= now < deadline:
+        return _group_snapshot(pid, deadline)
+    return {
+        "started_monotonic": now,
+        "finished_monotonic": now,
+        "state": "unknown",
+        "members": [],
+        "stdout": b"",
+        "stderr": b"",
+        "returncode": None,
+        "probe_errno": None,
+        "probe_outcome": "not_attempted",
+        "error": "no observed leader exit before inspection cutoff"
+        if leader_exit is None
+        else "inspection cutoff exhausted before final query",
+    }
+
+
 def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object]) -> float:
     """Finish all signals/observations before returning the one reap deadline."""
     events: list[dict[str, object]] = []
     groups: list[GroupObservation] = []
     receipt.update(signals=events, group_observations=groups)
     observer_ok = True
-    signals_ok = True
     leader_exit: float | None = None
 
     def observe_exit() -> bool:
@@ -331,17 +351,7 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
             receipt["exit_observation_error"] = str(error)
         return leader_exit is not None
 
-    def observe(deadline: float) -> bool:
-        exited = observe_exit()
-        # Do not launch another ps with only a sub-millisecond tail of the
-        # phase left. Reserve a 10 ms sampling window inside the existing
-        # allowance; kqueue polling continues to the actual phase deadline.
-        if not pid_only and (not groups or deadline - time.monotonic() >= 0.01):
-            groups.append(_group_snapshot(pid, deadline))
-        return exited and (pid_only or groups[-1]["state"] == "zombie_only")
-
-    def send(sig: signal.Signals, deadline: float) -> None:
-        nonlocal signals_ok
+    def send(sig: signal.Signals) -> None:
         event: dict[str, object] = {
             "signal": sig.name.removeprefix("SIG"),
             "scope": "pid" if pid_only else "group",
@@ -356,27 +366,16 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
                 os.killpg(pid, sig)
         except OSError as error:
             event.update(errno=error.errno, error=str(error), outcome="signal_error")
-            if not pid_only and error.errno == errno.EPERM and sig == signal.SIGTERM:
-                # No group inspection may defer KILL during TERM grace. A
-                # later table cannot explain this earlier denied attempt.
+            if not pid_only and error.errno == errno.EPERM:
+                # Classify a denied final KILL from the sole post-signal table.
+                # A later table cannot repair an earlier denied TERM.
                 event["outcome"] = "permission_unknown"
-            elif not pid_only and error.errno == errno.EPERM:
-                observe(deadline)
-                event["permission_observation"] = groups[-1]
-                event["outcome"] = (
-                    "zombie_only_eperm"
-                    if leader_exit is not None and groups[-1]["state"] == "zombie_only"
-                    else "permission_failure"
-                    if groups[-1]["state"] == "live"
-                    else "permission_unknown"
-                )
-            signals_ok = signals_ok and event["outcome"] == "zombie_only_eperm"
         event["finished_monotonic"] = time.monotonic()
         events.append(event)
 
     term_deadline = time.monotonic() + plan.term_grace
     receipt["term_deadline_monotonic"] = term_deadline
-    send(signal.SIGTERM, term_deadline)
+    send(signal.SIGTERM)
     complete = observe_exit()
     while (not pid_only or not complete) and time.monotonic() < term_deadline:
         time.sleep(min(0.005, max(0, term_deadline - time.monotonic())))
@@ -384,7 +383,8 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
             complete = observe_exit()
     # This single deadline covers KILL, all following observations AND reaping.
     kill_deadline = (
-        min(time.monotonic(), term_deadline) + plan.kill_wait
+        min(leader_exit if leader_exit is not None else term_deadline, term_deadline)
+        + plan.kill_wait
         if pid_only
         else term_deadline + plan.kill_wait
     )
@@ -395,20 +395,30 @@ def _terminate(pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object])
     if not pid_only or not complete:
         # A pinned, exited leader does not establish group absence. Attempt
         # group KILL at T before any potentially blocking table inspection.
-        send(signal.SIGKILL, inspection_deadline)
-        complete = observe(inspection_deadline)
-        while not complete and time.monotonic() < inspection_deadline:
-            time.sleep(min(0.005, max(0, inspection_deadline - time.monotonic())))
-            if time.monotonic() < inspection_deadline:
-                complete = observe(inspection_deadline)
-    if pid_only:
-        groups.append(_group_snapshot(pid, inspection_deadline))
+        send(signal.SIGKILL)
+    # Exit notification is the only operation repeated here. A live, malformed
+    # or late final table is conclusive failure, never a reason to query again.
+    while leader_exit is None and time.monotonic() < inspection_deadline:
+        if observe_exit():
+            break
+        time.sleep(min(0.005, max(0, inspection_deadline - time.monotonic())))
+    final = _final_snapshot(pid, inspection_deadline, leader_exit)
+    groups.append(final)
+    last_signal = events[-1]
+    if not pid_only and last_signal["signal"] == "KILL" and last_signal.get("errno") == errno.EPERM:
+        last_signal["permission_observation"] = final
+        last_signal["outcome"] = (
+            "zombie_only_eperm"
+            if final["state"] == "zombie_only"
+            else "permission_failure"
+            if final["state"] == "live"
+            else "permission_unknown"
+        )
     receipt["termination_ok"] = (
-        complete
+        leader_exit is not None
         and observer_ok
-        and signals_ok
-        and all(group["state"] != "unknown" for group in groups)
-        and groups[-1]["state"] == "zombie_only"
+        and all(event["outcome"] in {"sent", "zombie_only_eperm"} for event in events)
+        and final["state"] == "zombie_only"
     )
     return kill_deadline
 
@@ -458,11 +468,12 @@ def _call(call: Call, root: Path, plan: Plan) -> dict[str, object]:
                 exited = False
             if exited:
                 receipt["reason"] = "exit"
-                receipt["leader_exit_monotonic"] = time.monotonic()
-                reap_deadline = time.monotonic() + plan.kill_wait
+                leader_exit = time.monotonic()
+                receipt["leader_exit_monotonic"] = leader_exit
+                reap_deadline = leader_exit + plan.kill_wait
                 inspection_deadline = reap_deadline - min(0.1, plan.kill_wait / 4)
                 receipt["inspection_deadline_monotonic"] = inspection_deadline
-                group = _group_snapshot(process.pid, inspection_deadline)
+                group = _final_snapshot(process.pid, inspection_deadline, leader_exit)
                 receipt["group_observations"] = [group]
                 receipt["termination_ok"] = group["state"] == "zombie_only"
             else:

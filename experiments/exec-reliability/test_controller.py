@@ -20,6 +20,106 @@ HERE = Path(__file__).resolve().parent
 PEER = HERE / "peer.py"
 
 
+@pytest.mark.parametrize("pid_only", [False, True])
+def test_review_final_query_requires_observed_exit(tmp_path, monkeypatch, pid_only):
+    import controller
+
+    queries = []
+    original_snapshot = controller._group_snapshot
+
+    def snapshot(pid, deadline):
+        queries.append(time.monotonic())
+        return original_snapshot(pid, deadline)
+
+    # Simulate unavailable exit notification, while all signals and reaps act
+    # on a real child. No process-table operation is authorized without exit.
+    monkeypatch.setattr(controller, "_exited", lambda pid: False)
+    monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+    path, result = run(
+        tmp_path,
+        [call("missing-exit", "hang", budget=0.15, interrupt_after=0.15 if pid_only else None)],
+    )
+    receipt = result["calls"][0]
+    audit = {"simulation": "withheld exit notification", "queries": queries}
+    audit["after_controller"] = inspect_pid(receipt["pid"])
+    (path / "final-query-audit.json").write_text(json.dumps(audit, indent=2))
+    assert audit["after_controller"]["state"] == "absent"
+    assert receipt["reaped"] is True
+    assert result["ok"] is False
+    assert queries == []
+    assert receipt["group_observations"][0]["state"] == "unknown"
+    assert receipt["group_observations"][0]["probe_outcome"] == "not_attempted"
+
+
+def test_review_final_live_table_cannot_be_retried(tmp_path, monkeypatch):
+    import controller
+
+    release, ready = tmp_path / "release", tmp_path / "ready"
+    original_killpg, original_snapshot = os.killpg, controller._group_snapshot
+    observations = []
+
+    def killpg(pid, sig):
+        if sig != signal.SIGKILL:
+            original_killpg(pid, sig)
+
+    def snapshot(pid, deadline):
+        observation = original_snapshot(pid, deadline)
+        observations.append(observation)
+        # The first real table contains the live gated child. Releasing it
+        # makes later tables favorable, but cannot repair that final evidence.
+        release.write_bytes(b"release")
+        return observation
+
+    monkeypatch.setattr(os, "killpg", killpg)
+    monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+    path, child = None, None
+    try:
+        path, result = run(
+            tmp_path,
+            [call("single-live", "scope-parent", release, ready, "stubborn-child", budget=0.3)],
+        )
+        child = int((path / "single-live.stdout").read_text())
+        receipt = result["calls"][0]
+        assert observations[0]["state"] == "live"
+        assert receipt["termination_ok"] is False
+        assert result["ok"] is False
+        assert len(observations) == 1
+        assert any(item["pid"] == child for item in receipt["residual_members"])
+    finally:
+        release.write_bytes(b"release")
+        if child is not None:
+            end = time.monotonic() + 1
+            audit = [inspect_pid(child)]
+            while audit[-1]["state"] != "absent" and time.monotonic() < end:
+                time.sleep(0.005)
+                audit.append(inspect_pid(child))
+            (path / "known-child-audit.json").write_text(json.dumps(audit, indent=2))
+            assert audit[-1]["state"] == "absent"
+
+
+def test_review_kill_eperm_uses_only_final_postsignal_table(tmp_path, monkeypatch):
+    original_killpg = os.killpg
+
+    def killpg(pid, sig):
+        original_killpg(pid, sig)
+        if sig == signal.SIGKILL:
+            raise PermissionError(errno.EPERM, "simulated KILL return for real zombie group")
+
+    monkeypatch.setattr(os, "killpg", killpg)
+    workload = replace(
+        call("final-eperm", "hang", budget=0.2), expected_reason="deadline", expected_exit=-15
+    )
+    _, result = run(tmp_path, [workload])
+    receipt = result["calls"][0]
+    final_signal = receipt["signals"][-1]
+    assert result["ok"] is True
+    assert final_signal["outcome"] == "zombie_only_eperm"
+    assert len(receipt["group_observations"]) == 1
+    observation = receipt["group_observations"][0]
+    assert final_signal["finished_monotonic"] <= observation["started_monotonic"]
+    assert receipt["leader_exit_monotonic"] <= observation["started_monotonic"]
+
+
 @pytest.mark.parametrize("reap_state", ["withheld", "missing", "expired"])
 def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, reap_state):
     import controller

@@ -8,13 +8,17 @@ fixture cleanup and checker timeout reporting. Initial fork admission now reject
 extra Python or native threads, changed Python or kernel SIGCHLD disposition and
 unavailable native observations before acquisition, retaining failed results.
 Review integration k32 independently reproduced and repaired the Python signal
-cache gap. The current measured condition is k39-final-01: workload leaders
+cache gap. The current measured condition is k41-final-01: workload leaders
 are reaped with exact-PID nonblocking waits before a fixed deadline; failed
 reaps retain an explicit owner and residual without destructor polling.
+The controller now requests at most one final process table, after the final
+signal and observed leader exit. Missing exit evidence leaves inspection
+unknown without a query; a live or unknown final table cannot trigger a retry.
 It preserves k37's strict process-table acceptance, k33's KILL ordering and
 k36's PID-only deadline cap. The
 complete worker/scheduler boundary remains k30's work, continued by k34's
-worker-scheduler-k38 subtree, continued by worker-scheduler-k40.
+worker-scheduler-k38 subtree, continued by worker-scheduler-k40 and its
+remaining worker-scheduler-k42 leaf.
 Independently supervised process inspection, retained-file identity,
 stalled-storage disposal and live route
 preparation still need the work named below before causal use. In particular,
@@ -869,6 +873,61 @@ The complete private worker, protocol, shared scheduler, shutdown/concurrent
 teardown and remaining control inventory stay live on worker-scheduler-k40
 under k38. The final full-subsystem review remains mandatory. This slice makes
 no guest or privileged-process acceptance claim; historical acceptance remains
+**0/10, unavailable**.
+
+### Single final process observation slice (k41)
+
+The actual controller now waits for observed leader exit before requesting its
+sole final process table. On termination paths, the request also follows the
+last signal attempt. Live, malformed or late evidence fails the call without
+another query. Missing exit evidence or an exhausted inspection cutoff records
+unknown without launching a helper or performing its signal-0 probe. Normal
+completion uses the same cutoff gate.
+
+A denied final group KILL uses that sole post-signal table for classification.
+A later zombie-only table cannot repair an earlier denied TERM. Group KILL
+still occurs at T, and PID-only KILL remains conditional on missing exit
+evidence. The fixed reap allowance starts from the recorded exit observation
+on normal and early PID-only completion. k39's authority closure, nonblocking
+exact-PID reap and strong residual ownership remain in place.
+
+The [previous-controller replay](../../experiments/exec-reliability/evidence/k41-previous-01/verdict.json)
+fails all four new control cases, with 66 other controls passing. The
+[input manifest](../../experiments/exec-reliability/evidence/k41-inputs-01/manifest.json)
+pins the previous jj revision and both source snapshots. Only controller.py
+differs, and both conditions use the same new tests. Group and PID-only controls
+withhold exit observations while retaining real workload signals and independent
+reaping. The live-table control releases its child after the first real table,
+exposing false success when the previous controller retries. A separate injected KILL-EPERM control
+requires the sole table to follow the completed signal attempt. These injected
+observation and signal outcomes do not demonstrate genuine OS permission denial.
+
+The [delivered self-check](../../experiments/exec-reliability/evidence/k41-final-01/verdict.json)
+passes Ruff lint/format, strict Pyright and
+[109/109 tests](../../experiments/exec-reliability/evidence/k41-final-01/pytest.xml).
+Pytest took 23.04 seconds. Existing ordering, deadline-cap, parser, permission,
+early-reap and residual-owner controls pass. Existing checker/input declarations
+cover the changed sources, and no runtime module was added.
+
+The [independent audit](../../experiments/exec-reliability/evidence/k41-audit-02/result.json)
+verifies 967 indexed replay/final artifacts and equal before/after hashes for
+1,004 inputs. All 182 recorded real PIDs are absent in its later observation.
+It excludes the explicitly simulated checker PID and accounts for 50 declared
+resource markers. One marker remained before cleanup. It accounts for 71
+fixture directories derived from exact retained argv paths, with every checked
+path absent afterward. Live, mixed, invalid-selector
+and freshly reaped controls contest the absence predicate. The
+[first audit attempt](../../experiments/exec-reliability/evidence/k41-audit-01/failure.txt)
+stopped before process observations or cleanup because its source-snapshot
+comparison incorrectly included the virtual-environment interpreter. The fresh
+audit corrects that comparison and checks the interpreter through its input hashes.
+
+This audit makes no session-wide scratch, escaped-child or helper-supervision
+claim. Synchronous helper creation, capture and waits can still overrun the
+cutoff. The private worker, protocol, shared scheduler, concurrent teardown,
+shutdown and remaining controls stay live on worker-scheduler-k42 under k40.
+The final full-subsystem review remains mandatory. No guest or privileged-process
+acceptance follows from this slice. Historical acceptance remains
 **0/10, unavailable**.
 
 ### Earlier foundation controls
