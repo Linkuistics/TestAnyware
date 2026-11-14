@@ -56,3 +56,18 @@ experiments/exec-reliability/evidence/k29-audit-01/failure.json;
 experiments/exec-reliability/evidence/k29-audit-02/result.json.
 Transient development red runs were not retained as a frozen countercondition;
 the failed admission results and first failed audit are retained separately.
+
+## Decisions (running log)
+
+- Reviewed the committed k29 artifact (commit 43e555b65a6b) by inspection only.
+  No test, build, lint or format command ran. Two throwaway read-only Python
+  scripts in the scratchpad parsed the frozen evidence and probed signal state.
+- Verified: the libproc ABI against the local SDK headers; execute ordering and
+  all twelve rejection receipts (no intent file, no calls, no resources); 460
+  artifact digests; 67 passing cases; selection and typing of the new module;
+  audit-02 PID coverage (every `pid`, `runner_pid`, `child`, `pgid` value and
+  every numeric stdout is audited or the declared simulated PID).
+- One real defect (F1), one prose defect (F2) and two minor findings (F3, F4)
+  need work. They are in the commit message. Cut integrate-review-impl
+  fork-admission-k32 before k30, because k30 consumes this boundary.
+
