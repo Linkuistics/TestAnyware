@@ -98,6 +98,17 @@ def test_review_worker_resets_handlers_masks_wakeup_and_evidence_fd(tmp_path, mo
         assert receipt.stdout == b"worker-ok\n"
         assert receipt.reaped is True
         assert receipt.worker["reaped"] is True
+        timing = receipt.worker["published_times"]
+        assert (
+            receipt.worker["dispatch_monotonic"]
+            <= timing["started_monotonic"]
+            <= timing["created_monotonic"]
+            <= timing["reaped_monotonic"]
+            <= timing["finished_monotonic"]
+            <= receipt.worker["receipt_monotonic"]
+            <= timing["deadline_monotonic"]
+            == receipt.worker["query_deadline_monotonic"]
+        )
         assert state["pid"] == state["pgid"] == receipt.worker["pid"]
         assert state["ppid"] == os.getpid()
         assert all(state[key] for key in ("term", "int", "pipe"))
@@ -275,6 +286,22 @@ Path(sys.argv[1]).write_text(json.dumps(data, indent=2))
         "partial-frame",
         "exit-before-intent",
         "duplicate-readiness",
+        "predispatch-start",
+        "reversed-query",
+        "future-finish",
+        "null-start",
+        "null-finish",
+        "null-deadline",
+        "null-cutoff",
+        "early-cutoff",
+        "late-cutoff",
+        "early-created",
+        "future-created",
+        "kill-before-create",
+        "reap-before-kill",
+        "kill-without-create",
+        "nan-finish",
+        "infinite-finish",
     ],
 )
 def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
@@ -285,6 +312,9 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
 
     import worker_capture
 
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
+    publication = root / f"worker-publication-{fault}-{time.time_ns()}.json"
     owners = []
     reap = worker_capture._reap
 
@@ -329,6 +359,34 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
                 body["started_monotonic"] = deadline + 1
             elif fault == "bad-field-type":
                 body["stdout"] = []
+            changes = {
+                "predispatch-start": {"started_monotonic": 0},
+                "reversed-query": {"finished_monotonic": now - 0.001},
+                "future-finish": {"finished_monotonic": deadline - 0.001},
+                "null-start": {"started_monotonic": None},
+                "null-finish": {"finished_monotonic": None},
+                "null-deadline": {"deadline_monotonic": None},
+                "null-cutoff": {"capture_deadline_monotonic": None},
+                "early-cutoff": {"capture_deadline_monotonic": now - 0.001},
+                "late-cutoff": {"capture_deadline_monotonic": deadline + 0.001},
+                "early-created": {"created_monotonic": now - 0.001},
+                "future-created": {"created_monotonic": deadline - 0.001},
+                "kill-before-create": {
+                    "started_monotonic": now - 0.002,
+                    "created_monotonic": now,
+                    "kill_monotonic": now - 0.001,
+                },
+                "reap-before-kill": {
+                    "started_monotonic": now - 0.003,
+                    "created_monotonic": now - 0.002,
+                    "kill_monotonic": now,
+                    "reaped_monotonic": now - 0.001,
+                },
+                "kill-without-create": {"kill_monotonic": now},
+                "nan-finish": {"finished_monotonic": float("nan")},
+                "infinite-finish": {"finished_monotonic": float("inf")},
+            }
+            body.update(changes.get(fault, {}))
             payload = json.dumps(body).encode()
             if fault == "nested-result":
                 payload = b"[" * 200000 + b"]" * 200000
@@ -344,6 +402,9 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
                 frame = struct.pack("!I", len(payload)) + payload
             if fault == "partial-frame":
                 frame = frame[:-1]
+            publication.write_text(
+                json.dumps({"fault": fault, "payload_hex": payload.hex(), "frame_hex": frame.hex()})
+            )
             worker_capture._write(result, frame, deadline)
             os._exit(0)
         except BaseException:
@@ -367,6 +428,14 @@ def test_review_worker_rejects_hostile_channel(tmp_path, monkeypatch, fault):
     assert receipt.error is not None
     assert receipt.worker["unknown_helper_creation"] is True
     assert receipt.worker["reaped"] is True
+    assert receipt.worker["dispatch_monotonic"] <= receipt.finished_monotonic
+    assert receipt.worker["published_times"] is None
+    if publication.exists():
+        assert receipt.worker["receipt_monotonic"] is not None or fault in {
+            "oversized-channel",
+            "duplicate-readiness",
+            "nested-readiness",
+        }
     assert receipt.residual_remedy
     assert receipt.finished_monotonic <= receipt.deadline_monotonic
     assert receipt.stdout == receipt.stderr == b""
@@ -405,3 +474,27 @@ def test_review_group_snapshot_uses_real_worker(tmp_path):
     finally:
         os.killpg(process.pid, signal.SIGKILL)
         process.wait(timeout=1)
+
+
+def test_review_worker_retains_timing_for_real_killed_helper(tmp_path):
+    from worker_capture import capture_helper
+
+    receipt = capture_helper(("/bin/sleep", "10"), time.monotonic() + 0.5)
+    retain(tmp_path, "real-helper-timeout", receipt)
+    worker = receipt.worker
+    assert receipt.error is not None
+    assert receipt.reaped and worker["reaped"]
+    assert not worker["unknown_helper_creation"]
+    timing = worker["published_times"]
+    assert (
+        worker["dispatch_monotonic"]
+        <= timing["started_monotonic"]
+        <= timing["created_monotonic"]
+        <= timing["capture_deadline_monotonic"]
+        <= timing["kill_monotonic"]
+        <= timing["reaped_monotonic"]
+        <= timing["finished_monotonic"]
+        <= worker["receipt_monotonic"]
+        <= worker["query_deadline_monotonic"]
+        < worker["shutdown_deadline_monotonic"]
+    )

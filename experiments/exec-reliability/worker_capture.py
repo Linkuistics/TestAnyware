@@ -122,7 +122,14 @@ def _load_json(payload: bytes | bytearray) -> object:
         raise ValueError("worker publication nesting exceeds decoder limit") from error
 
 
-def _decode(payload: bytes, token: str, argv: tuple[str, ...], deadline: float) -> HelperCapture:
+def _decode(
+    payload: bytes,
+    token: str,
+    argv: tuple[str, ...],
+    deadline: float,
+    dispatched: float,
+    received: float,
+) -> HelperCapture:
     decoded = _load_json(payload)
     if not isinstance(decoded, dict):
         raise ValueError("invalid worker result object")
@@ -148,7 +155,8 @@ def _decode(payload: bytes, token: str, argv: tuple[str, ...], deadline: float) 
             if value is not None and type(value) is not int:
                 raise ValueError("invalid worker integer")
         elif key.endswith("monotonic"):
-            if value is not None and (
+            optional = key in {"created_monotonic", "kill_monotonic", "reaped_monotonic"}
+            if not (optional and value is None) and (
                 type(value) not in {int, float}
                 or not isinstance(value, int | float)
                 or not 0 <= value <= deadline
@@ -173,6 +181,26 @@ def _decode(payload: bytes, token: str, argv: tuple[str, ...], deadline: float) 
         raise ValueError("worker output cap exceeded")
     if receipt.deadline_monotonic != deadline:
         raise ValueError("worker deadline mismatch")
+    if (
+        not dispatched
+        <= receipt.started_monotonic
+        <= receipt.finished_monotonic
+        <= received
+        <= deadline
+    ):
+        raise ValueError("worker query interval outside dispatch/receipt allowance")
+    if not receipt.started_monotonic <= receipt.capture_deadline_monotonic <= deadline:
+        raise ValueError("worker capture cutoff outside query allowance")
+    previous = receipt.started_monotonic
+    for stamp in (receipt.created_monotonic, receipt.kill_monotonic, receipt.reaped_monotonic):
+        if stamp is not None:
+            if not previous <= stamp <= receipt.finished_monotonic:
+                raise ValueError("worker helper timestamps out of order")
+            previous = stamp
+    if receipt.created_monotonic is None and (
+        receipt.kill_monotonic is not None or receipt.reaped_monotonic is not None
+    ):
+        raise ValueError("worker helper event without creation timestamp")
     return receipt
 
 
@@ -197,6 +225,9 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
     owner: _Owner | None = None
     intent = False
     complete = False
+    dispatched: float | None = None
+    received: float | None = None
+    published_times: dict[str, float | None] | None = None
     buffers = [bytearray(), bytearray()]
     try:
         for _ in range(2):
@@ -209,6 +240,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
         previous = signal.pthread_sigmask(signal.SIG_BLOCK, blocked)
         try:
             # https://docs.python.org/3.12/library/os.html#os.fork
+            dispatched = time.monotonic()
             pid = os.fork()
             if pid == 0:
                 _child(control_write, result_write, token, argv, query_deadline)
@@ -257,12 +289,28 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
             if owner.ready and bytes(buffers[0]) == b"intent\n":
                 intent = True
             if not streams and time.monotonic() < query_deadline:
+                received = time.monotonic()
                 if not owner.ready or not intent or len(buffers[1]) < HEADER.size:
                     raise ValueError("incomplete worker publication")
                 size = HEADER.unpack(buffers[1][: HEADER.size])[0]
                 if size > FRAME_CAP or len(buffers[1]) != HEADER.size + size:
                     raise ValueError("invalid worker frame length")
-                receipt = _decode(bytes(buffers[1][HEADER.size :]), token, argv, query_deadline)
+                decoded_receipt = _decode(
+                    bytes(buffers[1][HEADER.size :]),
+                    token,
+                    argv,
+                    query_deadline,
+                    dispatched,
+                    received,
+                )
+                if time.monotonic() >= query_deadline:
+                    raise TimeoutError("worker validation exceeded query deadline")
+                receipt = decoded_receipt
+                published_times = {
+                    item.name: getattr(receipt, item.name)
+                    for item in fields(HelperCapture)
+                    if item.name.endswith("monotonic")
+                }
                 receipt.deadline_monotonic = deadline
                 complete = True
                 break
@@ -292,6 +340,9 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                 "intent": intent,
                 "unknown_helper_creation": not complete,
                 "signal_scope": "group" if owner.ready else "pid",
+                "dispatch_monotonic": dispatched,
+                "receipt_monotonic": received,
+                "published_times": published_times,
                 "query_deadline_monotonic": query_deadline,
                 "shutdown_deadline_monotonic": deadline,
                 "reserve_seconds": reserve,

@@ -8,7 +8,7 @@ fixture cleanup and checker timeout reporting. Initial fork admission now reject
 extra Python or native threads, changed Python or kernel SIGCHLD disposition and
 unavailable native observations before acquisition, retaining failed results.
 Review integration k32 independently reproduced and repaired the Python signal
-cache gap. The current measured condition is k50-final-02: workload leaders
+cache gap. The current measured condition is k52-fixed-02: workload leaders
 are reaped with exact-PID nonblocking waits before a fixed deadline; failed
 reaps retain an explicit owner and residual without destructor polling, except
 ECHILD, which closes wait ownership without establishing an exit status.
@@ -20,16 +20,19 @@ k36's PID-only deadline cap. The
 complete worker/scheduler boundary remains k30's work, continued by k34's
 worker-scheduler-k38 subtree, continued by worker-scheduler-k40 and its
 worker-scheduler-k42 subtree, worker-scheduler-k44 subtree and remaining
-worker-scheduler-k48 leaf.
+worker-scheduler-k48 subtree, with its remaining contract in
+complete-worker-scheduler-k55.
 A failed local inspection now remains failed throughout that execution.
 Independent cleanup, disposal and public absence commands still run, but later
 local observations cannot restore disposal certainty.
 Independently supervised process inspection, retained-file identity,
 stalled-storage disposal and live route
 preparation still need the work named below before causal use. In particular,
-helper creation remains synchronous and can still block disposal. Once created,
-the helper now has bounded pipe capture and nonblocking reap attempts, with a
-strong residual owner on failure; controller-local scheduling remains interim.
+helper creation runs synchronously inside an interim worker created for each
+query. The controller bounds waiting for that worker, but raw worker fork remains
+a synchronous OS operation. Once created, the helper has bounded pipe capture
+and nonblocking reap attempts, with a strong residual owner on failure; shared
+scheduling and independent helper identity publication remain unfinished.
 This is preparation for the causal inquiries in
 [issue #14](https://github.com/Linkuistics/TestAnyware/issues/14), not a repair
 of TestAnyware. No guest was booted, no guest command was run, and no app was
@@ -1422,7 +1425,7 @@ result retains unknown creation, and a known helper residual stays in the local
 capture receipt. The persistent worker before acquisition, gated helper identity
 publication, every-helper child reset, complete run/request/workload/epoch/time
 validation, and one scheduler spanning workloads, teardown and worker shutdown
-remain in `complete-worker-scheduler-k52`. Its charter retains the full ancestor
+remain in `complete-worker-scheduler-k55`. Its charter retains the full ancestor
 specification and controls, including overlap, sticky failure, native admission,
 backpressure, malicious frames and independent helper reconciliation. The final
 whole-runtime review still belongs before retained evidence k21. No guest, app,
@@ -1451,8 +1454,9 @@ parser, then kills and reaps the fixture. Twelve protocol adapters replace only
 child publication to exercise malformed, nested, duplicate-key, wrong-token,
 wrong-timestamp, wrong-type, oversized, partial and early-exit messages. Parent
 channel handling, fork/reset, shutdown and reap remain real. Those adapters are
-not evidence of a live malicious helper or the complete k52 protocol. The
-duplicate-readiness adapter also found last-key-wins decoding in readiness,
+not evidence of a live malicious helper or the full scheduler protocol now
+owned by k55. The duplicate-readiness adapter also found last-key-wins decoding
+in readiness,
 which the shared loader repairs.
 
 | Retained condition | Result |
@@ -1471,6 +1475,57 @@ creation; k51's missing close-error worker identity remains unknown.
 
 Child-reported helper identity/reap remains conditional evidence. The persistent
 worker, gated publication, independent helper reconciliation and shared scheduler
-remain live in `complete-worker-scheduler-k52`. This repair neither closes an
+remain live in `complete-worker-scheduler-k55`. This repair neither closes an
 ancestor nor changes the guest/app/privilege or acceptance result: **0/10,
 unavailable**.
+
+### k52: worker receipt timing validation
+
+The live worker transport now validates its query interval against timestamps
+observed by the parent: dispatch immediately before fork, followed by worker
+start, worker finish, complete-channel receipt and the immutable query deadline.
+Required times must be finite numbers. The capture cutoff must fall between
+worker start and that deadline; optional creation, kill and reap times must lie
+inside the query interval in causal order, with creation required before kill or
+reap. The parent checks the remaining allowance after decoding before accepting
+output. It retains the validated worker times separately from its own completion
+time and outer shutdown deadline. Complete malformed frames also retain the
+parent receipt timestamp. A rejected publication retains failure, empty output
+and unknown helper creation.
+
+Sixteen additional synthetic publications exercise predispatch/reversed/future
+intervals, null required times, invalid cutoffs, impossible helper event times
+and nonfinite numbers. Their child publisher creates no helper; fork, reset,
+nonblocking channels, framing, validation and parent shutdown remain real. Raw
+payload and frame bytes are retained as hex beside the failed outcome. Existing
+real reset/capture controls now check the parent/worker interval, and a real
+sleep helper is killed and reaped at its capture cutoff with its timing retained.
+These checks establish interval consistency; they do not authenticate a child's
+helper identity or independently prove that helper was reaped.
+
+| Retained condition | Result |
+| --- | --- |
+| `k52-red-01` | 12 failed, 166 passed: impossible timing publications were accepted. Ruff lint/format and strict types pass. |
+| `k52-fixed-01` | 2 failed, 177 passed: timing publications are rejected, but oversized and partial complete frames lack the new parent receipt witness. Other checks pass. |
+| `k52-fixed-02` | Ruff lint/format, strict Pyright and all 179 tests pass after recording the complete-channel witness before frame validation. |
+| `k52-audit-01` | Frozen evidence/resource audit passes: 1,451 retained exact process identities absent and 455 fixture directories reconciled. |
+
+The runner retains per-test JUnit outcomes, checker reap receipts, artifact hashes
+and equal before/after subject digests for each condition. Archived source,
+manifest, lock and Taskfile copies in `evidence/k52-inputs-01` match those recorded
+digests. Copies were made after the runs; the first fixed source was reconstructed
+by reversing only the receipt-witness move and checked against its runner digest.
+The audit validates those copies, raw timing publications, the real helper timing
+and earlier k54 evidence hashes. Its external process oracle is challenged with
+live, mixed, invalid and known-reaped selectors before checking recorded exact
+identities and reconciling allowlisted scratch paths. Earlier failed evidence
+remains unchanged. Later absence cannot establish an unrecorded helper identity
+or repair an original unknown-creation outcome.
+
+This independently useful slice leaves the full original persistent-worker,
+gated-publication and shared-scheduler contract live in
+`complete-worker-scheduler-k55`; every ancestor remains open. A separate
+`review-impl` leaf precedes that continuation to challenge this timing boundary,
+its evidence and ownership claims. The final whole-runtime review remains due
+before retained evidence k21. No guest, app, privilege, stalled-storage or
+acceptance claim changes: **0/10, unavailable**.
