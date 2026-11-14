@@ -11,8 +11,10 @@ receipt while owned-resource safety actions continue on their original bounds.
 Read `docs/specs/diagnostic-process-inspection.md` in full, the bounded-inspection
 section of `docs/experiments/exec-reliability-diagnostic-foundation.md`, and
 bounded-inspection-k27's seven dispositions in commit `dd264245`. Planner
-bounded-inspection-k25 records the increment boundary. k23-final-01 remains the
-delivered source condition until this change is measured and reviewed.
+bounded-inspection-k25 records the increment boundary. The delivered initial
+admission slice is k32-final-01, following k29 and its review integration k32.
+The complete worker/scheduler boundary remains k30's work; the synchronous
+inspection limitation measured at k23-final-01 is unchanged.
 
 Own `experiments/exec-reliability/controller.py`, a narrow inspection module if
 needed, `peer.py` and any owned local helper fixtures, `test_controller.py`,

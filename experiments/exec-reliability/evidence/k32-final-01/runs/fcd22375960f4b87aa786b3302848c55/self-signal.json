@@ -1,0 +1,44 @@
+{
+  "name": "self-signal",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "-c",
+    "\nimport json, os, runpy, signal, sys\nfrom pathlib import Path\noriginal = os.kill\ndef misdirect(pid, sig):\n    if sig == signal.SIGTERM:\n        Path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k32-final-01/runs/self-signal-ddef3c7ec2aa4eaa8508e05055584b5e.json').write_text(json.dumps({\"pid\": pid}))\n        original(pid, signal.SIGKILL)\n        original(os.getpid(), sig)\n    else:\n        original(pid, sig)\nos.kill = misdirect\nsys.argv = ['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py', 'controller', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k32-final-01/runs']\nrunpy.run_path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py', run_name='__main__')\n"
+  ],
+  "budget": 3,
+  "started_monotonic": 254508.568923166,
+  "wall_start_ns": 1794637228152918000,
+  "reason": "exit",
+  "returncode": -15,
+  "reaped": true,
+  "ok": false,
+  "signals": [],
+  "pid": 91983,
+  "pgid": 91983,
+  "signal_scope": "group",
+  "leader_exit_monotonic": 254508.810572791,
+  "group_observations": [
+    {
+      "started_monotonic": 254508.810578,
+      "finished_monotonic": 254508.812958,
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 91983,
+          "pgid": 91983,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3931393833203931393833205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "termination_ok": true,
+  "reaped_monotonic": 254508.812972625,
+  "within_process_bounds": true,
+  "elapsed": 0.2440562090196181
+}

@@ -5,9 +5,11 @@ macOS host. It now observes graceful leader exit, distinguishes PID and group
 interruption with real child controls, and records group inspection before
 reaping. Review integration corrects false success with live group members,
 fixture cleanup and checker timeout reporting. Initial fork admission now rejects
-extra Python or native threads, changed SIGCHLD and unavailable native observations
-before acquisition, retaining failed results. Its measured condition is k29-final-01;
-the specific implementation review precedes the remaining scheduler work.
+extra Python or native threads, changed Python or kernel SIGCHLD disposition and
+unavailable native observations before acquisition, retaining failed results.
+Review integration k32 independently reproduced and repaired the Python signal
+cache gap. Its measured condition is k32-final-01; the complete worker/scheduler
+boundary remains k30's work.
 Independently supervised process inspection, retained-file identity,
 stalled-storage disposal and live route
 preparation still need the work named below before causal use. In particular,
@@ -392,8 +394,8 @@ epoch. A missed observation deadline fails the evidence while safety actions con
 Review k26 is reconciled by integration k27. Planner k25 assigns implementation
 to bounded-inspection-k28 before k21. k28 now contains the measured initial
 admission slice k29 and the remaining complete worker/scheduler slice k30.
-k29-final-01 is the current measured source condition, pending its specific
-implementation review; the inspection limitation measured at k23-final-01
+k32-final-01 is the current measured admission condition after k29's specific
+review and integration; the inspection limitation measured at k23-final-01
 remains unchanged. The historical acceptance result is
 still **0/10, unavailable**.
 
@@ -501,7 +503,7 @@ runs no diagnostic workload and changes no earlier receipt or runtime source.
 
 #### Initial fork admission (k29)
 
-The first independently useful child of k28 rejects an unsafe initial controller
+The first independently useful child of k28 rejected an unsafe initial controller
 environment through the real `execute` boundary. It records Python and native
 thread counts, SIGCHLD disposition, and native-observation error/errno in
 `result.json`. Rejection happens before the resource intent ledger: acquisition
@@ -528,7 +530,7 @@ identifies each case, including these 13 admission controls:
 | Default single-threaded controller | All five resource/workload calls run; resource disposed. |
 | Live Python thread | Failed `python_threads` receipt, Python/native counts 2/2. |
 | Real native pthread absent from Python registry | Failed `native_threads` receipt, counts 1/2; fixture joins its pthread. |
-| SIG_IGN and installed SIGCHLD handler | Separate failed `sigchld` receipts with no acquisition. |
+| Python-installed SIG_IGN and SIGCHLD handler | Separate failed `sigchld` receipts with no acquisition. |
 | Native returns 0, -1, 95 or 97 bytes | Four failed native-observation receipts. |
 | Native returns 96 bytes with count 0 or -1 | Two failed native-observation receipts. |
 | Native library unavailable or query symbol missing | Separate retained ENOENT and ENOSYS failures. |
@@ -565,9 +567,61 @@ reference, without any correctness claim. bounded-inspection-k30 retains the
 full parent spec/control inventory and must repeat admission before every actual
 fork, implement signal masking/reset and worker/helper lifecycle, and demonstrate
 resource safety during inspection stalls. Its specific review must still precede
-k21. The immediate fork-admission review precedes k30; no empty integration was
-created. k17, k21 and k18 remain open, and historical acceptance remains
+k21. Review k31 and its integration k32 complete the initial admission slice
+before k30; k17, k21 and k18 remain open, and historical acceptance remains
 **0/10, unavailable**.
+
+#### Native SIGCHLD review integration (k32)
+
+Review k31 identified that Python's `signal.getsignal` reports a cached table:
+a native SIGCHLD ignore or handler can leave Python reporting SIG_DFL. The
+independent [red-01 run](../../experiments/exec-reliability/evidence/k32-red-01/pytest.xml)
+reproduced both admissions before the repair (3 failed, 53 passed). Native
+controls use real libc `sigaction` calls and restore the complete previous
+action in `finally`. The handler is a real native callback. The
+[red-02 run](../../experiments/exec-reliability/evidence/k32-red-02/pytest.xml)
+also exposed the absent native-query failure handling (8 failed, 52 passed).
+Both runs retain matching before/after hashes and source snapshots in
+`k32-red-inputs-01` and `k32-red-inputs-02`.
+
+Admission now queries the kernel through read-only Darwin `sigaction`, using
+the [public structure](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/signal.h)
+(handler pointer, 32-bit mask, integer flags). The Python-visible check remains;
+both dispositions must be SIG_DFL. Receipts distinguish `sigchld` and
+`native_sigchld`. An unavailable library or symbol, a failed query, or an
+unexpected nonzero return fails closed before acquisition with retained errno.
+This query creates no subprocess and changes no signal action.
+
+The frozen [k32-final-01 verdict](../../experiments/exec-reliability/evidence/k32-final-01/verdict.json)
+records zero exits for lint, formatting, strict runtime types and all 73 tests
+(18.93 seconds). The [per-case record](../../experiments/exec-reliability/evidence/k32-final-01/pytest.xml)
+confirms each failing red case now passes. The six additional admission controls
+cover native ignore, native handler, missing library, missing symbol, query errno
+and unexpected return. Preflight now declares both inspection sources, and
+`diagnostic:format` formats only top-level Python files so frozen evidence scripts
+and source snapshots stay unchanged. The parent briefs identify this partial
+admission slice separately from the remaining worker/scheduler implementation.
+
+The independent [k32-audit-02 result](../../experiments/exec-reliability/evidence/k32-audit-02/result.json)
+checks all 1,294 indexed artifacts across both red conditions and the final
+condition, their input snapshots, and the final delivered source hashes.
+All 1,336 audit inputs have equal before/after hashes. It enumerates every
+recorded `pid`, `runner_pid`, `child` and `pgid`, plus numeric stdout and ready
+markers; only the declared simulated checker PID is excluded. All 264 distinct
+identities were absent in the later observation, with live, mixed, invalid and
+freshly reaped helper controls for the absence predicate. It checked 69 resource
+declarations, removed 133 exact fixture directories after identity/content
+validation, and recorded 27 already absent. Preflight scratch evidence was
+copied before removal. [Audit 01](../../experiments/exec-reliability/evidence/k32-audit-01/failure.json)
+stopped before process controls or cleanup when pytest had already removed an
+older session directory; its script, failure and unchanged input hashes remain.
+All earlier evidence, including k29, is unchanged.
+
+These are later identity observations, without proof against escaped descendants
+or inspection-time races. The native query is an admission snapshot; k30 still
+must check before every fork and implement the complete worker/scheduler boundary.
+Synchronous ps and stalled-storage limits remain unchanged. No installed CLI,
+app or VM workload was run, and historical acceptance remains **0/10, unavailable**.
 
 ### Earlier foundation controls
 

@@ -89,7 +89,10 @@ the frozen bootstrap adapter and migration of existing inspection stubs.
 The spec declares final-query limitations and every bootstrap/close bound.
 Real setuid-ps KILL and privileged UID-based EPERM controls retain separate
 unavailable prerequisites. k21 preserves these outcomes and k18 preserves the
-scheduler while isolating storage. The delivered code remains k23-final-01.
+scheduler while isolating storage. The delivered initial admission slice is
+k32-final-01, following k29-final-01 and review integration k32. This partial
+slice does not implement the worker/scheduler boundary: the synchronous
+inspection limitation measured at k23-final-01 remains, with k30 and k21 open.
 
 Planner bounded-inspection-k25 cuts bounded-inspection-k28 as one complete
 implementation increment before retained-evidence-k21. It owns shared scheduling

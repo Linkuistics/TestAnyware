@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="8" skipped="0" tests="60" time="16.885" timestamp="2026-11-14T17:17:31.898280+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_review_expected_interruption_continues_same_resource" time="0.535" /><testcase classname="test_controller" name="test_review_unexpected_interruption_still_stops" time="0.378" /><testcase classname="test_controller" name="test_review_resource_deadline_cannot_be_declared_success" time="0.001" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[plan]" time="0.000" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[result]" time="0.000" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[subjects-before]" time="0.000" /><testcase classname="test_controller" name="test_review_reserved_names_rejected_before_acquisition[intent-1]" time="0.000" /><testcase classname="test_controller" name="test_review_receipt_io_exception_cannot_skip_other_disposal" time="0.203" /><testcase classname="test_controller" name="test_review_skipped_acquisitions_are_unreached" time="0.014" /><testcase classname="test_controller" name="test_review_zero_exit_wrong_stdout_is_failure" time="0.037" /><testcase classname="test_controller" name="test_review_preflight_keeps_missing_declared_subjects" time="0.004"><failure message="AssertionError: assert (PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability') / 'inspection.py') in (PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/preflight.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/exp...&#10;[+2 more lines; full report in element text]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_preflight_keeps_mi0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b7d8f20&gt;
+
+    def test_review_preflight_keeps_missing_declared_subjects(tmp_path, monkeypatch):
+        import preflight
+    
+        seen = []
+        monkeypatch.setattr(preflight, "REPO", tmp_path / "missing-repo")
+        monkeypatch.setattr(sys, "argv", ["preflight.py", str(tmp_path / "preflight")])
+        monkeypatch.setattr(preflight.shutil, "which", lambda _name: "/usr/bin/true")
+        monkeypatch.setattr(preflight, "execute", lambda plan, _output: seen.append(plan) or tmp_path)
+        preflight.main()
+        assert seen
+        assert tmp_path / "missing-repo/Taskfile.yml" in seen[0].subjects
+&gt;       assert preflight.HERE / "inspection.py" in seen[0].subjects
+E       AssertionError: assert (PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability') / 'inspection.py') in (PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/preflight.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/test_controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/pyproject.toml'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/uv.lock'), PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_preflight_keeps_mi0/missing-repo/Taskfile.yml'), PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_preflight_keeps_mi0/missing-repo/cli-rs/Cargo.toml'), PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_preflight_keeps_mi0/missing-repo/cli-rs/Cargo.lock'), PosixPath('/usr/bin/true'), PosixPath('/usr/bin/true'), PosixPath('/Applications/TestAnyware.app/Contents/MacOS/testanyware-app'), PosixPath('/Applications/TestAnyware.app/Contents/Info.plist'))
+E        +  where PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability') = &lt;module 'preflight' from '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/preflight.py'&gt;.HERE
+E        +  and   (PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/preflight.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/test_controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/pyproject.toml'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/uv.lock'), PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_preflight_keeps_mi0/missing-repo/Taskfile.yml'), PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_preflight_keeps_mi0/missing-repo/cli-rs/Cargo.toml'), PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_preflight_keeps_mi0/missing-repo/cli-rs/Cargo.lock'), PosixPath('/usr/bin/true'), PosixPath('/usr/bin/true'), PosixPath('/Applications/TestAnyware.app/Contents/MacOS/testanyware-app'), PosixPath('/Applications/TestAnyware.app/Contents/Info.plist')) = Plan(run_id='7369f05a77d445429ecc36abbe6754e1', calls=(Call(name='cli-version', argv=('/usr/bin/true', '--version'), budget=10, expected_exit=0, expected_stdout=None, interrupt_after=None, expected_reason='exit'),), resources=(), subjects=(PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/preflight.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/test_controller.py'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/pyproject.toml'), PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/uv.lock'), PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_preflight_keeps_mi0/missing-repo/Taskfile.yml'), PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_preflight_keeps_mi0/missing-repo/cli-rs/Cargo.toml'), PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_preflight_keeps_mi0/missing-repo/cli-rs/Cargo.lock'), PosixPath('/usr/bin/true'), PosixPath('/usr/bin/true'), PosixPath('/Applications/TestAnyware.app/Contents/MacOS/testanyware-app'), PosixPath('/Applications/TestAnyware.app/Contents/Info.plist')), term_grace=2, kill_wait=2).subjects
+
+test_controller.py:312: AssertionError</failure></testcase><testcase classname="test_controller" name="test_review_graceful_pid_exit_needs_no_kill" time="0.226" /><testcase classname="test_controller" name="test_review_fork_handler_reaps_gracefully" time="0.332" /><testcase classname="test_controller" name="test_review_signal_scope_has_opposed_child_outcomes[True]" time="0.399" /><testcase classname="test_controller" name="test_review_signal_scope_has_opposed_child_outcomes[False]" time="0.369" /><testcase classname="test_controller" name="test_review_wrong_signal_scope_is_detected[True]" time="0.368" /><testcase classname="test_controller" name="test_review_wrong_signal_scope_is_detected[False]" time="0.806" /><testcase classname="test_controller" name="test_review_controller_survival_is_observed_by_another_process" time="0.454" /><testcase classname="test_controller" name="test_review_group_signals_and_inspection_finish_before_reaping" time="0.386" /><testcase classname="test_controller" name="test_review_failed_group_inspection_is_never_absence[usage]" time="0.690" /><testcase classname="test_controller" name="test_review_failed_group_inspection_is_never_absence[timeout]" time="0.683" /><testcase classname="test_controller" name="test_review_failed_group_inspection_is_never_absence[foreign]" time="0.672" /><testcase classname="test_controller" name="test_review_live_signal_permission_failure_is_retained" time="0.379" /><testcase classname="test_controller" name="test_review_zombie_only_eperm_is_separate_from_permission_failure" time="0.241" /><testcase classname="test_controller" name="test_review_exited_leader_does_not_hide_a_surviving_group_member[False]" time="0.484" /><testcase classname="test_controller" name="test_review_exited_leader_does_not_hide_a_surviving_group_member[True]" time="0.801" /><testcase classname="test_controller" name="test_review_live_group_is_failure_even_with_expected_leader_exit[False]" time="4.100" /><testcase classname="test_controller" name="test_review_live_group_is_failure_even_with_expected_leader_exit[True]" time="0.401" /><testcase classname="test_controller" name="test_review_checker_unreaped_timeout_still_retains_verdict" time="0.022" /><testcase classname="test_controller" name="test_review_fork_publishes_child_before_stdout_and_releases_on_failure" time="0.049" /><testcase classname="test_controller" name="test_review_pinning_control_detects_real_early_reap[None]" time="0.042" /><testcase classname="test_controller" name="test_review_pinning_control_detects_real_early_reap[poll]" time="0.041" /><testcase classname="test_controller" name="test_review_pinning_control_detects_real_early_reap[wait]" time="0.041" /><testcase classname="test_controller" name="test_review_pinning_control_detects_real_early_reap[waitpid]" time="0.041" /><testcase classname="test_controller" name="test_review_pinning_control_detects_real_early_reap[wait-any]" time="0.036" /><testcase classname="test_controller" name="test_review_isolated_reap_overrun_and_removed_gate[False]" time="0.414" /><testcase classname="test_controller" name="test_review_isolated_reap_overrun_and_removed_gate[True]" time="0.425" /><testcase classname="test_controller" name="test_review_late_observation_cannot_extend_reap_deadline[False]" time="0.438" /><testcase classname="test_controller" name="test_review_late_observation_cannot_extend_reap_deadline[True]" time="0.434" /><testcase classname="test_controller" name="test_review_survival_checker_rejects_controller_self_signal[False]" time="0.449" /><testcase classname="test_controller" name="test_review_survival_checker_rejects_controller_self_signal[True]" time="0.258" /><testcase classname="test_inspection" name="test_review_admission_allows_default_single_thread_controller" time="0.135"><failure message="KeyError: 'native_sigchld'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_allows_d0')
+
+    def test_review_admission_allows_default_single_thread_controller(tmp_path):
+        _, result = run_plan(tmp_path, configured_plan(tmp_path))
+        assert result["ok"] is True
+        assert result["fork_admission"]["ok"] is True
+        assert result["fork_admission"]["python_threads"] == 1
+        assert result["fork_admission"]["native_threads"] == 1
+        assert result["fork_admission"]["sigchld"] == "SIG_DFL"
+&gt;       assert result["fork_admission"]["native_sigchld"] == "SIG_DFL"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'native_sigchld'
+
+test_inspection.py:72: KeyError</failure></testcase><testcase classname="test_inspection" name="test_review_admission_rejects_live_python_thread_before_acquisition" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_native_pthread_absent_from_python_registry" time="0.014" /><testcase classname="test_inspection" name="test_review_admission_rejects_nondefault_sigchld_before_acquisition[1]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_nondefault_sigchld_before_acquisition[&lt;lambda&gt;]" time="0.014" /><testcase classname="test_inspection" name="test_review_admission_rejects_native_sigchld_hidden_from_python[ignore]" time="0.114"><failure message="assert True is False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_4')
+native_handler = 'ignore'
+
+    @pytest.mark.parametrize("native_handler", ["ignore", "handler"])
+    def test_review_admission_rejects_native_sigchld_hidden_from_python(tmp_path, native_handler):
+        # Use the SDK's public Darwin sigaction layout, independently of inspection.
+        class Action(ctypes.Structure):
+            _fields_ = [("handler", ctypes.c_void_p), ("mask", ctypes.c_uint32), ("flags", ctypes.c_int)]
+    
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+        libc.sigaction.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p]
+        libc.sigaction.restype = ctypes.c_int
+        previous = Action()
+        assert libc.sigaction(signal.SIGCHLD, None, ctypes.byref(previous)) == 0
+        assert previous.handler is None
+        assert signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL
+        callback_type = ctypes.CFUNCTYPE(None, ctypes.c_int)
+    
+        @callback_type
+        def handler(_signum):
+            pass
+    
+        address = 1 if native_handler == "ignore" else ctypes.cast(handler, ctypes.c_void_p).value
+        installed = Action(address, 0, 0)
+        try:
+            assert libc.sigaction(signal.SIGCHLD, ctypes.byref(installed), None) == 0
+            observed = Action()
+            assert libc.sigaction(signal.SIGCHLD, None, ctypes.byref(observed)) == 0
+            assert observed.handler == address
+            assert signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL
+&gt;           result = assert_rejected(tmp_path, "sigchld")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_inspection.py:168: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_4')
+reason = 'sigchld'
+
+    def assert_rejected(tmp_path, reason):
+        plan = configured_plan(tmp_path)
+        path, result = run_plan(tmp_path, plan)
+        assert result["ok"] is False
+&gt;       assert result["fork_admission"]["ok"] is False
+E       assert True is False
+
+test_inspection.py:54: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_admission_rejects_native_sigchld_hidden_from_python[handler]" time="0.135"><failure message="assert True is False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_5')
+native_handler = 'handler'
+
+    @pytest.mark.parametrize("native_handler", ["ignore", "handler"])
+    def test_review_admission_rejects_native_sigchld_hidden_from_python(tmp_path, native_handler):
+        # Use the SDK's public Darwin sigaction layout, independently of inspection.
+        class Action(ctypes.Structure):
+            _fields_ = [("handler", ctypes.c_void_p), ("mask", ctypes.c_uint32), ("flags", ctypes.c_int)]
+    
+        libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+        libc.sigaction.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p]
+        libc.sigaction.restype = ctypes.c_int
+        previous = Action()
+        assert libc.sigaction(signal.SIGCHLD, None, ctypes.byref(previous)) == 0
+        assert previous.handler is None
+        assert signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL
+        callback_type = ctypes.CFUNCTYPE(None, ctypes.c_int)
+    
+        @callback_type
+        def handler(_signum):
+            pass
+    
+        address = 1 if native_handler == "ignore" else ctypes.cast(handler, ctypes.c_void_p).value
+        installed = Action(address, 0, 0)
+        try:
+            assert libc.sigaction(signal.SIGCHLD, ctypes.byref(installed), None) == 0
+            observed = Action()
+            assert libc.sigaction(signal.SIGCHLD, None, ctypes.byref(observed)) == 0
+            assert observed.handler == address
+            assert signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL
+&gt;           result = assert_rejected(tmp_path, "sigchld")
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_inspection.py:168: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_5')
+reason = 'sigchld'
+
+    def assert_rejected(tmp_path, reason):
+        plan = configured_plan(tmp_path)
+        path, result = run_plan(tmp_path, plan)
+&gt;       assert result["ok"] is False
+E       assert True is False
+
+test_inspection.py:53: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[0-1]" time="0.015" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[-1-1]" time="0.014" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[95-1]" time="0.014" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[97-1]" time="0.014" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[96-0]" time="0.014" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_or_malformed_native_observation[96--1]" time="0.014" /><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_native_sigchld[library]" time="0.144"><failure message="assert True is False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_12')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b81c620&gt;
+failure = 'library'
+
+    @pytest.mark.parametrize("failure", ["library", "symbol", "errno", "unexpected_return"])
+    def test_review_admission_rejects_unavailable_native_sigchld(tmp_path, monkeypatch, failure):
+        import errno
+    
+        native_loader = ctypes.CDLL
+    
+        class Query:
+            def __call__(self, signum, action, previous):
+                assert signum == signal.SIGCHLD and action is None
+                assert previous is not None
+                ctypes.set_errno(errno.EINVAL if failure == "errno" else 0)
+                return -1 if failure == "errno" else 1
+    
+        class Library:
+            sigaction = Query()
+    
+        def load(path, **kwargs):
+            if path != "/usr/lib/libSystem.B.dylib":
+                return native_loader(path, **kwargs)
+            if failure == "library":
+                raise OSError(errno.ENOENT, "libSystem unavailable")
+            return object() if failure == "symbol" else Library()
+    
+        # Only the native boundary is substituted; libproc and execute remain real.
+        monkeypatch.setattr("inspection.ctypes.CDLL", load)
+&gt;       result = assert_rejected(tmp_path, "native_observation_error")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_inspection.py:232: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_12')
+reason = 'native_observation_error'
+
+    def assert_rejected(tmp_path, reason):
+        plan = configured_plan(tmp_path)
+        path, result = run_plan(tmp_path, plan)
+&gt;       assert result["ok"] is False
+E       assert True is False
+
+test_inspection.py:53: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_native_sigchld[symbol]" time="0.141"><failure message="assert True is False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_13')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b7f1eb0&gt;
+failure = 'symbol'
+
+    @pytest.mark.parametrize("failure", ["library", "symbol", "errno", "unexpected_return"])
+    def test_review_admission_rejects_unavailable_native_sigchld(tmp_path, monkeypatch, failure):
+        import errno
+    
+        native_loader = ctypes.CDLL
+    
+        class Query:
+            def __call__(self, signum, action, previous):
+                assert signum == signal.SIGCHLD and action is None
+                assert previous is not None
+                ctypes.set_errno(errno.EINVAL if failure == "errno" else 0)
+                return -1 if failure == "errno" else 1
+    
+        class Library:
+            sigaction = Query()
+    
+        def load(path, **kwargs):
+            if path != "/usr/lib/libSystem.B.dylib":
+                return native_loader(path, **kwargs)
+            if failure == "library":
+                raise OSError(errno.ENOENT, "libSystem unavailable")
+            return object() if failure == "symbol" else Library()
+    
+        # Only the native boundary is substituted; libproc and execute remain real.
+        monkeypatch.setattr("inspection.ctypes.CDLL", load)
+&gt;       result = assert_rejected(tmp_path, "native_observation_error")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_inspection.py:232: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_13')
+reason = 'native_observation_error'
+
+    def assert_rejected(tmp_path, reason):
+        plan = configured_plan(tmp_path)
+        path, result = run_plan(tmp_path, plan)
+&gt;       assert result["ok"] is False
+E       assert True is False
+
+test_inspection.py:53: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_native_sigchld[errno]" time="0.149"><failure message="assert True is False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_14')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b81fcb0&gt;
+failure = 'errno'
+
+    @pytest.mark.parametrize("failure", ["library", "symbol", "errno", "unexpected_return"])
+    def test_review_admission_rejects_unavailable_native_sigchld(tmp_path, monkeypatch, failure):
+        import errno
+    
+        native_loader = ctypes.CDLL
+    
+        class Query:
+            def __call__(self, signum, action, previous):
+                assert signum == signal.SIGCHLD and action is None
+                assert previous is not None
+                ctypes.set_errno(errno.EINVAL if failure == "errno" else 0)
+                return -1 if failure == "errno" else 1
+    
+        class Library:
+            sigaction = Query()
+    
+        def load(path, **kwargs):
+            if path != "/usr/lib/libSystem.B.dylib":
+                return native_loader(path, **kwargs)
+            if failure == "library":
+                raise OSError(errno.ENOENT, "libSystem unavailable")
+            return object() if failure == "symbol" else Library()
+    
+        # Only the native boundary is substituted; libproc and execute remain real.
+        monkeypatch.setattr("inspection.ctypes.CDLL", load)
+&gt;       result = assert_rejected(tmp_path, "native_observation_error")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_inspection.py:232: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_14')
+reason = 'native_observation_error'
+
+    def assert_rejected(tmp_path, reason):
+        plan = configured_plan(tmp_path)
+        path, result = run_plan(tmp_path, plan)
+&gt;       assert result["ok"] is False
+E       assert True is False
+
+test_inspection.py:53: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_admission_rejects_unavailable_native_sigchld[unexpected_return]" time="0.150"><failure message="assert True is False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_15')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b82fc20&gt;
+failure = 'unexpected_return'
+
+    @pytest.mark.parametrize("failure", ["library", "symbol", "errno", "unexpected_return"])
+    def test_review_admission_rejects_unavailable_native_sigchld(tmp_path, monkeypatch, failure):
+        import errno
+    
+        native_loader = ctypes.CDLL
+    
+        class Query:
+            def __call__(self, signum, action, previous):
+                assert signum == signal.SIGCHLD and action is None
+                assert previous is not None
+                ctypes.set_errno(errno.EINVAL if failure == "errno" else 0)
+                return -1 if failure == "errno" else 1
+    
+        class Library:
+            sigaction = Query()
+    
+        def load(path, **kwargs):
+            if path != "/usr/lib/libSystem.B.dylib":
+                return native_loader(path, **kwargs)
+            if failure == "library":
+                raise OSError(errno.ENOENT, "libSystem unavailable")
+            return object() if failure == "symbol" else Library()
+    
+        # Only the native boundary is substituted; libproc and execute remain real.
+        monkeypatch.setattr("inspection.ctypes.CDLL", load)
+&gt;       result = assert_rejected(tmp_path, "native_observation_error")
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_inspection.py:232: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-77/test_review_admission_rejects_15')
+reason = 'native_observation_error'
+
+    def assert_rejected(tmp_path, reason):
+        plan = configured_plan(tmp_path)
+        path, result = run_plan(tmp_path, plan)
+&gt;       assert result["ok"] is False
+E       assert True is False
+
+test_inspection.py:53: AssertionError</failure></testcase><testcase classname="test_inspection" name="test_review_admission_retains_native_library_error_before_acquisition" time="0.018" /><testcase classname="test_inspection" name="test_review_admission_retains_missing_native_query_before_acquisition" time="0.023" /></testsuite></testsuites>

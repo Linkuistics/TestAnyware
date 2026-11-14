@@ -1,0 +1,93 @@
+{
+  "name": "zombie",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py",
+    "hang"
+  ],
+  "budget": 0.2,
+  "started_monotonic": 254282.918152041,
+  "wall_start_ns": 1794637002498990000,
+  "reason": "deadline",
+  "returncode": -15,
+  "reaped": true,
+  "ok": true,
+  "signals": [
+    {
+      "signal": "TERM",
+      "scope": "group",
+      "target": 49797,
+      "monotonic": 254283.119052041,
+      "outcome": "zombie_only_eperm",
+      "errno": 1,
+      "error": "[Errno 1] forced zombie-only return race",
+      "permission_observation": {
+        "started_monotonic": 254283.119259875,
+        "finished_monotonic": 254283.12850825,
+        "state": "zombie_only",
+        "members": [
+          {
+            "pid": 49797,
+            "pgid": 49797,
+            "stat": "Z"
+          }
+        ],
+        "stdout": "3439373937203439373937205a2020200a",
+        "stderr": "",
+        "returncode": 0,
+        "probe_errno": 1,
+        "probe_outcome": "zombie_only_eperm",
+        "error": null
+      },
+      "finished_monotonic": 254283.12852175
+    }
+  ],
+  "pid": 49797,
+  "pgid": 49797,
+  "signal_scope": "group",
+  "group_observations": [
+    {
+      "started_monotonic": 254283.119259875,
+      "finished_monotonic": 254283.12850825,
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 49797,
+          "pgid": 49797,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3439373937203439373937205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    },
+    {
+      "started_monotonic": 254283.128551041,
+      "finished_monotonic": 254283.134483666,
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 49797,
+          "pgid": 49797,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3439373937203439373937205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "term_deadline_monotonic": 254283.268918041,
+  "leader_exit_monotonic": 254283.119250916,
+  "kill_reap_deadline_monotonic": 254283.43449204098,
+  "termination_ok": true,
+  "reaped_monotonic": 254283.134532583,
+  "within_process_bounds": true,
+  "elapsed": 0.21658841698081233
+}

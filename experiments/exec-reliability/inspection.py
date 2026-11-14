@@ -21,6 +21,7 @@ class ForkAdmission(TypedDict):
     python_threads: int
     native_threads: int | None
     sigchld: str
+    native_sigchld: str | None
     error: str | None
     errno: int | None
 
@@ -49,6 +50,29 @@ def _native_thread_count() -> int:
     return count
 
 
+class _Sigaction(ctypes.Structure):
+    # Darwin's public sigaction (not the kernel's __sigaction with a trampoline).
+    # https://github.com/apple-oss-distributions/xnu/blob/main/bsd/sys/signal.h
+    _fields_ = [("handler", ctypes.c_void_p), ("mask", ctypes.c_uint32), ("flags", ctypes.c_int)]
+    handler: int | None
+
+
+def _native_sigchld() -> str:
+    library = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+    try:
+        query = library.sigaction
+    except AttributeError as error:
+        raise OSError(errno.ENOSYS, "libSystem has no sigaction") from error
+    query.argtypes = [ctypes.c_int, ctypes.POINTER(_Sigaction), ctypes.POINTER(_Sigaction)]
+    query.restype = ctypes.c_int
+    action = _Sigaction()
+    ctypes.set_errno(0)
+    received = query(signal.SIGCHLD, None, ctypes.byref(action))
+    if received != 0:
+        raise OSError(ctypes.get_errno() or errno.EIO, f"sigaction returned {received}")
+    return "SIG_DFL" if action.handler is None else "SIG_IGN" if action.handler == 1 else "handler"
+
+
 def fork_admission() -> ForkAdmission:
     """Fail closed unless Python, native threads and SIGCHLD permit admission."""
     handler = signal.getsignal(signal.SIGCHLD)
@@ -64,11 +88,13 @@ def fork_admission() -> ForkAdmission:
             if handler == signal.SIG_IGN
             else "handler"
         ),
+        "native_sigchld": None,
         "error": None,
         "errno": None,
     }
     try:
         receipt["native_threads"] = _native_thread_count()
+        receipt["native_sigchld"] = _native_sigchld()
     except OSError as error:
         receipt["error"] = str(error)
         receipt["errno"] = error.errno
@@ -77,7 +103,7 @@ def fork_admission() -> ForkAdmission:
         receipt["reason"] = "python_threads"
     elif receipt["native_threads"] != 1:
         receipt["reason"] = "native_threads"
-    elif handler != signal.SIG_DFL:
+    elif handler != signal.SIG_DFL or receipt["native_sigchld"] != "SIG_DFL":
         receipt["reason"] = "sigchld"
     else:
         receipt["ok"] = True

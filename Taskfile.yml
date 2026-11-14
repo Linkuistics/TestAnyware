@@ -18,9 +18,9 @@ tasks:
 
   diagnostic:format:
     desc: Format the local diagnostic Python sources
-    dir: '{{.ROOT_DIR}}'
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
     cmds:
-      - uv run --project experiments/exec-reliability --locked python -m ruff format experiments/exec-reliability
+      - uv run --locked python -m ruff format *.py
 
   design:inspection-preview:
     desc: Serve the bounded-inspection design at localhost (PORT defaults to 8764); stop with Ctrl-C

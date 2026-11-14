@@ -309,6 +309,8 @@ def test_review_preflight_keeps_missing_declared_subjects(tmp_path, monkeypatch)
     preflight.main()
     assert seen
     assert tmp_path / "missing-repo/Taskfile.yml" in seen[0].subjects
+    assert preflight.HERE / "inspection.py" in seen[0].subjects
+    assert preflight.HERE / "test_inspection.py" in seen[0].subjects
 
 
 def test_review_graceful_pid_exit_needs_no_kill(tmp_path):

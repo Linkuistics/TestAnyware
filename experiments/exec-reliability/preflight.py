@@ -67,8 +67,10 @@ def main() -> None:
     subjects = (
         Path(__file__),
         HERE / "controller.py",
+        HERE / "inspection.py",
         HERE / "peer.py",
         HERE / "test_controller.py",
+        HERE / "test_inspection.py",
         HERE / "pyproject.toml",
         HERE / "uv.lock",
         REPO / "Taskfile.yml",

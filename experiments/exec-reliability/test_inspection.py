@@ -69,6 +69,7 @@ def test_review_admission_allows_default_single_thread_controller(tmp_path):
     assert result["fork_admission"]["python_threads"] == 1
     assert result["fork_admission"]["native_threads"] == 1
     assert result["fork_admission"]["sigchld"] == "SIG_DFL"
+    assert result["fork_admission"]["native_sigchld"] == "SIG_DFL"
     assert [item["name"] for item in result["calls"]] == [
         "acquire",
         "workload",
@@ -137,6 +138,46 @@ def test_review_admission_rejects_nondefault_sigchld_before_acquisition(tmp_path
         signal.signal(signal.SIGCHLD, previous)
 
 
+@pytest.mark.parametrize("native_handler", ["ignore", "handler"])
+def test_review_admission_rejects_native_sigchld_hidden_from_python(tmp_path, native_handler):
+    # Use the SDK's public Darwin sigaction layout, independently of inspection.
+    class Action(ctypes.Structure):
+        _fields_ = [
+            ("handler", ctypes.c_void_p),
+            ("mask", ctypes.c_uint32),
+            ("flags", ctypes.c_int),
+        ]
+
+    libc = ctypes.CDLL("/usr/lib/libSystem.B.dylib", use_errno=True)
+    libc.sigaction.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p]
+    libc.sigaction.restype = ctypes.c_int
+    previous = Action()
+    assert libc.sigaction(signal.SIGCHLD, None, ctypes.byref(previous)) == 0
+    assert previous.handler is None
+    assert signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL
+    callback_type = ctypes.CFUNCTYPE(None, ctypes.c_int)
+
+    @callback_type
+    def handler(_signum):
+        pass
+
+    address = 1 if native_handler == "ignore" else ctypes.cast(handler, ctypes.c_void_p).value
+    installed = Action(address, 0, 0)
+    try:
+        assert libc.sigaction(signal.SIGCHLD, ctypes.byref(installed), None) == 0
+        observed = Action()
+        assert libc.sigaction(signal.SIGCHLD, None, ctypes.byref(observed)) == 0
+        assert observed.handler == address
+        assert signal.getsignal(signal.SIGCHLD) == signal.SIG_DFL
+        result = assert_rejected(tmp_path, "sigchld")
+        assert result["fork_admission"]["sigchld"] == "SIG_DFL"
+        assert result["fork_admission"]["native_sigchld"] == (
+            "SIG_IGN" if native_handler == "ignore" else "handler"
+        )
+    finally:
+        assert libc.sigaction(signal.SIGCHLD, ctypes.byref(previous), None) == 0
+
+
 @pytest.mark.parametrize("returned,count", [(0, 1), (-1, 1), (95, 1), (97, 1), (96, 0), (96, -1)])
 def test_review_admission_rejects_unavailable_or_malformed_native_observation(
     tmp_path,
@@ -165,6 +206,46 @@ def test_review_admission_rejects_unavailable_or_malformed_native_observation(
     assert result["fork_admission"]["native_threads"] is None
     assert result["fork_admission"]["error"]
     assert result["fork_admission"]["errno"] is not None
+
+
+@pytest.mark.parametrize("failure", ["library", "symbol", "errno", "unexpected_return"])
+def test_review_admission_rejects_unavailable_native_sigchld(tmp_path, monkeypatch, failure):
+    import errno
+
+    native_loader = ctypes.CDLL
+
+    class Query:
+        def __call__(self, signum, action, previous):
+            assert signum == signal.SIGCHLD and action is None
+            assert previous is not None
+            ctypes.set_errno(errno.EINVAL if failure == "errno" else 0)
+            return -1 if failure == "errno" else 1
+
+    class Library:
+        sigaction = Query()
+
+    def load(path, **kwargs):
+        if path != "/usr/lib/libSystem.B.dylib":
+            return native_loader(path, **kwargs)
+        if failure == "library":
+            raise OSError(errno.ENOENT, "libSystem unavailable")
+        return object() if failure == "symbol" else Library()
+
+    # Only the native boundary is substituted; libproc and execute remain real.
+    monkeypatch.setattr("inspection.ctypes.CDLL", load)
+    result = assert_rejected(tmp_path, "native_observation_error")
+    assert result["fork_admission"]["native_threads"] == 1
+    assert result["fork_admission"]["native_sigchld"] is None
+    assert (
+        result["fork_admission"]["errno"]
+        == {
+            "library": errno.ENOENT,
+            "symbol": errno.ENOSYS,
+            "errno": errno.EINVAL,
+            "unexpected_return": errno.EIO,
+        }[failure]
+    )
+    assert result["fork_admission"]["error"]
 
 
 def test_review_admission_retains_native_library_error_before_acquisition(tmp_path, monkeypatch):
