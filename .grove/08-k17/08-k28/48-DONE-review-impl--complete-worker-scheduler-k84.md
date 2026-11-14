@@ -53,3 +53,15 @@ to this review's handle without transcribing findings. Otherwise retire without
 an empty integration. The eventual aggregate runtime review with
 Reviews: bounded-inspection-k28 before retained-evidence-k21 remains the final
 aggregate producer's responsibility.
+
+## Decisions (running log)
+
+- 2026-11-15: Review of `complete-worker-scheduler-k81` found nothing that earns
+  integration, so no integrate-review-impl leaf is cut.
+  - Source: `controller.py` brackets only `os.killpg(pid, 0)` with two monotonic reads, in a `finally`. Skipped paths keep null/null.
+  - Controls: `test_controller.py:1545-1625` covers success, EPERM, ESRCH and late exhaustion. The real-worker test asserts the full time chain and the fixture reap.
+  - Evidence: RED used the parent `controller.py` with the new tests, and all 10 cases failed on `KeyError: 'probe_started_monotonic'`. GREEN and full runs used the committed inputs. Case ids match.
+  - The 21 files on disk but not in the commit are `__pycache__` and `.pytest_cache` files that git ignores.
+  - Limit: `probe_outcome` stays "permitted" when the late-deadline check turns state to unknown. Existing behaviour, asserted by the tests, so not a defect.
+  - Limit: EPERM is injected, not real privilege evidence. The report says so.
+  - Split: k83 keeps the whole aggregate charter. Ten-clone acceptance stays 0/10 unavailable.
