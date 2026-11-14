@@ -13,7 +13,7 @@ section of `docs/experiments/exec-reliability-diagnostic-foundation.md`, and
 bounded-inspection-k27's seven dispositions in commit `dd264245`. Planner
 bounded-inspection-k25 records the increment boundary. The delivered initial
 admission slice is k32-final-01, following k29 and its review integration k32.
-The complete worker/scheduler boundary remains complete-worker-scheduler-k75's
+The complete worker/scheduler boundary remains complete-worker-scheduler-k91's
 work after helper-fork-error-k72 reviews k69. Later bounded slices have landed
 without establishing the persistent worker/shared scheduler guarantee; read the
 current foundation report for their measured limits.
@@ -268,3 +268,7 @@ to find the current contract.
 The full aggregate continues in flat sibling complete-worker-scheduler-k88, including the persistent pre-resource worker, common scheduler, every outstanding control and final aggregate review. k85 only closes signal/exit-observation admission inside `_terminate` at the original deadline and rejects late observer returns. See experiments/exec-reliability/evidence/termination-cutoff-k85/report.md. Its separate review does not replace the required final bounded-inspection review. `_wait`, group query/probe admission, scheduler unification and all remaining waits retain their aggregate obligations. The failed full-1 real fixture observations are retained and remain unresolved; a later full pass is no repair claim. Aggregate ancestors remain open; ten-clone acceptance is 0/10 unavailable.
 
 The k89 findings are reconciled by k90: signal authority closes at K-R (not K), and signal receipts share the admission sample. See experiments/exec-reliability/evidence/termination-cutoff-k90/report.md for red/green evidence and exact limits. k85’s six mutations cover only three deadline comparisons/equality variants. The expired-deadline first nonblocking reap attempt and all other aggregate requirements remain in complete-worker-scheduler-k88; k28/k17 stay open.
+
+## Current decomposition
+
+The first expired-deadline leader reap is k88's independently verifiable slice. complete-worker-scheduler-k91 retains the entire original runtime charter and all controls. Aggregate acceptance and final bounded-inspection review remain here; k28/k17 stay open.

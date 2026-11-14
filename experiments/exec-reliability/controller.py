@@ -187,7 +187,10 @@ def _reap_leader(process: _WorkloadProcess, deadline: float, receipt: dict[str, 
     receipt["authority_closed_monotonic"] = time.monotonic()
     receipt["reap_deadline_monotonic"] = deadline
     receipt["within_process_bounds"] = False
-    while time.monotonic() < deadline:
+    # Even a late turn must attempt one reap; only subsequent polls spend K.
+    first_attempt = True
+    while first_attempt or time.monotonic() < deadline:
+        first_attempt = False
         try:
             # A positive PID restricts the wait; WNOHANG returns immediately.
             # https://docs.python.org/3/library/os.html#os.waitpid

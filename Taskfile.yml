@@ -94,6 +94,14 @@ tasks:
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/termination-cutoff-k90/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
 
+  diagnostic:leader-reap-check:
+    desc: Run frozen first-reap controls; fresh OUT, MODE=full for full suite
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/leader-reap-k88/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
+
   diagnostic:worker-evidence-check:
     desc: Run frozen worker deadline controls or a timing suite; fresh OUT, MODE=full for suite
     dir: '{{.ROOT_DIR}}'
@@ -551,3 +559,17 @@ tasks:
       vars: [TAG]
     cmds:
       - scripts/release-publish.sh {{.TAG}}
+
+  diagnostic:leader-reap-tools:
+    desc: Check the retained first-reap runner and evidence auditor
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python -m ruff check experiments/exec-reliability/evidence/leader-reap-k88/run_condition.py experiments/exec-reliability/evidence/leader-reap-k88/audit.py
+      - uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/leader-reap-k88/run_condition.py experiments/exec-reliability/evidence/leader-reap-k88/audit.py
+      - uv run --project experiments/exec-reliability --locked python -m pyright experiments/exec-reliability/evidence/leader-reap-k88/run_condition.py experiments/exec-reliability/evidence/leader-reap-k88/audit.py
+
+  diagnostic:leader-reap-audit:
+    desc: Audit retained first-reap outcomes and historical evidence hashes
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/leader-reap-k88/audit.py {{.OUT | shellQuote}}

@@ -1886,3 +1886,24 @@ Earlier intermittent full-run fixture failures remain unresolved. The mandatory
 reap attempt after deadline expiry belongs to complete-worker-scheduler-k88,
 alongside the existing worker/scheduler charter and its final aggregate review.
 k28/k17 remain open; ten-clone acceptance remains **0/10, unavailable**.
+
+### k88 first workload-leader reap after deadline expiry
+
+The first exact-child nonblocking reap now runs even at or after the original
+reap deadline, after signal and process-query authority closes. Later polls
+remain bounded by that deadline. A successful late reap records status and
+releases ownership while retaining failed timing; incomplete/error outcomes
+retain their residual receipt without renewing grace.
+
+The [k88 report](../../experiments/exec-reliability/evidence/leader-reap-k88/report.md)
+retains seven expected RED failures, two passing runs of the same 16 focused
+cases, and a full self-check passing all 460 tests, lint, formatting and strict
+types. The new cases use actual exited children with explicitly simulated
+clocks, no-completion and ECHILD responses. Their independent exact-child owner
+retains cleanup/absence evidence. The byte/receipt audit checks case identities
+and all 103,182 earlier evidence files. Earlier intermittent full-run fixture
+failures remain unresolved.
+
+The aggregate persistent worker/shared scheduler charter and its required final
+review continue in complete-worker-scheduler-k91, after the focused k88 review.
+k28/k17 remain open; ten-clone acceptance remains **0/10, unavailable**.

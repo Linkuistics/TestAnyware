@@ -452,8 +452,12 @@ def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, rea
         assert receipt["reaped"] is False
         assert receipt["residual_leader_pid"] == pid
         assert receipt["within_process_bounds"] is False
-        assert (not attempts) if reap_state == "expired" else bool(attempts)
-        assert all(t < receipt["reap_deadline_monotonic"] for _, _, t in attempts)
+        assert attempts
+        if reap_state == "expired":
+            assert len(attempts) == 1
+            assert attempts[0][2] >= receipt["reap_deadline_monotonic"]
+        else:
+            assert all(t < receipt["reap_deadline_monotonic"] for _, _, t in attempts)
         owner = controller._workload_owners[pid]
         owner.__del__()
         subprocess.run(("/usr/bin/true",), check=True)
@@ -476,6 +480,77 @@ def test_review_nonblocking_reap_retains_failed_owner(tmp_path, monkeypatch, rea
         assert audit["after_independent_reap"]["state"] == "absent"
         getattr(controller, "_workload_owners", {}).pop(pid, None)
         (path / "leader-reap-audit.json").write_text(json.dumps(audit, indent=2))
+
+
+@pytest.mark.parametrize("deadline", [100.0, 99.0], ids=["equality", "expired"])
+@pytest.mark.parametrize("outcome", ["ready", "withheld", "missing"])
+def test_leader_reap_first_attempt_at_deadline(tmp_path, monkeypatch, deadline, outcome):
+    import controller
+
+    process = controller._WorkloadProcess(("/usr/bin/true",), start_new_session=True)
+    controller._workload_owners[process.pid] = process
+    original_waitpid = os.waitpid
+    receipt = {"reaped": False, "returncode": None}
+    attempts = []
+    audit = {"pid": process.pid, "deadline": deadline, "outcome": outcome}
+    tick = 99.999
+
+    def clock():
+        nonlocal tick
+        tick += 0.001
+        return round(tick, 6)
+
+    def waitpid(pid, options):
+        assert receipt["authority_closed_monotonic"] == 100.0
+        assert pid == process.pid and options == os.WNOHANG
+        attempts.append((pid, options))
+        if outcome == "missing":
+            raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+        if outcome == "withheld":
+            return 0, 0
+        return original_waitpid(pid, options)
+
+    def forbidden_sleep(seconds):
+        raise AssertionError("expired reap must not sleep or renew polling")
+
+    try:
+        assert controller._wait(process.pid, time.monotonic() + 2)
+        audit["before"] = inspect_pid(process.pid)
+        assert audit["before"]["state"] == "zombie"
+        with monkeypatch.context() as patch:
+            patch.setattr(controller.time, "monotonic", clock)
+            patch.setattr(controller.time, "sleep", forbidden_sleep)
+            patch.setattr(controller.os, "waitpid", waitpid)
+            controller._reap_leader(process, deadline, receipt)
+        audit.update(receipt=receipt, attempts=attempts)
+        assert attempts == [(process.pid, os.WNOHANG)]
+        assert receipt["reap_deadline_monotonic"] == deadline
+        assert receipt["within_process_bounds"] is False
+        if outcome == "ready":
+            assert receipt["reaped"] is True
+            assert receipt["returncode"] == process.returncode == 0
+            assert receipt["reaped_monotonic"] > deadline
+            assert process.pid not in controller._workload_owners
+            assert "residual_leader_pid" not in receipt
+            with pytest.raises(ChildProcessError):
+                original_waitpid(process.pid, os.WNOHANG)
+        else:
+            assert receipt["reaped"] is False
+            assert process.returncode is None
+            assert controller._workload_owners[process.pid] is process
+            assert receipt["residual_leader_pid"] == process.pid
+            if outcome == "missing":
+                assert receipt["reap_errno"] == errno.ECHILD
+    finally:
+        # Independent exact-child owner, after restoring the clock/wait adapters.
+        if process.returncode is None:
+            process.wait(timeout=2)
+        controller._workload_owners.pop(process.pid, None)
+        audit.update(receipt=receipt, attempts=attempts, after=inspect_pid(process.pid))
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        controller.write_json(root / f"leader-reap-{uuid.uuid4().hex}.json", audit)
+        assert audit["after"]["state"] == "absent"
 
 
 def call(name, mode, *args, budget=3, interrupt_after=None):
