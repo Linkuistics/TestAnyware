@@ -13,7 +13,7 @@ import struct
 import subprocess
 import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypedDict
 
 _TASK_INFO = struct.Struct("=6Q12i")
@@ -133,6 +133,8 @@ class HelperCapture:
     reaped: bool = False
     reaped_monotonic: float | None = None
     reap_errno: int | None = None
+    ownership_lost: bool = False
+    close_errors: list[str] = field(default_factory=list[str])
     error: str | None = None
     error_errno: int | None = None
     residual_remedy: str | None = None
@@ -158,6 +160,9 @@ def _reap_helper(process: _HelperProcess, receipt: HelperCapture) -> None:
     except OSError as error:
         receipt.reap_errno = error.errno
         receipt.error = f"helper reap failed: {error}"
+        if error.errno == errno.ECHILD:
+            receipt.ownership_lost = True
+            _helper_owners.pop(process.pid, None)
         return
     if pid == process.pid:
         process.returncode = os.waitstatus_to_exitcode(status)
@@ -168,10 +173,11 @@ def _reap_helper(process: _HelperProcess, receipt: HelperCapture) -> None:
 
 
 def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
-    """Cap both pipes and exact-child reap within a caller's fixed allowance.
+    """Cap both pipes and spend only the caller's fixed allowance on reap waits.
 
-    Popen creation is synchronous. A late return retains its owner and cannot
-    extend the deadline. The private worker/scheduler is still required.
+    Popen creation is synchronous. A late return still gets exact-child KILL
+    and a final nonblocking observation, without a new wait allowance. Scheduler
+    lateness is recorded as failure; the private worker is still required.
     """
     started = time.monotonic()
     receipt = HelperCapture(
@@ -245,7 +251,7 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
         if process is not None:
             # Only an unreaped child with retained wait ownership pins the PID.
             # A wait error closes signal authority even though the owner remains.
-            if not receipt.reaped and receipt.reap_errno is None and time.monotonic() < deadline:
+            if not receipt.reaped and receipt.reap_errno is None:
                 receipt.kill_monotonic = time.monotonic()
                 try:
                     os.kill(process.pid, signal.SIGKILL)
@@ -254,12 +260,19 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     receipt.error = receipt.error or f"helper KILL failed: {error}"
             for stream in (process.stdout, process.stderr):
                 if stream is not None:
-                    stream.close()
+                    try:
+                        stream.close()
+                    except (OSError, ValueError) as error:
+                        receipt.close_errors.append(str(error))
+                        receipt.error = receipt.error or f"helper pipe close failed: {error}"
             while not receipt.reaped and receipt.reap_errno is None and time.monotonic() < deadline:
                 _reap_helper(process, receipt)
                 if not receipt.reaped:
                     time.sleep(min(0.005, max(0, deadline - time.monotonic())))
-            if not receipt.reaped:
+            # Observe a child that exited during the last sleep, or late creation.
+            # This adds no wait allowance and never reopens lost wait ownership.
+            _reap_helper(process, receipt)
+            if not receipt.reaped and not receipt.ownership_lost:
                 receipt.error = receipt.error or "helper unreaped before fixed deadline"
                 receipt.residual_remedy = (
                     "Strong helper ownership retained without further signals or waits. "
@@ -267,4 +280,6 @@ def capture_helper(argv: tuple[str, ...], deadline: float) -> HelperCapture:
                     "before external reconciliation."
                 )
         receipt.finished_monotonic = time.monotonic()
+        if receipt.finished_monotonic > deadline:
+            receipt.error = receipt.error or "helper fixed deadline exceeded"
     return receipt

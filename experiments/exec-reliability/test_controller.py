@@ -1233,7 +1233,12 @@ def test_review_pinning_control_detects_real_early_reap(tmp_path, monkeypatch, r
         if exited and reaper:
             process = processes[pid]
             if reaper == "poll":
-                process.poll()
+                # NOTE_EXIT can arrive before waitpid reports a waitable child.
+                # Confirm the injected reap before testing released identity.
+                end = time.monotonic() + 1
+                while process.poll() is None and time.monotonic() < end:
+                    time.sleep(0.005)
+                assert process.returncode is not None, "poll control did not reap"
             elif reaper == "wait":
                 process.wait(timeout=1)
             elif reaper == "waitpid":

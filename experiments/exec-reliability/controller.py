@@ -307,8 +307,6 @@ def _group_snapshot(pid: int, deadline: float) -> GroupObservation:
                 observation["error"] = str(error)
         if time.monotonic() >= deadline:
             raise TimeoutError("group inspection deadline exhausted after probe")
-    except subprocess.TimeoutExpired as error:
-        observation.update(stdout=error.stdout or b"", stderr=error.stderr or b"", error=str(error))
     except (OSError, ValueError) as error:
         observation["state"] = "unknown"
         observation["members"] = []

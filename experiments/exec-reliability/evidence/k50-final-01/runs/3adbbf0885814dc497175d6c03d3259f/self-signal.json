@@ -1,0 +1,86 @@
+{
+  "name": "self-signal",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "-c",
+    "\nimport json, os, runpy, signal, sys\nfrom pathlib import Path\noriginal = os.kill\ndef misdirect(pid, sig):\n    if sig == signal.SIGTERM:\n        Path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k50-final-01/runs/self-signal-966ebf548c9145eb9f47902434d390c9.json').write_text(json.dumps({\"pid\": pid}))\n        original(pid, signal.SIGKILL)\n        original(os.getpid(), sig)\n    else:\n        original(pid, sig)\nos.kill = misdirect\nsys.argv = ['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py', 'controller', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k50-final-01/runs']\nrunpy.run_path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py', run_name='__main__')\n"
+  ],
+  "budget": 3,
+  "started_monotonic": 264644.879521916,
+  "wall_start_ns": 1794647364611115000,
+  "reason": "exit",
+  "returncode": -15,
+  "reaped": true,
+  "ok": false,
+  "signals": [],
+  "pid": 67320,
+  "pgid": 67320,
+  "signal_scope": "group",
+  "leader_exit_monotonic": 264645.11552025,
+  "inspection_deadline_monotonic": 264645.34052024997,
+  "group_observations": [
+    {
+      "started_monotonic": 264645.115541333,
+      "finished_monotonic": 264645.122038416,
+      "query_attempted": true,
+      "helper": {
+        "stdout": "3637333230203637333230205a2020200a",
+        "stderr": "",
+        "returncode": 0,
+        "pid": 67322,
+        "argv": [
+          "/bin/ps",
+          "-g",
+          "67320",
+          "-o",
+          "pid=,pgid=,stat="
+        ],
+        "admission": {
+          "ok": true,
+          "reason": "ready",
+          "python_threads": 1,
+          "native_threads": 1,
+          "sigchld": "SIG_DFL",
+          "native_sigchld": "SIG_DFL",
+          "error": null,
+          "errno": null
+        },
+        "started_monotonic": 264645.1155625,
+        "created_monotonic": 264645.118727291,
+        "capture_deadline_monotonic": 264645.29052025,
+        "deadline_monotonic": 264645.34052024997,
+        "finished_monotonic": 264645.121803375,
+        "kill_monotonic": null,
+        "kill_errno": null,
+        "reaped": true,
+        "reaped_monotonic": 264645.121788333,
+        "reap_errno": null,
+        "ownership_lost": false,
+        "close_errors": [],
+        "error": null,
+        "error_errno": null,
+        "residual_remedy": null
+      },
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 67320,
+          "pgid": 67320,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3637333230203637333230205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "termination_ok": true,
+  "authority_closed_monotonic": 264645.122049875,
+  "reap_deadline_monotonic": 264645.41552025,
+  "within_process_bounds": true,
+  "reaped_monotonic": 264645.122055333,
+  "elapsed": 0.24255016702227294
+}

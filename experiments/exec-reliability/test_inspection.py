@@ -1,6 +1,7 @@
 """Admission controls catch execution or acquisition before unsafe fork rejection."""
 
 import ctypes
+import errno
 import json
 import os
 import signal
@@ -93,6 +94,176 @@ def test_review_admission_rejects_live_python_thread_before_acquisition(tmp_path
         release.set()
         thread.join(timeout=1)
     assert not thread.is_alive()
+
+
+def retain_helper_control(tmp_path, condition, capture):
+    from dataclasses import asdict
+
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+    root.mkdir(parents=True, exist_ok=True)
+    receipt = asdict(capture)
+    receipt.update(stdout=capture.stdout.hex(), stderr=capture.stderr.hex())
+    (root / f"helper-{condition}-{uuid.uuid4().hex}.json").write_text(
+        json.dumps({"condition": condition, "capture": receipt}, indent=2)
+    )
+
+
+@pytest.mark.parametrize("failed_pipe", ["stdout", "stderr"])
+def test_review_helper_close_error_preserves_receipt_and_reaps(tmp_path, monkeypatch, failed_pipe):
+    import inspection
+
+    original_process = inspection._HelperProcess
+    created = []
+
+    class FaultedClose:
+        def __init__(self, stream):
+            self.stream = stream
+
+        def fileno(self):
+            return self.stream.fileno()
+
+        def close(self):
+            self.stream.close()
+            raise OSError(errno.EIO, "injected pipe close failure")
+
+    def create(*args, **kwargs):
+        process = original_process(*args, **kwargs)
+        created.append(process)
+        setattr(process, failed_pipe, FaultedClose(getattr(process, failed_pipe)))
+        return process
+
+    monkeypatch.setattr(inspection, "_HelperProcess", create)
+    try:
+        capture = inspection.capture_helper(
+            (sys.executable, "-c", "import time; time.sleep(10)"), time.monotonic() + 0.3
+        )
+        assert capture.reaped is True
+        assert capture.returncode == -signal.SIGKILL
+        assert capture.finished_monotonic >= capture.reaped_monotonic
+        assert any("injected pipe close failure" in error for error in capture.close_errors)
+        other = "stderr" if failed_pipe == "stdout" else "stdout"
+        assert getattr(created[0], other).closed
+        assert capture.pid not in inspection._helper_owners
+        retain_helper_control(tmp_path, f"close-error-{failed_pipe}-adapter", capture)
+    finally:
+        # Independent cleanup also runs when the old implementation raises.
+        for process in created:
+            process.wait(timeout=1)
+            for stream in (process.stdout, process.stderr):
+                (stream.stream if isinstance(stream, FaultedClose) else stream).close()
+            inspection._helper_owners.pop(process.pid, None)
+
+
+def test_review_helper_last_sleep_gets_final_nonblocking_observation(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    import inspection
+
+    # Clock/wait adapter isolates the final-sleep race; no real child or signal.
+    now = 100.0
+    waited = []
+    process = SimpleNamespace(
+        pid=987654321,
+        stdout=(tmp_path / "stdout").open("w+b"),
+        stderr=(tmp_path / "stderr").open("w+b"),
+        returncode=None,
+    )
+
+    def create(*_args, **_kwargs):
+        nonlocal now
+        now = 100.99
+        return process
+
+    def waitpid(pid, flags):
+        assert (pid, flags) == (process.pid, os.WNOHANG)
+        waited.append(now)
+        return (pid, 9) if now >= 101 else (0, 0)
+
+    def sleep(seconds):
+        nonlocal now
+        now += seconds
+
+    monkeypatch.setattr(inspection, "_HelperProcess", create)
+    monkeypatch.setattr(inspection, "time", SimpleNamespace(monotonic=lambda: now, sleep=sleep))
+    monkeypatch.setattr(os, "waitpid", waitpid)
+    monkeypatch.setattr(os, "kill", lambda pid, sig: None)
+    try:
+        capture = inspection.capture_helper(("timing-adapter",), 101)
+        assert capture.reaped is True
+        assert capture.returncode == -signal.SIGKILL
+        assert waited[-1] == 101
+        assert capture.residual_remedy is None
+        assert capture.finished_monotonic == 101
+        retain_helper_control(tmp_path, "final-observation-clock-wait-adapter", capture)
+    finally:
+        inspection._helper_owners.pop(process.pid, None)
+
+
+def test_review_helper_late_creation_signals_pinned_child_without_new_allowance(
+    tmp_path, monkeypatch
+):
+    import inspection
+
+    original_process = inspection._HelperProcess
+    created = []
+
+    def late_create(*args, **kwargs):
+        process = original_process(*args, **kwargs)
+        created.append(process)
+        time.sleep(0.1)
+        return process
+
+    monkeypatch.setattr(inspection, "_HelperProcess", late_create)
+    deadline = time.monotonic() + 0.05
+    try:
+        capture = inspection.capture_helper(
+            (sys.executable, "-c", "import time; time.sleep(10)"), deadline
+        )
+        assert capture.created_monotonic > deadline
+        assert capture.kill_monotonic is not None
+        assert capture.kill_monotonic >= capture.created_monotonic
+        assert capture.finished_monotonic > deadline
+        assert capture.error
+        assert capture.deadline_monotonic == deadline
+        assert capture.stdout == capture.stderr == b""
+        retain_helper_control(tmp_path, "late-creation-real-child-delay-adapter", capture)
+    finally:
+        for process in created:
+            if process.pid in inspection._helper_owners:
+                os.kill(process.pid, signal.SIGKILL)
+            process.wait(timeout=1)
+            inspection._helper_owners.pop(process.pid, None)
+
+
+def test_review_helper_echild_releases_stale_owner_without_claiming_exit(tmp_path, monkeypatch):
+    import inspection
+
+    original_waitpid = os.waitpid
+
+    def externally_reaped(pid, flags):
+        assert flags == os.WNOHANG
+        # Models a competing reaper, not permission denial.
+        assert original_waitpid(pid, 0)[0] == pid
+        raise ChildProcessError(errno.ECHILD, "injected competing reaper")
+
+    def forbidden(*_args):
+        raise AssertionError("signal after lost wait ownership")
+
+    monkeypatch.setattr(os, "waitpid", externally_reaped)
+    monkeypatch.setattr(os, "kill", forbidden)
+    capture = inspection.capture_helper((sys.executable, "-c", "pass"), time.monotonic() + 0.5)
+    try:
+        assert capture.reap_errno == errno.ECHILD
+        assert capture.pid not in inspection._helper_owners
+        assert capture.ownership_lost is True
+        assert capture.reaped is False
+        assert capture.returncode is None
+        assert capture.kill_monotonic is None
+        assert capture.residual_remedy is None
+        assert capture.error
+        retain_helper_control(tmp_path, "echild-competing-reaper-adapter", capture)
+    finally:
+        inspection._helper_owners.pop(capture.pid, None)
 
 
 @pytest.mark.parametrize("failure", ["hang", "stdout", "stderr", "admission"])

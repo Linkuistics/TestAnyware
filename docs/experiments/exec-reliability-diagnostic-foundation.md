@@ -8,9 +8,10 @@ fixture cleanup and checker timeout reporting. Initial fork admission now reject
 extra Python or native threads, changed Python or kernel SIGCHLD disposition and
 unavailable native observations before acquisition, retaining failed results.
 Review integration k32 independently reproduced and repaired the Python signal
-cache gap. The current measured condition is k47-final-01: workload leaders
+cache gap. The current measured condition is k50-final-02: workload leaders
 are reaped with exact-PID nonblocking waits before a fixed deadline; failed
-reaps retain an explicit owner and residual without destructor polling.
+reaps retain an explicit owner and residual without destructor polling, except
+ECHILD, which closes wait ownership without establishing an exit status.
 The controller now requests at most one final process table, after the final
 signal and observed leader exit. Missing exit evidence leaves inspection
 unknown without a query; a live or unknown final table cannot trigger a retry.
@@ -1295,3 +1296,69 @@ conditions cannot be claimed until the table's build/install/grant facts are
 established. If that preparation requires its own session, insert it before
 measurement; do not absorb an unbounded setup into a causal sample. The
 controller's scheduled implementation review precedes these consumers.
+
+
+## k50: bounded-helper review integration
+
+The k49 review of producer `2d258277` identified three receipt/cleanup defects.
+All three are repaired in this narrow integration; synchronous helper creation
+and the shared worker/scheduler remain `worker-scheduler-k48` work.
+
+1. **Close failure — real issue.** Each pipe close now has independent
+   `OSError`/`ValueError` handling. `close_errors` retains the diagnostic, the
+   other close still runs, reap attempts continue and the finished receipt
+   reaches the controller. Separate stdout/stderr wrappers close a real pipe
+   then raise EIO; both real children are KILLed and reaped with failed receipts.
+2. **Final sleep — real issue.** A final exact-PID WNOHANG observation follows
+   the wait loop, even at/after the original cutoff. A deterministic clock/wait
+   adapter makes exit become observable during the last sleep and verifies
+   reap at the cutoff. It has no real child or signal. No new wait allowance is
+   granted. Scheduling can still return late; lateness remains a failed result.
+3. **Late Popen — real issue.** A helper whose synchronous creation returns
+   after the deadline still receives exact-PID KILL while its unreaped identity
+   remains owned, followed by the final nonblocking observation. The fixed
+   deadline is unchanged. A real child plus delayed-constructor adapter verifies
+   the late signal, empty capture and failure; independent fixture wait reaps
+   it if that final observation cannot. This does not bound process creation.
+4. **ECHILD — real issue.** ECHILD removes the stale strong owner and sets
+   `ownership_lost`, without claiming an observed exit, return code or live
+   residual. The error stays failed and signal authority stays closed. The
+   competing-reaper control independently waits a real child before injecting
+   ECHILD. Other wait errors conservatively retain the owner and close signal
+   authority. Neither control establishes genuine privileged denial.
+5. **Obsolete TimeoutExpired handler — real issue.** Removed from group
+   inspection after the transition away from `subprocess.run`.
+6. **Adapter scope — accepted test boundary.** Controller return-value adapters
+   establish controller reactions. Real-pipe helper controls establish byte
+   caps and KILL/reap behavior; clock/wait, competing-reaper and close-failure
+   adapters establish their stated injected conditions only. Simulated
+   unreapability still means WNOHANG always returns `(0, 0)`, with a real child,
+   real KILL and independent fixture reap. No UID-denial result is claimed.
+
+Retained conditions (all checker processes reaped; input hashes stable):
+
+| Condition | Result |
+| --- | --- |
+| `k47-check-01` | Historical lint failure retained unchanged. |
+| `k47-final-01` | Historical 130-test success retained unchanged. |
+| `k50-red-01` | Five new cases reproduce the defects; inherited poll control also fails: 6 failed, 90 passed, 39 deselected. |
+| `k50-final-01` | 135 tests pass; strict typing rejects the unparameterized list factory. |
+| `k50-final-02` | Ruff lint/format, strict Pyright and all 135 tests pass (pytest checker 26.675 s). |
+
+The inherited early-reap poll control could observe NOTE_EXIT before waitpid
+reported a waitable child. Its injected poll now retries nonblocking for at most
+one second and requires an actual reap before testing released identity. This
+changes the control's precondition, not controller behavior. The list factory
+was parameterized after the retained type failure.
+
+`evidence/k50-audit-01` independently checks every retained artifact digest,
+per-test result and expected checker code, and compares the final condition's
+source hashes with current inputs. Its exact-PID absence predicate is challenged
+with live, mixed, invalid-selector and known-reaped controls. Named pytest
+scratch paths come from retained argv; additional paths are explicitly labeled
+session enumeration. Cleanup occurs only after every recorded real PID is
+absent; preflight inventories are copied byte-for-byte before removal. This is
+later observation of recorded identities, not proof against unrecorded escaped
+children. The audit result is authoritative for completion of that reconciliation.
+No live guest, app route, scheduler-isolation or historical acceptance claim
+changes: acceptance remains **0/10, unavailable**.
