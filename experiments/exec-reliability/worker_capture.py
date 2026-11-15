@@ -19,6 +19,7 @@ from typing import cast
 
 import inspection
 from inspection import ForkAdmission, HelperCapture
+from turns import Turn, run_turns
 
 FRAME_CAP = 1024 * 1024
 TURN_CAP = 64 * 1024
@@ -571,8 +572,7 @@ class Worker:
     def close(self) -> None:
         """Compatibility driver; schedulers can use begin_close/advance_close."""
         self.begin_close()
-        while (wake := self.advance_close()) is not None:
-            time.sleep(max(0.0, wake - time.monotonic()))
+        run_turns(Turn(self.advance_close, safety=True))
 
     def _finish_close(self, state: _Shutdown) -> None:
         owner = self.owner

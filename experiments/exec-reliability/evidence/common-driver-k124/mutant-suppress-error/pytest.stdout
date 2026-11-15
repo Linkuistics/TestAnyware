@@ -1,0 +1,37 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/common-driver-k124/inputs-suppress-error
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 873 items / 867 deselected / 6 selected
+
+test_turns.py::test_shared_turns_safety_then_earliest_then_rotation PASSED [ 16%]
+test_turns.py::test_shared_turns_ready_safety_precedes_earlier_ordinary PASSED [ 33%]
+test_turns.py::test_shared_turns_equal_ready_wakes_rotate PASSED         [ 50%]
+test_turns.py::test_shared_turns_empty_and_terminal_are_not_reentered PASSED [ 66%]
+test_turns.py::test_shared_turns_error_propagates_without_retry_or_sleep FAILED [ 83%]
+test_turns.py::test_shared_turns_orders_overdue_by_wake PASSED           [100%]
+
+=================================== FAILURES ===================================
+__________ test_shared_turns_error_propagates_without_retry_or_sleep ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10897bef0>
+
+    def test_shared_turns_error_propagates_without_retry_or_sleep(monkeypatch):
+        _, sleeps = clock(monkeypatch)
+        seen = []
+    
+        def fail():
+            seen.append("failed")
+            raise OSError("bounded owner failure")
+    
+>       with pytest.raises(OSError, match="bounded owner failure"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE OSError
+
+test_turns.py:97: Failed
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/common-driver-k124/mutant-suppress-error/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_turns.py::test_shared_turns_error_propagates_without_retry_or_sleep - Failed: DID NOT RAISE OSError
+================= 1 failed, 5 passed, 867 deselected in 0.36s ==================

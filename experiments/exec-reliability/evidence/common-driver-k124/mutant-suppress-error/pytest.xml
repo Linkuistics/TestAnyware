@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="6" time="0.359" timestamp="2026-11-15T17:12:00.979254+11:00" hostname="byrd.local"><testcase classname="test_turns" name="test_shared_turns_safety_then_earliest_then_rotation" time="0.000" /><testcase classname="test_turns" name="test_shared_turns_ready_safety_precedes_earlier_ordinary" time="0.000" /><testcase classname="test_turns" name="test_shared_turns_equal_ready_wakes_rotate" time="0.000" /><testcase classname="test_turns" name="test_shared_turns_empty_and_terminal_are_not_reentered" time="0.000" /><testcase classname="test_turns" name="test_shared_turns_error_propagates_without_retry_or_sleep" time="0.000"><failure message="Failed: DID NOT RAISE OSError">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10897bef0&gt;
+
+    def test_shared_turns_error_propagates_without_retry_or_sleep(monkeypatch):
+        _, sleeps = clock(monkeypatch)
+        seen = []
+    
+        def fail():
+            seen.append("failed")
+            raise OSError("bounded owner failure")
+    
+&gt;       with pytest.raises(OSError, match="bounded owner failure"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE OSError
+
+test_turns.py:97: Failed</failure></testcase><testcase classname="test_turns" name="test_shared_turns_orders_overdue_by_wake" time="0.000" /></testsuite></testsuites>

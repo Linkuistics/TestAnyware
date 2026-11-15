@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Literal, TypedDict, cast
 
 from inspection import fork_admission
+from turns import Turn, run_turns
 from worker_capture import (
     BootstrapBounds,
     CloseBounds,
@@ -199,8 +200,7 @@ class _WorkloadWait:
 
 def _wait(pid: int, deadline: float) -> bool:
     owner = _WorkloadWait(pid, deadline)
-    while (wake := owner.advance()) is not None:
-        time.sleep(min(0.005, max(0.0, wake - time.monotonic())))
+    run_turns(Turn(owner.advance))
     return owner.exited
 
 
@@ -305,12 +305,7 @@ class _LeaderReap:
 def _reap_leader(process: _WorkloadProcess, deadline: float, receipt: dict[str, object]) -> None:
     """Consume reap turns synchronously until the exact child or fixed cutoff."""
     owner = _LeaderReap(process, deadline, receipt)
-    while not owner.finished:
-        wake = owner.advance()
-        if wake is not None:
-            remaining = wake - time.monotonic()
-            if remaining > 0:
-                time.sleep(remaining)
+    run_turns(Turn(owner.advance, safety=True))
 
 
 def _group_snapshot(
@@ -616,10 +611,7 @@ def _terminate(
 ) -> float:
     """Compatibility driver; the shared scheduler can instead advance the owner."""
     owner = _Termination(pid, pid_only, plan, receipt)
-    while (wake := owner.advance()) is not None:
-        delay = wake - time.monotonic()
-        if delay > 0:
-            time.sleep(delay)
+    run_turns(Turn(owner.advance, safety=True))
     final = inspection.snapshot(
         str(receipt["name"]),
         pid,

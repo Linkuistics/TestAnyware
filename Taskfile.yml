@@ -1104,3 +1104,41 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python evidence/workload-turns-k122/audit.py
+
+  diagnostic:common-driver-prepare:
+    desc: Freeze shared driver inputs, optionally with MUTANT
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/common-driver-k124/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:common-driver-check:
+    desc: Retain bounded frozen shared driver controls or full diagnostic checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/common-driver-k124/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
+
+  diagnostic:common-driver-preserve:
+    desc: Inventory prior evidence around shared driver integration
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/common-driver-k124/preserve.py '{{.MODE}}'
+
+  diagnostic:common-driver-tools:
+    desc: Format and check shared driver evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/common-driver-k124/*.py
+      - uv run --locked python -m ruff check evidence/common-driver-k124/*.py
+      - uv run --locked python -m pyright evidence/common-driver-k124/*.py
+
+  diagnostic:common-driver-audit:
+    desc: Audit shared driver verdicts, mutations and fixture cleanup
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/common-driver-k124/audit.py

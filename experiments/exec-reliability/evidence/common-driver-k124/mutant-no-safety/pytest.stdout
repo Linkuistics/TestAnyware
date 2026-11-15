@@ -1,0 +1,122 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/common-driver-k124/inputs-no-safety
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 873 items / 867 deselected / 6 selected
+
+test_turns.py::test_shared_turns_safety_then_earliest_then_rotation FAILED [ 16%]
+test_turns.py::test_shared_turns_ready_safety_precedes_earlier_ordinary FAILED [ 33%]
+test_turns.py::test_shared_turns_equal_ready_wakes_rotate PASSED         [ 50%]
+test_turns.py::test_shared_turns_empty_and_terminal_are_not_reentered PASSED [ 66%]
+test_turns.py::test_shared_turns_error_propagates_without_retry_or_sleep PASSED [ 83%]
+test_turns.py::test_shared_turns_orders_overdue_by_wake PASSED           [100%]
+
+=================================== FAILURES ===================================
+_____________ test_shared_turns_safety_then_earliest_then_rotation _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b0ef0e0>
+
+    def test_shared_turns_safety_then_earliest_then_rotation(monkeypatch):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+    
+        def owner(name, wake):
+            count = 0
+    
+            def advance():
+                nonlocal count
+                seen.append((name, now[0]))
+                count += 1
+                return wake if count == 1 else None
+    
+            return advance
+    
+        turns.run_turns(
+            turns.Turn(owner("ordinary", 10.01)),
+            turns.Turn(owner("late", 10.02), safety=True),
+            turns.Turn(owner("early", 10.01), safety=True),
+        )
+>       assert [name for name, _ in seen] == ["late", "early", "ordinary", "early", "ordinary", "late"]
+E       AssertionError: assert ['ordinary', 'late', 'early', 'ordinary', 'early', 'late'] == ['late', 'early', 'ordinary', 'early', 'ordinary', 'late']
+E         
+E         At index 0 diff: 'ordinary' != 'late'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         +     'ordinary',
+E               'late',
+E               'early',
+E               'ordinary',
+E               'early',
+E         -     'ordinary',
+E               'late',
+E           ]
+
+test_turns.py:42: AssertionError
+___________ test_shared_turns_ready_safety_precedes_earlier_ordinary ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b279fd0>
+
+    def test_shared_turns_ready_safety_precedes_earlier_ordinary(monkeypatch):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+    
+        def advance(name, wake):
+            seen.append(name)
+            if seen.count(name) == 1:
+                now[0] += 0.02
+                return wake
+            return None
+    
+        turns.run_turns(
+            turns.Turn(lambda: advance("ordinary", 10.001)),
+            turns.Turn(lambda: advance("safety", 10.01), safety=True),
+        )
+>       assert seen == ["safety", "safety", "ordinary", "ordinary"]
+E       AssertionError: assert ['ordinary', 'safety', 'ordinary', 'safety'] == ['safety', 'safety', 'ordinary', 'ordinary']
+E         
+E         At index 0 diff: 'ordinary' != 'safety'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         -     'safety',
+E         +     'ordinary',
+E               'safety',
+E               'ordinary',
+E         -     'ordinary',
+E         +     'safety',
+E           ]
+
+test_turns.py:63: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/common-driver-k124/mutant-no-safety/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_turns.py::test_shared_turns_safety_then_earliest_then_rotation - AssertionError: assert ['ordinary', 'late', 'early', 'ordinary', 'early', 'late'] == ['late', 'early', 'ordinary', 'early', 'ordinary', 'late']
+  
+  At index 0 diff: 'ordinary' != 'late'
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+  +     'ordinary',
+        'late',
+        'early',
+        'ordinary',
+        'early',
+  -     'ordinary',
+        'late',
+    ]
+FAILED test_turns.py::test_shared_turns_ready_safety_precedes_earlier_ordinary - AssertionError: assert ['ordinary', 'safety', 'ordinary', 'safety'] == ['safety', 'safety', 'ordinary', 'ordinary']
+  
+  At index 0 diff: 'ordinary' != 'safety'
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+  -     'safety',
+  +     'ordinary',
+        'safety',
+        'ordinary',
+  -     'ordinary',
+  +     'safety',
+    ]
+================= 2 failed, 4 passed, 867 deselected in 0.38s ==================

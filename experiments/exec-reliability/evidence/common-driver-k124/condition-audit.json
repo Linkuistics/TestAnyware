@@ -1,0 +1,96 @@
+{
+  "conditions": {
+    "candidate-full-1": {
+      "ok": true,
+      "cases": 873,
+      "nonpass": {}
+    },
+    "candidate-full-2": {
+      "ok": true,
+      "cases": 873,
+      "nonpass": {}
+    },
+    "controls-1": {
+      "ok": false,
+      "cases": 285,
+      "nonpass": {
+        "test_controller::test_leader_reap_first_attempt_at_deadline[ready-equality]": "failure",
+        "test_controller::test_leader_reap_first_attempt_at_deadline[ready-expired]": "failure"
+      }
+    },
+    "controls-final": {
+      "ok": true,
+      "cases": 285,
+      "nonpass": {}
+    },
+    "mutant-latest-wake": {
+      "ok": false,
+      "cases": 6,
+      "nonpass": {
+        "test_turns::test_shared_turns_equal_ready_wakes_rotate": "failure",
+        "test_turns::test_shared_turns_orders_overdue_by_wake": "failure"
+      }
+    },
+    "mutant-no-rotation": {
+      "ok": false,
+      "cases": 6,
+      "nonpass": {
+        "test_turns::test_shared_turns_equal_ready_wakes_rotate": "failure"
+      }
+    },
+    "mutant-no-safety": {
+      "ok": false,
+      "cases": 6,
+      "nonpass": {
+        "test_turns::test_shared_turns_safety_then_earliest_then_rotation": "failure",
+        "test_turns::test_shared_turns_ready_safety_precedes_earlier_ordinary": "failure"
+      }
+    },
+    "mutant-suppress-error": {
+      "ok": false,
+      "cases": 6,
+      "nonpass": {
+        "test_turns::test_shared_turns_error_propagates_without_retry_or_sleep": "failure"
+      }
+    },
+    "mutant-uncapped-sleep": {
+      "ok": false,
+      "cases": 6,
+      "nonpass": {
+        "test_turns::test_shared_turns_safety_then_earliest_then_rotation": "failure"
+      }
+    },
+    "parent-full-1": {
+      "ok": true,
+      "cases": 873,
+      "nonpass": {}
+    },
+    "parent-full-2": {
+      "ok": true,
+      "cases": 873,
+      "nonpass": {}
+    },
+    "red-2": {
+      "ok": false,
+      "cases": 1,
+      "nonpass": {
+        "::test_turns": "error"
+      }
+    }
+  },
+  "comparisons": {
+    "1": {
+      "common": 873,
+      "parent_only": [],
+      "candidate_only": [],
+      "changed": {}
+    },
+    "2": {
+      "common": 873,
+      "parent_only": [],
+      "candidate_only": [],
+      "changed": {}
+    }
+  },
+  "preserved_paths": 195920
+}

@@ -1,0 +1,71 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/common-driver-k124/inputs-no-rotation
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 873 items / 867 deselected / 6 selected
+
+test_turns.py::test_shared_turns_safety_then_earliest_then_rotation PASSED [ 16%]
+test_turns.py::test_shared_turns_ready_safety_precedes_earlier_ordinary PASSED [ 33%]
+test_turns.py::test_shared_turns_equal_ready_wakes_rotate FAILED         [ 50%]
+test_turns.py::test_shared_turns_empty_and_terminal_are_not_reentered PASSED [ 66%]
+test_turns.py::test_shared_turns_error_propagates_without_retry_or_sleep PASSED [ 83%]
+test_turns.py::test_shared_turns_orders_overdue_by_wake PASSED           [100%]
+
+=================================== FAILURES ===================================
+__________________ test_shared_turns_equal_ready_wakes_rotate __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106bf7a70>
+
+    def test_shared_turns_equal_ready_wakes_rotate(monkeypatch):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+    
+        def advance(name):
+            seen.append(name)
+            return now[0] if seen.count(name) < 3 else None
+    
+        turns.run_turns(*(turns.Turn(lambda name=name: advance(name)) for name in "abc"))
+>       assert seen == list("abcabcabc")
+E       AssertionError: assert ['a', 'b', 'c', 'a', 'a', 'b', 'b', 'c', 'c'] == ['a', 'b', 'c', 'a', 'b', 'c', 'a', 'b', 'c']
+E         
+E         At index 4 diff: 'a' != 'b'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               'a',
+E               'b',
+E               'c',
+E               'a',
+E         +     'a',
+E         +     'b',
+E               'b',
+E               'c',
+E         -     'a',
+E         -     'b',
+E               'c',
+E           ]
+
+test_turns.py:76: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/common-driver-k124/mutant-no-rotation/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_turns.py::test_shared_turns_equal_ready_wakes_rotate - AssertionError: assert ['a', 'b', 'c', 'a', 'a', 'b', 'b', 'c', 'c'] == ['a', 'b', 'c', 'a', 'b', 'c', 'a', 'b', 'c']
+  
+  At index 4 diff: 'a' != 'b'
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+        'a',
+        'b',
+        'c',
+        'a',
+  +     'a',
+  +     'b',
+        'b',
+        'c',
+  -     'a',
+  -     'b',
+        'c',
+    ]
+================= 1 failed, 5 passed, 867 deselected in 0.37s ==================
