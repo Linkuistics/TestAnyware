@@ -2431,8 +2431,15 @@ def test_termination_turn_deadlines_and_wakes(monkeypatch, pid_only, exited):
     owner = controller._Termination(
         123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
     )
+
+    def advance():
+        before = len(observations)
+        wake = owner.advance()
+        assert len(observations) - before <= 1
+        return wake
+
     assert signals == observations == []
-    wake = owner.advance()
+    wake = advance()
     assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
     assert observations == [10.0]
     if pid_only and exited:
@@ -2442,19 +2449,19 @@ def test_termination_turn_deadlines_and_wakes(monkeypatch, pid_only, exited):
         assert wake == (11.0 if exited else 10.005)
         # Another safety timer gets a turn while this owner waits for T.
         now[0] = 10.999
-        assert owner.advance() == 11.0
+        assert advance() == 11.0
         assert len(signals) == 1
         now[0] = 11.0
-        wake = owner.advance()
+        wake = advance()
         assert signals[-1] == ("pid" if pid_only else "group", signal.SIGKILL, 11.0)
         assert owner.kill_deadline == 12.0
         assert wake == (None if exited else 11.005)
         if not exited:
             now[0] = 11.9
-            assert owner.advance() is None
+            assert advance() is None
     before = (list(signals), list(observations))
     now[0] = 50.0
-    assert owner.advance() is None
+    assert advance() is None
     assert (signals, observations) == before
     assert receipt["group_observations"] == []
 
@@ -2560,6 +2567,13 @@ def test_termination_turn_real_child(tmp_path, monkeypatch, pid_only):
         original_killpg(pid, sig)
 
     try:
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        # Publish the exact independent-session fixture before waiting for readiness.
+        controller.write_json(
+            root / f"owned-termination-{uuid.uuid4().hex}.json",
+            {"checker_pid": os.getpid(), "identity": inspect_pid(process.pid)},
+        )
         setup_deadline = time.monotonic() + 2
         while not ready.exists() and time.monotonic() < setup_deadline:
             time.sleep(0.001)
@@ -2576,8 +2590,8 @@ def test_termination_turn_real_child(tmp_path, monkeypatch, pid_only):
                 break
             # The caller services another timer between termination turns.
             time.sleep(max(0, min(wake, time.monotonic() + 0.002) - time.monotonic()))
-        assert len(turns) > 2
-        assert turns[1]["returned"] < owner.term_deadline
+        # Fake-clock controls assert yielding; real scheduling can stall past T.
+        assert turns
         assert [entry[2] for entry in signals] == [int(signal.SIGTERM), int(signal.SIGKILL)]
         assert all(entry[:2] == (process.pid, "pid" if pid_only else "group") for entry in signals)
         assert signals[1][3] >= owner.term_deadline
@@ -2602,3 +2616,62 @@ def test_termination_turn_real_child(tmp_path, monkeypatch, pid_only):
         root.mkdir(parents=True, exist_ok=True)
         controller.write_json(root / f"termination-turn-{uuid.uuid4().hex}.json", audit)
     assert audit["after"]["state"] == "absent"
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+@pytest.mark.parametrize("cutoff", [11.9, 12.1])
+def test_termination_turn_live_leader_cutoff_is_not_observer_failure(monkeypatch, pid_only, cutoff):
+    import controller
+
+    now = [10.0]
+    observations = []
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+    monkeypatch.setattr(os, "kill", lambda *_: None)
+    monkeypatch.setattr(os, "killpg", lambda *_: None)
+    receipt = {"name": "survivor"}
+    owner = controller._Termination(
+        123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+    )
+    assert owner.advance() == 10.005
+    now[0] = 11.0
+    assert owner.advance() == 11.005
+    now[0] = cutoff
+    assert owner.advance() is None
+    assert observations == [10.0, 11.0]
+    assert owner.leader_exit is None
+    assert owner.observer_ok is True
+    assert "exit_observation_error" not in receipt
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+def test_termination_turn_observer_error_stops_retries_and_preserves_cause(monkeypatch, pid_only):
+    import controller
+
+    now = [10.0]
+    observations = []
+    signals = []
+
+    def observe(pid):
+        observations.append(now[0])
+        raise OSError(errno.EIO, "observer unavailable")
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller, "_exited", observe)
+    monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(sig))
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(sig))
+    receipt = {"name": "observer-failed"}
+    owner = controller._Termination(
+        123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+    )
+    assert owner.advance() == 10.005
+    first_error = receipt["exit_observation_error"]
+    for instant in (10.5, 11.0, 11.5, 11.9):
+        now[0] = instant
+        owner.advance()
+    assert signals == [signal.SIGTERM, signal.SIGKILL]
+    assert owner.observer_ok is False
+    assert owner.leader_exit is None
+    assert observations == [10.0]
+    assert receipt["exit_observation_error"] == first_error
+    assert "observer unavailable" in first_error

@@ -902,3 +902,47 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python evidence/termination-turns-k114/audit.py
+
+  diagnostic:termination-review-prepare:
+    desc: Freeze termination-turn sources, optionally with MUTANT=<named regression>
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/termination-review-k118/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:termination-review-check:
+    desc: Retain frozen termination-turn controls or full tests and static checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/termination-review-k118/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
+
+  diagnostic:termination-review-preserve:
+    desc: Inventory prior evidence around termination-turn work
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/termination-review-k118/preserve.py '{{.MODE}}'
+
+  diagnostic:termination-review-tools:
+    desc: Format and check termination-turn evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/termination-review-k118/*.py
+      - uv run --locked python -m ruff check evidence/termination-review-k118/*.py
+      - uv run --locked python -m pyright evidence/termination-review-k118/*.py
+
+  diagnostic:termination-review-audit:
+    desc: Audit frozen termination-turn verdicts and exact-child cleanup
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/termination-review-k118/audit.py
+
+  diagnostic:termination-review-format:
+    desc: Format the changed diagnostic controller and its controls
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format controller.py test_controller.py

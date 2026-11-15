@@ -1,0 +1,361 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-review-k118/inputs-double-observe
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py
+collecting ... collected 852 items / 826 deselected / 26 selected
+
+test_controller.py::test_termination_turn_deadlines_and_wakes[False-False] FAILED [  3%]
+test_controller.py::test_termination_turn_deadlines_and_wakes[False-True] FAILED [  7%]
+test_controller.py::test_termination_turn_deadlines_and_wakes[True-False] PASSED [ 11%]
+test_controller.py::test_termination_turn_deadlines_and_wakes[True-True] PASSED [ 15%]
+test_controller.py::test_termination_turn_starved_first_turn[11.0-False] PASSED [ 19%]
+test_controller.py::test_termination_turn_starved_first_turn[11.0-True] PASSED [ 23%]
+test_controller.py::test_termination_turn_starved_first_turn[11.89-False] PASSED [ 26%]
+test_controller.py::test_termination_turn_starved_first_turn[11.89-True] PASSED [ 30%]
+test_controller.py::test_termination_turn_starved_first_turn[11.9-False] PASSED [ 34%]
+test_controller.py::test_termination_turn_starved_first_turn[11.9-True] PASSED [ 38%]
+test_controller.py::test_termination_turn_starved_first_turn[12.1-False] PASSED [ 42%]
+test_controller.py::test_termination_turn_starved_first_turn[12.1-True] PASSED [ 46%]
+test_controller.py::test_termination_turn_observer_overrun[0.5-False] PASSED [ 50%]
+test_controller.py::test_termination_turn_observer_overrun[0.5-True] PASSED [ 53%]
+test_controller.py::test_termination_turn_observer_overrun[1.2-False] PASSED [ 57%]
+test_controller.py::test_termination_turn_observer_overrun[1.2-True] PASSED [ 61%]
+test_controller.py::test_termination_turn_observer_overrun[1.9-False] PASSED [ 65%]
+test_controller.py::test_termination_turn_observer_overrun[1.9-True] PASSED [ 69%]
+test_controller.py::test_termination_turn_real_child[False] PASSED       [ 73%]
+test_controller.py::test_termination_turn_real_child[True] PASSED        [ 76%]
+test_controller.py::test_termination_turn_live_leader_cutoff_is_not_observer_failure[11.9-False] FAILED [ 80%]
+test_controller.py::test_termination_turn_live_leader_cutoff_is_not_observer_failure[11.9-True] FAILED [ 84%]
+test_controller.py::test_termination_turn_live_leader_cutoff_is_not_observer_failure[12.1-False] FAILED [ 88%]
+test_controller.py::test_termination_turn_live_leader_cutoff_is_not_observer_failure[12.1-True] FAILED [ 92%]
+test_controller.py::test_termination_turn_observer_error_stops_retries_and_preserves_cause[False] PASSED [ 96%]
+test_controller.py::test_termination_turn_observer_error_stops_retries_and_preserves_cause[True] PASSED [100%]
+
+=================================== FAILURES ===================================
+____________ test_termination_turn_deadlines_and_wakes[False-False] ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1075df860>
+pid_only = False, exited = False
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("exited", [False, True])
+    def test_termination_turn_deadlines_and_wakes(monkeypatch, pid_only, exited):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+    
+        def observe(pid):
+            observations.append(now[0])
+            return exited
+    
+        def forbidden(*args, **kwargs):
+            pytest.fail("termination turn slept or inspected")
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", forbidden)
+        monkeypatch.setattr(controller, "_exited", observe)
+        monkeypatch.setattr(controller, "_group_snapshot", forbidden)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+        receipt = {"name": "turn-control"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+    
+        def advance():
+            before = len(observations)
+            wake = owner.advance()
+            assert len(observations) - before <= 1
+            return wake
+    
+        assert signals == observations == []
+        wake = advance()
+        assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+        assert observations == [10.0]
+        if pid_only and exited:
+            assert wake is None
+            assert owner.kill_deadline == 11.0
+        else:
+            assert wake == (11.0 if exited else 10.005)
+            # Another safety timer gets a turn while this owner waits for T.
+            now[0] = 10.999
+>           assert advance() == 11.0
+                   ^^^^^^^^^
+
+test_controller.py:2452: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def advance():
+        before = len(observations)
+        wake = owner.advance()
+>       assert len(observations) - before <= 1
+E       assert (3 - 1) <= 1
+E        +  where 3 = len([10.0, 10.999, 10.999])
+
+test_controller.py:2438: AssertionError
+____________ test_termination_turn_deadlines_and_wakes[False-True] _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1077736b0>
+pid_only = True, exited = False
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("exited", [False, True])
+    def test_termination_turn_deadlines_and_wakes(monkeypatch, pid_only, exited):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+    
+        def observe(pid):
+            observations.append(now[0])
+            return exited
+    
+        def forbidden(*args, **kwargs):
+            pytest.fail("termination turn slept or inspected")
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", forbidden)
+        monkeypatch.setattr(controller, "_exited", observe)
+        monkeypatch.setattr(controller, "_group_snapshot", forbidden)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+        receipt = {"name": "turn-control"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+    
+        def advance():
+            before = len(observations)
+            wake = owner.advance()
+            assert len(observations) - before <= 1
+            return wake
+    
+        assert signals == observations == []
+        wake = advance()
+        assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+        assert observations == [10.0]
+        if pid_only and exited:
+            assert wake is None
+            assert owner.kill_deadline == 11.0
+        else:
+            assert wake == (11.0 if exited else 10.005)
+            # Another safety timer gets a turn while this owner waits for T.
+            now[0] = 10.999
+>           assert advance() == 11.0
+                   ^^^^^^^^^
+
+test_controller.py:2452: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def advance():
+        before = len(observations)
+        wake = owner.advance()
+>       assert len(observations) - before <= 1
+E       assert (3 - 1) <= 1
+E        +  where 3 = len([10.0, 10.999, 10.999])
+
+test_controller.py:2438: AssertionError
+_ test_termination_turn_live_leader_cutoff_is_not_observer_failure[11.9-False] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10777e450>
+pid_only = False, cutoff = 11.9
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("cutoff", [11.9, 12.1])
+    def test_termination_turn_live_leader_cutoff_is_not_observer_failure(monkeypatch, pid_only, cutoff):
+        import controller
+    
+        now = [10.0]
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda *_: None)
+        monkeypatch.setattr(os, "killpg", lambda *_: None)
+        receipt = {"name": "survivor"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        assert owner.advance() == 10.005
+        now[0] = 11.0
+        assert owner.advance() == 11.005
+        now[0] = cutoff
+        assert owner.advance() is None
+>       assert observations == [10.0, 11.0]
+E       assert [10.0, 11.0, 11.0] == [10.0, 11.0]
+E         
+E         Left contains one more item: 11.0
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               10.0,
+E               11.0,
+E         +     11.0,
+E           ]
+
+test_controller.py:2641: AssertionError
+_ test_termination_turn_live_leader_cutoff_is_not_observer_failure[11.9-True] __
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10777e750>
+pid_only = True, cutoff = 11.9
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("cutoff", [11.9, 12.1])
+    def test_termination_turn_live_leader_cutoff_is_not_observer_failure(monkeypatch, pid_only, cutoff):
+        import controller
+    
+        now = [10.0]
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda *_: None)
+        monkeypatch.setattr(os, "killpg", lambda *_: None)
+        receipt = {"name": "survivor"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        assert owner.advance() == 10.005
+        now[0] = 11.0
+        assert owner.advance() == 11.005
+        now[0] = cutoff
+        assert owner.advance() is None
+>       assert observations == [10.0, 11.0]
+E       assert [10.0, 11.0, 11.0] == [10.0, 11.0]
+E         
+E         Left contains one more item: 11.0
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               10.0,
+E               11.0,
+E         +     11.0,
+E           ]
+
+test_controller.py:2641: AssertionError
+_ test_termination_turn_live_leader_cutoff_is_not_observer_failure[12.1-False] _
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1078840e0>
+pid_only = False, cutoff = 12.1
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("cutoff", [11.9, 12.1])
+    def test_termination_turn_live_leader_cutoff_is_not_observer_failure(monkeypatch, pid_only, cutoff):
+        import controller
+    
+        now = [10.0]
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda *_: None)
+        monkeypatch.setattr(os, "killpg", lambda *_: None)
+        receipt = {"name": "survivor"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        assert owner.advance() == 10.005
+        now[0] = 11.0
+        assert owner.advance() == 11.005
+        now[0] = cutoff
+        assert owner.advance() is None
+>       assert observations == [10.0, 11.0]
+E       assert [10.0, 11.0, 11.0] == [10.0, 11.0]
+E         
+E         Left contains one more item: 11.0
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               10.0,
+E               11.0,
+E         +     11.0,
+E           ]
+
+test_controller.py:2641: AssertionError
+_ test_termination_turn_live_leader_cutoff_is_not_observer_failure[12.1-True] __
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1078857f0>
+pid_only = True, cutoff = 12.1
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("cutoff", [11.9, 12.1])
+    def test_termination_turn_live_leader_cutoff_is_not_observer_failure(monkeypatch, pid_only, cutoff):
+        import controller
+    
+        now = [10.0]
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda *_: None)
+        monkeypatch.setattr(os, "killpg", lambda *_: None)
+        receipt = {"name": "survivor"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        assert owner.advance() == 10.005
+        now[0] = 11.0
+        assert owner.advance() == 11.005
+        now[0] = cutoff
+        assert owner.advance() is None
+>       assert observations == [10.0, 11.0]
+E       assert [10.0, 11.0, 11.0] == [10.0, 11.0]
+E         
+E         Left contains one more item: 11.0
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E               10.0,
+E               11.0,
+E         +     11.0,
+E           ]
+
+test_controller.py:2641: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-review-k118/double-observe/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_termination_turn_deadlines_and_wakes[False-False] - assert (3 - 1) <= 1
+ +  where 3 = len([10.0, 10.999, 10.999])
+FAILED test_controller.py::test_termination_turn_deadlines_and_wakes[False-True] - assert (3 - 1) <= 1
+ +  where 3 = len([10.0, 10.999, 10.999])
+FAILED test_controller.py::test_termination_turn_live_leader_cutoff_is_not_observer_failure[11.9-False] - assert [10.0, 11.0, 11.0] == [10.0, 11.0]
+  
+  Left contains one more item: 11.0
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+        10.0,
+        11.0,
+  +     11.0,
+    ]
+FAILED test_controller.py::test_termination_turn_live_leader_cutoff_is_not_observer_failure[11.9-True] - assert [10.0, 11.0, 11.0] == [10.0, 11.0]
+  
+  Left contains one more item: 11.0
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+        10.0,
+        11.0,
+  +     11.0,
+    ]
+FAILED test_controller.py::test_termination_turn_live_leader_cutoff_is_not_observer_failure[12.1-False] - assert [10.0, 11.0, 11.0] == [10.0, 11.0]
+  
+  Left contains one more item: 11.0
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+        10.0,
+        11.0,
+  +     11.0,
+    ]
+FAILED test_controller.py::test_termination_turn_live_leader_cutoff_is_not_observer_failure[12.1-True] - assert [10.0, 11.0, 11.0] == [10.0, 11.0]
+  
+  Left contains one more item: 11.0
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+        10.0,
+        11.0,
+  +     11.0,
+    ]
+================= 6 failed, 20 passed, 826 deselected in 1.47s =================

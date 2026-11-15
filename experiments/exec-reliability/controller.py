@@ -473,13 +473,10 @@ class _Termination:
         self.receipt["inspection_deadline_monotonic"] = self.inspection_deadline
 
     def _observe_exit(self) -> None:
-        if self.leader_exit is not None:
+        if self.leader_exit is not None or not self.observer_ok:
             return
+        # Exhausting the observation window does not mean the observer failed.
         if time.monotonic() >= self.inspection_deadline:
-            self.observer_ok = False
-            self.receipt["exit_observation_error"] = (
-                "exit observation cutoff exhausted before entry"
-            )
             return
         try:
             exited = _exited(self.pid)

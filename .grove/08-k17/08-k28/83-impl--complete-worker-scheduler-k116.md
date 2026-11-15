@@ -141,3 +141,24 @@ Keep k28/k17 open until their actual Done when is met. The former k30/k34/k38/k4
   were not established, so unknown creation remains conservative. Preserve and
   account for this sample along with the earlier repeatability cases. Entire
   aggregate charter above, final k28 review, and 0/10 unavailable remain open.
+
+- 2026-11-15: k118 integrates k117 F1–F7; read
+  experiments/exec-reliability/evidence/termination-review-k118/report.md before
+  relying on the termination seam. Cutoff exhaustion no longer mislabels a live
+  leader as an observer failure. The first observer error is sticky and stops
+  further observations without suppressing the bounded safety signal. Per-turn
+  observation counts and exact-fixture timeout cleanup now have retained controls.
+  The review's literal double-observe mutant already failed eight old controls;
+  a later-turn-only variant passed all 20 old controls and fails the strengthened
+  pair. This is a test gap, not a demonstrated duplicate call in production.
+- k117 F4 remains aggregate work here: the five isolated baseline/candidate
+  pairs execute identical worker_capture/inspection bytes and omit suite load.
+  They cannot explain the retained green-full lost-result failure (worker exit
+  70, errno 35 and incomplete worker frame length), nor prove k114 caused it.
+  Inspect worker-exit/fork-failure-channel close ordering and run interleaved
+  full-suite parent/candidate repeats, preserving every sample and input hash.
+  Scope the repeats to the actual changed scheduler implementation when it
+  exists; ten clean isolated samples are not causal evidence. Account for
+  existing timing/setup failures by name. k118 does not certify repeatability,
+  shared scheduling, teardown overlap or guest acceptance; k28/k17 remain OPEN,
+  with guest acceptance 0/10 and unavailable.
