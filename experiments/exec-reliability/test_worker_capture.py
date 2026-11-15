@@ -2226,6 +2226,7 @@ def test_persistent_worker_rechecks_admission_after_preparation(monkeypatch):
         "retiring-term",
         "retiring-kill",
         "expired",
+        "expired-polled",
         "denied-term",
         "denied-kill",
         "command-failure",
@@ -2252,7 +2253,7 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
         finally:
             os._exit(70)
 
-    if mode != "orderly":
+    if mode not in {"orderly", "expired-polled"}:
         monkeypatch.setattr(worker_capture, "_service", service)
     worker = worker_capture.Worker()
     assert worker.start()
@@ -2262,6 +2263,8 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
     command = worker.command
     close_faults = []
     exit_observed = False
+    polls_before_close = 0
+    last_poll_observed = None
 
     def close_command(fd):
         if fd == command:
@@ -2271,6 +2274,15 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
 
     audit = {"pid": owner.pid, "reaped": False, "source": "independent exact-child WNOHANG"}
     try:
+        if mode == "expired-polled":
+            receipt = worker_capture.capture_helper(
+                ("/usr/bin/true",), time.monotonic() + 1, worker=worker
+            )
+            retain(tmp_path, "persistent-expired-polled-request", receipt)
+            assert receipt.error is None and receipt.reaped and receipt.returncode == 0
+            assert not owner.reaped and owner.reap_attempts > 0
+            polls_before_close = owner.reap_attempts
+            last_poll_observed = time.monotonic()
         if mode == "command-failure":
             monkeypatch.setattr(os, "close", close_command)
         if mode.startswith("denied-"):
@@ -2287,8 +2299,8 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
             owner.shutdown_deadline_monotonic = prior_deadline
         if mode == "failure":
             worker.failure = "controlled sticky failure"
-        if mode.startswith("retiring") or mode == "expired":
-            if mode == "expired":
+        if mode.startswith("retiring") or mode in {"expired", "expired-polled"}:
+            if mode in {"expired", "expired-polled"}:
                 # Observe the real exit without consuming status. Register first so
                 # close's final reap is guaranteed to encounter a waitable child.
                 queue = select.kqueue()
@@ -2310,7 +2322,9 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
                 worker_capture._signal(
                     owner, signal.SIGKILL if mode == "retiring-kill" else signal.SIGTERM
                 )
-            prior_deadline = time.monotonic() + (0 if mode == "expired" else 0.4)
+            prior_deadline = time.monotonic() + (
+                0 if mode in {"expired", "expired-polled"} else 0.4
+            )
             owner.shutdown_deadline_monotonic = prior_deadline
         worker.close()
         first = worker.evidence()
@@ -2328,6 +2342,13 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
             assert owner.pid not in worker_capture._owners and not first["residual_remedy"]
             assert first["shutdown"]["overrun"] and worker.failure
             assert first["owner"]["reap_attempts"] == 1
+        elif mode == "expired-polled":
+            assert signals == ["SIGTERM"]
+            assert last_poll_observed < owner.signals[0]["monotonic"] < prior_deadline
+            assert not owner.reaped and owner.pid in worker_capture._owners
+            assert first["residual_remedy"] and worker.failure
+            assert first["shutdown"]["overrun"]
+            assert first["owner"]["reap_attempts"] == polls_before_close
         elif mode == "denied-kill":
             assert signals == ["SIGKILL"] and owner.signals[0]["errno"] == errno.EPERM
             assert not owner.reaped and owner.pid in worker_capture._owners
@@ -2372,6 +2393,8 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
                     "runtime": worker.evidence(),
                     "close_faults": close_faults,
                     "exit_observed_without_reap": exit_observed,
+                    "polls_before_close": polls_before_close,
+                    "last_poll_observed": last_poll_observed,
                 },
                 indent=2,
             )
@@ -2390,7 +2413,7 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
                 found, status = os.waitpid(owner.pid, os.WNOHANG)
                 if found == owner.pid:
                     audit.update(reaped=True, status=status)
-                    if mode == "expired":
+                    if mode in {"expired", "expired-polled"}:
                         assert os.waitstatus_to_exitcode(status) == -signal.SIGTERM
                     worker_capture._owners.pop(owner.pid, None)
                     break

@@ -291,6 +291,15 @@ the cutoff), `late` (a valid frame observed at or after the cutoff), and `failed
 (another startup error). Equality rejects readiness but is not a strict overrun.
 Both readiness and failed-bootstrap shutdown record nonnegative `lateness_seconds`
 (readiness uses `readiness_lateness_seconds`) in addition to strict overrun flags.
+The current worker first-reap exception is scoped to the owner's lifetime:
+request polls consume it too, and neither a new request nor close resets the
+attempt count. A never-polled worker gets one exact-child nonblocking attempt
+even after its cutoff. A previously polled worker that exits after its last poll
+and reaches close after the cutoff gets no further poll; it retains failed
+residual ownership even if its status is now waitable. This limitation remains
+for the shared scheduler work; it does not grant renewed signal authority or
+extend a cutoff.
+
 Shutdown records `deadline_exhausted` at equality or later. Ordinary expiry may
 have a small positive measured overrun; it remains failure. Explicit elapsed
 lateness distinguishes such expiry from an injected delayed observation without

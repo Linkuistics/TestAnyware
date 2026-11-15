@@ -1936,8 +1936,9 @@ k28/k17 stay open; ten-clone acceptance remains **0/10, unavailable**.
 
 ## First worker reap at a fixed cutoff (k107)
 
-The worker owner receives one first exact-child nonblocking reap attempt even
-when its original shutdown cutoff has expired. The attempt is recorded before
+The worker owner receives one first exact-child nonblocking reap attempt over
+its lifetime, even when its original shutdown cutoff has expired. Request polls
+consume that exception; a new request or close does not reset the count. The attempt is recorded before
 the syscall; no-result, errno and late returns all consume that exception.
 Once any attempt exists, the original cutoff forbids later polling. Signal
 authority and shutdown phase deadlines do not change. A successful late reap
@@ -1954,3 +1955,15 @@ review before relying on this boundary. Complete-worker-scheduler-k110 retains
 the complete original aggregate charter, shared scheduling, shutdown/teardown
 overlap, remaining controls and final k28 review. k28/k17 remain open and
 ten-clone acceptance stays **0/10, unavailable**.
+
+## Worker reap scope clarification (k112)
+
+The k111 review identified an untested lifetime boundary in k107. The counter
+includes successful-request polling. A worker that exits after its last poll
+and reaches close after its cutoff retains a failed residual without a final
+poll, even when its status is waitable. The specification now states this
+limitation explicitly. k110 owns any scheduler redesign needed to improve it
+while preserving the same-cutoff guard. The [k112 report](../../experiments/exec-reliability/evidence/worker-reap-scope-k112/report.md)
+records a real request/late-exit/expired-close control and its scope mutant.
+All prior k107 measurements remain historical evidence; k28/k17 remain open
+and ten-clone acceptance remains **0/10, unavailable**.

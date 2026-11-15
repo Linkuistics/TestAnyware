@@ -797,3 +797,47 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python -m ruff format worker_capture.py test_shutdown.py evidence/worker-first-reap-k107/*.py
+
+  diagnostic:worker-reap-scope-prepare:
+    desc: Freeze worker reap-scope sources, optionally with MUTANT=<named regression>
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/worker-reap-scope-k112/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:worker-reap-scope-check:
+    desc: Retain frozen worker shutdown controls or full tests and static checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/worker-reap-scope-k112/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
+
+  diagnostic:worker-reap-scope-preserve:
+    desc: Inventory prior evidence before or after worker reap-scope work
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/worker-reap-scope-k112/preserve.py '{{.MODE}}'
+
+  diagnostic:worker-reap-scope-tools:
+    desc: Check worker reap-scope evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/worker-reap-scope-k112/*.py
+      - uv run --locked python -m ruff check evidence/worker-reap-scope-k112/*.py
+      - uv run --locked python -m pyright evidence/worker-reap-scope-k112/*.py
+
+  diagnostic:worker-reap-scope-format:
+    desc: Format the worker reap-scope implementation and controls
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format worker_capture.py test_shutdown.py test_worker_capture.py evidence/worker-reap-scope-k112/*.py
+
+  diagnostic:worker-reap-scope-audit:
+    desc: Audit retained reap-scope verdicts, exact-child cleanup and unchanged prior evidence
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/worker-reap-scope-k112/audit.py
