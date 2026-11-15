@@ -1,0 +1,409 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="3" skipped="0" tests="4" time="2.356" timestamp="2026-11-15T18:09:24.296462+11:00" hostname="byrd.local"><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-False]" time="0.022"><failure message="AssertionError: assert ['competitor', 'owner'] == ['owner', 'competitor']&#10;  &#10;  At index 0 diff: 'competitor' != 'owner'&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;  +     'competitor',&#10;        'owner',&#10;  -     'competitor',&#10;    ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-839/test_request_turns_yield_with_0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10960b320&gt;
+persistent = False, stalled = False
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        original_read = os.read
+        original_select = worker_capture.select.select
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            return original_select(readers, writers, errors, timeout)
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    wake = subject.advance()
+                    assert bytes_read[0] &lt;= 65536
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2&gt;/dev/null"),
+                time.monotonic() + 1,
+                worker=worker,
+            )
+            assert phases, "request transport bypassed the shared driver"
+            assert phases[0][:2] == ["competitor", "owner"]
+            assert phases[0].count("owner") &gt; 4
+            assert receipt.worker is not None
+            if stalled or not persistent:
+                assert len(phases) &gt;= 2
+&gt;               assert phases[1][:2] == ["owner", "competitor"]
+E               AssertionError: assert ['competitor', 'owner'] == ['owner', 'competitor']
+E                 
+E                 At index 0 diff: 'competitor' != 'owner'
+E                 
+E                 Full diff: (-: missing in left side, +: extra in left side)
+E                   [
+E                 +     'competitor',
+E                       'owner',
+E                 -     'competitor',
+E                   ]
+
+test_turns.py:324: AssertionError</failure></testcase><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-True]" time="0.029" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-False]" time="0.954"><failure message="AssertionError: assert ['competitor', 'owner'] == ['owner', 'competitor']&#10;  &#10;  At index 0 diff: 'competitor' != 'owner'&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;  +     'competitor',&#10;        'owner',&#10;  -     'competitor',&#10;    ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-839/test_request_turns_yield_with_2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10960b170&gt;
+persistent = False, stalled = True
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        original_read = os.read
+        original_select = worker_capture.select.select
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            return original_select(readers, writers, errors, timeout)
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    wake = subject.advance()
+                    assert bytes_read[0] &lt;= 65536
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2&gt;/dev/null"),
+                time.monotonic() + 1,
+                worker=worker,
+            )
+            assert phases, "request transport bypassed the shared driver"
+            assert phases[0][:2] == ["competitor", "owner"]
+            assert phases[0].count("owner") &gt; 4
+            assert receipt.worker is not None
+            if stalled or not persistent:
+                assert len(phases) &gt;= 2
+&gt;               assert phases[1][:2] == ["owner", "competitor"]
+E               AssertionError: assert ['competitor', 'owner'] == ['owner', 'competitor']
+E                 
+E                 At index 0 diff: 'competitor' != 'owner'
+E                 
+E                 Full diff: (-: missing in left side, +: extra in left side)
+E                   [
+E                 +     'competitor',
+E                       'owner',
+E                 -     'competitor',
+E                   ]
+
+test_turns.py:324: AssertionError</failure></testcase><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-True]" time="0.956"><failure message="AssertionError: assert ['competitor', 'owner'] == ['owner', 'competitor']&#10;  &#10;  At index 0 diff: 'competitor' != 'owner'&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;  +     'competitor',&#10;        'owner',&#10;  -     'competitor',&#10;    ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-839/test_request_turns_yield_with_3')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1097947d0&gt;
+persistent = True, stalled = True
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        original_read = os.read
+        original_select = worker_capture.select.select
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            return original_select(readers, writers, errors, timeout)
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    wake = subject.advance()
+                    assert bytes_read[0] &lt;= 65536
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2&gt;/dev/null"),
+                time.monotonic() + 1,
+                worker=worker,
+            )
+            assert phases, "request transport bypassed the shared driver"
+            assert phases[0][:2] == ["competitor", "owner"]
+            assert phases[0].count("owner") &gt; 4
+            assert receipt.worker is not None
+            if stalled or not persistent:
+                assert len(phases) &gt;= 2
+&gt;               assert phases[1][:2] == ["owner", "competitor"]
+E               AssertionError: assert ['competitor', 'owner'] == ['owner', 'competitor']
+E                 
+E                 At index 0 diff: 'competitor' != 'owner'
+E                 
+E                 Full diff: (-: missing in left side, +: extra in left side)
+E                   [
+E                 +     'competitor',
+E                       'owner',
+E                 -     'competitor',
+E                   ]
+
+test_turns.py:324: AssertionError</failure></testcase></testsuite></testsuites>

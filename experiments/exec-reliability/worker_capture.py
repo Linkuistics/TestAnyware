@@ -1142,14 +1142,19 @@ def capture_helper(
             os.close(result_write)
             channels.remove(result_write)
         streams = {control_read: 0, result_read: 1}
-        while time.monotonic() < query_deadline:
+
+        def advance_query() -> float | None:
+            nonlocal complete, receipt, received, result_size, control_bytes
+            nonlocal creation_conflict, published_times
+            assert owner is not None
+            if complete or time.monotonic() >= query_deadline:
+                return None
             _reap(owner)
             if worker is not None and owner.reaped:
                 raise ValueError("persistent worker exited during request")
             if owner.reap_errno is not None:
                 raise OSError(owner.reap_errno, "worker ownership observation failed")
-            remaining = query_deadline - time.monotonic()
-            ready, _, _ = select.select(list(streams), [], [], max(0, min(0.005, remaining)))
+            ready, _, _ = select.select(list(streams), [], [], 0)
             for fd in ready:
                 if time.monotonic() >= query_deadline:
                     raise TimeoutError("late worker channel receipt")
@@ -1258,7 +1263,10 @@ def capture_helper(
                 complete = True
                 if receipt.reaped:
                     _helper_obligations.pop(token, None)
-                break
+                return None
+            return min(query_deadline, time.monotonic() + (0 if ready else 0.005))
+
+        run_turns(Turn(advance_query))
         if not complete:
             raise TimeoutError("worker query deadline exhausted")
         if worker is not None and receipt.error is not None:
@@ -1284,7 +1292,12 @@ def capture_helper(
                 cleanup_open = (
                     not complete and control_read is not None and 0 not in closed_channels
                 )
-                while time.monotonic() < deadline:
+
+                def advance_retirement() -> float | None:
+                    nonlocal kill_at, cleanup_open, control_bytes, creation_conflict
+                    assert owner is not None
+                    if time.monotonic() >= deadline:
+                        return None
                     if (
                         not owner.reaped
                         and owner.reap_errno is None
@@ -1316,8 +1329,13 @@ def capture_helper(
                                     creation_conflict = True
                                 consume_control(cleanup_only=True)
                     if (owner.reaped or owner.reap_errno is not None) and not cleanup_open:
-                        break
-                    time.sleep(min(0.001, max(0, deadline - time.monotonic())))
+                        return None
+                    next_kill = (
+                        kill_at if not owner.reaped and owner.reap_errno is None else float("inf")
+                    )
+                    return min(deadline, next_kill, time.monotonic() + 0.001)
+
+                run_turns(Turn(advance_retirement, safety=True))
                 _reap(owner)
             if not complete and fork_failure is not None and (buffers[0] or buffers[1]):
                 # Incremental rejection can bypass the final decoder. Partial

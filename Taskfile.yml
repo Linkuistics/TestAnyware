@@ -1167,3 +1167,35 @@ tasks:
       - uv run --locked python -m ruff format --check evidence/driver-review-k128/*.py
       - uv run --locked python -m ruff check evidence/driver-review-k128/*.py
       - uv run --locked python -m pyright evidence/driver-review-k128/*.py
+
+  diagnostic:request-turns-prepare:
+    desc: Retain request transport prepare evidence
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/request-turns-k126/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:request-turns-check:
+    desc: Retain request transport check evidence
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/request-turns-k126/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default "request_turns"}}'
+
+  diagnostic:request-turns-preserve:
+    desc: Retain request transport preserve evidence
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/request-turns-k126/preserve.py '{{.MODE}}'
+
+  diagnostic:request-turns-tools:
+    desc: Format and check request transport evidence tools
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format evidence/request-turns-k126/*.py
+      - uv run --locked python -m ruff check evidence/request-turns-k126/*.py
+      - uv run --locked python -m pyright evidence/request-turns-k126/*.py
+
+  diagnostic:request-turns-audit:
+    desc: Audit frozen request transport outcomes and exact fixture cleanup
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/request-turns-k126/audit.py

@@ -1,0 +1,47 @@
+{
+  "condition": "boundary-helper-python-thread",
+  "capture": {
+    "stdout": "",
+    "stderr": "",
+    "returncode": null,
+    "pid": null,
+    "argv": [
+      "/usr/bin/true"
+    ],
+    "admission": {
+      "ok": false,
+      "reason": "python_threads",
+      "python_threads": 2,
+      "native_threads": 2,
+      "sigchld": "SIG_DFL",
+      "native_sigchld": "SIG_DFL",
+      "error": null,
+      "errno": null
+    },
+    "started_monotonic": 343980.68566525,
+    "created_monotonic": null,
+    "capture_deadline_monotonic": 343980.7756325935,
+    "deadline_monotonic": 343980.805621708,
+    "finished_monotonic": 343980.685875291,
+    "kill_monotonic": null,
+    "kill_errno": null,
+    "reaped": false,
+    "reaped_monotonic": null,
+    "reap_errno": null,
+    "ownership_lost": false,
+    "close_errors": [],
+    "error": "helper fork admission rejected: python_threads",
+    "error_errno": null,
+    "residual_remedy": null,
+    "worker": null
+  },
+  "observations": {
+    "mutation": "python-thread",
+    "real": "thread/signal state and pipes/mask; deadline delays are real elapsed time",
+    "adapter": "os.fork tripwire; native query EIO only for observation-error",
+    "fork_attempts": [],
+    "fork_error_publications": [],
+    "mask_restored": true,
+    "fds_restored": true
+  }
+}
