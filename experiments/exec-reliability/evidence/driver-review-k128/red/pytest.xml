@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.452" timestamp="2026-11-15T17:46:28.257293+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_implicit_turn_driver_drift_changes_subjects_after" time="0.055"><failure message="KeyError: '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-818/test_implicit_turn_driver_drif0/runtime/turns.py'">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-818/test_implicit_turn_driver_drif0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x108dd3860&gt;
+
+    def test_implicit_turn_driver_drift_changes_subjects_after(tmp_path, monkeypatch):
+        import controller
+    
+        runtime = tmp_path / "runtime"
+        runtime.mkdir()
+        for name in ("controller.py", "inspection.py", "worker_capture.py", "turns.py"):
+            (runtime / name).write_bytes((HERE / name).read_bytes())
+        subject = runtime / "turns.py"
+        before = hashlib.sha256(subject.read_bytes()).hexdigest()
+        monkeypatch.setattr(controller, "__file__", str(runtime / "controller.py"))
+        _, result = run(tmp_path, [call("drift", "drift", subject)])
+        key = str(subject.resolve())
+&gt;       assert result["subjects_before"][key] == before
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-818/test_implicit_turn_driver_drif0/runtime/turns.py'
+
+test_controller.py:1170: KeyError</failure></testcase></testsuite></testsuites>

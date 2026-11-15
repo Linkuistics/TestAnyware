@@ -1,6 +1,7 @@
 """Failure controls operate on real local processes and fake VM markers only."""
 
 import errno
+import hashlib
 import inspect
 import json
 import os
@@ -1152,6 +1153,23 @@ def test_hashing_drift_fails_instead_of_reinterpreting_measurement(tmp_path):
     _, result = run(tmp_path, [call("drift", "drift", subject)], subjects=[subject])
     assert result["ok"] is False
     assert result["subjects_before"] != result["subjects_after"]
+
+
+def test_implicit_turn_driver_drift_changes_subjects_after(tmp_path, monkeypatch):
+    import controller
+
+    runtime = tmp_path / "runtime"
+    runtime.mkdir()
+    for name in ("controller.py", "inspection.py", "worker_capture.py", "turns.py"):
+        (runtime / name).write_bytes((HERE / name).read_bytes())
+    subject = runtime / "turns.py"
+    before = hashlib.sha256(subject.read_bytes()).hexdigest()
+    monkeypatch.setattr(controller, "__file__", str(runtime / "controller.py"))
+    _, result = run(tmp_path, [call("drift", "drift", subject)])
+    key = str(subject.resolve())
+    assert result["subjects_before"][key] == before
+    assert result["subjects_after"][key] == hashlib.sha256(b"changed").hexdigest()
+    assert result["ok"] is False
 
 
 def test_foreign_resource_and_reused_output_are_rejected_before_calls(tmp_path):

@@ -1,5 +1,12 @@
 # complete-worker-scheduler-k126
 
+k128 review integration adds `turns.py` to implicit measurement subjects and
+proves the initial-due clock bypass with a rejecting mutant. See
+`experiments/exec-reliability/evidence/driver-review-k128/report.md`. Safety flags
+on the four singleton compatibility consumers remain unobservable; when owners
+share the production scheduler, verify their registrations through competing
+ready owners. k128 establishes neither shared scheduling nor teardown overlap.
+
 k124 handoff: common turn driver centralizes sleeping in four compatibility consumers. Production owners remain sequential; persistent transport cleanup, actual concurrent teardown and every aggregate acceptance item below remain open. Read evidence/common-driver-k124/report.md and the k124 review before connecting owners. Entire original charter/history follows unchanged.
 
 k107 handoff: the first worker WNOHANG attempt now occurs even at an expired

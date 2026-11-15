@@ -1,0 +1,37 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/driver-review-k128/red-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 875 items / 874 deselected / 1 selected
+
+test_controller.py::test_implicit_turn_driver_drift_changes_subjects_after FAILED [100%]
+
+=================================== FAILURES ===================================
+____________ test_implicit_turn_driver_drift_changes_subjects_after ____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-818/test_implicit_turn_driver_drif0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108dd3860>
+
+    def test_implicit_turn_driver_drift_changes_subjects_after(tmp_path, monkeypatch):
+        import controller
+    
+        runtime = tmp_path / "runtime"
+        runtime.mkdir()
+        for name in ("controller.py", "inspection.py", "worker_capture.py", "turns.py"):
+            (runtime / name).write_bytes((HERE / name).read_bytes())
+        subject = runtime / "turns.py"
+        before = hashlib.sha256(subject.read_bytes()).hexdigest()
+        monkeypatch.setattr(controller, "__file__", str(runtime / "controller.py"))
+        _, result = run(tmp_path, [call("drift", "drift", subject)])
+        key = str(subject.resolve())
+>       assert result["subjects_before"][key] == before
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-818/test_implicit_turn_driver_drif0/runtime/turns.py'
+
+test_controller.py:1170: KeyError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/driver-review-k128/red/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_implicit_turn_driver_drift_changes_subjects_after - KeyError: '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-818/test_implicit_turn_driver_drif0/runtime/turns.py'
+====================== 1 failed, 874 deselected in 0.52s =======================

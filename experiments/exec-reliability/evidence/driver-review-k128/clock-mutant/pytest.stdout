@@ -1,0 +1,38 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/driver-review-k128/clock-mutant-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 875 items / 874 deselected / 1 selected
+
+test_turns.py::test_shared_turns_initial_due_owners_do_not_consume_clock FAILED [100%]
+
+=================================== FAILURES ===================================
+__________ test_shared_turns_initial_due_owners_do_not_consume_clock ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108afb9e0>
+
+    def test_shared_turns_initial_due_owners_do_not_consume_clock(monkeypatch):
+        def unexpected_clock():
+            pytest.fail("initially due owners must advance before reading the clock")
+    
+        monkeypatch.setattr(turns.time, "monotonic", unexpected_clock)
+        seen = []
+>       turns.run_turns(*(turns.Turn(lambda name=name: seen.append(name)) for name in "abc"))
+
+test_turns.py:95: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+turns.py:28: in run_turns
+    time.monotonic()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+    def unexpected_clock():
+>       pytest.fail("initially due owners must advance before reading the clock")
+E       Failed: initially due owners must advance before reading the clock
+
+test_turns.py:91: Failed
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/driver-review-k128/clock-mutant/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_turns.py::test_shared_turns_initial_due_owners_do_not_consume_clock - Failed: initially due owners must advance before reading the clock
+====================== 1 failed, 874 deselected in 0.40s =======================

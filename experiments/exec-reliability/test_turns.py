@@ -86,6 +86,16 @@ def test_shared_turns_empty_and_terminal_are_not_reentered(monkeypatch):
     assert not sleeps
 
 
+def test_shared_turns_initial_due_owners_do_not_consume_clock(monkeypatch):
+    def unexpected_clock():
+        pytest.fail("initially due owners must advance before reading the clock")
+
+    monkeypatch.setattr(turns.time, "monotonic", unexpected_clock)
+    seen = []
+    turns.run_turns(*(turns.Turn(lambda name=name: seen.append(name)) for name in "abc"))
+    assert seen == list("abc")
+
+
 def test_shared_turns_error_propagates_without_retry_or_sleep(monkeypatch):
     _, sleeps = clock(monkeypatch)
     seen = []

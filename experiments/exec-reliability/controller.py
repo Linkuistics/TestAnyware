@@ -767,6 +767,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
                 Path(__file__).resolve(),
                 Path(__file__).with_name("inspection.py").resolve(),
                 Path(__file__).with_name("worker_capture.py").resolve(),
+                Path(__file__).with_name("turns.py").resolve(),
                 Path(sys.executable).resolve(),
                 Path("/bin/ps"),
                 *plan.subjects,

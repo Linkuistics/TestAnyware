@@ -1142,3 +1142,28 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python evidence/common-driver-k124/audit.py
+
+
+  diagnostic:driver-review-prepare:
+    desc: Freeze review integration inputs and optional targeted mutant
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/driver-review-k128/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:driver-review-preserve:
+    desc: Compare all earlier evidence including common-driver-k124
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/driver-review-k128/preserve.py '{{.MODE}}'
+
+  diagnostic:driver-review-tools:
+    desc: Check review integration evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format --check evidence/driver-review-k128/*.py
+      - uv run --locked python -m ruff check evidence/driver-review-k128/*.py
+      - uv run --locked python -m pyright evidence/driver-review-k128/*.py
