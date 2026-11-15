@@ -53,3 +53,16 @@ declare the provider. Never synthesize evidence from another task or legacy run.
 No guests, privilege acquisition, installed app/global settings or old evidence
 edits. Routine bounded verification must freeze inputs/tools/bounds first,
 retain all failed samples and separate runtime outcomes from fixture cleanup.
+
+## Decisions (running log)
+
+- 2026-11-15: Review outcome: no defect in the k107 first-reap behaviour. Two low-severity findings. F1: `reap_attempts` is an owner-lifetime counter, so a polled persistent worker gets no first reap at a later expired cutoff, and no real-`Worker` control covers it. F2: no retained mutant targets the counter scope. The report is `experiments/exec-reliability/evidence/worker-first-reap-review-k111/report.md`.
+- The review ran no test, build, lint, format or mutation command. It ran read-only hash, diff, JSON-walk and JUnit-parsing commands only.
+- Coverage: the code graph predates the commit. The review used direct source reads and disclosed that fallback.
+- Evidence verification: frozen sources equal the shipped bytes, and the RED input equals the parent runtime. Each mutant differs by one line. JUnit counts match (108, 46 failures, 754 full, mutants 28, 12 and 42 of 42). The 408 audits split as 94 for each of three conditions plus 42 for each of three mutants. The 42 declared-phase receipts hold 30 late, 6 at-deadline and 6 on-time grace outcomes. The 163,383-path prior inventory is identical before and after.
+- A first count of grace outcomes over every nested receipt gave 133, 50 and 8. That walk included receipts from other tests. The `shutdown-*.json` receipts match the report.
+- k110 keeps its original charter, including the final k28 review. The diff to k110 adds a handoff and a log entry only.
+- Observations kept out of the findings: the unguarded `select.kqueue` use (macOS). The report already labels the split between simulated late returns and real child status consumption.
+- Scope: the shared scheduler, teardown overlap and the final k28 review stay with complete-worker-scheduler-k110. k28 and k17 stay open.
+- Routing: both findings are actionable. The review cut `complete-worker-scheduler-k112` (integrate-review-impl) before k110.
+- No `**Creator:**` line applies, because the environment carries no provider evidence.
