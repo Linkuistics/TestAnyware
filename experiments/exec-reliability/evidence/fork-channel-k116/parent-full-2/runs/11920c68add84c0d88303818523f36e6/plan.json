@@ -1,0 +1,41 @@
+{
+  "run_id": "11920c68add84c0d88303818523f36e6",
+  "calls": [
+    {
+      "name": "self-signal",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+        "-c",
+        "\nimport json, os, runpy, signal, sys\nfrom pathlib import Path\noriginal = os.kill\ndef misdirect(pid, sig):\n    if sig == signal.SIGTERM:\n        Path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/fork-channel-k116/parent-full-2/runs/self-signal-a5747a0e9e97423689183b2cd54df3ad.json').write_text(json.dumps({\"pid\": pid}))\n        original(pid, signal.SIGKILL)\n        original(os.getpid(), sig)\n    else:\n        original(pid, sig)\nos.kill = misdirect\nsys.argv = ['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/fork-channel-k116/inputs-parent/peer.py', 'controller', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/fork-channel-k116/parent-full-2/runs']\nrunpy.run_path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/fork-channel-k116/inputs-parent/peer.py', run_name='__main__')\n"
+      ],
+      "budget": 3,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    }
+  ],
+  "resources": [],
+  "subjects": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/fork-channel-k116/inputs-parent/peer.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/fork-channel-k116/inputs-parent/test_controller.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/fork-channel-k116/inputs-parent/pyproject.toml",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/fork-channel-k116/inputs-parent/uv.lock",
+    "/bin/sleep"
+  ],
+  "term_grace": 0.15,
+  "kill_wait": 0.3,
+  "bootstrap": {
+    "readiness": 1,
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "failure_bounds": {
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "close_bounds": {
+    "grace": 0.05,
+    "kill_reap": 2
+  }
+}

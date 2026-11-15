@@ -1308,6 +1308,8 @@ def capture_helper(
                                 cleanup_open = False
                             if chunk is not None:
                                 cleanup_open = bool(chunk)
+                                if not chunk:
+                                    closed_channels.add(0)
                                 buffers[0].extend(chunk[: max(0, 4096 - control_bytes)])
                                 control_bytes += len(chunk)
                                 if chunk and fork_failure is not None:

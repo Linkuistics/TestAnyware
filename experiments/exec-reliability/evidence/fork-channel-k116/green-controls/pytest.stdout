@@ -1,0 +1,48 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/fork-channel-k116/inputs-candidate
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py
+collecting ... collected 854 items / 817 deselected / 37 selected
+
+test_worker_capture.py::test_fork_failure_lost_result_eof_order[control] PASSED [  2%]
+test_worker_capture.py::test_fork_failure_lost_result_eof_order[result] PASSED [  5%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[fork-error] PASSED [  8%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[lost-result] PASSED [ 10%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[setup-error] PASSED [ 13%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[silent] PASSED [ 16%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-bool] PASSED [ 18%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-zero] PASSED [ 21%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-negative] PASSED [ 24%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-string] PASSED [ 27%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-missing] PASSED [ 29%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[extra-field] PASSED [ 32%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[wrong-token] PASSED [ 35%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[wrong-deadline] PASSED [ 37%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[before-dispatch] PASSED [ 40%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[future] PASSED [ 43%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[nan] PASSED [ 45%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[duplicate-key] PASSED [ 48%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[duplicate] PASSED [ 51%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[failure-then-created] PASSED [ 54%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[created-then-failure] PASSED [ 56%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-errno] PASSED [ 59%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-admission] PASSED [ 62%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-time] PASSED [ 64%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[worker-publication-expired] PASSED [ 67%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[control-tail] PASSED [ 70%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[short-header] PASSED [ 72%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[short-frame] PASSED [ 75%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[oversized] PASSED [ 78%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[open-tail] PASSED [ 81%]
+test_worker_capture.py::test_review_fork_failure_preserves_errno_on_publication_error[timeout] PASSED [ 83%]
+test_worker_capture.py::test_review_fork_failure_preserves_errno_on_publication_error[broken-pipe] PASSED [ 86%]
+test_worker_capture.py::test_review_parent_rejects_published_late_fork_failure[read] PASSED [ 89%]
+test_worker_capture.py::test_review_parent_rejects_published_late_fork_failure[select] PASSED [ 91%]
+test_worker_capture.py::test_review_confirmed_fork_failure_keeps_worker_failure[unclean-exit] PASSED [ 94%]
+test_worker_capture.py::test_review_confirmed_fork_failure_keeps_worker_failure[unreaped] PASSED [ 97%]
+test_worker_capture.py::test_request_identity_matching_explicit_fork_failure PASSED [100%]
+
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/fork-channel-k116/green-controls/pytest.xml -
+====================== 37 passed, 817 deselected in 4.34s ======================

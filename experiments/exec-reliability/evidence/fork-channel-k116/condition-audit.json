@@ -1,0 +1,77 @@
+{
+  "ok": true,
+  "conditions": {
+    "red-order": {
+      "cases": 2,
+      "failed": [
+        "test_fork_failure_lost_result_eof_order[result]"
+      ]
+    },
+    "green-controls": {
+      "cases": 37,
+      "failed": []
+    },
+    "omit-cleanup-eof": {
+      "cases": 2,
+      "failed": [
+        "test_fork_failure_lost_result_eof_order[result]"
+      ]
+    },
+    "parent-full-1": {
+      "cases": 854,
+      "failed": [
+        "test_declared_shutdown_real_child_phases[blocking-2-deferred-reap]",
+        "test_fork_failure_lost_result_eof_order[result]"
+      ]
+    },
+    "candidate-full-1": {
+      "cases": 854,
+      "failed": []
+    },
+    "parent-full-2": {
+      "cases": 854,
+      "failed": [
+        "test_fork_failure_lost_result_eof_order[result]"
+      ]
+    },
+    "candidate-full-2": {
+      "cases": 854,
+      "failed": []
+    }
+  },
+  "shutdown_audits": {
+    "parent-full-1": {
+      "reaped": 84,
+      "late_probes": [
+        {
+          "receipt": "shutdown-blocking-deferred-reap-1794716286099350000.json",
+          "seconds": [
+            0.004944042069837451
+          ],
+          "audit": {
+            "reaped": true,
+            "source": "original exact-child WNOHANG",
+            "mode": "deferred-reap",
+            "sample": 2,
+            "driver": "blocking",
+            "status": 9
+          }
+        }
+      ]
+    },
+    "candidate-full-1": {
+      "reaped": 84,
+      "late_probes": []
+    },
+    "parent-full-2": {
+      "reaped": 84,
+      "late_probes": []
+    },
+    "candidate-full-2": {
+      "reaped": 84,
+      "late_probes": []
+    }
+  },
+  "prior_count": 181726,
+  "audit_sha256": "89894adfe10716002f9566fede31e9b71d2f9c1d83e143b8147cd3242ac57326"
+}

@@ -946,3 +946,47 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python -m ruff format controller.py test_controller.py
+
+  diagnostic:fork-channel-prepare:
+    desc: Freeze fork-channel sources, optionally with MUTANT=<named regression>
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/fork-channel-k116/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:fork-channel-check:
+    desc: Retain frozen fork-channel controls or full tests and static checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/fork-channel-k116/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
+
+  diagnostic:fork-channel-preserve:
+    desc: Inventory prior evidence around fork-channel work
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/fork-channel-k116/preserve.py '{{.MODE}}'
+
+  diagnostic:fork-channel-tools:
+    desc: Format and check fork-channel evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/fork-channel-k116/*.py
+      - uv run --locked python -m ruff check evidence/fork-channel-k116/*.py
+      - uv run --locked python -m pyright evidence/fork-channel-k116/*.py
+
+  diagnostic:fork-channel-audit:
+    desc: Audit frozen fork-channel verdicts and exact-child cleanup
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/fork-channel-k116/audit.py
+
+  diagnostic:fork-channel-format:
+    desc: Format the changed diagnostic controller and its controls
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format worker_capture.py test_worker_capture.py

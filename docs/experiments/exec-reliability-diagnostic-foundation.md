@@ -1999,3 +1999,30 @@ aggregate charter is preserved in complete-worker-scheduler-k114, including
 shared safety-first scheduling, private-loop removal, actual teardown overlap,
 remaining controls, repeatability limitations and final k28 review. k28/k17
 remain open; ten-clone acceptance remains **0/10, unavailable**.
+
+## Fork-failure channel EOF ordering (k116)
+
+A timely valid helper fork failure could become unknown when the result pipe
+closed first. The main loop rejected its empty result frame; the existing
+bounded cleanup read then saw control EOF without recording it. Recording that
+already observed EOF preserves the failure errno and no-child classification
+when both channels closed cleanly. Late, partial, contradictory and open-channel
+data retain uncertainty. The repair changes no deadlines, read caps or signals.
+
+The [k116 report](../../experiments/exec-reliability/evidence/fork-channel-k116/report.md)
+retains deterministic real-pipe RED evidence for each EOF order, 37 passing
+focused controls, and a rejected removal of the repair. Two declared interleaved
+full-suite pairs use genuinely different worker bytes: both candidates pass
+854/854 tests and static checks; both baselines fail the result-first case.
+One baseline also fails the existing blocking deferred-reap timing control,
+with a probe 4.944 ms past its cutoff and successful exact-child fixture cleanup.
+That failure remains unresolved; subsequent passes do not repair it. Helper
+fork refusal and terminal-result loss are injected; worker transport, exit and
+reaping are real. These observations do not identify the order in earlier
+untraced lost-result samples.
+
+The producer has a separate independent review. The complete original aggregate
+charter remains in complete-worker-scheduler-k119: shared scheduling, removal of
+private waits, teardown overlap, all retained timing/setup failures, comparisons
+against the actual scheduler and final k28 review. k28/k17 remain open and
+ten-clone acceptance remains **0/10, unavailable**.

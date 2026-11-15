@@ -1294,6 +1294,70 @@ def test_review_worker_exit_after_publication_keeps_gate_closed(tmp_path, monkey
     assert worker_capture._helper_obligations[identity["token"]] == identity
 
 
+@pytest.mark.parametrize("first_eof", ["control", "result"])
+def test_fork_failure_lost_result_eof_order(tmp_path, monkeypatch, first_eof):
+    """Both real EOF orders preserve an already admitted no-child failure."""
+    import worker_capture
+
+    controller_pid = os.getpid()
+    original_fork, original_pipe = os.fork, os.pipe
+    original_read, original_write = os.read, worker_capture._write
+    pairs = []
+    failure_seen = False
+    observed = []
+
+    def pipe():
+        pair = original_pipe()
+        if os.getpid() == controller_pid:
+            pairs.append(pair)
+        return pair
+
+    def fork():
+        if os.getpid() != controller_pid:
+            raise OSError(errno.EAGAIN, "injected at helper fork boundary")
+        return original_fork()
+
+    def write(fd, data, deadline):
+        if not data.endswith(b"\n"):
+            os._exit(70)
+        return original_write(fd, data, deadline)
+
+    def read(fd, size):
+        nonlocal failure_seen
+        if os.getpid() != controller_pid or len(pairs) < 2:
+            return original_read(fd, size)
+        names = {pairs[0][0]: "control", pairs[1][0]: "result"}
+        name = names.get(fd)
+        # Defer observation, never synthesize bytes or EOF. In both schedules
+        # the complete failure message precedes the empty result channel.
+        if name == "result" and not failure_seen:
+            raise BlockingIOError(errno.EAGAIN, "deferred result observation")
+        chunk = original_read(fd, size)
+        if name == "control" and b'"failed_monotonic"' in chunk:
+            failure_seen = True
+        if name is not None and not chunk:
+            if name != first_eof and first_eof not in observed:
+                raise BlockingIOError(errno.EAGAIN, "deferred EOF observation")
+            if name not in observed:
+                observed.append(name)
+        return chunk
+
+    monkeypatch.setattr(os, "pipe", pipe)
+    monkeypatch.setattr(os, "fork", fork)
+    monkeypatch.setattr(os, "read", read)
+    monkeypatch.setattr(worker_capture, "_write", write)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), time.monotonic() + 1)
+    retain(tmp_path, "fork-eof-" + first_eof, receipt)
+    assert observed == [first_eof, "result" if first_eof == "control" else "control"]
+    assert receipt.error is not None and receipt.error_errno == errno.EAGAIN
+    assert receipt.pid is None and receipt.worker["helper_identity"] is None
+    assert receipt.worker["reaped"] and receipt.worker["returncode"] == 70
+    assert receipt.worker["fork_failure"]["errno"] == errno.EAGAIN
+    assert not receipt.worker["unknown_helper_creation"]
+    assert not receipt.worker["helper_obligation_retained"]
+    assert not receipt.residual_remedy
+
+
 @pytest.mark.parametrize("mode", ["fork-error", "lost-result", "setup-error", "silent"])
 def test_review_worker_fork_failure_evidence(tmp_path, monkeypatch, mode):
     import errno
