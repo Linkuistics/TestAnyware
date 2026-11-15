@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="14" time="0.849" timestamp="2026-11-15T21:32:46.386391+11:00" hostname="byrd.local"><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[overflow-invalid worker startup frame]" time="0.012" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[empty-eof-invalid worker startup frame]" time="0.005" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[partial-eof-invalid worker startup frame]" time="0.006" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[tail-invalid worker startup identity]" time="0.007" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[session-invalid worker startup identity]" time="0.009" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[pid-invalid worker startup identity]" time="0.009" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[pgid-invalid worker startup identity]" time="0.008" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[sid-invalid worker startup identity]" time="0.007" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[missing-invalid worker startup identity]" time="0.007" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[extra-invalid worker startup identity]" time="0.008" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[duplicate-duplicate worker publication key]" time="0.008" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[nesting-worker publication nesting exceeds decoder limit]" time="0.007"><failure message="RecursionError: maximum recursion depth exceeded">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-955/test_startup_frame_rejection_i11')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1074ad8b0&gt;
+fault = 'nesting', message = 'worker publication nesting exceeds decoder limit'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+&gt;           assert not worker.start()
+                       ^^^^^^^^^^^^^^
+
+test_bootstrap.py:107: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:446: in start
+    run_turns(Turn(advance_start, readiness=startup_readiness))
+turns.py:75: in run_turns
+    wake = item[2].advance()
+           ^^^^^^^^^^^^^^^^^
+worker_capture.py:424: in advance_start
+    if tail or _load_json(line) != {
+               ^^^^^^^^^^^^^^^^
+worker_capture.py:715: in _load_json
+    return json.loads(payload, object_pairs_hook=unique)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/__init__.py:359: in loads
+    return cls(**kw).decode(s)
+           ^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/decoder.py:338: in decode
+    obj, end = self.raw_decode(s, idx=_w(s, 0).end())
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/decoder.py:354: in raw_decode
+    obj, end = self.scan_once(s, idx)
+               ^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/scanner.py:67: in scan_once
+    return _scan_once(string, idx)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/scanner.py:40: in _scan_once
+    return parse_array((string, idx + 1), _scan_once)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/decoder.py:231: in JSONArray
+    value, end = scan_once(s, end)
+                 ^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/scanner.py:40: in _scan_once
+    return parse_array((string, idx + 1), _scan_once)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/decoder.py:231: in JSONArray
+    value, end = scan_once(s, end)
+                 ^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/scanner.py:40: in _scan_once
+    return parse_array((string, idx + 1), _scan_once)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/decoder.py:231: in JSONArray
+    value, end = scan_once(s, end)
+                 ^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/scanner.py:40: in _scan_once
+    return parse_array((string, idx + 1), _scan_once)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/decoder.py:231: in JSONArray
+    value, end = scan_once(s, end)
+                 ^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/scanner.py:40: in _scan_once
+    return parse_array((string, idx + 1), _scan_once)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/decoder.py:231: in JSONArray
+    value, end = scan_once(s, end)
+                 ^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+string = '[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[...]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]'
+idx = 479
+
+    def _scan_once(string, idx):
+        try:
+            nextchar = string[idx]
+        except IndexError:
+            raise StopIteration(idx) from None
+    
+        if nextchar == '"':
+            return parse_string(string, idx + 1, strict)
+        elif nextchar == '{':
+            return parse_object((string, idx + 1), strict,
+                _scan_once, object_hook, object_pairs_hook, memo)
+        elif nextchar == '[':
+&gt;           return parse_array((string, idx + 1), _scan_once)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E           RecursionError: maximum recursion depth exceeded
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/json/scanner.py:40: RecursionError
+!!! Recursion error detected, but the origin of the recursion could not be located.
+  Displaying first and last 10 stack frames out of 968.
+  Pass `--full-trace` to see all frames.</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[json-Expecting property name enclosed in double quotes: line 1 column 2 (char 1)]" time="0.009" /><testcase classname="test_bootstrap" name="test_startup_frame_written_at_real_cutoff_is_late" time="0.304" /></testsuite></testsuites>

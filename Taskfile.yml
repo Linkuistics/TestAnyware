@@ -10,6 +10,52 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  diagnostic:startup-frames-probe:
+    desc: Retain the interpreter decoder depth probe
+    dir: experiments/exec-reliability
+    requires:
+      vars: [OUT]
+    cmds:
+      - /bin/sh -C -c 'exec uv run --locked python evidence/startup-frame-controls-k139/probe_decoder.py > "$1"' sh '{{.OUT}}'
+
+  diagnostic:startup-frames-prepare:
+    desc: Freeze startup readiness inputs with optional parent source overrides
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/startup-frame-controls-k139/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}} {{if .WORKER_SOURCE}}--worker-source '{{.WORKER_SOURCE}}'{{end}} {{if .TURNS_SOURCE}}--turns-source '{{.TURNS_SOURCE}}'{{end}} {{if .TESTS_SOURCE}}--tests-source '{{.TESTS_SOURCE}}'{{end}}
+
+  diagnostic:startup-frames-check:
+    desc: Retain bounded startup readiness controls, suites and statics
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/startup-frame-controls-k139/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
+
+  diagnostic:startup-frames-preserve:
+    desc: Inventory prior evidence around startup readiness work
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/startup-frame-controls-k139/preserve.py '{{.MODE}}'
+
+  diagnostic:startup-frames-tools:
+    desc: Format, lint and typecheck startup readiness evidence tools
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/startup-frame-controls-k139/*.py
+      - uv run --locked python -m ruff check evidence/startup-frame-controls-k139/*.py
+      - uv run --locked python -m pyright evidence/startup-frame-controls-k139/*.py
+
+  diagnostic:startup-frames-audit:
+    desc: Verify retained startup readiness evidence and per-case comparisons
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/startup-frame-controls-k139/audit.py
+
   diagnostic:startup-turns-prepare:
     desc: Freeze startup readiness inputs with optional parent source overrides
     dir: experiments/exec-reliability

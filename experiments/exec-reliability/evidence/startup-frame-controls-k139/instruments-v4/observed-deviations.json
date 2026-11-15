@@ -1,0 +1,19 @@
+[
+  {
+    "condition": "candidate-controls-1",
+    "result": "13/14;1100 nested arrays decoded rather than exhausting stack",
+    "retained": true,
+    "instruments": "instruments-v1"
+  },
+  {
+    "condition": "candidate-controls-2",
+    "result": "13/14; restoring sys recursion limit1000 did not affect result. Remove override and use2040 arrays (4082-byte frame)",
+    "retained": true,
+    "instruments": "instruments-v2"
+  },
+  {
+    "condition": "candidate-controls-3",
+    "result": "13/14;2040 arrays decoded. Probe shows5000 arrays also decode at sys limits100/1000/3000,10000 exhaust. Native decoder not exhausted within4096-byte cap for these inputs. Use stdlib Python scanner and1000 recursion bound for the guard control, real child still writes2202 bytes. This is a dependency seam, not native C-decoder reachability.",
+    "instruments": "instruments-v3"
+  }
+]

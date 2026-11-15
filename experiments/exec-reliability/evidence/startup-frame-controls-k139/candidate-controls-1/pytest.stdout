@@ -1,0 +1,123 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/startup-frame-controls-k139/inputs-candidate
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 921 items / 907 deselected / 14 selected
+
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[overflow-invalid worker startup frame] PASSED [  7%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[empty-eof-invalid worker startup frame] PASSED [ 14%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[partial-eof-invalid worker startup frame] PASSED [ 21%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[tail-invalid worker startup identity] PASSED [ 28%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[session-invalid worker startup identity] PASSED [ 35%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[pid-invalid worker startup identity] PASSED [ 42%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[pgid-invalid worker startup identity] PASSED [ 50%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[sid-invalid worker startup identity] PASSED [ 57%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[missing-invalid worker startup identity] PASSED [ 64%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[extra-invalid worker startup identity] PASSED [ 71%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[duplicate-duplicate worker publication key] PASSED [ 78%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[nesting-worker publication nesting exceeds decoder limit] FAILED [ 85%]
+test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[json-Expecting property name enclosed in double quotes: line 1 column 2 (char 1)] PASSED [ 92%]
+test_bootstrap.py::test_startup_frame_written_at_real_cutoff_is_late PASSED [100%]
+
+=================================== FAILURES ===================================
+_ test_startup_frame_rejection_is_failed_and_reaped[nesting-worker publication nesting exceeds decoder limit] _
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-944/test_startup_frame_rejection_i11')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ad75790>
+fault = 'nesting', message = 'worker publication nesting exceeds decoder limit'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        try:
+            assert not worker.start()
+>           assert worker.failure == message
+E           AssertionError: assert 'invalid worker startup identity' == 'worker publication nesting exceeds decoder limit'
+E             
+E             - worker publication nesting exceeds decoder limit
+E             + invalid worker startup identity
+
+test_bootstrap.py:101: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/startup-frame-controls-k139/candidate-controls-1/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[nesting-worker publication nesting exceeds decoder limit] - AssertionError: assert 'invalid worker startup identity' == 'worker publication nesting exceeds decoder limit'
+  
+  - worker publication nesting exceeds decoder limit
+  + invalid worker startup identity
+================ 1 failed, 13 passed, 907 deselected in 29.95s =================

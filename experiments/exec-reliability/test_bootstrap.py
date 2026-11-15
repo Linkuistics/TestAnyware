@@ -2,8 +2,10 @@
 
 import json
 import os
+import select
 import signal
 import subprocess
+import sys
 import time
 import uuid
 from dataclasses import asdict
@@ -16,6 +18,212 @@ import controller
 import inspection
 import worker_capture
 from turns import Turn
+
+
+@pytest.mark.parametrize(
+    "fault,message",
+    [
+        ("overflow", "invalid worker startup frame"),
+        ("empty-eof", "invalid worker startup frame"),
+        ("partial-eof", "invalid worker startup frame"),
+        ("tail", "invalid worker startup identity"),
+        ("session", "invalid worker startup identity"),
+        ("pid", "invalid worker startup identity"),
+        ("pgid", "invalid worker startup identity"),
+        ("sid", "invalid worker startup identity"),
+        ("missing", "invalid worker startup identity"),
+        ("extra", "invalid worker startup identity"),
+        ("duplicate", "duplicate worker publication key"),
+        ("nesting", "worker publication nesting exceeds decoder limit"),
+        ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+    ],
+)
+def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+    """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+    worker = worker_capture.Worker(
+        bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+    )
+    real_read = os.read
+    chunks = []
+    journaled = False
+
+    def read(fd, size):
+        nonlocal journaled
+        if fd == worker.control and not journaled:
+            _journal_startup_worker(worker, tmp_path)
+            journaled = True
+        data = real_read(fd, size)
+        if fd == worker.control:
+            chunks.append(len(data))
+        return data
+
+    def service(command, control, result, session, deadline):
+        try:
+            inspection.reset_after_fork({command, control, result})
+            identity = {
+                "session": session,
+                "pid": os.getpid(),
+                "pgid": os.getpgrp(),
+                "sid": os.getsid(0),
+            }
+            if fault in {"session", "pid", "pgid", "sid"}:
+                identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+            elif fault == "missing":
+                del identity["sid"]
+            elif fault == "extra":
+                identity["unexpected"] = 1
+            frame = json.dumps(identity).encode() + b"\n"
+            if fault == "overflow":
+                frame = b"x" * 4097
+            elif fault == "empty-eof":
+                os._exit(0)
+            elif fault == "partial-eof":
+                frame = b'{"session":'
+            elif fault == "tail":
+                frame += b"x"
+            elif fault == "duplicate":
+                frame = b'{"session":"wrong",' + frame[1:]
+            elif fault == "nesting":
+                frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+            elif fault == "json":
+                frame = b"{invalid}\n"
+            assert os.write(control, frame) == len(frame)
+            if fault == "partial-eof":
+                os._exit(0)
+            while True:
+                signal.pause()
+        finally:
+            os._exit(70)
+
+    monkeypatch.setattr(worker_capture, "_service", service)
+    monkeypatch.setattr(os, "read", read)
+    recursion_limit = sys.getrecursionlimit()
+    if fault == "nesting":
+        # Native decoding accepts every tested depth permitted by this frame cap.
+        # Exercise the defensive path with the stdlib's recursive Python scanner.
+        monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+        sys.setrecursionlimit(1000)
+    try:
+        assert not worker.start()
+        assert worker.failure == message
+        assert worker.readiness_outcome == "failed"
+        assert worker.readiness_finished < worker.startup_deadline
+        if fault == "overflow":
+            # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+            assert sum(chunks) == 4097 and chunks[-1] > 0
+        assert worker.owner is not None and worker.owner.reaped
+        assert worker.bootstrap_shutdown["outcome"] == "reaped"
+        assert worker.bootstrap_shutdown["overrun"] is False
+        assert worker.shutdown_finished < worker.shutdown_started + 0.23
+        assert worker.startup_finished - worker.startup_started < 0.3 + 0.23
+        assert not worker.start()
+    finally:
+        sys.setrecursionlimit(recursion_limit)
+        worker.close()
+        owner = worker.owner
+        assert owner is not None and owner.reaped
+        with pytest.raises(ChildProcessError):
+            os.waitpid(owner.pid, os.WNOHANG)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"startup-frame-{fault}-{time.time_ns()}.json").write_text(
+            json.dumps(
+                {
+                    "runtime": worker.evidence(),
+                    "chunks": chunks,
+                    "audit": {"reaped": True},
+                    "decoder": "stdlib Python scanner; recursion limit 1000"
+                    if fault == "nesting"
+                    else "native",
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+
+
+def test_startup_frame_written_at_real_cutoff_is_late(tmp_path, monkeypatch):
+    """Accepting a real cutoff write or relabelling its postparse result must fail."""
+    worker = worker_capture.Worker(
+        bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+    )
+    report_read, report_write = os.pipe()
+    real_read = os.read
+    entered = []
+    written = None
+
+    def service(command, control, result, session, deadline):
+        try:
+            inspection.reset_after_fork({command, control, result, report_write})
+            frame = (
+                json.dumps(
+                    {
+                        "session": session,
+                        "pid": os.getpid(),
+                        "pgid": os.getpgrp(),
+                        "sid": os.getsid(0),
+                    }
+                ).encode()
+                + b"\n"
+            )
+            time.sleep(max(0, deadline - time.monotonic()))
+            written = time.monotonic()
+            assert os.write(control, frame) == len(frame)
+            os.write(report_write, str(written).encode())
+            os.close(report_write)
+            while True:
+                signal.pause()
+        finally:
+            os._exit(70)
+
+    def read(fd, size):
+        if fd == worker.control:
+            _journal_startup_worker(worker, tmp_path)
+            entered.append(time.monotonic())
+            # A real pipe read begins before cutoff and completes on the child's write.
+            assert select.select([fd], [], [], 0.5)[0] == [fd]
+        return real_read(fd, size)
+
+    monkeypatch.setattr(worker_capture, "_service", service)
+    monkeypatch.setattr(os, "read", read)
+    try:
+        assert not worker.start()
+        os.close(report_write)
+        report_write = None
+        written = float(real_read(report_read, 100))
+        assert len(entered) == 1 and entered[0] < worker.startup_deadline
+        assert worker.startup_deadline <= written <= worker.readiness_finished
+        assert worker.failure == "late worker readiness"
+        assert worker.readiness_outcome == "late"
+        assert worker.readiness_finished - worker.startup_deadline < 0.1
+        assert worker.owner is not None and not worker.owner.ready and worker.owner.reaped
+        assert worker.bootstrap_shutdown["outcome"] == "reaped"
+        assert worker.bootstrap_shutdown["overrun"] is False
+        assert worker.shutdown_finished < worker.shutdown_started + 0.23
+    finally:
+        if report_write is not None:
+            os.close(report_write)
+        os.close(report_read)
+        worker.close()
+        owner = worker.owner
+        assert owner is not None and owner.reaped
+        with pytest.raises(ChildProcessError):
+            os.waitpid(owner.pid, os.WNOHANG)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"startup-frame-real-cutoff-{time.time_ns()}.json").write_text(
+            json.dumps(
+                {
+                    "runtime": worker.evidence(),
+                    "read_entered": entered,
+                    "child_write_started": written,
+                    "audit": {"reaped": True},
+                    "injection": "real pipe read delayed until child's real cutoff write",
+                },
+                indent=2,
+            )
+            + "\n"
+        )
 
 
 def _journal_startup_worker(worker, tmp_path):
