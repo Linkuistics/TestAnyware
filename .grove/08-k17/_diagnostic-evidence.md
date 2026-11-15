@@ -125,3 +125,20 @@ contracts are promoted into k28. k72 precedes k71, with complete runtime
 review/reconciliation before k21. Historical statements above about k30 or an
 earlier synchronous source condition remain provenance, not acceptance of the
 current runtime. k17 stays open through k28 and k21. Storage remains k18.
+
+## Worker scheduling delivery and review boundary
+
+The k146 producer connects failed worker retirement and close to production public teardown scheduling.
+The [production report](../../experiments/exec-reliability/evidence/worker-overlap-k146/report.md) contains the runtime ownership trace, full control map and frozen comparisons.
+Both candidate comparisons pass 949 cases, and the parent comparisons reject the eight new production overlap controls.
+The source condition is the report's `full-candidate-inputs`, with unchanged runtime bytes in the finishing producer.
+
+The k28 implementation review must precede k21 and any reliance on its complete contract.
+It must trace every current owner, wait, signal entry point, deadline and residual obligation across actual `execute`.
+The report records separate unavailable setuid-ps and real UID-denial receipts, plus unresolved historical timing and fixture failures.
+Those limits remain part of k17's acceptance assessment even after the implementation producer closes.
+
+k21 consumes immutable observations and residual inputs without treating worker reap as helper or workload reap.
+k18 owns storage stalls and must preserve the scheduler's in-memory safety boundary.
+The process scheduler alone certifies neither retained-file identity nor disposal through blocked evidence storage.
+Guest acceptance remains 0/10 unavailable, and k17 remains open through review reconciliation and k21.

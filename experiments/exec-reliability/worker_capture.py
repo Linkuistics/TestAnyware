@@ -962,6 +962,7 @@ def capture_helper(
     worker: Worker | None = None,
     scope: RequestScope | None = None,
     drive: Callable[[Turn], None] | None = None,
+    defer_retirement: Callable[[Turn], None] | None = None,
 ) -> HelperCapture:
     """Bound parent waiting even when the worker's helper creation never returns.
 
@@ -971,6 +972,10 @@ def capture_helper(
     retirement/close Turns) to None or raise. Returning with a pending Turn is
     invalid; no private fallback driver completes it. Exceptions still release
     owned channels and retain unresolved process obligations without new allowance.
+    For a persistent worker, defer_retirement may instead retain the failed
+    request's safety Turn. Its caller must drive it before closing worker channels;
+    it updates receipt.worker as cleanup-only identities arrive. Query authority
+    has already ended, and neither this handoff nor close renews the deadline.
     """
     # The supplied driver completes each bounded owner and may compose companions.
     schedule = run_turns if drive is None else drive
@@ -1033,6 +1038,7 @@ def capture_helper(
     request_done = False
     command = b""
     request_identity: dict[str, object] | None = None
+    retirement_deferred = False
 
     def consume_control(cleanup_only: bool) -> None:
         nonlocal control_ready, control_invalid, intent, creation_conflict
@@ -1408,76 +1414,99 @@ def capture_helper(
                             )
                             return readers, ()
 
-                        try:
-                            schedule(
-                                Turn(
-                                    advance_retirement, safety=True, readiness=retirement_readiness
-                                )
+                        if worker is not None and defer_retirement is not None:
+
+                            def advance_deferred() -> float | None:
+                                wake = advance_retirement()
+                                publish_retirement()
+                                return wake
+
+                            defer_retirement(
+                                Turn(advance_deferred, safety=True, readiness=retirement_readiness)
                             )
-                        finally:
-                            _reap(owner)
+                            retirement_deferred = True
+                        else:
+                            try:
+                                schedule(
+                                    Turn(
+                                        advance_retirement,
+                                        safety=True,
+                                        readiness=retirement_readiness,
+                                    )
+                                )
+                            finally:
+                                _reap(owner)
                 finally:
-                    if not complete and fork_failure is not None and (buffers[0] or buffers[1]):
-                        # Incremental rejection can bypass the final decoder. Partial
-                        # control/terminal data still revokes clean no-child authority.
-                        creation_conflict = True
-                    confirmed_failure = (
-                        fork_failure is not None
-                        and not creation_conflict
-                        and closed_channels == {0, 1}
-                    )
-                    unknown_creation = (
-                        not complete and helper_identity is None and not confirmed_failure
-                    )
-                    if confirmed_failure and fork_failure is not None and not complete:
-                        receipt.error_errno = cast(int, fork_failure["errno"])
-                    receipt.worker = {
-                        **asdict(owner),
-                        "intent": intent,
-                        "unknown_helper_creation": unknown_creation,
-                        "fork_failure": fork_failure,
-                        "creation_conflict": creation_conflict,
-                        "helper_identity": helper_identity,
-                        "helper_identities": helper_identities,
-                        "helper_obligation_retained": any(
-                            key == token or key.startswith(token + ":")
-                            for key in _helper_obligations
-                        ),
-                        "signal_scope": "group" if owner.ready else "pid",
-                        "dispatch_monotonic": dispatched,
-                        "receipt_monotonic": received,
-                        "published_times": published_times,
-                        "query_deadline_monotonic": query_deadline,
-                        "reserve_seconds": reserve,
-                        "request_token": token,
-                        "request_identity": request_identity,
-                        "session_token": worker.session_token if worker is not None else None,
-                    }
-                    if (worker is None or worker.failure is not None) and (
-                        not owner.reaped or owner.returncode != 0
-                    ):
-                        receipt.error = (
-                            receipt.error or "worker did not exit cleanly within fixed allowance"
+
+                    def publish_retirement() -> None:
+                        nonlocal creation_conflict
+                        assert owner is not None
+                        if not complete and fork_failure is not None and (buffers[0] or buffers[1]):
+                            # Incremental rejection can bypass the final decoder. Partial
+                            # control/terminal data still revokes clean no-child authority.
+                            creation_conflict = True
+                        confirmed_failure = (
+                            fork_failure is not None
+                            and not creation_conflict
+                            and closed_channels == {0, 1}
                         )
-                    if (worker is None or worker.failure is not None) and (
-                        not owner.reaped or (not complete and not confirmed_failure)
-                    ):
-                        receipt.residual_remedy = (
-                            "Retained helper identity requires its own matching reap receipt; "
-                            "unpublished interrupted creation remains unknown. Worker reap/group "
-                            "signals do not prove helper death. Independently reconcile exact "
-                            "worker/helper fixture identities. An unreaped worker retains strong "
-                            "ownership without later signals."
+                        unknown_creation = (
+                            not complete and helper_identity is None and not confirmed_failure
                         )
-                    elif token in _helper_obligations and not receipt.residual_remedy:
-                        receipt.residual_remedy = (
-                            "Retained helper identity requires its own matching reap receipt; "
-                            "worker reap does not resolve the helper obligation."
-                        )
+                        if confirmed_failure and fork_failure is not None and not complete:
+                            receipt.error_errno = cast(int, fork_failure["errno"])
+                        receipt.worker = {
+                            **asdict(owner),
+                            "intent": intent,
+                            "unknown_helper_creation": unknown_creation,
+                            "fork_failure": fork_failure,
+                            "creation_conflict": creation_conflict,
+                            "helper_identity": helper_identity,
+                            "helper_identities": helper_identities,
+                            "helper_obligation_retained": any(
+                                key == token or key.startswith(token + ":")
+                                for key in _helper_obligations
+                            ),
+                            "signal_scope": "group" if owner.ready else "pid",
+                            "dispatch_monotonic": dispatched,
+                            "receipt_monotonic": received,
+                            "published_times": published_times,
+                            "query_deadline_monotonic": query_deadline,
+                            "reserve_seconds": reserve,
+                            "request_token": token,
+                            "request_identity": request_identity,
+                            "session_token": worker.session_token if worker is not None else None,
+                        }
+                        if (worker is None or worker.failure is not None) and (
+                            not owner.reaped or owner.returncode != 0
+                        ):
+                            receipt.error = (
+                                receipt.error
+                                or "worker did not exit cleanly within fixed allowance"
+                            )
+                        if (worker is None or worker.failure is not None) and (
+                            not owner.reaped or (not complete and not confirmed_failure)
+                        ):
+                            receipt.residual_remedy = (
+                                "Retained helper identity requires its own matching reap receipt; "
+                                "unpublished interrupted creation remains unknown. Worker "
+                                "reap/group "
+                                "signals do not prove helper death. Independently reconcile exact "
+                                "worker/helper fixture identities. An unreaped worker retains "
+                                "strong "
+                                "ownership without later signals."
+                            )
+                        elif token in _helper_obligations and not receipt.residual_remedy:
+                            receipt.residual_remedy = (
+                                "Retained helper identity requires its own matching reap receipt; "
+                                "worker reap does not resolve the helper obligation."
+                            )
+
+                    publish_retirement()
         finally:
             try:
                 if worker is not None:
-                    if worker.failure is not None:
+                    if worker.failure is not None and not retirement_deferred:
                         close_worker()
             finally:
                 for fd in channels:

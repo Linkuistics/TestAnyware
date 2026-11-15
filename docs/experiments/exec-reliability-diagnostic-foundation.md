@@ -18,9 +18,9 @@ Missing exit evidence leaves inspection unknown without a query.
 A live or unknown final table cannot trigger a retry.
 
 The controller preserves k37's strict process-table acceptance, k33's KILL ordering and k36's PID-only deadline cap.
-The complete worker/scheduler boundary remains k30's work.
-Its continuations are k34, worker-scheduler-k38, worker-scheduler-k40, worker-scheduler-k42, worker-scheduler-k44 and worker-scheduler-k48.
-The remaining contract is in complete-worker-scheduler-k122.
+The complete worker/scheduler boundary belongs to bounded-inspection-k28.
+Its historical continuations include k30, k34, worker-scheduler-k38, worker-scheduler-k40, worker-scheduler-k42, worker-scheduler-k44 and worker-scheduler-k48.
+The current producer is complete-worker-scheduler-k146.
 A failed local inspection remains failed throughout that execution.
 Independent cleanup, disposal and public absence commands still run, but later local observations cannot restore disposal certainty.
 
@@ -28,8 +28,18 @@ Independently supervised process inspection, retained-file identity, stalled-sto
 The controller starts one persistent inspection worker before resource acquisition.
 Helper creation runs inside that worker, with helper ownership publication independent of result capture.
 Raw worker fork remains a synchronous OS operation.
-Worker close offers incremental nonblocking operations, while its compatibility consumer drives them synchronously.
-Shared scheduling, actual shutdown/teardown overlap and the remaining aggregate controls are unfinished.
+
+The production controller advances failed worker shutdown alongside public cleanup and disposal.
+Both malformed process tables and failed transport start this retirement without another request or worker.
+Request retirement preserves its original cutoff and helper obligations before worker close.
+Healthy close uses the same scheduler after public commands finish.
+
+The [k146 report](../../experiments/exec-reliability/evidence/worker-overlap-k146/report.md) records the runtime trace, controls and retained failures.
+Two interleaved candidate suites pass all 949 cases.
+Both parent suites fail the eight new overlap cases and pass the other 941 cases.
+Three mutations reject missing scheduling, missing table-failure retirement and synchronous transport retirement.
+These measurements prepare independent review of bounded-inspection-k28 before retained-evidence-k21.
+They do not establish guest acceptance, explain every historical timing failure or remove the storage and retained-file obligations.
 
 The bounded k110 result and its evidence limits appear below.
 This work prepares causal inquiries for [issue #14](https://github.com/Linkuistics/TestAnyware/issues/14).

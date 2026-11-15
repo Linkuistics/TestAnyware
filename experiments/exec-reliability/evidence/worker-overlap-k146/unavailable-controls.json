@@ -1,0 +1,39 @@
+{
+  "status": "unavailable",
+  "sender": {"real_uid": 501, "effective_uid": 501},
+  "ps_executable": {
+    "path": "/bin/ps",
+    "owner_uid": 0,
+    "owner_gid": 0,
+    "mode_octal": "104755",
+    "sha256": "a06fe087161557f1f8c030672eaedcd90bc6a8e92b8f2d44e07cffedc3349205"
+  },
+  "controls": [
+    {
+      "name": "actual-identified-setuid-ps-kill",
+      "missing_prerequisite": "A positively owned, unreaped actual ps instance with a verified live timing window for the signal attempt.",
+      "fixture_pid": null,
+      "fixture_real_uid": null,
+      "fixture_effective_uid": null,
+      "signal_result": null,
+      "reap_result": null,
+      "intended_cleanup": "Exact owned ps child KILL followed by bounded exact-child reap, without signalling an unrelated or already reaped PID.",
+      "operations_not_attempted": ["new timing fixture creation", "KILL delivery control", "fixture reap control"],
+      "limitation": "Installed executable metadata and successful ordinary ps queries do not establish KILL delivery."
+    },
+    {
+      "name": "genuine-uid-denial-and-permission-unknown",
+      "missing_prerequisite": "A separately authorised privileged owner to create and clean a fixture whose real and effective UIDs both differ from the sender UIDs.",
+      "fixture_owner": null,
+      "fixture_pid": null,
+      "fixture_real_uid": null,
+      "fixture_effective_uid": null,
+      "kernel_errno": null,
+      "intended_denial": "Actual kernel EPERM, with a separate missing-table condition requiring permission_unknown.",
+      "intended_cleanup": "The separately authorised fixture owner terminates and exactly reaps its own child.",
+      "operations_not_attempted": ["privilege acquisition", "foreign-UID fixture creation", "denied kernel signal", "real denial combined with missing table", "privileged fixture cleanup"],
+      "limitation": "Injected errno and zombie observations do not establish real UID-based denial."
+    }
+  ],
+  "full_guarantee_established": false
+}

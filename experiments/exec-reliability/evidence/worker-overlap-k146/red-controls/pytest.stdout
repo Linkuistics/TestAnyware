@@ -1,0 +1,361 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/.cache/uv/builds-v0/.tmpn6Hpqr/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-overlap-k146/parent-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 945 items / 941 deselected / 4 selected
+
+test_controller.py::test_production_worker_retirement_overlaps_owned_teardown[cleanup-acquire] FAILED [ 25%]
+test_controller.py::test_production_worker_retirement_overlaps_owned_teardown[cleanup-workload] FAILED [ 50%]
+test_controller.py::test_production_worker_retirement_overlaps_owned_teardown[dispose-acquire] FAILED [ 75%]
+test_controller.py::test_production_worker_retirement_overlaps_owned_teardown[dispose-workload] FAILED [100%]
+
+=================================== FAILURES ===================================
+__ test_production_worker_retirement_overlaps_owned_teardown[cleanup-acquire] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1140/test_production_worker_retirem0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106f225a0>
+failed_call = 'acquire', held_call = 'cleanup'
+
+    @pytest.mark.parametrize("failed_call", ["acquire", "workload"])
+    @pytest.mark.parametrize("held_call", ["cleanup", "dispose"])
+    def test_production_worker_retirement_overlaps_owned_teardown(
+        tmp_path, monkeypatch, failed_call, held_call
+    ):
+        import controller
+        import worker_capture
+    
+        original_service = worker_capture._service
+        original_snapshot = controller._group_snapshot
+        queries = []
+    
+        def service(*args):
+            # A real direct child serves requests, then refuses EOF and TERM.
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            original_service(*args)
+            while True:
+                time.sleep(1)
+    
+        def snapshot(pid, deadline, **kwargs):
+            observation = original_snapshot(pid, deadline, **kwargs)
+            queries.append(observation)
+            if len(queries) == (1 if failed_call == "acquire" else 2):
+                assert observation["helper"]["reaped"] is True
+                observation.update(state="unknown", error="injected malformed process table")
+            return observation
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        owned = replace(
+            owned, **{held_call: call(held_call, "hang", owned.identity, tmp_path, budget=0.4)}
+        )
+        plan = Plan(
+            run_id,
+            (call("workload", "bytes"), call("unreached", "bytes")),
+            (owned,),
+            term_grace=0.15,
+            kill_wait=0.3,
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.08, kill_reap=0.2),
+        )
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "evidence"))
+        path = execute(plan, root)
+        result = json.loads((path / "result.json").read_text())
+        lifecycle = result["inspection_worker"]
+        held = next(item for item in result["calls"] if item["name"] == held_call)
+        owner = lifecycle["owner"]
+        audit = {
+            "failed_call": failed_call,
+            "held_call": held_call,
+            "worker": inspect_pid(owner["pid"]),
+            "leaders": [inspect_pid(item["pid"]) for item in result["calls"]],
+            "helpers": [inspect_pid(item["helper"]["pid"]) for item in queries],
+            "marker_remains": (tmp_path / owned.identity).exists(),
+            "lifecycle": lifecycle,
+            "held": held,
+        }
+        # Disposal is deliberately stalled in half the cases; reconcile this exact
+        # fake marker independently, after recording runtime's uncertain ledger.
+        (tmp_path / owned.identity).unlink(missing_ok=True)
+        (path / "production-overlap-audit.json").write_text(json.dumps(audit, indent=2))
+        assert audit["worker"]["state"] == "absent"
+        assert all(item["state"] == "absent" for item in audit["leaders"] + audit["helpers"])
+        with pytest.raises(ChildProcessError):
+            os.waitpid(owner["pid"], os.WNOHANG)
+        assert result["ok"] is False
+        assert result["inspection_failure"]["call"] == failed_call
+        assert result["unreached"] == (
+            ["workload", "unreached"] if failed_call == "acquire" else ["unreached"]
+        )
+        assert [item["name"] for item in result["calls"][-3:]] == ["cleanup", "dispose", "inspect"]
+        assert len(queries) == (1 if failed_call == "acquire" else 2)
+>       assert owner["reaped"] is True and owner["returncode"] == -signal.SIGKILL
+E       assert (True is True and 0 == -<Signals.SIGKILL: 9>)
+E        +  where <Signals.SIGKILL: 9> = signal.SIGKILL
+
+test_controller.py:99: AssertionError
+_ test_production_worker_retirement_overlaps_owned_teardown[cleanup-workload] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1140/test_production_worker_retirem1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1071fa0c0>
+failed_call = 'workload', held_call = 'cleanup'
+
+    @pytest.mark.parametrize("failed_call", ["acquire", "workload"])
+    @pytest.mark.parametrize("held_call", ["cleanup", "dispose"])
+    def test_production_worker_retirement_overlaps_owned_teardown(
+        tmp_path, monkeypatch, failed_call, held_call
+    ):
+        import controller
+        import worker_capture
+    
+        original_service = worker_capture._service
+        original_snapshot = controller._group_snapshot
+        queries = []
+    
+        def service(*args):
+            # A real direct child serves requests, then refuses EOF and TERM.
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            original_service(*args)
+            while True:
+                time.sleep(1)
+    
+        def snapshot(pid, deadline, **kwargs):
+            observation = original_snapshot(pid, deadline, **kwargs)
+            queries.append(observation)
+            if len(queries) == (1 if failed_call == "acquire" else 2):
+                assert observation["helper"]["reaped"] is True
+                observation.update(state="unknown", error="injected malformed process table")
+            return observation
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        owned = replace(
+            owned, **{held_call: call(held_call, "hang", owned.identity, tmp_path, budget=0.4)}
+        )
+        plan = Plan(
+            run_id,
+            (call("workload", "bytes"), call("unreached", "bytes")),
+            (owned,),
+            term_grace=0.15,
+            kill_wait=0.3,
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.08, kill_reap=0.2),
+        )
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "evidence"))
+        path = execute(plan, root)
+        result = json.loads((path / "result.json").read_text())
+        lifecycle = result["inspection_worker"]
+        held = next(item for item in result["calls"] if item["name"] == held_call)
+        owner = lifecycle["owner"]
+        audit = {
+            "failed_call": failed_call,
+            "held_call": held_call,
+            "worker": inspect_pid(owner["pid"]),
+            "leaders": [inspect_pid(item["pid"]) for item in result["calls"]],
+            "helpers": [inspect_pid(item["helper"]["pid"]) for item in queries],
+            "marker_remains": (tmp_path / owned.identity).exists(),
+            "lifecycle": lifecycle,
+            "held": held,
+        }
+        # Disposal is deliberately stalled in half the cases; reconcile this exact
+        # fake marker independently, after recording runtime's uncertain ledger.
+        (tmp_path / owned.identity).unlink(missing_ok=True)
+        (path / "production-overlap-audit.json").write_text(json.dumps(audit, indent=2))
+        assert audit["worker"]["state"] == "absent"
+        assert all(item["state"] == "absent" for item in audit["leaders"] + audit["helpers"])
+        with pytest.raises(ChildProcessError):
+            os.waitpid(owner["pid"], os.WNOHANG)
+        assert result["ok"] is False
+        assert result["inspection_failure"]["call"] == failed_call
+        assert result["unreached"] == (
+            ["workload", "unreached"] if failed_call == "acquire" else ["unreached"]
+        )
+        assert [item["name"] for item in result["calls"][-3:]] == ["cleanup", "dispose", "inspect"]
+        assert len(queries) == (1 if failed_call == "acquire" else 2)
+>       assert owner["reaped"] is True and owner["returncode"] == -signal.SIGKILL
+E       assert (True is True and 0 == -<Signals.SIGKILL: 9>)
+E        +  where <Signals.SIGKILL: 9> = signal.SIGKILL
+
+test_controller.py:99: AssertionError
+__ test_production_worker_retirement_overlaps_owned_teardown[dispose-acquire] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1140/test_production_worker_retirem2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107308590>
+failed_call = 'acquire', held_call = 'dispose'
+
+    @pytest.mark.parametrize("failed_call", ["acquire", "workload"])
+    @pytest.mark.parametrize("held_call", ["cleanup", "dispose"])
+    def test_production_worker_retirement_overlaps_owned_teardown(
+        tmp_path, monkeypatch, failed_call, held_call
+    ):
+        import controller
+        import worker_capture
+    
+        original_service = worker_capture._service
+        original_snapshot = controller._group_snapshot
+        queries = []
+    
+        def service(*args):
+            # A real direct child serves requests, then refuses EOF and TERM.
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            original_service(*args)
+            while True:
+                time.sleep(1)
+    
+        def snapshot(pid, deadline, **kwargs):
+            observation = original_snapshot(pid, deadline, **kwargs)
+            queries.append(observation)
+            if len(queries) == (1 if failed_call == "acquire" else 2):
+                assert observation["helper"]["reaped"] is True
+                observation.update(state="unknown", error="injected malformed process table")
+            return observation
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        owned = replace(
+            owned, **{held_call: call(held_call, "hang", owned.identity, tmp_path, budget=0.4)}
+        )
+        plan = Plan(
+            run_id,
+            (call("workload", "bytes"), call("unreached", "bytes")),
+            (owned,),
+            term_grace=0.15,
+            kill_wait=0.3,
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.08, kill_reap=0.2),
+        )
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "evidence"))
+        path = execute(plan, root)
+        result = json.loads((path / "result.json").read_text())
+        lifecycle = result["inspection_worker"]
+        held = next(item for item in result["calls"] if item["name"] == held_call)
+        owner = lifecycle["owner"]
+        audit = {
+            "failed_call": failed_call,
+            "held_call": held_call,
+            "worker": inspect_pid(owner["pid"]),
+            "leaders": [inspect_pid(item["pid"]) for item in result["calls"]],
+            "helpers": [inspect_pid(item["helper"]["pid"]) for item in queries],
+            "marker_remains": (tmp_path / owned.identity).exists(),
+            "lifecycle": lifecycle,
+            "held": held,
+        }
+        # Disposal is deliberately stalled in half the cases; reconcile this exact
+        # fake marker independently, after recording runtime's uncertain ledger.
+        (tmp_path / owned.identity).unlink(missing_ok=True)
+        (path / "production-overlap-audit.json").write_text(json.dumps(audit, indent=2))
+        assert audit["worker"]["state"] == "absent"
+        assert all(item["state"] == "absent" for item in audit["leaders"] + audit["helpers"])
+        with pytest.raises(ChildProcessError):
+            os.waitpid(owner["pid"], os.WNOHANG)
+        assert result["ok"] is False
+        assert result["inspection_failure"]["call"] == failed_call
+        assert result["unreached"] == (
+            ["workload", "unreached"] if failed_call == "acquire" else ["unreached"]
+        )
+        assert [item["name"] for item in result["calls"][-3:]] == ["cleanup", "dispose", "inspect"]
+        assert len(queries) == (1 if failed_call == "acquire" else 2)
+>       assert owner["reaped"] is True and owner["returncode"] == -signal.SIGKILL
+E       assert (True is True and 0 == -<Signals.SIGKILL: 9>)
+E        +  where <Signals.SIGKILL: 9> = signal.SIGKILL
+
+test_controller.py:99: AssertionError
+_ test_production_worker_retirement_overlaps_owned_teardown[dispose-workload] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1140/test_production_worker_retirem3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107316900>
+failed_call = 'workload', held_call = 'dispose'
+
+    @pytest.mark.parametrize("failed_call", ["acquire", "workload"])
+    @pytest.mark.parametrize("held_call", ["cleanup", "dispose"])
+    def test_production_worker_retirement_overlaps_owned_teardown(
+        tmp_path, monkeypatch, failed_call, held_call
+    ):
+        import controller
+        import worker_capture
+    
+        original_service = worker_capture._service
+        original_snapshot = controller._group_snapshot
+        queries = []
+    
+        def service(*args):
+            # A real direct child serves requests, then refuses EOF and TERM.
+            signal.signal(signal.SIGTERM, signal.SIG_IGN)
+            original_service(*args)
+            while True:
+                time.sleep(1)
+    
+        def snapshot(pid, deadline, **kwargs):
+            observation = original_snapshot(pid, deadline, **kwargs)
+            queries.append(observation)
+            if len(queries) == (1 if failed_call == "acquire" else 2):
+                assert observation["helper"]["reaped"] is True
+                observation.update(state="unknown", error="injected malformed process table")
+            return observation
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        owned = replace(
+            owned, **{held_call: call(held_call, "hang", owned.identity, tmp_path, budget=0.4)}
+        )
+        plan = Plan(
+            run_id,
+            (call("workload", "bytes"), call("unreached", "bytes")),
+            (owned,),
+            term_grace=0.15,
+            kill_wait=0.3,
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.08, kill_reap=0.2),
+        )
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "evidence"))
+        path = execute(plan, root)
+        result = json.loads((path / "result.json").read_text())
+        lifecycle = result["inspection_worker"]
+        held = next(item for item in result["calls"] if item["name"] == held_call)
+        owner = lifecycle["owner"]
+        audit = {
+            "failed_call": failed_call,
+            "held_call": held_call,
+            "worker": inspect_pid(owner["pid"]),
+            "leaders": [inspect_pid(item["pid"]) for item in result["calls"]],
+            "helpers": [inspect_pid(item["helper"]["pid"]) for item in queries],
+            "marker_remains": (tmp_path / owned.identity).exists(),
+            "lifecycle": lifecycle,
+            "held": held,
+        }
+        # Disposal is deliberately stalled in half the cases; reconcile this exact
+        # fake marker independently, after recording runtime's uncertain ledger.
+        (tmp_path / owned.identity).unlink(missing_ok=True)
+        (path / "production-overlap-audit.json").write_text(json.dumps(audit, indent=2))
+        assert audit["worker"]["state"] == "absent"
+        assert all(item["state"] == "absent" for item in audit["leaders"] + audit["helpers"])
+        with pytest.raises(ChildProcessError):
+            os.waitpid(owner["pid"], os.WNOHANG)
+        assert result["ok"] is False
+        assert result["inspection_failure"]["call"] == failed_call
+        assert result["unreached"] == (
+            ["workload", "unreached"] if failed_call == "acquire" else ["unreached"]
+        )
+        assert [item["name"] for item in result["calls"][-3:]] == ["cleanup", "dispose", "inspect"]
+        assert len(queries) == (1 if failed_call == "acquire" else 2)
+>       assert owner["reaped"] is True and owner["returncode"] == -signal.SIGKILL
+E       assert (True is True and 0 == -<Signals.SIGKILL: 9>)
+E        +  where <Signals.SIGKILL: 9> = signal.SIGKILL
+
+test_controller.py:99: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-overlap-k146/red-controls/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_production_worker_retirement_overlaps_owned_teardown[cleanup-acquire] - assert (True is True and 0 == -<Signals.SIGKILL: 9>)
+ +  where <Signals.SIGKILL: 9> = signal.SIGKILL
+FAILED test_controller.py::test_production_worker_retirement_overlaps_owned_teardown[cleanup-workload] - assert (True is True and 0 == -<Signals.SIGKILL: 9>)
+ +  where <Signals.SIGKILL: 9> = signal.SIGKILL
+FAILED test_controller.py::test_production_worker_retirement_overlaps_owned_teardown[dispose-acquire] - assert (True is True and 0 == -<Signals.SIGKILL: 9>)
+ +  where <Signals.SIGKILL: 9> = signal.SIGKILL
+FAILED test_controller.py::test_production_worker_retirement_overlaps_owned_teardown[dispose-workload] - assert (True is True and 0 == -<Signals.SIGKILL: 9>)
+ +  where <Signals.SIGKILL: 9> = signal.SIGKILL
+====================== 4 failed, 941 deselected in 5.29s =======================

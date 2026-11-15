@@ -1,0 +1,10 @@
+{
+  "purpose": "Actual execute worker failure retirement overlapping held resource teardown",
+  "interpreter": "Python 3.12 isolated, locked dependencies",
+  "bounds": {"controls": 60, "full": 120, "static": 30, "timeout_term": 2, "timeout_kill_reap": 2},
+  "order": ["red-controls", "red-v2-controls", "red-v3-controls", "candidate-controls", "candidate-static", "red-transport-controls", "transport-candidate-controls", "transport-candidate-static", "candidate-v2-controls", "candidate-v2-static", "candidate-v3-controls", "parent-full-1", "candidate-full-1", "parent-full-2", "candidate-full-2", "skip-companion", "skip-failure-retirement", "synchronous-retirement"],
+  "parent": "pre-runtime-change inputs with the new controls; expected red new controls, preserve every other failure",
+  "control": "Real worker serves requests then ignores EOF and TERM; invalid-table adapter after clean helper completion or malformed terminal frame after actual helper reap; cleanup/disposal held by real hang process; independent exact-child ECHILD and PID absence audit; transport request cutoff may tighten but cannot extend",
+  "scope": "Local owned fixture processes and fake run-named resource markers only",
+  "unavailable": ["privileged ps SIGKILL", "real UID EPERM", "five fresh macOS then five Linux guest trials (0/10)"]
+}

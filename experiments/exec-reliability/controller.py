@@ -17,8 +17,9 @@ import signal
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from contextlib import closing
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal, TypedDict, cast
 
@@ -198,9 +199,9 @@ class _WorkloadWait:
         return min(self.deadline, observed + 0.005)
 
 
-def _wait(pid: int, deadline: float) -> bool:
+def _wait(pid: int, deadline: float, *, drive: Callable[[Turn], None] = run_turns) -> bool:
     owner = _WorkloadWait(pid, deadline)
-    run_turns(Turn(owner.advance))
+    drive(Turn(owner.advance))
     return owner.exited
 
 
@@ -302,14 +303,25 @@ class _LeaderReap:
         return min(self.deadline, observed + 0.005)
 
 
-def _reap_leader(process: _WorkloadProcess, deadline: float, receipt: dict[str, object]) -> None:
+def _reap_leader(
+    process: _WorkloadProcess,
+    deadline: float,
+    receipt: dict[str, object],
+    *,
+    drive: Callable[[Turn], None] = run_turns,
+) -> None:
     """Consume reap turns synchronously until the exact child or fixed cutoff."""
     owner = _LeaderReap(process, deadline, receipt)
-    run_turns(Turn(owner.advance, safety=True))
+    drive(Turn(owner.advance, safety=True))
 
 
 def _group_snapshot(
-    pid: int, deadline: float, *, worker: Worker | None = None, signal_epoch: int = 0
+    pid: int,
+    deadline: float,
+    *,
+    worker: Worker | None = None,
+    signal_epoch: int = 0,
+    defer_retirement: Callable[[Turn], None] | None = None,
 ) -> GroupObservation:
     """Observe only while the unreaped session leader pins this group identity."""
     observation: GroupObservation = {
@@ -328,6 +340,17 @@ def _group_snapshot(
         "probe_outcome": "not_attempted",
         "error": None,
     }
+
+    def retain_retirement(turn: Turn) -> None:
+        assert defer_retirement is not None
+
+        def advance() -> float | None:
+            wake = turn.advance()
+            observation["helper"] = asdict(check)
+            return wake
+
+        defer_retirement(Turn(advance, safety=turn.safety, readiness=turn.readiness))
+
     try:
         # -g selects the process group; Z is dead, not an executable member.
         # https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man1/ps.1.html
@@ -340,7 +363,11 @@ def _group_snapshot(
             capture_helper(argv, deadline)
             if worker is None
             else capture_helper(
-                argv, deadline, worker=worker, scope=RequestScope(pid, pid, signal_epoch, "final")
+                argv,
+                deadline,
+                worker=worker,
+                scope=RequestScope(pid, pid, signal_epoch, "final"),
+                **({"defer_retirement": retain_retirement} if defer_retirement is not None else {}),
             )
         )
         observation["helper"] = asdict(check)
@@ -426,13 +453,20 @@ def _final_snapshot(
     *,
     worker: Worker | None = None,
     signal_epoch: int = 0,
+    defer_retirement: Callable[[Turn], None] | None = None,
 ) -> GroupObservation:
     """Spend the sole table request only after exit and before the cutoff."""
     now = time.monotonic()
     if leader_exit is not None and leader_exit <= now < deadline:
         if worker is None:
             return _group_snapshot(pid, deadline)
-        return _group_snapshot(pid, deadline, worker=worker, signal_epoch=signal_epoch)
+        return _group_snapshot(
+            pid,
+            deadline,
+            worker=worker,
+            signal_epoch=signal_epoch,
+            **({"defer_retirement": defer_retirement} if defer_retirement is not None else {}),
+        )
     return {
         "started_monotonic": now,
         "finished_monotonic": now,
@@ -462,6 +496,66 @@ class _InspectionFailure(TypedDict):
 class _InspectionState:
     failure: _InspectionFailure | None = None
     worker: Worker | None = None
+    retirements: list[Turn] = field(default_factory=list[Turn])
+
+    def advance_worker(self) -> float | None:
+        assert self.worker is not None
+        if self.retirements:
+            turn = self.retirements[0]
+            wake = turn.advance()
+            if wake is not None:
+                return wake
+            self.retirements.pop(0)
+            # Close reads the request's original cutoff and attempted signals.
+            # Never close its channels before cleanup-only parsing has finished.
+            self.worker.begin_close()
+            return time.monotonic()
+        return self.worker.advance_close()
+
+    def worker_readiness(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        if self.retirements and self.retirements[0].readiness is not None:
+            return self.retirements[0].readiness()
+        return (), ()
+
+    def close(self) -> None:
+        assert self.worker is not None
+        try:
+            run_turns(Turn(self.advance_worker, safety=True, readiness=self.worker_readiness))
+        finally:
+            # Also finalizes descriptors if an owner callback raises.
+            self.worker.close()
+
+    def drive(self, turn: Turn) -> None:
+        """Advance failed worker shutdown beside the active public command.
+
+        A finished command yields to the next phase immediately. The worker
+        retains its close state and fixed cutoffs across every such phase.
+        """
+        worker = self.worker
+        if (
+            worker is None
+            or (not worker.closed and not self.retirements)
+            or (worker.shutdown_finished is not None)
+        ):
+            run_turns(turn)
+            return
+        finished = False
+
+        def advance_call() -> float | None:
+            nonlocal finished
+            wake = turn.advance()
+            finished = wake is None
+            return wake
+
+        def advance_worker() -> float | None:
+            if finished:
+                return None
+            return self.advance_worker()
+
+        run_turns(
+            Turn(advance_call, safety=turn.safety, readiness=turn.readiness),
+            Turn(advance_worker, safety=True, readiness=self.worker_readiness),
+        )
 
     def snapshot(
         self,
@@ -494,11 +588,20 @@ class _InspectionState:
             _final_snapshot(pid, deadline, leader_exit)
             if self.worker is None
             else _final_snapshot(
-                pid, deadline, leader_exit, worker=self.worker, signal_epoch=signal_epoch
+                pid,
+                deadline,
+                leader_exit,
+                worker=self.worker,
+                signal_epoch=signal_epoch,
+                defer_retirement=self.retirements.append,
             )
         )
         if observation["query_attempted"] and observation["state"] == "unknown":
             self.failure = {"call": call, "observation": observation}
+            if self.worker is not None:
+                self.worker.failure = self.worker.failure or f"local inspection failed after {call}"
+                if not self.retirements:
+                    self.worker.begin_close()
         return observation
 
 
@@ -611,7 +714,7 @@ def _terminate(
 ) -> float:
     """Compatibility driver; the shared scheduler can instead advance the owner."""
     owner = _Termination(pid, pid_only, plan, receipt)
-    run_turns(Turn(owner.advance, safety=True))
+    inspection.drive(Turn(owner.advance, safety=True))
     final = inspection.snapshot(
         str(receipt["name"]),
         pid,
@@ -677,7 +780,7 @@ def _call(call: Call, root: Path, plan: Plan, inspection: _InspectionState) -> d
             receipt["signal_scope"] = "pid" if call.interrupt_after is not None else "group"
             deadline = start + (call.interrupt_after or call.budget)
             try:
-                exited = _wait(process.pid, deadline)
+                exited = _wait(process.pid, deadline, drive=inspection.drive)
             except OSError as error:
                 receipt["reason"] = "observation_error"
                 receipt["error"] = str(error)
@@ -712,7 +815,7 @@ def _call(call: Call, root: Path, plan: Plan, inspection: _InspectionState) -> d
                         "Do not signal this group after leader reap. "
                         "Unknown inspection is not absence."
                     )
-            _reap_leader(process, reap_deadline, receipt)
+            _reap_leader(process, reap_deadline, receipt, drive=inspection.drive)
             receipt["ok"] = (
                 receipt["reason"] == call.expected_reason
                 and receipt["returncode"] == call.expected_exit
@@ -843,7 +946,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
                 )
                 ok = ok and cleanup["ok"] is True and disposed
         finally:
-            worker.close()
+            inspection_state.close()
         ok = ok and worker.failure is None
         after = _hashes(subjects)
         ok = ok and before == after

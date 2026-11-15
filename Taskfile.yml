@@ -10,6 +10,60 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  diagnostic:overlap-audit:
+    desc: Verify retained worker overlap comparisons and independent receipts
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked python evidence/worker-overlap-k146/audit.py {{.OUT | shellQuote}}
+
+  diagnostic:overlap-tools:
+    desc: Check worker overlap evidence tooling
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check evidence/worker-overlap-k146/*.py
+      - uv run --locked python -m ruff format --check evidence/worker-overlap-k146/*.py
+      - uv run --locked python -m pyright evidence/worker-overlap-k146/audit.py evidence/worker-overlap-k146/prepare.py evidence/worker-overlap-k146/preserve.py evidence/worker-overlap-k146/run_condition.py
+      - uv run --locked python -m pytest -q evidence/worker-overlap-k146/test_audit.py
+
+  diagnostic:overlap-prose:
+    desc: Check prose for the worker overlap increment
+    requires:
+      vars: [FILES]
+    cmds:
+      - python3 /Users/antony/.cache/ravel/skills/v1/snapshots/56bcd07b87f46a7b9ff92eed5a5a128f10d3ce64be2f7d934be898e058782212/tree/craft/technical-communication/scripts/ste-lint.py {{.FILES}}
+
+  diagnostic:overlap-prepare:
+    desc: Freeze worker/teardown overlap inputs in a fresh directory
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/worker-overlap-k146/prepare.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}} {{if .BASELINE}}--baseline {{.BASELINE | shellQuote}}{{end}}
+
+  diagnostic:overlap-check:
+    desc: Retain bounded frozen worker/teardown checks
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/worker-overlap-k146/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}} {{if .SELECT}}--select {{.SELECT | shellQuote}}{{end}}
+
+  diagnostic:overlap-preserve:
+    desc: Inventory and compare all earlier evidence bytes
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/worker-overlap-k146/preserve.py {{.MODE | shellQuote}}
+
+  diagnostic:overlap-format:
+    desc: Format worker overlap sources and tooling before measurements
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff format controller.py worker_capture.py test_controller.py evidence/worker-overlap-k146/*.py
+
   diagnostic:scope-preserve:
     desc: Verify every prior evidence path for the scope readiness repair
     dir: experiments/exec-reliability

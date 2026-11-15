@@ -23,6 +23,131 @@ HERE = Path(__file__).resolve().parent
 PEER = HERE / "peer.py"
 
 
+@pytest.mark.parametrize("failed_call", ["acquire", "workload"])
+@pytest.mark.parametrize("held_call", ["cleanup", "dispose"])
+@pytest.mark.parametrize("fault", ["table", "transport"])
+def test_production_worker_retirement_overlaps_owned_teardown(
+    tmp_path, monkeypatch, failed_call, held_call, fault
+):
+    import controller
+    import worker_capture
+
+    original_service = worker_capture._service
+    original_snapshot = controller._group_snapshot
+    queries = []
+
+    def service(*args):
+        # A real direct child serves requests, then refuses EOF and TERM.
+        worker_pid = os.getpid()
+        original_reset = worker_capture.inspection.reset_after_fork
+        original_exit = os._exit
+        original_write = worker_capture._write
+        results = 0
+
+        def write(fd, data, deadline):
+            nonlocal results
+            if fd == args[2]:
+                results += 1
+                if fault == "transport" and results == (1 if failed_call == "acquire" else 2):
+                    # Damage a real terminal frame after the worker reaped its
+                    # helper. The controller must retain that helper obligation.
+                    data = worker_capture.HEADER.pack(2) + b"{}"
+            return original_write(fd, data, deadline)
+
+        def reset(keep, **kwargs):
+            original_reset(keep, **kwargs)
+            if os.getpid() == worker_pid:
+                signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
+        def exit_worker(code):
+            if os.getpid() == worker_pid and code == 0:
+                while True:
+                    time.sleep(1)
+            original_exit(code)
+
+        worker_capture.inspection.reset_after_fork = reset
+        worker_capture._write = write
+        os._exit = exit_worker
+        original_service(*args)
+
+    def snapshot(pid, deadline, **kwargs):
+        observation = original_snapshot(pid, deadline, **kwargs)
+        queries.append(observation)
+        if fault == "table" and len(queries) == (1 if failed_call == "acquire" else 2):
+            assert observation["helper"]["reaped"] is True
+            observation.update(state="unknown", error="injected malformed process table")
+        return observation
+
+    monkeypatch.setattr(worker_capture, "_service", service)
+    monkeypatch.setattr(controller, "_group_snapshot", snapshot)
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    owned = replace(
+        owned, **{held_call: call(held_call, "hang", owned.identity, tmp_path, budget=0.4)}
+    )
+    plan = Plan(
+        run_id,
+        (call("workload", "bytes"), call("unreached", "bytes")),
+        (owned,),
+        term_grace=0.15,
+        kill_wait=0.3,
+        failure_bounds=worker_capture.FailureBounds(term_grace=0.08, kill_reap=0.2),
+    )
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "evidence"))
+    path = execute(plan, root)
+    result = json.loads((path / "result.json").read_text())
+    lifecycle = result["inspection_worker"]
+    held = next(item for item in result["calls"] if item["name"] == held_call)
+    owner = lifecycle["owner"]
+    audit = {
+        "failed_call": failed_call,
+        "held_call": held_call,
+        "fault": fault,
+        "worker": inspect_pid(owner["pid"]),
+        "leaders": [inspect_pid(item["pid"]) for item in result["calls"]],
+        "helpers": [
+            inspect_pid(identity["pid"])
+            for item in queries
+            for identity in item["helper"]["worker"]["helper_identities"]
+        ],
+        "marker_remains": (tmp_path / owned.identity).exists(),
+        "lifecycle": lifecycle,
+        "held": held,
+    }
+    # Disposal is deliberately stalled in half the cases; reconcile this exact
+    # fake marker independently, after recording runtime's uncertain ledger.
+    (tmp_path / owned.identity).unlink(missing_ok=True)
+    (path / "production-overlap-audit.json").write_text(json.dumps(audit, indent=2))
+    assert audit["worker"]["state"] == "absent"
+    assert all(item["state"] == "absent" for item in audit["leaders"] + audit["helpers"])
+    with pytest.raises(ChildProcessError):
+        os.waitpid(owner["pid"], os.WNOHANG)
+    assert result["ok"] is False
+    assert result["inspection_failure"]["call"] == failed_call
+    assert result["unreached"] == (
+        ["workload", "unreached"] if failed_call == "acquire" else ["unreached"]
+    )
+    assert [item["name"] for item in result["calls"][-3:]] == ["cleanup", "dispose", "inspect"]
+    assert len(queries) == (1 if failed_call == "acquire" else 2)
+    assert owner["reaped"] is True and owner["returncode"] == -signal.SIGKILL
+    assert [item["signal"] for item in owner["signals"]] == ["SIGTERM", "SIGKILL"]
+    assert lifecycle["shutdown"]["mode"] == "failure"
+    assert lifecycle["shutdown_finished_monotonic"] < held["leader_exit_monotonic"]
+    assert owner["signals"][0]["monotonic"] < held["leader_exit_monotonic"]
+    first_safety = next(item for item in result["calls"] if item["name"] == "cleanup")
+    assert first_safety["started_monotonic"] < owner["signals"][1]["monotonic"]
+    if fault == "table" or held_call == "cleanup":
+        assert held["started_monotonic"] < owner["signals"][1]["monotonic"]
+    if fault == "transport":
+        failed = result["inspection_failure"]["observation"]["helper"]["worker"]
+        cutoff = failed["shutdown_deadline_monotonic"]
+        assert owner["shutdown_deadline_monotonic"] <= cutoff
+        assert lifecycle["shutdown"]["kill_deadline_monotonic"] <= cutoff
+        assert all(item["monotonic"] < cutoff for item in owner["signals"])
+        assert failed["helper_obligation_retained"] is True
+    assert owner["signals"][1]["monotonic"] < held["leader_exit_monotonic"]
+
+
 @pytest.mark.parametrize("failed_call", ["acquire", "workload", "cleanup", "dispose", "inspect"])
 def test_review_inspection_failure_is_sticky_during_safety(tmp_path, monkeypatch, failed_call):
     import controller
@@ -685,7 +810,7 @@ def test_leader_reap_caller_closes_target_authority(tmp_path, monkeypatch, outco
         assert pid not in targets, "PID signal/probe after authority closure"
         return original_kill(pid, sig)
 
-    def reap(process, deadline, receipt):
+    def reap(process, deadline, receipt, **kwargs):
         targets.append(process.pid)
 
         # Keep real exit observation and final ps table, then freeze only reap time.
@@ -704,7 +829,7 @@ def test_leader_reap_caller_closes_target_authority(tmp_path, monkeypatch, outco
             patch.setattr(controller.time, "monotonic", lambda: deadline + (0.001 if late else 0))
             patch.setattr(controller.time, "sleep", forbidden_sleep)
             patch.setattr(controller.os, "waitpid", waitpid)
-            original_reap(process, deadline, receipt)
+            original_reap(process, deadline, receipt, **kwargs)
 
     monkeypatch.setattr(controller, "_reap_leader", reap)
     monkeypatch.setattr(os, "killpg", killpg)
@@ -938,12 +1063,12 @@ def test_workload_wait_late_real_exit_still_terminates_and_disposes(
         active_name = workload.name
         return original_call(workload, root, plan, inspection)
 
-    def wait(pid, deadline):
+    def wait(pid, deadline, **kwargs):
         # Delay only the selected workload's first real NOTE_EXIT observation.
         # The healthy byte-writing child exits during this wall-clock hold.
         # Other calls, termination observations and the final query stay real.
         if active_name != "late-exit":
-            return original_wait(pid, deadline)
+            return original_wait(pid, deadline, **kwargs)
 
         def delayed(target):
             entry = time.monotonic()
@@ -962,7 +1087,7 @@ def test_workload_wait_late_real_exit_still_terminates_and_disposes(
 
         with monkeypatch.context() as patch:
             patch.setattr(controller, "_exited", delayed)
-            return original_wait(pid, deadline)
+            return original_wait(pid, deadline, **kwargs)
 
     run_id = uuid.uuid4().hex
     owned = resource(tmp_path, run_id)
@@ -1871,8 +1996,8 @@ def test_review_pinning_control_detects_real_early_reap(tmp_path, monkeypatch, r
         if str(PEER) in argv:
             processes[process.pid] = process
 
-    def wait(pid, deadline):
-        exited = original_wait(pid, deadline)
+    def wait(pid, deadline, **kwargs):
+        exited = original_wait(pid, deadline, **kwargs)
         if exited and reaper:
             process = processes[pid]
             if reaper == "poll":
