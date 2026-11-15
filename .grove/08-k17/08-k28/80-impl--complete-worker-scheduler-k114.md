@@ -115,3 +115,16 @@ Keep k28/k17 open until their actual Done when is met. The former k30/k34/k38/k4
   leader and cleanly closes worker. Diagnose this process-table repeatability
   limitation with the other retained unknown-inspection cases; no parser
   relaxation or aggregate completion is established by k110.
+
+- k115 integrates all five k113 findings. Read
+  experiments/exec-reliability/evidence/incremental-review-k115/report.md before
+  relying on shutdown evidence or wake scheduling. Intermediate evidence no
+  longer claims terminal shutdown authority; overrun turns retain the sleep
+  guard. Direct begin/advance clock controls and drain/wake mutations cover
+  immutable deadlines, overdue first-turn TERM/KILL, exact wakes and exhausted
+  first-reap authority. A starved caller receives no renewed TERM grace.
+  The declared ten isolated parent and ten k110 ordering/ignore-term samples all
+  pass; the earlier `?E` sample is still unexplained and remains this leaf's
+  repeatability obligation. The full 826-case suite and 238 review controls
+  pass for this slice. Every aggregate obligation above and final k28 review
+  remain open; ten-clone acceptance stays 0/10, unavailable.

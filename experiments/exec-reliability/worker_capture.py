@@ -531,6 +531,8 @@ class Worker:
 
         The caller owns scheduling between turns. Repeated calls cannot renew
         the timeline or the owner's lifetime first-reap exception.
+        An overdue first turn escalates immediately within the original cutoff;
+        it cannot grant TERM a new grace interval.
         """
         self.begin_close()
         state = self._shutdown
@@ -676,7 +678,9 @@ class Worker:
             "residual_remedy": (
                 "Retained exact worker child requires independent identity reconciliation and "
                 "reap. Shutdown authority is closed; no replacement or later runtime signals."
-                if self.closed and self.owner is not None and not self.owner.reaped
+                if self.shutdown_finished is not None
+                and self.owner is not None
+                and not self.owner.reaped
                 else None
             ),
         }

@@ -1,0 +1,5 @@
+{
+  "name": "wake-end",
+  "before": "                    return min(\n                        now + 0.001,\n                        state.end,\n                        state.kill_at if not state.kill_sent else state.end,\n                    )\n",
+  "after": "                    return now + 0.001\n"
+}

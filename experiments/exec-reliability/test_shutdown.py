@@ -93,6 +93,7 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
     """Real signals/reap; deferred and late wait returns are explicitly simulated."""
     original_service = worker_capture._service
     original_waitpid = os.waitpid
+    original_sleep = time.sleep
     original_kill, original_killpg = os.kill, os.killpg
     failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
     if mode in {"reserve", "aged-term"}:
@@ -130,7 +131,7 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
                 return 0, 0
             if mode == "overrun" and not injected:
                 injected = True
-                time.sleep(0.27)
+                original_sleep(0.27)
         return original_waitpid(pid, flags)
 
     def killpg(pid, sig):
@@ -195,8 +196,7 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
                 before = len(probes)
                 # The overrun control explicitly models one delayed wait return.
                 with monkeypatch.context() as step:
-                    if mode != "overrun":
-                        step.setattr(time, "sleep", forbidden_sleep)
+                    step.setattr(time, "sleep", forbidden_sleep)
                     worker.begin_close()
                     wake = worker.advance_close()
                 turns.append({"monotonic": time.monotonic(), "wake": wake})
@@ -334,6 +334,105 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
             + "\n"
         )
         assert audit["reaped"]
+
+
+def test_incremental_shutdown_evidence_retains_live_authority(monkeypatch):
+    """A begun close must not claim terminal authority while turns remain."""
+    clock = [100.0]
+    worker = worker_capture.Worker(
+        failure_bounds=worker_capture.FailureBounds(term_grace=0.125, kill_reap=0.25)
+    )
+    worker.owner = worker_capture._Owner(999999, float("inf"), ready=True)
+    worker.failure = "controlled failure"
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(os, "waitpid", lambda pid, flags: (0, 0))
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+    worker.begin_close()
+    evidence = worker.evidence()
+    assert evidence["shutdown_started_monotonic"] == 100.0
+    assert evidence["shutdown_finished_monotonic"] is None
+    assert evidence["shutdown"] is None
+    assert evidence["residual_remedy"] is None
+    assert worker.advance_close() == 100.001
+    assert worker.evidence()["residual_remedy"] is None
+    clock[0] = 100.375
+    assert worker.advance_close() is None
+    evidence = worker.evidence()
+    assert evidence["shutdown_finished_monotonic"] == 100.375
+    assert evidence["shutdown"]["outcome"] == "residual_ownership"
+    assert evidence["residual_remedy"] is not None
+
+
+@pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+@pytest.mark.parametrize(
+    "first,wake,signals,grace_timing",
+    [
+        (100.0, 100.001, ["SIGTERM"], "late"),
+        (100.1245, 100.125, ["SIGTERM"], "late"),
+        (100.125, 100.126, ["SIGTERM", "SIGKILL"], "at_deadline"),
+        (100.128, 100.129, ["SIGTERM", "SIGKILL"], "late"),
+        (100.3745, 100.375, ["SIGTERM", "SIGKILL"], "late"),
+        (100.375, None, [], "late"),
+        (100.378, None, [], "late"),
+    ],
+)
+@pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+def test_incremental_shutdown_exact_wakes_and_starved_caller(
+    monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+):
+    """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+    clock = [100.0]
+    probes = []
+    worker = worker_capture.Worker(
+        failure_bounds=worker_capture.FailureBounds(term_grace=0.125, kill_reap=0.25),
+        close_bounds=worker_capture.CloseBounds(grace=0.125, kill_reap=0.25),
+    )
+    owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+    worker.owner = owner
+    if not orderly:
+        worker.failure = "controlled failure"
+
+    def waitpid(pid, flags):
+        assert pid == 999999 and flags == os.WNOHANG
+        probes.append(clock[0])
+        return 0, 0
+
+    def forbidden_sleep(seconds):
+        raise AssertionError("incremental shutdown slept")
+
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "sleep", forbidden_sleep)
+    monkeypatch.setattr(os, "waitpid", waitpid)
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+    worker.begin_close()
+    assert probes == [] and owner.signals == []
+    assert worker.kill_at == 100.125
+    assert owner.shutdown_deadline_monotonic == 100.375
+    clock[0] = first
+    worker.begin_close()
+    actual_wake = worker.advance_close()
+    if wake is None:
+        assert actual_wake is None
+    else:
+        assert actual_wake == pytest.approx(wake, abs=1e-10, rel=0)
+    expected_signals = [value for value in signals if not orderly or value != "SIGTERM"]
+    assert [value["signal"] for value in owner.signals] == expected_signals
+    assert all(value["monotonic"] == first for value in owner.signals)
+    assert len(probes) == (0 if prior_polls and first >= 100.375 else 1)
+    assert worker.kill_at == 100.125
+    assert owner.shutdown_deadline_monotonic == 100.375
+    # Finish exactly at the original cutoff. No turn may renew signal/poll authority.
+    clock[0] = max(first, 100.375)
+    before = len(probes)
+    assert worker.advance_close() is None
+    assert worker.advance_close() is None
+    assert len(probes) == before
+    assert [value["signal"] for value in owner.signals] == expected_signals
+    receipt = worker.evidence()["shutdown"]
+    assert receipt["deadline_exhausted"] is True
+    assert receipt["overrun"] is (first > 100.375)
+    assert receipt["phases"]["grace"]["timing_outcome"] == grace_timing
+    assert ("grace overrun" in worker.failure) is (grace_timing == "late")
 
 
 def test_plan_propagates_declared_shutdown_bounds(tmp_path):

@@ -1,0 +1,1478 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="29" skipped="0" tests="29" time="0.774" timestamp="2026-11-15T13:58:30.991324+11:00" hostname="byrd.local"><testcase classname="test_shutdown" name="test_incremental_shutdown_evidence_retains_live_authority" time="0.001"><failure message="AssertionError: assert 'Retained exact worker child requires independent identity reconciliation and reap. Shutdown authority is closed; no replacement or later runtime signals.' is None">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10770fb00&gt;
+
+    def test_incremental_shutdown_evidence_retains_live_authority(monkeypatch):
+        """A begun close must not claim terminal authority while turns remain."""
+        clock = [100.0]
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+        )
+        worker.owner = worker_capture._Owner(999999, float("inf"), ready=True)
+        worker.failure = "controlled failure"
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(os, "waitpid", lambda pid, flags: (0, 0))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        evidence = worker.evidence()
+        assert evidence["shutdown_started_monotonic"] == 100.0
+        assert evidence["shutdown_finished_monotonic"] is None
+        assert evidence["shutdown"] is None
+&gt;       assert evidence["residual_remedy"] is None
+E       AssertionError: assert 'Retained exact worker child requires independent identity reconciliation and reap. Shutdown authority is closed; no replacement or later runtime signals.' is None
+
+test_shutdown.py:355: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.0-100.001-signals0-late-failure]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078a7860&gt;
+orderly = False, first = 100.0, wake = 100.001, signals = ['SIGTERM']
+grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.0-100.001-signals0-late-orderly]" time="0.001"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078a77d0&gt;
+orderly = True, first = 100.0, wake = 100.001, signals = ['SIGTERM']
+grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.0695-100.07-signals1-late-failure]" time="0.001"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078ab590&gt;
+orderly = False, first = 100.0695, wake = 100.07, signals = ['SIGTERM']
+grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.0695-100.07-signals1-late-orderly]" time="0.001"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078a8d40&gt;
+orderly = True, first = 100.0695, wake = 100.07, signals = ['SIGTERM']
+grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.07-100.071-signals2-at_deadline-failure]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078ab650&gt;
+orderly = False, first = 100.07, wake = 100.071
+signals = ['SIGTERM', 'SIGKILL'], grace_timing = 'at_deadline', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.07-100.071-signals2-at_deadline-orderly]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078abfe0&gt;
+orderly = True, first = 100.07, wake = 100.071, signals = ['SIGTERM', 'SIGKILL']
+grace_timing = 'at_deadline', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.073-100.074-signals3-late-failure]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078abbc0&gt;
+orderly = False, first = 100.073, wake = 100.074
+signals = ['SIGTERM', 'SIGKILL'], grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.073-100.074-signals3-late-orderly]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078ab7a0&gt;
+orderly = True, first = 100.073, wake = 100.074
+signals = ['SIGTERM', 'SIGKILL'], grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.2295-100.23-signals4-late-failure]" time="0.001"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078ab650&gt;
+orderly = False, first = 100.2295, wake = 100.23
+signals = ['SIGTERM', 'SIGKILL'], grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.2295-100.23-signals4-late-orderly]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078aac90&gt;
+orderly = True, first = 100.2295, wake = 100.23
+signals = ['SIGTERM', 'SIGKILL'], grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.23-None-signals5-late-failure]" time="0.001"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10770f410&gt;
+orderly = False, first = 100.23, wake = None, signals = []
+grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.23-None-signals5-late-orderly]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10787ef90&gt;
+orderly = True, first = 100.23, wake = None, signals = [], grace_timing = 'late'
+prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.233-None-signals6-late-failure]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078ac4d0&gt;
+orderly = False, first = 100.233, wake = None, signals = []
+grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[never-polled-100.233-None-signals6-late-orderly]" time="0.001"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078ae8d0&gt;
+orderly = True, first = 100.233, wake = None, signals = []
+grace_timing = 'late', prior_polls = 0
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=0).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.0-100.001-signals0-late-failure]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078ad460&gt;
+orderly = False, first = 100.0, wake = 100.001, signals = ['SIGTERM']
+grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.0-100.001-signals0-late-orderly]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078af560&gt;
+orderly = True, first = 100.0, wake = 100.001, signals = ['SIGTERM']
+grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.0695-100.07-signals1-late-failure]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078adfa0&gt;
+orderly = False, first = 100.0695, wake = 100.07, signals = ['SIGTERM']
+grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.0695-100.07-signals1-late-orderly]" time="0.001"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1079b8950&gt;
+orderly = True, first = 100.0695, wake = 100.07, signals = ['SIGTERM']
+grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.07-100.071-signals2-at_deadline-failure]" time="0.001"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078ad880&gt;
+orderly = False, first = 100.07, wake = 100.071
+signals = ['SIGTERM', 'SIGKILL'], grace_timing = 'at_deadline', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.07-100.071-signals2-at_deadline-orderly]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078acd10&gt;
+orderly = True, first = 100.07, wake = 100.071, signals = ['SIGTERM', 'SIGKILL']
+grace_timing = 'at_deadline', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.073-100.074-signals3-late-failure]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078ae000&gt;
+orderly = False, first = 100.073, wake = 100.074
+signals = ['SIGTERM', 'SIGKILL'], grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.073-100.074-signals3-late-orderly]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078a7860&gt;
+orderly = True, first = 100.073, wake = 100.074
+signals = ['SIGTERM', 'SIGKILL'], grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.2295-100.23-signals4-late-failure]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078acdd0&gt;
+orderly = False, first = 100.2295, wake = 100.23
+signals = ['SIGTERM', 'SIGKILL'], grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.2295-100.23-signals4-late-orderly]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10770fda0&gt;
+orderly = True, first = 100.2295, wake = 100.23
+signals = ['SIGTERM', 'SIGKILL'], grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.23-None-signals5-late-failure]" time="0.001"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078ab7a0&gt;
+orderly = False, first = 100.23, wake = None, signals = []
+grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.23-None-signals5-late-orderly]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1078a83b0&gt;
+orderly = True, first = 100.23, wake = None, signals = [], grace_timing = 'late'
+prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.233-None-signals6-late-failure]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1079b9e50&gt;
+orderly = False, first = 100.233, wake = None, signals = []
+grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase><testcase classname="test_shutdown" name="test_incremental_shutdown_exact_wakes_and_starved_caller[previously-polled-100.233-None-signals6-late-orderly]" time="0.000"><failure message="assert 100.22999999999999 == 100.23&#10; +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1079b8470&gt;
+orderly = True, first = 100.233, wake = None, signals = []
+grace_timing = 'late', prior_polls = 1
+
+    @pytest.mark.parametrize("orderly", [False, True], ids=["failure", "orderly"])
+    @pytest.mark.parametrize(
+        "first,wake,signals,grace_timing",
+        [
+            (100.0, 100.001, ["SIGTERM"], "late"),
+            (100.0695, 100.07, ["SIGTERM"], "late"),
+            (100.07, 100.071, ["SIGTERM", "SIGKILL"], "at_deadline"),
+            (100.073, 100.074, ["SIGTERM", "SIGKILL"], "late"),
+            (100.2295, 100.23, ["SIGTERM", "SIGKILL"], "late"),
+            (100.23, None, [], "late"),
+            (100.233, None, [], "late"),
+        ],
+    )
+    @pytest.mark.parametrize("prior_polls", [0, 1], ids=["never-polled", "previously-polled"])
+    def test_incremental_shutdown_exact_wakes_and_starved_caller(
+        monkeypatch, orderly, first, wake, signals, grace_timing, prior_polls
+    ):
+        """Catch late wake/renewed grace; only OS calls and the clock are simulated."""
+        clock = [100.0]
+        probes = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16),
+            close_bounds=worker_capture.CloseBounds(grace=0.07, kill_reap=0.16),
+        )
+        owner = worker_capture._Owner(999999, float("inf"), ready=True, reap_attempts=prior_polls)
+        worker.owner = owner
+        if not orderly:
+            worker.failure = "controlled failure"
+    
+        def waitpid(pid, flags):
+            assert pid == 999999 and flags == os.WNOHANG
+            probes.append(clock[0])
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("incremental shutdown slept")
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", forbidden_sleep)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        assert probes == [] and owner.signals == []
+        assert worker.kill_at == 100.07
+&gt;       assert owner.shutdown_deadline_monotonic == 100.23
+E       assert 100.22999999999999 == 100.23
+E        +  where 100.22999999999999 = _Owner(pid=999999, shutdown_deadline_monotonic=100.22999999999999, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).shutdown_deadline_monotonic
+
+test_shutdown.py:410: AssertionError</failure></testcase></testsuite></testsuites>

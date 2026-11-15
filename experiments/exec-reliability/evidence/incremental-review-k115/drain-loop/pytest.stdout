@@ -1,0 +1,475 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-review-k115/drain-loop-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py
+collecting ... collected 826 items / 823 deselected / 3 selected
+
+test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-overrun] FAILED [ 33%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-overrun] FAILED [ 66%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-overrun] FAILED [100%]
+
+=================================== FAILURES ===================================
+_______ test_declared_shutdown_real_child_phases[incremental-0-overrun] ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-656/test_declared_shutdown_real_ch0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106eaf8c0>
+mode = 'overrun', sample = 0, driver = 'incremental'
+
+    @pytest.mark.parametrize(
+        "mode",
+        [
+            "orderly",
+            "healthy-stall",
+            "failure-term",
+            "failure-kill",
+            "deferred-reap",
+            "overrun",
+            "prior-term",
+            "denied-term",
+            "prior-kill",
+            "denied-kill",
+            "finite",
+            "expired",
+            "reserve",
+            "aged-term",
+        ],
+    )
+    @pytest.mark.parametrize("sample", range(3))
+    @pytest.mark.parametrize("driver", ["blocking", "incremental"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample, driver):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_sleep = time.sleep
+        original_kill, original_killpg = os.kill, os.killpg
+        failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+        if mode in {"reserve", "aged-term"}:
+            failure = worker_capture.FailureBounds(term_grace=0.25, kill_reap=0.16)
+        close = worker_capture.CloseBounds(grace=0.04, kill_reap=0.13)
+        worker = worker_capture.Worker(failure_bounds=failure, close_bounds=close)
+        calls, probes, turns = [], [], []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            if mode == "orderly":
+                original_service(command, control, result, session, deadline)
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if mode != "failure-term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                worker_capture._write(control, json.dumps(identity).encode() + b"\n", deadline)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                probes.append(time.monotonic())
+                if mode == "deferred-reap":
+                    return 0, 0
+                if mode == "overrun" and not injected:
+                    injected = True
+                    original_sleep(0.27)
+            return original_waitpid(pid, flags)
+    
+        def killpg(pid, sig):
+            calls.append({"pid": pid, "signal": sig.name, "monotonic": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        audit = {
+            "reaped": False,
+            "source": "original exact-child WNOHANG",
+            "mode": mode,
+            "sample": sample,
+            "driver": driver,
+        }
+        runtime = None
+        try:
+            assert worker.start()
+            owner = worker.owner
+            assert owner is not None
+            seeded = []
+            old_end = float("inf")
+            if mode.startswith(("prior-", "denied-")):
+                sig = signal.SIGTERM if mode.endswith("term") else signal.SIGKILL
+                if mode.startswith("prior-"):
+                    worker_capture._signal(owner, sig)
+                else:
+                    # Failed-attempt history only, never evidence of actual UID EPERM.
+                    owner.signals.append(
+                        {"signal": sig.name, "monotonic": time.monotonic(), "errno": errno.EPERM}
+                    )
+                seeded = list(owner.signals)
+                old_end = time.monotonic() + 0.11
+            if mode in {"finite", "expired"}:
+                old_end = time.monotonic() + (0.1 if mode == "finite" else -0.001)
+            if mode == "reserve":
+                old_end = time.monotonic() + 0.30
+            elif mode == "aged-term":
+                worker_capture._signal(owner, signal.SIGTERM)
+                seeded = list(owner.signals)
+                # Age the real attempt so renewing grace moves the deadline observably.
+                time.sleep(0.03)
+                old_end = time.monotonic() + 0.60
+            owner.shutdown_deadline_monotonic = old_end
+            if mode != "orderly" and mode != "healthy-stall":
+                worker.failure = "controlled sticky failure"
+            monkeypatch.setattr(os, "waitpid", waitpid)
+            monkeypatch.setattr(os, "killpg", killpg)
+            if driver == "blocking":
+                worker.close()
+            else:
+                # A hidden sleep or drain loop blocks the caller's other obligations.
+                def forbidden_sleep(seconds):
+                    raise AssertionError("shutdown step slept inside caller turn")
+    
+                with monkeypatch.context() as step:
+                    step.setattr(time, "sleep", forbidden_sleep)
+                    worker.begin_close()
+                assert not probes and not calls
+                frozen_end = owner.shutdown_deadline_monotonic
+                frozen_start = worker.shutdown_started
+                while True:
+                    before = len(probes)
+                    # The overrun control explicitly models one delayed wait return.
+                    with monkeypatch.context() as step:
+                        step.setattr(time, "sleep", forbidden_sleep)
+                        worker.begin_close()
+>                       wake = worker.advance_close()
+                               ^^^^^^^^^^^^^^^^^^^^^^
+
+test_shutdown.py:201: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:541: in advance_close
+    time.sleep(0.001)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+seconds = 0.001
+
+    def forbidden_sleep(seconds):
+>       raise AssertionError("shutdown step slept inside caller turn")
+E       AssertionError: shutdown step slept inside caller turn
+
+test_shutdown.py:187: AssertionError
+_______ test_declared_shutdown_real_child_phases[incremental-1-overrun] ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-656/test_declared_shutdown_real_ch1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107047020>
+mode = 'overrun', sample = 1, driver = 'incremental'
+
+    @pytest.mark.parametrize(
+        "mode",
+        [
+            "orderly",
+            "healthy-stall",
+            "failure-term",
+            "failure-kill",
+            "deferred-reap",
+            "overrun",
+            "prior-term",
+            "denied-term",
+            "prior-kill",
+            "denied-kill",
+            "finite",
+            "expired",
+            "reserve",
+            "aged-term",
+        ],
+    )
+    @pytest.mark.parametrize("sample", range(3))
+    @pytest.mark.parametrize("driver", ["blocking", "incremental"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample, driver):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_sleep = time.sleep
+        original_kill, original_killpg = os.kill, os.killpg
+        failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+        if mode in {"reserve", "aged-term"}:
+            failure = worker_capture.FailureBounds(term_grace=0.25, kill_reap=0.16)
+        close = worker_capture.CloseBounds(grace=0.04, kill_reap=0.13)
+        worker = worker_capture.Worker(failure_bounds=failure, close_bounds=close)
+        calls, probes, turns = [], [], []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            if mode == "orderly":
+                original_service(command, control, result, session, deadline)
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if mode != "failure-term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                worker_capture._write(control, json.dumps(identity).encode() + b"\n", deadline)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                probes.append(time.monotonic())
+                if mode == "deferred-reap":
+                    return 0, 0
+                if mode == "overrun" and not injected:
+                    injected = True
+                    original_sleep(0.27)
+            return original_waitpid(pid, flags)
+    
+        def killpg(pid, sig):
+            calls.append({"pid": pid, "signal": sig.name, "monotonic": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        audit = {
+            "reaped": False,
+            "source": "original exact-child WNOHANG",
+            "mode": mode,
+            "sample": sample,
+            "driver": driver,
+        }
+        runtime = None
+        try:
+            assert worker.start()
+            owner = worker.owner
+            assert owner is not None
+            seeded = []
+            old_end = float("inf")
+            if mode.startswith(("prior-", "denied-")):
+                sig = signal.SIGTERM if mode.endswith("term") else signal.SIGKILL
+                if mode.startswith("prior-"):
+                    worker_capture._signal(owner, sig)
+                else:
+                    # Failed-attempt history only, never evidence of actual UID EPERM.
+                    owner.signals.append(
+                        {"signal": sig.name, "monotonic": time.monotonic(), "errno": errno.EPERM}
+                    )
+                seeded = list(owner.signals)
+                old_end = time.monotonic() + 0.11
+            if mode in {"finite", "expired"}:
+                old_end = time.monotonic() + (0.1 if mode == "finite" else -0.001)
+            if mode == "reserve":
+                old_end = time.monotonic() + 0.30
+            elif mode == "aged-term":
+                worker_capture._signal(owner, signal.SIGTERM)
+                seeded = list(owner.signals)
+                # Age the real attempt so renewing grace moves the deadline observably.
+                time.sleep(0.03)
+                old_end = time.monotonic() + 0.60
+            owner.shutdown_deadline_monotonic = old_end
+            if mode != "orderly" and mode != "healthy-stall":
+                worker.failure = "controlled sticky failure"
+            monkeypatch.setattr(os, "waitpid", waitpid)
+            monkeypatch.setattr(os, "killpg", killpg)
+            if driver == "blocking":
+                worker.close()
+            else:
+                # A hidden sleep or drain loop blocks the caller's other obligations.
+                def forbidden_sleep(seconds):
+                    raise AssertionError("shutdown step slept inside caller turn")
+    
+                with monkeypatch.context() as step:
+                    step.setattr(time, "sleep", forbidden_sleep)
+                    worker.begin_close()
+                assert not probes and not calls
+                frozen_end = owner.shutdown_deadline_monotonic
+                frozen_start = worker.shutdown_started
+                while True:
+                    before = len(probes)
+                    # The overrun control explicitly models one delayed wait return.
+                    with monkeypatch.context() as step:
+                        step.setattr(time, "sleep", forbidden_sleep)
+                        worker.begin_close()
+>                       wake = worker.advance_close()
+                               ^^^^^^^^^^^^^^^^^^^^^^
+
+test_shutdown.py:201: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:541: in advance_close
+    time.sleep(0.001)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+seconds = 0.001
+
+    def forbidden_sleep(seconds):
+>       raise AssertionError("shutdown step slept inside caller turn")
+E       AssertionError: shutdown step slept inside caller turn
+
+test_shutdown.py:187: AssertionError
+_______ test_declared_shutdown_real_child_phases[incremental-2-overrun] ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-656/test_declared_shutdown_real_ch2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107044590>
+mode = 'overrun', sample = 2, driver = 'incremental'
+
+    @pytest.mark.parametrize(
+        "mode",
+        [
+            "orderly",
+            "healthy-stall",
+            "failure-term",
+            "failure-kill",
+            "deferred-reap",
+            "overrun",
+            "prior-term",
+            "denied-term",
+            "prior-kill",
+            "denied-kill",
+            "finite",
+            "expired",
+            "reserve",
+            "aged-term",
+        ],
+    )
+    @pytest.mark.parametrize("sample", range(3))
+    @pytest.mark.parametrize("driver", ["blocking", "incremental"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample, driver):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_sleep = time.sleep
+        original_kill, original_killpg = os.kill, os.killpg
+        failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+        if mode in {"reserve", "aged-term"}:
+            failure = worker_capture.FailureBounds(term_grace=0.25, kill_reap=0.16)
+        close = worker_capture.CloseBounds(grace=0.04, kill_reap=0.13)
+        worker = worker_capture.Worker(failure_bounds=failure, close_bounds=close)
+        calls, probes, turns = [], [], []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            if mode == "orderly":
+                original_service(command, control, result, session, deadline)
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if mode != "failure-term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                worker_capture._write(control, json.dumps(identity).encode() + b"\n", deadline)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                probes.append(time.monotonic())
+                if mode == "deferred-reap":
+                    return 0, 0
+                if mode == "overrun" and not injected:
+                    injected = True
+                    original_sleep(0.27)
+            return original_waitpid(pid, flags)
+    
+        def killpg(pid, sig):
+            calls.append({"pid": pid, "signal": sig.name, "monotonic": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        audit = {
+            "reaped": False,
+            "source": "original exact-child WNOHANG",
+            "mode": mode,
+            "sample": sample,
+            "driver": driver,
+        }
+        runtime = None
+        try:
+            assert worker.start()
+            owner = worker.owner
+            assert owner is not None
+            seeded = []
+            old_end = float("inf")
+            if mode.startswith(("prior-", "denied-")):
+                sig = signal.SIGTERM if mode.endswith("term") else signal.SIGKILL
+                if mode.startswith("prior-"):
+                    worker_capture._signal(owner, sig)
+                else:
+                    # Failed-attempt history only, never evidence of actual UID EPERM.
+                    owner.signals.append(
+                        {"signal": sig.name, "monotonic": time.monotonic(), "errno": errno.EPERM}
+                    )
+                seeded = list(owner.signals)
+                old_end = time.monotonic() + 0.11
+            if mode in {"finite", "expired"}:
+                old_end = time.monotonic() + (0.1 if mode == "finite" else -0.001)
+            if mode == "reserve":
+                old_end = time.monotonic() + 0.30
+            elif mode == "aged-term":
+                worker_capture._signal(owner, signal.SIGTERM)
+                seeded = list(owner.signals)
+                # Age the real attempt so renewing grace moves the deadline observably.
+                time.sleep(0.03)
+                old_end = time.monotonic() + 0.60
+            owner.shutdown_deadline_monotonic = old_end
+            if mode != "orderly" and mode != "healthy-stall":
+                worker.failure = "controlled sticky failure"
+            monkeypatch.setattr(os, "waitpid", waitpid)
+            monkeypatch.setattr(os, "killpg", killpg)
+            if driver == "blocking":
+                worker.close()
+            else:
+                # A hidden sleep or drain loop blocks the caller's other obligations.
+                def forbidden_sleep(seconds):
+                    raise AssertionError("shutdown step slept inside caller turn")
+    
+                with monkeypatch.context() as step:
+                    step.setattr(time, "sleep", forbidden_sleep)
+                    worker.begin_close()
+                assert not probes and not calls
+                frozen_end = owner.shutdown_deadline_monotonic
+                frozen_start = worker.shutdown_started
+                while True:
+                    before = len(probes)
+                    # The overrun control explicitly models one delayed wait return.
+                    with monkeypatch.context() as step:
+                        step.setattr(time, "sleep", forbidden_sleep)
+                        worker.begin_close()
+>                       wake = worker.advance_close()
+                               ^^^^^^^^^^^^^^^^^^^^^^
+
+test_shutdown.py:201: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:541: in advance_close
+    time.sleep(0.001)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+seconds = 0.001
+
+    def forbidden_sleep(seconds):
+>       raise AssertionError("shutdown step slept inside caller turn")
+E       AssertionError: shutdown step slept inside caller turn
+
+test_shutdown.py:187: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-review-k115/drain-loop/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-overrun] - AssertionError: shutdown step slept inside caller turn
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-overrun] - AssertionError: shutdown step slept inside caller turn
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-overrun] - AssertionError: shutdown step slept inside caller turn
+====================== 3 failed, 823 deselected in 0.42s =======================

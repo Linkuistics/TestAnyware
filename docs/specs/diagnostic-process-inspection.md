@@ -278,6 +278,18 @@ last safety action. A worker already retiring keeps its original deadline.
 These are declared invocation phases, never additions to a workload or disposal
 ceiling. Receipts record their absolute starts, deadlines, outcomes and overruns.
 
+Shutdown begins by freezing these deadlines and requesting command EOF once.
+The caller schedules nonblocking shutdown turns alongside its other obligations.
+If its first turn arrives at or after the KILL deadline but before the final
+reap cutoff, failure shutdown attempts overdue TERM and KILL in that turn; TERM
+receives no renewed grace. Orderly close attempts only KILL. At or after the
+final cutoff no signal is permitted, and only the owner's unused lifetime
+first-reap exception remains. Starvation can therefore remove effective TERM
+grace; the receipt records the missed phase and any strict overrun as failure.
+Before terminal shutdown, evidence reports the start with no finish or terminal
+receipt. A residual remedy claiming closed shutdown authority appears only
+after shutdown finishes with an unreaped owner.
+
 These are conditional scheduling guarantees, not hard real-time guarantees.
 The controller's own fork, signal and nonblocking kernel calls still require
 the OS to return and schedule it. Every measured overrun fails. An actual
