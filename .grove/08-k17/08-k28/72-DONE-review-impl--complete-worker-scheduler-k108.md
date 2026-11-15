@@ -21,3 +21,11 @@ Read the k28 brief chain and docs/specs/diagnostic-process-inspection.md, produc
 
 ## Decisions (running log)
 
+- 2026-11-15: Review outcome: no defect in the k104 shutdown safety behaviour. Three low-severity findings. F1: no control makes the earlier-cutoff reserve `old_end - reap_budget` binding, so three single-line mutations survive. F2: the grace-phase `overrun` is true on every ordinary escalation (6 of 6 receipts). F3: each of 12 modes has one real-child sample and no timing-offset mutant exists. The report is `experiments/exec-reliability/evidence/shutdown-phases-k108/report.md`. Line numbers refer to `53fbcd1`.
+- The review ran no test, build, lint, format or mutation command. It ran read-only hash, byte-comparison, diff and JUnit-parsing commands only.
+- Coverage: the code graph predates `53fbcd1`. The review used direct source reads and disclosed that fallback.
+- Evidence verification: frozen source copies equal the committed bytes. Each of the five mutants differs by one line. JUnit counts match (679 passed, mutants 6, 2, 4, 3 and 2 of 53). The 151,643-path prior inventory is identical before and after. The review did not recompute artifact digests or the real-child audit receipts.
+- Observations kept out of the findings: simulated `denied-*` seeds (disclosed by k104), no SIGTERM in orderly mode (matches the specification), and a microsecond difference in the first TERM grace start.
+- Scope: the shared scheduler, teardown overlap and the final k28 review stay with complete-worker-scheduler-k107. k28 and k17 stay open.
+- Routing: all findings are actionable. The review cut `complete-worker-scheduler-k109` (integrate-review-impl) before k107.
+- No `**Creator:**` line applies, because the environment carries no provider evidence.
