@@ -88,7 +88,8 @@ def test_shutdown_bounds_object_rejected_before_freeze_or_fork(
     ],
 )
 @pytest.mark.parametrize("sample", range(3))
-def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample):
+@pytest.mark.parametrize("driver", ["blocking", "incremental"])
+def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample, driver):
     """Real signals/reap; deferred and late wait returns are explicitly simulated."""
     original_service = worker_capture._service
     original_waitpid = os.waitpid
@@ -98,7 +99,7 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
         failure = worker_capture.FailureBounds(term_grace=0.25, kill_reap=0.16)
     close = worker_capture.CloseBounds(grace=0.04, kill_reap=0.13)
     worker = worker_capture.Worker(failure_bounds=failure, close_bounds=close)
-    calls, probes = [], []
+    calls, probes, turns = [], [], []
     injected = False
 
     def service(command, control, result, session, deadline):
@@ -142,6 +143,7 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
         "source": "original exact-child WNOHANG",
         "mode": mode,
         "sample": sample,
+        "driver": driver,
     }
     runtime = None
     try:
@@ -176,7 +178,41 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
             worker.failure = "controlled sticky failure"
         monkeypatch.setattr(os, "waitpid", waitpid)
         monkeypatch.setattr(os, "killpg", killpg)
-        worker.close()
+        if driver == "blocking":
+            worker.close()
+        else:
+            # A hidden sleep or drain loop blocks the caller's other obligations.
+            def forbidden_sleep(seconds):
+                raise AssertionError("shutdown step slept inside caller turn")
+
+            with monkeypatch.context() as step:
+                step.setattr(time, "sleep", forbidden_sleep)
+                worker.begin_close()
+            assert not probes and not calls
+            frozen_end = owner.shutdown_deadline_monotonic
+            frozen_start = worker.shutdown_started
+            while True:
+                before = len(probes)
+                # The overrun control explicitly models one delayed wait return.
+                with monkeypatch.context() as step:
+                    if mode != "overrun":
+                        step.setattr(time, "sleep", forbidden_sleep)
+                    worker.begin_close()
+                    wake = worker.advance_close()
+                turns.append({"monotonic": time.monotonic(), "wake": wake})
+                assert len(probes) - before <= 1
+                assert owner.shutdown_deadline_monotonic == frozen_end
+                assert worker.shutdown_started == frozen_start
+                if wake is None:
+                    break
+                assert wake <= frozen_end
+                # Independent caller work is possible while the child is alive.
+                assert worker.shutdown_finished is None
+                time.sleep(max(0, min(0.001, wake - time.monotonic())))
+            if mode in {"healthy-stall", "failure-kill"}:
+                kill_time = owner.signals[-1]["monotonic"]
+                assert sum(turn["monotonic"] < kill_time for turn in turns) > 1
+            assert worker.advance_close() is None
         runtime = worker.evidence()
         worker.close()
         assert worker.evidence() == runtime
@@ -284,9 +320,16 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
                     time.sleep(0.001)
         root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
         root.mkdir(parents=True, exist_ok=True)
-        (root / f"shutdown-{mode}-{time.time_ns()}.json").write_text(
+        (root / f"shutdown-{driver}-{mode}-{time.time_ns()}.json").write_text(
             json.dumps(
-                {"runtime": runtime, "calls": calls, "probes": probes, "audit": audit}, indent=2
+                {
+                    "runtime": runtime,
+                    "calls": calls,
+                    "probes": probes,
+                    "turns": turns,
+                    "audit": audit,
+                },
+                indent=2,
             )
             + "\n"
         )

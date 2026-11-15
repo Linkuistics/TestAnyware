@@ -115,6 +115,20 @@ class _Owner:
     reap_attempts: int = 0
 
 
+@dataclass
+class _Shutdown:
+    mode: str
+    phase_start: float
+    kill_at: float
+    end: float
+    prior_kill: float | None
+    term_sent: bool
+    kill_sent: bool
+    failed_bootstrap: bool
+    grace_finished: float | None
+    reap_started: float | None
+
+
 _owners: dict[int, _Owner] = {}
 # Cleanup obligations are evidence, never authority to signal a non-child PID.
 # Only a matching helper reap receipt retires one; worker exit does not.
@@ -340,6 +354,7 @@ class Worker:
     readiness_finished: float | None = None
     readiness_outcome: str | None = None
     bootstrap_shutdown: dict[str, object] | None = None
+    _shutdown: _Shutdown | None = field(default=None, init=False, repr=False)
 
     def start(self) -> bool:
         if self.started or self.closed or self.failure is not None:
@@ -436,7 +451,8 @@ class Worker:
         self.failure_bounds.validate()
         self.close_bounds.validate()
 
-    def close(self) -> None:
+    def begin_close(self) -> None:
+        """Freeze shutdown authority and request EOF once, without waiting."""
         if self.closed:
             return
         self._validate_shutdown_bounds()
@@ -495,31 +511,73 @@ class Worker:
         )
         self.kill_at = kill_at
         end = min(old_end, kill_at + reap_budget)
-        grace_finished = prior_kill
-        reap_started = prior_kill
+        self._shutdown = _Shutdown(
+            mode=mode,
+            phase_start=phase_start,
+            kill_at=kill_at,
+            end=end,
+            prior_kill=prior_kill,
+            term_sent=term_sent,
+            kill_sent=kill_sent,
+            failed_bootstrap=failed_bootstrap,
+            grace_finished=prior_kill,
+            reap_started=prior_kill,
+        )
         if owner is not None:
             owner.shutdown_deadline_monotonic = end
-            while time.monotonic() < end:
-                _reap(owner)
-                if owner.reaped or owner.reap_errno is not None:
-                    break
-                now = time.monotonic()
-                if not term_sent and now < end:
+
+    def advance_close(self) -> float | None:
+        """Take one nonblocking owner turn; return the next absolute wake or None.
+
+        The caller owns scheduling between turns. Repeated calls cannot renew
+        the timeline or the owner's lifetime first-reap exception.
+        """
+        self.begin_close()
+        state = self._shutdown
+        assert state is not None
+        if self.shutdown_finished is not None:
+            return None
+        owner = self.owner
+        if owner is not None:
+            # _reap itself guards the cutoff and the owner-lifetime exception.
+            _reap(owner)
+            now = time.monotonic()
+            if not owner.reaped and owner.reap_errno is None and now < state.end:
+                if not state.term_sent:
                     _signal(owner, signal.SIGTERM)
-                    term_sent = True
-                if not kill_sent and kill_at <= now < end:
+                    state.term_sent = True
+                if not state.kill_sent and state.kill_at <= now:
                     attempts = len(owner.signals)
                     _signal(owner, signal.SIGKILL)
                     if len(owner.signals) > attempts:
-                        # _signal rechecks the cutoff immediately before the
-                        # syscall. A suppressed late call never entered this phase.
-                        reap_started = cast(float, owner.signals[-1]["monotonic"])
-                        grace_finished = reap_started
-                        kill_sent = True
-                time.sleep(min(0.001, max(0, end - time.monotonic())))
-            _reap(owner)
+                        # A cutoff-suppressed call did not enter the reap phase.
+                        state.reap_started = cast(float, owner.signals[-1]["monotonic"])
+                        state.grace_finished = state.reap_started
+                        state.kill_sent = True
+                now = time.monotonic()
+                if now < state.end:
+                    return min(
+                        now + 0.001,
+                        state.end,
+                        state.kill_at if not state.kill_sent else state.end,
+                    )
             if not owner.reaped or owner.returncode != 0:
                 self.failure = self.failure or "worker close did not return cleanly"
+        self._finish_close(state)
+        return None
+
+    def close(self) -> None:
+        """Compatibility driver; schedulers can use begin_close/advance_close."""
+        self.begin_close()
+        while (wake := self.advance_close()) is not None:
+            time.sleep(max(0.0, wake - time.monotonic()))
+
+    def _finish_close(self, state: _Shutdown) -> None:
+        owner = self.owner
+        mode, phase_start = state.mode, state.phase_start
+        kill_at, end = state.kill_at, state.end
+        prior_kill, reap_started = state.prior_kill, state.reap_started
+        grace_finished = state.grace_finished
         for fd in self.channels:
             try:
                 os.close(fd)
@@ -580,7 +638,7 @@ class Worker:
         }
         if grace_finished > kill_at and prior_kill is None:
             self.failure = f"{self.failure}; {mode} grace overrun"
-        if failed_bootstrap:
+        if state.failed_bootstrap:
             self.bootstrap_shutdown = self.shutdown
         if overrun:
             self.failure = f"{self.failure}; {mode} shutdown overrun"

@@ -22,18 +22,21 @@ complete worker/scheduler boundary remains k30's work, continued by k34's
 worker-scheduler-k38 subtree, continued by worker-scheduler-k40 and its
 worker-scheduler-k42 subtree, worker-scheduler-k44 subtree and remaining
 worker-scheduler-k48 subtree, with its remaining contract in
-complete-worker-scheduler-k67.
+complete-worker-scheduler-k114.
 A failed local inspection now remains failed throughout that execution.
 Independent cleanup, disposal and public absence commands still run, but later
 local observations cannot restore disposal certainty.
 Independently supervised process inspection, retained-file identity,
 stalled-storage disposal and live route
 preparation still need the work named below before causal use. In particular,
-helper creation runs synchronously inside an interim worker created for each
-query. The controller bounds waiting for that worker, but raw worker fork remains
-a synchronous OS operation. Once created, the helper has bounded pipe capture
-and nonblocking reap attempts, with a strong residual owner on failure; shared
-scheduling and independent helper identity publication remain unfinished.
+the controller starts one persistent inspection worker before resource
+acquisition. Helper creation runs inside that worker, and helper ownership is
+published independently of result capture. Raw worker fork remains a synchronous
+OS operation. Worker close now offers nonblocking begin/advance operations,
+while its compatibility consumer still drives them synchronously. Shared
+scheduling, actual shutdown/teardown overlap and the remaining aggregate controls
+are unfinished; the bounded k110 result and its evidence limits are recorded
+below.
 This is preparation for the causal inquiries in
 [issue #14](https://github.com/Linkuistics/TestAnyware/issues/14), not a repair
 of TestAnyware. No guest was booted, no guest command was run, and no app was
@@ -1951,7 +1954,7 @@ mutations, a passing 754-case suite and configured static checks. Its audit
 verifies 408 exact-child fixture cleanups and 163,383 unchanged earlier evidence
 paths. Injected errno and delayed returns are simulated; fixture signals,
 exits and exact-child status consumption are real. Read the separate k107
-review before relying on this boundary. Complete-worker-scheduler-k110 retains
+review before relying on this boundary. Complete-worker-scheduler-k114 retains
 the complete original aggregate charter, shared scheduling, shutdown/teardown
 overlap, remaining controls and final k28 review. k28/k17 remain open and
 ten-clone acceptance stays **0/10, unavailable**.
@@ -1962,8 +1965,37 @@ The k111 review identified an untested lifetime boundary in k107. The counter
 includes successful-request polling. A worker that exits after its last poll
 and reaches close after its cutoff retains a failed residual without a final
 poll, even when its status is waitable. The specification now states this
-limitation explicitly. k110 owns any scheduler redesign needed to improve it
+limitation explicitly. k114 owns any scheduler redesign needed to improve it
 while preserving the same-cutoff guard. The [k112 report](../../experiments/exec-reliability/evidence/worker-reap-scope-k112/report.md)
 records a real request/late-exit/expired-close control and its scope mutant.
 All prior k107 measurements remain historical evidence; k28/k17 remain open
 and ten-clone acceptance remains **0/10, unavailable**.
+
+## Incremental worker shutdown (k110)
+
+Worker shutdown exposes `begin_close()` to freeze the original authority and
+request EOF without polling or waiting, and `advance_close()` for one
+nonblocking owner turn. Each turn makes at most one exact-child reap attempt,
+sends due worker escalation and returns an absolute next wake or terminal
+`None`. Existing synchronous `close()` drives those same operations. Repeated
+calls do not renew earlier cutoffs, signal attempts or the owner-lifetime
+first-reap exception. Shutdown phase/reserve formulas and strict timing receipts
+are preserved. The controller does not yet interleave this API with teardown.
+
+The [k110 report](../../experiments/exec-reliability/evidence/incremental-shutdown-k110/report.md)
+retains 42 expected pre-implementation failures, 151 passing focused controls,
+a frozen 796/797 full result, a subsequent 797/797 required self-check and
+238/238 review controls. Static checks pass. The frozen failure records a real
+`30416 30416 ?E` ps row: strict parsing keeps group evidence unknown and fails
+closed. Its signal ordering, leader reap and worker close succeed. Why ps
+emitted that state and whether it repeats remain unresolved; the subsequent
+pass does not repair the first sample. The audit verifies case identities,
+453 named exact-child cleanup receipts and 167,784 unchanged prior evidence
+paths. Deferred status, delayed returns and denied history are explicitly
+simulated; real UID EPERM and setuid ps KILL are not established.
+
+The independent k113 review follows this bounded slice. The full original
+aggregate charter is preserved in complete-worker-scheduler-k114, including
+shared safety-first scheduling, private-loop removal, actual teardown overlap,
+remaining controls, repeatability limitations and final k28 review. k28/k17
+remain open; ten-clone acceptance remains **0/10, unavailable**.

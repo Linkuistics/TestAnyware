@@ -1,0 +1,279 @@
+{
+  "run_id": "676cce7a35534ed881b048f75468de99",
+  "ok": false,
+  "fork_admission": {
+    "ok": true,
+    "reason": "ready",
+    "python_threads": 1,
+    "native_threads": 1,
+    "sigchld": "SIG_DFL",
+    "native_sigchld": "SIG_DFL",
+    "error": null,
+    "errno": null
+  },
+  "inspection_failure": null,
+  "inspection_worker": {
+    "run_id": "676cce7a35534ed881b048f75468de99",
+    "session_token": "76f98572d3984134b994d7b720662502",
+    "owner": {
+      "pid": 30752,
+      "shutdown_deadline_monotonic": 326803.695407625,
+      "ready": true,
+      "reaped": true,
+      "ownership_lost": false,
+      "returncode": 0,
+      "signals": [],
+      "reap_errno": null,
+      "reap_attempts": 6
+    },
+    "failure": null,
+    "admission": {
+      "ok": true,
+      "reason": "ready",
+      "python_threads": 1,
+      "native_threads": 1,
+      "sigchld": "SIG_DFL",
+      "native_sigchld": "SIG_DFL",
+      "error": null,
+      "errno": null
+    },
+    "bootstrap_bounds": {
+      "readiness": 1,
+      "term_grace": 2,
+      "kill_reap": 2
+    },
+    "failure_bounds": {
+      "term_grace": 2,
+      "kill_reap": 2
+    },
+    "close_bounds": {
+      "grace": 0.05,
+      "kill_reap": 2
+    },
+    "shutdown": {
+      "mode": "orderly",
+      "started_monotonic": 326801.645407625,
+      "term_deadline_monotonic": 326801.695407625,
+      "kill_deadline_monotonic": 326803.695407625,
+      "finished_monotonic": 326801.646954958,
+      "overrun": false,
+      "lateness_seconds": 0.0,
+      "deadline_exhausted": false,
+      "outcome": "reaped",
+      "signals": [],
+      "phases": {
+        "grace": {
+          "started_monotonic": 326801.645407625,
+          "deadline_monotonic": 326801.695407625,
+          "finished_monotonic": 326801.646954958,
+          "outcome": "reaped",
+          "timing_outcome": "on_time",
+          "overrun": false,
+          "lateness_seconds": 0.0,
+          "deadline_exhausted": false
+        },
+        "kill_reap": {
+          "started_monotonic": null,
+          "deadline_monotonic": 326803.695407625,
+          "finished_monotonic": 326801.646954958,
+          "outcome": "not_entered",
+          "timing_outcome": "on_time",
+          "overrun": false,
+          "lateness_seconds": 0.0,
+          "deadline_exhausted": false
+        }
+      }
+    },
+    "startup_started_monotonic": 326801.36922725,
+    "startup_deadline_monotonic": 326802.36922725,
+    "readiness_finished_monotonic": 326801.372731208,
+    "readiness_outcome": "ready",
+    "readiness_lateness_seconds": 0.0,
+    "readiness_overrun": false,
+    "startup_finished_monotonic": 326801.372733333,
+    "bootstrap_shutdown": null,
+    "shutdown_started_monotonic": 326801.645407625,
+    "shutdown_finished_monotonic": 326801.646954958,
+    "closed": true,
+    "residual_remedy": null
+  },
+  "calls": [
+    {
+      "name": "self-signal",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+        "-c",
+        "\nimport json, os, runpy, signal, sys\nfrom pathlib import Path\noriginal = os.kill\ndef misdirect(pid, sig):\n    if sig == signal.SIGTERM:\n        Path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-full/runs/self-signal-936e0ae7efd34237889227a2d79139d7.json').write_text(json.dumps({\"pid\": pid}))\n        original(pid, signal.SIGKILL)\n        original(os.getpid(), sig)\n    else:\n        original(pid, sig)\nos.kill = misdirect\nsys.argv = ['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/peer.py', 'controller', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-full/runs']\nrunpy.run_path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/peer.py', run_name='__main__')\n"
+      ],
+      "budget": 3,
+      "started_monotonic": 326801.37276075,
+      "wall_start_ns": 1794709522060506000,
+      "reason": "exit",
+      "returncode": -15,
+      "reaped": true,
+      "ok": false,
+      "signals": [],
+      "pid": 30753,
+      "pgid": 30753,
+      "signal_scope": "group",
+      "leader_exit_monotonic": 326801.637040083,
+      "inspection_deadline_monotonic": 326801.862040083,
+      "group_observations": [
+        {
+          "started_monotonic": 326801.637080916,
+          "finished_monotonic": 326801.64487225,
+          "query_attempted": true,
+          "helper": {
+            "stdout": "3330373533203330373533205a2020200a",
+            "stderr": "",
+            "returncode": 0,
+            "pid": 30777,
+            "argv": [
+              "/bin/ps",
+              "-g",
+              "30753",
+              "-o",
+              "pid=,pgid=,stat="
+            ],
+            "admission": {
+              "ok": true,
+              "reason": "ready",
+              "python_threads": 1,
+              "native_threads": 1,
+              "sigchld": "SIG_DFL",
+              "native_sigchld": "SIG_DFL",
+              "error": null,
+              "errno": null
+            },
+            "started_monotonic": 326801.638310916,
+            "created_monotonic": 326801.641054458,
+            "capture_deadline_monotonic": 326801.7686077913,
+            "deadline_monotonic": 326801.862040083,
+            "finished_monotonic": 326801.644789416,
+            "kill_monotonic": null,
+            "kill_errno": null,
+            "reaped": true,
+            "reaped_monotonic": 326801.644309,
+            "reap_errno": null,
+            "ownership_lost": false,
+            "close_errors": [],
+            "error": null,
+            "error_errno": null,
+            "residual_remedy": null,
+            "worker": {
+              "pid": 30752,
+              "shutdown_deadline_monotonic": 326801.862040083,
+              "ready": true,
+              "reaped": false,
+              "ownership_lost": false,
+              "returncode": null,
+              "signals": [],
+              "reap_errno": null,
+              "reap_attempts": 4,
+              "intent": true,
+              "unknown_helper_creation": false,
+              "fork_failure": null,
+              "creation_conflict": false,
+              "helper_identity": {
+                "pid": 30777,
+                "ppid": 30752,
+                "pgid": 30752,
+                "created_monotonic": 326801.641054458,
+                "token": "77779d989d0e406984650b68e600bc94",
+                "deadline_monotonic": 326801.812040083
+              },
+              "helper_identities": [
+                {
+                  "pid": 30777,
+                  "ppid": 30752,
+                  "pgid": 30752,
+                  "created_monotonic": 326801.641054458,
+                  "token": "77779d989d0e406984650b68e600bc94",
+                  "deadline_monotonic": 326801.812040083
+                }
+              ],
+              "helper_obligation_retained": false,
+              "signal_scope": "group",
+              "dispatch_monotonic": 326801.637452416,
+              "receipt_monotonic": 326801.644683166,
+              "published_times": {
+                "started_monotonic": 326801.638310916,
+                "created_monotonic": 326801.641054458,
+                "capture_deadline_monotonic": 326801.7686077913,
+                "deadline_monotonic": 326801.812040083,
+                "finished_monotonic": 326801.644336333,
+                "kill_monotonic": null,
+                "reaped_monotonic": 326801.644309
+              },
+              "query_deadline_monotonic": 326801.812040083,
+              "reserve_seconds": 0.05,
+              "request_token": "77779d989d0e406984650b68e600bc94",
+              "request_identity": {
+                "run_id": "676cce7a35534ed881b048f75468de99",
+                "worker_token": "76f98572d3984134b994d7b720662502",
+                "worker_pid": 30752,
+                "request_token": "77779d989d0e406984650b68e600bc94",
+                "workload_pid": 30753,
+                "workload_pgid": 30753,
+                "signal_epoch": 0,
+                "phase": "final",
+                "deadline_monotonic": 326801.812040083
+              },
+              "session_token": "76f98572d3984134b994d7b720662502"
+            }
+          },
+          "state": "zombie_only",
+          "members": [
+            {
+              "pid": 30753,
+              "pgid": 30753,
+              "stat": "Z"
+            }
+          ],
+          "stdout": "3330373533203330373533205a2020200a",
+          "stderr": "",
+          "returncode": 0,
+          "probe_started_monotonic": 326801.644858708,
+          "probe_finished_monotonic": 326801.644868625,
+          "probe_errno": 1,
+          "probe_outcome": "zombie_only_eperm",
+          "error": null
+        }
+      ],
+      "termination_ok": true,
+      "authority_closed_monotonic": 326801.644878333,
+      "reap_deadline_monotonic": 326801.937040083,
+      "within_process_bounds": true,
+      "reap_attempts": 1,
+      "reap_last_result": "reaped",
+      "reaped_monotonic": 326801.6448825,
+      "elapsed": 0.2721569999703206
+    }
+  ],
+  "resources": [],
+  "unreached": [],
+  "subjects_before": {
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/controller.py": "783c2fbe8d5bbffc7b722c95022509d809a1d78d2706da375495cf968afd7448",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/inspection.py": "a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/worker_capture.py": "4bff16189b47ea6a0fc25ca5cd57e91707738d81960c52d8bcb4c366018e2b95",
+    "/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12": "83deb939c9034c3e85a377eeb04e7d9992f8881652a22289cd0eeeb83b98a565",
+    "/bin/ps": "a06fe087161557f1f8c030672eaedcd90bc6a8e92b8f2d44e07cffedc3349205",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/peer.py": "a13a9f7304bbc93a9acb31950030286115423987781a9697f3e3f904842d9a51",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/test_controller.py": "45160c74e7387b785ab966fc779bf788be001952857d2c89807245f041c0a99c",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/pyproject.toml": "59212d08944918fdc142e365bc3e51a6611dbbd7fd2d12fed0a63b615eaa0e2e",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/uv.lock": "1c3ab314b597770f6568fa159164b8ac72af7d9c3c9fc74ef3d9cf47b73cfd89",
+    "/bin/sleep": "38d6b9431656a92cfa223d1325cbea4dc3f56ef29833eb2a3ff7f6ab21f95b5b"
+  },
+  "subjects_after": {
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/controller.py": "783c2fbe8d5bbffc7b722c95022509d809a1d78d2706da375495cf968afd7448",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/inspection.py": "a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/worker_capture.py": "4bff16189b47ea6a0fc25ca5cd57e91707738d81960c52d8bcb4c366018e2b95",
+    "/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/bin/python3.12": "83deb939c9034c3e85a377eeb04e7d9992f8881652a22289cd0eeeb83b98a565",
+    "/bin/ps": "a06fe087161557f1f8c030672eaedcd90bc6a8e92b8f2d44e07cffedc3349205",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/peer.py": "a13a9f7304bbc93a9acb31950030286115423987781a9697f3e3f904842d9a51",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/test_controller.py": "45160c74e7387b785ab966fc779bf788be001952857d2c89807245f041c0a99c",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/pyproject.toml": "59212d08944918fdc142e365bc3e51a6611dbbd7fd2d12fed0a63b615eaa0e2e",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/incremental-shutdown-k110/green-inputs/uv.lock": "1c3ab314b597770f6568fa159164b8ac72af7d9c3c9fc74ef3d9cf47b73cfd89",
+    "/bin/sleep": "38d6b9431656a92cfa223d1325cbea4dc3f56ef29833eb2a3ff7f6ab21f95b5b"
+  }
+}

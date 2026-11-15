@@ -841,3 +841,26 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python evidence/worker-reap-scope-k112/audit.py
+
+
+  diagnostic:incremental-shutdown-tools:
+    desc: Check incremental shutdown evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/incremental-shutdown-k110/*.py
+      - uv run --locked python -m ruff check evidence/incremental-shutdown-k110/*.py
+      - uv run --locked python -m pyright evidence/incremental-shutdown-k110/*.py
+
+  diagnostic:incremental-shutdown-audit:
+    desc: Audit retained incremental shutdown runs and exact-child cleanup
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/incremental-shutdown-k110/audit.py
+
+  diagnostic:incremental-shutdown-preserve:
+    desc: Inventory prior evidence around incremental shutdown work
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/incremental-shutdown-k110/preserve.py '{{.MODE}}'
