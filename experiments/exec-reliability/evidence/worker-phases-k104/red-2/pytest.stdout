@@ -1,0 +1,821 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-phases-k104/inputs-red
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py
+collecting ... collected 671 items / 626 deselected / 45 selected
+
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0-failure-term_grace] FAILED [  2%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0-failure-kill_reap] FAILED [  4%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0-close-grace] FAILED [  6%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0-close-kill_reap] FAILED [  8%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[-1-failure-term_grace] FAILED [ 11%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[-1-failure-kill_reap] FAILED [ 13%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[-1-close-grace] FAILED [ 15%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[-1-close-kill_reap] FAILED [ 17%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-failure-term_grace] FAILED [ 20%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-failure-kill_reap] FAILED [ 22%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-close-grace] FAILED [ 24%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-close-kill_reap] FAILED [ 26%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[nan-failure-term_grace] FAILED [ 28%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[nan-failure-kill_reap] FAILED [ 31%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[nan-close-grace] FAILED [ 33%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[nan-close-kill_reap] FAILED [ 35%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[inf-failure-term_grace] FAILED [ 37%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[inf-failure-kill_reap] FAILED [ 40%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[inf-close-grace] FAILED [ 42%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[inf-close-kill_reap] FAILED [ 44%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[True-failure-term_grace] FAILED [ 46%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[True-failure-kill_reap] FAILED [ 48%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[True-close-grace] FAILED [ 51%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[True-close-kill_reap] FAILED [ 53%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[None-failure-term_grace] FAILED [ 55%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[None-failure-kill_reap] FAILED [ 57%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[None-close-grace] FAILED [ 60%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[None-close-kill_reap] FAILED [ 62%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-failure-term_grace] FAILED [ 64%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-failure-kill_reap] FAILED [ 66%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-close-grace] FAILED [ 68%]
+test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-close-kill_reap] FAILED [ 71%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[orderly] FAILED [ 73%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[healthy-stall] FAILED [ 75%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[failure-term] FAILED [ 77%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[failure-kill] FAILED [ 80%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[deferred-reap] FAILED [ 82%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[overrun] FAILED [ 84%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[prior-term] FAILED [ 86%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[denied-term] FAILED [ 88%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[prior-kill] FAILED [ 91%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[denied-kill] FAILED [ 93%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[finite] FAILED [ 95%]
+test_shutdown.py::test_declared_shutdown_real_child_phases[expired] FAILED [ 97%]
+test_shutdown.py::test_plan_propagates_declared_shutdown_bounds FAILED   [100%]
+
+=================================== FAILURES ===================================
+__ test_shutdown_bounds_rejected_before_freeze_or_fork[0-failure-term_grace] ___
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108fc7830>
+kind = 'failure', phase = 'term_grace', invalid = 0
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+___ test_shutdown_bounds_rejected_before_freeze_or_fork[0-failure-kill_reap] ___
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109147590>
+kind = 'failure', phase = 'kill_reap', invalid = 0
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+______ test_shutdown_bounds_rejected_before_freeze_or_fork[0-close-grace] ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914ec30>
+kind = 'close', phase = 'grace', invalid = 0
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+____ test_shutdown_bounds_rejected_before_freeze_or_fork[0-close-kill_reap] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914c4d0>
+kind = 'close', phase = 'kill_reap', invalid = 0
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+__ test_shutdown_bounds_rejected_before_freeze_or_fork[-1-failure-term_grace] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914cec0>
+kind = 'failure', phase = 'term_grace', invalid = -1
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+__ test_shutdown_bounds_rejected_before_freeze_or_fork[-1-failure-kill_reap] ___
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_5')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914dd00>
+kind = 'failure', phase = 'kill_reap', invalid = -1
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+_____ test_shutdown_bounds_rejected_before_freeze_or_fork[-1-close-grace] ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_6')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914eab0>
+kind = 'close', phase = 'grace', invalid = -1
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+___ test_shutdown_bounds_rejected_before_freeze_or_fork[-1-close-kill_reap] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_7')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914fc50>
+kind = 'close', phase = 'kill_reap', invalid = -1
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+_ test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-failure-term_grace] _
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_8')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109144ef0>
+kind = 'failure', phase = 'term_grace', invalid = 2.01
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+_ test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-failure-kill_reap] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_9')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914eab0>
+kind = 'failure', phase = 'kill_reap', invalid = 2.01
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+____ test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-close-grace] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_10')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914eff0>
+kind = 'close', phase = 'grace', invalid = 2.01
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+__ test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-close-kill_reap] ___
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_11')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914d640>
+kind = 'close', phase = 'kill_reap', invalid = 2.01
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+_ test_shutdown_bounds_rejected_before_freeze_or_fork[nan-failure-term_grace] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_12')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914ff20>
+kind = 'failure', phase = 'term_grace', invalid = nan
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+__ test_shutdown_bounds_rejected_before_freeze_or_fork[nan-failure-kill_reap] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_13')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914fb30>
+kind = 'failure', phase = 'kill_reap', invalid = nan
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+_____ test_shutdown_bounds_rejected_before_freeze_or_fork[nan-close-grace] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_14')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1091512b0>
+kind = 'close', phase = 'grace', invalid = nan
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+___ test_shutdown_bounds_rejected_before_freeze_or_fork[nan-close-kill_reap] ___
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_15')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109153560>
+kind = 'close', phase = 'kill_reap', invalid = nan
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+_ test_shutdown_bounds_rejected_before_freeze_or_fork[inf-failure-term_grace] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_16')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109150e30>
+kind = 'failure', phase = 'term_grace', invalid = inf
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+__ test_shutdown_bounds_rejected_before_freeze_or_fork[inf-failure-kill_reap] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_17')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109150050>
+kind = 'failure', phase = 'kill_reap', invalid = inf
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+_____ test_shutdown_bounds_rejected_before_freeze_or_fork[inf-close-grace] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_18')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1091508f0>
+kind = 'close', phase = 'grace', invalid = inf
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+___ test_shutdown_bounds_rejected_before_freeze_or_fork[inf-close-kill_reap] ___
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_19')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109153e00>
+kind = 'close', phase = 'kill_reap', invalid = inf
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+_ test_shutdown_bounds_rejected_before_freeze_or_fork[True-failure-term_grace] _
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_20')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914d760>
+kind = 'failure', phase = 'term_grace', invalid = True
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+_ test_shutdown_bounds_rejected_before_freeze_or_fork[True-failure-kill_reap] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_21')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914ff20>
+kind = 'failure', phase = 'kill_reap', invalid = True
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+____ test_shutdown_bounds_rejected_before_freeze_or_fork[True-close-grace] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_22')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914f470>
+kind = 'close', phase = 'grace', invalid = True
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+__ test_shutdown_bounds_rejected_before_freeze_or_fork[True-close-kill_reap] ___
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_23')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109151370>
+kind = 'close', phase = 'kill_reap', invalid = True
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+_ test_shutdown_bounds_rejected_before_freeze_or_fork[None-failure-term_grace] _
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_24')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1091538c0>
+kind = 'failure', phase = 'term_grace', invalid = None
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+_ test_shutdown_bounds_rejected_before_freeze_or_fork[None-failure-kill_reap] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_25')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109153c50>
+kind = 'failure', phase = 'kill_reap', invalid = None
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+____ test_shutdown_bounds_rejected_before_freeze_or_fork[None-close-grace] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_26')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1091516d0>
+kind = 'close', phase = 'grace', invalid = None
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+__ test_shutdown_bounds_rejected_before_freeze_or_fork[None-close-kill_reap] ___
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_27')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109160c20>
+kind = 'close', phase = 'kill_reap', invalid = None
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+_ test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-failure-term_grace] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_28')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109160aa0>
+kind = 'failure', phase = 'term_grace', invalid = '0.1'
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+__ test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-failure-kill_reap] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_29')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109161e50>
+kind = 'failure', phase = 'kill_reap', invalid = '0.1'
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:23: AttributeError
+_____ test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-close-grace] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_30')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1091610a0>
+kind = 'close', phase = 'grace', invalid = '0.1'
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+___ test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-close-kill_reap] ___
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_shutdown_bounds_rejected_31')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109162a80>
+kind = 'close', phase = 'kill_reap', invalid = '0.1'
+
+    @pytest.mark.parametrize("kind,phase", [("failure", "term_grace"), ("failure", "kill_reap"),
+                                            ("close", "grace"), ("close", "kill_reap")])
+    @pytest.mark.parametrize("invalid", [0, -1, 2.01, float("nan"), float("inf"), True, None, "0.1"])
+    def test_shutdown_bounds_rejected_before_freeze_or_fork(tmp_path, monkeypatch, kind, phase, invalid):
+>       cls = worker_capture.FailureBounds if kind == "failure" else worker_capture.CloseBounds
+                                                                     ^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+
+test_shutdown.py:23: AttributeError
+______________ test_declared_shutdown_real_child_phases[orderly] _______________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109152270>
+mode = 'orderly'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+___________ test_declared_shutdown_real_child_phases[healthy-stall] ____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109151460>
+mode = 'healthy-stall'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+____________ test_declared_shutdown_real_child_phases[failure-term] ____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914df10>
+mode = 'failure-term'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+____________ test_declared_shutdown_real_child_phases[failure-kill] ____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10914dbe0>
+mode = 'failure-kill'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+___________ test_declared_shutdown_real_child_phases[deferred-reap] ____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109160a10>
+mode = 'deferred-reap'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+______________ test_declared_shutdown_real_child_phases[overrun] _______________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch5')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1091607a0>
+mode = 'overrun'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+_____________ test_declared_shutdown_real_child_phases[prior-term] _____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch6')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109161880>
+mode = 'prior-term'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+____________ test_declared_shutdown_real_child_phases[denied-term] _____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch7')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10915af90>
+mode = 'denied-term'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+_____________ test_declared_shutdown_real_child_phases[prior-kill] _____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch8')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10915aff0>
+mode = 'prior-kill'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+____________ test_declared_shutdown_real_child_phases[denied-kill] _____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch9')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10915bbc0>
+mode = 'denied-kill'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+_______________ test_declared_shutdown_real_child_phases[finite] _______________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch10')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109159d90>
+mode = 'finite'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+______________ test_declared_shutdown_real_child_phases[expired] _______________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_declared_shutdown_real_ch11')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109159cd0>
+mode = 'expired'
+
+    @pytest.mark.parametrize("mode", ["orderly", "healthy-stall", "failure-term", "failure-kill",
+                                      "deferred-reap", "overrun", "prior-term", "denied-term",
+                                      "prior-kill", "denied-kill", "finite", "expired"])
+    def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+        """Real signals/reap; deferred and late wait returns are explicitly simulated."""
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+>       failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:49: AttributeError
+________________ test_plan_propagates_declared_shutdown_bounds _________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-577/test_plan_propagates_declared_0')
+
+    def test_plan_propagates_declared_shutdown_bounds(tmp_path):
+>       failure = worker_capture.FailureBounds(term_grace=0.08, kill_reap=0.17)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+
+test_shutdown.py:204: AttributeError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-phases-k104/red-2/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0-failure-term_grace] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0-failure-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0-close-grace] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0-close-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[-1-failure-term_grace] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[-1-failure-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[-1-close-grace] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[-1-close-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-failure-term_grace] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-failure-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-close-grace] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[2.01-close-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[nan-failure-term_grace] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[nan-failure-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[nan-close-grace] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[nan-close-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[inf-failure-term_grace] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[inf-failure-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[inf-close-grace] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[inf-close-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[True-failure-term_grace] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[True-failure-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[True-close-grace] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[True-close-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[None-failure-term_grace] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[None-failure-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[None-close-grace] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[None-close-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-failure-term_grace] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-failure-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-close-grace] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_shutdown_bounds_rejected_before_freeze_or_fork[0.1-close-kill_reap] - AttributeError: module 'worker_capture' has no attribute 'CloseBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[orderly] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[healthy-stall] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[failure-term] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[failure-kill] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[deferred-reap] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[overrun] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[prior-term] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[denied-term] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[prior-kill] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[denied-kill] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[finite] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_declared_shutdown_real_child_phases[expired] - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+FAILED test_shutdown.py::test_plan_propagates_declared_shutdown_bounds - AttributeError: module 'worker_capture' has no attribute 'FailureBounds'
+====================== 45 failed, 626 deselected in 0.48s ======================

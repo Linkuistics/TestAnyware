@@ -2332,13 +2332,9 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
             assert first["residual_remedy"]
         else:
             assert owner.reaped
-            assert owner.returncode == (-signal.SIGTERM if mode == "term" else -signal.SIGKILL)
+            assert owner.returncode == -signal.SIGKILL
             assert signals == (
-                ["SIGKILL"]
-                if mode == "retiring-kill"
-                else ["SIGTERM", "SIGKILL"]
-                if mode != "term"
-                else ["SIGTERM"]
+                ["SIGKILL"] if mode in {"retiring-kill", "term", "kill"} else ["SIGTERM", "SIGKILL"]
             )
             assert worker.failure
             if mode in {"term", "kill"}:
@@ -2349,11 +2345,12 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
                 assert len(close_faults) == 1
                 assert close_faults[0]["fd"] == command and close_faults[0]["errno"] == errno.EIO
                 assert "worker command close failed" in worker.failure
+                assert first["shutdown"]["mode"] == "failure"
                 assert owner.signals[0]["monotonic"] - worker.shutdown_started < 0.04
                 assert 1.9 <= owner.signals[1]["monotonic"] - worker.shutdown_started <= 2.05
             if mode == "denied-term":
                 assert owner.signals[0]["errno"] == errno.EPERM
-                assert 0.15 <= owner.signals[1]["monotonic"] - worker.shutdown_started < 0.4
+                assert 0 <= owner.signals[1]["monotonic"] - worker.shutdown_started < 0.04
             if len(signals) == 2:
                 assert 0 <= owner.signals[1]["monotonic"] - owner.signals[0]["monotonic"] <= 2.05
                 assert 0 <= worker.shutdown_finished - owner.signals[1]["monotonic"] < 2
@@ -2448,7 +2445,7 @@ def test_persistent_worker_close_before_ready_uses_pid(tmp_path, monkeypatch):
             {"scope": "pid", "target": pid, "signal": signal.SIGKILL},
         ]
         assert owner.reaped and owner.returncode == -signal.SIGKILL
-        assert 0.04 <= owner.signals[0]["monotonic"] - worker.shutdown_started < 0.5
+        assert 0 <= owner.signals[0]["monotonic"] - worker.shutdown_started < 0.04
         assert 1.9 <= owner.signals[1]["monotonic"] - worker.shutdown_started <= 2.05
         assert all(item["monotonic"] < owner.shutdown_deadline_monotonic for item in owner.signals)
     finally:

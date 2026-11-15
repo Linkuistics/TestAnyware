@@ -39,6 +39,30 @@ class BootstrapBounds:
 
 
 @dataclass(frozen=True)
+class FailureBounds:
+    term_grace: float = 2
+    kill_reap: float = 2
+
+    def validate(self) -> None:
+        for name in ("term_grace", "kill_reap"):
+            value = getattr(self, name)
+            if type(value) not in {int, float} or not 0 < value <= 2:
+                raise ValueError(f"failure {name} must be positive and at most 2 seconds")
+
+
+@dataclass(frozen=True)
+class CloseBounds:
+    grace: float = 0.05
+    kill_reap: float = 2
+
+    def validate(self) -> None:
+        for name in ("grace", "kill_reap"):
+            value = getattr(self, name)
+            if type(value) not in {int, float} or not 0 < value <= 2:
+                raise ValueError(f"close {name} must be positive and at most 2 seconds")
+
+
+@dataclass(frozen=True)
 class RequestScope:
     workload_pid: int
     workload_pgid: int
@@ -305,6 +329,9 @@ class Worker:
     shutdown_finished: float | None = None
     kill_at: float | None = None
     bootstrap: BootstrapBounds = field(default_factory=BootstrapBounds)
+    failure_bounds: FailureBounds = field(default_factory=FailureBounds)
+    close_bounds: CloseBounds = field(default_factory=CloseBounds)
+    shutdown: dict[str, object] | None = None
     startup_deadline: float | None = None
     readiness_finished: float | None = None
     readiness_outcome: str | None = None
@@ -316,6 +343,7 @@ class Worker:
         if not isinstance(cast(object, self.bootstrap), BootstrapBounds):
             raise ValueError("invalid bootstrap bounds")
         self.bootstrap.validate()
+        self._validate_shutdown_bounds()
         self.startup_started = time.monotonic()
         deadline = self.startup_started + self.bootstrap.readiness
         self.startup_deadline = deadline
@@ -396,77 +424,95 @@ class Worker:
                 self.readiness_finished = time.monotonic()
             self.startup_finished = time.monotonic()
 
+    def _validate_shutdown_bounds(self) -> None:
+        if not isinstance(cast(object, self.failure_bounds), FailureBounds):
+            raise ValueError("invalid failure bounds")
+        if not isinstance(cast(object, self.close_bounds), CloseBounds):
+            raise ValueError("invalid close bounds")
+        self.failure_bounds.validate()
+        self.close_bounds.validate()
+
     def close(self) -> None:
         if self.closed:
             return
+        self._validate_shutdown_bounds()
         self.closed = True
         self.shutdown_started = time.monotonic()
         owner = self.owner
-        term_at = self.shutdown_started
-        term_sent = False
-        kill_sent = False
         failed_bootstrap = (
             self.startup_started is not None and not self.started and self.failure is not None
         )
-        if failed_bootstrap:
-            self.bootstrap_shutdown = {
-                "started_monotonic": self.shutdown_started,
-                "term_deadline_monotonic": self.shutdown_started + self.bootstrap.term_grace,
-                "kill_deadline_monotonic": (
-                    self.shutdown_started + self.bootstrap.term_grace + self.bootstrap.kill_reap
-                ),
-            }
-        if owner is not None:
-            retiring = owner.shutdown_deadline_monotonic != float("inf") or bool(owner.signals)
-            if self.failure is None and not retiring:
-                term_at += 0.05  # One orderly EOF grace inside the fixed allowance.
-            for attempt in owner.signals:
-                if attempt["signal"] == "SIGTERM":
-                    term_sent = True
-                    term_at = min(term_at, cast(float, attempt["monotonic"]))
-                elif attempt["signal"] == "SIGKILL":
-                    kill_sent = term_sent = True
-            # A request failure may already have fixed an earlier deadline.
-            owner.shutdown_deadline_monotonic = min(
-                owner.shutdown_deadline_monotonic,
-                self.shutdown_started
-                + (self.bootstrap.term_grace + self.bootstrap.kill_reap if failed_bootstrap else 4),
-            )
-            # Reserve half the remaining allowance for KILL/reap. Prior TERM
-            # attempts (including denial) never acquire another two seconds.
-            self.kill_at = min(
-                term_at + (self.bootstrap.term_grace if failed_bootstrap else 2),
-                owner.shutdown_deadline_monotonic
-                if failed_bootstrap
-                else self.shutdown_started
-                + max(0, owner.shutdown_deadline_monotonic - self.shutdown_started) / 2,
-            )
-            if self.bootstrap_shutdown is not None:
-                self.bootstrap_shutdown.update(
-                    term_deadline_monotonic=self.kill_at,
-                    kill_deadline_monotonic=owner.shutdown_deadline_monotonic,
-                )
+        # EOF is the orderly request. A failed close becomes failure shutdown
+        # within this same timeline, never a fresh grace after the error.
         if self.command is not None and self.command in self.channels:
             try:
                 os.close(self.command)
             except OSError as error:
                 self.failure = self.failure or f"worker command close failed: {error}"
             self.channels.remove(self.command)
+        old_end = owner.shutdown_deadline_monotonic if owner else float("inf")
+        retiring = owner is not None and (old_end != float("inf") or bool(owner.signals))
+        mode = (
+            "orderly"
+            if self.failure is None and not retiring and (owner is None or owner.ready)
+            else "failure"
+        )
+        if failed_bootstrap:
+            mode = "bootstrap"
+            grace, reap_budget = self.bootstrap.term_grace, self.bootstrap.kill_reap
+        elif mode == "orderly":
+            grace, reap_budget = self.close_bounds.grace, self.close_bounds.kill_reap
+        else:
+            grace = self.failure_bounds.term_grace
+            reap_budget = self.failure_bounds.kill_reap
+        phase_start = self.shutdown_started
+        term_sent = mode == "orderly"
+        kill_sent = False
+        prior_kill = None
         if owner is not None:
-            if self.failure:
-                term_at = min(term_at, self.shutdown_started)
-            while time.monotonic() < owner.shutdown_deadline_monotonic:
+            for attempt in owner.signals:
+                if attempt["signal"] == "SIGTERM":
+                    term_sent = True
+                    phase_start = min(phase_start, cast(float, attempt["monotonic"]))
+                elif attempt["signal"] == "SIGKILL":
+                    kill_sent = term_sent = True
+                    attempt_time = cast(float, attempt["monotonic"])
+                    prior_kill = (
+                        attempt_time if prior_kill is None else min(prior_kill, attempt_time)
+                    )
+        # Reserve the declared reap allowance inside any earlier finite cutoff.
+        # A prior attempted signal (including denial) never receives another grace.
+        kill_at = (
+            prior_kill
+            if prior_kill is not None
+            else min(
+                old_end, phase_start + grace, max(self.shutdown_started, old_end - reap_budget)
+            )
+        )
+        self.kill_at = kill_at
+        end = min(old_end, kill_at + reap_budget)
+        grace_finished = prior_kill
+        reap_started = prior_kill
+        if owner is not None:
+            owner.shutdown_deadline_monotonic = end
+            while time.monotonic() < end:
                 _reap(owner)
                 if owner.reaped or owner.reap_errno is not None:
                     break
                 now = time.monotonic()
-                if not term_sent and now >= term_at:
+                if not term_sent and now < end:
                     _signal(owner, signal.SIGTERM)
                     term_sent = True
-                if not kill_sent and now >= cast(float, self.kill_at):
+                if not kill_sent and kill_at <= now < end:
+                    attempts = len(owner.signals)
                     _signal(owner, signal.SIGKILL)
-                    kill_sent = True
-                time.sleep(min(0.001, max(0, owner.shutdown_deadline_monotonic - time.monotonic())))
+                    if len(owner.signals) > attempts:
+                        # _signal rechecks the cutoff immediately before the
+                        # syscall. A suppressed late call never entered this phase.
+                        reap_started = cast(float, owner.signals[-1]["monotonic"])
+                        grace_finished = reap_started
+                        kill_sent = True
+                time.sleep(min(0.001, max(0, end - time.monotonic())))
             _reap(owner)
             if not owner.reaped or owner.returncode != 0:
                 self.failure = self.failure or "worker close did not return cleanly"
@@ -477,23 +523,58 @@ class Worker:
                 self.failure = self.failure or f"worker channel close failed: {error}"
         self.channels.clear()
         self.shutdown_finished = time.monotonic()
-        if self.bootstrap_shutdown is not None:
-            end = cast(float, self.bootstrap_shutdown["kill_deadline_monotonic"])
-            overrun = self.shutdown_finished > end
-            self.bootstrap_shutdown.update(
-                finished_monotonic=self.shutdown_finished,
-                overrun=overrun,
-                lateness_seconds=max(0.0, self.shutdown_finished - end),
-                deadline_exhausted=self.shutdown_finished >= end,
-                outcome="not_created"
-                if owner is None
-                else "reaped"
-                if owner.reaped
-                else "residual_ownership",
-                signals=list(owner.signals) if owner is not None else [],
-            )
-            if overrun:
-                self.failure = f"{self.failure}; bootstrap shutdown overrun"
+        overrun = self.shutdown_finished > end
+        outcome = (
+            "not_created" if owner is None else "reaped" if owner.reaped else "residual_ownership"
+        )
+        grace_finished = self.shutdown_finished if grace_finished is None else grace_finished
+        phases = {}
+        for name, start, cutoff, finish, result in (
+            (
+                "grace",
+                None if prior_kill is not None else phase_start,
+                kill_at,
+                grace_finished,
+                "already_retiring"
+                if prior_kill is not None
+                else "escalated"
+                if reap_started is not None
+                else outcome,
+            ),
+            (
+                "kill_reap",
+                reap_started,
+                end,
+                self.shutdown_finished,
+                outcome if reap_started is not None else "not_entered",
+            ),
+        ):
+            phases[name] = {
+                "started_monotonic": start,
+                "deadline_monotonic": cutoff,
+                "finished_monotonic": finish,
+                "outcome": result,
+                "overrun": finish > cutoff,
+                "lateness_seconds": max(0.0, finish - cutoff),
+                "deadline_exhausted": finish >= cutoff,
+            }
+        self.shutdown = {
+            "mode": mode,
+            "started_monotonic": self.shutdown_started,
+            "term_deadline_monotonic": kill_at,
+            "kill_deadline_monotonic": end,
+            "finished_monotonic": self.shutdown_finished,
+            "overrun": overrun,
+            "lateness_seconds": max(0.0, self.shutdown_finished - end),
+            "deadline_exhausted": self.shutdown_finished >= end,
+            "outcome": outcome,
+            "signals": list(owner.signals) if owner is not None else [],
+            "phases": phases,
+        }
+        if failed_bootstrap:
+            self.bootstrap_shutdown = self.shutdown
+        if overrun:
+            self.failure = f"{self.failure}; {mode} shutdown overrun"
 
     def evidence(self) -> dict[str, object]:
         return {
@@ -503,6 +584,9 @@ class Worker:
             "failure": self.failure,
             "admission": self.admission,
             "bootstrap_bounds": asdict(self.bootstrap),
+            "failure_bounds": asdict(self.failure_bounds),
+            "close_bounds": asdict(self.close_bounds),
+            "shutdown": self.shutdown,
             "startup_started_monotonic": self.startup_started,
             "startup_deadline_monotonic": self.startup_deadline,
             "readiness_finished_monotonic": self.readiness_finished,

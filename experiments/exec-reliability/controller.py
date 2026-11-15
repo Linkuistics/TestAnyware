@@ -23,7 +23,14 @@ from pathlib import Path
 from typing import Literal, TypedDict, cast
 
 from inspection import fork_admission
-from worker_capture import BootstrapBounds, RequestScope, Worker, capture_helper
+from worker_capture import (
+    BootstrapBounds,
+    CloseBounds,
+    FailureBounds,
+    RequestScope,
+    Worker,
+    capture_helper,
+)
 
 
 @dataclass(frozen=True)
@@ -56,6 +63,8 @@ class Plan:
     term_grace: float = 2
     kill_wait: float = 2
     bootstrap: BootstrapBounds = BootstrapBounds()
+    failure_bounds: FailureBounds = FailureBounds()
+    close_bounds: CloseBounds = CloseBounds()
 
 
 def write_json(path: Path, value: object) -> None:
@@ -88,6 +97,12 @@ def _validate(plan: Plan) -> None:
     if not isinstance(cast(object, plan.bootstrap), BootstrapBounds):
         raise ValueError("invalid bootstrap bounds")
     plan.bootstrap.validate()
+    if not isinstance(cast(object, plan.failure_bounds), FailureBounds):
+        raise ValueError("invalid failure bounds")
+    if not isinstance(cast(object, plan.close_bounds), CloseBounds):
+        raise ValueError("invalid close bounds")
+    plan.failure_bounds.validate()
+    plan.close_bounds.validate()
     if sys.platform != "darwin":
         raise ValueError("this controller currently supports macOS hosts only")
     if not re.fullmatch(r"[0-9a-f]{32}", plan.run_id):
@@ -687,7 +702,12 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
     before = _hashes(subjects)
     write_json(root / "subjects-before.json", before)
     receipts: list[dict[str, object]] = []
-    worker = Worker(run_id=plan.run_id, bootstrap=plan.bootstrap)
+    worker = Worker(
+        run_id=plan.run_id,
+        bootstrap=plan.bootstrap,
+        failure_bounds=plan.failure_bounds,
+        close_bounds=plan.close_bounds,
+    )
     inspection_state = _InspectionState(worker=worker)
     ledger: list[dict[str, object]] = []
     attempted: list[Resource] = []

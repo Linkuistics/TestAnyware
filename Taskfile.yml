@@ -689,3 +689,35 @@ tasks:
       vars: [INPUTS, OUT, MODE]
     cmds:
       - uv run --locked python evidence/worker-close-k103/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
+
+  diagnostic:worker-phases-prepare:
+    desc: Freeze worker shutdown phase sources, optionally with MUTANT=<named regression>
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/worker-phases-k104/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:worker-phases-check:
+    desc: Retain frozen worker shutdown controls or full tests and static checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/worker-phases-k104/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
+
+  diagnostic:worker-phases-preserve:
+    desc: Inventory prior evidence before or after worker shutdown phase work
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/worker-phases-k104/preserve.py '{{.MODE}}'
+
+  diagnostic:worker-phases-tools:
+    desc: Check worker shutdown phase evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/worker-phases-k104/*.py
+      - uv run --locked python -m ruff check evidence/worker-phases-k104/*.py
+      - uv run --locked python -m pyright evidence/worker-phases-k104/*.py
