@@ -1,0 +1,576 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-turns-k114/renew-term-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py
+collecting ... collected 846 items / 826 deselected / 20 selected
+
+test_controller.py::test_termination_turn_deadlines_and_wakes[False-False] FAILED [  5%]
+test_controller.py::test_termination_turn_deadlines_and_wakes[False-True] FAILED [ 10%]
+test_controller.py::test_termination_turn_deadlines_and_wakes[True-False] FAILED [ 15%]
+test_controller.py::test_termination_turn_deadlines_and_wakes[True-True] PASSED [ 20%]
+test_controller.py::test_termination_turn_starved_first_turn[11.0-False] FAILED [ 25%]
+test_controller.py::test_termination_turn_starved_first_turn[11.0-True] FAILED [ 30%]
+test_controller.py::test_termination_turn_starved_first_turn[11.89-False] FAILED [ 35%]
+test_controller.py::test_termination_turn_starved_first_turn[11.89-True] FAILED [ 40%]
+test_controller.py::test_termination_turn_starved_first_turn[11.9-False] FAILED [ 45%]
+test_controller.py::test_termination_turn_starved_first_turn[11.9-True] FAILED [ 50%]
+test_controller.py::test_termination_turn_starved_first_turn[12.1-False] FAILED [ 55%]
+test_controller.py::test_termination_turn_starved_first_turn[12.1-True] FAILED [ 60%]
+test_controller.py::test_termination_turn_observer_overrun[0.5-False] PASSED [ 65%]
+test_controller.py::test_termination_turn_observer_overrun[0.5-True] PASSED [ 70%]
+test_controller.py::test_termination_turn_observer_overrun[1.2-False] PASSED [ 75%]
+test_controller.py::test_termination_turn_observer_overrun[1.2-True] PASSED [ 80%]
+test_controller.py::test_termination_turn_observer_overrun[1.9-False] PASSED [ 85%]
+test_controller.py::test_termination_turn_observer_overrun[1.9-True] PASSED [ 90%]
+test_controller.py::test_termination_turn_real_child[False] FAILED       [ 95%]
+test_controller.py::test_termination_turn_real_child[True] FAILED        [100%]
+
+=================================== FAILURES ===================================
+____________ test_termination_turn_deadlines_and_wakes[False-False] ____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10939fa40>
+pid_only = False, exited = False
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("exited", [False, True])
+    def test_termination_turn_deadlines_and_wakes(monkeypatch, pid_only, exited):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+    
+        def observe(pid):
+            observations.append(now[0])
+            return exited
+    
+        def forbidden(*args, **kwargs):
+            pytest.fail("termination turn slept or inspected")
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", forbidden)
+        monkeypatch.setattr(controller, "_exited", observe)
+        monkeypatch.setattr(controller, "_group_snapshot", forbidden)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+        receipt = {"name": "turn-control"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        assert signals == observations == []
+        wake = owner.advance()
+        assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+        assert observations == [10.0]
+        if pid_only and exited:
+            assert wake is None
+            assert owner.kill_deadline == 11.0
+        else:
+            assert wake == (11.0 if exited else 10.005)
+            # Another safety timer gets a turn while this owner waits for T.
+            now[0] = 10.999
+>           assert owner.advance() == 11.0
+E           assert 11.004000000000001 == 11.0
+E            +  where 11.004000000000001 = advance()
+E            +    where advance = <controller._Termination object at 0x109311970>.advance
+
+test_controller.py:2445: AssertionError
+____________ test_termination_turn_deadlines_and_wakes[False-True] _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10953b5c0>
+pid_only = True, exited = False
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("exited", [False, True])
+    def test_termination_turn_deadlines_and_wakes(monkeypatch, pid_only, exited):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+    
+        def observe(pid):
+            observations.append(now[0])
+            return exited
+    
+        def forbidden(*args, **kwargs):
+            pytest.fail("termination turn slept or inspected")
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", forbidden)
+        monkeypatch.setattr(controller, "_exited", observe)
+        monkeypatch.setattr(controller, "_group_snapshot", forbidden)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+        receipt = {"name": "turn-control"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        assert signals == observations == []
+        wake = owner.advance()
+        assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+        assert observations == [10.0]
+        if pid_only and exited:
+            assert wake is None
+            assert owner.kill_deadline == 11.0
+        else:
+            assert wake == (11.0 if exited else 10.005)
+            # Another safety timer gets a turn while this owner waits for T.
+            now[0] = 10.999
+>           assert owner.advance() == 11.0
+E           assert 11.004000000000001 == 11.0
+E            +  where 11.004000000000001 = advance()
+E            +    where advance = <controller._Termination object at 0x109539c70>.advance
+
+test_controller.py:2445: AssertionError
+____________ test_termination_turn_deadlines_and_wakes[True-False] _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10953bb00>
+pid_only = False, exited = True
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("exited", [False, True])
+    def test_termination_turn_deadlines_and_wakes(monkeypatch, pid_only, exited):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+    
+        def observe(pid):
+            observations.append(now[0])
+            return exited
+    
+        def forbidden(*args, **kwargs):
+            pytest.fail("termination turn slept or inspected")
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", forbidden)
+        monkeypatch.setattr(controller, "_exited", observe)
+        monkeypatch.setattr(controller, "_group_snapshot", forbidden)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+        receipt = {"name": "turn-control"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        assert signals == observations == []
+        wake = owner.advance()
+        assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+        assert observations == [10.0]
+        if pid_only and exited:
+            assert wake is None
+            assert owner.kill_deadline == 11.0
+        else:
+            assert wake == (11.0 if exited else 10.005)
+            # Another safety timer gets a turn while this owner waits for T.
+            now[0] = 10.999
+>           assert owner.advance() == 11.0
+E           assert 11.9 == 11.0
+E            +  where 11.9 = advance()
+E            +    where advance = <controller._Termination object at 0x10953acf0>.advance
+
+test_controller.py:2445: AssertionError
+_____________ test_termination_turn_starved_first_turn[11.0-False] _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10953bc80>
+pid_only = False, first_turn = 11.0
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("first_turn", [11.0, 11.89, 11.9, 12.1])
+    def test_termination_turn_starved_first_turn(monkeypatch, pid_only, first_turn):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda *_: pytest.fail("turn slept"))
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append((sig, now[0])))
+        receipt = {"name": "starved"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        now[0] = first_turn
+        wake = owner.advance()
+>       assert owner.term_deadline == 11.0
+E       assert 12.0 == 11.0
+E        +  where 12.0 = <controller._Termination object at 0x10953be60>.term_deadline
+
+test_controller.py:2481: AssertionError
+_____________ test_termination_turn_starved_first_turn[11.0-True] ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10939fd40>
+pid_only = True, first_turn = 11.0
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("first_turn", [11.0, 11.89, 11.9, 12.1])
+    def test_termination_turn_starved_first_turn(monkeypatch, pid_only, first_turn):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda *_: pytest.fail("turn slept"))
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append((sig, now[0])))
+        receipt = {"name": "starved"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        now[0] = first_turn
+        wake = owner.advance()
+>       assert owner.term_deadline == 11.0
+E       assert 12.0 == 11.0
+E        +  where 12.0 = <controller._Termination object at 0x10939f080>.term_deadline
+
+test_controller.py:2481: AssertionError
+____________ test_termination_turn_starved_first_turn[11.89-False] _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10953a450>
+pid_only = False, first_turn = 11.89
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("first_turn", [11.0, 11.89, 11.9, 12.1])
+    def test_termination_turn_starved_first_turn(monkeypatch, pid_only, first_turn):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda *_: pytest.fail("turn slept"))
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append((sig, now[0])))
+        receipt = {"name": "starved"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        now[0] = first_turn
+        wake = owner.advance()
+>       assert owner.term_deadline == 11.0
+E       assert 12.89 == 11.0
+E        +  where 12.89 = <controller._Termination object at 0x10953f170>.term_deadline
+
+test_controller.py:2481: AssertionError
+_____________ test_termination_turn_starved_first_turn[11.89-True] _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10953ff80>
+pid_only = True, first_turn = 11.89
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("first_turn", [11.0, 11.89, 11.9, 12.1])
+    def test_termination_turn_starved_first_turn(monkeypatch, pid_only, first_turn):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda *_: pytest.fail("turn slept"))
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append((sig, now[0])))
+        receipt = {"name": "starved"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        now[0] = first_turn
+        wake = owner.advance()
+>       assert owner.term_deadline == 11.0
+E       assert 12.89 == 11.0
+E        +  where 12.89 = <controller._Termination object at 0x10953fe30>.term_deadline
+
+test_controller.py:2481: AssertionError
+_____________ test_termination_turn_starved_first_turn[11.9-False] _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10953e780>
+pid_only = False, first_turn = 11.9
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("first_turn", [11.0, 11.89, 11.9, 12.1])
+    def test_termination_turn_starved_first_turn(monkeypatch, pid_only, first_turn):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda *_: pytest.fail("turn slept"))
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append((sig, now[0])))
+        receipt = {"name": "starved"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        now[0] = first_turn
+        wake = owner.advance()
+>       assert owner.term_deadline == 11.0
+E       assert 12.9 == 11.0
+E        +  where 12.9 = <controller._Termination object at 0x10953de80>.term_deadline
+
+test_controller.py:2481: AssertionError
+_____________ test_termination_turn_starved_first_turn[11.9-True] ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10953e510>
+pid_only = True, first_turn = 11.9
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("first_turn", [11.0, 11.89, 11.9, 12.1])
+    def test_termination_turn_starved_first_turn(monkeypatch, pid_only, first_turn):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda *_: pytest.fail("turn slept"))
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append((sig, now[0])))
+        receipt = {"name": "starved"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        now[0] = first_turn
+        wake = owner.advance()
+>       assert owner.term_deadline == 11.0
+E       assert 12.9 == 11.0
+E        +  where 12.9 = <controller._Termination object at 0x10953da30>.term_deadline
+
+test_controller.py:2481: AssertionError
+_____________ test_termination_turn_starved_first_turn[12.1-False] _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10953c710>
+pid_only = False, first_turn = 12.1
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("first_turn", [11.0, 11.89, 11.9, 12.1])
+    def test_termination_turn_starved_first_turn(monkeypatch, pid_only, first_turn):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda *_: pytest.fail("turn slept"))
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append((sig, now[0])))
+        receipt = {"name": "starved"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        now[0] = first_turn
+        wake = owner.advance()
+>       assert owner.term_deadline == 11.0
+E       assert 13.1 == 11.0
+E        +  where 13.1 = <controller._Termination object at 0x10953ef60>.term_deadline
+
+test_controller.py:2481: AssertionError
+_____________ test_termination_turn_starved_first_turn[12.1-True] ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10953dfa0>
+pid_only = True, first_turn = 12.1
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    @pytest.mark.parametrize("first_turn", [11.0, 11.89, 11.9, 12.1])
+    def test_termination_turn_starved_first_turn(monkeypatch, pid_only, first_turn):
+        import controller
+    
+        now = [10.0]
+        signals = []
+        observations = []
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+        monkeypatch.setattr(controller.time, "sleep", lambda *_: pytest.fail("turn slept"))
+        monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+        monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((sig, now[0])))
+        monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append((sig, now[0])))
+        receipt = {"name": "starved"}
+        owner = controller._Termination(
+            123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+        )
+        now[0] = first_turn
+        wake = owner.advance()
+>       assert owner.term_deadline == 11.0
+E       assert 13.1 == 11.0
+E        +  where 13.1 = <controller._Termination object at 0x10953d370>.term_deadline
+
+test_controller.py:2481: AssertionError
+___________________ test_termination_turn_real_child[False] ____________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-690/test_termination_turn_real_chi0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10964c800>
+pid_only = False
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    def test_termination_turn_real_child(tmp_path, monkeypatch, pid_only):
+        import controller
+    
+        ready = tmp_path / "ready"
+        code = (
+            "import pathlib,signal,time; "
+            "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+            f"pathlib.Path({str(ready)!r}).write_text('ready'); time.sleep(30)"
+        )
+        process = subprocess.Popen((sys.executable, "-c", code), start_new_session=True)
+        original_kill, original_killpg = os.kill, os.killpg
+        signals = []
+        turns = []
+        receipt = {"name": "turn-real"}
+        audit = {"pid": process.pid, "pid_only": pid_only}
+    
+        def send_pid(pid, sig):
+            signals.append((pid, "pid", int(sig), time.monotonic()))
+            original_kill(pid, sig)
+    
+        def send_group(pid, sig):
+            signals.append((pid, "group", int(sig), time.monotonic()))
+            original_killpg(pid, sig)
+    
+        try:
+            setup_deadline = time.monotonic() + 2
+            while not ready.exists() and time.monotonic() < setup_deadline:
+                time.sleep(0.001)
+            assert ready.exists()
+            monkeypatch.setattr(os, "kill", send_pid)
+            monkeypatch.setattr(os, "killpg", send_group)
+            owner = controller._Termination(
+                process.pid, pid_only, Plan("real", (), term_grace=0.08, kill_wait=0.4), receipt
+            )
+            while True:
+                wake = owner.advance()
+                turns.append({"returned": time.monotonic(), "wake": wake})
+                if wake is None:
+                    break
+                # The caller services another timer between termination turns.
+                time.sleep(max(0, min(wake, time.monotonic() + 0.002) - time.monotonic()))
+            assert len(turns) > 2
+            assert turns[1]["returned"] < owner.term_deadline
+>           assert [entry[2] for entry in signals] == [int(signal.SIGTERM), int(signal.SIGKILL)]
+E           assert [15] == [15, 9]
+E             
+E             Right contains one more item: 9
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E               [
+E                   15,
+E             -     9,
+E               ]
+
+test_controller.py:2581: AssertionError
+____________________ test_termination_turn_real_child[True] ____________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-690/test_termination_turn_real_chi1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10964fec0>
+pid_only = True
+
+    @pytest.mark.parametrize("pid_only", [False, True])
+    def test_termination_turn_real_child(tmp_path, monkeypatch, pid_only):
+        import controller
+    
+        ready = tmp_path / "ready"
+        code = (
+            "import pathlib,signal,time; "
+            "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+            f"pathlib.Path({str(ready)!r}).write_text('ready'); time.sleep(30)"
+        )
+        process = subprocess.Popen((sys.executable, "-c", code), start_new_session=True)
+        original_kill, original_killpg = os.kill, os.killpg
+        signals = []
+        turns = []
+        receipt = {"name": "turn-real"}
+        audit = {"pid": process.pid, "pid_only": pid_only}
+    
+        def send_pid(pid, sig):
+            signals.append((pid, "pid", int(sig), time.monotonic()))
+            original_kill(pid, sig)
+    
+        def send_group(pid, sig):
+            signals.append((pid, "group", int(sig), time.monotonic()))
+            original_killpg(pid, sig)
+    
+        try:
+            setup_deadline = time.monotonic() + 2
+            while not ready.exists() and time.monotonic() < setup_deadline:
+                time.sleep(0.001)
+            assert ready.exists()
+            monkeypatch.setattr(os, "kill", send_pid)
+            monkeypatch.setattr(os, "killpg", send_group)
+            owner = controller._Termination(
+                process.pid, pid_only, Plan("real", (), term_grace=0.08, kill_wait=0.4), receipt
+            )
+            while True:
+                wake = owner.advance()
+                turns.append({"returned": time.monotonic(), "wake": wake})
+                if wake is None:
+                    break
+                # The caller services another timer between termination turns.
+                time.sleep(max(0, min(wake, time.monotonic() + 0.002) - time.monotonic()))
+            assert len(turns) > 2
+            assert turns[1]["returned"] < owner.term_deadline
+>           assert [entry[2] for entry in signals] == [int(signal.SIGTERM), int(signal.SIGKILL)]
+E           assert [15] == [15, 9]
+E             
+E             Right contains one more item: 9
+E             
+E             Full diff: (-: missing in left side, +: extra in left side)
+E               [
+E                   15,
+E             -     9,
+E               ]
+
+test_controller.py:2581: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/termination-turns-k114/renew-term/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_termination_turn_deadlines_and_wakes[False-False] - assert 11.004000000000001 == 11.0
+ +  where 11.004000000000001 = advance()
+ +    where advance = <controller._Termination object at 0x109311970>.advance
+FAILED test_controller.py::test_termination_turn_deadlines_and_wakes[False-True] - assert 11.004000000000001 == 11.0
+ +  where 11.004000000000001 = advance()
+ +    where advance = <controller._Termination object at 0x109539c70>.advance
+FAILED test_controller.py::test_termination_turn_deadlines_and_wakes[True-False] - assert 11.9 == 11.0
+ +  where 11.9 = advance()
+ +    where advance = <controller._Termination object at 0x10953acf0>.advance
+FAILED test_controller.py::test_termination_turn_starved_first_turn[11.0-False] - assert 12.0 == 11.0
+ +  where 12.0 = <controller._Termination object at 0x10953be60>.term_deadline
+FAILED test_controller.py::test_termination_turn_starved_first_turn[11.0-True] - assert 12.0 == 11.0
+ +  where 12.0 = <controller._Termination object at 0x10939f080>.term_deadline
+FAILED test_controller.py::test_termination_turn_starved_first_turn[11.89-False] - assert 12.89 == 11.0
+ +  where 12.89 = <controller._Termination object at 0x10953f170>.term_deadline
+FAILED test_controller.py::test_termination_turn_starved_first_turn[11.89-True] - assert 12.89 == 11.0
+ +  where 12.89 = <controller._Termination object at 0x10953fe30>.term_deadline
+FAILED test_controller.py::test_termination_turn_starved_first_turn[11.9-False] - assert 12.9 == 11.0
+ +  where 12.9 = <controller._Termination object at 0x10953de80>.term_deadline
+FAILED test_controller.py::test_termination_turn_starved_first_turn[11.9-True] - assert 12.9 == 11.0
+ +  where 12.9 = <controller._Termination object at 0x10953da30>.term_deadline
+FAILED test_controller.py::test_termination_turn_starved_first_turn[12.1-False] - assert 13.1 == 11.0
+ +  where 13.1 = <controller._Termination object at 0x10953ef60>.term_deadline
+FAILED test_controller.py::test_termination_turn_starved_first_turn[12.1-True] - assert 13.1 == 11.0
+ +  where 13.1 = <controller._Termination object at 0x10953d370>.term_deadline
+FAILED test_controller.py::test_termination_turn_real_child[False] - assert [15] == [15, 9]
+  
+  Right contains one more item: 9
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+        15,
+  -     9,
+    ]
+FAILED test_controller.py::test_termination_turn_real_child[True] - assert [15] == [15, 9]
+  
+  Right contains one more item: 9
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+        15,
+  -     9,
+    ]
+================= 13 failed, 7 passed, 826 deselected in 1.55s =================

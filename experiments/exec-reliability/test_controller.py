@@ -1978,9 +1978,13 @@ def test_review_late_observation_cannot_extend_reap_deadline(tmp_path, monkeypat
         mutate_function(
             monkeypatch,
             controller,
-            "_terminate",
-            "term_deadline + plan.kill_wait",
-            "time.monotonic() + plan.kill_wait",
+            "_Termination",
+            "        self._observe_exit()\n",
+            "        self._observe_exit()\n"
+            "        self.kill_deadline = time.monotonic() + self.plan.kill_wait\n"
+            "        self.inspection_deadline = self.kill_deadline - "
+            "min(0.1, self.plan.kill_wait / 4)\n"
+            "        self._publish_deadlines()\n",
         )
     _, result = run(tmp_path, [call("late-observe", "hang", budget=0.2)])
     receipt = result["calls"][0]
@@ -2399,3 +2403,202 @@ def test_request_identity_controller_binds_run_workload_and_signal_epoch(tmp_pat
     audit = [inspect_pid(pid) for pid in [receipt["pid"], helper["pid"], identity["worker_pid"]]]
     (path / "request-identity-independent-audit.json").write_text(json.dumps(audit, indent=2))
     assert all(item["state"] == "absent" for item in audit)
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+@pytest.mark.parametrize("exited", [False, True])
+def test_termination_turn_deadlines_and_wakes(monkeypatch, pid_only, exited):
+    import controller
+
+    now = [10.0]
+    signals = []
+    observations = []
+
+    def observe(pid):
+        observations.append(now[0])
+        return exited
+
+    def forbidden(*args, **kwargs):
+        pytest.fail("termination turn slept or inspected")
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller.time, "sleep", forbidden)
+    monkeypatch.setattr(controller, "_exited", observe)
+    monkeypatch.setattr(controller, "_group_snapshot", forbidden)
+    monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append(("pid", sig, now[0])))
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append(("group", sig, now[0])))
+    receipt = {"name": "turn-control"}
+    owner = controller._Termination(
+        123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+    )
+    assert signals == observations == []
+    wake = owner.advance()
+    assert signals == [("pid" if pid_only else "group", signal.SIGTERM, 10.0)]
+    assert observations == [10.0]
+    if pid_only and exited:
+        assert wake is None
+        assert owner.kill_deadline == 11.0
+    else:
+        assert wake == (11.0 if exited else 10.005)
+        # Another safety timer gets a turn while this owner waits for T.
+        now[0] = 10.999
+        assert owner.advance() == 11.0
+        assert len(signals) == 1
+        now[0] = 11.0
+        wake = owner.advance()
+        assert signals[-1] == ("pid" if pid_only else "group", signal.SIGKILL, 11.0)
+        assert owner.kill_deadline == 12.0
+        assert wake == (None if exited else 11.005)
+        if not exited:
+            now[0] = 11.9
+            assert owner.advance() is None
+    before = (list(signals), list(observations))
+    now[0] = 50.0
+    assert owner.advance() is None
+    assert (signals, observations) == before
+    assert receipt["group_observations"] == []
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+@pytest.mark.parametrize("first_turn", [11.0, 11.89, 11.9, 12.1])
+def test_termination_turn_starved_first_turn(monkeypatch, pid_only, first_turn):
+    import controller
+
+    now = [10.0]
+    signals = []
+    observations = []
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller.time, "sleep", lambda *_: pytest.fail("turn slept"))
+    monkeypatch.setattr(controller, "_exited", lambda pid: observations.append(now[0]) or False)
+    monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((sig, now[0])))
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append((sig, now[0])))
+    receipt = {"name": "starved"}
+    owner = controller._Termination(
+        123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+    )
+    now[0] = first_turn
+    wake = owner.advance()
+    assert owner.term_deadline == 11.0
+    assert owner.kill_deadline == 12.0
+    assert owner.inspection_deadline == 11.9
+    assert [event["signal"] for event in receipt["signals"]] == ["TERM", "KILL"]
+    if first_turn < 11.9:
+        assert signals == [(signal.SIGTERM, first_turn), (signal.SIGKILL, first_turn)]
+        assert observations == [first_turn]
+        assert wake == min(first_turn + 0.005, 11.9)
+    else:
+        assert signals == observations == []
+        assert all(event["outcome"] == "deadline_exhausted" for event in receipt["signals"])
+        assert wake is None
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+@pytest.mark.parametrize("delay", [0.5, 1.2, 1.9])
+def test_termination_turn_observer_overrun(monkeypatch, pid_only, delay):
+    import controller
+
+    now = [10.0]
+    signals = []
+    observations = []
+
+    def observe(pid):
+        observations.append(now[0])
+        now[0] += delay
+        return True
+
+    monkeypatch.setattr(controller.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(controller.time, "sleep", lambda *_: pytest.fail("turn slept"))
+    monkeypatch.setattr(controller, "_exited", observe)
+    monkeypatch.setattr(os, "kill", lambda pid, sig: signals.append((sig, now[0])))
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: signals.append((sig, now[0])))
+    receipt = {"name": "overrun"}
+    owner = controller._Termination(
+        123, pid_only, Plan("control", (), term_grace=1, kill_wait=1), receipt
+    )
+    wake = owner.advance()
+    assert observations == [10.0]
+    assert owner.term_deadline == 11.0
+    assert owner.kill_deadline == (11.5 if pid_only and delay == 0.5 else 12.0)
+    assert ("leader_exit_monotonic" in receipt) is (delay < 1.9)
+    if delay == 1.9:
+        assert wake is None
+        assert receipt["exit_observation_error"] == "exit observation returned after cutoff"
+        assert signals == [(signal.SIGTERM, 10.0)]
+    elif pid_only:
+        assert wake is None
+        assert signals == [(signal.SIGTERM, 10.0)]
+    elif delay == 0.5:
+        assert wake == 11.0
+    else:
+        assert wake is None
+        assert signals[-1] == (signal.SIGKILL, 11.2)
+
+
+@pytest.mark.parametrize("pid_only", [False, True])
+def test_termination_turn_real_child(tmp_path, monkeypatch, pid_only):
+    import controller
+
+    ready = tmp_path / "ready"
+    code = (
+        "import pathlib,signal,time; "
+        "signal.signal(signal.SIGTERM,signal.SIG_IGN); "
+        f"pathlib.Path({str(ready)!r}).write_text('ready'); time.sleep(30)"
+    )
+    process = subprocess.Popen((sys.executable, "-c", code), start_new_session=True)
+    original_kill, original_killpg = os.kill, os.killpg
+    signals = []
+    turns = []
+    receipt = {"name": "turn-real"}
+    audit = {"pid": process.pid, "pid_only": pid_only}
+
+    def send_pid(pid, sig):
+        signals.append((pid, "pid", int(sig), time.monotonic()))
+        original_kill(pid, sig)
+
+    def send_group(pid, sig):
+        signals.append((pid, "group", int(sig), time.monotonic()))
+        original_killpg(pid, sig)
+
+    try:
+        setup_deadline = time.monotonic() + 2
+        while not ready.exists() and time.monotonic() < setup_deadline:
+            time.sleep(0.001)
+        assert ready.exists()
+        monkeypatch.setattr(os, "kill", send_pid)
+        monkeypatch.setattr(os, "killpg", send_group)
+        owner = controller._Termination(
+            process.pid, pid_only, Plan("real", (), term_grace=0.08, kill_wait=0.4), receipt
+        )
+        while True:
+            wake = owner.advance()
+            turns.append({"returned": time.monotonic(), "wake": wake})
+            if wake is None:
+                break
+            # The caller services another timer between termination turns.
+            time.sleep(max(0, min(wake, time.monotonic() + 0.002) - time.monotonic()))
+        assert len(turns) > 2
+        assert turns[1]["returned"] < owner.term_deadline
+        assert [entry[2] for entry in signals] == [int(signal.SIGTERM), int(signal.SIGKILL)]
+        assert all(entry[:2] == (process.pid, "pid" if pid_only else "group") for entry in signals)
+        assert signals[1][3] >= owner.term_deadline
+        assert signals[1][3] < owner.inspection_deadline
+        assert receipt["group_observations"] == []
+        assert "leader_exit_monotonic" in receipt
+        audit["pinned"] = inspect_pid(process.pid)
+    finally:
+        try:
+            original_kill(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=2)
+        audit.update(
+            receipt=receipt,
+            signals=signals,
+            turns=turns,
+            returncode=process.returncode,
+            after=inspect_pid(process.pid),
+        )
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        controller.write_json(root / f"termination-turn-{uuid.uuid4().hex}.json", audit)
+    assert audit["after"]["state"] == "absent"

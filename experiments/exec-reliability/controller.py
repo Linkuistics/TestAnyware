@@ -444,6 +444,109 @@ class _InspectionState:
         return observation
 
 
+class _Termination:
+    """Advance pinned workload signals and exit notification without waiting."""
+
+    def __init__(self, pid: int, pid_only: bool, plan: Plan, receipt: dict[str, object]) -> None:
+        self.pid = pid
+        self.pid_only = pid_only
+        self.plan = plan
+        self.receipt = receipt
+        self.events: list[dict[str, object]] = []
+        self.groups: list[GroupObservation] = []
+        receipt.update(signals=self.events, group_observations=self.groups)
+        self.observer_ok = True
+        self.leader_exit: float | None = None
+        self.term_sent = False
+        self.kill_sent = False
+        self.finished = False
+        # Freeze authority before publishing a receipt or touching the target.
+        started = time.monotonic()
+        self.term_deadline = started + plan.term_grace
+        self.kill_deadline = self.term_deadline + plan.kill_wait
+        self.inspection_deadline = self.kill_deadline - min(0.1, plan.kill_wait / 4)
+        receipt["term_deadline_monotonic"] = self.term_deadline
+        self._publish_deadlines()
+
+    def _publish_deadlines(self) -> None:
+        self.receipt["kill_reap_deadline_monotonic"] = self.kill_deadline
+        self.receipt["inspection_deadline_monotonic"] = self.inspection_deadline
+
+    def _observe_exit(self) -> None:
+        if self.leader_exit is not None:
+            return
+        if time.monotonic() >= self.inspection_deadline:
+            self.observer_ok = False
+            self.receipt["exit_observation_error"] = (
+                "exit observation cutoff exhausted before entry"
+            )
+            return
+        try:
+            exited = _exited(self.pid)
+            observed = time.monotonic()
+            if observed >= self.inspection_deadline:
+                self.observer_ok = False
+                self.receipt["exit_observation_error"] = "exit observation returned after cutoff"
+            elif exited:
+                self.leader_exit = observed
+                self.receipt["leader_exit_monotonic"] = observed
+        except OSError as error:
+            self.observer_ok = False
+            self.receipt["exit_observation_error"] = str(error)
+
+    def _send(self, sig: signal.Signals) -> None:
+        event: dict[str, object] = {
+            "signal": sig.name.removeprefix("SIG"),
+            "scope": "pid" if self.pid_only else "group",
+            "target": self.pid,
+            "outcome": "sent",
+        }
+        try:
+            admitted = time.monotonic()
+            event["monotonic"] = admitted
+            if admitted >= self.inspection_deadline:
+                event["outcome"] = "deadline_exhausted"
+            elif self.pid_only:
+                os.kill(self.pid, sig)
+            else:
+                os.killpg(self.pid, sig)
+        except OSError as error:
+            event.update(errno=error.errno, error=str(error), outcome="signal_error")
+            if not self.pid_only and error.errno == errno.EPERM:
+                event["outcome"] = "permission_unknown"
+        event["finished_monotonic"] = time.monotonic()
+        self.events.append(event)
+
+    def advance(self) -> float | None:
+        """Do at most one exit observation and return the next absolute wake."""
+        if self.finished:
+            return None
+        if not self.term_sent:
+            self.term_sent = True
+            self._send(signal.SIGTERM)
+        self._observe_exit()
+        if self.pid_only and self.leader_exit is not None:
+            self.kill_deadline = min(self.leader_exit, self.term_deadline) + self.plan.kill_wait
+            self.inspection_deadline = self.kill_deadline - min(0.1, self.plan.kill_wait / 4)
+            self._publish_deadlines()
+            self.finished = True
+            return None
+        now = time.monotonic()
+        if now >= self.term_deadline and not self.kill_sent:
+            # An exited leader never cancels the mandatory group KILL at T.
+            self.kill_sent = True
+            self._send(signal.SIGKILL)
+            now = time.monotonic()
+        if now >= self.inspection_deadline or (self.kill_sent and self.leader_exit is not None):
+            self.finished = True
+            return None
+        if self.kill_sent:
+            return min(now + 0.005, self.inspection_deadline)
+        if self.leader_exit is not None:
+            return min(self.term_deadline, self.inspection_deadline)
+        return min(now + 0.005, self.term_deadline, self.inspection_deadline)
+
+
 def _terminate(
     pid: int,
     pid_only: bool,
@@ -451,100 +554,21 @@ def _terminate(
     receipt: dict[str, object],
     inspection: _InspectionState,
 ) -> float:
-    """Finish all signals/observations before returning the one reap deadline."""
-    events: list[dict[str, object]] = []
-    groups: list[GroupObservation] = []
-    receipt.update(signals=events, group_observations=groups)
-    observer_ok = True
-    leader_exit: float | None = None
-
-    # Fix the outer bound before any target operation. A delayed observation
-    # may consume it, but cannot renew authority to signal this pinned leader.
-    started = time.monotonic()
-    term_deadline = started + plan.term_grace
-    kill_deadline = started + plan.term_grace + plan.kill_wait
-    inspection_deadline = kill_deadline - min(0.1, plan.kill_wait / 4)
-
-    def observe_exit(cutoff: float) -> bool:
-        nonlocal observer_ok, leader_exit
-        if leader_exit is not None:
-            return True
-        if time.monotonic() >= cutoff:
-            observer_ok = False
-            receipt["exit_observation_error"] = "exit observation cutoff exhausted before entry"
-            return False
-        try:
-            exited = _exited(pid)
-            observed = time.monotonic()
-            if observed >= cutoff:
-                observer_ok = False
-                receipt["exit_observation_error"] = "exit observation returned after cutoff"
-            elif exited:
-                leader_exit = observed
-                receipt["leader_exit_monotonic"] = leader_exit
-        except OSError as error:
-            observer_ok = False
-            receipt["exit_observation_error"] = str(error)
-        return leader_exit is not None
-
-    def send(sig: signal.Signals) -> None:
-        event: dict[str, object] = {
-            "signal": sig.name.removeprefix("SIG"),
-            "scope": "pid" if pid_only else "group",
-            "target": pid,
-            "outcome": "sent",
-        }
-        try:
-            admitted = time.monotonic()
-            event["monotonic"] = admitted
-            if admitted >= inspection_deadline:
-                event["outcome"] = "deadline_exhausted"
-            elif pid_only:
-                os.kill(pid, sig)
-            else:
-                os.killpg(pid, sig)
-        except OSError as error:
-            event.update(errno=error.errno, error=str(error), outcome="signal_error")
-            if not pid_only and error.errno == errno.EPERM:
-                # Classify a denied final KILL from the sole post-signal table.
-                # A later table cannot repair an earlier denied TERM.
-                event["outcome"] = "permission_unknown"
-        event["finished_monotonic"] = time.monotonic()
-        events.append(event)
-
-    receipt["term_deadline_monotonic"] = term_deadline
-    send(signal.SIGTERM)
-    complete = observe_exit(inspection_deadline)
-    while (not pid_only or not complete) and time.monotonic() < term_deadline:
-        time.sleep(min(0.005, max(0, term_deadline - time.monotonic())))
-        if time.monotonic() < term_deadline:
-            complete = observe_exit(inspection_deadline)
-    # This single deadline covers KILL, all following observations AND reaping.
-    kill_deadline = (
-        min(leader_exit if leader_exit is not None else term_deadline, term_deadline)
-        + plan.kill_wait
-        if pid_only
-        else term_deadline + plan.kill_wait
-    )
-    receipt["kill_reap_deadline_monotonic"] = kill_deadline
-    # Inspection shares this allowance with reaping; it cannot spend the tail.
-    inspection_deadline = kill_deadline - min(0.1, plan.kill_wait / 4)
-    receipt["inspection_deadline_monotonic"] = inspection_deadline
-    if not pid_only or not complete:
-        # A pinned, exited leader does not establish group absence. Attempt
-        # group KILL at T before any potentially blocking table inspection.
-        send(signal.SIGKILL)
-    # Exit notification is the only operation repeated here. A live, malformed
-    # or late final table is conclusive failure, never a reason to query again.
-    while leader_exit is None and time.monotonic() < inspection_deadline:
-        if observe_exit(inspection_deadline):
-            break
-        time.sleep(min(0.005, max(0, inspection_deadline - time.monotonic())))
+    """Compatibility driver; the shared scheduler can instead advance the owner."""
+    owner = _Termination(pid, pid_only, plan, receipt)
+    while (wake := owner.advance()) is not None:
+        delay = wake - time.monotonic()
+        if delay > 0:
+            time.sleep(delay)
     final = inspection.snapshot(
-        str(receipt["name"]), pid, inspection_deadline, leader_exit, signal_epoch=len(events)
+        str(receipt["name"]),
+        pid,
+        owner.inspection_deadline,
+        owner.leader_exit,
+        signal_epoch=len(owner.events),
     )
-    groups.append(final)
-    last_signal = events[-1]
+    owner.groups.append(final)
+    last_signal = owner.events[-1]
     if not pid_only and last_signal["signal"] == "KILL" and last_signal.get("errno") == errno.EPERM:
         last_signal["permission_observation"] = final
         last_signal["outcome"] = (
@@ -555,12 +579,12 @@ def _terminate(
             else "permission_unknown"
         )
     receipt["termination_ok"] = (
-        leader_exit is not None
-        and observer_ok
-        and all(event["outcome"] in {"sent", "zombie_only_eperm"} for event in events)
+        owner.leader_exit is not None
+        and owner.observer_ok
+        and all(event["outcome"] in {"sent", "zombie_only_eperm"} for event in owner.events)
         and final["state"] == "zombie_only"
     )
-    return kill_deadline
+    return owner.kill_deadline
 
 
 def _call(call: Call, root: Path, plan: Plan, inspection: _InspectionState) -> dict[str, object]:
