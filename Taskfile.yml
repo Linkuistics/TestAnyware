@@ -22,6 +22,44 @@ tasks:
       - uv run --locked python -m ruff check evidence/expired-request-controls-k137/*.py
       - uv run --locked python -m pyright evidence/expired-request-controls-k137/*.py
 
+  diagnostic:expired-review-prepare:
+    desc: Freeze expired request controls and named ownership regressions
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/expired-request-review-k142/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:expired-review-check:
+    desc: Retain bounded frozen expired request controls, suites and statics
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked {{if .PYTHON}}--isolated --python '{{.PYTHON}}'{{end}} python evidence/expired-request-review-k142/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
+
+  diagnostic:expired-review-preserve:
+    desc: Inventory prior evidence around expired request controls
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/expired-request-review-k142/preserve.py '{{.MODE}}'
+
+  diagnostic:expired-review-audit-controls:
+    desc: Check missing and invalid expired request audit journals
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m pytest -q evidence/expired-request-review-k142/test_audit.py
+
+  diagnostic:expired-review-verify:
+    desc: Verify retained expired request results and artifact digests; fresh OUT
+    dir: experiments/exec-reliability
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked python evidence/expired-request-review-k142/verify.py '{{.OUT}}'
+
   diagnostic:expired-request-prepare:
     desc: Freeze expired request controls and named ownership regressions
     dir: experiments/exec-reliability

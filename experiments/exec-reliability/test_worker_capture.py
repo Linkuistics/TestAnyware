@@ -2736,47 +2736,99 @@ def test_persistent_worker_rejects_invalid_completion(tmp_path, monkeypatch, fau
         os.waitpid(worker.owner.pid, os.WNOHANG)
 
 
-@pytest.mark.parametrize("schedule", ["exited", "stopped", "natural"])
+@pytest.mark.parametrize("schedule", ["exited", "stopped", "natural", "ownership-lost"])
 def test_persistent_worker_expired_request_is_sticky(tmp_path, monkeypatch, schedule):
     """An expired request gets one real reap check, then retains only actual ownership."""
     import worker_capture
 
-    if schedule == "exited" and not hasattr(os, "waitid"):
-        pytest.skip("non-consuming waitid exit preparation unavailable on this interpreter")
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+    root.mkdir(parents=True, exist_ok=True)
+    stamp = time.time_ns()
+    declared = root / f"persistent-expired-start-{schedule}-{stamp}.json"
+    declared.write_text(json.dumps({"schedule": schedule, "pid": None, "phase": "before-start"}))
     worker = worker_capture.Worker()
-    assert worker.start()
+    started = worker.start()
+    declared.write_text(
+        json.dumps(
+            {
+                "schedule": schedule,
+                "pid": worker.owner.pid if worker.owner else None,
+                "phase": "after-start",
+                "started": started,
+            }
+        )
+    )
+    assert started
     owner = worker.owner
     pid = owner.pid
     real_waitpid, real_kill = os.waitpid, os.kill
     calls = []
     before_audit = None
     audit = {}
+    exit_observations = []
+    fixture_reaped = False
 
     def waitpid(target, flags):
         entered = time.monotonic()
-        result = real_waitpid(target, flags)
-        calls.append({"pid": target, "flags": flags, "entered": entered, "result": result})
+        call = {"pid": target, "flags": flags, "entered": entered}
+        calls.append(call)
+        try:
+            result = real_waitpid(target, flags)
+        except OSError as error:
+            call["errno"] = error.errno
+            raise
+        call["result"] = result
         return result
 
     def forbidden(*args):
         raise AssertionError("expired request attempted fork or signal")
 
     try:
-        if schedule == "exited":
-            # Real command EOF and exit, observed without collecting the pinned child.
+        if schedule in {"exited", "ownership-lost"}:
+            # EOF lets the real worker exit. A zombie observation does not collect
+            # its status; this exact unreaped child still pins PID identity.
             os.close(worker.command)
             worker.channels.remove(worker.command)
             worker.command = None
             end = time.monotonic() + 1
-            # WNOWAIT leaves the exit status waitable for the runtime's first check.
-            # https://docs.python.org/3/library/os.html#os.WNOWAIT
             while time.monotonic() < end:
-                exited = os.waitid(os.P_PID, pid, os.WNOHANG | os.WEXITED | os.WNOWAIT)
-                if exited is not None and exited.si_pid == pid:
+                observed = subprocess.run(
+                    ["/bin/ps", "-p", str(pid), "-o", "pid=,stat="],
+                    capture_output=True,
+                    text=True,
+                    timeout=0.5,
+                )
+                exit_observations.append(
+                    {
+                        "monotonic": time.monotonic(),
+                        "returncode": observed.returncode,
+                        "stdout": observed.stdout,
+                        "stderr": observed.stderr,
+                    }
+                )
+                fields = observed.stdout.split()
+                if (
+                    observed.returncode == 0
+                    and not observed.stderr
+                    and len(fields) == 2
+                    and fields[0] == str(pid)
+                    and fields[1].startswith("Z")
+                ):
                     break
                 time.sleep(0.001)
             else:
-                pytest.fail("fixture did not enter real waitable exited state")
+                pytest.fail("fixture did not observe real zombie state without reaping")
+            if schedule == "ownership-lost":
+                # A separate fixture reaper consumes real status before the runtime
+                # check. Runtime must record ECHILD, not invent a successful reap.
+                waited, status = real_waitpid(pid, os.WNOHANG)
+                assert waited == pid
+                fixture_reaped = True
+                audit = {
+                    "waited": waited,
+                    "returncode": os.waitstatus_to_exitcode(status),
+                    "phase": "before-runtime",
+                }
         elif schedule == "stopped":
             real_kill(pid, signal.SIGSTOP)
             end = time.monotonic() + 1
@@ -2801,9 +2853,15 @@ def test_persistent_worker_expired_request_is_sticky(tmp_path, monkeypatch, sche
             assert len(calls) == 1
             assert calls[0]["pid"] == pid and calls[0]["flags"] == os.WNOHANG
             assert calls[0]["entered"] >= deadline
-            collected = calls[0]["result"][0] == pid
+            lost = schedule == "ownership-lost"
+            collected = not lost and calls[0]["result"][0] == pid
             assert owner.reaped is collected
             assert owner.reap_attempts == 1
+            assert owner.ownership_lost is lost
+            assert owner.reap_errno == (errno.ECHILD if lost else None)
+            assert (pid in worker_capture._owners) is (not collected and not lost)
+            if lost:
+                assert calls[0]["errno"] == errno.ECHILD
             if schedule != "natural":
                 assert collected is (schedule == "exited")
             assert bool(worker.evidence()["residual_remedy"]) is not collected
@@ -2827,7 +2885,7 @@ def test_persistent_worker_expired_request_is_sticky(tmp_path, monkeypatch, sche
         if schedule == "stopped" and not owner.reaped:
             real_kill(pid, signal.SIGCONT)
         worker.close()
-        if not owner.reaped:
+        if not owner.reaped and not fixture_reaped:
             end = time.monotonic() + 1
             while time.monotonic() < end:
                 waited, status = real_waitpid(pid, os.WNOHANG)
@@ -2838,12 +2896,18 @@ def test_persistent_worker_expired_request_is_sticky(tmp_path, monkeypatch, sche
                     worker_capture._owners.pop(pid, None)
                     break
                 time.sleep(0.001)
-        assert owner.reaped
-        with pytest.raises(ChildProcessError):
+        assert owner.reaped or fixture_reaped
+        with pytest.raises(ChildProcessError) as missing:
             real_waitpid(pid, os.WNOHANG)
-        path = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
-        path.mkdir(parents=True, exist_ok=True)
-        (path / f"persistent-expired-independent-{schedule}-{time.time_ns()}.json").write_text(
+        child_check = {
+            "operation": "waitpid",
+            "pid": pid,
+            "flags": os.WNOHANG,
+            "errno": missing.value.errno,
+            "monotonic": time.monotonic(),
+            "scope": "no waitable child of this test process; not global PID absence",
+        }
+        (root / f"persistent-expired-independent-{schedule}-{stamp}.json").write_text(
             json.dumps(
                 {
                     "schedule": schedule,
@@ -2851,7 +2915,9 @@ def test_persistent_worker_expired_request_is_sticky(tmp_path, monkeypatch, sche
                     "runtime_waits": calls,
                     "independent_reap": audit,
                     "after_audit": worker.evidence(),
-                    "exact_child_absent": True,
+                    "child_check": child_check,
+                    "exit_observations": exit_observations,
+                    "declaration": declared.name,
                 },
                 indent=2,
             )
