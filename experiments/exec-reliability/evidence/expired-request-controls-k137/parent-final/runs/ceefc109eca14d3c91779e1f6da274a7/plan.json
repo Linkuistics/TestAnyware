@@ -1,0 +1,41 @@
+{
+  "run_id": "ceefc109eca14d3c91779e1f6da274a7",
+  "calls": [
+    {
+      "name": "self-signal",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+        "-c",
+        "\nimport json, os, runpy, signal, sys\nfrom pathlib import Path\noriginal = os.kill\ndef misdirect(pid, sig):\n    if sig == signal.SIGTERM:\n        Path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/expired-request-controls-k137/parent-final/runs/self-signal-85a96c48cb34498c8f89dc4d37dd0959.json').write_text(json.dumps({\"pid\": pid}))\n        original(pid, signal.SIGKILL)\n        original(os.getpid(), sig)\n    else:\n        original(pid, sig)\nos.kill = misdirect\nsys.argv = ['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/expired-request-controls-k137/parent-inputs/peer.py', 'controller', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/expired-request-controls-k137/parent-final/runs']\nrunpy.run_path('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/expired-request-controls-k137/parent-inputs/peer.py', run_name='__main__')\n"
+      ],
+      "budget": 3,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    }
+  ],
+  "resources": [],
+  "subjects": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/expired-request-controls-k137/parent-inputs/peer.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/expired-request-controls-k137/parent-inputs/test_controller.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/expired-request-controls-k137/parent-inputs/pyproject.toml",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/expired-request-controls-k137/parent-inputs/uv.lock",
+    "/bin/sleep"
+  ],
+  "term_grace": 0.15,
+  "kill_wait": 0.3,
+  "bootstrap": {
+    "readiness": 1,
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "failure_bounds": {
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "close_bounds": {
+    "grace": 0.05,
+    "kill_reap": 2
+  }
+}

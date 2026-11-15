@@ -10,6 +10,42 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  diagnostic:expired-request-verify:
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/expired-request-controls-k137/verify.py '{{.OUT | default "comparison.json"}}'
+  diagnostic:expired-request-tools:
+    desc: Format and check expired request evidence tools
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format evidence/expired-request-controls-k137/*.py
+      - uv run --locked python -m ruff check evidence/expired-request-controls-k137/*.py
+      - uv run --locked python -m pyright evidence/expired-request-controls-k137/*.py
+
+  diagnostic:expired-request-prepare:
+    desc: Freeze expired request controls and named ownership regressions
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/expired-request-controls-k137/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:expired-request-check:
+    desc: Retain bounded frozen expired request controls, suites and statics
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked {{if .PYTHON}}--isolated --python '{{.PYTHON}}'{{end}} python evidence/expired-request-controls-k137/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
+
+  diagnostic:expired-request-preserve:
+    desc: Inventory prior evidence around expired request controls
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/expired-request-controls-k137/preserve.py '{{.MODE}}'
+
   diagnostic:startup-frames-probe:
     desc: Retain the interpreter decoder depth probe
     dir: experiments/exec-reliability

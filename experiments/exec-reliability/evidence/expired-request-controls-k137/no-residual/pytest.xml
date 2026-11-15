@@ -1,0 +1,157 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="3" time="2.173" timestamp="2026-11-15T22:02:15.394192+11:00" hostname="byrd.local"><testcase classname="test_worker_capture" name="test_persistent_worker_expired_request_is_sticky[exited]" time="0.154" /><testcase classname="test_worker_capture" name="test_persistent_worker_expired_request_is_sticky[stopped]" time="0.073"><failure message="assert False is not False&#10; +  where False = bool(None)">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-985/test_persistent_worker_expired1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x106fba8d0&gt;
+schedule = 'stopped'
+
+    @pytest.mark.parametrize("schedule", ["exited", "stopped", "natural"])
+    def test_persistent_worker_expired_request_is_sticky(tmp_path, monkeypatch, schedule):
+        """An expired request gets one real reap check, then retains only actual ownership."""
+        import worker_capture
+    
+        if schedule == "exited" and not hasattr(os, "waitid"):
+            pytest.skip("non-consuming waitid exit preparation unavailable on this interpreter")
+        worker = worker_capture.Worker()
+        assert worker.start()
+        owner = worker.owner
+        pid = owner.pid
+        real_waitpid, real_kill = os.waitpid, os.kill
+        calls = []
+        before_audit = None
+        audit = {}
+    
+        def waitpid(target, flags):
+            entered = time.monotonic()
+            result = real_waitpid(target, flags)
+            calls.append({"pid": target, "flags": flags, "entered": entered, "result": result})
+            return result
+    
+        def forbidden(*args):
+            raise AssertionError("expired request attempted fork or signal")
+    
+        try:
+            if schedule == "exited":
+                # Real command EOF and exit, observed without collecting the pinned child.
+                os.close(worker.command)
+                worker.channels.remove(worker.command)
+                worker.command = None
+                end = time.monotonic() + 1
+                # WNOWAIT leaves the exit status waitable for the runtime's first check.
+                # https://docs.python.org/3/library/os.html#os.WNOWAIT
+                while time.monotonic() &lt; end:
+                    exited = os.waitid(os.P_PID, pid, os.WNOHANG | os.WEXITED | os.WNOWAIT)
+                    if exited is not None and exited.si_pid == pid:
+                        break
+                    time.sleep(0.001)
+                else:
+                    pytest.fail("fixture did not enter real waitable exited state")
+            elif schedule == "stopped":
+                real_kill(pid, signal.SIGSTOP)
+                end = time.monotonic() + 1
+                while time.monotonic() &lt; end:
+                    waited, status = real_waitpid(pid, os.WNOHANG | os.WUNTRACED)
+                    if waited == pid and os.WIFSTOPPED(status):
+                        break
+                    time.sleep(0.001)
+                else:
+                    pytest.fail("fixture did not enter real stopped state")
+    
+            deadline = time.monotonic() - 0.01
+            with monkeypatch.context() as runtime:
+                runtime.setattr(os, "waitpid", waitpid)
+                runtime.setattr(os, "fork", forbidden)
+                runtime.setattr(os, "kill", forbidden)
+                runtime.setattr(os, "killpg", forbidden)
+                receipt = worker_capture.capture_helper(("/usr/bin/true",), deadline, worker=worker)
+                before_audit = worker.evidence()
+                retain(tmp_path, f"persistent-expired-request-{schedule}", receipt)
+                assert receipt.error and worker.failure and worker.closed
+                assert len(calls) == 1
+                assert calls[0]["pid"] == pid and calls[0]["flags"] == os.WNOHANG
+                assert calls[0]["entered"] &gt;= deadline
+                collected = calls[0]["result"][0] == pid
+                assert owner.reaped is collected
+                assert owner.reap_attempts == 1
+                if schedule != "natural":
+                    assert collected is (schedule == "exited")
+&gt;               assert bool(worker.evidence()["residual_remedy"]) is not collected
+E               assert False is not False
+E                +  where False = bool(None)
+
+test_worker_capture.py:2809: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_persistent_worker_expired_request_is_sticky[natural]" time="0.089"><failure message="assert False is not False&#10; +  where False = bool(None)">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-985/test_persistent_worker_expired2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x106f778a0&gt;
+schedule = 'natural'
+
+    @pytest.mark.parametrize("schedule", ["exited", "stopped", "natural"])
+    def test_persistent_worker_expired_request_is_sticky(tmp_path, monkeypatch, schedule):
+        """An expired request gets one real reap check, then retains only actual ownership."""
+        import worker_capture
+    
+        if schedule == "exited" and not hasattr(os, "waitid"):
+            pytest.skip("non-consuming waitid exit preparation unavailable on this interpreter")
+        worker = worker_capture.Worker()
+        assert worker.start()
+        owner = worker.owner
+        pid = owner.pid
+        real_waitpid, real_kill = os.waitpid, os.kill
+        calls = []
+        before_audit = None
+        audit = {}
+    
+        def waitpid(target, flags):
+            entered = time.monotonic()
+            result = real_waitpid(target, flags)
+            calls.append({"pid": target, "flags": flags, "entered": entered, "result": result})
+            return result
+    
+        def forbidden(*args):
+            raise AssertionError("expired request attempted fork or signal")
+    
+        try:
+            if schedule == "exited":
+                # Real command EOF and exit, observed without collecting the pinned child.
+                os.close(worker.command)
+                worker.channels.remove(worker.command)
+                worker.command = None
+                end = time.monotonic() + 1
+                # WNOWAIT leaves the exit status waitable for the runtime's first check.
+                # https://docs.python.org/3/library/os.html#os.WNOWAIT
+                while time.monotonic() &lt; end:
+                    exited = os.waitid(os.P_PID, pid, os.WNOHANG | os.WEXITED | os.WNOWAIT)
+                    if exited is not None and exited.si_pid == pid:
+                        break
+                    time.sleep(0.001)
+                else:
+                    pytest.fail("fixture did not enter real waitable exited state")
+            elif schedule == "stopped":
+                real_kill(pid, signal.SIGSTOP)
+                end = time.monotonic() + 1
+                while time.monotonic() &lt; end:
+                    waited, status = real_waitpid(pid, os.WNOHANG | os.WUNTRACED)
+                    if waited == pid and os.WIFSTOPPED(status):
+                        break
+                    time.sleep(0.001)
+                else:
+                    pytest.fail("fixture did not enter real stopped state")
+    
+            deadline = time.monotonic() - 0.01
+            with monkeypatch.context() as runtime:
+                runtime.setattr(os, "waitpid", waitpid)
+                runtime.setattr(os, "fork", forbidden)
+                runtime.setattr(os, "kill", forbidden)
+                runtime.setattr(os, "killpg", forbidden)
+                receipt = worker_capture.capture_helper(("/usr/bin/true",), deadline, worker=worker)
+                before_audit = worker.evidence()
+                retain(tmp_path, f"persistent-expired-request-{schedule}", receipt)
+                assert receipt.error and worker.failure and worker.closed
+                assert len(calls) == 1
+                assert calls[0]["pid"] == pid and calls[0]["flags"] == os.WNOHANG
+                assert calls[0]["entered"] &gt;= deadline
+                collected = calls[0]["result"][0] == pid
+                assert owner.reaped is collected
+                assert owner.reap_attempts == 1
+                if schedule != "natural":
+                    assert collected is (schedule == "exited")
+&gt;               assert bool(worker.evidence()["residual_remedy"]) is not collected
+E               assert False is not False
+E                +  where False = bool(None)
+
+test_worker_capture.py:2809: AssertionError</failure></testcase></testsuite></testsuites>
