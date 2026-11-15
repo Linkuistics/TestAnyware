@@ -1066,3 +1066,41 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python evidence/leader-turns-k119/audit.py
+
+  diagnostic:workload-turns-prepare:
+    desc: Freeze workload wait turn inputs, optionally with MUTANT
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/workload-turns-k122/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:workload-turns-check:
+    desc: Retain bounded frozen workload wait turn controls or full diagnostic checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/workload-turns-k122/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
+
+  diagnostic:workload-turns-preserve:
+    desc: Inventory prior evidence around workload wait turn integration
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/workload-turns-k122/preserve.py '{{.MODE}}'
+
+  diagnostic:workload-turns-tools:
+    desc: Format and check workload wait turn evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/workload-turns-k122/*.py
+      - uv run --locked python -m ruff check evidence/workload-turns-k122/*.py
+      - uv run --locked python -m pyright evidence/workload-turns-k122/*.py
+
+  diagnostic:workload-turns-audit:
+    desc: Audit workload wait turn verdicts, mutations and fixture cleanup
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/workload-turns-k122/audit.py

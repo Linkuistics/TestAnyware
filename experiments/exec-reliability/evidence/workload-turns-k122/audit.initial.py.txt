@@ -1,0 +1,65 @@
+"""Audit frozen workload wait conditions and exact-child cleanup."""
+
+import hashlib
+import json
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+
+def digest(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def main() -> None:
+    here = Path(__file__).resolve().parent
+    repo = here.parents[3]
+    plan = json.loads((here / "comparison-plan.json").read_text())
+    summary: dict[str, object] = {}
+    for name in plan["conditions"]:
+        condition = here / name
+        verdict = json.loads((condition / "verdict.json").read_text())
+        success = name in {"green-controls", "full"}
+        assert verdict["ok"] is success, name
+        assert verdict["subjects_before"] == verdict["subjects_after"], name
+        for path, expected in verdict["subjects_before"].items():
+            subject = Path(path) if Path(path).is_absolute() else repo / path
+            assert digest(subject) == expected, (name, path)
+        for path, expected in verdict["artifact_sha256"].items():
+            assert digest(repo / path) == expected, (name, path)
+        checks = verdict["checks"]
+        assert all(
+            item["reaped"] and item["fixtures_ok"] and not item["timed_out"] for item in checks
+        )
+        assert checks[0]["returncode"] == (0 if success else 1), name
+        assert all(item["returncode"] == 0 for item in checks[1:]), name
+        tests = ET.parse(condition / "pytest.xml").findall(".//testcase")
+        failed = [test.attrib["name"] for test in tests if test.find("failure") is not None]
+        assert bool(failed) is (not success), (name, failed)
+        assert all(test.find("error") is None and test.find("skipped") is None for test in tests)
+        assert all("test_workload_wait_turn" in case for case in failed), failed
+        if name == "red":
+            assert len(failed) == 6
+        children = sorted((condition / "runs").glob("workload-turn-*.json"))
+        assert len(children) == 6, (name, len(children))
+        for child in children:
+            assert json.loads(child.read_text())["after"]["state"] == "absent", child
+        summary[name] = {"cases": len(tests), "failed": failed, "children": len(children)}
+    final = here / "inputs-final"
+    runtime = here.parents[1]
+    for source in [
+        *runtime.glob("*.py"),
+        runtime / "pyproject.toml",
+        runtime / "uv.lock",
+        repo / "Taskfile.yml",
+    ]:
+        assert digest(source) == digest(final / source.name), source
+    preservation = json.loads((here / "prior-after.json").read_text())
+    assert preservation["ok"] is True
+    summary["preserved_paths"] = preservation["count"]
+    with (here / "condition-audit.json").open("x") as stream:
+        json.dump(summary, stream, indent=2)
+    print(json.dumps(summary))
+
+
+if __name__ == "__main__":
+    main()

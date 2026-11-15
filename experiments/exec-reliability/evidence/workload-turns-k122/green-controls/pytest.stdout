@@ -1,0 +1,80 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/workload-turns-k122/inputs-final
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py
+collecting ... collected 866 items / 848 deselected / 18 selected
+
+test_controller.py::test_workload_wait_turn_is_bounded_and_terminal[pending] PASSED [  5%]
+test_controller.py::test_workload_wait_turn_is_bounded_and_terminal[ready] PASSED [ 11%]
+test_controller.py::test_workload_wait_turn_is_bounded_and_terminal[expired] PASSED [ 16%]
+test_controller.py::test_workload_wait_turn_is_bounded_and_terminal[late-false] PASSED [ 22%]
+test_controller.py::test_workload_wait_turn_is_bounded_and_terminal[late-true] PASSED [ 27%]
+test_controller.py::test_workload_wait_turn_is_bounded_and_terminal[error] PASSED [ 33%]
+test_controller.py::test_workload_wait_no_observation_at_deadline[1.0] PASSED [ 38%]
+test_controller.py::test_workload_wait_no_observation_at_deadline[1.001] PASSED [ 44%]
+test_controller.py::test_workload_wait_rejects_late_result[1.0-False] PASSED [ 50%]
+test_controller.py::test_workload_wait_rejects_late_result[1.0-True] PASSED [ 55%]
+test_controller.py::test_workload_wait_rejects_late_result[1.001-False] PASSED [ 61%]
+test_controller.py::test_workload_wait_rejects_late_result[1.001-True] PASSED [ 66%]
+test_controller.py::test_workload_wait_no_observation_after_sleep_overrun[1.0] PASSED [ 72%]
+test_controller.py::test_workload_wait_no_observation_after_sleep_overrun[1.001] PASSED [ 77%]
+test_controller.py::test_workload_wait_accepts_timely_result[0] PASSED   [ 83%]
+test_controller.py::test_workload_wait_accepts_timely_result[1] FAILED   [ 88%]
+test_controller.py::test_workload_wait_late_real_exit_still_terminates_and_disposes[False] PASSED [ 94%]
+test_controller.py::test_workload_wait_late_real_exit_still_terminates_and_disposes[True] PASSED [100%]
+
+=================================== FAILURES ===================================
+_________________ test_workload_wait_accepts_timely_result[1] __________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1091b1e50>, polls = 1
+
+    @pytest.mark.parametrize("polls", [0, 1])
+    def test_workload_wait_accepts_timely_result(monkeypatch, polls):
+        import controller
+    
+        now = 0.98
+        entries = []
+        sleeps = []
+    
+        def observation(pid):
+            nonlocal now
+            entries.append([pid, now])
+            now += 0.001
+            return len(entries) > polls
+    
+        def sleep(seconds):
+            nonlocal now
+            sleeps.append(seconds)
+            now += seconds
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now)
+        monkeypatch.setattr(controller.time, "sleep", sleep)
+        monkeypatch.setattr(controller, "_exited", observation)
+        assert controller._wait(123, 1.0) is True
+        assert len(entries) == polls + 1
+>       assert sleeps == [0.005] * polls
+E       assert [0.0050000000000000044] == [0.005]
+E         
+E         At index 0 diff: 0.0050000000000000044 != 0.005
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         -     0.005,
+E         +     0.0050000000000000044,
+E           ]
+
+test_controller.py:919: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/workload-turns-k122/green-controls/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_workload_wait_accepts_timely_result[1] - assert [0.0050000000000000044] == [0.005]
+  
+  At index 0 diff: 0.0050000000000000044 != 0.005
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+  -     0.005,
+  +     0.0050000000000000044,
+    ]
+================= 1 failed, 17 passed, 848 deselected in 3.32s =================

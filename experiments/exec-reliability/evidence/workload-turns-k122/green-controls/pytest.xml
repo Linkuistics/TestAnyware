@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="18" time="1.400" timestamp="2026-11-15T16:41:43.601756+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[pending]" time="0.009" /><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[ready]" time="0.016" /><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[expired]" time="0.007" /><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[late-false]" time="0.006" /><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[late-true]" time="0.016" /><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[error]" time="0.006" /><testcase classname="test_controller" name="test_workload_wait_no_observation_at_deadline[1.0]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_no_observation_at_deadline[1.001]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_rejects_late_result[1.0-False]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_rejects_late_result[1.0-True]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_rejects_late_result[1.001-False]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_rejects_late_result[1.001-True]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_no_observation_after_sleep_overrun[1.0]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_no_observation_after_sleep_overrun[1.001]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_accepts_timely_result[0]" time="0.000" /><testcase classname="test_controller" name="test_workload_wait_accepts_timely_result[1]" time="0.000"><failure message="assert [0.0050000000000000044] == [0.005]&#10;  &#10;  At index 0 diff: 0.0050000000000000044 != 0.005&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;    [&#10;  -     0.005,&#10;  +     0.0050000000000000044,&#10;    ]">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1091b1e50&gt;, polls = 1
+
+    @pytest.mark.parametrize("polls", [0, 1])
+    def test_workload_wait_accepts_timely_result(monkeypatch, polls):
+        import controller
+    
+        now = 0.98
+        entries = []
+        sleeps = []
+    
+        def observation(pid):
+            nonlocal now
+            entries.append([pid, now])
+            now += 0.001
+            return len(entries) &gt; polls
+    
+        def sleep(seconds):
+            nonlocal now
+            sleeps.append(seconds)
+            now += seconds
+    
+        monkeypatch.setattr(controller.time, "monotonic", lambda: now)
+        monkeypatch.setattr(controller.time, "sleep", sleep)
+        monkeypatch.setattr(controller, "_exited", observation)
+        assert controller._wait(123, 1.0) is True
+        assert len(entries) == polls + 1
+&gt;       assert sleeps == [0.005] * polls
+E       assert [0.0050000000000000044] == [0.005]
+E         
+E         At index 0 diff: 0.0050000000000000044 != 0.005
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         -     0.005,
+E         +     0.0050000000000000044,
+E           ]
+
+test_controller.py:919: AssertionError</failure></testcase><testcase classname="test_controller" name="test_workload_wait_late_real_exit_still_terminates_and_disposes[False]" time="0.579" /><testcase classname="test_controller" name="test_workload_wait_late_real_exit_still_terminates_and_disposes[True]" time="0.372" /></testsuite></testsuites>

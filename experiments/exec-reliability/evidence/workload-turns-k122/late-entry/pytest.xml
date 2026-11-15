@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="6" time="0.838" timestamp="2026-11-15T16:42:59.892299+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[pending]" time="0.016"><failure message="assert 3 == 2&#10; +  where 3 = len([[47516, 100.0], [47516, 100.999], [47516, 101.0]])">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-788/test_workload_wait_turn_is_bou0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x108a67800&gt;
+outcome = 'pending'
+
+    @pytest.mark.parametrize(
+        "outcome", ["pending", "ready", "expired", "late-false", "late-true", "error"]
+    )
+    def test_workload_wait_turn_is_bounded_and_terminal(tmp_path, monkeypatch, outcome):
+        import controller
+    
+        original_exited = controller._exited
+        ready = outcome in {"ready", "late-true"}
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "pass" if ready else "import time; time.sleep(30)",
+                uuid.uuid4().hex,
+            ],
+            start_new_session=True,
+        )
+        clock = [100.0]
+        observations = []
+        audit = {"outcome": outcome, "pid": process.pid, "observations": observations}
+    
+        def observe(pid):
+            observations.append([pid, clock[0]])
+            actual = original_exited(pid)
+            assert actual is ready
+            if outcome.startswith("late-"):
+                clock[0] = 101.0
+            if outcome == "error":
+                raise OSError(errno.EIO, "injected observation failure")
+            return actual
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("wait turn must not sleep, reap, signal or probe")
+    
+        try:
+            if ready:
+                deadline = time.monotonic() + 2
+                while not original_exited(process.pid):
+                    assert time.monotonic() &lt; deadline
+                    time.sleep(0.001)
+            with monkeypatch.context() as patch:
+                patch.setattr(controller.time, "monotonic", lambda: clock[0])
+                patch.setattr(controller.time, "sleep", forbidden)
+                patch.setattr(controller.os, "waitpid", forbidden)
+                patch.setattr(controller.os, "kill", forbidden)
+                patch.setattr(controller.os, "killpg", forbidden)
+                patch.setattr(controller, "_exited", observe)
+                owner = controller._WorkloadWait(process.pid, 101.0)
+                if outcome == "expired":
+                    clock[0] = 101.0
+                elif outcome.startswith("late-"):
+                    clock[0] = 100.999
+                if outcome == "error":
+                    with pytest.raises(OSError, match="injected observation failure"):
+                        owner.advance()
+                else:
+                    wake = owner.advance()
+                    if outcome == "pending":
+                        assert wake == 100.005
+                        assert observations == [[process.pid, 100.0]]
+                        assert not owner.finished
+                        assert not owner.exited
+                        clock[0] = 100.999
+                        assert owner.advance() == 101.0
+                        assert observations == [[process.pid, 100.0], [process.pid, 100.999]]
+                        clock[0] = 101.0
+                        assert owner.advance() is None
+                    else:
+                        assert wake is None
+                assert owner.finished
+                assert owner.exited is (outcome == "ready")
+&gt;               assert len(observations) == (
+                    2 if outcome == "pending" else 0 if outcome == "expired" else 1
+                )
+E               assert 3 == 2
+E                +  where 3 = len([[47516, 100.0], [47516, 100.999], [47516, 101.0]])
+
+test_controller.py:814: AssertionError</failure></testcase><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[ready]" time="0.032" /><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[expired]" time="0.011"><failure message="assert 1 == 0&#10; +  where 1 = len([[47520, 101.0]])">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-788/test_workload_wait_turn_is_bou2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x108bfe7b0&gt;
+outcome = 'expired'
+
+    @pytest.mark.parametrize(
+        "outcome", ["pending", "ready", "expired", "late-false", "late-true", "error"]
+    )
+    def test_workload_wait_turn_is_bounded_and_terminal(tmp_path, monkeypatch, outcome):
+        import controller
+    
+        original_exited = controller._exited
+        ready = outcome in {"ready", "late-true"}
+        process = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "pass" if ready else "import time; time.sleep(30)",
+                uuid.uuid4().hex,
+            ],
+            start_new_session=True,
+        )
+        clock = [100.0]
+        observations = []
+        audit = {"outcome": outcome, "pid": process.pid, "observations": observations}
+    
+        def observe(pid):
+            observations.append([pid, clock[0]])
+            actual = original_exited(pid)
+            assert actual is ready
+            if outcome.startswith("late-"):
+                clock[0] = 101.0
+            if outcome == "error":
+                raise OSError(errno.EIO, "injected observation failure")
+            return actual
+    
+        def forbidden(*args, **kwargs):
+            raise AssertionError("wait turn must not sleep, reap, signal or probe")
+    
+        try:
+            if ready:
+                deadline = time.monotonic() + 2
+                while not original_exited(process.pid):
+                    assert time.monotonic() &lt; deadline
+                    time.sleep(0.001)
+            with monkeypatch.context() as patch:
+                patch.setattr(controller.time, "monotonic", lambda: clock[0])
+                patch.setattr(controller.time, "sleep", forbidden)
+                patch.setattr(controller.os, "waitpid", forbidden)
+                patch.setattr(controller.os, "kill", forbidden)
+                patch.setattr(controller.os, "killpg", forbidden)
+                patch.setattr(controller, "_exited", observe)
+                owner = controller._WorkloadWait(process.pid, 101.0)
+                if outcome == "expired":
+                    clock[0] = 101.0
+                elif outcome.startswith("late-"):
+                    clock[0] = 100.999
+                if outcome == "error":
+                    with pytest.raises(OSError, match="injected observation failure"):
+                        owner.advance()
+                else:
+                    wake = owner.advance()
+                    if outcome == "pending":
+                        assert wake == 100.005
+                        assert observations == [[process.pid, 100.0]]
+                        assert not owner.finished
+                        assert not owner.exited
+                        clock[0] = 100.999
+                        assert owner.advance() == 101.0
+                        assert observations == [[process.pid, 100.0], [process.pid, 100.999]]
+                        clock[0] = 101.0
+                        assert owner.advance() is None
+                    else:
+                        assert wake is None
+                assert owner.finished
+                assert owner.exited is (outcome == "ready")
+&gt;               assert len(observations) == (
+                    2 if outcome == "pending" else 0 if outcome == "expired" else 1
+                )
+E               assert 1 == 0
+E                +  where 1 = len([[47520, 101.0]])
+
+test_controller.py:814: AssertionError</failure></testcase><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[late-false]" time="0.021" /><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[late-true]" time="0.029" /><testcase classname="test_controller" name="test_workload_wait_turn_is_bounded_and_terminal[error]" time="0.012" /></testsuite></testsuites>

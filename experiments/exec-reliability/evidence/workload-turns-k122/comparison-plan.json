@@ -1,0 +1,17 @@
+{
+  "scope": "incremental workload wait only",
+  "selection": "workload_wait_turn",
+  "conditions": [
+    "red",
+    "green-controls",
+    "late-entry",
+    "late-result",
+    "sleep-in-turn",
+    "repoll-in-turn",
+    "retry-terminal",
+    "extend-wake",
+    "full"
+  ],
+  "aggregate_scheduler": false,
+  "oracle": "one real exact child per case; fixed clock entry/return cutoff, one observation, no sleep/reap/signal in turn, wake cap, terminal inertness; cleanup by original subprocess wait and independent ps absence"
+}

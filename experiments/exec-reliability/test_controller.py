@@ -740,6 +740,96 @@ def test_leader_reap_caller_closes_target_authority(tmp_path, monkeypatch, outco
         assert all(item["state"] == "absent" for item in audits)
 
 
+@pytest.mark.parametrize(
+    "outcome", ["pending", "ready", "expired", "late-false", "late-true", "error"]
+)
+def test_workload_wait_turn_is_bounded_and_terminal(tmp_path, monkeypatch, outcome):
+    import controller
+
+    original_exited = controller._exited
+    ready = outcome in {"ready", "late-true"}
+    process = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "pass" if ready else "import time; time.sleep(30)",
+            uuid.uuid4().hex,
+        ],
+        start_new_session=True,
+    )
+    clock = [100.0]
+    observations = []
+    audit = {"outcome": outcome, "pid": process.pid, "observations": observations}
+
+    def observe(pid):
+        observations.append([pid, clock[0]])
+        actual = original_exited(pid)
+        assert actual is ready
+        if outcome.startswith("late-"):
+            clock[0] = 101.0
+        if outcome == "error":
+            raise OSError(errno.EIO, "injected observation failure")
+        return actual
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("wait turn must not sleep, reap, signal or probe")
+
+    try:
+        if ready:
+            deadline = time.monotonic() + 2
+            while not original_exited(process.pid):
+                assert time.monotonic() < deadline
+                time.sleep(0.001)
+        with monkeypatch.context() as patch:
+            patch.setattr(controller.time, "monotonic", lambda: clock[0])
+            patch.setattr(controller.time, "sleep", forbidden)
+            patch.setattr(controller.os, "waitpid", forbidden)
+            patch.setattr(controller.os, "kill", forbidden)
+            patch.setattr(controller.os, "killpg", forbidden)
+            patch.setattr(controller, "_exited", observe)
+            owner = controller._WorkloadWait(process.pid, 101.0)
+            if outcome == "expired":
+                clock[0] = 101.0
+            elif outcome.startswith("late-"):
+                clock[0] = 100.999
+            if outcome == "error":
+                with pytest.raises(OSError, match="injected observation failure"):
+                    owner.advance()
+            else:
+                wake = owner.advance()
+                if outcome == "pending":
+                    assert wake == 100.005
+                    assert observations == [[process.pid, 100.0]]
+                    assert not owner.finished
+                    assert not owner.exited
+                    clock[0] = 100.999
+                    assert owner.advance() == 101.0
+                    assert observations == [[process.pid, 100.0], [process.pid, 100.999]]
+                    clock[0] = 101.0
+                    assert owner.advance() is None
+                else:
+                    assert wake is None
+            assert owner.finished
+            assert owner.exited is (outcome == "ready")
+            assert len(observations) == (
+                2 if outcome == "pending" else 0 if outcome == "expired" else 1
+            )
+            before = list(observations)
+            patch.setattr(controller.time, "monotonic", forbidden)
+            assert owner.advance() is None
+            assert owner.advance() is None
+            assert observations == before
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=2)
+        audit["after"] = inspect_pid(process.pid)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        controller.write_json(root / f"workload-turn-{uuid.uuid4().hex}.json", audit)
+        assert audit["after"]["state"] == "absent"
+
+
 @pytest.mark.parametrize("entry", [1.0, 1.001])
 def test_workload_wait_no_observation_at_deadline(monkeypatch, entry):
     import controller

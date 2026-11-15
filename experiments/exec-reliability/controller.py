@@ -164,16 +164,44 @@ def _exited(pid: int) -> bool:
         return any(result.fflags & select.KQ_NOTE_EXIT for result in events)
 
 
-def _wait(pid: int, deadline: float) -> bool:
-    while time.monotonic() < deadline:
-        exited = _exited(pid)
+class _WorkloadWait:
+    """Observe one pinned workload leader per turn under a fixed cutoff."""
+
+    def __init__(self, pid: int, deadline: float) -> None:
+        self.pid = pid
+        self.deadline = deadline
+        self.exited = False
+        self.finished = False
+
+    def advance(self) -> float | None:
+        """Observe at most once; return the next absolute wake, or finish."""
+        if self.finished:
+            return None
+        now = time.monotonic()
+        if now >= self.deadline:
+            self.finished = True
+            return None
+        try:
+            exited = _exited(self.pid)
+        except OSError:
+            self.finished = True
+            raise
         observed = time.monotonic()
-        if observed >= deadline:
-            return False
+        if observed >= self.deadline:
+            self.finished = True
+            return None
         if exited:
-            return True
-        time.sleep(min(0.005, deadline - observed))
-    return False
+            self.exited = True
+            self.finished = True
+            return None
+        return min(self.deadline, observed + 0.005)
+
+
+def _wait(pid: int, deadline: float) -> bool:
+    owner = _WorkloadWait(pid, deadline)
+    while (wake := owner.advance()) is not None:
+        time.sleep(min(0.005, max(0.0, wake - time.monotonic())))
+    return owner.exited
 
 
 class GroupObservation(TypedDict):

@@ -294,3 +294,7 @@ versions are retained. Final static checks pass from the frozen-input cwd.
 No repeated full run repaired the red sample. k119 still owns the shared
 scheduler/teardown overlap and final k28 review; aggregate acceptance remains
 0/10, unavailable.
+
+### k122 workload-wait turn handoff
+
+k122 delivers only incremental active-workload wait turns, used by the existing synchronous consumer. The complete aggregate charter and historical log now reside in flat sibling complete-worker-scheduler-k124, superseding earlier continuation-owner pointers above. The separate seam review precedes k124. See experiments/exec-reliability/evidence/workload-turns-k122/report.md: 18 focused passes, six rejected mutations, 866 full/static passes, 60 new child absence journals and unchanged prior evidence. Persistent failure cleanup and close remain synchronous; actual scheduler/teardown overlap, retained intermittent failures, complete real controls, interleaved comparisons and final k28 review remain open. No ancestor closes; guest acceptance is 0/10 unavailable.

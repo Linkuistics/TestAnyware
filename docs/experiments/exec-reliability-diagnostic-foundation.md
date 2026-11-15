@@ -2036,3 +2036,7 @@ contains 22 passing focused controls, two rejected mutations, and one full
 860-test/static pass, with all prior evidence preserved. The full aggregate
 contract remains in complete-worker-scheduler-k122; shared scheduling and actual
 teardown overlap are unfinished. Historical failures remain binding.
+
+## Incremental active-workload waiting (k122)
+
+The controller exposes one non-reaping workload exit observation per turn, with an immutable cutoff, deadline-capped wake and inert terminal turns. Its synchronous compatibility consumer sleeps outside those turns. The [k122 report](../../experiments/exec-reliability/evidence/workload-turns-k122/report.md) retains the RED baseline, first candidate sleep-rounding failure, corrected 18-control pass, six rejected mutations and one complete 866-test/static pass. All 60 new exact-child journals report absence; 193,709 prior evidence paths are unchanged. The full original aggregate charter and unresolved historical failures now belong to complete-worker-scheduler-k124. Shared scheduling and real teardown overlap remain unfinished, with separate seam review before continuation and final aggregate review still required. k28/k17 remain open; ten-clone acceptance is **0/10, unavailable**.
