@@ -22,7 +22,7 @@ complete worker/scheduler boundary remains k30's work, continued by k34's
 worker-scheduler-k38 subtree, continued by worker-scheduler-k40 and its
 worker-scheduler-k42 subtree, worker-scheduler-k44 subtree and remaining
 worker-scheduler-k48 subtree, with its remaining contract in
-complete-worker-scheduler-k114.
+complete-worker-scheduler-k122.
 A failed local inspection now remains failed throughout that execution.
 Independent cleanup, disposal and public absence commands still run, but later
 local observations cannot restore disposal certainty.
@@ -2026,3 +2026,13 @@ charter remains in complete-worker-scheduler-k119: shared scheduling, removal of
 private waits, teardown overlap, all retained timing/setup failures, comparisons
 against the actual scheduler and final k28 review. k28/k17 remain open and
 ten-clone acceptance remains **0/10, unavailable**.
+
+## Incremental workload-leader reaping (k119)
+
+The controller now exposes one exact-child reap attempt per nonblocking turn,
+with an immutable cutoff and terminal idempotence. Its existing synchronous
+consumer sleeps outside those turns. The retained [k119 comparison](../../experiments/exec-reliability/evidence/leader-turns-k119/report.md)
+contains 22 passing focused controls, two rejected mutations, and one full
+860-test/static pass, with all prior evidence preserved. The full aggregate
+contract remains in complete-worker-scheduler-k122; shared scheduling and actual
+teardown overlap are unfinished. Historical failures remain binding.

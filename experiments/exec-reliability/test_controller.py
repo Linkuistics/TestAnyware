@@ -566,6 +566,102 @@ def test_leader_reap_first_attempt_at_deadline(tmp_path, monkeypatch, deadline, 
         assert audit["after"]["state"] == "absent"
 
 
+@pytest.mark.parametrize("outcome", ["ready", "missing", "withheld", "late-return"])
+def test_leader_reap_turn_yields_and_stops_at_fixed_cutoff(tmp_path, monkeypatch, outcome):
+    import controller
+
+    process = controller._WorkloadProcess(("/usr/bin/true",), start_new_session=True)
+    controller._workload_owners[process.pid] = process
+    original_waitpid = os.waitpid
+    receipt = {"reaped": False, "returncode": None}
+    clock = [100.0]
+    attempts = []
+    audit = {"pid": process.pid, "outcome": outcome}
+
+    def waitpid(pid, options):
+        assert pid == process.pid and options == os.WNOHANG
+        attempts.append(clock[0])
+        if len(attempts) == 1:
+            if outcome == "late-return":
+                clock[0] = 100.013
+            return 0, 0
+        if outcome == "ready":
+            return original_waitpid(pid, options)
+        if outcome == "missing":
+            raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+        return 0, 0
+
+    def forbidden_sleep(seconds):
+        raise AssertionError("a workload reap turn must yield without sleeping")
+
+    try:
+        assert controller._wait(process.pid, time.monotonic() + 2)
+        with monkeypatch.context() as patch:
+            patch.setattr(controller.time, "monotonic", lambda: clock[0])
+            patch.setattr(controller.time, "sleep", forbidden_sleep)
+            patch.setattr(controller.os, "waitpid", waitpid)
+            owner = controller._LeaderReap(process, 100.012, receipt)
+            assert receipt["authority_closed_monotonic"] == 100.0
+            assert receipt["reap_deadline_monotonic"] == 100.012
+            wake = owner.advance()
+            assert attempts == [100.0]
+            assert process.returncode is None
+            assert controller._workload_owners[process.pid] is process
+            if outcome == "late-return":
+                assert wake is None
+                assert owner.finished
+            else:
+                assert wake == 100.005
+                assert not owner.finished
+                # Other scheduler work may advance time without renewing the cutoff.
+                clock[0] = 100.006
+                wake = owner.advance()
+                assert attempts == [100.0, 100.006]
+                if outcome == "withheld":
+                    assert wake == 100.011
+                    assert not owner.finished
+                    clock[0] = 100.011
+                    assert owner.advance() == 100.012
+                    assert attempts == [100.0, 100.006, 100.011]
+                    clock[0] = 100.012
+                    assert owner.advance() is None
+                    assert attempts == [100.0, 100.006, 100.011]
+                else:
+                    assert wake is None
+                assert owner.finished
+            before = list(attempts)
+            saved = dict(receipt)
+            clock[0] = 101.0
+            assert owner.advance() is None
+            assert owner.advance() is None
+            assert receipt == saved
+            assert attempts == before
+        if outcome == "ready":
+            assert receipt["reaped"] is True
+            assert receipt["within_process_bounds"] is True
+            assert receipt["reaped_monotonic"] == 100.006
+            assert receipt["returncode"] == process.returncode == 0
+            assert process.pid not in controller._workload_owners
+        else:
+            assert receipt["reaped"] is False
+            assert receipt["within_process_bounds"] is False
+            assert receipt["residual_leader_pid"] == process.pid
+            assert receipt["residual_leader_remedy"]
+            assert controller._workload_owners[process.pid] is process
+            if outcome == "missing":
+                assert receipt["reap_errno"] == errno.ECHILD
+        assert receipt["reap_attempts"] == len(attempts)
+    finally:
+        if process.returncode is None:
+            process.wait(timeout=2)
+        controller._workload_owners.pop(process.pid, None)
+        audit.update(receipt=receipt, attempts=attempts, after=inspect_pid(process.pid))
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        controller.write_json(root / f"leader-turn-{uuid.uuid4().hex}.json", audit)
+        assert audit["after"]["state"] == "absent"
+
+
 @pytest.mark.parametrize("outcome", ["ready", "withheld", "missing"])
 @pytest.mark.parametrize("late", [False, True], ids=["exact", "late"])
 def test_leader_reap_caller_closes_target_authority(tmp_path, monkeypatch, outcome, late):

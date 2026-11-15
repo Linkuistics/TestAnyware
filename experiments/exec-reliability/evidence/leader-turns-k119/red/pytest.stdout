@@ -1,0 +1,201 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/leader-turns-k119/inputs-old
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py
+collecting ... collected 860 items / 856 deselected / 4 selected
+
+test_controller.py::test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[ready] FAILED [ 25%]
+test_controller.py::test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[missing] FAILED [ 50%]
+test_controller.py::test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[withheld] FAILED [ 75%]
+test_controller.py::test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[late-return] FAILED [100%]
+
+=================================== FAILURES ===================================
+________ test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[ready] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-773/test_leader_reap_turn_yields_a0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1074138c0>
+outcome = 'ready'
+
+    @pytest.mark.parametrize("outcome", ["ready", "missing", "withheld", "late-return"])
+    def test_leader_reap_turn_yields_and_stops_at_fixed_cutoff(tmp_path, monkeypatch, outcome):
+        import controller
+    
+        process = controller._WorkloadProcess(("/usr/bin/true",), start_new_session=True)
+        controller._workload_owners[process.pid] = process
+        original_waitpid = os.waitpid
+        receipt = {"reaped": False, "returncode": None}
+        clock = [100.0]
+        attempts = []
+        audit = {"pid": process.pid, "outcome": outcome}
+    
+        def waitpid(pid, options):
+            assert pid == process.pid and options == os.WNOHANG
+            attempts.append(clock[0])
+            if len(attempts) == 1:
+                if outcome == "late-return":
+                    clock[0] = 100.013
+                return 0, 0
+            if outcome == "ready":
+                return original_waitpid(pid, options)
+            if outcome == "missing":
+                raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("a workload reap turn must yield without sleeping")
+    
+        try:
+            assert controller._wait(process.pid, time.monotonic() + 2)
+            with monkeypatch.context() as patch:
+                patch.setattr(controller.time, "monotonic", lambda: clock[0])
+                patch.setattr(controller.time, "sleep", forbidden_sleep)
+                patch.setattr(controller.os, "waitpid", waitpid)
+>               owner = controller._LeaderReap(process, 100.012, receipt)
+                        ^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'controller' has no attribute '_LeaderReap'
+
+test_controller.py:603: AttributeError
+_______ test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[missing] ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-773/test_leader_reap_turn_yields_a1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1075b76e0>
+outcome = 'missing'
+
+    @pytest.mark.parametrize("outcome", ["ready", "missing", "withheld", "late-return"])
+    def test_leader_reap_turn_yields_and_stops_at_fixed_cutoff(tmp_path, monkeypatch, outcome):
+        import controller
+    
+        process = controller._WorkloadProcess(("/usr/bin/true",), start_new_session=True)
+        controller._workload_owners[process.pid] = process
+        original_waitpid = os.waitpid
+        receipt = {"reaped": False, "returncode": None}
+        clock = [100.0]
+        attempts = []
+        audit = {"pid": process.pid, "outcome": outcome}
+    
+        def waitpid(pid, options):
+            assert pid == process.pid and options == os.WNOHANG
+            attempts.append(clock[0])
+            if len(attempts) == 1:
+                if outcome == "late-return":
+                    clock[0] = 100.013
+                return 0, 0
+            if outcome == "ready":
+                return original_waitpid(pid, options)
+            if outcome == "missing":
+                raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("a workload reap turn must yield without sleeping")
+    
+        try:
+            assert controller._wait(process.pid, time.monotonic() + 2)
+            with monkeypatch.context() as patch:
+                patch.setattr(controller.time, "monotonic", lambda: clock[0])
+                patch.setattr(controller.time, "sleep", forbidden_sleep)
+                patch.setattr(controller.os, "waitpid", waitpid)
+>               owner = controller._LeaderReap(process, 100.012, receipt)
+                        ^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'controller' has no attribute '_LeaderReap'
+
+test_controller.py:603: AttributeError
+_______ test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[withheld] _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-773/test_leader_reap_turn_yields_a2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1075b5670>
+outcome = 'withheld'
+
+    @pytest.mark.parametrize("outcome", ["ready", "missing", "withheld", "late-return"])
+    def test_leader_reap_turn_yields_and_stops_at_fixed_cutoff(tmp_path, monkeypatch, outcome):
+        import controller
+    
+        process = controller._WorkloadProcess(("/usr/bin/true",), start_new_session=True)
+        controller._workload_owners[process.pid] = process
+        original_waitpid = os.waitpid
+        receipt = {"reaped": False, "returncode": None}
+        clock = [100.0]
+        attempts = []
+        audit = {"pid": process.pid, "outcome": outcome}
+    
+        def waitpid(pid, options):
+            assert pid == process.pid and options == os.WNOHANG
+            attempts.append(clock[0])
+            if len(attempts) == 1:
+                if outcome == "late-return":
+                    clock[0] = 100.013
+                return 0, 0
+            if outcome == "ready":
+                return original_waitpid(pid, options)
+            if outcome == "missing":
+                raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("a workload reap turn must yield without sleeping")
+    
+        try:
+            assert controller._wait(process.pid, time.monotonic() + 2)
+            with monkeypatch.context() as patch:
+                patch.setattr(controller.time, "monotonic", lambda: clock[0])
+                patch.setattr(controller.time, "sleep", forbidden_sleep)
+                patch.setattr(controller.os, "waitpid", waitpid)
+>               owner = controller._LeaderReap(process, 100.012, receipt)
+                        ^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'controller' has no attribute '_LeaderReap'
+
+test_controller.py:603: AttributeError
+_____ test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[late-return] ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-773/test_leader_reap_turn_yields_a3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1075aa090>
+outcome = 'late-return'
+
+    @pytest.mark.parametrize("outcome", ["ready", "missing", "withheld", "late-return"])
+    def test_leader_reap_turn_yields_and_stops_at_fixed_cutoff(tmp_path, monkeypatch, outcome):
+        import controller
+    
+        process = controller._WorkloadProcess(("/usr/bin/true",), start_new_session=True)
+        controller._workload_owners[process.pid] = process
+        original_waitpid = os.waitpid
+        receipt = {"reaped": False, "returncode": None}
+        clock = [100.0]
+        attempts = []
+        audit = {"pid": process.pid, "outcome": outcome}
+    
+        def waitpid(pid, options):
+            assert pid == process.pid and options == os.WNOHANG
+            attempts.append(clock[0])
+            if len(attempts) == 1:
+                if outcome == "late-return":
+                    clock[0] = 100.013
+                return 0, 0
+            if outcome == "ready":
+                return original_waitpid(pid, options)
+            if outcome == "missing":
+                raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+            return 0, 0
+    
+        def forbidden_sleep(seconds):
+            raise AssertionError("a workload reap turn must yield without sleeping")
+    
+        try:
+            assert controller._wait(process.pid, time.monotonic() + 2)
+            with monkeypatch.context() as patch:
+                patch.setattr(controller.time, "monotonic", lambda: clock[0])
+                patch.setattr(controller.time, "sleep", forbidden_sleep)
+                patch.setattr(controller.os, "waitpid", waitpid)
+>               owner = controller._LeaderReap(process, 100.012, receipt)
+                        ^^^^^^^^^^^^^^^^^^^^^^
+E               AttributeError: module 'controller' has no attribute '_LeaderReap'
+
+test_controller.py:603: AttributeError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/leader-turns-k119/red/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[ready] - AttributeError: module 'controller' has no attribute '_LeaderReap'
+FAILED test_controller.py::test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[missing] - AttributeError: module 'controller' has no attribute '_LeaderReap'
+FAILED test_controller.py::test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[withheld] - AttributeError: module 'controller' has no attribute '_LeaderReap'
+FAILED test_controller.py::test_leader_reap_turn_yields_and_stops_at_fixed_cutoff[late-return] - AttributeError: module 'controller' has no attribute '_LeaderReap'
+====================== 4 failed, 856 deselected in 1.90s =======================

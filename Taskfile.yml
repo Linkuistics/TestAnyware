@@ -1028,3 +1028,41 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python evidence/fork-authority-k121/audit.py
+
+  diagnostic:leader-turns-prepare:
+    desc: Freeze workload reap turn inputs, optionally with MUTANT
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/leader-turns-k119/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:leader-turns-check:
+    desc: Retain bounded frozen workload reap turn controls or full diagnostic checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/leader-turns-k119/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
+
+  diagnostic:leader-turns-preserve:
+    desc: Inventory prior evidence around workload reap turn integration
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/leader-turns-k119/preserve.py '{{.MODE}}'
+
+  diagnostic:leader-turns-tools:
+    desc: Format and check workload reap turn evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/leader-turns-k119/*.py
+      - uv run --locked python -m ruff check evidence/leader-turns-k119/*.py
+      - uv run --locked python -m pyright evidence/leader-turns-k119/*.py
+
+  diagnostic:leader-turns-audit:
+    desc: Audit workload reap turn verdicts, mutations and fixture cleanup
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/leader-turns-k119/audit.py

@@ -1,0 +1,36 @@
+"""Audit the exact retained reap slice conditions and child cleanup receipts."""
+
+import json
+from pathlib import Path
+
+
+def main() -> None:
+    here = Path(__file__).resolve().parent
+    summary = {}
+    for name, expected in (
+        ("red", False),
+        ("green-controls", True),
+        ("late-poll", False),
+        ("sleep-in-turn", False),
+        ("full", True),
+    ):
+        condition = here / name
+        verdict = json.loads((condition / "verdict.json").read_text())
+        assert verdict["ok"] is expected, name
+        assert verdict["subjects_before"] == verdict["subjects_after"], name
+        assert all(
+            item["reaped"] and item["fixtures_ok"] and not item["timed_out"]
+            for item in verdict["checks"]
+        ), name
+        children = sorted((condition / "runs").glob("leader-turn-*.json"))
+        assert len(children) == 4, (name, len(children))
+        for child in children:
+            assert json.loads(child.read_text())["after"]["state"] == "absent", child
+        summary[name] = {"ok": expected, "leader_turn_children": len(children)}
+    with (here / "condition-audit.json").open("x") as stream:
+        json.dump(summary, stream, indent=2)
+    print(summary)
+
+
+if __name__ == "__main__":
+    main()

@@ -204,50 +204,85 @@ class _WorkloadProcess(subprocess.Popen[bytes]):
 _workload_owners: dict[int, _WorkloadProcess] = {}
 
 
-def _reap_leader(process: _WorkloadProcess, deadline: float, receipt: dict[str, object]) -> None:
-    """Close signal/probe authority, then reap only the exact owned child."""
-    receipt["authority_closed_monotonic"] = time.monotonic()
-    receipt["reap_deadline_monotonic"] = deadline
-    receipt["within_process_bounds"] = False
-    # Even a late turn must attempt one reap; only subsequent polls spend K.
-    receipt["reap_attempts"] = 0
-    attempts = 0
-    first_attempt = True
-    while first_attempt or time.monotonic() < deadline:
-        first_attempt = False
-        attempts += 1
-        receipt["reap_attempts"] = attempts
+class _LeaderReap:
+    """Own exact-child reaping after signal/probe authority has closed."""
+
+    def __init__(
+        self, process: _WorkloadProcess, deadline: float, receipt: dict[str, object]
+    ) -> None:
+        self.process = process
+        self.deadline = deadline
+        self.receipt = receipt
+        self.first_attempt = True
+        self.finished = False
+        self.attempts = 0
+        receipt["authority_closed_monotonic"] = time.monotonic()
+        receipt["reap_deadline_monotonic"] = deadline
+        receipt["within_process_bounds"] = False
+        receipt["reap_attempts"] = 0
+
+    def _retain_residual(self) -> None:
+        self.finished = True
+        self.receipt.setdefault("reap_error", "leader remains unreaped at fixed deadline")
+        self.receipt["residual_leader_pid"] = self.process.pid
+        self.receipt["residual_leader_remedy"] = (
+            "Leader ownership is retained without further controller signals or waits. "
+            "Independently inspect the recorded PID/PGID and command identity; "
+            "only an external owner may reconcile this residual."
+        )
+
+    def advance(self) -> float | None:
+        """Attempt at most one WNOHANG; return the next absolute wake, or finish."""
+        if self.finished:
+            return None
+        # Even a late first turn attempts one reap. Later polls spend only K.
+        if not self.first_attempt and time.monotonic() >= self.deadline:
+            self._retain_residual()
+            return None
+        self.first_attempt = False
+        self.attempts += 1
+        self.receipt["reap_attempts"] = self.attempts
         try:
             # A positive PID restricts the wait; WNOHANG returns immediately.
             # https://docs.python.org/3/library/os.html#os.waitpid
-            waited_pid, status = os.waitpid(process.pid, os.WNOHANG)
+            waited_pid, status = os.waitpid(self.process.pid, os.WNOHANG)
         except OSError as error:
-            receipt["reap_last_result"] = "error"
-            receipt["reap_error"] = str(error)
-            receipt["reap_errno"] = error.errno
-            break
-        receipt["reap_last_result"] = "reaped" if waited_pid == process.pid else "not_ready"
-        if waited_pid == process.pid:
-            process.returncode = os.waitstatus_to_exitcode(status)
+            self.receipt["reap_last_result"] = "error"
+            self.receipt["reap_error"] = str(error)
+            self.receipt["reap_errno"] = error.errno
+            self._retain_residual()
+            return None
+        self.receipt["reap_last_result"] = (
+            "reaped" if waited_pid == self.process.pid else "not_ready"
+        )
+        if waited_pid == self.process.pid:
+            self.process.returncode = os.waitstatus_to_exitcode(status)
             finished = time.monotonic()
-            receipt.update(
-                returncode=process.returncode,
+            self.receipt.update(
+                returncode=self.process.returncode,
                 reaped=True,
                 reaped_monotonic=finished,
-                within_process_bounds=finished <= deadline,
+                within_process_bounds=finished <= self.deadline,
             )
-            del _workload_owners[process.pid]
-            return
-        remaining = deadline - time.monotonic()
-        if remaining > 0:
-            time.sleep(min(0.005, remaining))
-    receipt.setdefault("reap_error", "leader remains unreaped at fixed deadline")
-    receipt["residual_leader_pid"] = process.pid
-    receipt["residual_leader_remedy"] = (
-        "Leader ownership is retained without further controller signals or waits. "
-        "Independently inspect the recorded PID/PGID and command identity; "
-        "only an external owner may reconcile this residual."
-    )
+            del _workload_owners[self.process.pid]
+            self.finished = True
+            return None
+        observed = time.monotonic()
+        if observed >= self.deadline:
+            self._retain_residual()
+            return None
+        return min(self.deadline, observed + 0.005)
+
+
+def _reap_leader(process: _WorkloadProcess, deadline: float, receipt: dict[str, object]) -> None:
+    """Consume reap turns synchronously until the exact child or fixed cutoff."""
+    owner = _LeaderReap(process, deadline, receipt)
+    while not owner.finished:
+        wake = owner.advance()
+        if wake is not None:
+            remaining = wake - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)
 
 
 def _group_snapshot(
