@@ -1199,3 +1199,41 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python evidence/request-turns-k126/audit.py
+
+  diagnostic:request-wakes-prepare:
+    desc: Freeze request wake review controls and a named single-site mutation
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/request-wakes-k131/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:request-wakes-check:
+    desc: Retain bounded request wake control or full diagnostic evidence
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/request-wakes-k131/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default "request_turns"}}'
+
+  diagnostic:request-wakes-preserve:
+    desc: Compare every earlier evidence path around request wake integration
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/request-wakes-k131/preserve.py '{{.MODE}}'
+
+  diagnostic:request-wakes-tools:
+    desc: Format and check request wake evidence tools
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/request-wakes-k131/*.py
+      - uv run --locked python -m ruff check evidence/request-wakes-k131/*.py
+      - uv run --locked python -m pyright evidence/request-wakes-k131/*.py
+
+  diagnostic:request-wakes-audit:
+    desc: Audit frozen wake mutation causes, full cases and fixture cleanup
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/request-wakes-k131/audit.py

@@ -1,0 +1,116 @@
+{
+  "conditions": {
+    "candidate-full": {
+      "ok": true,
+      "cases": 881,
+      "nonpass": {}
+    },
+    "controls-verified": {
+      "ok": true,
+      "cases": 6,
+      "nonpass": {}
+    },
+    "mutant-ready": {
+      "ok": false,
+      "cases": 6,
+      "nonpass": {
+        "test_turns::test_request_turns_yield_with_transport_priority_and_caps[False-False]": "failure",
+        "test_turns::test_request_turns_yield_with_transport_priority_and_caps[False-True]": "failure",
+        "test_turns::test_request_turns_yield_with_transport_priority_and_caps[True-False]": "failure",
+        "test_turns::test_request_turns_yield_with_transport_priority_and_caps[True-True]": "failure",
+        "test_turns::test_request_turns_wakes_avoid_idle_spin_and_stale_retirement[False]": "failure",
+        "test_turns::test_request_turns_wakes_avoid_idle_spin_and_stale_retirement[True]": "failure"
+      }
+    },
+    "mutant-retirement": {
+      "ok": false,
+      "cases": 6,
+      "nonpass": {
+        "test_turns::test_request_turns_yield_with_transport_priority_and_caps[True-False]": "failure",
+        "test_turns::test_request_turns_yield_with_transport_priority_and_caps[True-True]": "failure",
+        "test_turns::test_request_turns_wakes_avoid_idle_spin_and_stale_retirement[False]": "failure",
+        "test_turns::test_request_turns_wakes_avoid_idle_spin_and_stale_retirement[True]": "failure"
+      }
+    },
+    "red-idle": {
+      "ok": false,
+      "cases": 6,
+      "nonpass": {
+        "test_turns::test_request_turns_yield_with_transport_priority_and_caps[False-False]": "failure",
+        "test_turns::test_request_turns_yield_with_transport_priority_and_caps[False-True]": "failure",
+        "test_turns::test_request_turns_yield_with_transport_priority_and_caps[True-False]": "failure",
+        "test_turns::test_request_turns_yield_with_transport_priority_and_caps[True-True]": "failure",
+        "test_turns::test_request_turns_wakes_avoid_idle_spin_and_stale_retirement[False]": "failure",
+        "test_turns::test_request_turns_wakes_avoid_idle_spin_and_stale_retirement[True]": "failure"
+      }
+    },
+    "red-stale": {
+      "ok": false,
+      "cases": 6,
+      "nonpass": {
+        "test_turns::test_request_turns_wakes_avoid_idle_spin_and_stale_retirement[False]": "failure",
+        "test_turns::test_request_turns_wakes_avoid_idle_spin_and_stale_retirement[True]": "failure"
+      }
+    },
+    "static": {
+      "ok": true,
+      "cases": 0,
+      "nonpass": {}
+    }
+  },
+  "mutation_diffs": {
+    "idle-spin": [
+      "--- \n",
+      "+++ \n",
+      "@@ -1264,7 +1264,7 @@\n",
+      "                 if receipt.reaped:",
+      "                     _helper_obligations.pop(token, None)",
+      "                 return None",
+      "-            return min(query_deadline, time.monotonic() + (0 if ready else 0.005))",
+      "+            return min(query_deadline, time.monotonic())",
+      " ",
+      "         run_turns(Turn(advance_query))",
+      "         if not complete:"
+    ],
+    "ready-delay": [
+      "--- \n",
+      "+++ \n",
+      "@@ -1264,7 +1264,7 @@\n",
+      "                 if receipt.reaped:",
+      "                     _helper_obligations.pop(token, None)",
+      "                 return None",
+      "-            return min(query_deadline, time.monotonic() + (0 if ready else 0.005))",
+      "+            return min(query_deadline, time.monotonic() + 0.005)",
+      " ",
+      "         run_turns(Turn(advance_query))",
+      "         if not complete:"
+    ],
+    "stale-kill": [
+      "--- \n",
+      "+++ \n",
+      "@@ -1331,7 +1331,7 @@\n",
+      "                     if (owner.reaped or owner.reap_errno is not None) and not cleanup_open:",
+      "                         return None",
+      "                     next_kill = (",
+      "-                        kill_at if not owner.reaped and owner.reap_errno is None else float(\"inf\")",
+      "+                        kill_at",
+      "                     )",
+      "                     return min(deadline, next_kill, time.monotonic() + 0.001)",
+      " "
+    ],
+    "slow-retirement": [
+      "--- \n",
+      "+++ \n",
+      "@@ -1333,7 +1333,7 @@\n",
+      "                     next_kill = (",
+      "                         kill_at if not owner.reaped and owner.reap_errno is None else float(\"inf\")",
+      "                     )",
+      "-                    return min(deadline, next_kill, time.monotonic() + 0.001)",
+      "+                    return min(deadline, next_kill, time.monotonic() + 0.005)",
+      " ",
+      "                 run_turns(Turn(advance_retirement, safety=True))",
+      "                 _reap(owner)"
+    ]
+  },
+  "preserved_paths": 214670
+}

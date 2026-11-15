@@ -262,6 +262,7 @@ def test_request_turns_yield_with_transport_priority_and_caps(
     phases = []
     bytes_read = [0]
     polls = [0]
+    ready = [False]
     original_read = os.read
     original_select = worker_capture.select.select
 
@@ -274,7 +275,10 @@ def test_request_turns_yield_with_transport_priority_and_caps(
         if active[0]:
             polls[0] += 1
             assert timeout == 0, "a transport turn blocked other ready owners"
-        return original_select(readers, writers, errors, timeout)
+        result = original_select(readers, writers, errors, timeout)
+        if active[0]:
+            ready[0] = bool(result[0])
+        return result
 
     def drive(*owners):
         # Query is the first invocation; request failure/standalone retirement
@@ -290,8 +294,19 @@ def test_request_turns_yield_with_transport_priority_and_caps(
             bytes_read[0] = 0
             active[0] = True
             try:
+                before_wake = time.monotonic()
                 wake = subject.advance()
+                after_wake = time.monotonic()
                 assert bytes_read[0] <= 65536
+                if wake is not None:
+                    if phase == 0:
+                        # The caller's one-second allowance reserves 50 ms.
+                        cutoff = deadline - 0.05
+                        delay = 0 if ready[0] else 0.005
+                        assert min(cutoff, before_wake + delay) <= wake
+                        assert wake <= min(cutoff, after_wake + delay)
+                    else:
+                        assert wake <= min(deadline, after_wake + 0.001)
                 if wake is None:
                     before = bytes_read[0], polls[0]
                     assert subject.advance() is None
@@ -310,9 +325,10 @@ def test_request_turns_yield_with_transport_priority_and_caps(
     monkeypatch.setattr(worker_capture.os, "read", read)
     monkeypatch.setattr(worker_capture.select, "select", select)
     try:
+        deadline = time.monotonic() + 1
         receipt = worker_capture.capture_helper(
             ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2>/dev/null"),
-            time.monotonic() + 1,
+            deadline,
             worker=worker,
         )
         assert phases, "request transport bypassed the shared driver"
@@ -342,3 +358,88 @@ def test_request_turns_yield_with_transport_priority_and_caps(
     finally:
         if worker is not None:
             worker.close()
+
+
+@pytest.mark.parametrize("ownership_lost", [False, True])
+def test_request_turns_wakes_avoid_idle_spin_and_stale_retirement(monkeypatch, ownership_lost):
+    """Exercise actual callbacks with exact cutoffs and an open cleanup channel.
+
+    Fork/wait/signal and channel readiness are simulated so a reaped owner can
+    deterministically retain a cleanup channel past its old KILL time. No child
+    or signal is created here; the real transport cases above cover those.
+    """
+    import errno
+    import os
+    import signal
+
+    import worker_capture
+
+    now, _ = clock(monkeypatch)
+    pid = 2**30
+    reaped = [False]
+    ready = [False]
+    phases = []
+    io = []
+    signals = []
+    monkeypatch.setattr(worker_capture, "_owners", {})
+    monkeypatch.setattr(os, "fork", lambda: pid)
+    monkeypatch.setattr(os, "kill", lambda child, sig: signals.append((child, sig)))
+
+    def waitpid(child, flags):
+        assert child == pid and flags == os.WNOHANG
+        if reaped[0] and ownership_lost:
+            raise ChildProcessError(errno.ECHILD, "simulated ownership loss")
+        return (pid, 0) if reaped[0] else (0, 0)
+
+    def select(readers, writers, errors, timeout):
+        assert not writers and not errors and timeout == 0
+        io.append("poll")
+        return (readers[:1] if ready[0] else [], [], [])
+
+    def read(_fd, _size):
+        io.append("read")
+        if ready[0]:
+            return b"x"  # Partial control, never a complete publication.
+        raise BlockingIOError
+
+    def drive(subject):
+        phase = len(phases)
+        phases.append(subject)
+        if phase == 0:
+            assert subject.advance() == pytest.approx(10.005)
+            ready[0] = True
+            assert subject.advance() == 10.0
+            ready[0] = False
+            now[0] = 10.949
+            assert subject.advance() == 10.95
+            now[0] = 10.95
+        else:
+            assert subject.advance() == pytest.approx(10.951)
+            now[0] = 10.962
+            assert subject.advance() == pytest.approx(10.9625)
+            # Observe exit before the old KILL time, then leave cleanup open
+            # after it. This must schedule a future poll, never the stale KILL.
+            reaped[0] = True
+            worker_capture._reap(worker_capture._owners[pid])
+            now[0] = 10.963
+            assert subject.advance() == pytest.approx(10.964)
+            now[0] = 10.9995
+            assert subject.advance() == 11.0
+            now[0] = 11.0
+        before = list(io)
+        assert subject.advance() is None
+        assert subject.advance() is None
+        assert io == before, "terminal callback performed I/O"
+
+    monkeypatch.setattr(os, "waitpid", waitpid)
+    monkeypatch.setattr(os, "read", read)
+    monkeypatch.setattr(worker_capture.select, "select", select)
+    monkeypatch.setattr(worker_capture, "run_turns", drive)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0)
+    assert len(phases) == 2
+    assert signals == [(pid, signal.SIGTERM)]
+    assert receipt.worker is not None
+    assert receipt.worker["ownership_lost"] == ownership_lost
+    assert receipt.worker["reaped"] != ownership_lost
+    assert receipt.worker["unknown_helper_creation"]
+    assert not worker_capture._owners

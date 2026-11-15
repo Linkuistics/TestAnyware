@@ -1,5 +1,25 @@
 # complete-worker-scheduler-k129
 
+k131 integrates the k130 request-turn review. Wake assertions now cover idle,
+ready, cutoff and terminal query callbacks, and retirement after reap or ECHILD
+with cleanup still open past the original KILL time. Read
+`experiments/exec-reliability/evidence/request-wakes-k131/report.md` for the
+frozen rejecting wake mutants and their limits. Production transport is unchanged.
+
+Two reviewed boundaries remain this aggregate's work. The zero-timeout query
+poll followed by the driver's up-to-5-ms idle sleep can delay observation of data
+that arrives just after the poll by up to 5 ms; the former blocking select could
+wake immediately on readiness. Decide how concurrent owners wake on readiness
+while preserving the original cutoffs and historical timing failures. No control
+here treats the known sleep interval as proof of aggregate latency suitability.
+Persistent dispatch also calls `_write(worker.command, command, query_deadline)`
+before `run_turns` in `worker_capture.py`. Although a command is capped at 4096
+bytes, backpressure can keep that write in 5-ms select waits until the query
+deadline. Include it in the remaining private-wait inventory and shared scheduler
+work; k131 does not turn it. All prior aggregate requirements and handoffs below
+remain binding, including concurrent ownership, teardown overlap and final k28
+review. k28 and k17 remain open.
+
 k126 handoff: parent-side query and failure-retirement transport now use bounded
 shared-driver callbacks with ordinary/safety registrations. Read
 `experiments/exec-reliability/evidence/request-turns-k126/report.md` and its
