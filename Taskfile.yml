@@ -990,3 +990,41 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python -m ruff format worker_capture.py test_worker_capture.py
+
+  diagnostic:fork-authority-prepare:
+    desc: Freeze fork authority review inputs, optionally with MUTANT
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/fork-authority-k121/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:fork-authority-check:
+    desc: Retain bounded frozen fork authority controls or full diagnostic checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/fork-authority-k121/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}' {{if .BUDGET}}--pytest-budget '{{.BUDGET}}'{{end}}
+
+  diagnostic:fork-authority-preserve:
+    desc: Inventory prior evidence around fork authority review integration
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/fork-authority-k121/preserve.py '{{.MODE}}'
+
+  diagnostic:fork-authority-tools:
+    desc: Format and check fork authority evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/fork-authority-k121/*.py
+      - uv run --locked python -m ruff check evidence/fork-authority-k121/*.py
+      - uv run --locked python -m pyright evidence/fork-authority-k121/*.py
+
+  diagnostic:fork-authority-audit:
+    desc: Audit fork authority verdicts, mutations and fixture cleanup
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/fork-authority-k121/audit.py

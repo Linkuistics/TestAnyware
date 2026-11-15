@@ -1,0 +1,65 @@
+{
+  "scope": "k120 F1/F2/F3; no production edits",
+  "conditions": [
+    {
+      "name": "old-controls",
+      "cases": 37,
+      "failures": [],
+      "mode": "controls"
+    },
+    {
+      "name": "old-result-eof-only",
+      "cases": 37,
+      "failures": [],
+      "mode": "controls"
+    },
+    {
+      "name": "old-eagain-is-eof",
+      "cases": 37,
+      "failures": [],
+      "mode": "controls"
+    },
+    {
+      "name": "new-result-eof-only",
+      "cases": 39,
+      "failures": [
+        "test_fork_failure_empty_control_channel[open]"
+      ],
+      "mode": "controls"
+    },
+    {
+      "name": "new-eagain-is-eof",
+      "cases": 39,
+      "failures": [
+        "test_fork_failure_empty_control_channel[open]"
+      ],
+      "mode": "controls"
+    },
+    {
+      "name": "new-omit-eager-conflict",
+      "cases": 39,
+      "failures": [],
+      "mode": "controls"
+    },
+    {
+      "name": "candidate-controls",
+      "cases": 39,
+      "failures": [],
+      "mode": "controls"
+    },
+    {
+      "name": "candidate-full",
+      "cases": 856,
+      "failures": [],
+      "mode": "full"
+    }
+  ],
+  "bounds": {
+    "focused_pytest": 60,
+    "full_pytest": 120,
+    "static": 30,
+    "timeout_term": 2,
+    "timeout_kill_reap": 2
+  },
+  "holder": "controller-owned direct child retaining only control write; stdin release; 2s self-expiry; exact-child wait; 1s cleanup then owned-child kill and 1s wait"
+}

@@ -272,3 +272,25 @@ The k89 findings are reconciled by k90: signal authority closes at K-R (not K), 
 ## Current decomposition
 
 The first expired-deadline leader reap is k88's independently verifiable slice. complete-worker-scheduler-k91 retains the entire original runtime charter and all controls. Aggregate acceptance and final bounded-inspection review remain here; k28/k17 stay open.
+
+### k121 review integration handoff
+
+k120 F1 is repaired by the real empty-open control channel regression; M1 and
+M3 survive the old 37 controls but fail the new open case (38 other cases pass).
+The unchanged runtime passes all 39 expanded controls. F2 remains an explicit
+trade-off: M2 survives, and the conservative guard stays. F3 now distinguishes
+timely failure admission from real EOF framing within the existing reserve.
+See `experiments/exec-reliability/evidence/fork-authority-k121/report.md`.
+
+The one full sample is red: 855 passed, with
+`test_worker_shutdown_deadline_closes_owner_operations[stale-term-pid]` failing
+on a WNOHANG observation 20.291 microseconds after its deadline. The exact child
+was independently reaped; raw runtime and audit receipts remain in
+`experiments/exec-reliability/evidence/fork-authority-k121/candidate-full/`.
+This failure joins k119's shared deadline obligations without replacing k116's
+separate historical deferred-reap failure. Full-run Pyright and the first
+static-only followup also exposed auditor-only errors; both failures and tool
+versions are retained. Final static checks pass from the frozen-input cwd.
+No repeated full run repaired the red sample. k119 still owns the shared
+scheduler/teardown overlap and final k28 review; aggregate acceptance remains
+0/10, unavailable.

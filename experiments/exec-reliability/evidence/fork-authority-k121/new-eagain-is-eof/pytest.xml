@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="39" time="4.969" timestamp="2026-11-15T15:51:22.651570+11:00" hostname="byrd.local"><testcase classname="test_worker_capture" name="test_fork_failure_lost_result_eof_order[control]" time="0.006" /><testcase classname="test_worker_capture" name="test_fork_failure_lost_result_eof_order[result]" time="0.004" /><testcase classname="test_worker_capture" name="test_fork_failure_empty_control_channel[open]" time="0.806"><failure message="assert False">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-765/test_fork_failure_empty_contro0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x109049100&gt;
+mode = 'open'
+
+    @pytest.mark.parametrize("mode", ["open", "cleanup-eof"])
+    def test_fork_failure_empty_control_channel(tmp_path, monkeypatch, mode):
+        """An empty open pipe is not EOF; cleanup EOF may frame an on-time failure.
+    
+        Requiring only result EOF, or treating a control EAGAIN as EOF, must fail
+        the open case. The holder is a separate exact child of the controller so
+        it survives worker exit without leaving an orphan for somebody else to reap.
+        """
+        import worker_capture
+    
+        controller_pid = os.getpid()
+        original_pipe, original_fork, original_read = os.pipe, os.fork, os.read
+        original_write = worker_capture._write
+        pairs = []
+        holder = None
+        failure_seen = False
+        result_eof = False
+        control_eagain = 0
+        control_eof = None
+        release_at = None
+        holder_alive = None
+        deadline = time.monotonic() + 0.8
+        # This allowance takes the existing maximum 50ms reserve. No clock is faked.
+        query_cutoff = deadline - 0.05
+    
+        def pipe():
+            pair = original_pipe()
+            if os.getpid() == controller_pid:
+                pairs.append(pair)
+            return pair
+    
+        def fork():
+            nonlocal holder
+            if os.getpid() != controller_pid:
+                raise OSError(errno.EAGAIN, "injected at helper fork boundary")
+            assert holder is None and len(pairs) == 2
+            control_write = pairs[0][1]
+            holder = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-c",
+                    "import os,select,sys; select.select([0],[],[],2); os.close(int(sys.argv[1]))",
+                    str(control_write),
+                ],
+                pass_fds=(control_write,),
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,
+            )
+            return original_fork()
+    
+        def write(fd, data, cutoff):
+            if not data.endswith(b"\n"):
+                os._exit(70)
+            return original_write(fd, data, cutoff)
+    
+        def read(fd, size):
+            nonlocal failure_seen, result_eof, control_eagain, control_eof, release_at
+            if os.getpid() != controller_pid or len(pairs) &lt; 2:
+                return original_read(fd, size)
+            control = fd == pairs[0][0]
+            if control and mode == "cleanup-eof" and time.monotonic() &gt;= query_cutoff:
+                assert holder is not None and holder.stdin is not None
+                if release_at is None:
+                    release_at = time.monotonic()
+                    holder.stdin.close()
+            try:
+                chunk = original_read(fd, size)
+            except BlockingIOError:
+                if control and failure_seen:
+                    control_eagain += 1
+                raise
+            if control:
+                if b'"failed_monotonic"' in chunk:
+                    failure_seen = True
+                if not chunk:
+                    control_eof = time.monotonic()
+            elif fd == pairs[1][0] and not chunk:
+                result_eof = True
+            return chunk
+    
+        monkeypatch.setattr(os, "pipe", pipe)
+        monkeypatch.setattr(os, "fork", fork)
+        monkeypatch.setattr(os, "read", read)
+        monkeypatch.setattr(worker_capture, "_write", write)
+        try:
+            receipt = worker_capture.capture_helper(("/usr/bin/true",), deadline)
+        finally:
+            if holder is not None:
+                holder_alive = holder.poll() is None
+                assert holder.stdin is not None
+                holder.stdin.close()
+                try:
+                    holder.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    holder.kill()
+                    holder.wait(timeout=1)
+                root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
+                root.mkdir(parents=True, exist_ok=True)
+                (root / f"empty-control-{mode}-{time.time_ns()}.json").write_text(
+                    json.dumps(
+                        {
+                            "mode": mode,
+                            "holder_pid": holder.pid,
+                            "holder_pgid": holder.pid,
+                            "holder_alive_after_capture": holder_alive,
+                            "holder_reaped": holder.returncode is not None,
+                            "holder_returncode": holder.returncode,
+                            "failure_seen": failure_seen,
+                            "control_eagain": control_eagain,
+                            "control_eof_monotonic": control_eof,
+                            "result_eof": result_eof,
+                            "release_monotonic": release_at,
+                            "query_cutoff": query_cutoff,
+                            "deadline": deadline,
+                        },
+                        indent=2,
+                    )
+                )
+        retain(tmp_path, "empty-control-" + mode, receipt)
+        assert holder is not None and holder.returncode == 0
+        assert failure_seen and result_eof and control_eagain &gt; 0
+        assert receipt.error is not None
+        assert receipt.worker["fork_failure"]["failed_monotonic"] &lt; query_cutoff
+        assert receipt.worker["reaped"] and receipt.worker["returncode"] == 70
+        assert receipt.pid is None and receipt.worker["helper_identity"] is None
+        assert not receipt.worker["helper_obligation_retained"]
+        assert not receipt.worker["creation_conflict"]
+        if mode == "open":
+            assert holder_alive and control_eof is None
+&gt;           assert receipt.worker["unknown_helper_creation"]
+E           assert False
+
+test_worker_capture.py:1492: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_fork_failure_empty_control_channel[cleanup-eof]" time="0.755" /><testcase classname="test_worker_capture" name="test_review_worker_fork_failure_evidence[fork-error]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_fork_failure_evidence[lost-result]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_fork_failure_evidence[setup-error]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_fork_failure_evidence[silent]" time="0.006" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[errno-bool]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[errno-zero]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[errno-negative]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[errno-string]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[errno-missing]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[extra-field]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[wrong-token]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[wrong-deadline]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[before-dispatch]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[future]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[nan]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[duplicate-key]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[duplicate]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[failure-then-created]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[created-then-failure]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[terminal-errno]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[terminal-admission]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[terminal-time]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_invalid_fork_failure[worker-publication-expired]" time="0.563" /><testcase classname="test_worker_capture" name="test_review_fork_failure_requires_clean_channel_end[control-tail]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_fork_failure_requires_clean_channel_end[short-header]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_fork_failure_requires_clean_channel_end[short-frame]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_fork_failure_requires_clean_channel_end[oversized]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_fork_failure_requires_clean_channel_end[open-tail]" time="0.466" /><testcase classname="test_worker_capture" name="test_review_fork_failure_preserves_errno_on_publication_error[timeout]" time="0.005" /><testcase classname="test_worker_capture" name="test_review_fork_failure_preserves_errno_on_publication_error[broken-pipe]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_parent_rejects_published_late_fork_failure[read]" time="0.617" /><testcase classname="test_worker_capture" name="test_review_parent_rejects_published_late_fork_failure[select]" time="0.617" /><testcase classname="test_worker_capture" name="test_review_confirmed_fork_failure_keeps_worker_failure[unclean-exit]" time="0.004" /><testcase classname="test_worker_capture" name="test_review_confirmed_fork_failure_keeps_worker_failure[unreaped]" time="0.602" /><testcase classname="test_worker_capture" name="test_request_identity_matching_explicit_fork_failure" time="0.006" /></testsuite></testsuites>

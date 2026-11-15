@@ -120,6 +120,15 @@ pinned worker group. A late identity refines the residual ledger but cannot
 repair the failed observation. A published helper remains a known cleanup
 obligation until its reap evidence is accounted for.
 
+When the terminal frame is lost, a separately received fork-failure publication
+can establish no-helper creation only if it was validated before the query
+cutoff and both channels subsequently reach real EOF without trailing bytes or
+conflicting evidence. EOF may be observed within the already reserved cleanup
+allowance, before the original request deadline. That closes framing for the
+on-time publication; it admits no new late failure, extends no deadline, and
+does not repair the failed observation. An empty open channel or a read that
+would block is not EOF and leaves creation unknown.
+
 Publication before exec preserves identity evidence without requiring the
 controller to record it before exec. Controller-crash recovery is outside this
 contract, so a per-helper ACK adds no required guarantee. The helper still

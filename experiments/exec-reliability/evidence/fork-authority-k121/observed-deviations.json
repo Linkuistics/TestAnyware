@@ -1,0 +1,28 @@
+{
+  "candidate-full": {
+    "failures": [
+      "test_worker_shutdown_deadline_closes_owner_operations[stale-term-pid]"
+    ],
+    "check_returncodes": {
+      "pytest": 1,
+      "ruff": 0,
+      "format": 0,
+      "pyright": 1
+    },
+    "pyright_diagnostic": "Import \"prepare\" could not be resolved (reportMissingImports)",
+    "owner": "k119 owns the shared deadline failure; k121 fixes its auditor import"
+  },
+  "followup": {
+    "name": "candidate-static-final",
+    "mode": "static",
+    "reason": "Verify corrected evidence tooling from the same frozen-input working directory; do not rerun pytest or erase candidate-full failures."
+  },
+  "candidate-static": {
+    "check_returncodes": {
+      "ruff": 0,
+      "format": 0,
+      "pyright": 1
+    },
+    "reason": "Strict Pyright requires an explicit type for the auditor late-call list; retain failed run."
+  }
+}
