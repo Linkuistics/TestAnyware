@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="21" time="5.534" timestamp="2026-11-16T00:05:42.361639+11:00" hostname="byrd.local"><testcase classname="test_controller" name="test_scope_parent_term_before_child_readiness[False]" time="0.241"><failure message="subprocess.TimeoutExpired: Command '('/Users/antony/.cache/uv/builds-v0/.tmpebMTkt/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/scope-readiness-k143/red-v2-inputs/peer.py', 'scope-parent', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/scope-readiness-k143/red-v2-controls/runs/dc438540dd33458195f493450cac9e0d/release', '/Users/antony/Development/Abstracting...&#10;[truncated; full report in element text]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1053/test_scope_parent_term_before_0')
+group_term = False
+
+    @pytest.mark.parametrize("group_term", [False, True])
+    def test_scope_parent_term_before_child_readiness(tmp_path, group_term):
+        # Ignoring stopping in the readiness loop must fail this real-signal control.
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path)) / uuid.uuid4().hex
+        root.mkdir(parents=True)
+        release, ready = root / "release", root / "ready"
+        spawned = ready.with_suffix(".spawned")
+        audit = {"group_term": group_term, "child_ready": False, "forced_parent_cleanup": False}
+        child = None
+        with (root / "parent.stdout").open("wb") as stdout:
+            parent = subprocess.Popen(
+                (sys.executable, str(PEER), "scope-parent", str(release), str(ready), "held-child"),
+                stdout=stdout,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            audit["parent_pid"] = parent.pid
+            try:
+                end = time.monotonic() + 1
+                while not spawned.exists() and time.monotonic() &lt; end:
+                    time.sleep(0.005)
+                assert spawned.exists(), "fixture did not declare its child before TERM"
+                child = int(spawned.read_text())
+                audit["child_pid"] = child
+                assert not ready.exists()
+                audit["term_monotonic"] = time.monotonic()
+                if group_term:
+                    os.killpg(parent.pid, signal.SIGTERM)
+                else:
+                    os.kill(parent.pid, signal.SIGTERM)
+&gt;               assert parent.wait(timeout=0.15) == 0
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_controller.py:1756: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:1264: in wait
+    return self._wait(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;Popen: returncode: -9 args: ('/Users/antony/.cache/uv/builds-v0/.tmpebMTkt/...&gt;
+timeout = 0.15
+
+    def _wait(self, timeout):
+        """Internal implementation of wait() on POSIX."""
+        if self.returncode is not None:
+            return self.returncode
+    
+        if timeout is not None:
+            endtime = _time() + timeout
+            # Enter a busy loop if we have a timeout.  This busy loop was
+            # cribbed from Lib/threading.py in Thread.wait() at r71065.
+            delay = 0.0005 # 500 us -&gt; initial delay of 1 ms
+            while True:
+                if self._waitpid_lock.acquire(False):
+                    try:
+                        if self.returncode is not None:
+                            break  # Another thread waited.
+                        (pid, sts) = self._try_wait(os.WNOHANG)
+                        assert pid == self.pid or pid == 0
+                        if pid == self.pid:
+                            self._handle_exitstatus(sts)
+                            break
+                    finally:
+                        self._waitpid_lock.release()
+                remaining = self._remaining_time(endtime)
+                if remaining &lt;= 0:
+&gt;                   raise TimeoutExpired(self.args, timeout)
+E                   subprocess.TimeoutExpired: Command '('/Users/antony/.cache/uv/builds-v0/.tmpebMTkt/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/scope-readiness-k143/red-v2-inputs/peer.py', 'scope-parent', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/scope-readiness-k143/red-v2-controls/runs/dc438540dd33458195f493450cac9e0d/release', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/scope-readiness-k143/red-v2-controls/runs/dc438540dd33458195f493450cac9e0d/ready', 'held-child')' timed out after 0.15 seconds
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:2045: TimeoutExpired</failure></testcase><testcase classname="test_controller" name="test_scope_parent_term_before_child_readiness[True]" time="0.216"><failure message="subprocess.TimeoutExpired: Command '('/Users/antony/.cache/uv/builds-v0/.tmpebMTkt/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/scope-readiness-k143/red-v2-inputs/peer.py', 'scope-parent', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/scope-readiness-k143/red-v2-controls/runs/8ee3771c08954d63ad883b97fdb19f70/release', '/Users/antony/Development/Abstracting...&#10;[truncated; full report in element text]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1053/test_scope_parent_term_before_1')
+group_term = True
+
+    @pytest.mark.parametrize("group_term", [False, True])
+    def test_scope_parent_term_before_child_readiness(tmp_path, group_term):
+        # Ignoring stopping in the readiness loop must fail this real-signal control.
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path)) / uuid.uuid4().hex
+        root.mkdir(parents=True)
+        release, ready = root / "release", root / "ready"
+        spawned = ready.with_suffix(".spawned")
+        audit = {"group_term": group_term, "child_ready": False, "forced_parent_cleanup": False}
+        child = None
+        with (root / "parent.stdout").open("wb") as stdout:
+            parent = subprocess.Popen(
+                (sys.executable, str(PEER), "scope-parent", str(release), str(ready), "held-child"),
+                stdout=stdout,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+            audit["parent_pid"] = parent.pid
+            try:
+                end = time.monotonic() + 1
+                while not spawned.exists() and time.monotonic() &lt; end:
+                    time.sleep(0.005)
+                assert spawned.exists(), "fixture did not declare its child before TERM"
+                child = int(spawned.read_text())
+                audit["child_pid"] = child
+                assert not ready.exists()
+                audit["term_monotonic"] = time.monotonic()
+                if group_term:
+                    os.killpg(parent.pid, signal.SIGTERM)
+                else:
+                    os.kill(parent.pid, signal.SIGTERM)
+&gt;               assert parent.wait(timeout=0.15) == 0
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_controller.py:1756: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:1264: in wait
+    return self._wait(timeout=timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = &lt;Popen: returncode: -9 args: ('/Users/antony/.cache/uv/builds-v0/.tmpebMTkt/...&gt;
+timeout = 0.15
+
+    def _wait(self, timeout):
+        """Internal implementation of wait() on POSIX."""
+        if self.returncode is not None:
+            return self.returncode
+    
+        if timeout is not None:
+            endtime = _time() + timeout
+            # Enter a busy loop if we have a timeout.  This busy loop was
+            # cribbed from Lib/threading.py in Thread.wait() at r71065.
+            delay = 0.0005 # 500 us -&gt; initial delay of 1 ms
+            while True:
+                if self._waitpid_lock.acquire(False):
+                    try:
+                        if self.returncode is not None:
+                            break  # Another thread waited.
+                        (pid, sts) = self._try_wait(os.WNOHANG)
+                        assert pid == self.pid or pid == 0
+                        if pid == self.pid:
+                            self._handle_exitstatus(sts)
+                            break
+                    finally:
+                        self._waitpid_lock.release()
+                remaining = self._remaining_time(endtime)
+                if remaining &lt;= 0:
+&gt;                   raise TimeoutExpired(self.args, timeout)
+E                   subprocess.TimeoutExpired: Command '('/Users/antony/.cache/uv/builds-v0/.tmpebMTkt/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/scope-readiness-k143/red-v2-inputs/peer.py', 'scope-parent', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/scope-readiness-k143/red-v2-controls/runs/8ee3771c08954d63ad883b97fdb19f70/release', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/scope-readiness-k143/red-v2-controls/runs/8ee3771c08954d63ad883b97fdb19f70/ready', 'held-child')' timed out after 0.15 seconds
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/subprocess.py:2045: TimeoutExpired</failure></testcase><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-False-False]" time="0.024" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-False-True]" time="0.029" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-True-False]" time="0.954" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-True-True]" time="0.959" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-False-False]" time="0.026" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-False-True]" time="0.043" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-True-False]" time="0.954" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-True-True]" time="0.960" /><testcase classname="test_turns" name="test_caller_driver_owns_close_and_expired_allowance[False]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_owns_close_and_expired_allowance[True]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_owns_finalization_failure" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_exception_releases_real_channels[RuntimeError-standalone-retirement]" time="0.001" /><testcase classname="test_turns" name="test_caller_driver_exception_releases_real_channels[RuntimeError-persistent-retirement]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_exception_releases_real_channels[RuntimeError-persistent-close]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_exception_releases_real_channels[RuntimeError-direct-close]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_exception_releases_real_channels[OSError-standalone-retirement]" time="0.001" /><testcase classname="test_turns" name="test_caller_driver_exception_releases_real_channels[OSError-persistent-retirement]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_exception_releases_real_channels[OSError-persistent-close]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_exception_releases_real_channels[OSError-direct-close]" time="0.000" /></testsuite></testsuites>

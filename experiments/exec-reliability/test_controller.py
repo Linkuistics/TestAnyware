@@ -1723,6 +1723,64 @@ def test_review_live_group_is_failure_even_with_expected_leader_exit(tmp_path, i
             assert observations[-1]["state"] == "absent"
 
 
+@pytest.mark.parametrize("group_term", [False, True])
+def test_scope_parent_term_before_child_readiness(tmp_path, group_term):
+    # Ignoring stopping in the readiness loop must fail this real-signal control.
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path)) / uuid.uuid4().hex
+    root.mkdir(parents=True)
+    release, ready = root / "release", root / "ready"
+    spawned = ready.with_suffix(".spawned")
+    audit = {"group_term": group_term, "child_ready": False, "forced_parent_cleanup": False}
+    child = None
+    with (root / "parent.stdout").open("wb") as stdout:
+        parent = subprocess.Popen(
+            (sys.executable, str(PEER), "scope-parent", str(release), str(ready), "held-child"),
+            stdout=stdout,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        audit["parent_pid"] = parent.pid
+        try:
+            end = time.monotonic() + 1
+            while not spawned.exists() and time.monotonic() < end:
+                time.sleep(0.005)
+            assert spawned.exists(), "fixture did not declare its child before TERM"
+            child = int(spawned.read_text())
+            audit["child_pid"] = child
+            assert not ready.exists()
+            audit["term_monotonic"] = time.monotonic()
+            if group_term:
+                os.killpg(parent.pid, signal.SIGTERM)
+            else:
+                os.kill(parent.pid, signal.SIGTERM)
+            assert parent.wait(timeout=0.15) == 0
+            audit["exit_monotonic"] = time.monotonic()
+            assert not ready.exists()
+            assert (root / "parent.stdout").read_text().strip() == str(child)
+        finally:
+            release.write_bytes(b"release")
+            if parent.poll() is None:
+                audit["forced_parent_cleanup"] = True
+                parent.kill()
+            audit["parent_returncode"] = parent.wait(timeout=1)
+            # The test owner, outside the fixture, audits the orphan after release.
+            if child is None and spawned.exists():
+                child = int(spawned.read_text())
+                audit["child_pid"] = child
+            if child is not None:
+                end = time.monotonic() + 1
+                observations = [inspect_pid(child)]
+                while observations[-1]["state"] != "absent" and time.monotonic() < end:
+                    time.sleep(0.005)
+                    observations.append(inspect_pid(child))
+                audit["child_observations"] = observations
+            audit["parent_observation"] = inspect_pid(parent.pid)
+            (root / "scope-stop-audit.json").write_text(json.dumps(audit, indent=2))
+            assert audit["parent_observation"]["state"] == "absent"
+            if child is not None:
+                assert observations[-1]["state"] == "absent"
+
+
 def test_review_checker_unreaped_timeout_still_retains_verdict(tmp_path, monkeypatch):
     import self_check
 

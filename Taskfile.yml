@@ -10,6 +10,32 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  diagnostic:scope-preserve:
+    desc: Verify every prior evidence path for the scope readiness repair
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/scope-readiness-k143/preserve.py {{.MODE | shellQuote}}
+
+  diagnostic:scope-prepare:
+    desc: Freeze all diagnostic inputs for the scope readiness repair
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/scope-readiness-k143/prepare.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
+
+  diagnostic:scope-check:
+    desc: Retain bounded scope readiness controls or the full diagnostic suite
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/scope-readiness-k143/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}} {{if .SELECT}}--select {{.SELECT | shellQuote}}{{end}}
+
+  diagnostic:scope-tools:
+    desc: Format and check scope readiness subjects and tools
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format peer.py test_controller.py evidence/scope-readiness-k143/*.py
+      - uv run --locked python -m ruff check peer.py test_controller.py evidence/scope-readiness-k143/*.py
+      - uv run --locked python -m pyright peer.py evidence/scope-readiness-k143/prepare.py evidence/scope-readiness-k143/preserve.py evidence/scope-readiness-k143/run_condition.py
+
   diagnostic:caller-fix-prepare:
     desc: Freeze k145 cleanup inputs in a new OUT directory
     dir: experiments/exec-reliability

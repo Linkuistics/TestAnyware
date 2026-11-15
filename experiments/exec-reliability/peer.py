@@ -20,11 +20,12 @@ def main() -> None:
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
         print("ready", flush=True)
         time.sleep(60)
-    elif mode in {"scope-child", "stubborn-child"}:
+    elif mode in {"scope-child", "stubborn-child", "held-child"}:
         if mode == "stubborn-child":
             signal.signal(signal.SIGTERM, signal.SIG_IGN)
         release, ready = map(Path, args)
-        ready.write_bytes(b"ready")
+        if mode != "held-child":
+            ready.write_bytes(b"ready")
         end = time.monotonic() + 5
         while not release.exists() and time.monotonic() < end:
             time.sleep(0.005)
@@ -46,8 +47,12 @@ def main() -> None:
                 ready,
             ]
         )
+        # Retain the exact child identity even if TERM arrives before readiness.
+        declaration = Path(ready).with_suffix(".spawned.tmp")
+        declaration.write_text(str(child.pid))
+        declaration.replace(Path(ready).with_suffix(".spawned"))
         end = time.monotonic() + 4
-        while not Path(ready).exists() and time.monotonic() < end:
+        while not stopping and not Path(ready).exists() and time.monotonic() < end:
             time.sleep(0.005)
         print(child.pid, flush=True)
         while not stopping and time.monotonic() < end:
