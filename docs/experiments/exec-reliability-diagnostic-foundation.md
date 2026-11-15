@@ -1933,3 +1933,24 @@ The separate producer review precedes complete-worker-scheduler-k104, which
 retains the complete aggregate charter: worker-failure and orderly-close phase
 declarations, the shared scheduler, overlap controls and final k28 review.
 k28/k17 stay open; ten-clone acceptance remains **0/10, unavailable**.
+
+## First worker reap at a fixed cutoff (k107)
+
+The worker owner receives one first exact-child nonblocking reap attempt even
+when its original shutdown cutoff has expired. The attempt is recorded before
+the syscall; no-result, errno and late returns all consume that exception.
+Once any attempt exists, the original cutoff forbids later polling. Signal
+authority and shutdown phase deadlines do not change. A successful late reap
+releases ownership while retaining failed timing; live/EIO outcomes retain the
+worker residual, and ECHILD records ownership loss separately.
+
+The [k107 report](../../experiments/exec-reliability/evidence/worker-first-reap-k107/report.md)
+retains the failing baseline, 42 new real-child controls, three rejected
+mutations, a passing 754-case suite and configured static checks. Its audit
+verifies 408 exact-child fixture cleanups and 163,383 unchanged earlier evidence
+paths. Injected errno and delayed returns are simulated; fixture signals,
+exits and exact-child status consumption are real. Read the separate k107
+review before relying on this boundary. Complete-worker-scheduler-k110 retains
+the complete original aggregate charter, shared scheduling, shutdown/teardown
+overlap, remaining controls and final k28 review. k28/k17 remain open and
+ten-clone acceptance stays **0/10, unavailable**.

@@ -1,0 +1,1231 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-first-reap-k107/allow-later-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py
+collecting ... collected 754 items / 712 deselected / 42 selected
+
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-before] PASSED [  2%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-equal] PASSED [  4%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-after] PASSED [  7%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-before] PASSED [  9%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-equal] PASSED [ 11%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-after] PASSED [ 14%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-before] FAILED [ 16%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-equal] FAILED [ 19%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-after] FAILED [ 21%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-before] FAILED [ 23%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-equal] FAILED [ 26%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-after] FAILED [ 28%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-before] PASSED [ 30%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-equal] PASSED [ 33%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-after] PASSED [ 35%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-before] PASSED [ 38%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-equal] PASSED [ 40%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-after] PASSED [ 42%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-before] FAILED [ 45%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-equal] FAILED [ 47%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-after] FAILED [ 50%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-before] FAILED [ 52%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-equal] FAILED [ 54%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-after] FAILED [ 57%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-before] PASSED [ 59%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-equal] PASSED [ 61%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-after] PASSED [ 64%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-before] PASSED [ 66%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-equal] PASSED [ 69%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-after] PASSED [ 71%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-before] PASSED [ 73%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-equal] PASSED [ 76%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-after] PASSED [ 78%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-before] PASSED [ 80%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-equal] PASSED [ 83%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-after] PASSED [ 85%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-before] PASSED [ 88%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-equal] PASSED [ 90%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-after] PASSED [ 92%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-before] PASSED [ 95%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-equal] PASSED [ 97%]
+test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-after] PASSED [100%]
+
+=================================== FAILURES ===================================
+___________ test_worker_first_reap_at_fixed_cutoff[live-pid-before] ____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe6')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108aa2930>, at = 99.9
+ready = False, outcome = 'live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 5 == 2
+E                +  where 5 = len([{'pid': 23532, 'flags': 1, 'monotonic': 99.9}, {'pid': 23532, 'flags': 1, 'monotonic': 99.99}, {'pid': 23532, 'flags': 1, 'monotonic': 100.0}, {'pid': 23532, 'flags': 1, 'monotonic': 100.3}, {'pid': 23532, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+____________ test_worker_first_reap_at_fixed_cutoff[live-pid-equal] ____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe7')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108aa31d0>
+at = 100.0, ready = False, outcome = 'live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 4 == 1
+E                +  where 4 = len([{'pid': 23533, 'flags': 1, 'monotonic': 100.0}, {'pid': 23533, 'flags': 1, 'monotonic': 100.0}, {'pid': 23533, 'flags': 1, 'monotonic': 100.3}, {'pid': 23533, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+____________ test_worker_first_reap_at_fixed_cutoff[live-pid-after] ____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe8')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108ab0f50>
+at = 100.1, ready = False, outcome = 'live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 4 == 1
+E                +  where 4 = len([{'pid': 23534, 'flags': 1, 'monotonic': 100.1}, {'pid': 23534, 'flags': 1, 'monotonic': 100.0}, {'pid': 23534, 'flags': 1, 'monotonic': 100.3}, {'pid': 23534, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+__________ test_worker_first_reap_at_fixed_cutoff[live-group-before] ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe9')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108ab1700>, at = 99.9
+ready = True, outcome = 'live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 5 == 2
+E                +  where 5 = len([{'pid': 23535, 'flags': 1, 'monotonic': 99.9}, {'pid': 23535, 'flags': 1, 'monotonic': 99.99}, {'pid': 23535, 'flags': 1, 'monotonic': 100.0}, {'pid': 23535, 'flags': 1, 'monotonic': 100.3}, {'pid': 23535, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+___________ test_worker_first_reap_at_fixed_cutoff[live-group-equal] ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe10')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108ab2690>
+at = 100.0, ready = True, outcome = 'live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 4 == 1
+E                +  where 4 = len([{'pid': 23545, 'flags': 1, 'monotonic': 100.0}, {'pid': 23545, 'flags': 1, 'monotonic': 100.0}, {'pid': 23545, 'flags': 1, 'monotonic': 100.3}, {'pid': 23545, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+___________ test_worker_first_reap_at_fixed_cutoff[live-group-after] ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe11')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108ab38c0>
+at = 100.1, ready = True, outcome = 'live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 4 == 1
+E                +  where 4 = len([{'pid': 23546, 'flags': 1, 'monotonic': 100.1}, {'pid': 23546, 'flags': 1, 'monotonic': 100.0}, {'pid': 23546, 'flags': 1, 'monotonic': 100.3}, {'pid': 23546, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+_________ test_worker_first_reap_at_fixed_cutoff[late-live-pid-before] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe18')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108aac350>, at = 99.9
+ready = False, outcome = 'late-live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 4 == 1
+E                +  where 4 = len([{'pid': 23553, 'flags': 1, 'monotonic': 99.9}, {'pid': 23553, 'flags': 1, 'monotonic': 100.0}, {'pid': 23553, 'flags': 1, 'monotonic': 100.3}, {'pid': 23553, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+_________ test_worker_first_reap_at_fixed_cutoff[late-live-pid-equal] __________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe19')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108aae450>
+at = 100.0, ready = False, outcome = 'late-live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 4 == 1
+E                +  where 4 = len([{'pid': 23563, 'flags': 1, 'monotonic': 100.0}, {'pid': 23563, 'flags': 1, 'monotonic': 100.0}, {'pid': 23563, 'flags': 1, 'monotonic': 100.3}, {'pid': 23563, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+_________ test_worker_first_reap_at_fixed_cutoff[late-live-pid-after] __________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe20')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108aae330>
+at = 100.1, ready = False, outcome = 'late-live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 4 == 1
+E                +  where 4 = len([{'pid': 23564, 'flags': 1, 'monotonic': 100.1}, {'pid': 23564, 'flags': 1, 'monotonic': 100.0}, {'pid': 23564, 'flags': 1, 'monotonic': 100.3}, {'pid': 23564, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+________ test_worker_first_reap_at_fixed_cutoff[late-live-group-before] ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe21')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108aace30>, at = 99.9
+ready = True, outcome = 'late-live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 4 == 1
+E                +  where 4 = len([{'pid': 23565, 'flags': 1, 'monotonic': 99.9}, {'pid': 23565, 'flags': 1, 'monotonic': 100.0}, {'pid': 23565, 'flags': 1, 'monotonic': 100.3}, {'pid': 23565, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+________ test_worker_first_reap_at_fixed_cutoff[late-live-group-equal] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe22')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108aaf140>
+at = 100.0, ready = True, outcome = 'late-live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 4 == 1
+E                +  where 4 = len([{'pid': 23566, 'flags': 1, 'monotonic': 100.0}, {'pid': 23566, 'flags': 1, 'monotonic': 100.0}, {'pid': 23566, 'flags': 1, 'monotonic': 100.3}, {'pid': 23566, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+________ test_worker_first_reap_at_fixed_cutoff[late-live-group-after] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-617/test_worker_first_reap_at_fixe23')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108aae870>
+at = 100.1, ready = True, outcome = 'late-live'
+
+    @pytest.mark.parametrize("at", [99.9, 100.0, 100.1], ids=["before", "equal", "after"])
+    @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
+    @pytest.mark.parametrize(
+        "outcome", ["exited", "live", "late-exited", "late-live", "echild", "eio", "late-eio"]
+    )
+    def test_worker_first_reap_at_fixed_cutoff(tmp_path, monkeypatch, at, ready, outcome):
+        """Real exact children; only clocks, deferred results and errno are simulated."""
+        original_waitpid = os.waitpid
+        original_monotonic = time.monotonic
+        read_fd, write_fd = os.pipe()
+        release_read, release_write = os.pipe()
+        pid = os.fork()
+        if pid == 0:
+            try:
+                inspection.reset_after_fork({write_fd, release_read})
+                os.write(write_fd, b"R")
+                if outcome in {"live", "late-live"}:
+                    while True:
+                        signal.pause()
+                os.read(release_read, 1)
+                os._exit(7)
+            finally:
+                os._exit(70)
+        os.close(write_fd)
+        os.close(release_read)
+        owner = worker_capture._Owner(pid, 100.0, ready=ready)
+        worker_capture._owners[pid] = owner
+        now = [at]
+        calls = []
+        runtime = None
+        audit = {"pid": pid, "reaped": False, "source": "original exact-child WNOHANG"}
+    
+        def waitpid(child, flags):
+            assert child == pid and flags == os.WNOHANG
+            calls.append({"pid": child, "flags": flags, "monotonic": now[0]})
+            if outcome.startswith("late-"):
+                now[0] = 100.2
+            if outcome in {"echild", "eio", "late-eio"}:
+                number = errno.ECHILD if outcome == "echild" else errno.EIO
+                raise OSError(number, "simulated worker reap errno")
+            return original_waitpid(child, flags)
+    
+        def forbidden_signal(*args):
+            raise AssertionError("expired or terminal owner regained signal authority")
+    
+        try:
+            # Readiness is bounded independently of the synthetic runtime clock.
+            import select
+    
+            assert select.select([read_fd], [], [], 1)[0]
+            assert os.read(read_fd, 1) == b"R"
+            if outcome not in {"live", "late-live"}:
+                # Register before releasing exit; observe without consuming status.
+                queue = select.kqueue()
+                try:
+                    event = select.kevent(
+                        pid,
+                        filter=select.KQ_FILTER_PROC,
+                        flags=select.KQ_EV_ADD,
+                        fflags=select.KQ_NOTE_EXIT,
+                    )
+                    queue.control([event], 0, 0)
+                    os.write(release_write, b"X")
+                    events = queue.control(None, 1, 1)
+                    assert any(item.fflags & select.KQ_NOTE_EXIT for item in events)
+                finally:
+                    queue.close()
+            with monkeypatch.context() as patch:
+                patch.setattr(time, "monotonic", lambda: now[0])
+                patch.setattr(os, "waitpid", waitpid)
+                patch.setattr(os, "kill", forbidden_signal)
+                patch.setattr(os, "killpg", forbidden_signal)
+                worker_capture._reap(owner)
+                assert len(calls) == 1
+                if outcome == "live" and at < 100:
+                    # A second pre-cutoff poll is still permitted.
+                    now[0] = 99.99
+                    worker_capture._reap(owner)
+                    assert len(calls) == 2
+                attempts = len(calls)
+                for expired in (100.0, 100.3, 100.5):
+                    now[0] = expired
+                    worker_capture._reap(owner)
+                    worker_capture._signal(owner, signal.SIGTERM)
+                    worker_capture._signal(owner, signal.SIGKILL)
+>               assert len(calls) == attempts
+E               AssertionError: assert 4 == 1
+E                +  where 4 = len([{'pid': 23567, 'flags': 1, 'monotonic': 100.1}, {'pid': 23567, 'flags': 1, 'monotonic': 100.0}, {'pid': 23567, 'flags': 1, 'monotonic': 100.3}, {'pid': 23567, 'flags': 1, 'monotonic': 100.5}])
+
+test_shutdown.py:435: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-first-reap-k107/allow-later/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-before] - AssertionError: assert 5 == 2
+ +  where 5 = len([{'pid': 23532, 'flags': 1, 'monotonic': 99.9}, {'pid': 23532, 'flags': 1, 'monotonic': 99.99}, {'pid': 23532, 'flags': 1, 'monotonic': 100.0}, {'pid': 23532, 'flags': 1, 'monotonic': 100.3}, {'pid': 23532, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-equal] - AssertionError: assert 4 == 1
+ +  where 4 = len([{'pid': 23533, 'flags': 1, 'monotonic': 100.0}, {'pid': 23533, 'flags': 1, 'monotonic': 100.0}, {'pid': 23533, 'flags': 1, 'monotonic': 100.3}, {'pid': 23533, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-after] - AssertionError: assert 4 == 1
+ +  where 4 = len([{'pid': 23534, 'flags': 1, 'monotonic': 100.1}, {'pid': 23534, 'flags': 1, 'monotonic': 100.0}, {'pid': 23534, 'flags': 1, 'monotonic': 100.3}, {'pid': 23534, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-before] - AssertionError: assert 5 == 2
+ +  where 5 = len([{'pid': 23535, 'flags': 1, 'monotonic': 99.9}, {'pid': 23535, 'flags': 1, 'monotonic': 99.99}, {'pid': 23535, 'flags': 1, 'monotonic': 100.0}, {'pid': 23535, 'flags': 1, 'monotonic': 100.3}, {'pid': 23535, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-equal] - AssertionError: assert 4 == 1
+ +  where 4 = len([{'pid': 23545, 'flags': 1, 'monotonic': 100.0}, {'pid': 23545, 'flags': 1, 'monotonic': 100.0}, {'pid': 23545, 'flags': 1, 'monotonic': 100.3}, {'pid': 23545, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-after] - AssertionError: assert 4 == 1
+ +  where 4 = len([{'pid': 23546, 'flags': 1, 'monotonic': 100.1}, {'pid': 23546, 'flags': 1, 'monotonic': 100.0}, {'pid': 23546, 'flags': 1, 'monotonic': 100.3}, {'pid': 23546, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-before] - AssertionError: assert 4 == 1
+ +  where 4 = len([{'pid': 23553, 'flags': 1, 'monotonic': 99.9}, {'pid': 23553, 'flags': 1, 'monotonic': 100.0}, {'pid': 23553, 'flags': 1, 'monotonic': 100.3}, {'pid': 23553, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-equal] - AssertionError: assert 4 == 1
+ +  where 4 = len([{'pid': 23563, 'flags': 1, 'monotonic': 100.0}, {'pid': 23563, 'flags': 1, 'monotonic': 100.0}, {'pid': 23563, 'flags': 1, 'monotonic': 100.3}, {'pid': 23563, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-after] - AssertionError: assert 4 == 1
+ +  where 4 = len([{'pid': 23564, 'flags': 1, 'monotonic': 100.1}, {'pid': 23564, 'flags': 1, 'monotonic': 100.0}, {'pid': 23564, 'flags': 1, 'monotonic': 100.3}, {'pid': 23564, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-before] - AssertionError: assert 4 == 1
+ +  where 4 = len([{'pid': 23565, 'flags': 1, 'monotonic': 99.9}, {'pid': 23565, 'flags': 1, 'monotonic': 100.0}, {'pid': 23565, 'flags': 1, 'monotonic': 100.3}, {'pid': 23565, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-equal] - AssertionError: assert 4 == 1
+ +  where 4 = len([{'pid': 23566, 'flags': 1, 'monotonic': 100.0}, {'pid': 23566, 'flags': 1, 'monotonic': 100.0}, {'pid': 23566, 'flags': 1, 'monotonic': 100.3}, {'pid': 23566, 'flags': 1, 'monotonic': 100.5}])
+FAILED test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-after] - AssertionError: assert 4 == 1
+ +  where 4 = len([{'pid': 23567, 'flags': 1, 'monotonic': 100.1}, {'pid': 23567, 'flags': 1, 'monotonic': 100.0}, {'pid': 23567, 'flags': 1, 'monotonic': 100.3}, {'pid': 23567, 'flags': 1, 'monotonic': 100.5}])
+================ 12 failed, 30 passed, 712 deselected in 0.64s =================

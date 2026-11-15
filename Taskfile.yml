@@ -759,3 +759,41 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python -m ruff format worker_capture.py test_shutdown.py evidence/shutdown-phases-k109/*.py
+
+  diagnostic:worker-first-reap-prepare:
+    desc: Freeze worker first-reap sources, optionally with MUTANT=<named regression>
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/worker-first-reap-k107/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:worker-first-reap-check:
+    desc: Retain frozen worker shutdown controls or full tests and static checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/worker-first-reap-k107/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
+
+  diagnostic:worker-first-reap-preserve:
+    desc: Inventory prior evidence before or after worker first-reap work
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/worker-first-reap-k107/preserve.py '{{.MODE}}'
+
+  diagnostic:worker-first-reap-tools:
+    desc: Check worker first-reap evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/worker-first-reap-k107/*.py
+      - uv run --locked python -m ruff check evidence/worker-first-reap-k107/*.py
+      - uv run --locked python -m pyright evidence/worker-first-reap-k107/*.py
+
+  diagnostic:worker-first-reap-format:
+    desc: Format the worker first-reap implementation and controls
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format worker_capture.py test_shutdown.py evidence/worker-first-reap-k107/*.py

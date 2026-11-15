@@ -112,6 +112,7 @@ class _Owner:
     returncode: int | None = None
     signals: list[dict[str, object]] = field(default_factory=list[dict[str, object]])
     reap_errno: int | None = None
+    reap_attempts: int = 0
 
 
 _owners: dict[int, _Owner] = {}
@@ -123,9 +124,12 @@ _helper_obligations: dict[str, dict[str, object]] = {}
 def _reap(owner: _Owner) -> None:
     if owner.reaped or owner.reap_errno is not None:
         return
-    # Residual ownership pins identity; it does not renew the fixed allowance.
-    if time.monotonic() >= owner.shutdown_deadline_monotonic:
+    # The first exact-child check is owed even after cutoff. Recording it before
+    # waitpid also consumes that exception for no-result, errors, and late returns.
+    now = time.monotonic()
+    if now >= owner.shutdown_deadline_monotonic and owner.reap_attempts:
         return
+    owner.reap_attempts += 1
     try:
         pid, status = os.waitpid(owner.pid, os.WNOHANG)
     except OSError as error:

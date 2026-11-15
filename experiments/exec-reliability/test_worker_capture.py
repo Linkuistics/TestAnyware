@@ -2324,8 +2324,10 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
             assert worker.failure is None
         elif mode == "expired":
             assert signals == ["SIGTERM"]
-            assert not owner.reaped and owner.pid in worker_capture._owners
-            assert first["residual_remedy"]
+            assert owner.reaped and owner.returncode == -signal.SIGTERM
+            assert owner.pid not in worker_capture._owners and not first["residual_remedy"]
+            assert first["shutdown"]["overrun"] and worker.failure
+            assert first["owner"]["reap_attempts"] == 1
         elif mode == "denied-kill":
             assert signals == ["SIGKILL"] and owner.signals[0]["errno"] == errno.EPERM
             assert not owner.reaped and owner.pid in worker_capture._owners
