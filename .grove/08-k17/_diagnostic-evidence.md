@@ -9,28 +9,28 @@ before live route preparation or causal measurement uses them.
 
 Read review `diagnostic-foundation-k15` in commit `4bb47c05` and integration
 `diagnostic-foundation-k16`. The unresolved scope is F4, F5 and the remaining F6
-controls. F7's historical audit is closed by k16's itemized audits. The current handoff is
+controls. F7's historical audit is closed by k16's itemised audits. The current handoff is
 `docs/experiments/exec-reliability-diagnostic-foundation.md`.
 
 ## Done when
 
 - Leader exit after TERM has a monotonic observation and PID-only KILL is
   conditional on need. Establish a safe group-inspection contract while pinning
-  the leader; do not signal a group after reaping permits identity reuse.
+  the leader. Do not signal a group after reaping permits identity reuse.
   Distinguish zombie-only EPERM, genuine signal permission failure, surviving
   members and failed inspection. Keep declared grace/kill/reap totals.
 - Correct the local fork fixture's signal-handler wait-lock deadlock. Add
   opposed fixtures that distinguish PID-only CLI interruption from a group
   signal, and normal leader exit with a surviving writer. Positively inspect
-  and clean each owned known child; do not infer arbitrary descendant absence.
+  and clean each owned known child. Do not infer arbitrary descendant absence.
 - Pin raw stream lengths/digests and result identity, demonstrate detection of
   late changes, and state the exact observation interval. A snapshot is not
   immutable publication. Each meaningful guarantee has a control shown failing
   against its broken condition, including wrong-stdout acceptance and wrong
   signal scope. Remove tautological controller-survival assertions.
-- Reuse k16's itemized historical audit; audit every new owned local resource
+- Reuse k16's itemised historical audit. Audit every new owned local resource
   and known child this producer creates. Preserve original receipts. Verify
-  exact paths and process identities; a ps usage error cannot count as absence.
+  exact paths and process identities. A ps usage error cannot count as absence.
 - Retain per-test/checker verdicts with source hashes in new directories, reuse
   the Taskfile runner, update the handoff and resource audit. No live guest,
   app quit, unsafe macOS process suite or acceptance claim.
@@ -39,8 +39,10 @@ controls. F7's historical audit is closed by k16's itemized audits. The current 
 
 The stalled-filesystem architecture belongs to `diagnostic-disposal-k18`.
 This producer cuts its specific `review-impl` ahead of the first live consumer
-as its last work act; integration is created only if that review warrants it.
+as its last work act. Integration is created only if that review warrants it.
 Decompose if the independently demonstrable evidence contracts exceed a leaf.
+
+<!-- tc: off because the decomposition records earlier producer and review conditions -->
 
 ## Decomposition
 
@@ -107,15 +109,19 @@ whole-contract check. k18 separately consumes the reviewed scheduler and
 immutable in-memory outcomes while isolating storage. Planning delivers no new
 runtime guarantee or acceptance evidence.
 
+<!-- tc: on -->
+
 ## Current structure
 
 This node earns its shared context for termination and retained-file integrity: the
 joint completion requires reviewed F4/F5/F6 controls before live diagnostics.
 Bounded-inspection-k28 earns the worker/scheduler subgoal and its shared fault
-inventory. Its sessions are now flat siblings. Former continuation-node handles
+inventory. Its sessions are now flat siblings.
+
+Former continuation-node handles
 k30/k34/k38/k40/k42/k44/k48 route through
-[Grove brief history](../../docs/planning/grove-history/README.md); their unfinished
-contracts are promoted into k28, with k72 preceding k71 and complete runtime
+[Grove brief history](../../docs/planning/grove-history/README.md). Their unfinished
+contracts are promoted into k28. k72 precedes k71, with complete runtime
 review/reconciliation before k21. Historical statements above about k30 or an
 earlier synchronous source condition remain provenance, not acceptance of the
-current runtime. k17 stays open through k28 and k21; storage remains k18.
+current runtime. k17 stays open through k28 and k21. Storage remains k18.
