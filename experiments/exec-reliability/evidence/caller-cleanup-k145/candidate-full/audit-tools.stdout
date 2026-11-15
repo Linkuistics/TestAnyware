@@ -1,0 +1,45 @@
+...F........                                                             [100%]
+=================================== FAILURES ===================================
+____________ test_caller_accounting_requires_matching_content[None] ____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1040/test_caller_accounting_require0')
+damage = None
+
+    @pytest.mark.parametrize("damage", [None, "flags", "pid", "phases", "outcome", "malformed"])
+    def test_caller_accounting_requires_matching_content(tmp_path: Path, damage: str | None) -> None:
+        runs = tmp_path / "runs"
+        runs.mkdir()
+        name = "request-start-False-False-False.json"
+        start = {"checker_pid": 123, "persistent": False, "stalled": False, "supplied": False}
+        end = {
+            "declaration": name,
+            "persistent": False,
+            "stalled": False,
+            "supplied": False,
+            "worker": {"pid": 456, "reaped": True},
+            "error": None,
+            "phases": [["competitor"] + ["owner"] * 5, ["owner", "competitor"]],
+        }
+        if damage == "flags":
+            end["supplied"] = True
+        elif damage == "pid":
+            end["worker"] = {"pid": -1, "reaped": True}
+        elif damage == "phases":
+            end["phases"] = [["owner", "competitor"], ["owner", "competitor"]]
+        elif damage == "outcome":
+            end["error"] = "unexpected failure"
+        (runs / name).write_text(json.dumps(start))
+        (runs / "request-turns-fixture.json").write_text(
+            "{" if damage == "malformed" else json.dumps(end)
+        )
+        audits = caller_audits(tmp_path)
+        assert audits[0]["complete"] is (damage is None)
+        assert all(item["complete"] is False for item in audits[1:])
+>       assert all(item["complete"] is False for item in audits)
+E       assert False
+E        +  where False = all(<generator object test_caller_accounting_requires_matching_content.<locals>.<genexpr> at 0x10b76e0c0>)
+
+../test_audit.py:61: AssertionError
+=========================== short test summary info ============================
+FAILED ../test_audit.py::test_caller_accounting_requires_matching_content[None]
+1 failed, 11 passed in 0.06s

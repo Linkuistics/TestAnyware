@@ -585,10 +585,20 @@ class Worker:
         return None
 
     def close(self, *, drive: Callable[[Turn], None] | None = None) -> None:
-        """Complete close through the caller's driver, or the default driver."""
+        """Complete close through the caller's driver, or the default driver.
+
+        A supplied driver must synchronously advance its Turn to None or raise.
+        It may compose companions, but must not return with the Turn pending.
+        If it raises, release channels without renewing process authority.
+        """
         schedule = run_turns if drive is None else drive
         self.begin_close()
-        schedule(Turn(self.advance_close, safety=True))
+        try:
+            schedule(Turn(self.advance_close, safety=True))
+        finally:
+            if self.shutdown_finished is None:
+                assert self._shutdown is not None
+                self._finish_close(self._shutdown)
 
     def _finish_close(self, state: _Shutdown) -> None:
         owner = self.owner
@@ -957,6 +967,10 @@ def capture_helper(
 
     The raw worker fork is admitted, but remains a synchronous OS operation.
     All channel waits and worker shutdown share the caller's original deadline.
+    A supplied driver must synchronously advance every Turn (including safety
+    retirement/close Turns) to None or raise. Returning with a pending Turn is
+    invalid; no private fallback driver completes it. Exceptions still release
+    owned channels and retain unresolved process obligations without new allowance.
     """
     # The supplied driver completes each bounded owner and may compose companions.
     schedule = run_turns if drive is None else drive
@@ -1325,141 +1339,166 @@ def capture_helper(
         if isinstance(error, OSError):
             receipt.error_errno = error.errno
     finally:
-        if owner is not None:
-            if worker is None or worker.failure is not None:
-                _reap(owner)
-                if not owner.reaped:
-                    _signal(owner, signal.SIGTERM)
-                # One fixed shutdown reserve, never a renewed per-phase allowance.
-                kill_at = min(deadline, time.monotonic() + reserve / 4)
-                # Parse buffered controls even after observing worker exit. Never
-                # decode late terminal/reap receipts or confirm a late fork failure.
-                if not complete:
-                    consume_control(cleanup_only=True)
-                cleanup_open = (
-                    not complete and control_read is not None and 0 not in closed_channels
-                )
+        try:
+            if owner is not None:
+                try:
+                    if worker is None or worker.failure is not None:
+                        _reap(owner)
+                        if not owner.reaped:
+                            _signal(owner, signal.SIGTERM)
+                        # One fixed shutdown reserve, never a renewed per-phase allowance.
+                        kill_at = min(deadline, time.monotonic() + reserve / 4)
+                        # Parse buffered controls even after observing worker exit. Never
+                        # decode late terminal/reap receipts or confirm a late fork failure.
+                        if not complete:
+                            consume_control(cleanup_only=True)
+                        cleanup_open = (
+                            not complete and control_read is not None and 0 not in closed_channels
+                        )
 
-                def advance_retirement() -> float | None:
-                    nonlocal kill_at, cleanup_open, control_bytes, creation_conflict
-                    assert owner is not None
-                    if time.monotonic() >= deadline:
-                        return None
-                    if (
-                        not owner.reaped
-                        and owner.reap_errno is None
-                        and time.monotonic() >= kill_at
+                        def advance_retirement() -> float | None:
+                            nonlocal kill_at, cleanup_open, control_bytes, creation_conflict
+                            assert owner is not None
+                            if time.monotonic() >= deadline:
+                                return None
+                            if (
+                                not owner.reaped
+                                and owner.reap_errno is None
+                                and time.monotonic() >= kill_at
+                            ):
+                                _signal(owner, signal.SIGKILL)
+                                kill_at = float("inf")
+                            _reap(owner)
+                            if cleanup_open and control_read is not None:
+                                # Nonblocking, one read per turn, cumulative cap plus one
+                                # overflow-detection byte; no EOF-dependent wait or renewal.
+                                if control_bytes > 4096 or control_invalid:
+                                    cleanup_open = False
+                                else:
+                                    try:
+                                        chunk = os.read(
+                                            control_read, min(TURN_CAP, 4097 - control_bytes)
+                                        )
+                                    except BlockingIOError:
+                                        chunk = None
+                                    except OSError:
+                                        chunk = None
+                                        cleanup_open = False
+                                    if chunk is not None:
+                                        cleanup_open = bool(chunk)
+                                        if not chunk:
+                                            closed_channels.add(0)
+                                        buffers[0].extend(chunk[: max(0, 4096 - control_bytes)])
+                                        control_bytes += len(chunk)
+                                        if chunk and fork_failure is not None:
+                                            creation_conflict = True
+                                        consume_control(cleanup_only=True)
+                            if (owner.reaped or owner.reap_errno is not None) and not cleanup_open:
+                                return None
+                            next_kill = (
+                                kill_at
+                                if not owner.reaped and owner.reap_errno is None
+                                else float("inf")
+                            )
+                            return min(deadline, next_kill, time.monotonic() + 0.001)
+
+                        def retirement_readiness() -> tuple[tuple[int, ...], tuple[int, ...]]:
+                            readers = (
+                                (control_read,) if cleanup_open and control_read is not None else ()
+                            )
+                            return readers, ()
+
+                        try:
+                            schedule(
+                                Turn(
+                                    advance_retirement, safety=True, readiness=retirement_readiness
+                                )
+                            )
+                        finally:
+                            _reap(owner)
+                finally:
+                    if not complete and fork_failure is not None and (buffers[0] or buffers[1]):
+                        # Incremental rejection can bypass the final decoder. Partial
+                        # control/terminal data still revokes clean no-child authority.
+                        creation_conflict = True
+                    confirmed_failure = (
+                        fork_failure is not None
+                        and not creation_conflict
+                        and closed_channels == {0, 1}
+                    )
+                    unknown_creation = (
+                        not complete and helper_identity is None and not confirmed_failure
+                    )
+                    if confirmed_failure and fork_failure is not None and not complete:
+                        receipt.error_errno = cast(int, fork_failure["errno"])
+                    receipt.worker = {
+                        **asdict(owner),
+                        "intent": intent,
+                        "unknown_helper_creation": unknown_creation,
+                        "fork_failure": fork_failure,
+                        "creation_conflict": creation_conflict,
+                        "helper_identity": helper_identity,
+                        "helper_identities": helper_identities,
+                        "helper_obligation_retained": any(
+                            key == token or key.startswith(token + ":")
+                            for key in _helper_obligations
+                        ),
+                        "signal_scope": "group" if owner.ready else "pid",
+                        "dispatch_monotonic": dispatched,
+                        "receipt_monotonic": received,
+                        "published_times": published_times,
+                        "query_deadline_monotonic": query_deadline,
+                        "reserve_seconds": reserve,
+                        "request_token": token,
+                        "request_identity": request_identity,
+                        "session_token": worker.session_token if worker is not None else None,
+                    }
+                    if (worker is None or worker.failure is not None) and (
+                        not owner.reaped or owner.returncode != 0
                     ):
-                        _signal(owner, signal.SIGKILL)
-                        kill_at = float("inf")
-                    _reap(owner)
-                    if cleanup_open and control_read is not None:
-                        # Nonblocking, one read per turn, cumulative cap plus one
-                        # overflow-detection byte; no EOF-dependent wait or renewal.
-                        if control_bytes > 4096 or control_invalid:
-                            cleanup_open = False
-                        else:
-                            try:
-                                chunk = os.read(control_read, min(TURN_CAP, 4097 - control_bytes))
-                            except BlockingIOError:
-                                chunk = None
-                            except OSError:
-                                chunk = None
-                                cleanup_open = False
-                            if chunk is not None:
-                                cleanup_open = bool(chunk)
-                                if not chunk:
-                                    closed_channels.add(0)
-                                buffers[0].extend(chunk[: max(0, 4096 - control_bytes)])
-                                control_bytes += len(chunk)
-                                if chunk and fork_failure is not None:
-                                    creation_conflict = True
-                                consume_control(cleanup_only=True)
-                    if (owner.reaped or owner.reap_errno is not None) and not cleanup_open:
-                        return None
-                    next_kill = (
-                        kill_at if not owner.reaped and owner.reap_errno is None else float("inf")
-                    )
-                    return min(deadline, next_kill, time.monotonic() + 0.001)
-
-                def retirement_readiness() -> tuple[tuple[int, ...], tuple[int, ...]]:
-                    readers = (control_read,) if cleanup_open and control_read is not None else ()
-                    return readers, ()
-
-                schedule(Turn(advance_retirement, safety=True, readiness=retirement_readiness))
-                _reap(owner)
-            if not complete and fork_failure is not None and (buffers[0] or buffers[1]):
-                # Incremental rejection can bypass the final decoder. Partial
-                # control/terminal data still revokes clean no-child authority.
-                creation_conflict = True
-            confirmed_failure = (
-                fork_failure is not None and not creation_conflict and closed_channels == {0, 1}
-            )
-            unknown_creation = not complete and helper_identity is None and not confirmed_failure
-            if confirmed_failure and fork_failure is not None and not complete:
-                receipt.error_errno = cast(int, fork_failure["errno"])
-            receipt.worker = {
-                **asdict(owner),
-                "intent": intent,
-                "unknown_helper_creation": unknown_creation,
-                "fork_failure": fork_failure,
-                "creation_conflict": creation_conflict,
-                "helper_identity": helper_identity,
-                "helper_identities": helper_identities,
-                "helper_obligation_retained": any(
-                    key == token or key.startswith(token + ":") for key in _helper_obligations
-                ),
-                "signal_scope": "group" if owner.ready else "pid",
-                "dispatch_monotonic": dispatched,
-                "receipt_monotonic": received,
-                "published_times": published_times,
-                "query_deadline_monotonic": query_deadline,
-                "reserve_seconds": reserve,
-                "request_token": token,
-                "request_identity": request_identity,
-                "session_token": worker.session_token if worker is not None else None,
-            }
-            if (worker is None or worker.failure is not None) and (
-                not owner.reaped or owner.returncode != 0
-            ):
-                receipt.error = (
-                    receipt.error or "worker did not exit cleanly within fixed allowance"
-                )
-            if (worker is None or worker.failure is not None) and (
-                not owner.reaped or (not complete and not confirmed_failure)
-            ):
-                receipt.residual_remedy = (
-                    "Retained helper identity requires its own matching reap receipt; unpublished "
-                    "interrupted creation remains unknown. Worker reap/group signals do not "
-                    "prove helper death. Independently reconcile exact worker/helper fixture "
-                    "identities. An unreaped worker retains strong ownership without later signals."
-                )
-            elif token in _helper_obligations and not receipt.residual_remedy:
-                receipt.residual_remedy = (
-                    "Retained helper identity requires its own matching reap receipt; "
-                    "worker reap does not resolve the helper obligation."
-                )
-        if worker is not None:
-            if worker.failure is not None:
-                close_worker()
-        for fd in channels:
+                        receipt.error = (
+                            receipt.error or "worker did not exit cleanly within fixed allowance"
+                        )
+                    if (worker is None or worker.failure is not None) and (
+                        not owner.reaped or (not complete and not confirmed_failure)
+                    ):
+                        receipt.residual_remedy = (
+                            "Retained helper identity requires its own matching reap receipt; "
+                            "unpublished interrupted creation remains unknown. Worker reap/group "
+                            "signals do not prove helper death. Independently reconcile exact "
+                            "worker/helper fixture identities. An unreaped worker retains strong "
+                            "ownership without later signals."
+                        )
+                    elif token in _helper_obligations and not receipt.residual_remedy:
+                        receipt.residual_remedy = (
+                            "Retained helper identity requires its own matching reap receipt; "
+                            "worker reap does not resolve the helper obligation."
+                        )
+        finally:
             try:
-                os.close(fd)
-            except OSError as error:
-                receipt.close_errors.append(f"worker channel {fd}: {error}")
-                receipt.error = receipt.error or "worker channel close failed"
-        receipt.finished_monotonic = time.monotonic()
-        if receipt.finished_monotonic > deadline:
-            receipt.error = receipt.error or "worker fixed deadline exceeded"
-        if worker is not None:
-            if receipt.error is not None and worker.failure is None:
-                worker.failure = receipt.error
-                close_worker()
-                if owner is not None and not owner.reaped:
-                    receipt.residual_remedy = receipt.residual_remedy or (
-                        "Worker finalization exceeded its request allowance; independently "
-                        "reconcile the retained exact child without renewed runtime authority."
-                    )
-            elif complete and worker.failure is None and owner is not None:
-                owner.shutdown_deadline_monotonic = float("inf")
+                if worker is not None:
+                    if worker.failure is not None:
+                        close_worker()
+            finally:
+                for fd in channels:
+                    try:
+                        os.close(fd)
+                    except OSError as error:
+                        receipt.close_errors.append(f"worker channel {fd}: {error}")
+                        receipt.error = receipt.error or "worker channel close failed"
+                receipt.finished_monotonic = time.monotonic()
+                if receipt.finished_monotonic > deadline:
+                    receipt.error = receipt.error or "worker fixed deadline exceeded"
+                if worker is not None:
+                    if receipt.error is not None and worker.failure is None:
+                        worker.failure = receipt.error
+                        close_worker()
+                        if owner is not None and not owner.reaped:
+                            receipt.residual_remedy = receipt.residual_remedy or (
+                                "Worker finalization exceeded its request allowance; independently "
+                                "reconcile the retained exact child without renewed runtime "
+                                "authority."
+                            )
+                    elif complete and worker.failure is None and owner is not None:
+                        owner.shutdown_deadline_monotonic = float("inf")
     return receipt

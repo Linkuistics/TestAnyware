@@ -10,6 +10,33 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  diagnostic:caller-fix-prepare:
+    desc: Freeze k145 cleanup inputs in a new OUT directory
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/caller-cleanup-k145/prepare.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
+
+  diagnostic:caller-fix-check:
+    desc: Retain k145 controls, full suite or static checks in a new OUT directory
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/caller-cleanup-k145/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
+
+  diagnostic:caller-fix-preserve:
+    desc: Verify earlier evidence, allowing only the named k140 report correction
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/caller-cleanup-k145/preserve.py {{.MODE | shellQuote}}
+
+  diagnostic:caller-fix-tools:
+    desc: Format or check k145 tools and regression controls
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/caller-cleanup-k145/*.py test_turns.py
+      - uv run --locked python -m ruff check evidence/caller-cleanup-k145/*.py worker_capture.py test_turns.py
+      - uv run --locked --isolated --python 3.12 python -m pytest -q evidence/caller-cleanup-k145/test_audit.py
+      - uv run --locked python -m pyright evidence/caller-cleanup-k145/prepare.py evidence/caller-cleanup-k145/preserve.py evidence/caller-cleanup-k145/run_condition.py
+
   diagnostic:caller-prepare:
     desc: Freeze caller scheduling subjects
     dir: experiments/exec-reliability

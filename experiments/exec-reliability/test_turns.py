@@ -1008,3 +1008,114 @@ def test_caller_driver_owns_finalization_failure(monkeypatch):
     assert worker.closed
     assert events == ["advance_query", "advance_close"]
     assert owner.reap_attempts == 0
+
+
+@pytest.mark.parametrize(
+    ("mode", "phase"),
+    [
+        ("standalone", "retirement"),
+        ("persistent", "retirement"),
+        ("persistent", "close"),
+        ("direct", "close"),
+    ],
+)
+@pytest.mark.parametrize("error_type", [RuntimeError, OSError])
+def test_caller_driver_exception_releases_real_channels(monkeypatch, mode, phase, error_type):
+    """A failing safety driver releases owned pipes and preserves its exception."""
+    import errno
+    import os
+
+    import worker_capture
+
+    now, _ = clock(monkeypatch)
+    deadline = now[0] + 0.1
+    real_pipe = os.pipe
+    allocated = []
+
+    def pipe():
+        pair = real_pipe()
+        allocated.extend(pair)
+        return pair
+
+    monkeypatch.setattr(worker_capture.os, "pipe", pipe)
+    monkeypatch.setattr(
+        worker_capture.inspection, "fork_admission", lambda: {"ok": True, "reason": "fixture"}
+    )
+    monkeypatch.setattr(worker_capture.os, "fork", lambda: 2**30)
+    monkeypatch.setattr(worker_capture.os, "waitpid", lambda pid, _flags: (pid, 0))
+
+    def forbidden_signal(*_args):
+        pytest.fail("reaped fixture must never receive a signal")
+
+    monkeypatch.setattr(worker_capture.os, "kill", forbidden_signal)
+    worker = None
+    peers = []
+    owned = []
+    if mode != "standalone":
+        command_read, command = pipe()
+        control, control_write = pipe()
+        result, result_write = pipe()
+        peers = [command_read, control_write, result_write]
+        owned = [command, control, result]
+        for fd in owned:
+            os.set_blocking(fd, False)
+        worker = worker_capture.Worker(
+            started=True,
+            admission={"ok": True, "reason": "fixture"},
+            owner=worker_capture._Owner(2**30, deadline, reaped=True, returncode=0),
+            command=command,
+            control=control,
+            result=result,
+            channels=owned.copy(),
+        )
+    receipts = []
+    capture_type = worker_capture.HelperCapture
+
+    def capture(**kwargs):
+        receipt = capture_type(**kwargs)
+        receipts.append(receipt)
+        return receipt
+
+    monkeypatch.setattr(worker_capture, "HelperCapture", capture)
+    failure = error_type("caller safety driver failed")
+    events = []
+
+    def drive(subject):
+        events.append(subject.advance.__name__)
+        if subject.advance.__name__ == f"advance_{phase}":
+            raise failure
+        if not subject.safety:
+            now[0] = deadline
+        turns.run_turns(subject)
+
+    try:
+        with pytest.raises(error_type) as raised:
+            if mode == "direct":
+                worker.close(drive=drive)
+            else:
+                worker_capture.capture_helper(
+                    ("/usr/bin/true",), deadline, worker=worker, drive=drive
+                )
+        assert raised.value is failure
+        for fd in owned if owned else allocated:
+            with pytest.raises(OSError) as closed:
+                os.fstat(fd)
+            assert closed.value.errno == errno.EBADF
+        for fd in peers:
+            os.fstat(fd)
+        if worker is not None:
+            assert worker.closed and not worker.channels
+            assert worker.shutdown_finished is not None
+            assert worker.owner.shutdown_deadline_monotonic <= deadline
+            assert worker.owner.signals == []
+        if receipts:
+            assert receipts[0].worker is not None
+            assert receipts[0].finished_monotonic is not None
+        if mode == "persistent" and phase == "retirement":
+            assert events[-1] == "advance_close"
+    finally:
+        for fd in allocated:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
