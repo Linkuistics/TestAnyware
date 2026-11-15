@@ -403,13 +403,19 @@ class Worker:
                 self.channels.remove(fd)
             self.command, self.control, self.result = command_write, control_read, result_read
             pending = bytearray()
-            while time.monotonic() < deadline:
-                ready, _, _ = select.select(
-                    [control_read], [], [], min(0.005, max(0, deadline - time.monotonic()))
-                )
-                if not ready:
-                    continue
-                chunk = os.read(control_read, 4097 - len(pending))
+            owner = self.owner
+
+            def advance_start() -> float | None:
+                if self.started or self.closed or self.failure is not None:
+                    return None
+                now = time.monotonic()
+                if now >= deadline:
+                    self.readiness_finished = now
+                    raise TimeoutError("worker readiness deadline exhausted")
+                try:
+                    chunk = os.read(control_read, 4097 - len(pending))
+                except BlockingIOError:
+                    return min(deadline, now + 0.005)
                 pending.extend(chunk)
                 if not chunk or len(pending) > 4096:
                     raise ValueError("invalid worker startup frame")
@@ -427,10 +433,18 @@ class Worker:
                     if self.readiness_finished >= deadline:
                         raise TimeoutError("late worker readiness")
                     self.readiness_outcome = "ready"
-                    self.owner.ready = True
+                    owner.ready = True
                     self.started = True
-                    return True
-            raise TimeoutError("worker readiness deadline exhausted")
+                    return None
+                return min(deadline, time.monotonic() + 0.005)
+
+            def startup_readiness() -> tuple[tuple[int, ...], tuple[int, ...]]:
+                if self.started or self.closed or self.failure is not None:
+                    return (), ()
+                return ((control_read,) if control_read in self.channels else ()), ()
+
+            run_turns(Turn(advance_start, readiness=startup_readiness))
+            return self.started and not self.closed and self.failure is None
         except (OSError, ValueError) as error:
             if self.readiness_finished is None:
                 self.readiness_finished = time.monotonic()

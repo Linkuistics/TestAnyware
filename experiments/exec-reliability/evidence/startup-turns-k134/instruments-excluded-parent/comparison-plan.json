@@ -1,0 +1,40 @@
+{
+  "scope": "startup turn slice only; aggregate remains k137",
+  "historical_failures": "observed-deviations.json",
+  "conditions": [
+    "red-controls",
+    "candidate-controls",
+    "candidate-controls-2",
+    "parent-full-1",
+    "candidate-full-1",
+    "parent-full-2",
+    "candidate-full-2",
+    "mutant-no-expiry",
+    "mutant-no-terminal",
+    "mutant-frame-limit",
+    "mutant-late-equality"
+  ],
+  "mutations": {
+    "no-expiry": [
+      "worker_capture.py",
+      "if now >= deadline:\n                    raise TimeoutError(\"worker readiness deadline exhausted\")",
+      "if False:\n                    self.readiness_finished = now\n                    raise TimeoutError(\"worker readiness deadline exhausted\")"
+    ],
+    "no-terminal": [
+      "worker_capture.py",
+      "                if self.started or self.closed or self.failure is not None:\n                    return None",
+      "                if False:\n                    return None"
+    ],
+    "frame-limit": [
+      "worker_capture.py",
+      "os.read(control_read, 4097 - len(pending))",
+      "os.read(control_read, 8193 - len(pending))"
+    ],
+    "late-equality": [
+      "worker_capture.py",
+      "if self.readiness_finished >= deadline:",
+      "if self.readiness_finished > deadline:"
+    ]
+  },
+  "initial_candidate_failure": "Expired callback detected expiry but outer failure handler sampled after injected driver clock was restored; record readiness_finished at expiry decision."
+}

@@ -3,6 +3,7 @@
 import json
 import os
 import signal
+import subprocess
 import time
 import uuid
 from dataclasses import asdict
@@ -14,6 +15,128 @@ import pytest
 import controller
 import inspection
 import worker_capture
+from turns import Turn
+
+
+def _journal_startup_worker(worker, tmp_path):
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+    root.mkdir(parents=True, exist_ok=True)
+    observed = subprocess.run(
+        ["/bin/ps", "-p", str(worker.owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+        capture_output=True,
+        text=True,
+        timeout=1,
+    )
+    assert observed.returncode == 0 and not observed.stderr
+    controller.write_json(
+        root / f"owned-termination-{uuid.uuid4().hex}.json",
+        {
+            "checker_pid": os.getpid(),
+            "identity": {"pid": worker.owner.pid, "stdout": observed.stdout},
+        },
+    )
+
+
+@pytest.mark.parametrize("fragment", [1, 7, 4097])
+def test_startup_turns_yield_and_drop_terminal_interests(tmp_path, monkeypatch, fragment):
+    """Real fragmented readiness yields after each bounded nonblocking read."""
+    worker = worker_capture.Worker()
+    original_run = worker_capture.run_turns
+    original_read = os.read
+    reads = []
+    observations = []
+    captured = []
+
+    def read(fd, size):
+        if fd == worker.control:
+            reads.append(size)
+            return original_read(fd, min(fragment, size))
+        return original_read(fd, size)
+
+    def run(*turns):
+        if worker.closed:
+            return original_run(*turns)
+        assert len(turns) == 1
+        startup = turns[0]
+        captured.append(startup)
+        _journal_startup_worker(worker, tmp_path)
+        assert startup.readiness is not None
+        assert startup.readiness() == ((worker.control,), ())
+
+        def advance():
+            before = len(reads)
+            wake = startup.advance()
+            assert len(reads) - before <= 1
+            if wake is not None:
+                assert wake <= worker.startup_deadline
+            return wake
+
+        def other_owner():
+            observations.append((len(reads), worker.started))
+            return None if worker.started else time.monotonic()
+
+        return original_run(Turn(advance, readiness=startup.readiness), Turn(other_owner))
+
+    monkeypatch.setattr(os, "read", read)
+    monkeypatch.setattr(worker_capture, "run_turns", run)
+    try:
+        assert worker.start()
+        assert len(captured) == 1
+        assert reads and all(0 < size <= 4097 for size in reads)
+        if fragment < 4097:
+            assert any(count > 0 and not ready for count, ready in observations)
+        startup = captured[0]
+        before = len(reads)
+        assert startup.advance() is None
+        assert startup.readiness() == ((), ())
+        assert worker.start()
+        assert len(captured) == 1 and len(reads) == before
+    finally:
+        if not captured and worker.owner is not None and not worker.closed:
+            _journal_startup_worker(worker, tmp_path)
+        worker.close()
+    assert startup.advance() is None
+    assert startup.readiness() == ((), ())
+    assert not worker.start()
+
+
+def test_startup_turns_expired_callback_never_reads(tmp_path, monkeypatch):
+    """A delayed first turn cannot renew readiness or consume a late identity."""
+    worker = worker_capture.Worker()
+    original_run = worker_capture.run_turns
+    original_read = os.read
+    captured = []
+
+    def read(fd, size):
+        assert fd != worker.control, "expired startup read its readiness channel"
+        return original_read(fd, size)
+
+    def run(*turns):
+        if worker.closed:
+            return original_run(*turns)
+        captured.extend(turns)
+        _journal_startup_worker(worker, tmp_path)
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                worker_capture, "time", SimpleNamespace(monotonic=lambda: worker.startup_deadline)
+            )
+            return original_run(*turns)
+
+    monkeypatch.setattr(os, "read", read)
+    monkeypatch.setattr(worker_capture, "run_turns", run)
+    try:
+        assert not worker.start()
+        assert captured, "startup did not enter the common driver"
+        assert worker.failure == "worker readiness deadline exhausted"
+        assert worker.readiness_finished == worker.startup_deadline
+        assert worker.readiness_outcome == "expired"
+        assert captured[0].advance() is None
+        assert captured[0].readiness() == ((), ())
+        assert not worker.start()
+    finally:
+        if not captured and worker.owner is not None and not worker.closed:
+            _journal_startup_worker(worker, tmp_path)
+        worker.close()
 
 
 @pytest.mark.parametrize("phase,ceiling", [("readiness", 1), ("term_grace", 2), ("kill_reap", 2)])
