@@ -1,0 +1,745 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/readiness-wakes-k132/inputs-mutant-query-registration
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 896 items / 892 deselected / 4 selected
+
+test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[False-False] FAILED [ 25%]
+test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[False-True] FAILED [ 50%]
+test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[True-False] FAILED [ 75%]
+test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[True-True] FAILED [100%]
+
+=================================== FAILURES ===================================
+____ test_request_turns_yield_with_transport_priority_and_caps[False-False] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-892/test_request_turns_yield_with_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x106e43920>
+persistent = False, stalled = False
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        ready = [False]
+        original_read = os.read
+        original_write = os.write
+        original_select = worker_capture.select.select
+        original_driver = worker_capture.run_turns
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def write(fd, data):
+            count = original_write(fd, data)
+            if active[0]:
+                ready[0] = bool(count)
+            return count
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            result = original_select(readers, writers, errors, timeout)
+            if active[0]:
+                ready[0] = bool(result[0])
+            return result
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+            if phase == 0 or subject.advance.__name__ == "advance_retirement":
+                assert subject.readiness is not None, "transport omitted readiness registration"
+                readers, writers = subject.readiness()
+                if phase == 0:
+                    if persistent:
+                        assert readers == () and writers == (worker.command,)
+                    else:
+                        assert len(readers) == 2 and writers == ()
+                else:
+                    assert len(readers) <= 1 and writers == ()
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    before_wake = time.monotonic()
+                    wake = subject.advance()
+                    after_wake = time.monotonic()
+                    assert bytes_read[0] <= 65536
+                    if wake is not None:
+                        if phase == 0:
+                            # The caller's one-second allowance reserves 50 ms.
+                            cutoff = deadline - 0.05
+                            delay = 0 if ready[0] else 0.005
+                            assert min(cutoff, before_wake + delay) <= wake
+                            assert wake <= min(cutoff, after_wake + delay)
+                        else:
+                            assert wake <= min(deadline, after_wake + 0.001)
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety, readiness=subject.readiness)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            deadline = time.monotonic() + 1
+>           receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2>/dev/null"),
+                deadline,
+                worker=worker,
+            )
+
+test_turns.py:478: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1289: in capture_helper
+    run_turns(Turn(advance_query))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+owners = (Turn(advance=<function capture_helper.<locals>.advance_query at 0x1077c8b80>, safety=False, readiness=None),)
+
+    def drive(*owners):
+        # Query is the first invocation; request failure/standalone retirement
+        # follows. Worker.close may add its own later already-reviewed driver.
+        phase = len(phases)
+        events = []
+        phases.append(events)
+        assert len(owners) == 1
+        subject = owners[0]
+        if phase == 0 or subject.advance.__name__ == "advance_retirement":
+>           assert subject.readiness is not None, "transport omitted readiness registration"
+E           AssertionError: transport omitted readiness registration
+E           assert None is not None
+E            +  where None = Turn(advance=<function capture_helper.<locals>.advance_query at 0x1077c8b80>, safety=False, readiness=None).readiness
+
+test_turns.py:430: AssertionError
+____ test_request_turns_yield_with_transport_priority_and_caps[False-True] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-892/test_request_turns_yield_with_1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1070eb2f0>
+persistent = True, stalled = False
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        ready = [False]
+        original_read = os.read
+        original_write = os.write
+        original_select = worker_capture.select.select
+        original_driver = worker_capture.run_turns
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def write(fd, data):
+            count = original_write(fd, data)
+            if active[0]:
+                ready[0] = bool(count)
+            return count
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            result = original_select(readers, writers, errors, timeout)
+            if active[0]:
+                ready[0] = bool(result[0])
+            return result
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+            if phase == 0 or subject.advance.__name__ == "advance_retirement":
+                assert subject.readiness is not None, "transport omitted readiness registration"
+                readers, writers = subject.readiness()
+                if phase == 0:
+                    if persistent:
+                        assert readers == () and writers == (worker.command,)
+                    else:
+                        assert len(readers) == 2 and writers == ()
+                else:
+                    assert len(readers) <= 1 and writers == ()
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    before_wake = time.monotonic()
+                    wake = subject.advance()
+                    after_wake = time.monotonic()
+                    assert bytes_read[0] <= 65536
+                    if wake is not None:
+                        if phase == 0:
+                            # The caller's one-second allowance reserves 50 ms.
+                            cutoff = deadline - 0.05
+                            delay = 0 if ready[0] else 0.005
+                            assert min(cutoff, before_wake + delay) <= wake
+                            assert wake <= min(cutoff, after_wake + delay)
+                        else:
+                            assert wake <= min(deadline, after_wake + 0.001)
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety, readiness=subject.readiness)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            deadline = time.monotonic() + 1
+>           receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2>/dev/null"),
+                deadline,
+                worker=worker,
+            )
+
+test_turns.py:478: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1289: in capture_helper
+    run_turns(Turn(advance_query))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+owners = (Turn(advance=<function capture_helper.<locals>.advance_query at 0x1075f4540>, safety=False, readiness=None),)
+
+    def drive(*owners):
+        # Query is the first invocation; request failure/standalone retirement
+        # follows. Worker.close may add its own later already-reviewed driver.
+        phase = len(phases)
+        events = []
+        phases.append(events)
+        assert len(owners) == 1
+        subject = owners[0]
+        if phase == 0 or subject.advance.__name__ == "advance_retirement":
+>           assert subject.readiness is not None, "transport omitted readiness registration"
+E           AssertionError: transport omitted readiness registration
+E           assert None is not None
+E            +  where None = Turn(advance=<function capture_helper.<locals>.advance_query at 0x1075f4540>, safety=False, readiness=None).readiness
+
+test_turns.py:430: AssertionError
+____ test_request_turns_yield_with_transport_priority_and_caps[True-False] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-892/test_request_turns_yield_with_2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1070ecbc0>
+persistent = False, stalled = True
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        ready = [False]
+        original_read = os.read
+        original_write = os.write
+        original_select = worker_capture.select.select
+        original_driver = worker_capture.run_turns
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def write(fd, data):
+            count = original_write(fd, data)
+            if active[0]:
+                ready[0] = bool(count)
+            return count
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            result = original_select(readers, writers, errors, timeout)
+            if active[0]:
+                ready[0] = bool(result[0])
+            return result
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+            if phase == 0 or subject.advance.__name__ == "advance_retirement":
+                assert subject.readiness is not None, "transport omitted readiness registration"
+                readers, writers = subject.readiness()
+                if phase == 0:
+                    if persistent:
+                        assert readers == () and writers == (worker.command,)
+                    else:
+                        assert len(readers) == 2 and writers == ()
+                else:
+                    assert len(readers) <= 1 and writers == ()
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    before_wake = time.monotonic()
+                    wake = subject.advance()
+                    after_wake = time.monotonic()
+                    assert bytes_read[0] <= 65536
+                    if wake is not None:
+                        if phase == 0:
+                            # The caller's one-second allowance reserves 50 ms.
+                            cutoff = deadline - 0.05
+                            delay = 0 if ready[0] else 0.005
+                            assert min(cutoff, before_wake + delay) <= wake
+                            assert wake <= min(cutoff, after_wake + delay)
+                        else:
+                            assert wake <= min(deadline, after_wake + 0.001)
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety, readiness=subject.readiness)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            deadline = time.monotonic() + 1
+>           receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2>/dev/null"),
+                deadline,
+                worker=worker,
+            )
+
+test_turns.py:478: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1289: in capture_helper
+    run_turns(Turn(advance_query))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+owners = (Turn(advance=<function capture_helper.<locals>.advance_query at 0x1075f5080>, safety=False, readiness=None),)
+
+    def drive(*owners):
+        # Query is the first invocation; request failure/standalone retirement
+        # follows. Worker.close may add its own later already-reviewed driver.
+        phase = len(phases)
+        events = []
+        phases.append(events)
+        assert len(owners) == 1
+        subject = owners[0]
+        if phase == 0 or subject.advance.__name__ == "advance_retirement":
+>           assert subject.readiness is not None, "transport omitted readiness registration"
+E           AssertionError: transport omitted readiness registration
+E           assert None is not None
+E            +  where None = Turn(advance=<function capture_helper.<locals>.advance_query at 0x1075f5080>, safety=False, readiness=None).readiness
+
+test_turns.py:430: AssertionError
+_____ test_request_turns_yield_with_transport_priority_and_caps[True-True] _____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-892/test_request_turns_yield_with_3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x107101cd0>
+persistent = True, stalled = True
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        ready = [False]
+        original_read = os.read
+        original_write = os.write
+        original_select = worker_capture.select.select
+        original_driver = worker_capture.run_turns
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def write(fd, data):
+            count = original_write(fd, data)
+            if active[0]:
+                ready[0] = bool(count)
+            return count
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            result = original_select(readers, writers, errors, timeout)
+            if active[0]:
+                ready[0] = bool(result[0])
+            return result
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+            if phase == 0 or subject.advance.__name__ == "advance_retirement":
+                assert subject.readiness is not None, "transport omitted readiness registration"
+                readers, writers = subject.readiness()
+                if phase == 0:
+                    if persistent:
+                        assert readers == () and writers == (worker.command,)
+                    else:
+                        assert len(readers) == 2 and writers == ()
+                else:
+                    assert len(readers) <= 1 and writers == ()
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    before_wake = time.monotonic()
+                    wake = subject.advance()
+                    after_wake = time.monotonic()
+                    assert bytes_read[0] <= 65536
+                    if wake is not None:
+                        if phase == 0:
+                            # The caller's one-second allowance reserves 50 ms.
+                            cutoff = deadline - 0.05
+                            delay = 0 if ready[0] else 0.005
+                            assert min(cutoff, before_wake + delay) <= wake
+                            assert wake <= min(cutoff, after_wake + delay)
+                        else:
+                            assert wake <= min(deadline, after_wake + 0.001)
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety, readiness=subject.readiness)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            deadline = time.monotonic() + 1
+>           receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2>/dev/null"),
+                deadline,
+                worker=worker,
+            )
+
+test_turns.py:478: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1289: in capture_helper
+    run_turns(Turn(advance_query))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+owners = (Turn(advance=<function capture_helper.<locals>.advance_query at 0x1075f5a80>, safety=False, readiness=None),)
+
+    def drive(*owners):
+        # Query is the first invocation; request failure/standalone retirement
+        # follows. Worker.close may add its own later already-reviewed driver.
+        phase = len(phases)
+        events = []
+        phases.append(events)
+        assert len(owners) == 1
+        subject = owners[0]
+        if phase == 0 or subject.advance.__name__ == "advance_retirement":
+>           assert subject.readiness is not None, "transport omitted readiness registration"
+E           AssertionError: transport omitted readiness registration
+E           assert None is not None
+E            +  where None = Turn(advance=<function capture_helper.<locals>.advance_query at 0x1075f5a80>, safety=False, readiness=None).readiness
+
+test_turns.py:430: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/readiness-wakes-k132/mutant-query-registration/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[False-False] - AssertionError: transport omitted readiness registration
+assert None is not None
+ +  where None = Turn(advance=<function capture_helper.<locals>.advance_query at 0x1077c8b80>, safety=False, readiness=None).readiness
+FAILED test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[False-True] - AssertionError: transport omitted readiness registration
+assert None is not None
+ +  where None = Turn(advance=<function capture_helper.<locals>.advance_query at 0x1075f4540>, safety=False, readiness=None).readiness
+FAILED test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[True-False] - AssertionError: transport omitted readiness registration
+assert None is not None
+ +  where None = Turn(advance=<function capture_helper.<locals>.advance_query at 0x1075f5080>, safety=False, readiness=None).readiness
+FAILED test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[True-True] - AssertionError: transport omitted readiness registration
+assert None is not None
+ +  where None = Turn(advance=<function capture_helper.<locals>.advance_query at 0x1075f5a80>, safety=False, readiness=None).readiness
+====================== 4 failed, 892 deselected in 0.51s =======================

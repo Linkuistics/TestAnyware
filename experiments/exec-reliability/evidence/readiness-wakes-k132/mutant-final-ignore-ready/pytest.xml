@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="1" time="0.403" timestamp="2026-11-15T19:55:25.610829+11:00" hostname="byrd.local"><testcase classname="test_turns" name="test_shared_turns_readiness_routes_owners_and_removes_terminal" time="0.000"><failure message="assert 0.004000000000008441 == 0.005 ± 5.0e-09&#10;  &#10;  comparison failed&#10;  Obtained: 0.004000000000008441&#10;  Expected: 0.005 ± 5.0e-09">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10ad4b980&gt;
+
+    def test_shared_turns_readiness_routes_owners_and_removes_terminal(monkeypatch):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        terminal = set()
+        waits = []
+    
+        def owner(name):
+            seen.append(name)
+            if seen.count(name) == 1:
+                return 10.02
+            terminal.add(name)
+            return None
+    
+        def interests(name, fd):
+            assert name not in terminal, "terminal readiness was sampled"
+            return ((fd,), ())
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(tuple(readers))
+            assert writers == exceptional == []
+            assert timeout == pytest.approx(0.005)
+            now[0] += 0.001
+            return ([43] if len(waits) == 1 else [42], [], [])
+    
+        monkeypatch.setattr(turns.select, "select", select)
+&gt;       turns.run_turns(
+            turns.Turn(lambda: owner("a"), readiness=lambda: interests("a", 42)),
+            turns.Turn(lambda: owner("b"), readiness=lambda: interests("b", 43)),
+        )
+
+test_turns.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+turns.py:49: in run_turns
+    readable, writable, _ = select.select(readers, writers, [], delay)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+readers = [42, 43], writers = [], exceptional = []
+timeout = 0.004000000000008441
+
+    def select(readers, writers, exceptional, timeout):
+        waits.append(tuple(readers))
+        assert writers == exceptional == []
+&gt;       assert timeout == pytest.approx(0.005)
+E       assert 0.004000000000008441 == 0.005 ± 5.0e-09
+E         
+E         comparison failed
+E         Obtained: 0.004000000000008441
+E         Expected: 0.005 ± 5.0e-09
+
+test_turns.py:71: AssertionError</failure></testcase></testsuite></testsuites>

@@ -10,6 +10,44 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  diagnostic:readiness-wakes-prepare:
+    desc: Freeze pipe readiness inputs with optional parent source overrides
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/readiness-wakes-k132/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}} {{if .WORKER_SOURCE}}--worker-source '{{.WORKER_SOURCE}}'{{end}} {{if .TURNS_SOURCE}}--turns-source '{{.TURNS_SOURCE}}'{{end}} {{if .TESTS_SOURCE}}--tests-source '{{.TESTS_SOURCE}}'{{end}}
+
+  diagnostic:readiness-wakes-check:
+    desc: Retain bounded pipe readiness controls, suites and statics
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/readiness-wakes-k132/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
+
+  diagnostic:readiness-wakes-preserve:
+    desc: Inventory prior evidence around pipe readiness work
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/readiness-wakes-k132/preserve.py '{{.MODE}}'
+
+  diagnostic:readiness-wakes-tools:
+    desc: Format, lint and typecheck pipe readiness evidence tools
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/readiness-wakes-k132/*.py
+      - uv run --locked python -m ruff check evidence/readiness-wakes-k132/*.py
+      - uv run --locked python -m pyright evidence/readiness-wakes-k132/*.py
+
+  diagnostic:readiness-wakes-audit:
+    desc: Verify retained pipe readiness evidence and per-case comparisons
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/readiness-wakes-k132/audit.py
+
   diagnostic:test:
     desc: Run local diagnostic tests, with optional pytest arguments after --
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'

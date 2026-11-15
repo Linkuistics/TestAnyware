@@ -1,0 +1,439 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/readiness-wakes-k132/inputs-mutant-final-priority
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 896 items / 890 deselected / 6 selected
+
+test_turns.py::test_shared_turns_readiness_checks_due_safety[0.001-read] FAILED [ 16%]
+test_turns.py::test_shared_turns_readiness_checks_due_safety[0.001-write] FAILED [ 33%]
+test_turns.py::test_shared_turns_readiness_checks_due_safety[0.003-read] FAILED [ 50%]
+test_turns.py::test_shared_turns_readiness_checks_due_safety[0.003-write] FAILED [ 66%]
+test_turns.py::test_shared_turns_readiness_checks_due_safety[0.007-read] FAILED [ 83%]
+test_turns.py::test_shared_turns_readiness_checks_due_safety[0.007-write] FAILED [100%]
+
+=================================== FAILURES ===================================
+__________ test_shared_turns_readiness_checks_due_safety[0.001-read] ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b367950>
+direction = 'read', arrival = 0.001
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+        monkeypatch.setattr(turns.select, "select", select)
+        interests = ((42,), ()) if direction == "read" else ((), (42,))
+        turns.run_turns(
+            turns.Turn(transport, readiness=lambda: interests),
+            turns.Turn(safety, safety=True),
+        )
+        expected = ["safety", "transport"]
+        expected += ["transport", "safety"] if arrival < 0.003 else ["safety", "transport"]
+>       assert [name for name, _ in seen] == expected
+E       AssertionError: assert ['transport', 'safety', 'transport', 'safety'] == ['safety', 'transport', 'transport', 'safety']
+E         
+E         At index 0 diff: 'transport' != 'safety'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         +     'transport',
+E               'safety',
+E         -     'transport',
+E               'transport',
+E               'safety',
+E           ]
+
+test_turns.py:46: AssertionError
+__________ test_shared_turns_readiness_checks_due_safety[0.001-write] __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b4ee540>
+direction = 'write', arrival = 0.001
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+        monkeypatch.setattr(turns.select, "select", select)
+        interests = ((42,), ()) if direction == "read" else ((), (42,))
+        turns.run_turns(
+            turns.Turn(transport, readiness=lambda: interests),
+            turns.Turn(safety, safety=True),
+        )
+        expected = ["safety", "transport"]
+        expected += ["transport", "safety"] if arrival < 0.003 else ["safety", "transport"]
+>       assert [name for name, _ in seen] == expected
+E       AssertionError: assert ['transport', 'safety', 'transport', 'safety'] == ['safety', 'transport', 'transport', 'safety']
+E         
+E         At index 0 diff: 'transport' != 'safety'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         +     'transport',
+E               'safety',
+E         -     'transport',
+E               'transport',
+E               'safety',
+E           ]
+
+test_turns.py:46: AssertionError
+__________ test_shared_turns_readiness_checks_due_safety[0.003-read] ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b3679e0>
+direction = 'read', arrival = 0.003
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+        monkeypatch.setattr(turns.select, "select", select)
+        interests = ((42,), ()) if direction == "read" else ((), (42,))
+        turns.run_turns(
+            turns.Turn(transport, readiness=lambda: interests),
+            turns.Turn(safety, safety=True),
+        )
+        expected = ["safety", "transport"]
+        expected += ["transport", "safety"] if arrival < 0.003 else ["safety", "transport"]
+>       assert [name for name, _ in seen] == expected
+E       AssertionError: assert ['transport', 'safety', 'transport', 'safety'] == ['safety', 'transport', 'safety', 'transport']
+E         
+E         At index 0 diff: 'transport' != 'safety'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         +     'transport',
+E               'safety',
+E               'transport',
+E               'safety',
+E         -     'transport',
+E           ]
+
+test_turns.py:46: AssertionError
+__________ test_shared_turns_readiness_checks_due_safety[0.003-write] __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b4f1550>
+direction = 'write', arrival = 0.003
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+        monkeypatch.setattr(turns.select, "select", select)
+        interests = ((42,), ()) if direction == "read" else ((), (42,))
+        turns.run_turns(
+            turns.Turn(transport, readiness=lambda: interests),
+            turns.Turn(safety, safety=True),
+        )
+        expected = ["safety", "transport"]
+        expected += ["transport", "safety"] if arrival < 0.003 else ["safety", "transport"]
+>       assert [name for name, _ in seen] == expected
+E       AssertionError: assert ['transport', 'safety', 'transport', 'safety'] == ['safety', 'transport', 'safety', 'transport']
+E         
+E         At index 0 diff: 'transport' != 'safety'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         +     'transport',
+E               'safety',
+E               'transport',
+E               'safety',
+E         -     'transport',
+E           ]
+
+test_turns.py:46: AssertionError
+__________ test_shared_turns_readiness_checks_due_safety[0.007-read] ___________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b4f04d0>
+direction = 'read', arrival = 0.007
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+        monkeypatch.setattr(turns.select, "select", select)
+        interests = ((42,), ()) if direction == "read" else ((), (42,))
+        turns.run_turns(
+            turns.Turn(transport, readiness=lambda: interests),
+            turns.Turn(safety, safety=True),
+        )
+        expected = ["safety", "transport"]
+        expected += ["transport", "safety"] if arrival < 0.003 else ["safety", "transport"]
+>       assert [name for name, _ in seen] == expected
+E       AssertionError: assert ['transport', 'safety', 'safety', 'transport'] == ['safety', 'transport', 'safety', 'transport']
+E         
+E         At index 0 diff: 'transport' != 'safety'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         +     'transport',
+E               'safety',
+E         -     'transport',
+E               'safety',
+E               'transport',
+E           ]
+
+test_turns.py:46: AssertionError
+__________ test_shared_turns_readiness_checks_due_safety[0.007-write] __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b4f09e0>
+direction = 'write', arrival = 0.007
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+        monkeypatch.setattr(turns.select, "select", select)
+        interests = ((42,), ()) if direction == "read" else ((), (42,))
+        turns.run_turns(
+            turns.Turn(transport, readiness=lambda: interests),
+            turns.Turn(safety, safety=True),
+        )
+        expected = ["safety", "transport"]
+        expected += ["transport", "safety"] if arrival < 0.003 else ["safety", "transport"]
+>       assert [name for name, _ in seen] == expected
+E       AssertionError: assert ['transport', 'safety', 'safety', 'transport'] == ['safety', 'transport', 'safety', 'transport']
+E         
+E         At index 0 diff: 'transport' != 'safety'
+E         
+E         Full diff: (-: missing in left side, +: extra in left side)
+E           [
+E         +     'transport',
+E               'safety',
+E         -     'transport',
+E               'safety',
+E               'transport',
+E           ]
+
+test_turns.py:46: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/readiness-wakes-k132/mutant-final-priority/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_turns.py::test_shared_turns_readiness_checks_due_safety[0.001-read] - AssertionError: assert ['transport', 'safety', 'transport', 'safety'] == ['safety', 'transport', 'transport', 'safety']
+  
+  At index 0 diff: 'transport' != 'safety'
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+  +     'transport',
+        'safety',
+  -     'transport',
+        'transport',
+        'safety',
+    ]
+FAILED test_turns.py::test_shared_turns_readiness_checks_due_safety[0.001-write] - AssertionError: assert ['transport', 'safety', 'transport', 'safety'] == ['safety', 'transport', 'transport', 'safety']
+  
+  At index 0 diff: 'transport' != 'safety'
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+  +     'transport',
+        'safety',
+  -     'transport',
+        'transport',
+        'safety',
+    ]
+FAILED test_turns.py::test_shared_turns_readiness_checks_due_safety[0.003-read] - AssertionError: assert ['transport', 'safety', 'transport', 'safety'] == ['safety', 'transport', 'safety', 'transport']
+  
+  At index 0 diff: 'transport' != 'safety'
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+  +     'transport',
+        'safety',
+        'transport',
+        'safety',
+  -     'transport',
+    ]
+FAILED test_turns.py::test_shared_turns_readiness_checks_due_safety[0.003-write] - AssertionError: assert ['transport', 'safety', 'transport', 'safety'] == ['safety', 'transport', 'safety', 'transport']
+  
+  At index 0 diff: 'transport' != 'safety'
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+  +     'transport',
+        'safety',
+        'transport',
+        'safety',
+  -     'transport',
+    ]
+FAILED test_turns.py::test_shared_turns_readiness_checks_due_safety[0.007-read] - AssertionError: assert ['transport', 'safety', 'safety', 'transport'] == ['safety', 'transport', 'safety', 'transport']
+  
+  At index 0 diff: 'transport' != 'safety'
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+  +     'transport',
+        'safety',
+  -     'transport',
+        'safety',
+        'transport',
+    ]
+FAILED test_turns.py::test_shared_turns_readiness_checks_due_safety[0.007-write] - AssertionError: assert ['transport', 'safety', 'safety', 'transport'] == ['safety', 'transport', 'safety', 'transport']
+  
+  At index 0 diff: 'transport' != 'safety'
+  
+  Full diff: (-: missing in left side, +: extra in left side)
+    [
+  +     'transport',
+        'safety',
+  -     'transport',
+        'safety',
+        'transport',
+    ]
+====================== 6 failed, 890 deselected in 0.43s =======================

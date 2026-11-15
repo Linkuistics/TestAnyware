@@ -1,0 +1,74 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/readiness-wakes-k132/inputs-mutant-ignore-ready
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 896 items / 895 deselected / 1 selected
+
+test_turns.py::test_shared_turns_readiness_routes_owners_and_removes_terminal FAILED [100%]
+
+=================================== FAILURES ===================================
+________ test_shared_turns_readiness_routes_owners_and_removes_terminal ________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x108e87290>
+
+    def test_shared_turns_readiness_routes_owners_and_removes_terminal(monkeypatch):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        terminal = set()
+        waits = []
+    
+        def owner(name):
+            seen.append(name)
+            if seen.count(name) == 1:
+                return 10.02
+            terminal.add(name)
+            return None
+    
+        def interests(name, fd):
+            assert name not in terminal, "terminal readiness was sampled"
+            return ((fd,), ())
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(tuple(readers))
+            assert writers == exceptional == []
+            assert timeout == pytest.approx(0.005)
+            now[0] += 0.001
+            return ([43] if len(waits) == 1 else [42], [], [])
+    
+        monkeypatch.setattr(turns.select, "select", select)
+>       turns.run_turns(
+            turns.Turn(lambda: owner("a"), readiness=lambda: interests("a", 42)),
+            turns.Turn(lambda: owner("b"), readiness=lambda: interests("b", 43)),
+        )
+
+test_turns.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+turns.py:47: in run_turns
+    readable, writable, _ = select.select(readers, writers, [], delay)
+                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+readers = [42, 43], writers = [], exceptional = []
+timeout = 0.004000000000008441
+
+    def select(readers, writers, exceptional, timeout):
+        waits.append(tuple(readers))
+        assert writers == exceptional == []
+>       assert timeout == pytest.approx(0.005)
+E       assert 0.004000000000008441 == 0.005 ± 5.0e-09
+E         
+E         comparison failed
+E         Obtained: 0.004000000000008441
+E         Expected: 0.005 ± 5.0e-09
+
+test_turns.py:71: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/readiness-wakes-k132/mutant-ignore-ready/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_turns.py::test_shared_turns_readiness_routes_owners_and_removes_terminal - assert 0.004000000000008441 == 0.005 ± 5.0e-09
+  
+  comparison failed
+  Obtained: 0.004000000000008441
+  Expected: 0.005 ± 5.0e-09
+====================== 1 failed, 895 deselected in 0.42s =======================

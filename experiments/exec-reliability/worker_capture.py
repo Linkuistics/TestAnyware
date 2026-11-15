@@ -1280,7 +1280,13 @@ def capture_helper(
                 return None
             return min(query_deadline, time.monotonic() + (0 if ready else 0.005))
 
-        run_turns(Turn(advance_query))
+        def query_readiness() -> tuple[tuple[int, ...], tuple[int, ...]]:
+            if command:
+                assert worker is not None and worker.command is not None
+                return (), (worker.command,)
+            return tuple(streams), ()
+
+        run_turns(Turn(advance_query, readiness=query_readiness))
         if not complete:
             raise TimeoutError("worker query deadline exhausted")
         if worker is not None and receipt.error is not None:
@@ -1349,7 +1355,11 @@ def capture_helper(
                     )
                     return min(deadline, next_kill, time.monotonic() + 0.001)
 
-                run_turns(Turn(advance_retirement, safety=True))
+                def retirement_readiness() -> tuple[tuple[int, ...], tuple[int, ...]]:
+                    readers = (control_read,) if cleanup_open and control_read is not None else ()
+                    return readers, ()
+
+                run_turns(Turn(advance_retirement, safety=True, readiness=retirement_readiness))
                 _reap(owner)
             if not complete and fork_failure is not None and (buffers[0] or buffers[1]):
                 # Incremental rejection can bypass the final decoder. Partial

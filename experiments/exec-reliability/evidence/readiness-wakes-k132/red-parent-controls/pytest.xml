@@ -1,0 +1,284 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="9" skipped="0" tests="19" time="0.481" timestamp="2026-11-15T19:47:15.609019+11:00" hostname="byrd.local"><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[nested-readiness]" time="0.013" /><testcase classname="test_worker_capture" name="test_review_worker_rejects_hostile_channel[duplicate-readiness]" time="0.010" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0-readiness-1]" time="0.001" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[True-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[None-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[over-readiness-1]" time="0.000" /><testcase classname="test_turns" name="test_shared_turns_readiness_checks_due_safety[0.001-read]" time="0.000"><failure message="AttributeError: module 'turns' has no attribute 'select'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b236900&gt;
+direction = 'read', arrival = 0.001
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+&gt;       monkeypatch.setattr(turns.select, "select", select)
+                            ^^^^^^^^^^^^
+E       AttributeError: module 'turns' has no attribute 'select'
+
+test_turns.py:38: AttributeError</failure></testcase><testcase classname="test_turns" name="test_shared_turns_readiness_checks_due_safety[0.001-write]" time="0.000"><failure message="AttributeError: module 'turns' has no attribute 'select'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b115670&gt;
+direction = 'write', arrival = 0.001
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+&gt;       monkeypatch.setattr(turns.select, "select", select)
+                            ^^^^^^^^^^^^
+E       AttributeError: module 'turns' has no attribute 'select'
+
+test_turns.py:38: AttributeError</failure></testcase><testcase classname="test_turns" name="test_shared_turns_readiness_checks_due_safety[0.003-read]" time="0.000"><failure message="AttributeError: module 'turns' has no attribute 'select'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b237e60&gt;
+direction = 'read', arrival = 0.003
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+&gt;       monkeypatch.setattr(turns.select, "select", select)
+                            ^^^^^^^^^^^^
+E       AttributeError: module 'turns' has no attribute 'select'
+
+test_turns.py:38: AttributeError</failure></testcase><testcase classname="test_turns" name="test_shared_turns_readiness_checks_due_safety[0.003-write]" time="0.000"><failure message="AttributeError: module 'turns' has no attribute 'select'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b2358b0&gt;
+direction = 'write', arrival = 0.003
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+&gt;       monkeypatch.setattr(turns.select, "select", select)
+                            ^^^^^^^^^^^^
+E       AttributeError: module 'turns' has no attribute 'select'
+
+test_turns.py:38: AttributeError</failure></testcase><testcase classname="test_turns" name="test_shared_turns_readiness_checks_due_safety[0.007-read]" time="0.000"><failure message="AttributeError: module 'turns' has no attribute 'select'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b1168d0&gt;
+direction = 'read', arrival = 0.007
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+&gt;       monkeypatch.setattr(turns.select, "select", select)
+                            ^^^^^^^^^^^^
+E       AttributeError: module 'turns' has no attribute 'select'
+
+test_turns.py:38: AttributeError</failure></testcase><testcase classname="test_turns" name="test_shared_turns_readiness_checks_due_safety[0.007-write]" time="0.000"><failure message="AttributeError: module 'turns' has no attribute 'select'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b116540&gt;
+direction = 'write', arrival = 0.007
+
+    @pytest.mark.parametrize("direction", ["read", "write"])
+    @pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+    def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+        calls = 0
+    
+        def transport():
+            nonlocal calls
+            calls += 1
+            seen.append(("transport", now[0]))
+            return 10.02 if calls == 1 else None
+    
+        safety_calls = 0
+    
+        def safety():
+            nonlocal safety_calls
+            safety_calls += 1
+            seen.append(("safety", now[0]))
+            return 10.003 if safety_calls == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            assert exceptional == []
+            assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+            assert timeout == pytest.approx(0.003)
+            now[0] = 10 + arrival
+            return (readers, writers, [])
+    
+&gt;       monkeypatch.setattr(turns.select, "select", select)
+                            ^^^^^^^^^^^^
+E       AttributeError: module 'turns' has no attribute 'select'
+
+test_turns.py:38: AttributeError</failure></testcase><testcase classname="test_turns" name="test_shared_turns_readiness_routes_owners_and_removes_terminal" time="0.000"><failure message="AttributeError: module 'turns' has no attribute 'select'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b24cda0&gt;
+
+    def test_shared_turns_readiness_routes_owners_and_removes_terminal(monkeypatch):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        terminal = set()
+        waits = []
+    
+        def owner(name):
+            seen.append(name)
+            if seen.count(name) == 1:
+                return 10.02
+            terminal.add(name)
+            return None
+    
+        def interests(name, fd):
+            assert name not in terminal, "terminal readiness was sampled"
+            return ((fd,), ())
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(tuple(readers))
+            assert writers == exceptional == []
+            assert timeout == pytest.approx(0.005)
+            now[0] += 0.001
+            return ([43] if len(waits) == 1 else [42], [], [])
+    
+&gt;       monkeypatch.setattr(turns.select, "select", select)
+                            ^^^^^^^^^^^^
+E       AttributeError: module 'turns' has no attribute 'select'
+
+test_turns.py:75: AttributeError</failure></testcase><testcase classname="test_turns" name="test_shared_turns_readiness_timeout_and_spurious_return" time="0.000"><failure message="AttributeError: module 'turns' has no attribute 'select'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b24fcb0&gt;
+
+    def test_shared_turns_readiness_timeout_and_spurious_return(monkeypatch):
+        now, sleeps = clock(monkeypatch)
+        seen = []
+        waits = []
+    
+        def owner():
+            seen.append(now[0])
+            return 10.002 if len(seen) == 1 else None
+    
+        def select(readers, writers, exceptional, timeout):
+            waits.append(timeout)
+            if len(waits) &gt; 1:
+                now[0] += timeout
+            return ([], [], [])
+    
+&gt;       monkeypatch.setattr(turns.select, "select", select)
+                            ^^^^^^^^^^^^
+E       AttributeError: module 'turns' has no attribute 'select'
+
+test_turns.py:100: AttributeError</failure></testcase><testcase classname="test_turns" name="test_shared_turns_real_pipe_readiness" time="0.000"><failure message="AttributeError: module 'turns' has no attribute 'select'">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b24cc80&gt;
+
+    def test_shared_turns_real_pipe_readiness(monkeypatch):
+        import os
+    
+        reader, writer = os.pipe()
+&gt;       original_select = turns.select.select
+                          ^^^^^^^^^^^^
+E       AttributeError: module 'turns' has no attribute 'select'
+
+test_turns.py:111: AttributeError</failure></testcase></testsuite></testsuites>

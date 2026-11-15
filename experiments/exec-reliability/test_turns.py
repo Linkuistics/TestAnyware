@@ -5,6 +5,136 @@ import pytest
 import turns
 
 
+@pytest.mark.parametrize("direction", ["read", "write"])
+@pytest.mark.parametrize("arrival", [0.001, 0.003, 0.007])
+def test_shared_turns_readiness_checks_due_safety(monkeypatch, direction, arrival):
+    now, sleeps = clock(monkeypatch)
+    seen = []
+    waits = []
+    calls = 0
+
+    def transport():
+        nonlocal calls
+        calls += 1
+        seen.append(("transport", now[0]))
+        return 10.02 if calls == 1 else None
+
+    safety_calls = 0
+
+    def safety():
+        nonlocal safety_calls
+        safety_calls += 1
+        seen.append(("safety", now[0]))
+        return 10.003 if safety_calls == 1 else None
+
+    def select(readers, writers, exceptional, timeout):
+        waits.append(timeout)
+        assert exceptional == []
+        assert (readers, writers) == (([42], []) if direction == "read" else ([], [42]))
+        assert timeout == pytest.approx(0.003)
+        now[0] = 10 + arrival
+        return (readers, writers, [])
+
+    monkeypatch.setattr(turns.select, "select", select)
+    interests = ((42,), ()) if direction == "read" else ((), (42,))
+    turns.run_turns(
+        turns.Turn(transport, readiness=lambda: interests),
+        turns.Turn(safety, safety=True),
+    )
+    expected = ["safety", "transport"]
+    expected += ["transport", "safety"] if arrival < 0.003 else ["safety", "transport"]
+    assert [name for name, _ in seen] == expected
+    assert waits == [pytest.approx(0.003)]
+    assert bool(sleeps) == (arrival < 0.003)
+
+
+def test_shared_turns_readiness_routes_owners_and_removes_terminal(monkeypatch):
+    now, sleeps = clock(monkeypatch)
+    seen = []
+    terminal = set()
+    waits = []
+
+    def owner(name):
+        seen.append(name)
+        if seen.count(name) == 1:
+            return 10.02
+        terminal.add(name)
+        return None
+
+    def interests(name, fd):
+        assert name not in terminal, "terminal readiness was sampled"
+        return ((fd,), ())
+
+    def select(readers, writers, exceptional, timeout):
+        waits.append(tuple(readers))
+        assert writers == exceptional == []
+        assert timeout == pytest.approx(0.005)
+        now[0] += 0.001
+        return ([43] if len(waits) == 1 else [42], [], [])
+
+    monkeypatch.setattr(turns.select, "select", select)
+    turns.run_turns(
+        turns.Turn(lambda: owner("a"), readiness=lambda: interests("a", 42)),
+        turns.Turn(lambda: owner("b"), readiness=lambda: interests("b", 43)),
+    )
+    assert seen == list("abba")
+    assert waits == [(42, 43), (42,)]
+    assert not sleeps
+
+
+def test_shared_turns_readiness_timeout_and_spurious_return(monkeypatch):
+    now, sleeps = clock(monkeypatch)
+    seen = []
+    waits = []
+
+    def owner():
+        seen.append(now[0])
+        return 10.002 if len(seen) == 1 else None
+
+    def select(readers, writers, exceptional, timeout):
+        waits.append(timeout)
+        if len(waits) > 1:
+            now[0] += timeout
+        return ([], [], [])
+
+    monkeypatch.setattr(turns.select, "select", select)
+    turns.run_turns(turns.Turn(owner, readiness=lambda: ((42,), ())))
+    assert waits == [pytest.approx(0.002), pytest.approx(0.002)]
+    assert seen == [10.0, 10.002]
+    assert not sleeps
+
+
+def test_shared_turns_real_pipe_readiness(monkeypatch):
+    import os
+
+    reader, writer = os.pipe()
+    original_select = turns.select.select
+    seen = []
+    waits = []
+
+    def select(readers, writers, exceptional, timeout):
+        waits.append(timeout)
+        os.write(writer, b"ready")
+        return original_select(readers, writers, exceptional, timeout)
+
+    def owner():
+        seen.append(True)
+        if len(seen) == 1:
+            return turns.time.monotonic() + 1
+        assert os.read(reader, 5) == b"ready"
+        return None
+
+    monkeypatch.setattr(turns.select, "select", select)
+    try:
+        turns.run_turns(turns.Turn(owner, readiness=lambda: ((reader,), ())))
+        assert seen == [True, True]
+        assert len(waits) == 1
+        assert 0 < waits[0] <= 0.005
+    finally:
+        os.close(reader)
+        os.close(writer)
+
+
 def clock(monkeypatch):
     now = [10.0]
     sleeps = []
@@ -266,6 +396,7 @@ def test_request_turns_yield_with_transport_priority_and_caps(
     original_read = os.read
     original_write = os.write
     original_select = worker_capture.select.select
+    original_driver = worker_capture.run_turns
 
     def read(fd, size):
         if active[0]:
@@ -295,6 +426,16 @@ def test_request_turns_yield_with_transport_priority_and_caps(
         phases.append(events)
         assert len(owners) == 1
         subject = owners[0]
+        if phase == 0 or subject.advance.__name__ == "advance_retirement":
+            assert subject.readiness is not None, "transport omitted readiness registration"
+            readers, writers = subject.readiness()
+            if phase == 0:
+                if persistent:
+                    assert readers == () and writers == (worker.command,)
+                else:
+                    assert len(readers) == 2 and writers == ()
+            else:
+                assert len(readers) <= 1 and writers == ()
 
         def advance():
             events.append("owner")
@@ -323,7 +464,7 @@ def test_request_turns_yield_with_transport_priority_and_caps(
                 active[0] = False
 
         competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
-        measured = turns.Turn(advance, safety=subject.safety)
+        measured = turns.Turn(advance, safety=subject.safety, readiness=subject.readiness)
         # Competing safety must beat the query even when registered second;
         # retiring safety must beat ordinary work registered first.
         turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
@@ -364,6 +505,7 @@ def test_request_turns_yield_with_transport_priority_and_caps(
             },
         )
     finally:
+        monkeypatch.setattr(worker_capture, "run_turns", original_driver)
         if worker is not None:
             worker.close()
 
@@ -413,6 +555,10 @@ def test_request_turns_wakes_avoid_idle_spin_and_stale_retirement(monkeypatch, o
     def drive(subject):
         phase = len(phases)
         phases.append(subject)
+        assert subject.readiness is not None
+        readers, writers = subject.readiness()
+        assert not writers
+        assert len(readers) == (2 if phase == 0 else 1)
         if phase == 0:
             assert subject.advance() == pytest.approx(10.005)
             ready[0] = True
@@ -529,12 +675,15 @@ def test_command_dispatch_turns_yield_and_stop(monkeypatch, mode):
     def drive(*owners):
         (subject,) = owners
         phases.append(subject.safety)
+        assert subject.readiness is not None
         if subject.safety:
+            assert subject.readiness() == ((control_read,), ())
             # Retirement still uses the caller's fixed original deadline.
             now[0] = 11.0
             assert subject.advance() is None
             return
         assert not writes, "command was sent before query registration"
+        assert subject.readiness() == ((), (command_write,))
         events = []
 
         def advance():
@@ -546,6 +695,10 @@ def test_command_dispatch_turns_yield_and_stop(monkeypatch, mode):
             finally:
                 active[0] = False
             assert len(writes) - before <= 1, "command turn retried without yielding"
+            if delivered.endswith(b"\n"):
+                assert subject.readiness() == ((control_read, result_read), ())
+            elif mode != "reap-cutoff":
+                assert subject.readiness() == ((), (command_write,))
             return wake
 
         def safety():
