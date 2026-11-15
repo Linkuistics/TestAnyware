@@ -1,0 +1,34 @@
+# complete-worker-scheduler-k141
+
+**Reviews:** complete-worker-scheduler-k137
+
+## Goal
+
+Independently challenge the expired-request ownership control repair before k140 relies on its oracle. Runtime scheduling is unchanged and the complete aggregate charter remains live in k140/k28/k17.
+
+## Read first
+
+Read the retired k137 task and `experiments/exec-reliability/evidence/expired-request-controls-k137/report.md`, then the changed test, frozen parent/candidate sources, measurement tools and retained receipts. The finishing session had no `GROVE_PROVIDER_EVIDENCE`; no Creator line is available. Apply the caller's provider policy without inventing evidence or copying another task's receipt.
+
+## Review case
+
+- Trace the real exited, stopped and natural schedules through `Worker.close`, `_reap`, `_signal`, `capture_helper` and evidence construction. Challenge whether actual collectable status is established without consuming it, whether the single owed WNOHANG and retained/collected residual assertions express the contract, and whether repeat requests/close/stale callbacks truly reject renewed authority.
+- Trace exception paths and independent fixture cleanup. Check exact PID ownership, stopped-child resumption, ECHILD checks, journals, external absence audits and what can be missed when a journal is absent. Keep runtime authority distinct from independent fixture reconciliation.
+- Inspect the intended old-oracle RED and all five rejecting mutations. The project Python 3.12 interpreter skips exited preparation; isolated Python 3.15 exercises it. Review that boundary and the official waitid/WNOWAIT citation.
+- Reconcile every retained sample, per-item comparison, frozen subject hashes, prior inventory, instrument repairs, overlapping processes, incomplete parent-full audit and four mutation-audit timeouts. Supplementary absence observations must not erase earlier uncertainty. Verify that no performance, runtime repair, aggregate acceptance or prior-failure resolution is inferred from the later green sample.
+- Assess whether evidence tooling and Taskfile additions are proportionate and reproducible. Preserve all existing evidence byte-for-byte. Do not launch guests, acquire privilege, change installed applications or signal unrelated processes.
+
+## Done when
+
+Publish a bounded independent review with exact findings and evidence, or a supported no-findings conclusion. Route concrete repairs through the Grove review/integration rules; leave the complete scheduler and acceptance obligations in k140. The final aggregate bounded-inspection review before k21 remains required separately.
+
+## Decisions (running log)
+
+- 2026-11-15 k141 result: three findings, all actionable and all about control sensitivity. No runtime defect was found. An integrate-review-impl leaf (k142) was inserted before k140. This was a source-and-evidence review of commit 3206e41 against parent 27aa732. No test, build or lint command ran. No retained evidence changed. No Creator line is written, because k137 supplied no provider evidence.
+  - F1 (project gate cannot reject `false-residual`). The mutant `false-residual` makes `Worker.evidence()` report a remedy always (`worker_capture.py:692-699`). Only the `exited` schedule rejects it, because only `exited` collects the child (`test_worker_capture.py:2809`). `exited` skips on project Python 3.12 (candidate-final 922/0/1). Stopped and natural-uncollected runs both expect a remedy, so the mutant passes them. The rejection exists only in the isolated Python 3.15 sample. This is derived by reading the assertions, not by a retained 3.12 mutant run. Claims about the project suite must say so.
+  - F2 (the collected side of `natural` is unobserved). Every retained `natural` journal shows `[0,0]`, in 3.15 and in 3.12 (candidate-controls, candidate-controls-py312). The branch where `natural` collects (`owner.reaped is collected` at `test_worker_capture.py:2806`, `collected` true) never ran. Only `exited` covers collected-then-no-remedy, and only on 3.15. The report calls `natural` an unprepared race, so this is a limit, not a misstatement.
+  - F3 (receipt residual has no mutant, and the audit has gaps). (a) `capture_helper` sets `receipt.residual_remedy` at `worker_capture.py:980-984`. The test asserts it at `test_worker_capture.py:2810`. None of the five mutants touches that site, and `no-residual` and `false-residual` fail at :2809 first. No retained run shows :2810 rejecting. Nothing mutates ECHILD or `ownership_lost` handling either. (b) The journal field `exact_child_absent` is a constant `True` (`test_worker_capture.py:2854`), written after `pytest.raises(ChildProcessError)`, so it is true by construction and is not a separate observation. (c) `expired_audits` in `run_condition.py` reads only journals that exist. A test that dies before the `finally` journal write leaves no PID to audit, and a verdict can still read ok. The audit also checks absence by PID with no identity comparison, so PID reuse is not excluded.
+  - Verified, no finding. (1) Exactly one WNOHANG owed past the cutoff: `_reap` returns only when `reap_attempts` is set (`worker_capture.py:145-147`), and the test asserts one call with flags `os.WNOHANG` entered at or after the deadline. (2) No renewed authority: `_signal` returns past the cutoff (`worker_capture.py:162-177`) and the test forbids fork, kill and killpg (:2762). Repeat request, double close and stale `_reap`/`_signal` add no wait. (3) The `exited` preparation uses `os.waitid` with `WNOWAIT`, which leaves status for the runtime's first wait. It skips cleanly without `os.waitid`. (4) Stopped-child resumption and independent reap happen in `finally`, then ECHILD is asserted. (5) Subject hashes hold: candidate test blob 5a46376f equals HEAD, `worker_capture.py` 344c304c is identical in every input and HEAD, parent test 0a306630 equals HEAD~1. (6) All evidence additions are status A. `prior-after.json` shows 268,901 prior paths unchanged. (7) The four audit timeouts (`no-residual` 2, `expired-signal` 2) are kept as uncertainty, and the 32 supplementary absences do not replace them. No performance, repair or aggregate claim is inferred from candidate-final.
+  - Limits, not defects. The kqueue `red` sample is a preparation failure, and `red3` is the intended old-oracle RED (`assert None`). Parent-full has no verdict and candidate-full overlapped it, so that pair is not serial. All seven historical runtime failures stay with k140. `diagnostic:expired-request-verify` has no `desc`, so `task --list` hides it. That is a minor reproducibility note.
+  - Graph coverage. This review read the committed source and evidence directly with git, grep, shasum and Python JSON reads. It made no repository-wide claim from the code graph.
+  - Continuation. k142 triages F1 to F3. k140 keeps the full aggregate charter. k28 and k17 stay open.
