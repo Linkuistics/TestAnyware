@@ -47,3 +47,31 @@ controls distinguish that from an admitted first-attempt exception. This review
 must supply fresh context before k122 changes the same boundary. No current
 GROVE_PROVIDER_EVIDENCE was present on the finishing producer; no Creator line
 was invented.
+
+## Decisions (running log)
+
+- Review of commit f04e6f481c41 (k119) by reading only. No test, build or lint command ran.
+  Subjects: experiments/exec-reliability/controller.py:207-285, test_controller.py:421-667,
+  evidence/leader-turns-k119/ (report.md, audit.py, condition-audit.json, pytest.xml, inputs-*).
+- Contract holds. `_LeaderReap.advance` makes at most one positive-PID `os.waitpid(WNOHANG)` per
+  turn and never sleeps in a turn. The wake is `min(deadline, observed+0.005)`. After the first
+  attempt, a turn at or past the cutoff retains the residual and does not poll. Terminal turns
+  return None. The strong owner leaves `_workload_owners` only at the reap (controller.py:267).
+- Doubt answered. test_leader_reap_turn_yields_and_stops_at_fixed_cutoff moves the fake clock
+  between turns (100.006) and asserts the cutoff does not move. The late-return and withheld cases
+  separate the admitted first attempt from a later poll. The nine cases at test_controller.py:492
+  pin the first-attempt exception through `_reap_leader`. Both pass at green.
+- Evidence checks. inputs-final equals the committed sources. The mutants differ by one site each.
+  RED ran the new tests on the old controller and fails with AttributeError for `_LeaderReap`.
+  Every condition reports four leader-turn children absent.
+- Trade-off, accepted: RED proves the missing symbol, not a behavioural regression. The old inline
+  loop behaved the same, so only the first-attempt and caller-authority controls guard behaviour.
+- Unproved claim, accepted: the two retained mutants cover the later-poll guard and sleep in turn.
+  No retained mutant removes `first_attempt = False`, the `min(deadline, ...)` clamp, the
+  `_workload_owners` deletion or the error residual. Nothing shows these controls miss such a
+  change. k122 can add mutants when it changes the same boundary.
+- Documentation nits, no integration: observed-deviations.json is `[]` while report.md records two
+  tooling corrections. docs/experiments/exec-reliability-diagnostic-foundation.md:2025 and older
+  records still name k119 as aggregate owner. k122 owns the aggregate and its documents.
+- No actionable defect against the contract. No integrate-review-impl leaf is cut. Only this
+  review retires. k17, k28 and k122 stay open.
