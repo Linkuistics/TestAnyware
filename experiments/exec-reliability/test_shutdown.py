@@ -83,14 +83,19 @@ def test_shutdown_bounds_object_rejected_before_freeze_or_fork(
         "denied-kill",
         "finite",
         "expired",
+        "reserve",
+        "aged-term",
     ],
 )
-def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
+@pytest.mark.parametrize("sample", range(3))
+def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample):
     """Real signals/reap; deferred and late wait returns are explicitly simulated."""
     original_service = worker_capture._service
     original_waitpid = os.waitpid
     original_kill, original_killpg = os.kill, os.killpg
     failure = worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+    if mode in {"reserve", "aged-term"}:
+        failure = worker_capture.FailureBounds(term_grace=0.25, kill_reap=0.16)
     close = worker_capture.CloseBounds(grace=0.04, kill_reap=0.13)
     worker = worker_capture.Worker(failure_bounds=failure, close_bounds=close)
     calls, probes = [], []
@@ -132,7 +137,12 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
         return original_killpg(pid, sig)
 
     monkeypatch.setattr(worker_capture, "_service", service)
-    audit = {"reaped": False, "source": "original exact-child WNOHANG", "mode": mode}
+    audit = {
+        "reaped": False,
+        "source": "original exact-child WNOHANG",
+        "mode": mode,
+        "sample": sample,
+    }
     runtime = None
     try:
         assert worker.start()
@@ -153,6 +163,14 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
             old_end = time.monotonic() + 0.11
         if mode in {"finite", "expired"}:
             old_end = time.monotonic() + (0.1 if mode == "finite" else -0.001)
+        if mode == "reserve":
+            old_end = time.monotonic() + 0.30
+        elif mode == "aged-term":
+            worker_capture._signal(owner, signal.SIGTERM)
+            seeded = list(owner.signals)
+            # Age the real attempt so renewing grace moves the deadline observably.
+            time.sleep(0.03)
+            old_end = time.monotonic() + 0.60
         owner.shutdown_deadline_monotonic = old_end
         if mode != "orderly" and mode != "healthy-stall":
             worker.failure = "controlled sticky failure"
@@ -203,6 +221,17 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode):
         elif mode == "finite":
             assert signals == ["SIGTERM", "SIGKILL"] and owner.reaped
             assert end == old_end
+        elif mode == "reserve":
+            assert signals == ["SIGTERM", "SIGKILL"] and owner.reaped
+            assert worker.kill_at == pytest.approx(old_end - failure.kill_reap, abs=1e-9, rel=0)
+            assert worker.kill_at > start
+            assert end == old_end
+        elif mode == "aged-term":
+            assert signals == ["SIGTERM", "SIGKILL"] and owner.reaped
+            assert worker.kill_at == pytest.approx(
+                seeded[0]["monotonic"] + failure.term_grace, abs=1e-9, rel=0
+            )
+            assert worker.kill_at < start + failure.term_grace - 0.02
         elif mode == "expired":
             assert not signals and not probes and not owner.reaped
         elif mode == "overrun":
@@ -274,3 +303,44 @@ def test_plan_propagates_declared_shutdown_bounds(tmp_path):
     assert declaration["close_bounds"] == asdict(close)
     assert result["inspection_worker"]["failure_bounds"] == asdict(failure)
     assert result["inspection_worker"]["close_bounds"] == asdict(close)
+
+
+@pytest.mark.parametrize("delay", [-0.04, 0.0, 0.003])
+def test_declared_shutdown_exact_escalation_clock(monkeypatch, delay):
+    """Value/clock seam supplements real signals; it owns no OS child."""
+    clock = [100.0]
+    attempts = []
+    worker = worker_capture.Worker(
+        failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+    )
+    owner = worker_capture._Owner(999999, float("inf"))
+    owner.ready = True
+    worker.owner = owner
+    worker.failure = "controlled failure"
+
+    def sleep(seconds):
+        # Model early TERM exit, escalation at T, or a turn 3 ms after T.
+        clock[0] = 100.07 + delay if clock[0] == 100.0 else clock[0] + seconds
+
+    def reap(child):
+        if len(attempts) == 2 or (delay < 0 and attempts):
+            child.reaped = True
+            child.returncode = -signal.SIGKILL
+
+    def send(child, sig):
+        attempts.append(sig)
+        child.signals.append({"signal": sig.name, "monotonic": clock[0], "errno": None})
+
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(time, "sleep", sleep)
+    monkeypatch.setattr(worker_capture, "_reap", reap)
+    monkeypatch.setattr(worker_capture, "_signal", send)
+    worker.close()
+    grace = worker.shutdown["phases"]["grace"]
+    assert worker.kill_at == pytest.approx(100.07, abs=1e-10, rel=0)
+    assert attempts == ([signal.SIGTERM] if delay < 0 else [signal.SIGTERM, signal.SIGKILL])
+    assert grace["finished_monotonic"] == pytest.approx(100.07 + delay, abs=1e-10, rel=0)
+    expected = "on_time" if delay < 0 else "at_deadline" if delay == 0 else "late"
+    assert grace["timing_outcome"] == expected
+    assert grace["overrun"] is (delay > 0)
+    assert ("grace overrun" in worker.failure) is (delay > 0)

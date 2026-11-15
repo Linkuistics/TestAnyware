@@ -1,0 +1,107 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/shutdown-phases-k109/red-inputs
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py
+collecting ... collected 711 items / 709 deselected / 2 selected
+
+test_shutdown.py::test_declared_shutdown_exact_escalation_clock[0.0] FAILED [ 50%]
+test_shutdown.py::test_declared_shutdown_exact_escalation_clock[0.003] FAILED [100%]
+
+=================================== FAILURES ===================================
+______________ test_declared_shutdown_exact_escalation_clock[0.0] ______________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10ad6b800>
+delay = 0.0
+
+    @pytest.mark.parametrize("delay", [0.0, 0.003])
+    def test_declared_shutdown_exact_escalation_clock(monkeypatch, delay):
+        """Value/clock seam supplements real signals; it owns no OS child."""
+        clock = [100.0]
+        attempts = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+        )
+        owner = worker_capture._Owner(999999, float("inf"))
+        owner.ready = True
+        worker.owner = owner
+        worker.failure = "controlled failure"
+    
+        def sleep(seconds):
+            # Deliver the grace turn exactly at T, or deliberately 3 ms after T.
+            clock[0] = 100.07 + delay
+    
+        def reap(child):
+            if len(attempts) == 2:
+                child.reaped = True
+                child.returncode = -signal.SIGKILL
+    
+        def send(child, sig):
+            attempts.append(sig)
+            child.signals.append({"signal": sig.name, "monotonic": clock[0], "errno": None})
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", sleep)
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        monkeypatch.setattr(worker_capture, "_signal", send)
+        worker.close()
+        grace = worker.shutdown["phases"]["grace"]
+        assert worker.kill_at == pytest.approx(100.07, abs=1e-10, rel=0)
+        assert attempts == [signal.SIGTERM, signal.SIGKILL]
+        assert grace["finished_monotonic"] == pytest.approx(100.07 + delay, abs=1e-10, rel=0)
+>       assert grace["timing_outcome"] == ("late" if delay else "at_deadline")
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'timing_outcome'
+
+test_shutdown.py:338: KeyError
+_____________ test_declared_shutdown_exact_escalation_clock[0.003] _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10aeeacf0>
+delay = 0.003
+
+    @pytest.mark.parametrize("delay", [0.0, 0.003])
+    def test_declared_shutdown_exact_escalation_clock(monkeypatch, delay):
+        """Value/clock seam supplements real signals; it owns no OS child."""
+        clock = [100.0]
+        attempts = []
+        worker = worker_capture.Worker(
+            failure_bounds=worker_capture.FailureBounds(term_grace=0.07, kill_reap=0.16)
+        )
+        owner = worker_capture._Owner(999999, float("inf"))
+        owner.ready = True
+        worker.owner = owner
+        worker.failure = "controlled failure"
+    
+        def sleep(seconds):
+            # Deliver the grace turn exactly at T, or deliberately 3 ms after T.
+            clock[0] = 100.07 + delay
+    
+        def reap(child):
+            if len(attempts) == 2:
+                child.reaped = True
+                child.returncode = -signal.SIGKILL
+    
+        def send(child, sig):
+            attempts.append(sig)
+            child.signals.append({"signal": sig.name, "monotonic": clock[0], "errno": None})
+    
+        monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+        monkeypatch.setattr(time, "sleep", sleep)
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        monkeypatch.setattr(worker_capture, "_signal", send)
+        worker.close()
+        grace = worker.shutdown["phases"]["grace"]
+        assert worker.kill_at == pytest.approx(100.07, abs=1e-10, rel=0)
+        assert attempts == [signal.SIGTERM, signal.SIGKILL]
+        assert grace["finished_monotonic"] == pytest.approx(100.07 + delay, abs=1e-10, rel=0)
+>       assert grace["timing_outcome"] == ("late" if delay else "at_deadline")
+               ^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'timing_outcome'
+
+test_shutdown.py:338: KeyError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/shutdown-phases-k109/red/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_shutdown.py::test_declared_shutdown_exact_escalation_clock[0.0] - KeyError: 'timing_outcome'
+FAILED test_shutdown.py::test_declared_shutdown_exact_escalation_clock[0.003] - KeyError: 'timing_outcome'
+====================== 2 failed, 709 deselected in 0.30s =======================

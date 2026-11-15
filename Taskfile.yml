@@ -721,3 +721,41 @@ tasks:
       - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/worker-phases-k104/*.py
       - uv run --locked python -m ruff check evidence/worker-phases-k104/*.py
       - uv run --locked python -m pyright evidence/worker-phases-k104/*.py
+
+  diagnostic:shutdown-review-prepare:
+    desc: Freeze worker shutdown phase sources, optionally with MUTANT=<named regression>
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/shutdown-phases-k109/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:shutdown-review-check:
+    desc: Retain frozen worker shutdown controls or full tests and static checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/shutdown-phases-k109/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
+
+  diagnostic:shutdown-review-preserve:
+    desc: Inventory prior evidence before or after worker shutdown phase work
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/shutdown-phases-k109/preserve.py '{{.MODE}}'
+
+  diagnostic:shutdown-review-tools:
+    desc: Check worker shutdown phase evidence tooling
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/shutdown-phases-k109/*.py
+      - uv run --locked python -m ruff check evidence/shutdown-phases-k109/*.py
+      - uv run --locked python -m pyright evidence/shutdown-phases-k109/*.py
+
+  diagnostic:shutdown-review-format:
+    desc: Format the shutdown review implementation and controls
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format worker_capture.py test_shutdown.py evidence/shutdown-phases-k109/*.py

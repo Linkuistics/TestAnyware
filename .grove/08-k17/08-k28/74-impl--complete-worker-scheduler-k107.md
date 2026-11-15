@@ -1,5 +1,16 @@
 # complete-worker-scheduler-k107
 
+k109 reconciles the k108 shutdown-phase review in
+`experiments/exec-reliability/evidence/shutdown-phases-k109/report.md`. Binding
+finite-reserve and aged-TERM controls each run three times and reject the three
+surviving regressions; exact-clock controls reject 3 ms grace/KILL delays.
+Phase timing now distinguishes on-time, equality and late completion, and a
+strictly late grace phase makes failure sticky. Ordinary real escalations can
+still be late under OS scheduling; passing the checker verifies their failure
+receipts rather than establishing hard real-time success. The final frozen
+712-case suite and static checks pass. This leaf retains its entire aggregate
+charter, shared scheduling, overlap, expired-cutoff first reap and final review.
+
 Before changing bootstrap or claiming the aggregate, read the k101 bootstrap report at `experiments/exec-reliability/evidence/bootstrap-bounds-k101/report.md` and its scheduled independent review. k101 supplies Plan/direct-Worker readiness and failed-bootstrap phase declarations only. This continuation still owns worker-failure and orderly-close declarations, the shared scheduler, overlap, all remaining controls and the final k28 review. The original charter below is retained in full.
 
 Before changing the aggregate runtime, read the narrowed k96 producer, its scheduled independent review and `experiments/exec-reliability/evidence/request-identity-k96/report.md`. k96 supplies the persistent request envelope and controller scope only. The full original aggregate charter below remains binding, including shared scheduling, epoch closure, shutdown overlap, remaining controls and the final review of bounded-inspection-k28. Do not treat the identity slice's passing tests as aggregate acceptance.

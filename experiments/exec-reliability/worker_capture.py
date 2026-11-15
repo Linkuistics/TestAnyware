@@ -554,6 +554,9 @@ class Worker:
                 "deadline_monotonic": cutoff,
                 "finished_monotonic": finish,
                 "outcome": result,
+                "timing_outcome": (
+                    "late" if finish > cutoff else "at_deadline" if finish == cutoff else "on_time"
+                ),
                 "overrun": finish > cutoff,
                 "lateness_seconds": max(0.0, finish - cutoff),
                 "deadline_exhausted": finish >= cutoff,
@@ -571,6 +574,8 @@ class Worker:
             "signals": list(owner.signals) if owner is not None else [],
             "phases": phases,
         }
+        if grace_finished > kill_at and prior_kill is None:
+            self.failure = f"{self.failure}; {mode} grace overrun"
         if failed_bootstrap:
             self.bootstrap_shutdown = self.shutdown
         if overrun:
