@@ -14,6 +14,7 @@ import signal
 import struct
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field, fields
 from typing import cast
 
@@ -583,10 +584,11 @@ class Worker:
         self._finish_close(state)
         return None
 
-    def close(self) -> None:
-        """Compatibility driver; schedulers can use begin_close/advance_close."""
+    def close(self, *, drive: Callable[[Turn], None] | None = None) -> None:
+        """Complete close through the caller's driver, or the default driver."""
+        schedule = run_turns if drive is None else drive
         self.begin_close()
-        run_turns(Turn(self.advance_close, safety=True))
+        schedule(Turn(self.advance_close, safety=True))
 
     def _finish_close(self, state: _Shutdown) -> None:
         owner = self.owner
@@ -949,12 +951,23 @@ def capture_helper(
     *,
     worker: Worker | None = None,
     scope: RequestScope | None = None,
+    drive: Callable[[Turn], None] | None = None,
 ) -> HelperCapture:
     """Bound parent waiting even when the worker's helper creation never returns.
 
     The raw worker fork is admitted, but remains a synchronous OS operation.
     All channel waits and worker shutdown share the caller's original deadline.
     """
+    # The supplied driver completes each bounded owner and may compose companions.
+    schedule = run_turns if drive is None else drive
+
+    def close_worker() -> None:
+        assert worker is not None
+        if drive is None:
+            worker.close()
+        else:
+            worker.close(drive=drive)
+
     started = time.monotonic()
     reserve = min(0.05, max(0, deadline - started) / 4)
     query_deadline = deadline - reserve
@@ -976,7 +989,7 @@ def capture_helper(
                 worker.owner.shutdown_deadline_monotonic = min(
                     worker.owner.shutdown_deadline_monotonic, deadline
                 )
-            worker.close()
+            close_worker()
             if worker.owner is not None and not worker.owner.reaped:
                 receipt.residual_remedy = (
                     "Request allowance exhausted; independently reconcile the retained exact "
@@ -1300,7 +1313,7 @@ def capture_helper(
                 return (), (worker.command,)
             return tuple(streams), ()
 
-        run_turns(Turn(advance_query, readiness=query_readiness))
+        schedule(Turn(advance_query, readiness=query_readiness))
         if not complete:
             raise TimeoutError("worker query deadline exhausted")
         if worker is not None and receipt.error is not None:
@@ -1373,7 +1386,7 @@ def capture_helper(
                     readers = (control_read,) if cleanup_open and control_read is not None else ()
                     return readers, ()
 
-                run_turns(Turn(advance_retirement, safety=True, readiness=retirement_readiness))
+                schedule(Turn(advance_retirement, safety=True, readiness=retirement_readiness))
                 _reap(owner)
             if not complete and fork_failure is not None and (buffers[0] or buffers[1]):
                 # Incremental rejection can bypass the final decoder. Partial
@@ -1428,7 +1441,7 @@ def capture_helper(
                 )
         if worker is not None:
             if worker.failure is not None:
-                worker.close()
+                close_worker()
         for fd in channels:
             try:
                 os.close(fd)
@@ -1441,7 +1454,7 @@ def capture_helper(
         if worker is not None:
             if receipt.error is not None and worker.failure is None:
                 worker.failure = receipt.error
-                worker.close()
+                close_worker()
                 if owner is not None and not owner.reaped:
                     receipt.residual_remedy = receipt.residual_remedy or (
                         "Worker finalization exceeded its request allowance; independently "

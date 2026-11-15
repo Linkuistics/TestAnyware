@@ -1,0 +1,819 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="0" tests="11" time="2.505" timestamp="2026-11-15T23:08:14.780541+11:00" hostname="byrd.local"><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-False-False]" time="0.021" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-False-True]" time="0.018" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-True-False]" time="0.953" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-True-True]" time="0.955" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-False-False]" time="0.007"><failure message="assert (1 == 2)&#10; +  where 1 = len((11,))">_owners = (Turn(advance=&lt;function capture_helper.&lt;locals&gt;.advance_query at 0x107a24900&gt;, safety=False, readiness=&lt;function capture_helper.&lt;locals&gt;.query_readiness at 0x107a249a0&gt;),)
+
+    def private_driver(*_owners):
+&gt;       raise AssertionError("capture escaped the caller driver")
+E       AssertionError: capture escaped the caller driver
+
+test_turns.py:484: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1029/test_request_turns_yield_with_4')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1076ed370&gt;
+persistent = False, stalled = False, supplied = True
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    @pytest.mark.parametrize("supplied", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled, supplied
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        declaration = f"request-start-{persistent}-{stalled}-{supplied}.json"
+        controller.write_json(
+            root / declaration,
+            {
+                "checker_pid": os.getpid(),
+                "persistent": persistent,
+                "stalled": stalled,
+                "supplied": supplied,
+            },
+        )
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        ready = [False]
+        original_read = os.read
+        original_write = os.write
+        original_select = worker_capture.select.select
+        original_driver = worker_capture.run_turns
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def write(fd, data):
+            count = original_write(fd, data)
+            if active[0]:
+                ready[0] = bool(count)
+            return count
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            result = original_select(readers, writers, errors, timeout)
+            if active[0]:
+                ready[0] = bool(result[0])
+            return result
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+            if phase == 0 or subject.advance.__name__ == "advance_retirement":
+                assert subject.readiness is not None, "transport omitted readiness registration"
+                readers, writers = subject.readiness()
+                if phase == 0:
+                    if persistent:
+                        assert readers == () and writers == (worker.command,)
+                    else:
+                        assert len(readers) == 2 and writers == ()
+                else:
+                    assert len(readers) &lt;= 1 and writers == ()
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    before_wake = time.monotonic()
+                    wake = subject.advance()
+                    after_wake = time.monotonic()
+                    assert bytes_read[0] &lt;= 65536
+                    if wake is not None:
+                        if phase == 0:
+                            # The caller's one-second allowance reserves 50 ms.
+                            cutoff = deadline - 0.05
+                            delay = 0 if ready[0] else 0.005
+                            assert min(cutoff, before_wake + delay) &lt;= wake
+                            assert wake &lt;= min(cutoff, after_wake + delay)
+                        else:
+                            assert wake &lt;= min(deadline, after_wake + 0.001)
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety, readiness=subject.readiness)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        def private_driver(*_owners):
+            raise AssertionError("capture escaped the caller driver")
+    
+        monkeypatch.setattr(worker_capture, "run_turns", private_driver if supplied else drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            deadline = time.monotonic() + 1
+&gt;           receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2&gt;/dev/null"),
+                deadline,
+                worker=worker,
+                **({"drive": drive} if supplied else {}),
+            )
+
+test_turns.py:492: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1389: in capture_helper
+    schedule(Turn(advance_retirement, safety=True, readiness=retirement_readiness))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+owners = (Turn(advance=&lt;function capture_helper.&lt;locals&gt;.advance_retirement at 0x107713ce0&gt;, safety=True, readiness=&lt;function capture_helper.&lt;locals&gt;.retirement_readiness at 0x107713d80&gt;),)
+
+    def drive(*owners):
+        # Query is the first invocation; request failure/standalone retirement
+        # follows. Worker.close may add its own later already-reviewed driver.
+        phase = len(phases)
+        events = []
+        phases.append(events)
+        assert len(owners) == 1
+        subject = owners[0]
+        if phase == 0 or subject.advance.__name__ == "advance_retirement":
+            assert subject.readiness is not None, "transport omitted readiness registration"
+            readers, writers = subject.readiness()
+            if phase == 0:
+                if persistent:
+                    assert readers == () and writers == (worker.command,)
+                else:
+&gt;                   assert len(readers) == 2 and writers == ()
+E                   assert (1 == 2)
+E                    +  where 1 = len((11,))
+
+test_turns.py:447: AssertionError</failure></testcase><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-False-True]" time="0.007"><failure message="AssertionError: capture escaped the caller driver">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1029/test_request_turns_yield_with_5')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1077f5a00&gt;
+persistent = True, stalled = False, supplied = True
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    @pytest.mark.parametrize("supplied", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled, supplied
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        declaration = f"request-start-{persistent}-{stalled}-{supplied}.json"
+        controller.write_json(
+            root / declaration,
+            {
+                "checker_pid": os.getpid(),
+                "persistent": persistent,
+                "stalled": stalled,
+                "supplied": supplied,
+            },
+        )
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        ready = [False]
+        original_read = os.read
+        original_write = os.write
+        original_select = worker_capture.select.select
+        original_driver = worker_capture.run_turns
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def write(fd, data):
+            count = original_write(fd, data)
+            if active[0]:
+                ready[0] = bool(count)
+            return count
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            result = original_select(readers, writers, errors, timeout)
+            if active[0]:
+                ready[0] = bool(result[0])
+            return result
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+            if phase == 0 or subject.advance.__name__ == "advance_retirement":
+                assert subject.readiness is not None, "transport omitted readiness registration"
+                readers, writers = subject.readiness()
+                if phase == 0:
+                    if persistent:
+                        assert readers == () and writers == (worker.command,)
+                    else:
+                        assert len(readers) == 2 and writers == ()
+                else:
+                    assert len(readers) &lt;= 1 and writers == ()
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    before_wake = time.monotonic()
+                    wake = subject.advance()
+                    after_wake = time.monotonic()
+                    assert bytes_read[0] &lt;= 65536
+                    if wake is not None:
+                        if phase == 0:
+                            # The caller's one-second allowance reserves 50 ms.
+                            cutoff = deadline - 0.05
+                            delay = 0 if ready[0] else 0.005
+                            assert min(cutoff, before_wake + delay) &lt;= wake
+                            assert wake &lt;= min(cutoff, after_wake + delay)
+                        else:
+                            assert wake &lt;= min(deadline, after_wake + 0.001)
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety, readiness=subject.readiness)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        def private_driver(*_owners):
+            raise AssertionError("capture escaped the caller driver")
+    
+        monkeypatch.setattr(worker_capture, "run_turns", private_driver if supplied else drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            deadline = time.monotonic() + 1
+&gt;           receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2&gt;/dev/null"),
+                deadline,
+                worker=worker,
+                **({"drive": drive} if supplied else {}),
+            )
+
+test_turns.py:492: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1316: in capture_helper
+    run_turns(Turn(advance_query, readiness=query_readiness))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+_owners = (Turn(advance=&lt;function capture_helper.&lt;locals&gt;.advance_query at 0x107a25d00&gt;, safety=False, readiness=&lt;function capture_helper.&lt;locals&gt;.query_readiness at 0x107a25e40&gt;),)
+
+    def private_driver(*_owners):
+&gt;       raise AssertionError("capture escaped the caller driver")
+E       AssertionError: capture escaped the caller driver
+
+test_turns.py:484: AssertionError</failure></testcase><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-True-False]" time="0.007"><failure message="assert (1 == 2)&#10; +  where 1 = len((12,))">_owners = (Turn(advance=&lt;function capture_helper.&lt;locals&gt;.advance_query at 0x107a26520&gt;, safety=False, readiness=&lt;function capture_helper.&lt;locals&gt;.query_readiness at 0x107a265c0&gt;),)
+
+    def private_driver(*_owners):
+&gt;       raise AssertionError("capture escaped the caller driver")
+E       AssertionError: capture escaped the caller driver
+
+test_turns.py:484: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1029/test_request_turns_yield_with_6')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1077f8440&gt;
+persistent = False, stalled = True, supplied = True
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    @pytest.mark.parametrize("supplied", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled, supplied
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        declaration = f"request-start-{persistent}-{stalled}-{supplied}.json"
+        controller.write_json(
+            root / declaration,
+            {
+                "checker_pid": os.getpid(),
+                "persistent": persistent,
+                "stalled": stalled,
+                "supplied": supplied,
+            },
+        )
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        ready = [False]
+        original_read = os.read
+        original_write = os.write
+        original_select = worker_capture.select.select
+        original_driver = worker_capture.run_turns
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def write(fd, data):
+            count = original_write(fd, data)
+            if active[0]:
+                ready[0] = bool(count)
+            return count
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            result = original_select(readers, writers, errors, timeout)
+            if active[0]:
+                ready[0] = bool(result[0])
+            return result
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+            if phase == 0 or subject.advance.__name__ == "advance_retirement":
+                assert subject.readiness is not None, "transport omitted readiness registration"
+                readers, writers = subject.readiness()
+                if phase == 0:
+                    if persistent:
+                        assert readers == () and writers == (worker.command,)
+                    else:
+                        assert len(readers) == 2 and writers == ()
+                else:
+                    assert len(readers) &lt;= 1 and writers == ()
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    before_wake = time.monotonic()
+                    wake = subject.advance()
+                    after_wake = time.monotonic()
+                    assert bytes_read[0] &lt;= 65536
+                    if wake is not None:
+                        if phase == 0:
+                            # The caller's one-second allowance reserves 50 ms.
+                            cutoff = deadline - 0.05
+                            delay = 0 if ready[0] else 0.005
+                            assert min(cutoff, before_wake + delay) &lt;= wake
+                            assert wake &lt;= min(cutoff, after_wake + delay)
+                        else:
+                            assert wake &lt;= min(deadline, after_wake + 0.001)
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety, readiness=subject.readiness)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        def private_driver(*_owners):
+            raise AssertionError("capture escaped the caller driver")
+    
+        monkeypatch.setattr(worker_capture, "run_turns", private_driver if supplied else drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            deadline = time.monotonic() + 1
+&gt;           receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2&gt;/dev/null"),
+                deadline,
+                worker=worker,
+                **({"drive": drive} if supplied else {}),
+            )
+
+test_turns.py:492: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1389: in capture_helper
+    schedule(Turn(advance_retirement, safety=True, readiness=retirement_readiness))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+owners = (Turn(advance=&lt;function capture_helper.&lt;locals&gt;.advance_retirement at 0x107a26980&gt;, safety=True, readiness=&lt;function capture_helper.&lt;locals&gt;.retirement_readiness at 0x107a26a20&gt;),)
+
+    def drive(*owners):
+        # Query is the first invocation; request failure/standalone retirement
+        # follows. Worker.close may add its own later already-reviewed driver.
+        phase = len(phases)
+        events = []
+        phases.append(events)
+        assert len(owners) == 1
+        subject = owners[0]
+        if phase == 0 or subject.advance.__name__ == "advance_retirement":
+            assert subject.readiness is not None, "transport omitted readiness registration"
+            readers, writers = subject.readiness()
+            if phase == 0:
+                if persistent:
+                    assert readers == () and writers == (worker.command,)
+                else:
+&gt;                   assert len(readers) == 2 and writers == ()
+E                   assert (1 == 2)
+E                    +  where 1 = len((12,))
+
+test_turns.py:447: AssertionError</failure></testcase><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-True-True]" time="0.007"><failure message="AssertionError: capture escaped the caller driver">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1029/test_request_turns_yield_with_7')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1077f8e30&gt;
+persistent = True, stalled = True, supplied = True
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    @pytest.mark.parametrize("stalled", [False, True])
+    @pytest.mark.parametrize("supplied", [False, True])
+    def test_request_turns_yield_with_transport_priority_and_caps(
+        tmp_path, monkeypatch, persistent, stalled, supplied
+    ):
+        import os
+        import subprocess
+        import time
+        import uuid
+        from pathlib import Path
+    
+        import controller
+        import inspection
+        import worker_capture
+    
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        declaration = f"request-start-{persistent}-{stalled}-{supplied}.json"
+        controller.write_json(
+            root / declaration,
+            {
+                "checker_pid": os.getpid(),
+                "persistent": persistent,
+                "stalled": stalled,
+                "supplied": supplied,
+            },
+        )
+        active = [False]
+        worker = worker_capture.Worker() if persistent else None
+        journaled = set()
+        original_reap = worker_capture._reap
+    
+        def reap(owner):
+            if owner.pid not in journaled and not owner.reaped:
+                # The external identity observer is outside the runtime turn's I/O.
+                was_active = active[0]
+                active[0] = False
+                try:
+                    observed = subprocess.run(
+                        ["/bin/ps", "-p", str(owner.pid), "-o", "pid=,pgid=,stat=,lstart=,command="],
+                        capture_output=True,
+                        text=True,
+                        timeout=1,
+                    )
+                finally:
+                    active[0] = was_active
+                if observed.returncode == 0 and not observed.stderr:
+                    controller.write_json(
+                        root / f"owned-termination-{uuid.uuid4().hex}.json",
+                        {
+                            "checker_pid": os.getpid(),
+                            "identity": {"pid": owner.pid, "stdout": observed.stdout},
+                        },
+                    )
+                journaled.add(owner.pid)
+            original_reap(owner)
+    
+        monkeypatch.setattr(worker_capture, "_reap", reap)
+        if stalled:
+    
+            def stall(*_args, **_kwargs):
+                time.sleep(10)
+                raise AssertionError("stalled creation escaped fixed retirement")
+    
+            monkeypatch.setattr(inspection, "_spawn_helper", stall)
+        if worker is not None:
+            assert worker.start(), worker.failure
+    
+        phases = []
+        bytes_read = [0]
+        polls = [0]
+        ready = [False]
+        original_read = os.read
+        original_write = os.write
+        original_select = worker_capture.select.select
+        original_driver = worker_capture.run_turns
+    
+        def read(fd, size):
+            if active[0]:
+                bytes_read[0] += size
+            return original_read(fd, size)
+    
+        def write(fd, data):
+            count = original_write(fd, data)
+            if active[0]:
+                ready[0] = bool(count)
+            return count
+    
+        def select(readers, writers, errors, timeout):
+            if active[0]:
+                polls[0] += 1
+                assert timeout == 0, "a transport turn blocked other ready owners"
+            result = original_select(readers, writers, errors, timeout)
+            if active[0]:
+                ready[0] = bool(result[0])
+            return result
+    
+        def drive(*owners):
+            # Query is the first invocation; request failure/standalone retirement
+            # follows. Worker.close may add its own later already-reviewed driver.
+            phase = len(phases)
+            events = []
+            phases.append(events)
+            assert len(owners) == 1
+            subject = owners[0]
+            if phase == 0 or subject.advance.__name__ == "advance_retirement":
+                assert subject.readiness is not None, "transport omitted readiness registration"
+                readers, writers = subject.readiness()
+                if phase == 0:
+                    if persistent:
+                        assert readers == () and writers == (worker.command,)
+                    else:
+                        assert len(readers) == 2 and writers == ()
+                else:
+                    assert len(readers) &lt;= 1 and writers == ()
+    
+            def advance():
+                events.append("owner")
+                bytes_read[0] = 0
+                active[0] = True
+                try:
+                    before_wake = time.monotonic()
+                    wake = subject.advance()
+                    after_wake = time.monotonic()
+                    assert bytes_read[0] &lt;= 65536
+                    if wake is not None:
+                        if phase == 0:
+                            # The caller's one-second allowance reserves 50 ms.
+                            cutoff = deadline - 0.05
+                            delay = 0 if ready[0] else 0.005
+                            assert min(cutoff, before_wake + delay) &lt;= wake
+                            assert wake &lt;= min(cutoff, after_wake + delay)
+                        else:
+                            assert wake &lt;= min(deadline, after_wake + 0.001)
+                    if wake is None:
+                        before = bytes_read[0], polls[0]
+                        assert subject.advance() is None
+                        assert (bytes_read[0], polls[0]) == before, "terminal transport polled again"
+                    return wake
+                finally:
+                    active[0] = False
+    
+            competitor = turns.Turn(lambda: events.append("competitor"), safety=phase == 0)
+            measured = turns.Turn(advance, safety=subject.safety, readiness=subject.readiness)
+            # Competing safety must beat the query even when registered second;
+            # retiring safety must beat ordinary work registered first.
+            turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
+    
+        def private_driver(*_owners):
+            raise AssertionError("capture escaped the caller driver")
+    
+        monkeypatch.setattr(worker_capture, "run_turns", private_driver if supplied else drive)
+        monkeypatch.setattr(worker_capture.os, "read", read)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        try:
+            deadline = time.monotonic() + 1
+&gt;           receipt = worker_capture.capture_helper(
+                ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2&gt;/dev/null"),
+                deadline,
+                worker=worker,
+                **({"drive": drive} if supplied else {}),
+            )
+
+test_turns.py:492: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1316: in capture_helper
+    run_turns(Turn(advance_query, readiness=query_readiness))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+_owners = (Turn(advance=&lt;function capture_helper.&lt;locals&gt;.advance_query at 0x107a27240&gt;, safety=False, readiness=&lt;function capture_helper.&lt;locals&gt;.query_readiness at 0x107a27380&gt;),)
+
+    def private_driver(*_owners):
+&gt;       raise AssertionError("capture escaped the caller driver")
+E       AssertionError: capture escaped the caller driver
+
+test_turns.py:484: AssertionError</failure></testcase><testcase classname="test_turns" name="test_caller_driver_owns_close_and_expired_allowance[False]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_owns_close_and_expired_allowance[True]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_owns_finalization_failure" time="0.000"><failure message="AssertionError: finalization escaped the caller driver">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107802bd0&gt;
+
+    def test_caller_driver_owns_finalization_failure(monkeypatch):
+        """A caller exception still forwards newly discovered finalization failure."""
+        import worker_capture
+    
+        now, _ = clock(monkeypatch)
+        owner = worker_capture._Owner(12345, float("inf"), reaped=True, returncode=0)
+        worker = worker_capture.Worker(
+            started=True,
+            admission={"ok": True, "reason": "fixture"},
+            owner=owner,
+            command=123,
+            control=124,
+            result=125,
+        )
+        events = []
+    
+        def private_driver(*_owners):
+            raise AssertionError("finalization escaped the caller driver")
+    
+        def drive(subject):
+            events.append(subject.advance.__name__)
+            if not subject.safety:
+                now[0] += 1
+                raise RuntimeError("caller failed before dispatch")
+            turns.run_turns(subject)
+    
+        monkeypatch.setattr(worker_capture, "run_turns", private_driver)
+        with pytest.raises(RuntimeError, match="caller failed before dispatch"):
+&gt;           worker_capture.capture_helper(("/usr/bin/true",), now[0] + 0.1, worker=worker, drive=drive)
+
+test_turns.py:1005: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1316: in capture_helper
+    run_turns(Turn(advance_query, readiness=query_readiness))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+_owners = (Turn(advance=&lt;function capture_helper.&lt;locals&gt;.advance_query at 0x107a26340&gt;, safety=False, readiness=&lt;function capture_helper.&lt;locals&gt;.query_readiness at 0x107a27880&gt;),)
+
+    def private_driver(*_owners):
+&gt;       raise AssertionError("finalization escaped the caller driver")
+E       AssertionError: finalization escaped the caller driver
+
+test_turns.py:994: AssertionError</failure></testcase></testsuite></testsuites>

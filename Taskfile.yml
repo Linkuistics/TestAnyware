@@ -10,6 +10,39 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  diagnostic:caller-prepare:
+    desc: Freeze caller scheduling subjects
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/caller-scheduling-k140/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}}
+
+  diagnostic:caller-check:
+    desc: Retain bounded frozen caller scheduling controls and checks
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/caller-scheduling-k140/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}'
+
+  diagnostic:caller-preserve:
+    desc: Inventory all prior diagnostic evidence
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/caller-scheduling-k140/preserve.py '{{.MODE}}'
+
+  diagnostic:caller-tools:
+    desc: Format and check caller scheduling tools
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format evidence/caller-scheduling-k140/*.py
+      - uv run --locked python -m ruff check evidence/caller-scheduling-k140/*.py
+      - uv run --locked python -m pytest -q evidence/caller-scheduling-k140/test_audit.py
+      - uv run --locked python -m pyright evidence/caller-scheduling-k140/prepare.py evidence/caller-scheduling-k140/preserve.py evidence/caller-scheduling-k140/run_condition.py
+
   diagnostic:expired-request-verify:
     dir: experiments/exec-reliability
     cmds:

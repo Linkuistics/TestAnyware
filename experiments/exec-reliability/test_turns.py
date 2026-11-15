@@ -333,8 +333,9 @@ def test_shared_turns_orders_overdue_by_wake(monkeypatch):
 
 @pytest.mark.parametrize("persistent", [False, True])
 @pytest.mark.parametrize("stalled", [False, True])
+@pytest.mark.parametrize("supplied", [False, True])
 def test_request_turns_yield_with_transport_priority_and_caps(
-    tmp_path, monkeypatch, persistent, stalled
+    tmp_path, monkeypatch, persistent, stalled, supplied
 ):
     import os
     import subprocess
@@ -348,6 +349,16 @@ def test_request_turns_yield_with_transport_priority_and_caps(
 
     root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
     root.mkdir(parents=True, exist_ok=True)
+    declaration = f"request-start-{persistent}-{stalled}-{supplied}.json"
+    controller.write_json(
+        root / declaration,
+        {
+            "checker_pid": os.getpid(),
+            "persistent": persistent,
+            "stalled": stalled,
+            "supplied": supplied,
+        },
+    )
     active = [False]
     worker = worker_capture.Worker() if persistent else None
     journaled = set()
@@ -469,7 +480,10 @@ def test_request_turns_yield_with_transport_priority_and_caps(
         # retiring safety must beat ordinary work registered first.
         turns.run_turns(*((measured, competitor) if phase == 0 else (competitor, measured)))
 
-    monkeypatch.setattr(worker_capture, "run_turns", drive)
+    def private_driver(*_owners):
+        raise AssertionError("capture escaped the caller driver")
+
+    monkeypatch.setattr(worker_capture, "run_turns", private_driver if supplied else drive)
     monkeypatch.setattr(worker_capture.os, "read", read)
     monkeypatch.setattr(worker_capture.os, "write", write)
     monkeypatch.setattr(worker_capture.select, "select", select)
@@ -479,6 +493,7 @@ def test_request_turns_yield_with_transport_priority_and_caps(
             ("/bin/sh", "-c", "dd if=/dev/zero bs=131072 count=1 2>/dev/null"),
             deadline,
             worker=worker,
+            **({"drive": drive} if supplied else {}),
         )
         assert phases, "request transport bypassed the shared driver"
         assert phases[0][:2] == ["competitor", "owner"]
@@ -497,11 +512,13 @@ def test_request_turns_yield_with_transport_priority_and_caps(
         controller.write_json(
             root / f"request-turns-{uuid.uuid4().hex}.json",
             {
+                "declaration": declaration,
                 "phases": phases,
                 "worker": receipt.worker,
                 "error": receipt.error,
                 "persistent": persistent,
                 "stalled": stalled,
+                "supplied": supplied,
             },
         )
     finally:
@@ -917,3 +934,77 @@ def test_retirement_readiness_closes_cleanup_before_owner_exit(monkeypatch):
     assert signals == [(pid, signal.SIGTERM), (pid, signal.SIGKILL)]
     assert receipt.worker is not None and receipt.worker["reaped"]
     assert not worker_capture._owners
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_caller_driver_owns_close_and_expired_allowance(monkeypatch, expired):
+    """Both the direct close adapter and expired request forward the driver."""
+    import worker_capture
+
+    now, _ = clock(monkeypatch)
+    worker = worker_capture.Worker(
+        started=True,
+        admission={"ok": True, "reason": "fixture"},
+    )
+    events = []
+
+    def private_driver(*_owners):
+        raise AssertionError("close escaped the caller driver")
+
+    def drive(subject):
+        assert subject.safety
+        events.append("close")
+        turns.run_turns(subject, turns.Turn(lambda: events.append("companion")))
+        assert worker.closed
+        assert subject.advance() is None
+
+    monkeypatch.setattr(worker_capture, "run_turns", private_driver)
+    if expired:
+        receipt = worker_capture.capture_helper(
+            ("/usr/bin/true",), now[0], worker=worker, drive=drive
+        )
+        assert worker.failure == receipt.error
+        assert "exhausted allowance" in receipt.error
+        assert receipt.residual_remedy is None
+    else:
+        worker.close(drive=drive)
+    assert events == ["close", "companion"]
+    shutdown = worker.shutdown
+    worker.close(drive=drive)
+    assert worker.shutdown == shutdown
+
+
+def test_caller_driver_owns_finalization_failure(monkeypatch):
+    """A caller exception still forwards newly discovered finalization failure."""
+    import worker_capture
+
+    now, _ = clock(monkeypatch)
+    owner = worker_capture._Owner(12345, float("inf"), reaped=True, returncode=0)
+    worker = worker_capture.Worker(
+        started=True,
+        admission={"ok": True, "reason": "fixture"},
+        owner=owner,
+        command=123,
+        control=124,
+        result=125,
+    )
+    events = []
+
+    def private_driver(*_owners):
+        raise AssertionError("finalization escaped the caller driver")
+
+    def drive(subject):
+        events.append(subject.advance.__name__)
+        if not subject.safety:
+            now[0] += 1
+            raise RuntimeError("caller failed before dispatch")
+        turns.run_turns(subject)
+
+    monkeypatch.setattr(worker_capture, "run_turns", private_driver)
+    with pytest.raises(RuntimeError, match="caller failed before dispatch"):
+        worker_capture.capture_helper(("/usr/bin/true",), now[0] + 0.1, worker=worker, drive=drive)
+    assert worker.failure.startswith("worker fixed deadline exceeded")
+    assert "failure shutdown overrun" in worker.failure
+    assert worker.closed
+    assert events == ["advance_query", "advance_close"]
+    assert owner.reap_attempts == 0

@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="11" time="4.338" timestamp="2026-11-15T23:05:09.524611+11:00" hostname="byrd.local"><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-False-False]" time="0.019" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-False-True]" time="0.019" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-True-False]" time="0.955" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[False-True-True]" time="0.955" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-False-False]" time="0.012" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-False-True]" time="0.020" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-True-False]" time="0.954" /><testcase classname="test_turns" name="test_request_turns_yield_with_transport_priority_and_caps[True-True-True]" time="0.957" /><testcase classname="test_turns" name="test_caller_driver_owns_close_and_expired_allowance[False]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_owns_close_and_expired_allowance[True]" time="0.000" /><testcase classname="test_turns" name="test_caller_driver_owns_finalization_failure" time="0.001"><failure message="AssertionError: assert 'worker fixed deadline exceeded; failure grace overrun; failure shutdown overrun' == 'worker fixed deadline exceeded'&#10;  &#10;  - worker fixed deadline exceeded&#10;  + worker fixed deadline exceeded; failure grace overrun; failure shutdown overrun">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b8207d0&gt;
+
+    def test_caller_driver_owns_finalization_failure(monkeypatch):
+        """A caller exception still forwards newly discovered finalization failure."""
+        import worker_capture
+    
+        now, _ = clock(monkeypatch)
+        owner = worker_capture._Owner(12345, float("inf"), reaped=True, returncode=0)
+        worker = worker_capture.Worker(
+            started=True,
+            admission={"ok": True, "reason": "fixture"},
+            owner=owner,
+            command=123,
+            control=124,
+            result=125,
+        )
+        events = []
+    
+        def private_driver(*_owners):
+            raise AssertionError("finalization escaped the caller driver")
+    
+        def drive(subject):
+            events.append(subject.advance.__name__)
+            if not subject.safety:
+                now[0] += 1
+                raise RuntimeError("caller failed before dispatch")
+            turns.run_turns(subject)
+    
+        monkeypatch.setattr(worker_capture, "run_turns", private_driver)
+        with pytest.raises(RuntimeError, match="caller failed before dispatch"):
+            worker_capture.capture_helper(("/usr/bin/true",), now[0] + 0.1, worker=worker, drive=drive)
+&gt;       assert worker.failure == "worker fixed deadline exceeded"
+E       AssertionError: assert 'worker fixed deadline exceeded; failure grace overrun; failure shutdown overrun' == 'worker fixed deadline exceeded'
+E         
+E         - worker fixed deadline exceeded
+E         + worker fixed deadline exceeded; failure grace overrun; failure shutdown overrun
+
+test_turns.py:1006: AssertionError</failure></testcase></testsuite></testsuites>
