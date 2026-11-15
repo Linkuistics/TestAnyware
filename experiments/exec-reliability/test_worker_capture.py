@@ -2800,21 +2800,42 @@ def test_request_identity_rejects_changed_envelope(tmp_path, monkeypatch, messag
     import worker_capture
 
     original = worker_capture._write
+    original_write = os.write
     parent = os.getpid()
     pending = []
     result_sent = False
     applied = tmp_path / "identity-mutation-applied"
 
+    def damage_identity(kind, value):
+        if kind == message:
+            applied.write_text(kind)
+            identity = value["identity"]
+            if damage == "missing":
+                value.pop("identity")
+            elif damage == "boolean":
+                identity["signal_epoch"] = True
+            elif isinstance(identity[damage], str):
+                identity[damage] += "-stale"
+            else:
+                identity[damage] += 1
+
+    def command_write(fd, data):
+        if os.getpid() != parent or fd != worker.command or message != "command":
+            return original_write(fd, data)
+        value = json.loads(data)
+        damage_identity("command", value)
+        encoded = json.dumps(value).encode() + b"\n"
+        # The real, empty nonblocking command pipe accepts this atomic envelope.
+        assert original_write(fd, encoded) == len(encoded)
+        return len(data)
+
     def write(fd, data, deadline):
         nonlocal result_sent
-        # Startup identity predates requests and retains its own session checks.
-        framed = data[:1] != b"{"
-        if os.getpid() != parent and data.startswith(b'{"session":'):
+        # The parent command is intercepted at os.write for either driver.
+        if os.getpid() == parent or data.startswith(b'{"session":'):
             return original(fd, data, deadline)
-        if os.getpid() == parent:
-            kind = "command"
-            value = json.loads(data)
-        elif framed:
+        framed = data[:1] != b"{"
+        if framed:
             kind = "result"
             value = json.loads(data[worker_capture.HEADER.size :])
         else:
@@ -2830,17 +2851,7 @@ def test_request_identity_rejects_changed_envelope(tmp_path, monkeypatch, messag
                 if "ppid" in value
                 else "intent"
             )
-        if kind == message:
-            applied.write_text(kind)
-            identity = value["identity"]
-            if damage == "missing":
-                value.pop("identity")
-            elif damage == "boolean":
-                identity["signal_epoch"] = True
-            elif isinstance(identity[damage], str):
-                identity[damage] += "-stale"
-            else:
-                identity[damage] += 1
+        damage_identity(kind, value)
         encoded = json.dumps(value).encode()
         data = (
             worker_capture.HEADER.pack(len(encoded)) + encoded
@@ -2860,6 +2871,7 @@ def test_request_identity_rejects_changed_envelope(tmp_path, monkeypatch, messag
         original(fd, data, deadline)
 
     monkeypatch.setattr(worker_capture, "_write", write)
+    monkeypatch.setattr(os, "write", command_write)
     if message == "fork-error":
         publish = worker_capture._publish
 

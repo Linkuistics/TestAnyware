@@ -1,0 +1,31 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/command-dispatch-k129/inputs-candidate-final
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py
+collecting ... collected 887 items / 867 deselected / 20 selected
+
+test_turns.py::test_shared_turns_safety_then_earliest_then_rotation PASSED [  5%]
+test_turns.py::test_shared_turns_ready_safety_precedes_earlier_ordinary PASSED [ 10%]
+test_turns.py::test_shared_turns_equal_ready_wakes_rotate PASSED         [ 15%]
+test_turns.py::test_shared_turns_empty_and_terminal_are_not_reentered PASSED [ 20%]
+test_turns.py::test_shared_turns_initial_due_owners_do_not_consume_clock PASSED [ 25%]
+test_turns.py::test_shared_turns_error_propagates_without_retry_or_sleep PASSED [ 30%]
+test_turns.py::test_shared_turns_real_worker_close_and_workload PASSED   [ 35%]
+test_turns.py::test_shared_turns_orders_overdue_by_wake PASSED           [ 40%]
+test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[False-False] PASSED [ 45%]
+test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[False-True] PASSED [ 50%]
+test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[True-False] PASSED [ 55%]
+test_turns.py::test_request_turns_yield_with_transport_priority_and_caps[True-True] PASSED [ 60%]
+test_turns.py::test_request_turns_wakes_avoid_idle_spin_and_stale_retirement[False] PASSED [ 65%]
+test_turns.py::test_request_turns_wakes_avoid_idle_spin_and_stale_retirement[True] PASSED [ 70%]
+test_turns.py::test_command_dispatch_turns_yield_and_stop[ready] PASSED  [ 75%]
+test_turns.py::test_command_dispatch_turns_yield_and_stop[short] PASSED  [ 80%]
+test_turns.py::test_command_dispatch_turns_yield_and_stop[blocked] PASSED [ 85%]
+test_turns.py::test_command_dispatch_turns_yield_and_stop[broken] PASSED [ 90%]
+test_turns.py::test_command_dispatch_turns_yield_and_stop[cutoff] PASSED [ 95%]
+test_turns.py::test_command_dispatch_turns_yield_and_stop[reap-cutoff] PASSED [100%]
+
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/command-dispatch-k129/candidate-controls-v2/pytest.xml -
+====================== 20 passed, 867 deselected in 3.80s ======================

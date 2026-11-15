@@ -1,0 +1,681 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="5" skipped="0" tests="5" time="0.494" timestamp="2026-11-15T18:59:24.060785+11:00" hostname="byrd.local"><testcase classname="test_turns" name="test_command_dispatch_turns_yield_and_stop[ready]" time="0.000"><failure message="AssertionError: command dispatch waited outside the shared driver&#10;assert (not [12] or False)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107023ef0&gt;
+mode = 'ready'
+
+    @pytest.mark.parametrize("mode", ["ready", "short", "blocked", "broken", "cutoff"])
+    def test_command_dispatch_turns_yield_and_stop(monkeypatch, mode):
+        """Command backpressure must yield before expiry, retaining failure ownership."""
+        import errno
+        import json
+        import os
+    
+        import worker_capture
+    
+        now = [10.0]
+        monkeypatch.setattr(worker_capture.time, "monotonic", lambda: now[0])
+        command_read, command_write = os.pipe()
+        control_read, control_write = os.pipe()
+        result_read, result_write = os.pipe()
+        descriptors = [
+            command_read,
+            command_write,
+            control_read,
+            control_write,
+            result_read,
+            result_write,
+        ]
+        for fd in descriptors:
+            os.set_blocking(fd, False)
+        if mode == "blocked":
+            while True:
+                try:
+                    os.write(command_write, b"x" * 4096)
+                except BlockingIOError:
+                    break
+        if mode == "broken":
+            os.close(command_read)
+            descriptors.remove(command_read)
+        owner = worker_capture._Owner(123456, float("inf"), ready=True)
+        worker = worker_capture.Worker(
+            owner=owner,
+            started=True,
+            command=command_write,
+            control=control_read,
+            result=result_read,
+            admission={"ok": True, "reason": "fixture"},
+        )
+        monkeypatch.setattr(worker_capture, "_reap", lambda _owner: None)
+        monkeypatch.setattr(worker_capture, "_signal", lambda *_args: None)
+        monkeypatch.setattr(worker_capture.Worker, "close", lambda _worker: None)
+        original_write = os.write
+        original_select = worker_capture.select.select
+        active = [False]
+        writes = []
+        delivered = bytearray()
+        phases = []
+    
+        def select(readers, writers, errors, timeout):
+            assert not writers or active[0], "command dispatch waited outside the shared driver"
+            if active[0]:
+                assert timeout == 0, "command dispatch blocked competing owners"
+            return original_select(readers, writers, errors, timeout)
+    
+        def write(fd, data):
+            assert active[0], "command dispatch waited outside the shared driver"
+            assert fd == command_write
+            assert now[0] &lt; 10.95, "command write at or after query cutoff"
+            assert len(writes) &lt; 200, "command backpressure spun without advancing time"
+            writes.append((now[0], len(data)))
+            count = original_write(fd, data[:37] if mode == "short" else data)
+            delivered.extend(data[:count])
+            return count
+    
+        def drive(*owners):
+            (subject,) = owners
+            phases.append(subject.safety)
+            if subject.safety:
+                # Retirement still uses the caller's fixed original deadline.
+                now[0] = 11.0
+                assert subject.advance() is None
+                return
+            assert not writes, "command was sent before query registration"
+            events = []
+    
+            def advance():
+                events.append("query")
+                before = len(writes)
+                active[0] = True
+                try:
+                    wake = subject.advance()
+                finally:
+                    active[0] = False
+                assert len(writes) - before &lt;= 1, "command turn retried without yielding"
+                return wake
+    
+            def safety():
+                events.append("safety")
+                if mode == "cutoff":
+                    now[0] = 10.95
+    
+            # Let a ready safety callback compete with the actual production registration.
+            measured = turns.Turn(advance, safety=subject.safety)
+            competitor = turns.Turn(safety, safety=True)
+            # Drive the initial two owners, then use exact clock advances to avoid sleeps.
+            monkeypatch.setattr(turns.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+            try:
+                turns.run_turns(measured, competitor)
+            finally:
+                assert events[:2] == ["safety", "query"]
+            assert events[:2] == ["safety", "query"]
+            before = list(writes)
+            assert subject.advance() is None
+            assert subject.advance() is None
+            assert writes == before
+    
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        try:
+&gt;           receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0, worker=worker)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_turns.py:570: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1112: in capture_helper
+    _write(worker.command, command, query_deadline)
+worker_capture.py:185: in _write
+    _, ready, _ = select.select([], [fd], [], min(0.005, remaining))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+readers = [], writers = [12], errors = [], timeout = 0.005
+
+    def select(readers, writers, errors, timeout):
+&gt;       assert not writers or active[0], "command dispatch waited outside the shared driver"
+E       AssertionError: command dispatch waited outside the shared driver
+E       assert (not [12] or False)
+
+test_turns.py:509: AssertionError</failure></testcase><testcase classname="test_turns" name="test_command_dispatch_turns_yield_and_stop[short]" time="0.000"><failure message="AssertionError: command dispatch waited outside the shared driver&#10;assert (not [12] or False)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107466fc0&gt;
+mode = 'short'
+
+    @pytest.mark.parametrize("mode", ["ready", "short", "blocked", "broken", "cutoff"])
+    def test_command_dispatch_turns_yield_and_stop(monkeypatch, mode):
+        """Command backpressure must yield before expiry, retaining failure ownership."""
+        import errno
+        import json
+        import os
+    
+        import worker_capture
+    
+        now = [10.0]
+        monkeypatch.setattr(worker_capture.time, "monotonic", lambda: now[0])
+        command_read, command_write = os.pipe()
+        control_read, control_write = os.pipe()
+        result_read, result_write = os.pipe()
+        descriptors = [
+            command_read,
+            command_write,
+            control_read,
+            control_write,
+            result_read,
+            result_write,
+        ]
+        for fd in descriptors:
+            os.set_blocking(fd, False)
+        if mode == "blocked":
+            while True:
+                try:
+                    os.write(command_write, b"x" * 4096)
+                except BlockingIOError:
+                    break
+        if mode == "broken":
+            os.close(command_read)
+            descriptors.remove(command_read)
+        owner = worker_capture._Owner(123456, float("inf"), ready=True)
+        worker = worker_capture.Worker(
+            owner=owner,
+            started=True,
+            command=command_write,
+            control=control_read,
+            result=result_read,
+            admission={"ok": True, "reason": "fixture"},
+        )
+        monkeypatch.setattr(worker_capture, "_reap", lambda _owner: None)
+        monkeypatch.setattr(worker_capture, "_signal", lambda *_args: None)
+        monkeypatch.setattr(worker_capture.Worker, "close", lambda _worker: None)
+        original_write = os.write
+        original_select = worker_capture.select.select
+        active = [False]
+        writes = []
+        delivered = bytearray()
+        phases = []
+    
+        def select(readers, writers, errors, timeout):
+            assert not writers or active[0], "command dispatch waited outside the shared driver"
+            if active[0]:
+                assert timeout == 0, "command dispatch blocked competing owners"
+            return original_select(readers, writers, errors, timeout)
+    
+        def write(fd, data):
+            assert active[0], "command dispatch waited outside the shared driver"
+            assert fd == command_write
+            assert now[0] &lt; 10.95, "command write at or after query cutoff"
+            assert len(writes) &lt; 200, "command backpressure spun without advancing time"
+            writes.append((now[0], len(data)))
+            count = original_write(fd, data[:37] if mode == "short" else data)
+            delivered.extend(data[:count])
+            return count
+    
+        def drive(*owners):
+            (subject,) = owners
+            phases.append(subject.safety)
+            if subject.safety:
+                # Retirement still uses the caller's fixed original deadline.
+                now[0] = 11.0
+                assert subject.advance() is None
+                return
+            assert not writes, "command was sent before query registration"
+            events = []
+    
+            def advance():
+                events.append("query")
+                before = len(writes)
+                active[0] = True
+                try:
+                    wake = subject.advance()
+                finally:
+                    active[0] = False
+                assert len(writes) - before &lt;= 1, "command turn retried without yielding"
+                return wake
+    
+            def safety():
+                events.append("safety")
+                if mode == "cutoff":
+                    now[0] = 10.95
+    
+            # Let a ready safety callback compete with the actual production registration.
+            measured = turns.Turn(advance, safety=subject.safety)
+            competitor = turns.Turn(safety, safety=True)
+            # Drive the initial two owners, then use exact clock advances to avoid sleeps.
+            monkeypatch.setattr(turns.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+            try:
+                turns.run_turns(measured, competitor)
+            finally:
+                assert events[:2] == ["safety", "query"]
+            assert events[:2] == ["safety", "query"]
+            before = list(writes)
+            assert subject.advance() is None
+            assert subject.advance() is None
+            assert writes == before
+    
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        try:
+&gt;           receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0, worker=worker)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_turns.py:570: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1112: in capture_helper
+    _write(worker.command, command, query_deadline)
+worker_capture.py:185: in _write
+    _, ready, _ = select.select([], [fd], [], min(0.005, remaining))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+readers = [], writers = [12], errors = [], timeout = 0.005
+
+    def select(readers, writers, errors, timeout):
+&gt;       assert not writers or active[0], "command dispatch waited outside the shared driver"
+E       AssertionError: command dispatch waited outside the shared driver
+E       assert (not [12] or False)
+
+test_turns.py:509: AssertionError</failure></testcase><testcase classname="test_turns" name="test_command_dispatch_turns_yield_and_stop[blocked]" time="0.000"><failure message="AssertionError: command dispatch waited outside the shared driver&#10;assert (not [12] or False)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x1072db4d0&gt;
+mode = 'blocked'
+
+    @pytest.mark.parametrize("mode", ["ready", "short", "blocked", "broken", "cutoff"])
+    def test_command_dispatch_turns_yield_and_stop(monkeypatch, mode):
+        """Command backpressure must yield before expiry, retaining failure ownership."""
+        import errno
+        import json
+        import os
+    
+        import worker_capture
+    
+        now = [10.0]
+        monkeypatch.setattr(worker_capture.time, "monotonic", lambda: now[0])
+        command_read, command_write = os.pipe()
+        control_read, control_write = os.pipe()
+        result_read, result_write = os.pipe()
+        descriptors = [
+            command_read,
+            command_write,
+            control_read,
+            control_write,
+            result_read,
+            result_write,
+        ]
+        for fd in descriptors:
+            os.set_blocking(fd, False)
+        if mode == "blocked":
+            while True:
+                try:
+                    os.write(command_write, b"x" * 4096)
+                except BlockingIOError:
+                    break
+        if mode == "broken":
+            os.close(command_read)
+            descriptors.remove(command_read)
+        owner = worker_capture._Owner(123456, float("inf"), ready=True)
+        worker = worker_capture.Worker(
+            owner=owner,
+            started=True,
+            command=command_write,
+            control=control_read,
+            result=result_read,
+            admission={"ok": True, "reason": "fixture"},
+        )
+        monkeypatch.setattr(worker_capture, "_reap", lambda _owner: None)
+        monkeypatch.setattr(worker_capture, "_signal", lambda *_args: None)
+        monkeypatch.setattr(worker_capture.Worker, "close", lambda _worker: None)
+        original_write = os.write
+        original_select = worker_capture.select.select
+        active = [False]
+        writes = []
+        delivered = bytearray()
+        phases = []
+    
+        def select(readers, writers, errors, timeout):
+            assert not writers or active[0], "command dispatch waited outside the shared driver"
+            if active[0]:
+                assert timeout == 0, "command dispatch blocked competing owners"
+            return original_select(readers, writers, errors, timeout)
+    
+        def write(fd, data):
+            assert active[0], "command dispatch waited outside the shared driver"
+            assert fd == command_write
+            assert now[0] &lt; 10.95, "command write at or after query cutoff"
+            assert len(writes) &lt; 200, "command backpressure spun without advancing time"
+            writes.append((now[0], len(data)))
+            count = original_write(fd, data[:37] if mode == "short" else data)
+            delivered.extend(data[:count])
+            return count
+    
+        def drive(*owners):
+            (subject,) = owners
+            phases.append(subject.safety)
+            if subject.safety:
+                # Retirement still uses the caller's fixed original deadline.
+                now[0] = 11.0
+                assert subject.advance() is None
+                return
+            assert not writes, "command was sent before query registration"
+            events = []
+    
+            def advance():
+                events.append("query")
+                before = len(writes)
+                active[0] = True
+                try:
+                    wake = subject.advance()
+                finally:
+                    active[0] = False
+                assert len(writes) - before &lt;= 1, "command turn retried without yielding"
+                return wake
+    
+            def safety():
+                events.append("safety")
+                if mode == "cutoff":
+                    now[0] = 10.95
+    
+            # Let a ready safety callback compete with the actual production registration.
+            measured = turns.Turn(advance, safety=subject.safety)
+            competitor = turns.Turn(safety, safety=True)
+            # Drive the initial two owners, then use exact clock advances to avoid sleeps.
+            monkeypatch.setattr(turns.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+            try:
+                turns.run_turns(measured, competitor)
+            finally:
+                assert events[:2] == ["safety", "query"]
+            assert events[:2] == ["safety", "query"]
+            before = list(writes)
+            assert subject.advance() is None
+            assert subject.advance() is None
+            assert writes == before
+    
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        try:
+&gt;           receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0, worker=worker)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_turns.py:570: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1112: in capture_helper
+    _write(worker.command, command, query_deadline)
+worker_capture.py:185: in _write
+    _, ready, _ = select.select([], [fd], [], min(0.005, remaining))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+readers = [], writers = [12], errors = [], timeout = 0.005
+
+    def select(readers, writers, errors, timeout):
+&gt;       assert not writers or active[0], "command dispatch waited outside the shared driver"
+E       AssertionError: command dispatch waited outside the shared driver
+E       assert (not [12] or False)
+
+test_turns.py:509: AssertionError</failure></testcase><testcase classname="test_turns" name="test_command_dispatch_turns_yield_and_stop[broken]" time="0.000"><failure message="AssertionError: command dispatch waited outside the shared driver&#10;assert (not [12] or False)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107583470&gt;
+mode = 'broken'
+
+    @pytest.mark.parametrize("mode", ["ready", "short", "blocked", "broken", "cutoff"])
+    def test_command_dispatch_turns_yield_and_stop(monkeypatch, mode):
+        """Command backpressure must yield before expiry, retaining failure ownership."""
+        import errno
+        import json
+        import os
+    
+        import worker_capture
+    
+        now = [10.0]
+        monkeypatch.setattr(worker_capture.time, "monotonic", lambda: now[0])
+        command_read, command_write = os.pipe()
+        control_read, control_write = os.pipe()
+        result_read, result_write = os.pipe()
+        descriptors = [
+            command_read,
+            command_write,
+            control_read,
+            control_write,
+            result_read,
+            result_write,
+        ]
+        for fd in descriptors:
+            os.set_blocking(fd, False)
+        if mode == "blocked":
+            while True:
+                try:
+                    os.write(command_write, b"x" * 4096)
+                except BlockingIOError:
+                    break
+        if mode == "broken":
+            os.close(command_read)
+            descriptors.remove(command_read)
+        owner = worker_capture._Owner(123456, float("inf"), ready=True)
+        worker = worker_capture.Worker(
+            owner=owner,
+            started=True,
+            command=command_write,
+            control=control_read,
+            result=result_read,
+            admission={"ok": True, "reason": "fixture"},
+        )
+        monkeypatch.setattr(worker_capture, "_reap", lambda _owner: None)
+        monkeypatch.setattr(worker_capture, "_signal", lambda *_args: None)
+        monkeypatch.setattr(worker_capture.Worker, "close", lambda _worker: None)
+        original_write = os.write
+        original_select = worker_capture.select.select
+        active = [False]
+        writes = []
+        delivered = bytearray()
+        phases = []
+    
+        def select(readers, writers, errors, timeout):
+            assert not writers or active[0], "command dispatch waited outside the shared driver"
+            if active[0]:
+                assert timeout == 0, "command dispatch blocked competing owners"
+            return original_select(readers, writers, errors, timeout)
+    
+        def write(fd, data):
+            assert active[0], "command dispatch waited outside the shared driver"
+            assert fd == command_write
+            assert now[0] &lt; 10.95, "command write at or after query cutoff"
+            assert len(writes) &lt; 200, "command backpressure spun without advancing time"
+            writes.append((now[0], len(data)))
+            count = original_write(fd, data[:37] if mode == "short" else data)
+            delivered.extend(data[:count])
+            return count
+    
+        def drive(*owners):
+            (subject,) = owners
+            phases.append(subject.safety)
+            if subject.safety:
+                # Retirement still uses the caller's fixed original deadline.
+                now[0] = 11.0
+                assert subject.advance() is None
+                return
+            assert not writes, "command was sent before query registration"
+            events = []
+    
+            def advance():
+                events.append("query")
+                before = len(writes)
+                active[0] = True
+                try:
+                    wake = subject.advance()
+                finally:
+                    active[0] = False
+                assert len(writes) - before &lt;= 1, "command turn retried without yielding"
+                return wake
+    
+            def safety():
+                events.append("safety")
+                if mode == "cutoff":
+                    now[0] = 10.95
+    
+            # Let a ready safety callback compete with the actual production registration.
+            measured = turns.Turn(advance, safety=subject.safety)
+            competitor = turns.Turn(safety, safety=True)
+            # Drive the initial two owners, then use exact clock advances to avoid sleeps.
+            monkeypatch.setattr(turns.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+            try:
+                turns.run_turns(measured, competitor)
+            finally:
+                assert events[:2] == ["safety", "query"]
+            assert events[:2] == ["safety", "query"]
+            before = list(writes)
+            assert subject.advance() is None
+            assert subject.advance() is None
+            assert writes == before
+    
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        try:
+&gt;           receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0, worker=worker)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_turns.py:570: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1112: in capture_helper
+    _write(worker.command, command, query_deadline)
+worker_capture.py:185: in _write
+    _, ready, _ = select.select([], [fd], [], min(0.005, remaining))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+readers = [], writers = [12], errors = [], timeout = 0.005
+
+    def select(readers, writers, errors, timeout):
+&gt;       assert not writers or active[0], "command dispatch waited outside the shared driver"
+E       AssertionError: command dispatch waited outside the shared driver
+E       assert (not [12] or False)
+
+test_turns.py:509: AssertionError</failure></testcase><testcase classname="test_turns" name="test_command_dispatch_turns_yield_and_stop[cutoff]" time="0.000"><failure message="AssertionError: command dispatch waited outside the shared driver&#10;assert (not [12] or False)">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107589a90&gt;
+mode = 'cutoff'
+
+    @pytest.mark.parametrize("mode", ["ready", "short", "blocked", "broken", "cutoff"])
+    def test_command_dispatch_turns_yield_and_stop(monkeypatch, mode):
+        """Command backpressure must yield before expiry, retaining failure ownership."""
+        import errno
+        import json
+        import os
+    
+        import worker_capture
+    
+        now = [10.0]
+        monkeypatch.setattr(worker_capture.time, "monotonic", lambda: now[0])
+        command_read, command_write = os.pipe()
+        control_read, control_write = os.pipe()
+        result_read, result_write = os.pipe()
+        descriptors = [
+            command_read,
+            command_write,
+            control_read,
+            control_write,
+            result_read,
+            result_write,
+        ]
+        for fd in descriptors:
+            os.set_blocking(fd, False)
+        if mode == "blocked":
+            while True:
+                try:
+                    os.write(command_write, b"x" * 4096)
+                except BlockingIOError:
+                    break
+        if mode == "broken":
+            os.close(command_read)
+            descriptors.remove(command_read)
+        owner = worker_capture._Owner(123456, float("inf"), ready=True)
+        worker = worker_capture.Worker(
+            owner=owner,
+            started=True,
+            command=command_write,
+            control=control_read,
+            result=result_read,
+            admission={"ok": True, "reason": "fixture"},
+        )
+        monkeypatch.setattr(worker_capture, "_reap", lambda _owner: None)
+        monkeypatch.setattr(worker_capture, "_signal", lambda *_args: None)
+        monkeypatch.setattr(worker_capture.Worker, "close", lambda _worker: None)
+        original_write = os.write
+        original_select = worker_capture.select.select
+        active = [False]
+        writes = []
+        delivered = bytearray()
+        phases = []
+    
+        def select(readers, writers, errors, timeout):
+            assert not writers or active[0], "command dispatch waited outside the shared driver"
+            if active[0]:
+                assert timeout == 0, "command dispatch blocked competing owners"
+            return original_select(readers, writers, errors, timeout)
+    
+        def write(fd, data):
+            assert active[0], "command dispatch waited outside the shared driver"
+            assert fd == command_write
+            assert now[0] &lt; 10.95, "command write at or after query cutoff"
+            assert len(writes) &lt; 200, "command backpressure spun without advancing time"
+            writes.append((now[0], len(data)))
+            count = original_write(fd, data[:37] if mode == "short" else data)
+            delivered.extend(data[:count])
+            return count
+    
+        def drive(*owners):
+            (subject,) = owners
+            phases.append(subject.safety)
+            if subject.safety:
+                # Retirement still uses the caller's fixed original deadline.
+                now[0] = 11.0
+                assert subject.advance() is None
+                return
+            assert not writes, "command was sent before query registration"
+            events = []
+    
+            def advance():
+                events.append("query")
+                before = len(writes)
+                active[0] = True
+                try:
+                    wake = subject.advance()
+                finally:
+                    active[0] = False
+                assert len(writes) - before &lt;= 1, "command turn retried without yielding"
+                return wake
+    
+            def safety():
+                events.append("safety")
+                if mode == "cutoff":
+                    now[0] = 10.95
+    
+            # Let a ready safety callback compete with the actual production registration.
+            measured = turns.Turn(advance, safety=subject.safety)
+            competitor = turns.Turn(safety, safety=True)
+            # Drive the initial two owners, then use exact clock advances to avoid sleeps.
+            monkeypatch.setattr(turns.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+            try:
+                turns.run_turns(measured, competitor)
+            finally:
+                assert events[:2] == ["safety", "query"]
+            assert events[:2] == ["safety", "query"]
+            before = list(writes)
+            assert subject.advance() is None
+            assert subject.advance() is None
+            assert writes == before
+    
+        monkeypatch.setattr(worker_capture.select, "select", select)
+        monkeypatch.setattr(worker_capture.os, "write", write)
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        try:
+&gt;           receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0, worker=worker)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_turns.py:570: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1112: in capture_helper
+    _write(worker.command, command, query_deadline)
+worker_capture.py:185: in _write
+    _, ready, _ = select.select([], [fd], [], min(0.005, remaining))
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+readers = [], writers = [12], errors = [], timeout = 0.005
+
+    def select(readers, writers, errors, timeout):
+&gt;       assert not writers or active[0], "command dispatch waited outside the shared driver"
+E       AssertionError: command dispatch waited outside the shared driver
+E       assert (not [12] or False)
+
+test_turns.py:509: AssertionError</failure></testcase></testsuite></testsuites>

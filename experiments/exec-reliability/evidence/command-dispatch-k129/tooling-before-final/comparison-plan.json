@@ -1,0 +1,17 @@
+{
+  "scope": "Persistent parent command dispatch only",
+  "sequence": [
+    "red-parent-controls-v3",
+    "candidate-controls-v2",
+    "parent-full-1",
+    "candidate-full-1",
+    "parent-full-2",
+    "candidate-full-2",
+    "static"
+  ],
+  "controls": "command_dispatch_turns or request_turns or shared_turns",
+  "bounds": "controls60/full120/static30 seconds, checker TERM2 KILL-reap2",
+  "historical": "Retain every failure; no aggregate concurrency, readiness-wake or teardown-overlap acceptance",
+  "retained_failed_setup": "red-parent-controls: initial synthetic clock/private wait timeout, not accepted as control evidence",
+  "additional_red": "red-reap-cutoff rejects first candidate after a reap observation reaches query cutoff"
+}

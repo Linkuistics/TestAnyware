@@ -1237,3 +1237,41 @@ tasks:
     dir: experiments/exec-reliability
     cmds:
       - uv run --locked python evidence/request-wakes-k131/audit.py
+
+  diagnostic:command-dispatch-prepare:
+    desc: Freeze persistent command dispatch inputs
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked python evidence/command-dispatch-k129/prepare.py '{{.INPUTS}}' '{{.OUT}}' {{if .MUTANT}}--mutant '{{.MUTANT}}'{{end}} {{if .WORKER_SOURCE}}--worker-source '{{.WORKER_SOURCE}}'{{end}}
+
+  diagnostic:command-dispatch-check:
+    desc: Retain bounded command dispatch controls or full suites
+    dir: experiments/exec-reliability
+    requires:
+      vars: [INPUTS, OUT, MODE]
+    cmds:
+      - uv run --locked python evidence/command-dispatch-k129/run_condition.py '{{.INPUTS}}' '{{.OUT}}' '{{.MODE}}' --select '{{.SELECT | default ""}}'
+
+  diagnostic:command-dispatch-preserve:
+    desc: Inventory prior evidence around command dispatch work
+    dir: experiments/exec-reliability
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/command-dispatch-k129/preserve.py '{{.MODE}}'
+
+  diagnostic:command-dispatch-tools:
+    desc: Format and check command dispatch evidence tools
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python -m ruff format {{.CLI_ARGS}} evidence/command-dispatch-k129/*.py
+      - uv run --locked python -m ruff check evidence/command-dispatch-k129/*.py
+      - uv run --locked python -m pyright evidence/command-dispatch-k129/*.py
+
+  diagnostic:command-dispatch-audit:
+    desc: Verify command dispatch condition provenance and per-case outcomes
+    dir: experiments/exec-reliability
+    cmds:
+      - uv run --locked python evidence/command-dispatch-k129/audit.py

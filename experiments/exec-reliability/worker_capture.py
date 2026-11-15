@@ -990,6 +990,7 @@ def capture_helper(
     buffers = [bytearray(), bytearray()]
     result_size: int | None = None
     request_done = False
+    command = b""
     request_identity: dict[str, object] | None = None
 
     def consume_control(cleanup_only: bool) -> None:
@@ -1109,7 +1110,6 @@ def capture_helper(
             )
             if len(command) > 4096:
                 raise ValueError("worker command cap exceeded")
-            _write(worker.command, command, query_deadline)
         else:
             for _ in range(2):
                 pair = os.pipe()
@@ -1145,7 +1145,7 @@ def capture_helper(
 
         def advance_query() -> float | None:
             nonlocal complete, receipt, received, result_size, control_bytes
-            nonlocal creation_conflict, published_times
+            nonlocal creation_conflict, published_times, command
             assert owner is not None
             if complete or time.monotonic() >= query_deadline:
                 return None
@@ -1154,6 +1154,20 @@ def capture_helper(
                 raise ValueError("persistent worker exited during request")
             if owner.reap_errno is not None:
                 raise OSError(owner.reap_errno, "worker ownership observation failed")
+            if command:
+                assert worker is not None and worker.command is not None
+                # The command is capped at 4096 bytes and the pipe is nonblocking.
+                # Yield after each attempt so competing safety owners can run.
+                if time.monotonic() >= query_deadline:
+                    return None
+                try:
+                    count = os.write(worker.command, command)
+                except BlockingIOError:
+                    return min(query_deadline, time.monotonic() + 0.005)
+                if count <= 0:
+                    raise ValueError("worker command write made no progress")
+                command = command[count:]
+                return min(query_deadline, time.monotonic())
             ready, _, _ = select.select(list(streams), [], [], 0)
             for fd in ready:
                 if time.monotonic() >= query_deadline:

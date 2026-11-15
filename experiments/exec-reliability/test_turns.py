@@ -264,12 +264,19 @@ def test_request_turns_yield_with_transport_priority_and_caps(
     polls = [0]
     ready = [False]
     original_read = os.read
+    original_write = os.write
     original_select = worker_capture.select.select
 
     def read(fd, size):
         if active[0]:
             bytes_read[0] += size
         return original_read(fd, size)
+
+    def write(fd, data):
+        count = original_write(fd, data)
+        if active[0]:
+            ready[0] = bool(count)
+        return count
 
     def select(readers, writers, errors, timeout):
         if active[0]:
@@ -323,6 +330,7 @@ def test_request_turns_yield_with_transport_priority_and_caps(
 
     monkeypatch.setattr(worker_capture, "run_turns", drive)
     monkeypatch.setattr(worker_capture.os, "read", read)
+    monkeypatch.setattr(worker_capture.os, "write", write)
     monkeypatch.setattr(worker_capture.select, "select", select)
     try:
         deadline = time.monotonic() + 1
@@ -443,3 +451,152 @@ def test_request_turns_wakes_avoid_idle_spin_and_stale_retirement(monkeypatch, o
     assert receipt.worker["reaped"] != ownership_lost
     assert receipt.worker["unknown_helper_creation"]
     assert not worker_capture._owners
+
+
+@pytest.mark.parametrize("mode", ["ready", "short", "blocked", "broken", "cutoff", "reap-cutoff"])
+def test_command_dispatch_turns_yield_and_stop(monkeypatch, mode):
+    """Command backpressure must yield before expiry, retaining failure ownership."""
+    import errno
+    import json
+    import os
+
+    import worker_capture
+
+    now = [10.0]
+    monkeypatch.setattr(worker_capture.time, "monotonic", lambda: now[0])
+    command_read, command_write = os.pipe()
+    control_read, control_write = os.pipe()
+    result_read, result_write = os.pipe()
+    descriptors = [
+        command_read,
+        command_write,
+        control_read,
+        control_write,
+        result_read,
+        result_write,
+    ]
+    for fd in descriptors:
+        os.set_blocking(fd, False)
+    if mode == "blocked":
+        while True:
+            try:
+                os.write(command_write, b"x" * 4096)
+            except BlockingIOError:
+                break
+    if mode == "broken":
+        os.close(command_read)
+        descriptors.remove(command_read)
+    owner = worker_capture._Owner(123456, float("inf"), ready=True)
+    worker = worker_capture.Worker(
+        owner=owner,
+        started=True,
+        command=command_write,
+        control=control_read,
+        result=result_read,
+        admission={"ok": True, "reason": "fixture"},
+    )
+
+    def reap(_owner):
+        if mode == "reap-cutoff":
+            now[0] = 10.95
+
+    monkeypatch.setattr(worker_capture, "_reap", reap)
+    monkeypatch.setattr(worker_capture, "_signal", lambda *_args: None)
+    monkeypatch.setattr(worker_capture.Worker, "close", lambda _worker: None)
+    original_write = os.write
+    original_select = worker_capture.select.select
+    active = [False]
+    writes = []
+    delivered = bytearray()
+    phases = []
+
+    def select(readers, writers, errors, timeout):
+        assert not writers or active[0], "command dispatch waited outside the shared driver"
+        if active[0]:
+            assert timeout == 0, "command dispatch blocked competing owners"
+        return original_select(readers, writers, errors, timeout)
+
+    def write(fd, data):
+        assert active[0], "command dispatch waited outside the shared driver"
+        assert fd == command_write
+        assert now[0] < 10.95, "command write at or after query cutoff"
+        assert len(writes) < 200, "command backpressure spun without advancing time"
+        writes.append((now[0], len(data)))
+        count = original_write(fd, data[:37] if mode == "short" else data)
+        delivered.extend(data[:count])
+        return count
+
+    def drive(*owners):
+        (subject,) = owners
+        phases.append(subject.safety)
+        if subject.safety:
+            # Retirement still uses the caller's fixed original deadline.
+            now[0] = 11.0
+            assert subject.advance() is None
+            return
+        assert not writes, "command was sent before query registration"
+        events = []
+
+        def advance():
+            events.append("query")
+            before = len(writes)
+            active[0] = True
+            try:
+                wake = subject.advance()
+            finally:
+                active[0] = False
+            assert len(writes) - before <= 1, "command turn retried without yielding"
+            return wake
+
+        def safety():
+            events.append("safety")
+            if mode == "cutoff":
+                now[0] = 10.95
+
+        # Let a ready safety callback compete with the actual production registration.
+        measured = turns.Turn(advance, safety=subject.safety)
+        competitor = turns.Turn(safety, safety=True)
+        # Drive the initial two owners, then use exact clock advances to avoid sleeps.
+        monkeypatch.setattr(turns.time, "sleep", lambda delay: now.__setitem__(0, now[0] + delay))
+        try:
+            turns.run_turns(measured, competitor)
+        finally:
+            assert events[:2] == ["safety", "query"]
+        assert events[:2] == ["safety", "query"]
+        before = list(writes)
+        assert subject.advance() is None
+        assert subject.advance() is None
+        assert writes == before
+
+    monkeypatch.setattr(worker_capture.select, "select", select)
+    monkeypatch.setattr(worker_capture.os, "write", write)
+    monkeypatch.setattr(worker_capture, "run_turns", drive)
+    try:
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0, worker=worker)
+        assert phases == [False, True]
+        assert receipt.error
+        assert worker.failure == receipt.error
+        assert receipt.worker["unknown_helper_creation"]
+        assert receipt.worker["query_deadline_monotonic"] == 10.95
+        if mode in {"ready", "short"}:
+            message = json.loads(delivered)
+            assert message["argv"] == ["/usr/bin/true"]
+            assert message["deadline"] == 10.95
+            assert message["identity"] == receipt.worker["request_identity"]
+            assert len(delivered) <= 4096
+            assert len(writes) == (1 if mode == "ready" else (len(delivered) + 36) // 37)
+        elif mode == "blocked":
+            assert 1 < len(writes) <= 191, "backpressure spun without a future wake"
+            assert all(right[0] > left[0] for left, right in zip(writes, writes[1:], strict=False))
+            assert not delivered
+        elif mode == "broken":
+            assert len(writes) == 1
+            assert receipt.error_errno == errno.EPIPE
+        else:
+            assert not writes
+        later = worker_capture.capture_helper(("/usr/bin/true",), 12.0, worker=worker)
+        assert "persistent worker unavailable" in later.error
+        assert phases == [False, True], "failed worker retried a later request"
+    finally:
+        for fd in descriptors:
+            os.close(fd)
