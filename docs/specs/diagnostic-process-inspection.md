@@ -286,6 +286,16 @@ controller or claiming disposal/cleanup certainty. Workload command creation
 and stalled evidence storage are separate existing hazards, not fixed by this
 inspection boundary.
 
+Bootstrap receipts distinguish readiness `ready`, `expired` (no accepted frame before
+the cutoff), `late` (a valid frame observed at or after the cutoff), and `failed`
+(another startup error). Equality rejects readiness but is not a strict overrun.
+Both readiness and failed-bootstrap shutdown record nonnegative `lateness_seconds`
+(readiness uses `readiness_lateness_seconds`) in addition to strict overrun flags.
+Shutdown records `deadline_exhausted` at equality or later. Ordinary expiry may
+have a small positive measured overrun; it remains failure. Explicit elapsed
+lateness distinguishes such expiry from an injected delayed observation without
+a hidden tolerance or renewed signal/reap authority.
+
 ## Failure retention and storage boundary
 
 Failure is sticky. A timely valid later observation cannot erase a failed,

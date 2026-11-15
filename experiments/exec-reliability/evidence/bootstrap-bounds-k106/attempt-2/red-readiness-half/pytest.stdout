@@ -1,0 +1,447 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/bootstrap-bounds-k106/attempt-2/inputs-readiness-half
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py
+collecting ... collected 626 items / 592 deselected / 34 selected
+
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0-readiness-1] PASSED [  2%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0-term_grace-2] PASSED [  5%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0-kill_reap-2] PASSED [  8%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-readiness-1] PASSED [ 11%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-term_grace-2] PASSED [ 14%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-kill_reap-2] PASSED [ 17%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-readiness-1] PASSED [ 20%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-term_grace-2] PASSED [ 23%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-kill_reap-2] PASSED [ 26%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-readiness-1] PASSED [ 29%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-term_grace-2] PASSED [ 32%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-kill_reap-2] PASSED [ 35%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[True-readiness-1] PASSED [ 38%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[True-term_grace-2] PASSED [ 41%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[True-kill_reap-2] PASSED [ 44%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[None-readiness-1] PASSED [ 47%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[None-term_grace-2] PASSED [ 50%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[None-kill_reap-2] PASSED [ 52%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-readiness-1] PASSED [ 55%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-term_grace-2] PASSED [ 58%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-kill_reap-2] PASSED [ 61%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[over-readiness-1] PASSED [ 64%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[over-term_grace-2] PASSED [ 67%]
+test_bootstrap.py::test_bootstrap_bounds_rejected_before_freeze_or_fork[over-kill_reap-2] PASSED [ 70%]
+test_bootstrap.py::test_declared_bootstrap_real_child_bounds[ready] FAILED [ 73%]
+test_bootstrap.py::test_declared_bootstrap_real_child_bounds[term] FAILED [ 76%]
+test_bootstrap.py::test_declared_bootstrap_real_child_bounds[kill] FAILED [ 79%]
+test_bootstrap.py::test_declared_bootstrap_real_child_bounds[deferred-reap] FAILED [ 82%]
+test_bootstrap.py::test_declared_bootstrap_real_child_bounds[overrun] FAILED [ 85%]
+test_bootstrap.py::test_declared_bootstrap_plan_reaches_real_worker PASSED [ 88%]
+test_bootstrap.py::test_declared_bootstrap_valid_frame_deadline[-0.001] PASSED [ 91%]
+test_bootstrap.py::test_declared_bootstrap_valid_frame_deadline[0.0] PASSED [ 94%]
+test_bootstrap.py::test_declared_bootstrap_valid_frame_deadline[0.01] PASSED [ 97%]
+test_bootstrap.py::test_declared_bootstrap_no_child_receipt PASSED       [100%]
+
+=================================== FAILURES ===================================
+_______________ test_declared_bootstrap_real_child_bounds[ready] _______________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-543/test_declared_bootstrap_real_c0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b256150>
+mode = 'ready'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+        bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            try:
+                if mode == "ready":
+                    time.sleep(0.02)
+                    original_service(command, control, result, session, deadline)
+                inspection.reset_after_fork({command, control, result})
+                if mode != "term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        worker = worker_capture.Worker(bootstrap=bounds)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                if mode == "deferred-reap":
+                    return 0, 0  # Simulated observation delay; the real child is killable.
+                if mode == "overrun" and worker.kill_at is not None and not injected:
+                    injected = True
+                    time.sleep(0.27)  # Simulated syscall-return stall, never a renewed allowance.
+            return original_waitpid(pid, flags)
+    
+        def kill(pid, sig):
+            calls.append({"scope": "pid", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append({"scope": "group", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        audit = {"reaped": False, "mode": mode, "independent": "original exact-child WNOHANG"}
+        runtime = None
+        try:
+            assert worker.start() is (mode == "ready")
+            worker.close()
+            runtime = worker.evidence()
+            assert runtime["bootstrap_bounds"] == {
+                "readiness": 0.15,
+                "term_grace": 0.07,
+                "kill_reap": 0.16,
+            }
+>           assert runtime["startup_deadline_monotonic"] == pytest.approx(
+                worker.startup_started + 0.15, rel=0, abs=1e-9
+            )
+E           assert 318858.21703175 == 318857.86703175004 ± 1.0e-09
+E             
+E             comparison failed
+E             Obtained: 318858.21703175
+E             Expected: 318857.86703175004 ± 1.0e-09
+
+test_bootstrap.py:102: AssertionError
+_______________ test_declared_bootstrap_real_child_bounds[term] ________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-543/test_declared_bootstrap_real_c1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b256de0>
+mode = 'term'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+        bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            try:
+                if mode == "ready":
+                    time.sleep(0.02)
+                    original_service(command, control, result, session, deadline)
+                inspection.reset_after_fork({command, control, result})
+                if mode != "term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        worker = worker_capture.Worker(bootstrap=bounds)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                if mode == "deferred-reap":
+                    return 0, 0  # Simulated observation delay; the real child is killable.
+                if mode == "overrun" and worker.kill_at is not None and not injected:
+                    injected = True
+                    time.sleep(0.27)  # Simulated syscall-return stall, never a renewed allowance.
+            return original_waitpid(pid, flags)
+    
+        def kill(pid, sig):
+            calls.append({"scope": "pid", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append({"scope": "group", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        audit = {"reaped": False, "mode": mode, "independent": "original exact-child WNOHANG"}
+        runtime = None
+        try:
+            assert worker.start() is (mode == "ready")
+            worker.close()
+            runtime = worker.evidence()
+            assert runtime["bootstrap_bounds"] == {
+                "readiness": 0.15,
+                "term_grace": 0.07,
+                "kill_reap": 0.16,
+            }
+>           assert runtime["startup_deadline_monotonic"] == pytest.approx(
+                worker.startup_started + 0.15, rel=0, abs=1e-9
+            )
+E           assert 318858.255630833 == 318857.905630833 ± 1.0e-09
+E             
+E             comparison failed
+E             Obtained: 318858.255630833
+E             Expected: 318857.905630833 ± 1.0e-09
+
+test_bootstrap.py:102: AssertionError
+_______________ test_declared_bootstrap_real_child_bounds[kill] ________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-543/test_declared_bootstrap_real_c2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b257830>
+mode = 'kill'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+        bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            try:
+                if mode == "ready":
+                    time.sleep(0.02)
+                    original_service(command, control, result, session, deadline)
+                inspection.reset_after_fork({command, control, result})
+                if mode != "term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        worker = worker_capture.Worker(bootstrap=bounds)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                if mode == "deferred-reap":
+                    return 0, 0  # Simulated observation delay; the real child is killable.
+                if mode == "overrun" and worker.kill_at is not None and not injected:
+                    injected = True
+                    time.sleep(0.27)  # Simulated syscall-return stall, never a renewed allowance.
+            return original_waitpid(pid, flags)
+    
+        def kill(pid, sig):
+            calls.append({"scope": "pid", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append({"scope": "group", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        audit = {"reaped": False, "mode": mode, "independent": "original exact-child WNOHANG"}
+        runtime = None
+        try:
+            assert worker.start() is (mode == "ready")
+            worker.close()
+            runtime = worker.evidence()
+            assert runtime["bootstrap_bounds"] == {
+                "readiness": 0.15,
+                "term_grace": 0.07,
+                "kill_reap": 0.16,
+            }
+>           assert runtime["startup_deadline_monotonic"] == pytest.approx(
+                worker.startup_started + 0.15, rel=0, abs=1e-9
+            )
+E           assert 318858.763904333 == 318858.413904333 ± 1.0e-09
+E             
+E             comparison failed
+E             Obtained: 318858.763904333
+E             Expected: 318858.413904333 ± 1.0e-09
+
+test_bootstrap.py:102: AssertionError
+___________ test_declared_bootstrap_real_child_bounds[deferred-reap] ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-543/test_declared_bootstrap_real_c3')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b25a750>
+mode = 'deferred-reap'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+        bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            try:
+                if mode == "ready":
+                    time.sleep(0.02)
+                    original_service(command, control, result, session, deadline)
+                inspection.reset_after_fork({command, control, result})
+                if mode != "term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        worker = worker_capture.Worker(bootstrap=bounds)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                if mode == "deferred-reap":
+                    return 0, 0  # Simulated observation delay; the real child is killable.
+                if mode == "overrun" and worker.kill_at is not None and not injected:
+                    injected = True
+                    time.sleep(0.27)  # Simulated syscall-return stall, never a renewed allowance.
+            return original_waitpid(pid, flags)
+    
+        def kill(pid, sig):
+            calls.append({"scope": "pid", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append({"scope": "group", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        audit = {"reaped": False, "mode": mode, "independent": "original exact-child WNOHANG"}
+        runtime = None
+        try:
+            assert worker.start() is (mode == "ready")
+            worker.close()
+            runtime = worker.evidence()
+            assert runtime["bootstrap_bounds"] == {
+                "readiness": 0.15,
+                "term_grace": 0.07,
+                "kill_reap": 0.16,
+            }
+>           assert runtime["startup_deadline_monotonic"] == pytest.approx(
+                worker.startup_started + 0.15, rel=0, abs=1e-9
+            )
+E           assert 318859.343011458 == 318858.993011458 ± 1.0e-09
+E             
+E             comparison failed
+E             Obtained: 318859.343011458
+E             Expected: 318858.993011458 ± 1.0e-09
+
+test_bootstrap.py:102: AssertionError
+______________ test_declared_bootstrap_real_child_bounds[overrun] ______________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-543/test_declared_bootstrap_real_c4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10b256b10>
+mode = 'overrun'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+        bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            try:
+                if mode == "ready":
+                    time.sleep(0.02)
+                    original_service(command, control, result, session, deadline)
+                inspection.reset_after_fork({command, control, result})
+                if mode != "term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        worker = worker_capture.Worker(bootstrap=bounds)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                if mode == "deferred-reap":
+                    return 0, 0  # Simulated observation delay; the real child is killable.
+                if mode == "overrun" and worker.kill_at is not None and not injected:
+                    injected = True
+                    time.sleep(0.27)  # Simulated syscall-return stall, never a renewed allowance.
+            return original_waitpid(pid, flags)
+    
+        def kill(pid, sig):
+            calls.append({"scope": "pid", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append({"scope": "group", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        audit = {"reaped": False, "mode": mode, "independent": "original exact-child WNOHANG"}
+        runtime = None
+        try:
+            assert worker.start() is (mode == "ready")
+            worker.close()
+            runtime = worker.evidence()
+            assert runtime["bootstrap_bounds"] == {
+                "readiness": 0.15,
+                "term_grace": 0.07,
+                "kill_reap": 0.16,
+            }
+>           assert runtime["startup_deadline_monotonic"] == pytest.approx(
+                worker.startup_started + 0.15, rel=0, abs=1e-9
+            )
+E           assert 318860.079649125 == 318859.729649125 ± 1.0e-09
+E             
+E             comparison failed
+E             Obtained: 318860.079649125
+E             Expected: 318859.729649125 ± 1.0e-09
+
+test_bootstrap.py:102: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/bootstrap-bounds-k106/attempt-2/red-readiness-half/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_bootstrap.py::test_declared_bootstrap_real_child_bounds[ready] - assert 318858.21703175 == 318857.86703175004 ± 1.0e-09
+  
+  comparison failed
+  Obtained: 318858.21703175
+  Expected: 318857.86703175004 ± 1.0e-09
+FAILED test_bootstrap.py::test_declared_bootstrap_real_child_bounds[term] - assert 318858.255630833 == 318857.905630833 ± 1.0e-09
+  
+  comparison failed
+  Obtained: 318858.255630833
+  Expected: 318857.905630833 ± 1.0e-09
+FAILED test_bootstrap.py::test_declared_bootstrap_real_child_bounds[kill] - assert 318858.763904333 == 318858.413904333 ± 1.0e-09
+  
+  comparison failed
+  Obtained: 318858.763904333
+  Expected: 318858.413904333 ± 1.0e-09
+FAILED test_bootstrap.py::test_declared_bootstrap_real_child_bounds[deferred-reap] - assert 318859.343011458 == 318858.993011458 ± 1.0e-09
+  
+  comparison failed
+  Obtained: 318859.343011458
+  Expected: 318858.993011458 ± 1.0e-09
+FAILED test_bootstrap.py::test_declared_bootstrap_real_child_bounds[overrun] - assert 318860.079649125 == 318859.729649125 ± 1.0e-09
+  
+  comparison failed
+  Obtained: 318860.079649125
+  Expected: 318859.729649125 ± 1.0e-09
+================= 5 failed, 29 passed, 592 deselected in 3.15s =================

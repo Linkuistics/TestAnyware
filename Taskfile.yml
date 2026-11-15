@@ -100,6 +100,45 @@ tasks:
       - uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/bootstrap-bounds-k101/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k101/prepare.py
       - uv run --project experiments/exec-reliability --locked python -m pyright experiments/exec-reliability/evidence/bootstrap-bounds-k101/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k101/prepare.py
 
+  diagnostic:bootstrap-review-check:
+    desc: Run frozen bootstrap-bound controls; fresh OUT, MODE=full for full suite
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k106/run_condition.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{.MODE | default "controls" | shellQuote}}
+
+  diagnostic:bootstrap-review-prepare:
+    desc: Freeze bootstrap inputs; optional MUTANT restores one named defect
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k106/prepare.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
+
+  diagnostic:bootstrap-review-preserve:
+    desc: Retain before/after hashes of all prior evidence paths
+    requires:
+      vars: [PHASE]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k106/preserve.py {{.PHASE | shellQuote}}
+
+  diagnostic:bootstrap-review-batch:
+    desc: Run the declared k106 mutant matrix then frozen controls and full verification
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k106/batch.py
+
+  diagnostic:bootstrap-review-tools:
+    desc: Check the retained bootstrap-bound tooling
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python -m ruff check experiments/exec-reliability/evidence/bootstrap-bounds-k106/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/prepare.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/preserve.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/batch.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/audit.py
+      - uv run --project experiments/exec-reliability --locked python -m ruff format --check experiments/exec-reliability/evidence/bootstrap-bounds-k106/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/prepare.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/preserve.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/batch.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/audit.py
+      - uv run --project experiments/exec-reliability --locked python -m pyright experiments/exec-reliability/evidence/bootstrap-bounds-k106/run_condition.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/prepare.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/preserve.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/batch.py experiments/exec-reliability/evidence/bootstrap-bounds-k106/audit.py
+
+  diagnostic:bootstrap-review-audit:
+    desc: Verify retained bootstrap mutations, digests and owned process receipts
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/evidence/bootstrap-bounds-k106/audit.py
+
   diagnostic:worker-deadline-check:
     desc: Retain worker shutdown deadline controls against frozen INPUTS in a new OUT directory
     dir: '{{.ROOT_DIR}}'

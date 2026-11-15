@@ -307,6 +307,7 @@ class Worker:
     bootstrap: BootstrapBounds = field(default_factory=BootstrapBounds)
     startup_deadline: float | None = None
     readiness_finished: float | None = None
+    readiness_outcome: str | None = None
     bootstrap_shutdown: dict[str, object] | None = None
 
     def start(self) -> bool:
@@ -374,14 +375,19 @@ class Worker:
                     }:
                         raise ValueError("invalid worker startup identity")
                     self.readiness_finished = time.monotonic()
+                    self.readiness_outcome = "late"
                     if self.readiness_finished >= deadline:
                         raise TimeoutError("late worker readiness")
+                    self.readiness_outcome = "ready"
                     self.owner.ready = True
                     self.started = True
                     return True
             raise TimeoutError("worker readiness deadline exhausted")
         except (OSError, ValueError) as error:
-            self.readiness_finished = time.monotonic()
+            if self.readiness_finished is None:
+                self.readiness_finished = time.monotonic()
+            if self.readiness_outcome is None:
+                self.readiness_outcome = "expired" if isinstance(error, TimeoutError) else "failed"
             self.failure = str(error)
             self.close()
             return False
@@ -477,6 +483,8 @@ class Worker:
             self.bootstrap_shutdown.update(
                 finished_monotonic=self.shutdown_finished,
                 overrun=overrun,
+                lateness_seconds=max(0.0, self.shutdown_finished - end),
+                deadline_exhausted=self.shutdown_finished >= end,
                 outcome="not_created"
                 if owner is None
                 else "reaped"
@@ -498,7 +506,12 @@ class Worker:
             "startup_started_monotonic": self.startup_started,
             "startup_deadline_monotonic": self.startup_deadline,
             "readiness_finished_monotonic": self.readiness_finished,
-            "readiness_outcome": "ready" if self.started else "failed" if self.failure else None,
+            "readiness_outcome": self.readiness_outcome,
+            "readiness_lateness_seconds": (
+                max(0.0, self.readiness_finished - self.startup_deadline)
+                if self.readiness_finished is not None and self.startup_deadline is not None
+                else None
+            ),
             "readiness_overrun": (
                 self.readiness_finished > self.startup_deadline
                 if self.readiness_finished is not None and self.startup_deadline is not None

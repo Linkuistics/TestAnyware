@@ -1,0 +1,290 @@
+{
+  "name": "blocked-transfer",
+  "argv": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/bootstrap-bounds-k106/attempt-2/inputs/peer.py",
+    "hang"
+  ],
+  "budget": 0.2,
+  "started_monotonic": 319562.722621416,
+  "wall_start_ns": 1794702283297755000,
+  "reason": "deadline",
+  "returncode": -15,
+  "reaped": true,
+  "ok": false,
+  "signals": [
+    {
+      "signal": "TERM",
+      "scope": "group",
+      "target": 72664,
+      "outcome": "sent",
+      "monotonic": 319562.923318791,
+      "finished_monotonic": 319562.923329625
+    },
+    {
+      "signal": "KILL",
+      "scope": "group",
+      "target": 72664,
+      "outcome": "zombie_only_eperm",
+      "monotonic": 319563.073710625,
+      "errno": 1,
+      "error": "[Errno 1] Operation not permitted",
+      "finished_monotonic": 319563.073742875,
+      "permission_observation": {
+        "started_monotonic": 319563.073755,
+        "finished_monotonic": 319563.090390333,
+        "query_attempted": true,
+        "helper": {
+          "stdout": "3732363634203732363634205a2020200a",
+          "stderr": "",
+          "returncode": 0,
+          "pid": 72683,
+          "argv": [
+            "/bin/ps",
+            "-g",
+            "72664",
+            "-o",
+            "pid=,pgid=,stat="
+          ],
+          "admission": {
+            "ok": true,
+            "reason": "ready",
+            "python_threads": 1,
+            "native_threads": 1,
+            "sigchld": "SIG_DFL",
+            "native_sigchld": "SIG_DFL",
+            "error": null,
+            "errno": null
+          },
+          "started_monotonic": 319563.07433575,
+          "created_monotonic": 319563.07548575,
+          "capture_deadline_monotonic": 319563.2047907185,
+          "deadline_monotonic": 319563.298275708,
+          "finished_monotonic": 319563.090335458,
+          "kill_monotonic": null,
+          "kill_errno": null,
+          "reaped": true,
+          "reaped_monotonic": 319563.089810333,
+          "reap_errno": null,
+          "ownership_lost": false,
+          "close_errors": [],
+          "error": null,
+          "error_errno": null,
+          "residual_remedy": null,
+          "worker": {
+            "pid": 72661,
+            "shutdown_deadline_monotonic": 319563.298275708,
+            "ready": true,
+            "reaped": false,
+            "ownership_lost": false,
+            "returncode": null,
+            "signals": [],
+            "reap_errno": null,
+            "intent": true,
+            "unknown_helper_creation": false,
+            "fork_failure": null,
+            "creation_conflict": false,
+            "helper_identity": {
+              "pid": 72683,
+              "ppid": 72661,
+              "pgid": 72661,
+              "created_monotonic": 319563.07548575,
+              "token": "ab577e8e722d4615bb21a2fc53a641a4",
+              "deadline_monotonic": 319563.248275708
+            },
+            "helper_identities": [
+              {
+                "pid": 72683,
+                "ppid": 72661,
+                "pgid": 72661,
+                "created_monotonic": 319563.07548575,
+                "token": "ab577e8e722d4615bb21a2fc53a641a4",
+                "deadline_monotonic": 319563.248275708
+              }
+            ],
+            "helper_obligation_retained": false,
+            "signal_scope": "group",
+            "dispatch_monotonic": 319563.073893708,
+            "receipt_monotonic": 319563.090242625,
+            "published_times": {
+              "started_monotonic": 319563.07433575,
+              "created_monotonic": 319563.07548575,
+              "capture_deadline_monotonic": 319563.2047907185,
+              "deadline_monotonic": 319563.248275708,
+              "finished_monotonic": 319563.089848833,
+              "kill_monotonic": null,
+              "reaped_monotonic": 319563.089810333
+            },
+            "query_deadline_monotonic": 319563.248275708,
+            "reserve_seconds": 0.05,
+            "request_token": "ab577e8e722d4615bb21a2fc53a641a4",
+            "request_identity": {
+              "run_id": "fea8ac76129d4bbf8e9fbea4bf03a254",
+              "worker_token": "4513672c6ee8439091c6848cfe227ea4",
+              "worker_pid": 72661,
+              "request_token": "ab577e8e722d4615bb21a2fc53a641a4",
+              "workload_pid": 72664,
+              "workload_pgid": 72664,
+              "signal_epoch": 2,
+              "phase": "final",
+              "deadline_monotonic": 319563.248275708
+            },
+            "session_token": "4513672c6ee8439091c6848cfe227ea4"
+          }
+        },
+        "state": "zombie_only",
+        "members": [
+          {
+            "pid": 72664,
+            "pgid": 72664,
+            "stat": "Z"
+          }
+        ],
+        "stdout": "3732363634203732363634205a2020200a",
+        "stderr": "",
+        "returncode": 0,
+        "probe_started_monotonic": 319563.090383083,
+        "probe_finished_monotonic": 319563.090388916,
+        "probe_errno": 1,
+        "probe_outcome": "zombie_only_eperm",
+        "error": null
+      }
+    }
+  ],
+  "pid": 72664,
+  "pgid": 72664,
+  "signal_scope": "group",
+  "group_observations": [
+    {
+      "started_monotonic": 319563.073755,
+      "finished_monotonic": 319563.090390333,
+      "query_attempted": true,
+      "helper": {
+        "stdout": "3732363634203732363634205a2020200a",
+        "stderr": "",
+        "returncode": 0,
+        "pid": 72683,
+        "argv": [
+          "/bin/ps",
+          "-g",
+          "72664",
+          "-o",
+          "pid=,pgid=,stat="
+        ],
+        "admission": {
+          "ok": true,
+          "reason": "ready",
+          "python_threads": 1,
+          "native_threads": 1,
+          "sigchld": "SIG_DFL",
+          "native_sigchld": "SIG_DFL",
+          "error": null,
+          "errno": null
+        },
+        "started_monotonic": 319563.07433575,
+        "created_monotonic": 319563.07548575,
+        "capture_deadline_monotonic": 319563.2047907185,
+        "deadline_monotonic": 319563.298275708,
+        "finished_monotonic": 319563.090335458,
+        "kill_monotonic": null,
+        "kill_errno": null,
+        "reaped": true,
+        "reaped_monotonic": 319563.089810333,
+        "reap_errno": null,
+        "ownership_lost": false,
+        "close_errors": [],
+        "error": null,
+        "error_errno": null,
+        "residual_remedy": null,
+        "worker": {
+          "pid": 72661,
+          "shutdown_deadline_monotonic": 319563.298275708,
+          "ready": true,
+          "reaped": false,
+          "ownership_lost": false,
+          "returncode": null,
+          "signals": [],
+          "reap_errno": null,
+          "intent": true,
+          "unknown_helper_creation": false,
+          "fork_failure": null,
+          "creation_conflict": false,
+          "helper_identity": {
+            "pid": 72683,
+            "ppid": 72661,
+            "pgid": 72661,
+            "created_monotonic": 319563.07548575,
+            "token": "ab577e8e722d4615bb21a2fc53a641a4",
+            "deadline_monotonic": 319563.248275708
+          },
+          "helper_identities": [
+            {
+              "pid": 72683,
+              "ppid": 72661,
+              "pgid": 72661,
+              "created_monotonic": 319563.07548575,
+              "token": "ab577e8e722d4615bb21a2fc53a641a4",
+              "deadline_monotonic": 319563.248275708
+            }
+          ],
+          "helper_obligation_retained": false,
+          "signal_scope": "group",
+          "dispatch_monotonic": 319563.073893708,
+          "receipt_monotonic": 319563.090242625,
+          "published_times": {
+            "started_monotonic": 319563.07433575,
+            "created_monotonic": 319563.07548575,
+            "capture_deadline_monotonic": 319563.2047907185,
+            "deadline_monotonic": 319563.248275708,
+            "finished_monotonic": 319563.089848833,
+            "kill_monotonic": null,
+            "reaped_monotonic": 319563.089810333
+          },
+          "query_deadline_monotonic": 319563.248275708,
+          "reserve_seconds": 0.05,
+          "request_token": "ab577e8e722d4615bb21a2fc53a641a4",
+          "request_identity": {
+            "run_id": "fea8ac76129d4bbf8e9fbea4bf03a254",
+            "worker_token": "4513672c6ee8439091c6848cfe227ea4",
+            "worker_pid": 72661,
+            "request_token": "ab577e8e722d4615bb21a2fc53a641a4",
+            "workload_pid": 72664,
+            "workload_pgid": 72664,
+            "signal_epoch": 2,
+            "phase": "final",
+            "deadline_monotonic": 319563.248275708
+          },
+          "session_token": "4513672c6ee8439091c6848cfe227ea4"
+        }
+      },
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 72664,
+          "pgid": 72664,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3732363634203732363634205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_started_monotonic": 319563.090383083,
+      "probe_finished_monotonic": 319563.090388916,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "term_deadline_monotonic": 319563.073275708,
+  "leader_exit_monotonic": 319562.924907666,
+  "kill_reap_deadline_monotonic": 319563.373275708,
+  "inspection_deadline_monotonic": 319563.298275708,
+  "termination_ok": true,
+  "authority_closed_monotonic": 319563.090402416,
+  "reap_deadline_monotonic": 319563.373275708,
+  "within_process_bounds": true,
+  "reap_attempts": 1,
+  "reap_last_result": "reaped",
+  "reaped_monotonic": 319563.090406083,
+  "elapsed": 0.3678246670169756
+}

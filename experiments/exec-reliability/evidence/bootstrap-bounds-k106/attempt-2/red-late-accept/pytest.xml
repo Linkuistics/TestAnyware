@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="2" skipped="0" tests="34" time="1.572" timestamp="2026-11-15T11:13:01.540225+11:00" hostname="byrd.local"><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0-readiness-1]" time="0.002" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0-term_grace-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0-kill_reap-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-term_grace-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[-1-kill_reap-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-term_grace-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[nan-kill_reap-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-term_grace-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[inf-kill_reap-2]" time="0.001" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[True-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[True-term_grace-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[True-kill_reap-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[None-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[None-term_grace-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[None-kill_reap-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-term_grace-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[0.1-kill_reap-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[over-readiness-1]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[over-term_grace-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_bootstrap_bounds_rejected_before_freeze_or_fork[over-kill_reap-2]" time="0.000" /><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[ready]" time="0.027" /><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[term]" time="0.155" /><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[kill]" time="0.224" /><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[deferred-reap]" time="0.383" /><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[overrun]" time="0.430" /><testcase classname="test_bootstrap" name="test_declared_bootstrap_plan_reaches_real_worker" time="0.020" /><testcase classname="test_bootstrap" name="test_declared_bootstrap_valid_frame_deadline[-0.001]" time="0.005" /><testcase classname="test_bootstrap" name="test_declared_bootstrap_valid_frame_deadline[0.0]" time="0.005"><failure message="AssertionError: assert True is (0.0 &lt; 0)&#10; +  where True = start()&#10;[+1 more line; full report in element text]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-544/test_declared_bootstrap_valid_1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4e4410&gt;
+offset = 0.0
+
+    @pytest.mark.parametrize("offset", [-0.001, 0.0, 0.01])
+    def test_declared_bootstrap_valid_frame_deadline(tmp_path, monkeypatch, offset):
+        """A real valid frame at equality or later cannot grant readiness authority."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+        )
+        real_clock, real_read = time.monotonic, os.read
+        sampled = False
+        shifted_at = None
+    
+        def clock():
+            nonlocal sampled
+            if shifted_at is None:
+                return real_clock()
+            if not sampled:
+                sampled = True
+                return worker.startup_deadline + offset
+            return worker.startup_deadline + offset + real_clock() - shifted_at
+    
+        def read(fd, length):
+            nonlocal shifted_at
+            data = real_read(fd, length)
+            if fd == worker.control and b"\n" in data and shifted_at is None:
+                shifted_at = real_clock()
+            return data
+    
+        monkeypatch.setattr(worker_capture, "time", SimpleNamespace(monotonic=clock, sleep=time.sleep))
+        monkeypatch.setattr(os, "read", read)
+        try:
+&gt;           assert worker.start() is (offset &lt; 0)
+E           AssertionError: assert True is (0.0 &lt; 0)
+E            +  where True = start()
+E            +    where start = Worker(session_token='20683b2bc22f4b259c6647b49443e024', run_id='2d1b15b81b28494a9a67b0591170e62a', owner=_Owner(pid=538, shutdown_deadline_monotonic=inf, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None), failure=None, channels=[12, 13, 15], command=12, control=13, result=15, started=True, closed=False, admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, startup_started=318862.517968041, startup_finished=318862.6680587911, shutdown_started=None, shutdown_finished=None, kill_at=None, bootstrap=BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16), startup_deadline=318862.66796804103, readiness_finished=318862.66796804103, readiness_outcome='ready', bootstrap_shutdown=None).start
+
+test_bootstrap.py:236: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_valid_frame_deadline[0.01]" time="0.005"><failure message="AssertionError: assert True is (0.01 &lt; 0)&#10; +  where True = start()&#10;[+1 more line; full report in element text]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-544/test_declared_bootstrap_valid_2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4e2ab0&gt;
+offset = 0.01
+
+    @pytest.mark.parametrize("offset", [-0.001, 0.0, 0.01])
+    def test_declared_bootstrap_valid_frame_deadline(tmp_path, monkeypatch, offset):
+        """A real valid frame at equality or later cannot grant readiness authority."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+        )
+        real_clock, real_read = time.monotonic, os.read
+        sampled = False
+        shifted_at = None
+    
+        def clock():
+            nonlocal sampled
+            if shifted_at is None:
+                return real_clock()
+            if not sampled:
+                sampled = True
+                return worker.startup_deadline + offset
+            return worker.startup_deadline + offset + real_clock() - shifted_at
+    
+        def read(fd, length):
+            nonlocal shifted_at
+            data = real_read(fd, length)
+            if fd == worker.control and b"\n" in data and shifted_at is None:
+                shifted_at = real_clock()
+            return data
+    
+        monkeypatch.setattr(worker_capture, "time", SimpleNamespace(monotonic=clock, sleep=time.sleep))
+        monkeypatch.setattr(os, "read", read)
+        try:
+&gt;           assert worker.start() is (offset &lt; 0)
+E           AssertionError: assert True is (0.01 &lt; 0)
+E            +  where True = start()
+E            +    where start = Worker(session_token='cdcc65ceea7e4b23b46cd5a63298bf1e', run_id='be0b6f0052dc4b41acff1aa6686b1b80', owner=_Owner(pid=640, shutdown_deadline_monotonic=inf, ready=True, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None), failure=None, channels=[12, 13, 15], command=12, control=13, result=15, started=True, closed=False, admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, startup_started=318862.538127791, startup_finished=318862.6982329581, shutdown_started=None, shutdown_finished=None, kill_at=None, bootstrap=BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16), startup_deadline=318862.68812779104, readiness_finished=318862.69812779105, readiness_outcome='ready', bootstrap_shutdown=None).start
+
+test_bootstrap.py:236: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_no_child_receipt" time="0.001" /></testsuite></testsuites>

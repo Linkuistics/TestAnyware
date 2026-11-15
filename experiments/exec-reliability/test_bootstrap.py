@@ -7,6 +7,7 @@ import time
 import uuid
 from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -98,6 +99,17 @@ def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
             "term_grace": 0.07,
             "kill_reap": 0.16,
         }
+        assert runtime["startup_deadline_monotonic"] == pytest.approx(
+            worker.startup_started + 0.15, rel=0, abs=1e-9
+        )
+        observed = runtime["readiness_finished_monotonic"]
+        deadline = runtime["startup_deadline_monotonic"]
+        assert runtime["readiness_outcome"] == ("ready" if mode == "ready" else "expired")
+        assert runtime["readiness_overrun"] is (mode != "ready")
+        assert runtime["readiness_lateness_seconds"] == max(0.0, observed - deadline)
+        if mode != "ready":
+            # Observation slack is a test-host allowance, never runtime authority.
+            assert 0 <= observed - deadline < 0.05
         owner = worker.owner
         assert owner is not None
         audit["pid"] = owner.pid
@@ -107,8 +119,24 @@ def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
         else:
             assert worker.failure and worker.closed
             phase = runtime["bootstrap_shutdown"]
-            assert phase["term_deadline_monotonic"] == pytest.approx(worker.shutdown_started + 0.07)
-            assert phase["kill_deadline_monotonic"] == pytest.approx(worker.shutdown_started + 0.23)
+            assert phase["term_deadline_monotonic"] == pytest.approx(
+                worker.shutdown_started + 0.07, rel=0, abs=1e-9
+            )
+            assert phase["kill_deadline_monotonic"] == pytest.approx(
+                worker.shutdown_started + 0.23, rel=0, abs=1e-9
+            )
+            assert phase["outcome"] == (
+                "residual_ownership" if mode in {"deferred-reap", "overrun"} else "reaped"
+            )
+            assert phase["overrun"] is (mode in {"deferred-reap", "overrun"})
+            assert phase["deadline_exhausted"] is phase["overrun"]
+            assert phase["lateness_seconds"] == max(
+                0.0, phase["finished_monotonic"] - phase["kill_deadline_monotonic"]
+            )
+            if mode == "deferred-reap":
+                assert 0 < phase["lateness_seconds"] < 0.05
+            elif mode == "overrun":
+                assert phase["lateness_seconds"] >= 0.04
             assert all(item["scope"] == "pid" and item["pid"] == owner.pid for item in calls)
             assert all(item["time"] < owner.shutdown_deadline_monotonic for item in calls)
             if mode == "term":
@@ -119,13 +147,13 @@ def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
                 assert phase["overrun"] is True and runtime["residual_remedy"]
             else:
                 assert [item["signal"] for item in calls] == [signal.SIGTERM, signal.SIGKILL]
-                assert 0.065 <= calls[1]["time"] - worker.shutdown_started < 0.16
+                assert 0.07 <= calls[1]["time"] - worker.shutdown_started < 0.10
                 if mode == "kill":
                     assert owner.reaped and owner.returncode == -signal.SIGKILL
                 else:
                     assert not owner.reaped and runtime["residual_remedy"]
                     assert owner.pid in worker_capture._owners
-            assert worker.startup_finished - worker.startup_started < 0.75
+            assert worker.startup_finished - worker.startup_started < 0.15 + 0.23 + 0.10
         first = worker.evidence()
         worker.close()
         assert not worker.start() and worker.evidence() == first
@@ -174,3 +202,90 @@ def test_declared_bootstrap_plan_reaches_real_worker(tmp_path):
     assert result["inspection_worker"]["owner"]["reaped"] is True
     with pytest.raises(ChildProcessError):
         os.waitpid(result["inspection_worker"]["owner"]["pid"], os.WNOHANG)
+
+
+@pytest.mark.parametrize("offset", [-0.001, 0.0, 0.01])
+def test_declared_bootstrap_valid_frame_deadline(tmp_path, monkeypatch, offset):
+    """A real valid frame at equality or later cannot grant readiness authority."""
+    worker = worker_capture.Worker(
+        bootstrap=worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+    )
+    real_clock, real_read = time.monotonic, os.read
+    sampled = False
+    shifted_at = None
+
+    def clock():
+        nonlocal sampled
+        if shifted_at is None:
+            return real_clock()
+        if not sampled:
+            sampled = True
+            return worker.startup_deadline + offset
+        return worker.startup_deadline + offset + real_clock() - shifted_at
+
+    def read(fd, length):
+        nonlocal shifted_at
+        data = real_read(fd, length)
+        if fd == worker.control and b"\n" in data and shifted_at is None:
+            shifted_at = real_clock()
+        return data
+
+    monkeypatch.setattr(worker_capture, "time", SimpleNamespace(monotonic=clock, sleep=time.sleep))
+    monkeypatch.setattr(os, "read", read)
+    try:
+        assert worker.start() is (offset < 0)
+        assert sampled and worker.owner is not None
+        assert worker.owner.ready is (offset < 0)
+        receipt = worker.evidence()
+        assert receipt["readiness_finished_monotonic"] == worker.startup_deadline + offset
+        assert receipt["readiness_outcome"] == ("ready" if offset < 0 else "late")
+        assert receipt["readiness_overrun"] is (offset > 0)
+        assert receipt["readiness_lateness_seconds"] == max(
+            0.0, receipt["readiness_finished_monotonic"] - worker.startup_deadline
+        )
+    finally:
+        worker.close()
+        owner = worker.owner
+        assert owner is not None and owner.reaped
+        with pytest.raises(ChildProcessError):
+            os.waitpid(owner.pid, os.WNOHANG)
+        root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        root.mkdir(parents=True, exist_ok=True)
+        (root / f"bootstrap-frame-{offset}-{time.time_ns()}.json").write_text(
+            json.dumps(
+                {
+                    "runtime": worker.evidence(),
+                    "audit": {"pid": owner.pid, "reaped": True},
+                    "injection": "parent observation clock after real valid frame read",
+                    "offset": offset,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+
+
+def test_declared_bootstrap_no_child_receipt(tmp_path, monkeypatch):
+    """A fork error preserves failed readiness and the not-created outcome."""
+
+    def fail_fork():
+        raise OSError(11, "injected fork failure")
+
+    monkeypatch.setattr(os, "fork", fail_fork)
+    worker = worker_capture.Worker()
+    assert not worker.start()
+    receipt = worker.evidence()
+    assert receipt["readiness_outcome"] == "failed"
+    assert receipt["readiness_overrun"] is False
+    assert receipt["readiness_lateness_seconds"] == 0
+    phase = receipt["bootstrap_shutdown"]
+    assert phase["outcome"] == "not_created"
+    assert phase["overrun"] is False
+    assert phase["deadline_exhausted"] is False
+    assert phase["lateness_seconds"] == 0
+    assert worker.owner is None and not worker.channels
+    root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+    root.mkdir(parents=True, exist_ok=True)
+    (root / f"bootstrap-no-child-{time.time_ns()}.json").write_text(
+        json.dumps({"runtime": receipt, "audit": {"created": False}}, indent=2) + "\n"
+    )
