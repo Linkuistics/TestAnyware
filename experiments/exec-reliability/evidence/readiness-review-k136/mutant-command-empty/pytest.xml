@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="7" time="0.448" timestamp="2026-11-15T20:34:52.821580+11:00" hostname="byrd.local"><testcase classname="test_turns" name="test_readiness_failure_preserves_safety_retirement[OSError-sampling]" time="0.001" /><testcase classname="test_turns" name="test_readiness_failure_preserves_safety_retirement[OSError-select]" time="0.000" /><testcase classname="test_turns" name="test_readiness_failure_preserves_safety_retirement[ValueError-sampling]" time="0.000" /><testcase classname="test_turns" name="test_readiness_failure_preserves_safety_retirement[ValueError-select]" time="0.000" /><testcase classname="test_turns" name="test_query_readiness_closes_interests[False]" time="0.000" /><testcase classname="test_turns" name="test_query_readiness_closes_interests[True]" time="0.000"><failure message="assert (0 == 2)&#10; +  where 0 = len(())">monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x107563980&gt;
+persistent = True
+
+    @pytest.mark.parametrize("persistent", [False, True])
+    def test_query_readiness_closes_interests(monkeypatch, persistent):
+        """Observe completed writes and both EOF removals before owner retirement."""
+        import os
+    
+        import worker_capture
+    
+        now, _ = clock(monkeypatch)
+        pid = 2**30
+        owner = worker_capture._Owner(pid, float("inf"), ready=True)
+        descriptors = [*os.pipe(), *os.pipe(), *os.pipe()] if persistent else []
+        worker = (
+            worker_capture.Worker(
+                owner=owner,
+                started=True,
+                command=descriptors[1],
+                control=descriptors[2],
+                result=descriptors[4],
+                admission={"ok": True, "reason": "fixture"},
+            )
+            if persistent
+            else None
+        )
+        monkeypatch.setattr(worker_capture, "_owners", {})
+        monkeypatch.setattr(os, "fork", lambda: pid)
+        monkeypatch.setattr(worker_capture, "_reap", lambda _owner: None)
+        monkeypatch.setattr(worker_capture, "_signal", lambda *_args: None)
+        monkeypatch.setattr(worker_capture.Worker, "close", lambda _worker: None)
+        monkeypatch.setattr(os, "read", lambda _fd, _size: b"")
+        monkeypatch.setattr(os, "write", lambda _fd, data: len(data))
+        monkeypatch.setattr(worker_capture.select, "select", lambda readers, *_args: (readers, [], []))
+        phases = []
+    
+        def drive(subject):
+            phases.append(subject.safety)
+            assert subject.readiness is not None
+            if subject.safety:
+                now[0] = 11.0
+                assert subject.advance() is None
+                return
+            if persistent:
+                assert subject.readiness() == ((), (worker.command,))
+                assert subject.advance() == 10.0
+            readers, writers = subject.readiness()
+            assert len(readers) == 2 and writers == ()  # Finished command no longer writable interest.
+            with pytest.raises(ValueError, match="incomplete worker frame length"):
+                subject.advance()
+            # Both EOFs have been consumed; the failed query has not yet retired its owner.
+            assert subject.readiness() == ((), ())
+            assert not owner.reaped
+            raise ValueError("incomplete worker frame length")
+    
+        monkeypatch.setattr(worker_capture, "run_turns", drive)
+        try:
+&gt;           receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0, worker=worker)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_turns.py:873: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+worker_capture.py:1289: in capture_helper
+    run_turns(Turn(advance_query, readiness=query_readiness))
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+subject = Turn(advance=&lt;function capture_helper.&lt;locals&gt;.advance_query at 0x1078d5800&gt;, safety=False, readiness=&lt;function capture_helper.&lt;locals&gt;.query_readiness at 0x1078d5120&gt;)
+
+    def drive(subject):
+        phases.append(subject.safety)
+        assert subject.readiness is not None
+        if subject.safety:
+            now[0] = 11.0
+            assert subject.advance() is None
+            return
+        if persistent:
+            assert subject.readiness() == ((), (worker.command,))
+            assert subject.advance() == 10.0
+        readers, writers = subject.readiness()
+&gt;       assert len(readers) == 2 and writers == ()  # Finished command no longer writable interest.
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       assert (0 == 2)
+E        +  where 0 = len(())
+
+test_turns.py:863: AssertionError</failure></testcase><testcase classname="test_turns" name="test_retirement_readiness_closes_cleanup_before_owner_exit" time="0.000" /></testsuite></testsuites>

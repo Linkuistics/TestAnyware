@@ -753,3 +753,167 @@ def test_command_dispatch_turns_yield_and_stop(monkeypatch, mode):
     finally:
         for fd in descriptors:
             os.close(fd)
+
+
+@pytest.mark.parametrize("site", ["sampling", "select"])
+@pytest.mark.parametrize("error_type", [OSError, ValueError])
+def test_readiness_failure_preserves_safety_retirement(monkeypatch, site, error_type):
+    """Advisory failures must not bypass the real retirement callback's authority."""
+    import errno
+    import os
+    import signal
+
+    import worker_capture
+
+    now, sleeps = clock(monkeypatch)
+    pid = 2**30
+    signals = []
+    reaps = []
+    failures = []
+    monkeypatch.setattr(worker_capture, "_owners", {})
+    monkeypatch.setattr(os, "fork", lambda: pid)
+    monkeypatch.setattr(os, "kill", lambda child, sig: signals.append((child, sig)))
+
+    def waitpid(child, flags):
+        assert child == pid and flags == os.WNOHANG
+        reaps.append(now[0])
+        return (pid, 0) if (pid, signal.SIGKILL) in signals else (0, 0)
+
+    def read(_fd, _size):
+        raise BlockingIOError
+
+    def fail(*_args):
+        failures.append(now[0])
+        assert len(failures) < 100, "readiness error spun without bounded timer progress"
+        raise error_type(errno.EBADF, "injected advisory failure")
+
+    def drive(subject):
+        if not subject.safety:
+            # Expire the query without mocking the safety implementation.
+            now[0] = 10.95
+            assert subject.advance() is None
+            return
+        assert subject.readiness is not None
+        if site == "select":
+            monkeypatch.setattr(turns.select, "select", fail)
+            interests = subject.readiness
+        else:
+            interests = fail
+        turns.run_turns(turns.Turn(subject.advance, safety=True, readiness=interests))
+
+    monkeypatch.setattr(os, "waitpid", waitpid)
+    monkeypatch.setattr(os, "read", read)
+    monkeypatch.setattr(worker_capture, "run_turns", drive)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0)
+    assert failures and sleeps
+    assert signals == [(pid, signal.SIGTERM), (pid, signal.SIGKILL)]
+    assert 10.95 + 0.05 / 4 <= reaps[-1] <= 11.0
+    assert receipt.worker is not None
+    assert receipt.worker["reaped"]
+    assert receipt.worker["returncode"] == 0
+    assert receipt.worker["unknown_helper_creation"]
+    assert receipt.error == "worker capture failed: worker query deadline exhausted"
+    assert not worker_capture._owners
+
+
+@pytest.mark.parametrize("persistent", [False, True])
+def test_query_readiness_closes_interests(monkeypatch, persistent):
+    """Observe completed writes and both EOF removals before owner retirement."""
+    import os
+
+    import worker_capture
+
+    now, _ = clock(monkeypatch)
+    pid = 2**30
+    owner = worker_capture._Owner(pid, float("inf"), ready=True)
+    descriptors = [*os.pipe(), *os.pipe(), *os.pipe()] if persistent else []
+    worker = (
+        worker_capture.Worker(
+            owner=owner,
+            started=True,
+            command=descriptors[1],
+            control=descriptors[2],
+            result=descriptors[4],
+            admission={"ok": True, "reason": "fixture"},
+        )
+        if persistent
+        else None
+    )
+    monkeypatch.setattr(worker_capture, "_owners", {})
+    monkeypatch.setattr(os, "fork", lambda: pid)
+    monkeypatch.setattr(worker_capture, "_reap", lambda _owner: None)
+    monkeypatch.setattr(worker_capture, "_signal", lambda *_args: None)
+    monkeypatch.setattr(worker_capture.Worker, "close", lambda _worker: None)
+    monkeypatch.setattr(os, "read", lambda _fd, _size: b"")
+    monkeypatch.setattr(os, "write", lambda _fd, data: len(data))
+    monkeypatch.setattr(worker_capture.select, "select", lambda readers, *_args: (readers, [], []))
+    phases = []
+
+    def drive(subject):
+        phases.append(subject.safety)
+        assert subject.readiness is not None
+        if subject.safety:
+            now[0] = 11.0
+            assert subject.advance() is None
+            return
+        if persistent:
+            assert subject.readiness() == ((), (worker.command,))
+            assert subject.advance() == 10.0
+        readers, writers = subject.readiness()
+        assert len(readers) == 2 and writers == ()  # Finished command no longer writable interest.
+        with pytest.raises(ValueError, match="incomplete worker frame length"):
+            subject.advance()
+        # Both EOFs have been consumed; the failed query has not yet retired its owner.
+        assert subject.readiness() == ((), ())
+        assert not owner.reaped
+        raise ValueError("incomplete worker frame length")
+
+    monkeypatch.setattr(worker_capture, "run_turns", drive)
+    try:
+        receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0, worker=worker)
+        assert phases == [False, True]
+        assert receipt.worker is not None and not receipt.worker["reaped"]
+        assert "incomplete worker frame length" in receipt.error
+    finally:
+        for fd in descriptors:
+            os.close(fd)
+
+
+def test_retirement_readiness_closes_cleanup_before_owner_exit(monkeypatch):
+    """Cleanup EOF must leave a live retiring owner paced by its future timer."""
+    import os
+    import signal
+
+    import worker_capture
+
+    now, sleeps = clock(monkeypatch)
+    pid = 2**30
+    signals = []
+    monkeypatch.setattr(worker_capture, "_owners", {})
+    monkeypatch.setattr(os, "fork", lambda: pid)
+    monkeypatch.setattr(os, "kill", lambda child, sig: signals.append((child, sig)))
+    monkeypatch.setattr(os, "read", lambda _fd, _size: b"")
+
+    def waitpid(child, flags):
+        assert child == pid and flags == os.WNOHANG
+        return (pid, 0) if (pid, signal.SIGKILL) in signals else (0, 0)
+
+    def drive(subject):
+        if not subject.safety:
+            now[0] = 10.95
+            assert subject.advance() is None
+            return
+        assert subject.readiness is not None
+        assert len(subject.readiness()[0]) == 1
+        assert subject.advance() == pytest.approx(10.951)
+        assert not worker_capture._owners[pid].reaped
+        assert subject.readiness() == ((), ())
+        turns.run_turns(subject)
+
+    monkeypatch.setattr(os, "waitpid", waitpid)
+    monkeypatch.setattr(worker_capture, "run_turns", drive)
+    receipt = worker_capture.capture_helper(("/usr/bin/true",), 11.0)
+    assert sleeps
+    assert signals == [(pid, signal.SIGTERM), (pid, signal.SIGKILL)]
+    assert receipt.worker is not None and receipt.worker["reaped"]
+    assert not worker_capture._owners

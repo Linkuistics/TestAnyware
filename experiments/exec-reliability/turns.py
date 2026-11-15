@@ -19,10 +19,12 @@ def run_turns(*turns: Turn) -> None:
     """Run ready safety work first, then earliest wake with stable rotation.
 
     Owners enforce their own immutable cutoffs, including late first turns.
-    Exceptions propagate immediately; this driver neither retries nor finalizes
-    an owner. A callback must yield after bounded work for other owners to run.
+    Advance exceptions propagate immediately; this driver neither retries nor
+    finalizes an owner. A callback must yield after bounded work for others to run.
     Readiness interests are sampled while idle and may wake an owner before its
     next timer. Owners must still check cutoffs and tolerate spurious readiness.
+    OSError/ValueError from advisory sampling or select falls back to the bounded
+    timer sleep, preserving owner turns even when a descriptor is unusable.
     """
     pending: list[tuple[float, int, Turn]] = [
         (float("-inf"), order, turn) for order, turn in enumerate(turns)
@@ -38,15 +40,22 @@ def run_turns(*turns: Turn) -> None:
             wake = min(item[0] for item in pending)
             delay = min(0.005, wake - time.monotonic())
             if delay > 0:
-                interests = [
-                    (order, turn.readiness())
-                    for _, order, turn in pending
-                    if turn.readiness is not None
-                ]
-                readers = sorted({fd for _, (reads, _) in interests for fd in reads})
-                writers = sorted({fd for _, (_, writes) in interests for fd in writes})
+                try:
+                    interests = [
+                        (order, turn.readiness())
+                        for _, order, turn in pending
+                        if turn.readiness is not None
+                    ]
+                    readers = sorted({fd for _, (reads, _) in interests for fd in reads})
+                    writers = sorted({fd for _, (_, writes) in interests for fd in writes})
+                    if readers or writers:
+                        readable, writable, _ = select.select(readers, writers, [], delay)
+                    else:
+                        readable, writable = [], []
+                except (OSError, ValueError):
+                    time.sleep(delay)
+                    continue
                 if readers or writers:
-                    readable, writable, _ = select.select(readers, writers, [], delay)
                     observed = time.monotonic()
                     signaled = {
                         order

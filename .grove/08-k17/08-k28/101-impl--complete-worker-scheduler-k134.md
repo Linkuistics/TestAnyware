@@ -1,5 +1,17 @@
 # complete-worker-scheduler-k134
 
+k136 integrates the k135 readiness review. Advisory sampling/select errors now
+fall back to the existing bounded sleep, preserving retirement KILL/reap/receipt;
+owner callback errors still propagate. Post-write and post-EOF controls reject
+all three closure-guard mutants without changing the existing registrations.
+Read `experiments/exec-reliability/evidence/readiness-review-k136/report.md` for
+the retained RED, first assertion-rounding failure, four rejecting mutants,
+two 903-test/static passes and frozen reviewed-driver comparison. All prior
+evidence is preserved. This aggregate still owns concurrent production owners,
+actual teardown overlap, every remaining control and historical failure, and
+final independent k28 review. k28/k17 stay open; guest acceptance remains
+0/10 unavailable. The original charter and handoffs below remain binding.
+
 k131 integrates the k130 request-turn review. Wake assertions now cover idle,
 ready, cutoff and terminal query callbacks, and retirement after reap or ECHILD
 with cleanup still open past the original KILL time. Read
