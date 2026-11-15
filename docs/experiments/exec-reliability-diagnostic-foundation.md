@@ -1,48 +1,44 @@
 # Execution reliability diagnostic foundation
 
-The local diagnostic controller passes its revised forced-failure self-check on a
-macOS host. It now observes graceful leader exit, distinguishes PID and group
-interruption with real child controls, and records group inspection before
-reaping. Review integration corrects false success with live group members,
-fixture cleanup and checker timeout reporting. Initial fork admission now rejects
-extra Python or native threads, changed Python or kernel SIGCHLD disposition,
-native SA_NOCLDWAIT auto-reaping and unavailable native observations before
-acquisition, retaining failed results.
-Review integration k32 independently reproduced and repaired the Python signal
-cache gap. The leader-ownership condition measured in k52-fixed-02 reaps leaders
-with exact-PID nonblocking waits before a fixed deadline; failed
-reaps retain an explicit owner and residual without destructor polling, except
-ECHILD, which closes wait ownership without establishing an exit status.
-The controller now requests at most one final process table, after the final
-signal and observed leader exit. Missing exit evidence leaves inspection
-unknown without a query; a live or unknown final table cannot trigger a retry.
-It preserves k37's strict process-table acceptance, k33's KILL ordering and
-k36's PID-only deadline cap. The
-complete worker/scheduler boundary remains k30's work, continued by k34's
-worker-scheduler-k38 subtree, continued by worker-scheduler-k40 and its
-worker-scheduler-k42 subtree, worker-scheduler-k44 subtree and remaining
-worker-scheduler-k48 subtree, with its remaining contract in
-complete-worker-scheduler-k122.
-A failed local inspection now remains failed throughout that execution.
-Independent cleanup, disposal and public absence commands still run, but later
-local observations cannot restore disposal certainty.
-Independently supervised process inspection, retained-file identity,
-stalled-storage disposal and live route
-preparation still need the work named below before causal use. In particular,
-the controller starts one persistent inspection worker before resource
-acquisition. Helper creation runs inside that worker, and helper ownership is
-published independently of result capture. Raw worker fork remains a synchronous
-OS operation. Worker close now offers nonblocking begin/advance operations,
-while its compatibility consumer still drives them synchronously. Shared
-scheduling, actual shutdown/teardown overlap and the remaining aggregate controls
-are unfinished; the bounded k110 result and its evidence limits are recorded
-below.
-This is preparation for the causal inquiries in
-[issue #14](https://github.com/Linkuistics/TestAnyware/issues/14), not a repair
-of TestAnyware. No guest was booted, no guest command was run, and no app was
-started or stopped. Installed live guest routes are **not yet tested**; the
-isolated app routes have the missing prerequisites listed below. The historical
-acceptance result remains **0/10, unavailable**.
+The local diagnostic controller passes its revised forced-failure self-check on a macOS host.
+Real child controls distinguish graceful leader exit, PID interruption and group interruption.
+The controller records group inspection before reaping.
+Review integration corrects false success with live group members, fixture cleanup and checker timeout reporting.
+
+Initial fork admission rejects extra Python or native threads before acquisition and retains failed results.
+It also rejects changed Python or kernel SIGCHLD disposition, native SA_NOCLDWAIT auto-reaping and unavailable native observations.
+Review integration k32 independently reproduced and corrected the Python signal cache gap.
+
+<!-- tc: depart synonym-rotation because k52-fixed-02 is the retained condition identifier -->
+The k52-fixed-02 condition uses exact-PID nonblocking waits before a fixed deadline.
+Failed reaps retain an explicit owner and residual without destructor polling.
+ECHILD closes wait ownership without establishing an exit status.
+The controller requests at most one final process table, after the final signal and observed leader exit.
+Missing exit evidence leaves inspection unknown without a query.
+A live or unknown final table cannot trigger a retry.
+
+The controller preserves k37's strict process-table acceptance, k33's KILL ordering and k36's PID-only deadline cap.
+The complete worker/scheduler boundary remains k30's work.
+Its continuations are k34, worker-scheduler-k38, worker-scheduler-k40, worker-scheduler-k42, worker-scheduler-k44 and worker-scheduler-k48.
+The remaining contract is in complete-worker-scheduler-k122.
+A failed local inspection remains failed throughout that execution.
+Independent cleanup, disposal and public absence commands still run, but later local observations cannot restore disposal certainty.
+
+Independently supervised process inspection, retained-file identity, stalled-storage disposal and live route preparation still need the work below before causal use.
+The controller starts one persistent inspection worker before resource acquisition.
+Helper creation runs inside that worker, with helper ownership publication independent of result capture.
+Raw worker fork remains a synchronous OS operation.
+Worker close offers incremental nonblocking operations, while its compatibility consumer drives them synchronously.
+Shared scheduling, actual shutdown/teardown overlap and the remaining aggregate controls are unfinished.
+
+The bounded k110 result and its evidence limits appear below.
+This work prepares causal inquiries for [issue #14](https://github.com/Linkuistics/TestAnyware/issues/14).
+It does not correct TestAnyware.
+No guest was booted, no guest command was run, and no app was started or stopped.
+Installed live guest routes remain **not yet tested**, and isolated app routes lack the prerequisites below.
+The historical acceptance result remains **0/10, unavailable**.
+
+<!-- tc: pending because the conversion has not reached the historical evidence sections -->
 
 ## Use and boundaries
 
