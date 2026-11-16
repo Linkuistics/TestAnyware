@@ -38,3 +38,30 @@ instrumented clone.
 ## Notes
 The post-timeout inspection stall belongs to `macos-timeout-inspection-k4`.
 Select no new production wait or cancel semantics here.
+
+## Decisions (running log)
+- Declared workload, frozen before the live run in
+  `experiments/exec-reliability/completion_k186.py`: one owned clone
+  `k186-macos-<run>` of `testanyware-golden-macos-27` (the golden that k19
+  booted, agent sha256 1282f4cf…8a84). Calls in order: health, ten serial
+  exact `file exec --timeout 30 --json "printf ordinary-ok"` (host bound
+  50 s each), identity, three rounds of four concurrent exact requests
+  (`concurrent_k186.py`, each request bounded at 50 s, then TERM 2 s and
+  KILL 2 s), a guest pool read (`sysctl` + `ps -M` of the agent), health.
+  One run, no retry. A failed sample stays.
+- The concurrent control is four requests, not more: the k3 mechanism needs
+  two global workers per request, so four requests ask for eight. That
+  stays far below a default limit of 64 or more but can expose a guest
+  whose limit is low. A larger count would test load, not the k3 candidate.
+- Phase seams: the installed CLI and app expose no per-phase log. The
+  receipt gives child exit (`exit_code`), the guest timer result
+  (`timed_out`) and capture content (`stdout`, `stderr`). The host
+  controller gives client deadline and elapsed time. Wait completion,
+  handler response and app relay stay unknown unless a receipt shape
+  separates them, as `completed-then-timed-out` does.
+- The instrumented clone (done-when 3) is conditional. Run it only when the
+  unchanged clone shows a failure or the pool read shows a constrained
+  limit near the per-request demand. Otherwise record it as not needed,
+  with the pool read as the evidence.
+- Guest cleanup action: `/bin/echo` note only. Each request either exits
+  or the agent kills its tree, and disposal removes the guest.
