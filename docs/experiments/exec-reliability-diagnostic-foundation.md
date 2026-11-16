@@ -2321,10 +2321,35 @@ for at most two seconds. Storage failure stops forward progress and never
 changes teardown.
 
 - [Phases and bounds](../specs/diagnostic-evidence-storage.md#phases-and-bounds) — The writer acknowledges readiness within five seconds. Publication gets a window of ten seconds. Each expiry leads to KILL and a two-second reap.
-- [Forward stop and failure reporting](../specs/diagnostic-evidence-storage.md#forward-stop-and-failure-reporting) — The result counts every frame and keeps the controller's own digest of each record.
+- [Forward stop and failure reporting](../specs/diagnostic-evidence-storage.md#forward-stop-and-failure-reporting) — The result is a snapshot with the controller's own digest of each earlier record. The in-memory outcome holds the final publication state.
 - [Controller-crash limits](../specs/diagnostic-evidence-storage.md#controller-crash-limits) — Owned resources stay acquired, and acknowledged intent records survive.
-- [Test seams and required controls](../specs/diagnostic-evidence-storage.md#test-seams-and-required-controls) — Nine controls must fail on the build without the writer.
+- [Test seams and required controls](../specs/diagnostic-evidence-storage.md#test-seams-and-required-controls) — Nine controls must fail on the build without the writer. Four more cover the rules that k160 added.
 - [Visual document](../design/diagnostic-evidence-storage/README.md) — Ownership, phase and failure views of the same contract.
 
 This leaf changes no code and runs no control. Ten-clone acceptance remains
 **0/10, unavailable**.
+
+### Design review integration (k160)
+
+Review k159 found three defects in the publication and capture contract. It
+kept the separate writer and its teardown bounds. k160 compared each finding
+with the spec and with `experiments/exec-reliability/controller.py`. All three
+findings are real, and k160 corrected each one in the spec and the visual
+document.
+
+- **F1, result boundary.** The stored result cannot report a publication that
+  ends after it. The result is now a snapshot with a stated cutoff and
+  publication `pending`. Its digest entries cover only earlier records. The
+  in-memory outcome holds the final publication state.
+- **F2, identity order.** The identity record omitted the storage-close
+  record, so a retained reader could not trust that record. The writer now
+  creates the storage-close record first. Then it computes identity over every
+  file. A directory is complete only when its identity lists an `orderly`
+  storage-close record.
+- **F3, final output.** Closing the read ends at the final observation lost
+  bytes that a pipe still held. A bounded final drain now reads those bytes
+  without a wait. A stream that does not reach EOF fails its receipt.
+
+k160 changes neither the architecture nor a teardown bound, so no redesign or
+ADR follows. Four new controls cover the corrected rules. k160 changes no code
+and runs no control.

@@ -8,18 +8,18 @@
   ],
   "discussion": {
     "title": "Keep evidence storage off the teardown path",
-    "status": "Ownership and timing contract",
-    "summary": "One separate evidence writer owns the run directory and every blocking file call. The controller sends serialised frames through a bounded outbox and never waits for them, except one bounded intent gate before each acquisition. Command output reaches the controller through pipes. Storage failure stops forward progress and never changes teardown. Publication has its own window, then KILL and a bounded reap.",
+    "status": "Ownership and timing contract, with design review repairs",
+    "summary": "One separate evidence writer owns the run directory and every blocking file call. The controller sends serialised frames through a bounded outbox and never waits for them, except one bounded intent gate before each acquisition. Command output reaches the controller through pipes. Storage failure stops forward progress and never changes teardown. Publication has its own window, then KILL and a bounded reap. The design review added a final output drain, a storage-close record inside the identity and a result snapshot.",
     "diagramIds": ["ownership", "phases", "failures"],
     "updatedDiagrams": [
       {"id": "ownership", "summary": "New view. The writer owns storage. The controller keeps signals, reaps and the outbox."},
-      {"id": "phases", "summary": "New view. Readiness, intent gates and publication each have declared bounds."},
-      {"id": "failures", "summary": "New view. Each storage failure ends in the in-memory run outcome."}
+      {"id": "phases", "summary": "New view. Readiness, intent gates and publication each have declared bounds. The review added the final drain and the close transaction."},
+      {"id": "failures", "summary": "New view. Each storage failure ends in the in-memory run outcome. The review made the persisted result a snapshot."}
     ]
   },
   "diagrams": [
     {"id": "ownership", "group": "ownership", "title": "Give storage to the writer", "source": "ownership.mmd", "caption": "The writer starts no process and sends no signal. The controller records the writer PID from its own spawn call. Commands receive no evidence descriptor, and no child receives a writer pipe end."},
-    {"id": "phases", "group": "phases", "title": "Bound each storage phase", "source": "phases.mmd", "caption": "Readiness completes before any acquisition. Only intent records wait for an acknowledgement. Publication starts after worker close and ends at P plus two seconds. These bounds never extend the cleanup or disposal ceiling. OS scheduling limits apply."},
-    {"id": "failures", "group": "failures", "title": "Stop forward, keep teardown", "source": "failures.mmd", "caption": "Storage failure is sticky. The run fails because required evidence is incomplete. The caller receives the outcome in memory, without reading evidence back."}
+    {"id": "phases", "group": "phases", "title": "Bound each storage phase", "source": "phases.mmd", "caption": "Readiness completes before any acquisition. Only intent records wait for an acknowledgement. Publication starts after worker close and ends at P plus two seconds. These bounds never extend the cleanup or disposal ceiling. OS scheduling limits apply. The close transaction creates the storage-close record before the identity record."},
+    {"id": "failures", "group": "failures", "title": "Stop forward, keep teardown", "source": "failures.mmd", "caption": "Storage failure is sticky. The run fails because required evidence is incomplete. The caller receives the outcome in memory, without reading evidence back. Only that outcome holds the final publication state."}
   ]
 }

@@ -96,17 +96,41 @@ never changes teardown.
 and the settled inspection-worker close. Let **S** be the publication start
 and **P = S + W**, where the declared window **W** is at most ten seconds.
 
-The controller sends the ledger and requests the subjects-after digests. It
-waits for those digests until **S + W/2** at most. Then it sends the result
-record, with each missing digest as `unavailable:storage`. Last, it requests
-the identity record and sends a close frame. The writer computes the identity
-record from the files under its run-directory descriptor. The controller
-drains the outbox by nonblocking writes until P.
+The controller sends the ledger and requests the subjects-after digests. The
+writer returns those digests in its acknowledgement and writes no
+subjects-after file. The controller waits for them until **S + W/2** at most.
+That instant is the only subjects-after cutoff. Each digest that has not
+arrived by then is `unavailable:storage`.
+
+Then the controller serialises the result record as a snapshot. The
+[snapshot rules](#forward-stop-and-failure-reporting) state what the result
+can hold. Last, the controller sends one close frame. It sends no separate
+identity request. The controller drains the outbox by nonblocking writes
+until P.
+
+**Close transaction.** The writer handles the close frame after every
+earlier frame. Then it runs these steps and reads no further frame:
+
+1. Create the storage-close record. The record says `orderly`. It holds the
+   sequence number of the last frame that the writer applied. It also counts
+   the frames that the writer refused or failed.
+2. Compute the identity record over every file under the run-directory
+   descriptor except the identity record itself. The listing therefore
+   includes the storage-close record.
+3. Create the identity record.
+4. Acknowledge the close frame with the length and SHA-256 digest of the
+   storage-close record and of the identity record.
+5. Exit. Write nothing more to a run file.
+
+If a step fails, the writer acknowledges the close frame with the real errno
+and the operation. It writes no identity record after a failed step, and then
+it exits. A run directory without an identity record is never complete.
 
 If the writer acknowledges close before P, the controller reaps it
 nonblockingly by P plus two seconds. At P, an unfinished writer receives KILL.
 The controller then polls for its reap until P plus two seconds. An unreaped
-writer becomes a residual in the run outcome.
+writer becomes a residual in the run outcome. The terminal storage outcome is
+final at P plus two seconds at the latest.
 
 P1 can add at most seven seconds before ownership. Each intent gate can
 add at most two seconds before an acquisition. Publication can add at most
@@ -124,9 +148,12 @@ frames unchanged, as the inspection contract produces them.
 
 A frame has a sequence number, an operation, a record name and at most one
 mebibyte of payload. The writer refuses a record name that is reserved, empty,
-or contains a path separator. It creates each file exclusively, without
-following links, relative to its run-directory descriptor. A larger record is
-a sequence of append frames after one exclusive create.
+or contains a path separator. The reserved names are `plan`, `result`,
+`subjects-before`, `storage-close` and `result-identity`.
+
+The writer creates each file exclusively, without following links, relative
+to its run-directory descriptor. A larger record is a sequence of append
+frames after one exclusive create.
 
 The frame pipe end is nonblocking in the controller. Each scheduler turn writes
 until the pipe reports `EAGAIN` or until 256 KiB. `EAGAIN` leaves the frame in
@@ -147,14 +174,31 @@ Every call that the controller starts writes its standard output and error to
 pipes. Its standard input is the null device. Its working directory is the
 filesystem root.
 
-The scheduler drains each pipe nonblockingly, at most 64 KiB per stream per
-turn. It keeps a running length and SHA-256 digest per stream.
-It decides the expected-output match from the bytes in memory. A readback of
-the evidence file never decides a receipt.
+The controller holds no write end of a call's pipes after the spawn. The
+scheduler drains each pipe nonblockingly, at most 64 KiB per stream per turn.
+It keeps a running length and SHA-256 digest per stream. It decides the
+expected-output match from the bytes in memory. A readback of the evidence
+file never decides a receipt.
 
-The controller closes a call's read ends at that call's final observation.
-A remaining descendant that writes later receives SIGPIPE or `EPIPE`, and the controller
-never waits for EOF. The stream bytes enter the outbox as append frames.
+**Final drain.** At a call's final observation, after the termination
+decision and the leader reap, the controller drains each stream once more. It
+reads 64 KiB at a time until EOF or `EAGAIN`, with at most 16 reads per
+stream. A pipe buffer holds less than that limit, so an exited writer reaches
+EOF within it. The final drain is bounded work without a wait. It adds no
+cleanup or disposal allowance.
+
+The controller then records one completeness state per stream and closes the
+read ends:
+
+- `eof`: the stream reached EOF. The stream can pass.
+- `writer_open`: the stream reported `EAGAIN`, so a descendant still holds a
+  write end. The receipt fails, because later bytes are unknown.
+- `cutoff`: the read limit ended the drain before EOF. The receipt fails.
+
+The receipt's length and digest describe exactly the bytes in memory. Those
+bytes decide the expected-output match, and they enter the outbox as append
+frames. A remaining descendant that writes later receives SIGPIPE or `EPIPE`.
+The controller never waits for EOF.
 
 The validator refuses a teardown call whose executable is relative or lies under
 the evidence root. It compares paths lexically, without filesystem access. A
@@ -172,23 +216,76 @@ changes teardown. Cleanup, disposal, inspection and worker close run with their
 existing deadlines. The run outcome is failure, because required evidence is
 incomplete.
 
-The result record has a storage section. It holds the readiness interval and
-outcome. It counts frames enqueued, acknowledged, failed and dropped, with the
-first failure's sequence number, operation, record name and errno. It holds
-the outbox high-water mark, the forward-stop reason and the publication
-outcome.
+### Result snapshot
 
-For every record, it holds the controller-computed length and
-SHA-256 digest of the bytes the controller sent. A reader can therefore detect
-a short or missing file without trusting the writer. When the subjects-after
-acknowledgement does not arrive before P, each subject digest is
-`unavailable:storage`.
+The result record has a storage section. The controller serialises the
+result at enqueue, so the section is a snapshot. Its cutoff is the result's
+own sequence number and monotonic enqueue time, and the section records both.
+
+As of the cutoff, the section holds the readiness interval and outcome. It
+counts frames enqueued, acknowledged, failed and dropped, with the first
+failure's sequence number, operation, record name and errno. It holds the
+outbox high-water mark and the forward-stop reason. Its publication field
+always says `pending`, because publication ends after the snapshot.
+
+The section has one digest entry for each record that the controller
+serialised before the result, sent or dropped. Each entry holds the
+controller-computed length and SHA-256 digest of the record's bytes. The
+result record and the close frame have no entry, so the coverage has no
+cycle. A reader can therefore detect a short or missing file without trusting
+the writer.
+
+The writer generates three records itself: subjects-before, storage-close and
+identity. The readiness acknowledgement carries the length and digest of the
+subjects-before record. The section records them as writer-reported. The
+close acknowledgement carries the length and digest of the storage-close and
+identity records. Those values arrive after the snapshot, so only the
+in-memory outcome holds them.
+
+When the subjects-after acknowledgement does not arrive by **S + W/2**, each
+subject digest is `unavailable:storage`.
+
+### Terminal outcome
 
 The controller returns the run outcome to its caller in memory. The outcome
-holds the run directory, the overall verdict, the storage section, the ledger
-and any residuals, including a residual writer. Reporting it after return may
-block, because all safety work is complete by then. A caller learns the safety
-outcome without reading evidence back.
+holds the run directory, the overall verdict, the result snapshot, the ledger
+and any residuals, including a residual writer.
+
+The outcome also holds a terminal storage section. It holds the final frame
+counts, the close acknowledgement and the length and digest of the identity
+record. It also holds the writer's exit or residual state and the publication
+outcome. The publication outcome is one of these:
+
+- `complete`: an `ok` close acknowledgement arrived before P, and the
+  controller reaped the writer.
+- `incomplete`: the close acknowledgement reported an error or never arrived,
+  and the writer exited before P.
+- `killed`: the writer received KILL at P, and the controller reaped it.
+- `residual`: the writer was unreaped at P plus two seconds.
+
+The overall verdict requires the publication outcome `complete`. A caller can
+anchor the identity digest from the terminal section. Reporting the outcome
+after return may block, because all safety work is complete by then. A caller
+learns the safety outcome without reading evidence back.
+
+### Completion authority
+
+The result's verdict is part of the snapshot, so it cannot show that
+publication completed. A retained reader treats a run directory as complete
+only when all of these conditions hold:
+
+- The identity record exists, and its listing names every file present except
+  itself.
+- Every listed file is unchanged against its pin.
+- The listing includes the storage-close record. That record says `orderly`,
+  reports no refused or failed frame, and names a last applied sequence
+  number at least the result's own sequence number.
+- Each digest entry in the result matches the length and digest of its file.
+
+A missing or changed storage-close record means the directory is incomplete.
+So does a record that says `eof_without_close`. These conditions change the contract of the
+retention verifier in `experiments/exec-reliability/retention.py`. The
+verifier and its tests change with the writer.
 
 ## Controller-crash limits
 
@@ -196,10 +293,12 @@ Recovery from a controller crash is out of scope. This contract states only
 what survives the crash.
 
 - Owned resources stay acquired. Nothing releases them.
-- The writer receives EOF on its standard input. It writes the complete frames
-  that it has already read, then writes a storage-close record. That record
-  says `orderly` after a close frame and `eof_without_close` otherwise. Then
-  the writer exits.
+- The writer receives EOF on its standard input. If the close frame has
+  arrived, the close transaction finishes as above. Otherwise the writer
+  applies the complete frames that it has already read and discards a partial
+  trailing frame. It writes a storage-close record that says
+  `eof_without_close` and creates no identity record. Then it exits. That
+  directory is never complete.
 - An intent record whose acknowledgement arrived before the crash exists as a
   file. A person can use it to find a leaked resource.
 - A writer that is stalled when the controller crashes stays alive as an
@@ -244,8 +343,20 @@ free of blocking storage calls. The rejected alternatives follow.
   descriptor table and no controller state. The five-second readiness bound
   affords the exec cost.
 
-No ADR records this choice. The diagnostic controller is an investigation
-harness, so the choice is not hard to reverse.
+The design review added three rules, and each rejects one alternative.
+
+- **Final outcome in the result.** The result precedes its own
+  acknowledgement and the close. A persisted result therefore holds a
+  snapshot, and only the in-memory outcome holds the final publication state.
+- **Identity request before close.** That order leaves the storage-close
+  record outside the identity listing. The retention verifier then rejects a
+  healthy directory.
+- **Waiting for stream EOF.** An escaped descendant can hold a write end
+  forever. The final drain reads only buffered bytes, and an open writer fails
+  the receipt.
+
+No ADR records these choices. The diagnostic controller is an investigation
+harness, so the choices are not hard to reverse.
 
 ## Test seams and required controls
 
@@ -283,6 +394,25 @@ or fails the existing storage functions through the current test seams.
 - **Inherited state.** Fixture commands and the writer report their open
   descriptors. Calls hold only their pipes and the null device. The writer
   holds only its three standard descriptors and its run-directory descriptor.
+
+Four more controls cover the rules that the design review added. Each must
+fail on a writer build that lacks the rule that it names.
+
+- **Buffered output at exit.** A fixture writes a known stdout of 8 KiB and
+  exits. The control delays every drain turn until the leader reap. The
+  receipt says `eof`, and its expected-output match passes. Without the final
+  drain, the match fails.
+- **Inherited writer.** A fixture starts a descendant in a new session. The
+  descendant keeps the stdout write end open and never writes. The receipt
+  says `writer_open` and fails. Teardown adds no wait for EOF.
+- **Close record.** A healthy run passes the completion conditions. A copy
+  without the storage-close record fails them. So does a copy with a changed
+  storage-close record. A build that computes identity before the
+  storage-close record fails the healthy case.
+- **Result snapshot.** The result's publication field says `pending`, and no
+  digest entry names the result. The control kills the writer after the
+  result frame and before close. No identity record exists, and the publication
+  outcome is `incomplete`. The retained directory is incomplete.
 
 A deterministic control cannot produce an uninterruptible filesystem stall.
 The stalled-writer and blocking-call controls use interruptible stalls. The

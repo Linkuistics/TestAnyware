@@ -5,9 +5,9 @@ flowchart TB
   N["Acquire nothing, start no worker<br/>Storage unavailable"]
   X["P2 forward stop, sticky<br/>No further acquisition or workload call"]
   D["Teardown unchanged<br/>Cleanup, disposal, inspection, worker close<br/>keep their own deadlines"]
-  Q["P3 publication cutoff<br/>Missing digests become unavailable:storage"]
+  Q["P3 subjects-after cutoff at S + W/2<br/>Missing digests become unavailable:storage<br/>Result snapshot says publication pending"]
   K["KILL at P, reap until P + 2 s<br/>Unreaped writer becomes a residual"]
-  O["Run outcome in memory<br/>Storage section, ledger, residuals"]
+  O["Run outcome in memory<br/>Result snapshot, terminal storage section,<br/>ledger, residuals"]
   F -->|"1"| P
   P -->|"2a. P1"| R --> N --> O
   P -->|"2b. P2"| X --> D --> O

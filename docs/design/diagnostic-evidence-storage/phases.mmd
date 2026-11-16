@@ -13,15 +13,19 @@ sequenceDiagram
     C->>R: Acquire resource n
   end
   C-)E: Call output, receipts, observations, fire and forget
+  Note over C: Final drain of buffered output at each call's final observation, no wait for EOF
   C->>R: Cleanup, disposal, inspection, worker close
   Note over C: Teardown never waits for an acknowledgement
   Note over C: P3 publication starts at S, cutoff P = S + W, W at most 10 s
   C-)E: Ledger, subjects-after request
   E-->>C: Subjects-after digests, until S + W/2
-  C-)E: Result, identity request, close
+  C-)E: Result snapshot, publication pending
+  C-)E: Close frame
+  Note over E: Close transaction: storage-close record, then identity over every file
+  E-->>C: Close acknowledgement with storage-close and identity digests
   alt Writer acknowledges close before P
     C->>E: Exact-PID nonblocking reap by P + 2 s
   else Writer unfinished at P
     C->>E: KILL, then poll reap until P + 2 s
   end
-  Note over C: An unreaped writer is a residual in the run outcome
+  Note over C: Terminal outcome in memory by P + 2 s. An unreaped writer is a residual
