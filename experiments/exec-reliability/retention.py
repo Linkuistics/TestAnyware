@@ -8,12 +8,29 @@ not prove that nothing wrote during either read.
 
 import hashlib
 import json
+import os
 import sys
 import time
 from pathlib import Path
 
 IDENTITY = "result-identity.json"
+STORAGE_CLOSE = "storage-close.json"
+RESULT = "result.json"
 _FORMAT = 1
+# The writer's record names and file names. writer.py keeps an equal copy,
+# because isolated mode stops it from importing this module.
+RESERVED_FILES = {
+    "plan": "plan.json",
+    "result": RESULT,
+    "subjects-before": "subjects-before.json",
+    "storage-close": STORAGE_CLOSE,
+    "result-identity": IDENTITY,
+}
+
+
+def record_file(name: str) -> str:
+    """Return the file name of a writer record. Only reserved records differ."""
+    return RESERVED_FILES.get(name, name)
 
 
 def observe_file(path: Path) -> tuple[bytes | None, dict[str, object]]:
@@ -141,6 +158,108 @@ def verify(root: Path) -> dict[str, object]:
         "unlisted": unlisted,
         "streams": streams,
         "ok": identity_ok and files_ok and streams_ok,
+    }
+
+
+def _present(root: Path, prefix: str = "") -> list[str]:
+    """List every non-directory entry, links included, without following links."""
+    names: list[str] = []
+    with os.scandir(root) as entries:
+        for entry in sorted(entries, key=lambda item: item.name):
+            path = prefix + entry.name
+            if entry.is_dir(follow_symlinks=False):
+                names.extend(_present(root / entry.name, path + "/"))
+            elif path != IDENTITY:
+                names.append(path)
+    return names
+
+
+def _safe_record(name: object) -> bool:
+    return isinstance(name, str) and name not in ("", ".", "..") and "/" not in name
+
+
+def completion(root: Path) -> dict[str, object]:
+    """Apply the completion authority rules of the evidence storage spec.
+
+    docs/specs/diagnostic-evidence-storage.md, "Completion authority". A run
+    directory is complete only when every rule holds. Each failed rule adds a
+    reason. verify() does not call this check until the controller uses the
+    writer.
+    """
+    root = root.resolve()
+    started = time.monotonic()
+    reasons: list[str] = []
+
+    identity, identity_state = _load(root / IDENTITY)
+    files: list[dict[str, object]] = []
+    unlisted: list[str] = []
+    listed: set[str] = set()
+    entries = identity.get("files") if isinstance(identity, dict) else None
+    if identity_state != "ok":
+        reasons.append(f"identity record {identity_state}")
+    elif not isinstance(entries, list) or not all(
+        isinstance(item, dict) and isinstance(item.get("path"), str) for item in entries
+    ):
+        reasons.append("identity record files must be a list of path entries")
+    else:
+        files = [{"path": item["path"], **_compare(item, root / item["path"])} for item in entries]
+        listed = {item["path"] for item in files}
+        for item in files:
+            if item["state"] != "unchanged":
+                reasons.append(f"{item['path']} is {item['state']}")
+        unlisted = [name for name in _present(root) if name not in listed]
+        for name in unlisted:
+            reasons.append(f"{name} is not in the identity listing")
+
+    close, close_state = _load(root / STORAGE_CLOSE)
+    last_applied: object = None
+    if STORAGE_CLOSE not in listed:
+        reasons.append("the identity listing lacks the storage-close record")
+    if close_state != "ok" or not isinstance(close, dict):
+        reasons.append(f"storage-close record {close_state}")
+    else:
+        if close.get("state") != "orderly":
+            reasons.append(f"storage-close says {close.get('state')!r}, not 'orderly'")
+        for count in ("refused", "failed"):
+            if close.get(count) != 0:
+                reasons.append(f"storage-close reports {close.get(count)!r} {count} frames")
+        last_applied = close.get("last_applied")
+
+    result, result_state = _load(root / RESULT)
+    storage = result.get("storage") if isinstance(result, dict) else None
+    sequence = storage.get("sequence") if isinstance(storage, dict) else None
+    digests = storage.get("digests") if isinstance(storage, dict) else None
+    checked: list[dict[str, object]] = []
+    if result_state != "ok":
+        reasons.append(f"result record {result_state}")
+    elif not isinstance(sequence, int) or not isinstance(digests, dict):
+        reasons.append("result record lacks a storage sequence and digest entries")
+    else:
+        if not isinstance(last_applied, int) or last_applied < sequence:
+            reasons.append(
+                f"storage-close last applied {last_applied!r} precedes result {sequence}"
+            )
+        for name, pin in digests.items():
+            if not _safe_record(name) or name == "result":
+                reasons.append(f"digest entry {name!r} cannot name a run record")
+                continue
+            path = record_file(name)
+            checked.append({"record": name, "path": path, **_compare(pin, root / path)})
+            if checked[-1]["state"] != "unchanged":
+                reasons.append(f"digest entry {name} is {checked[-1]['state']}")
+
+    return {
+        "run_dir": str(root),
+        "started_monotonic": started,
+        "finished_monotonic": time.monotonic(),
+        "identity": identity_state,
+        "files": files,
+        "unlisted": unlisted,
+        "storage_close": close if close_state == "ok" else close_state,
+        "result": result_state,
+        "digests": checked,
+        "reasons": reasons,
+        "complete": not reasons,
     }
 
 

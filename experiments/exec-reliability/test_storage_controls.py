@@ -18,6 +18,7 @@ from __future__ import annotations
 import errno
 import json
 import os
+import shutil
 import signal
 import stat
 import sys
@@ -33,6 +34,8 @@ import pytest
 
 import controller
 from controller import Call, Plan, Resource, execute
+from retention import completion
+from writer_client import WRITER, healthy_run
 
 HERE = Path(__file__).resolve().parent
 PEER = HERE / "peer.py"
@@ -735,3 +738,57 @@ def test_control_inherited_state(tmp_path):
     assert writer is not None, "the writer reported no descriptors"
     assert set(writer) >= {0, 1, 2}
     assert sorted(writer.values()) == ["directory", "fifo", "fifo", "null"]
+
+
+# Review control: close record ----------------------------------------------
+#
+# The spec's review controls must each fail on a writer build that lacks the
+# rule that they name. This control drives the writer through the test client
+# in writer_client.py, so it needs no controller and passes from k164 on.
+
+IDENTITY_FIRST = """\
+import sys
+sys.path.insert(0, sys.argv[1])
+import writer
+
+
+class IdentityFirst(writer.Writer):
+    def close_transaction(self):
+        identity = self.write_identity()
+        storage_close = self.write_storage_close("orderly")
+        return {"storage_close": storage_close, "identity": identity}
+
+
+raise SystemExit(writer.run(IdentityFirst()))
+"""
+
+
+def close_record_control(tmp_path: Path, command: tuple[str, ...]) -> None:
+    run = healthy_run(tmp_path / "evidence", command=command)
+    assert run.status == 0
+    healthy = completion(run.run_dir)
+    assert healthy["complete"] is True, healthy["reasons"]
+
+    missing = tmp_path / "missing-close"
+    shutil.copytree(run.run_dir, missing)
+    (missing / "storage-close.json").unlink()
+    assert completion(missing)["complete"] is False
+
+    changed = tmp_path / "changed-close"
+    shutil.copytree(run.run_dir, changed)
+    record = json.loads((changed / "storage-close.json").read_bytes())
+    record["refused"] = 0
+    record["last_applied"] = record["last_applied"] + 1
+    (changed / "storage-close.json").write_text(json.dumps(record, indent=2) + "\n")
+    assert completion(changed)["complete"] is False
+
+
+def test_control_close_record(tmp_path):
+    close_record_control(tmp_path, WRITER)
+
+
+def test_control_close_record_fails_identity_before_storage_close(tmp_path):
+    build = (sys.executable, "-I", "-c", IDENTITY_FIRST, str(HERE))
+    with pytest.raises(AssertionError) as failure:
+        close_record_control(tmp_path, build)
+    assert "the identity listing lacks the storage-close record" in str(failure.value)
