@@ -131,6 +131,9 @@ class StorageClient:
         self.readiness_deadline: float | None = None
         self.ready_at: float | None = None
         self.failed_at: float | None = None
+        # When a turn read the `ok` close acknowledgement. The controller
+        # compares it with P, so a read at or after P is late.
+        self.closed_at: float | None = None
         self.killed_at: float | None = None
         self.kill_error: str | None = None
         self.reap_deadline: float | None = None
@@ -458,6 +461,7 @@ class StorageClient:
             self._fail(cause)
         elif seq == self._close_seq and self.storage == "ready":
             self.storage = "closed"
+            self.closed_at = time.monotonic()
         return True
 
     # Failure, kill and reap --------------------------------------------------

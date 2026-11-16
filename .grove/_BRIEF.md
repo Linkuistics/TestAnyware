@@ -448,3 +448,15 @@ recur in the k152 soak and have no demonstrated cause. The cause of the run 42
 observation gap is unknown. The human accepted both as visible limits, not as
 guarantees. k18 owns stalled storage, and guest acceptance stays
 **0/10, unavailable**.
+
+## k162 delivered evidence storage
+
+On 2026-11-17 `evidence-writer-k162` closed after its review integration,
+storage-publication-k181. A separate writer process now holds every run
+record. `execute_outcome()` returns a `RunOutcome`. Its verdict needs a
+passing result and the publication outcome `complete`. Its residuals name an
+unreaped inspection worker and a residual writer.
+
+The foundation report
+subsection "Delivered behaviour (k162)" records the behaviour and its limits.
+Guest acceptance stays **0/10, unavailable**.

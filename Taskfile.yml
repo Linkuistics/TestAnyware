@@ -67,7 +67,7 @@ tasks:
       - uv run --locked python evidence/failure-controls-k149/prepare.py {{.SOURCE | shellQuote}} {{.DEST | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
 
   diagnostic:storage-controls:
-    desc: Run only the evidence-storage controls, the nine required and the four review controls
+    desc: Run only the evidence-storage controls, the nine required controls and the review controls
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
     cmds:
       - uv run --locked python -m pytest -p no:cacheprovider -rxXs test_storage_controls.py

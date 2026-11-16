@@ -33,6 +33,7 @@ from typing import cast
 import pytest
 
 import controller
+import worker_capture
 from controller import Call, Plan, Resource, execute
 from retention import completion
 from storage_client import StorageClient
@@ -1150,3 +1151,104 @@ def test_healthy_run_outcome_is_complete(tmp_path):
     assert publication.outcome == "complete"
     assert abs(publication.deadline - publication.started - PUBLICATION_WINDOW) <= 1e-6
     assert completion(outcome.run_dir)["complete"] is True
+
+
+def hold_until(
+    storage: controller._RunStorage, monkeypatch: pytest.MonkeyPatch, reap_after: float
+) -> float:
+    """Start publication, then hold the client's reads until P and its reaps
+    until P plus `reap_after`. Return P.
+
+    The writer acknowledges close and exits as usual. Only the controller's
+    turns observe both events late, as a late-scheduled turn does.
+    """
+    deadline = storage.begin_publication().deadline
+    client = storage.client
+
+    def read(fd: int, size: int) -> bytes:
+        if time.monotonic() < deadline:
+            raise BlockingIOError(errno.EAGAIN, "held until P")
+        return os.read(fd, size)
+
+    def reap() -> None:
+        if time.monotonic() >= deadline + reap_after:
+            StorageClient._reap(client)
+
+    monkeypatch.setattr(client, "_read", read)
+    monkeypatch.setattr(client, "_reap", reap)
+    return deadline
+
+
+@pytest.mark.parametrize("reap_after", [0.0, 0.25], ids=["exited", "live"])
+def test_close_acknowledgement_read_at_p_is_late(tmp_path, monkeypatch, reap_after):
+    """An `ok` close acknowledgement that a turn reads at or after P never makes
+    publication complete. A live writer receives KILL. An exited writer is
+    incomplete. No identity is anchored in either case."""
+    storage = started_storage(tmp_path)
+    client = storage.client
+    deadline = hold_until(storage, monkeypatch, reap_after)
+    close_within_watchdog(storage)
+    assert client.closed_at is not None and client.closed_at >= deadline
+    assert storage.close_ack is not None and storage.close_ack["status"] == "ok"
+    outcome = storage.outcome()
+    if reap_after:
+        assert client.killed_at is not None and client.killed_at >= deadline
+        assert outcome.publication == "killed"
+    else:
+        assert client.killed_at is None
+        assert outcome.publication == "incomplete"
+    assert storage.publication is not None
+    assert storage.publication.outcome == outcome.publication
+    assert outcome.identity is None
+
+
+def test_close_acknowledgement_read_before_p_is_complete(tmp_path, monkeypatch):
+    """The same hold, ended before P, keeps the timely path complete."""
+    storage = started_storage(tmp_path)
+    client = storage.client
+    close_within_watchdog(storage)
+    assert client.closed_at is not None
+    assert storage.publication is not None
+    assert client.closed_at < storage.publication.deadline
+    assert client.killed_at is None
+    outcome = storage.outcome()
+    assert outcome.publication == "complete"
+    assert outcome.identity is not None
+
+
+def worker_evidence(*, reaped: bool) -> dict[str, object]:
+    """Return the evidence of a worker whose close finished, reaped or not."""
+    clock = [100.0]
+    worker = worker_capture.Worker(
+        failure_bounds=worker_capture.FailureBounds(term_grace=0.125, kill_reap=0.25)
+    )
+    worker.owner = worker_capture._Owner(999999, float("inf"), ready=True)
+    worker.failure = "controlled failure"
+    status = (999999, 9) if reaped else (0, 0)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(time, "monotonic", lambda: clock[0])
+        patch.setattr(os, "waitpid", lambda pid, flags: status)
+        patch.setattr(os, "killpg", lambda pid, sig: None)
+        worker.begin_close()
+        while (wake := worker.advance_close()) is not None:
+            clock[0] = max(clock[0] + 0.001, wake)
+    return worker.evidence()
+
+
+def test_run_outcome_names_a_residual_worker():
+    """The in-memory outcome names an unreaped worker with its remedy, and no
+    runtime signal authority returns to the controller."""
+    evidence = worker_evidence(reaped=False)
+    assert evidence["shutdown"]["outcome"] == "residual_ownership"
+    found = controller._residuals([], evidence, _no_writer_residual())
+    assert found == [{"kind": "worker", "pid": 999999, "remedy": evidence["residual_remedy"]}]
+
+
+def test_run_outcome_omits_a_reaped_worker():
+    evidence = worker_evidence(reaped=True)
+    assert evidence["residual_remedy"] is None
+    assert controller._residuals([], evidence, _no_writer_residual()) == []
+
+
+def _no_writer_residual() -> controller.StorageOutcome:
+    return cast(controller.StorageOutcome, type("NoWriter", (), {"residual": False})())

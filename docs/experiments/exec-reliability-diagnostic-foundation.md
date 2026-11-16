@@ -2371,18 +2371,28 @@ The subjects-after wait ends at S plus W/2. A digest that the controller reads a
 sends one close frame. Its turns drain the outbox and read acknowledgements
 until P.
 
-**Stop and reap.** A writer that acknowledges close by P gets no KILL. The
-controller polls for its reap until P plus two seconds. At P, an unfinished
-writer receives KILL, with the same reap deadline. A writer that remains
-unreaped then becomes a residual, and the controller stops waiting for it.
+**Stop and reap.** The client stamps the instant that a turn reads the `ok`
+close acknowledgement. A writer whose acknowledgement the controller reads
+before P gets no KILL. The controller polls for its reap until P plus two
+seconds.
+
+At P, an unfinished writer receives KILL, with the same reap deadline. A
+writer that remains unreaped then becomes a residual, and the controller stops waiting for it.
 Publication therefore adds at most twelve seconds after worker close.
 
 The stalled-writer, blocking-call, outbox-overflow and intent-gate controls each
 end with KILL at P and a reap before P plus two seconds.
 
+Integration k181 adds a late-close control. It holds the client's reads until
+P, so the first turn after P reads an `ok` close acknowledgement. A live
+writer then receives KILL, and the outcome is `killed`. A writer that already
+exited gives `incomplete`. Neither case anchors an identity. The control fails
+on the k168 controller, which reported `complete` in both cases.
+
 **Terminal outcome.** `execute_outcome()` returns a `RunOutcome`. It holds the
 run directory, the overall verdict, the result as serialised, the ledger, the
-residuals and the terminal storage section. The storage section holds the
+residuals and the terminal storage section. The residuals name an unreaped
+inspection worker with its PID and remedy, and a residual writer. The storage section holds the
 final frame counts, the close acknowledgement, the identity length and
 digest, and the writer's exit or residual state.
 
@@ -2403,9 +2413,12 @@ type in `error_type`. No record holds a formatted traceback.
 - `killed` names only a KILL that the controller sends at P, or after an
   exception. After a readiness failure, the client sends KILL itself, and
   the outcome is `incomplete`.
-- A digest or close acknowledgement counts as on time when the controller
-  reads it by the cutoff. The acknowledgement carries no receipt time, so a
-  late read of an early acknowledgement counts as late.
+- A digest counts as on time when the controller reads it by S plus W/2. A
+  close acknowledgement counts as on time when the controller reads it before
+  P. The acknowledgement carries no receipt time, so a late read of an early
+  acknowledgement counts as late.
+- The worker residual comes from the worker's own close evidence. The
+  controller gains no signal authority over that child.
 - A writer in an uninterruptible operation ignores KILL. It can stay
   unreaped after P plus two seconds. The controls use interruptible stalls,
   so this case stays a timing condition without a control.

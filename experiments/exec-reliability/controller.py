@@ -1511,8 +1511,10 @@ class _RunStorage:
         """Send one close frame and run publication to its terminal outcome.
 
         The turns drain the outbox and read acknowledgements until P. A writer
-        that acknowledged close by P gets no KILL, and turns reap it by P plus
-        2 seconds. At P, an unfinished writer receives KILL, with the same reap
+        whose `ok` close acknowledgement a turn read before P gets no KILL, and
+        turns reap it by P plus 2 seconds. A read at or after P is late, so it
+        cannot make publication complete. At P, an unfinished writer receives
+        KILL, with the same reap
         bound. An unreaped writer at P plus 2 seconds becomes a residual, so it
         never blocks the controller. A dropped close frame fails storage, and a
         live writer then reads the end of its frame pipe and exits.
@@ -1528,7 +1530,7 @@ class _RunStorage:
         run_turns(self._bounded_turn(lambda: False, phase.deadline))
         reap_deadline = phase.deadline + REAP_GRACE
         if client.pid is not None and client.reaped_at is None and not client.residual:
-            if client.storage == "closed":
+            if self._closed_before_deadline():
                 client.expect_exit(reap_deadline)
             elif client.killed_at is None:
                 client.kill(reap_deadline)
@@ -1552,13 +1554,24 @@ class _RunStorage:
             self.controller_kill = client.killed_at is not None
         run_turns(client.turn(lambda: True))
 
+    def _closed_before_deadline(self) -> bool:
+        """Return whether a turn read the `ok` close acknowledgement before P."""
+        client = self.client
+        phase = self.publication
+        return (
+            phase is not None
+            and client.storage == "closed"
+            and client.closed_at is not None
+            and client.closed_at < phase.deadline
+        )
+
     def _publication_outcome(self) -> str:
         client = self.client
         if client.residual:
             return "residual"
         if self.controller_kill:
             return "killed"
-        if client.storage == "closed" and client.reaped_at is not None:
+        if self._closed_before_deadline() and client.reaped_at is not None:
             return "complete"
         return "incomplete"
 
@@ -1567,7 +1580,9 @@ class _RunStorage:
         self.healthy()
         close_ack = self.close_ack
         identity: dict[str, object] | None = None
-        if close_ack is not None and close_ack.get("status") == "ok":
+        # A late close acknowledgement stays in the section, but no caller can
+        # anchor an identity from it.
+        if close_ack is not None and self._closed_before_deadline():
             pin = close_ack.get("identity")
             if isinstance(pin, dict):
                 identity = dict(cast(dict[str, object], pin))
@@ -1606,8 +1621,8 @@ class RunOutcome:
     its storage section are snapshots. `verdict` is the overall verdict. It
     requires a passing result and the publication outcome `complete`.
     `residuals` names each owned process that the run left behind, including
-    a residual writer. A caller learns the safety outcome without reading
-    evidence back.
+    a residual inspection worker and a residual writer. A caller learns the
+    safety outcome without reading evidence back.
     """
 
     run_dir: RunDirectory
@@ -1619,8 +1634,15 @@ class RunOutcome:
 
 
 def _residuals(
-    receipts: list[dict[str, object]], storage: StorageOutcome
+    receipts: list[dict[str, object]],
+    worker: dict[str, object],
+    storage: StorageOutcome,
 ) -> list[dict[str, object]]:
+    """Name each owned process that the run left behind.
+
+    `worker` is the inspection worker's evidence. Its residual remedy is set
+    only after a finished close that left the exact child unreaped.
+    """
     found: list[dict[str, object]] = []
     for receipt in receipts:
         if "residual_leader_pid" in receipt:
@@ -1636,6 +1658,11 @@ def _residuals(
                     "members": receipt.get("residual_members"),
                 }
             )
+    owner = worker.get("owner")
+    remedy = worker.get("residual_remedy")
+    if remedy is not None and isinstance(owner, dict):
+        pid = cast(dict[str, object], owner).get("pid")
+        found.append({"kind": "worker", "pid": pid, "remedy": remedy})
     if storage.residual:
         found.append({"kind": "writer", "pid": storage.residual_pid})
     return found
@@ -1787,6 +1814,8 @@ def execute_outcome(plan: Plan, evidence_root: Path) -> RunOutcome:
         verdict=result["ok"] is True and outcome.publication == "complete",
         result=result,
         ledger=ledger,
-        residuals=_residuals(receipts, outcome),
+        residuals=_residuals(
+            receipts, cast(dict[str, object], result["inspection_worker"]), outcome
+        ),
         storage=outcome,
     )
