@@ -2428,3 +2428,169 @@ type in `error_type`. No record holds a formatted traceback.
 
 Ten-clone acceptance remains **0/10, unavailable**, because k162 needs no live
 VM.
+
+## Baseline public routes (k19)
+
+Leaf k19 asked whether the installed TestAnyware gives a public guest route on
+each affected OS. It also supplied the inventory checker that disposal and the
+golden recipes use. The evidence condition is new: installed TestAnyware
+2.8.0, app pid 1488, tart 2.41.1, on 2026-11-17. This section makes no
+acceptance claim and no claim of a production repair.
+
+### Installed host
+
+- The installed CLI is Homebrew `testanyware` 2.8.0, not 2.7.0 as review k15
+  recorded. The app answers as build 2.8.0 (`doctor`, `checks.app.bundle`).
+- `codesign` names the app `dev.antony.TestAnyware`, signed with
+  `Developer ID Application: Antony Blakey (TA43A4RUP3)`, CDHash
+  `1997a6207bacd6e11b4971654a4138bcd3295b96`.
+- `doctor --json` exits 1 on this host. Its only failed check is
+  `checks.app.login_item`: "the app does not start at login". No probe needs
+  that item.
+- The 2.8.0 `vm start --help` still says that `--platform` takes "linux or
+  windows" and that macOS "is not yet ported to the Rust CLI". The live runs
+  below show that this sentence is wrong for 2.8.0. The dry run and the real
+  start both accept `--platform macos`.
+
+### Frozen plan
+
+`experiments/exec-reliability/routes_k19.py` writes every plan, bound and
+subject hash to `inventory.json` before its first live call.
+`experiments/exec-reliability/routes_k19_run.sh` records `tart list` and
+`vm list` before and after the probe, and the app pid. Each OS ran five
+plans once, in this order.
+
+| Plan | Calls | Oracle |
+| --- | --- | --- |
+| `host` | dry run, app signature, absence of a missing golden name, `doctor` | exit 0 each |
+| `never-created` | dispose a VM id that no one created | stdout `disposed ID already-absent` |
+| `failed-acquisition` | start from a missing golden, then the `finally` disposal | start exit 3, disposal proved |
+| `route` | one owned clone, agent health, guest agent hash | exit 0 each, disposal proved |
+| `after-route` | dispose the clone of `route` again | stdout `disposed ID already-absent` |
+
+The boot bound is 420 s, and the health bound is 30 s. The identity bound is
+22 s, which is the guest 2 s plus 20 s. A disposal has 41 s plus TERM 2 s and
+KILL 2 s, and each listing inside it has 5 s. An inspection has 55 s.
+
+The boot bound is the 360 s worst stage sum of
+2.8.0 (`lifecycle.rs:1076-1080`) plus 60 s. The probe never passes `--wait`.
+`route` was the only plan that could create a clone, so each OS had at most
+one owned clone.
+
+The Linux run used an earlier order, with `doctor` second. The controller
+stops a plan at its first failed call, so the failed `doctor` hid the app
+signature and the missing-golden calls on Linux. That sample stays as it ran.
+Before the macOS run, `doctor` moved to the end. No bound or oracle changed.
+
+### Results
+
+| OS | Plan | Verdict | Raw result |
+| --- | --- | --- | --- |
+| Linux | `host` | fail | dry run exit 0, `doctor` exit 1, two calls not reached |
+| Linux | `never-created` | pass | `disposed … already-absent` |
+| Linux | `failed-acquisition` | fail | start exit 1 `QEMU_FAILED`, disposal proved `already-absent` |
+| Linux | `route` | pass | start 19.4 s, health `reachable`, `granted`, disposal 1.4 s `stopped` |
+| Linux | `after-route` | pass | `disposed … already-absent` |
+| macOS | `host` | fail | dry run, signature and absence exit 0, `doctor` exit 1 |
+| macOS | `never-created` | pass | `disposed … already-absent` |
+| macOS | `failed-acquisition` | fail | start exit 1 `TART_FAILED`, disposal proved `already-absent` |
+| macOS | `route` | pass | start 16.9 s, health `reachable`, `granted`, disposal 4.1 s `stopped` |
+| macOS | `after-route` | pass | `disposed … already-absent` |
+
+The raw evidence is in `experiments/exec-reliability/evidence/`, under
+`k19-route-linux-01`, `k19-route-macos-01` and their `-outer` directories.
+
+**Routes.** Both OSes have a baseline public route through the installed app.
+The Linux clone of `testanyware-golden-linux-24.04` runs Ubuntu 24.04 on
+aarch64. The macOS clone of `testanyware-golden-macos-27` runs macOS 27.0.1
+on arm64. No run used a private connection file, a direct guest route or a
+new grant.
+
+**Agent identity.**
+
+- Linux: the 9 agent files under `/opt/testanyware` match the installed 2.8.0
+  bundle byte for byte.
+- macOS: `/usr/local/bin/testanyware-agent` has SHA-256 `1282f4cf…9b28a84`.
+  The installed 2.8.0 bundle agent has `22dd56ce…311bab9f5`. The retained
+  macOS golden therefore carries an agent that is not the installed one. This
+  probe cannot name the build that produced it.
+
+**Failed acquisition.** The help of `vm start` gives exit 3 for
+`GOLDEN_NOT_FOUND`. A start with a missing `--base` gives exit 1 on both OSes.
+On Linux the CLI chooses the QEMU backend and reports `QEMU_FAILED` from
+`qemu-img create`. On macOS it reports `TART_FAILED` from `tart clone`. The
+oracle of exit 3 failed, and the evidence keeps both failed samples.
+
+In both cases the `finally` disposal proved `VM_NOT_FOUND` and absence from
+both inventories. The clone directory stayed empty.
+
+**Golden preservation.** Each OS run read `tart list` and `vm list` before
+and after. The name, size, disk and state of every tart entry stayed the
+same, and the `vm list` items stayed the same. The app pid was 1488 before
+and after each run.
+
+**Residual resources.** Every owned identity has ledger state `disposed`, and
+no run reported a residual process. The app keeps per-VM files under its
+state directory. This leaf did not read that directory, because it holds
+private connection files.
+
+### Inventory checker
+
+`scripts/vm_inventory.py` decides exact-name absence from both
+`testanyware vm list --json --all` and `tart list --format json`.
+
+- `absent NAME` exits 0 only when both listings parse and neither lists the
+  name. It exits 1 when a listing names it, and 2 when a listing cannot be
+  read. A nonzero exit, a timeout or an executable that cannot run means
+  "unreadable". Malformed JSON, a wrong envelope, a truncated listing,
+  mismatched counts or a malformed item also mean "unreadable".
+- `dispose ID` accepts exit 0 with a success envelope, or exit 3 with an error
+  envelope whose `code` is `VM_NOT_FOUND`. Then it requires absence from both
+  listings. Any other exit 3, such as `GOLDEN_NOT_FOUND` or a bare exit 3,
+  fails. A failure prints a remedy that names both listings, `vm stop`, and
+  the manual `tart stop` and `tart delete` steps.
+
+`experiments/exec-reliability/test_vm_inventory.py` runs 52 controls against
+fake peers. Five deliberate faults in the checker made the controls fail
+(`k19-red-01`). The faults accept any exit 3, skip the tart listing, read
+malformed JSON as empty, ignore truncation, and skip absence after a stop.
+After the run restored the source, its hash matched the hash before.
+
+### Golden-name guard
+
+The golden recipes stay the documented provisioning path. A new task,
+`vm:golden-name-free`, runs `vm_inventory.py absent NAME`. Both
+`vm:create-golden-*` recipes call it as their first command, so a listed or
+unreadable name stops the recipe before `vm create-golden`.
+
+Task 3.54.0 runs
+`deps` before `cmds` and stops a task at a failed called task. A scratch Taskfile showed both rules on this host. The Task guide index
+gave no exact text for them, so the fixture controls carry the claim. The fixture
+controls show that the guard refuses a retained golden and a name in only one
+inventory. It also refuses a malformed or truncated listing and an inventory
+that cannot be read.
+Two faults made the controls fail (`k19-red-02`): removing the guard from the
+Linux recipe, and ignoring the guard's exit status.
+
+### Checks and open findings
+
+- The k19 files pass lint, format, types, shellcheck and their 52 controls
+  (`k19-checks-02`). The directory `k19-checks-01` holds a harness error
+  that ran no check.
+- `diagnostic:self-check` timed out (`k19-self-check-01`). The whole suite
+  without the k19 test file took 124 s and 127 s on this host. The frozen
+  pytest budget is 120 s, so the timeout does not come from k19. The
+  second of those runs also failed
+  `test_close_acknowledgement_read_at_p_is_late[exited]` once
+  (`k19-baseline-01`). This leaf did not raise the budget.
+
+| Finding | Remedy |
+| --- | --- |
+| The macOS golden carries an agent that differs from the installed 2.8.0 agent. | A causal macOS leaf states the agent hash it tests. A golden rebuild needs the owner. |
+| A missing golden gives exit 1, not the documented exit 3. | A product leaf repairs the code or the help. A probe must not treat exit 3 as the only failed-acquisition result. |
+| The 2.8.0 start help denies macOS support. | A product leaf repairs the help text. |
+| The suite exceeds the 120 s self-check budget on this host. | A later leaf decides the budget or the suite size. |
+| One storage control failed once under load. | A later leaf examines the timing of that control. |
+
+Ten-clone acceptance remains **0/10, unavailable**. k19 established routes and
+did not run a causal workload.

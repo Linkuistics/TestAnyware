@@ -1,0 +1,166 @@
+.FFFFFFF..                                                               [100%]
+=================================== FAILURES ===================================
+_____ test_the_guard_refuses_a_listed_or_unreadable_name[retained-golden] ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste0')
+vm = {'schema_version': '1.0', 'ok': True, 'items': [{'kind': 'golden', 'name': 'testanyware-golden-linux-24.04', 'platform': 'linux', 'backend': 'tart'}], 'returned': 1, ...}
+tart = [{'Name': 'testanyware-golden-linux-24.04', 'Running': True, 'State': 'running', 'Source': 'local'}]
+
+    @pytest.mark.parametrize(
+        ("vm", "tart"),
+        [
+            (envelope(), tart_items(GOLDEN)),
+            (envelope(), tart_items()),
+            (envelope(items=[], returned=0, total=0), tart_items(GOLDEN)),
+            ("{", tart_items()),
+            (envelope(truncated=True), tart_items()),
+            (envelope(items=[], returned=0, total=0), {"Name": GOLDEN}),
+        ],
+        ids=["retained-golden", "public-only", "hypervisor-only", "malformed", "truncated", "malformed-tart"],
+    )
+    def test_the_guard_refuses_a_listed_or_unreadable_name(tmp_path: Path, vm: object, tart: object) -> None:
+>       assert guard(tmp_path, vm, tart) != 0
+E       AssertionError: assert 0 != 0
+E        +  where 0 = guard(PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste0'), {'schema_version': '1.0', 'ok': True, 'items': [{'kind': 'golden', 'name': 'testanyware-golden-linux-24.04', 'platform': 'linux', 'backend': 'tart'}], 'returned': 1, ...}, [{'Name': 'testanyware-golden-linux-24.04', 'Running': True, 'State': 'running', 'Source': 'local'}])
+
+experiments/exec-reliability/test_vm_inventory.py:284: AssertionError
+_______ test_the_guard_refuses_a_listed_or_unreadable_name[public-only] ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste1')
+vm = {'schema_version': '1.0', 'ok': True, 'items': [{'kind': 'golden', 'name': 'testanyware-golden-linux-24.04', 'platform': 'linux', 'backend': 'tart'}], 'returned': 1, ...}
+tart = []
+
+    @pytest.mark.parametrize(
+        ("vm", "tart"),
+        [
+            (envelope(), tart_items(GOLDEN)),
+            (envelope(), tart_items()),
+            (envelope(items=[], returned=0, total=0), tart_items(GOLDEN)),
+            ("{", tart_items()),
+            (envelope(truncated=True), tart_items()),
+            (envelope(items=[], returned=0, total=0), {"Name": GOLDEN}),
+        ],
+        ids=["retained-golden", "public-only", "hypervisor-only", "malformed", "truncated", "malformed-tart"],
+    )
+    def test_the_guard_refuses_a_listed_or_unreadable_name(tmp_path: Path, vm: object, tart: object) -> None:
+>       assert guard(tmp_path, vm, tart) != 0
+E       AssertionError: assert 0 != 0
+E        +  where 0 = guard(PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste1'), {'schema_version': '1.0', 'ok': True, 'items': [{'kind': 'golden', 'name': 'testanyware-golden-linux-24.04', 'platform': 'linux', 'backend': 'tart'}], 'returned': 1, ...}, [])
+
+experiments/exec-reliability/test_vm_inventory.py:284: AssertionError
+_____ test_the_guard_refuses_a_listed_or_unreadable_name[hypervisor-only] ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste2')
+vm = {'schema_version': '1.0', 'ok': True, 'items': [], 'returned': 0, ...}
+tart = [{'Name': 'testanyware-golden-linux-24.04', 'Running': True, 'State': 'running', 'Source': 'local'}]
+
+    @pytest.mark.parametrize(
+        ("vm", "tart"),
+        [
+            (envelope(), tart_items(GOLDEN)),
+            (envelope(), tart_items()),
+            (envelope(items=[], returned=0, total=0), tart_items(GOLDEN)),
+            ("{", tart_items()),
+            (envelope(truncated=True), tart_items()),
+            (envelope(items=[], returned=0, total=0), {"Name": GOLDEN}),
+        ],
+        ids=["retained-golden", "public-only", "hypervisor-only", "malformed", "truncated", "malformed-tart"],
+    )
+    def test_the_guard_refuses_a_listed_or_unreadable_name(tmp_path: Path, vm: object, tart: object) -> None:
+>       assert guard(tmp_path, vm, tart) != 0
+E       AssertionError: assert 0 != 0
+E        +  where 0 = guard(PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste2'), {'schema_version': '1.0', 'ok': True, 'items': [], 'returned': 0, ...}, [{'Name': 'testanyware-golden-linux-24.04', 'Running': True, 'State': 'running', 'Source': 'local'}])
+
+experiments/exec-reliability/test_vm_inventory.py:284: AssertionError
+________ test_the_guard_refuses_a_listed_or_unreadable_name[malformed] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste3')
+vm = '{', tart = []
+
+    @pytest.mark.parametrize(
+        ("vm", "tart"),
+        [
+            (envelope(), tart_items(GOLDEN)),
+            (envelope(), tart_items()),
+            (envelope(items=[], returned=0, total=0), tart_items(GOLDEN)),
+            ("{", tart_items()),
+            (envelope(truncated=True), tart_items()),
+            (envelope(items=[], returned=0, total=0), {"Name": GOLDEN}),
+        ],
+        ids=["retained-golden", "public-only", "hypervisor-only", "malformed", "truncated", "malformed-tart"],
+    )
+    def test_the_guard_refuses_a_listed_or_unreadable_name(tmp_path: Path, vm: object, tart: object) -> None:
+>       assert guard(tmp_path, vm, tart) != 0
+E       AssertionError: assert 0 != 0
+E        +  where 0 = guard(PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste3'), '{', [])
+
+experiments/exec-reliability/test_vm_inventory.py:284: AssertionError
+________ test_the_guard_refuses_a_listed_or_unreadable_name[truncated] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste4')
+vm = {'schema_version': '1.0', 'ok': True, 'items': [{'kind': 'golden', 'name': 'testanyware-golden-linux-24.04', 'platform': 'linux', 'backend': 'tart'}], 'returned': 1, ...}
+tart = []
+
+    @pytest.mark.parametrize(
+        ("vm", "tart"),
+        [
+            (envelope(), tart_items(GOLDEN)),
+            (envelope(), tart_items()),
+            (envelope(items=[], returned=0, total=0), tart_items(GOLDEN)),
+            ("{", tart_items()),
+            (envelope(truncated=True), tart_items()),
+            (envelope(items=[], returned=0, total=0), {"Name": GOLDEN}),
+        ],
+        ids=["retained-golden", "public-only", "hypervisor-only", "malformed", "truncated", "malformed-tart"],
+    )
+    def test_the_guard_refuses_a_listed_or_unreadable_name(tmp_path: Path, vm: object, tart: object) -> None:
+>       assert guard(tmp_path, vm, tart) != 0
+E       AssertionError: assert 0 != 0
+E        +  where 0 = guard(PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste4'), {'schema_version': '1.0', 'ok': True, 'items': [{'kind': 'golden', 'name': 'testanyware-golden-linux-24.04', 'platform': 'linux', 'backend': 'tart'}], 'returned': 1, ...}, [])
+
+experiments/exec-reliability/test_vm_inventory.py:284: AssertionError
+______ test_the_guard_refuses_a_listed_or_unreadable_name[malformed-tart] ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste5')
+vm = {'schema_version': '1.0', 'ok': True, 'items': [], 'returned': 0, ...}
+tart = {'Name': 'testanyware-golden-linux-24.04'}
+
+    @pytest.mark.parametrize(
+        ("vm", "tart"),
+        [
+            (envelope(), tart_items(GOLDEN)),
+            (envelope(), tart_items()),
+            (envelope(items=[], returned=0, total=0), tart_items(GOLDEN)),
+            ("{", tart_items()),
+            (envelope(truncated=True), tart_items()),
+            (envelope(items=[], returned=0, total=0), {"Name": GOLDEN}),
+        ],
+        ids=["retained-golden", "public-only", "hypervisor-only", "malformed", "truncated", "malformed-tart"],
+    )
+    def test_the_guard_refuses_a_listed_or_unreadable_name(tmp_path: Path, vm: object, tart: object) -> None:
+>       assert guard(tmp_path, vm, tart) != 0
+E       AssertionError: assert 0 != 0
+E        +  where 0 = guard(PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_a_liste5'), {'schema_version': '1.0', 'ok': True, 'items': [], 'returned': 0, ...}, {'Name': 'testanyware-golden-linux-24.04'})
+
+experiments/exec-reliability/test_vm_inventory.py:284: AssertionError
+_______________ test_the_guard_refuses_an_inaccessible_inventory _______________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_an_inac0')
+
+    def test_the_guard_refuses_an_inaccessible_inventory(tmp_path: Path) -> None:
+>       assert guard(tmp_path, envelope(), tart_items(), vm_exit=1) != 0
+E       AssertionError: assert 0 != 0
+E        +  where 0 = guard(PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1445/test_the_guard_refuses_an_inac0'), {'schema_version': '1.0', 'ok': True, 'items': [{'kind': 'golden', 'name': 'testanyware-golden-linux-24.04', 'platform': 'linux', 'backend': 'tart'}], 'returned': 1, ...}, [], vm_exit=1)
+E        +    where {'schema_version': '1.0', 'ok': True, 'items': [{'kind': 'golden', 'name': 'testanyware-golden-linux-24.04', 'platform': 'linux', 'backend': 'tart'}], 'returned': 1, ...} = envelope()
+E        +    and   [] = tart_items()
+
+experiments/exec-reliability/test_vm_inventory.py:288: AssertionError
+=========================== short test summary info ============================
+FAILED experiments/exec-reliability/test_vm_inventory.py::test_the_guard_refuses_a_listed_or_unreadable_name[retained-golden]
+FAILED experiments/exec-reliability/test_vm_inventory.py::test_the_guard_refuses_a_listed_or_unreadable_name[public-only]
+FAILED experiments/exec-reliability/test_vm_inventory.py::test_the_guard_refuses_a_listed_or_unreadable_name[hypervisor-only]
+FAILED experiments/exec-reliability/test_vm_inventory.py::test_the_guard_refuses_a_listed_or_unreadable_name[malformed]
+FAILED experiments/exec-reliability/test_vm_inventory.py::test_the_guard_refuses_a_listed_or_unreadable_name[truncated]
+FAILED experiments/exec-reliability/test_vm_inventory.py::test_the_guard_refuses_a_listed_or_unreadable_name[malformed-tart]
+FAILED experiments/exec-reliability/test_vm_inventory.py::test_the_guard_refuses_an_inaccessible_inventory
+7 failed, 3 passed, 42 deselected in 5.15s

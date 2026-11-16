@@ -1139,6 +1139,17 @@ tasks:
     cmds:
       - scripts/vnc-keeper-live.sh
 
+  vm:golden-name-free:
+    desc: 'Refuse a golden NAME that `vm list --json --all` or `tart list --format json` already lists, and refuse when either inventory cannot be read (exit 1 present, 2 unreadable). Both golden recipes run it before any create, so a retained golden is never replaced. Optional GUARD_CLI and GUARD_TART name the executables; the fixture controls pass fakes. Reads only'
+    vars:
+      GUARD_CLI: '{{.GUARD_CLI | default "testanyware"}}'
+      GUARD_TART: '{{.GUARD_TART | default "tart"}}'
+    preconditions:
+      - sh: test -n "{{.NAME}}"
+        msg: 'set NAME=<a golden name that does not exist yet>'
+    cmds:
+      - python3 -I '{{.ROOT_DIR}}/scripts/vm_inventory.py' absent {{.NAME | shellQuote}} --cli {{.GUARD_CLI | shellQuote}} --tart {{.GUARD_TART | shellQuote}}
+
   vm:create-golden-macos:
     desc: 'Build a macOS golden that carries this checkout''s agent, not the Homebrew-bundled one. Needs NAME=<golden> (use a new name: a rebuild replaces a golden of the same name); optional VERSION (default 27). About 20 minutes when the base VM exists. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
     deps: [cli:build, agent:macos:build]
@@ -1150,6 +1161,8 @@ tasks:
       - sh: test -n "{{.NAME}}"
         msg: 'set NAME=<a golden name that does not exist yet>'
     cmds:
+      - task: vm:golden-name-free
+        vars: {NAME: '{{.NAME}}', GUARD_CLI: '{{.CLI}}'}
       - '{{.CLI}} vm create-golden --platform macos --version {{.VERSION | default "27"}} --name {{.NAME}}'
 
   vm:create-golden-linux:
@@ -1163,6 +1176,8 @@ tasks:
       - sh: test -n "{{.NAME}}"
         msg: 'set NAME=<a golden name that does not exist yet>'
     cmds:
+      - task: vm:golden-name-free
+        vars: {NAME: '{{.NAME}}', GUARD_CLI: '{{.CLI}}'}
       - '{{.CLI}} vm create-golden --platform linux --version {{.VERSION | default "24.04"}} --name {{.NAME}}'
 
   vm:linux-golden-disk-live:

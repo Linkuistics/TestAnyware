@@ -1,0 +1,28 @@
+.........F                                                               [100%]
+=================================== FAILURES ===================================
+_______ test_each_golden_recipe_runs_the_guard_before_its_create[linux] ________
+
+platform = 'linux'
+
+    @pytest.mark.parametrize("platform", ["macos", "linux"])
+    def test_each_golden_recipe_runs_the_guard_before_its_create(platform: str) -> None:
+        task = shutil.which("task")
+        assert task is not None
+        done = subprocess.run(
+            [task, "-d", str(REPO), "--dry", f"vm:create-golden-{platform}", "NAME=k19-order"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        lines = done.stderr.splitlines()
+        guard_at = [i for i, line in enumerate(lines) if "vm_inventory.py' absent k19-order" in line]
+        create_at = [i for i, line in enumerate(lines) if "vm create-golden" in line]
+>       assert done.returncode == 0 and len(guard_at) == 1 and len(create_at) == 1
+E       AssertionError: assert (0 == 0 and 0 == 1)
+E        +  where 0 = CompletedProcess(args=['/Users/antony/.local/share/mise/shims/task', '-d', '/Users/antony/Development/AbstractingCompu...ware.gh-issue-14/cli-rs/target/debug/testanyware vm create-golden --platform linux --version 24.04 --name k19-order\n').returncode
+E        +  and   0 = len([])
+
+experiments/exec-reliability/test_vm_inventory.py:305: AssertionError
+=========================== short test summary info ============================
+FAILED experiments/exec-reliability/test_vm_inventory.py::test_each_golden_recipe_runs_the_guard_before_its_create[linux]
+1 failed, 9 passed, 42 deselected in 4.83s

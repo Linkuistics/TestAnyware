@@ -1,0 +1,81 @@
+{
+  "kind": "vm",
+  "identity": "k19-linux-failed-bef52308979f4df78ffd0da6b4baccc1",
+  "acquire": {
+    "name": "acquire",
+    "argv": [
+      "/opt/homebrew/bin/testanyware",
+      "vm",
+      "start",
+      "--platform",
+      "linux",
+      "--base",
+      "k19-missing-golden-bef52308979f4df78ffd0da6b4baccc1",
+      "--id",
+      "k19-linux-failed-bef52308979f4df78ffd0da6b4baccc1",
+      "--json"
+    ],
+    "budget": 420.0,
+    "expected_exit": 3,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "cleanup": {
+    "name": "cleanup",
+    "argv": [
+      "/bin/echo",
+      "no guest workload ran in",
+      "k19-linux-failed-bef52308979f4df78ffd0da6b4baccc1"
+    ],
+    "budget": 2.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "dispose": {
+    "name": "dispose",
+    "argv": [
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+      "-I",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+      "dispose",
+      "k19-linux-failed-bef52308979f4df78ffd0da6b4baccc1",
+      "--cli",
+      "/opt/homebrew/bin/testanyware",
+      "--tart",
+      "/opt/homebrew/bin/tart",
+      "--timeout",
+      "5",
+      "--stop-timeout",
+      "30"
+    ],
+    "budget": 41.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "inspect": {
+    "name": "inspect",
+    "argv": [
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+      "-I",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+      "absent",
+      "k19-linux-failed-bef52308979f4df78ffd0da6b4baccc1",
+      "--cli",
+      "/opt/homebrew/bin/testanyware",
+      "--tart",
+      "/opt/homebrew/bin/tart",
+      "--timeout",
+      "25"
+    ],
+    "budget": 55.0,
+    "expected_exit": 0,
+    "expected_stdout": "616273656e74206b31392d6c696e75782d6661696c65642d62656635323330383937396634646637386666643064613662346261636363310a",
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  }
+}
