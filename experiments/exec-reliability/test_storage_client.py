@@ -402,6 +402,68 @@ def test_writer_death_after_readiness_marks_storage_failed(clients, tmp_path):
     assert client.killed_at is None
 
 
+def lose_writer(client: StorageClient) -> None:
+    """Kill and reap the writer outside the client, so its next wait fails."""
+    assert client.pid is not None
+    os.kill(client.pid, signal.SIGKILL)
+    os.waitpid(client.pid, 0)
+
+
+def record_signals(monkeypatch: pytest.MonkeyPatch) -> list[tuple[int, int]]:
+    sent: list[tuple[int, int]] = []
+    monkeypatch.setattr(os, "kill", lambda pid, sig: sent.append((pid, sig)))
+    return sent
+
+
+def assert_lost_and_quiet(
+    clients: list[StorageClient], client: StorageClient, sent: list[tuple[int, int]]
+) -> None:
+    """A lost writer gets no signal, and later turns stay bounded."""
+    client.kill()
+    for _ in range(3):
+        started = time.monotonic()
+        until(lambda: False, client)
+        assert time.monotonic() - started < TURN_LIMIT
+    assert sent == [], "the client signalled a PID it no longer owns"
+    assert client.residual is True
+    assert client.killed_at is None and client.reaped_at is None
+    assert client.reap_error is not None and "ChildProcessError" in client.reap_error
+    assert client._frame_fd is None and client._ack_fd is None
+    assert client.queued == 0 and client.outbox_bytes == 0
+    # The test reaped this writer itself, so the fixture has nothing to reap.
+    clients.remove(client)
+
+
+def test_writer_lost_during_readiness_receives_no_kill(clients, tmp_path, monkeypatch):
+    client = make(clients, faulty("stall:@start"), readiness_bound=5.0)
+    assert client.spawn()
+    client.request_readiness(str(tmp_path), "run", PLAN, [])
+    # These frames are larger than any pipe buffer, so the later ones stay queued.
+    for index in range(4):
+        assert client.enqueue("create", f"stream-{index}", b"s" * MAX_PAYLOAD) is not None
+    lose_writer(client)
+    sent = record_signals(monkeypatch)
+    until(lambda: client.readiness != "pending", client)
+    assert client.storage == "unavailable"
+    assert client.readiness_reason == "writer_lost"
+    assert client.abandoned.get("stream-3") == 1
+    assert client.enqueue("create", "late.json", b"{}") is None
+    assert client.abandoned["late.json"] == 1
+    assert_lost_and_quiet(clients, client, sent)
+
+
+def test_writer_lost_after_readiness_receives_no_kill(clients, tmp_path, monkeypatch):
+    client = ready(clients, tmp_path)
+    lose_writer(client)
+    sent = record_signals(monkeypatch)
+    until(lambda: client.storage != "ready", client)
+    assert client.storage == "failed"
+    assert client.first_failure == "writer_lost"
+    assert client.enqueue("create", "late.json", b"{}") is None
+    assert client.abandoned["late.json"] == 1
+    assert_lost_and_quiet(clients, client, sent)
+
+
 def test_unknown_acknowledgement_is_a_protocol_failure(clients, tmp_path):
     client = ready(clients, tmp_path)
     client._ack_buffer += b'{"seq": 99, "op": "create", "status": "ok"}\n'

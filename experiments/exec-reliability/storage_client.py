@@ -451,6 +451,10 @@ class StorageClient:
         """Send KILL once to the exact unreaped writer PID and start the reap bound."""
         if self.killed_at is not None or self.pid is None or self.reaped_at is not None:
             return
+        # A residual writer is lost or past its reap deadline. A lost PID can
+        # belong to another process, so the client never signals it.
+        if self.residual:
+            return
         self.killed_at = now
         self.reap_deadline = now + REAP_GRACE
         try:
