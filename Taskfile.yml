@@ -195,7 +195,7 @@ tasks:
     requires:
       vars: [OUT]
     cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/macos-completion-k3/old_path.py {{.OUT | shellQuote}} --variant {{.VARIANT | default "old" | shellQuote}} --expect {{.EXPECT | default "defect" | shellQuote}}
+      - uv run --locked --isolated --python 3.12 python -I evidence/macos-completion-k3/old_path.py {{.OUT | shellQuote}} --variant {{.VARIANT | default "old" | shellQuote}} --expect {{.EXPECT | default "defect" | shellQuote}} --trial-bound-seconds {{.TRIAL_BOUND | default "20" | shellQuote}}
 
   diagnostic:macos-completion-tools:
     desc: Check the k3 macOS completion tooling

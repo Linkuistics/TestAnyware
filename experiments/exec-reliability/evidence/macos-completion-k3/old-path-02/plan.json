@@ -1,0 +1,29 @@
+{
+  "build_bound_seconds": 300.0,
+  "cap_check_blockers": 8,
+  "cleanup_bound_seconds": 5.0,
+  "conditions": [
+    "unsaturated",
+    "free-2",
+    "free-1"
+  ],
+  "expect": "defect",
+  "fast_seconds": 1.0,
+  "guest_timeout_seconds": 3,
+  "host": "macOS-27.0.1-arm64-arm-64bit",
+  "hw_activecpu": "16",
+  "order": "for each index, unsaturated then free-2 then free-1",
+  "ownership": "each probe in its own session, TMPDIR=OUT/NAME.tmp/",
+  "pid": 17857,
+  "python": "3.12.15 (main, Oct  9 2026, 15:10:57) [Clang 22.1.3 ]",
+  "subjects_before": {
+    "agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift": "f9401669408f532aeafdcc277ff7553080b42e7c6d462abf8f59b04a84d86340",
+    "experiments/exec-reliability/evidence/macos-completion-k3/old_path.py": "a8162f9ae1a2e200b1fe7079018508b1c5d0a4c05e55a10ca66f460a98984c85",
+    "experiments/exec-reliability/evidence/macos-completion-k3/probe/main.swift": "82343d6092a0e79c50a606735fabdfe25cec56445d0f72ad8794e165251bb2ac"
+  },
+  "swiftc": "Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)\nTarget: arm64-apple-macosx27.0.0\nswift-driver version: 1.168.6",
+  "trial_bound_seconds": 20.0,
+  "trials_per_condition": 5,
+  "variant": "old",
+  "wq_max_constrained_threads": "80"
+}

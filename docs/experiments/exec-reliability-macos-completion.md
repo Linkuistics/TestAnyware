@@ -34,10 +34,12 @@ child ran and wrote its output, but the agent did not see its exit within
 30 s.
 
 The agent reported the timeout 0.058 s after the 30 s deadline, measured on
-the host. After a timeout, `runShell` lists descendants, sends SIGTERM and
-waits up to 3 s for the exit again. That second wait succeeded promptly. The
-agent therefore saw the exit right after the deadline, but not during the
-30 s before it.
+the host. In the current source, after a timeout, `runShell` lists
+descendants, sends SIGTERM and waits up to 3 s for the exit again. If the old
+agent ran that source, its recovery wait ended within 0.058 s. The receipt
+does not record that phase, and the source of the old agent is not
+established (see Identity). The observation is only that the receipt arrived
+0.058 s after the deadline.
 
 ### Preservation
 
@@ -97,25 +99,45 @@ of three ways.
 The probe calibrates the pool. It adds blockers until a new blocker does not
 start within 500 ms. A blocker that starts after that point returns at once.
 The freed workers therefore stay free. The probe records `saturated_at`, and it fails
-the trial when calibration does not finish. It releases all blockers before
-it exits.
+the trial when calibration does not finish.
+
+Before it exits, the probe releases every blocker that it admitted and did not free. It records that count as
+`admitted`. This also covers a calibration that reaches the cap of 512
+blockers with every blocker held.
 
 `evidence/macos-completion-k3/old_path.py` writes the plan, bounds and subject
-hashes before the build. It runs five rounds of the three conditions with a
-3 s guest timeout and a 20 s bound for each trial. A trial is
-`completed-then-timed-out` when stdout is `ordinary-ok`, `timed_out` is true
+hashes before the build. It first runs a cap check: a `free-1` probe with a
+cap of 8 blockers must fail calibration and release all 8. It then runs five
+rounds of the three conditions with a 3 s guest timeout and a 20 s bound for
+each trial.
+
+A trial is `completed-then-timed-out` when stdout is `ordinary-ok`, `timed_out` is true
 and the exit is -1. A trial is `prompt` when the exit is 0 within 1 s. The
 verdict is `defect` when every `free-1` trial completed and then timed out and
-every control was prompt.
+every control was prompt. The script exits 0 only when the verdict equals
+`EXPECT`, the cap check passes, and every trial leaves no owned process or
+capture file behind.
+
+Each probe runs in its own session. When a probe reaches the trial bound, the
+script records the start time and command of the probe and of each
+descendant. It also records the capture files that those processes hold open.
+It kills the process group and each identified process, and it moves the held
+capture files into `OUT/NAME.captures/`. The cleanup bound is 5 s.
+
+Every trial also compares the
+`testanyware-exec-*` files in the per-user temporary directory before and
+after the trial. A new file that no owned process held is unattributed. It
+stays in place, and the trial is unclean.
 
 The detector control `--variant single-hop` builds a copy of
 `ProcessRunner.swift` in which the first worker polls `process.isRunning`
-itself. The copy has no second block. It is a control for the detector, not a
-proposed repair.
+itself. The copy has no second block. It also replaces `waitUntilExit` with
+`isRunning` polling, so it changes two things at once. It is a control for the
+detector, not a proposed repair, and it does not locate the stalled phase.
 
 ### Results
 
-Both runs used swiftc 6.4.2 on the k19 host, with 16 active CPUs and
+All runs used swiftc 6.4.2 on the k19 host, with 16 active CPUs and
 `kern.wq_max_constrained_threads` 80. Every calibration saturated at 80
 workers, which equals that kernel limit.
 
@@ -123,22 +145,34 @@ workers, which equals that kernel limit.
 | --- | --- | --- | --- | --- | --- |
 | `old-path-01` | old | 5 prompt | 5 prompt | 5 completed-then-timed-out | `defect` |
 | `single-hop-01` | single-hop | 5 prompt | 5 prompt | 5 prompt | `clean` |
+| `old-path-03` | old | 5 prompt | 5 prompt | 5 completed-then-timed-out | `defect` |
+| `single-hop-03` | single-hop | 5 prompt | 5 prompt | 5 prompt | `clean` |
+
+The `-01` runs used the first probe and script. Their plans record the probe
+sha256 `1c397196…47ea` and the script sha256 `5340695d…4514`. Integration k187
+changed both files (see Review integration). The `-03` runs used the current
+probe sha256 `82343d60…b2ac` and script sha256 `0a3dc4a4…17c0`. Their cap
+checks passed, and their trials left no owned process or capture file.
 
 Each `free-1` receipt of the old path has `stdout: "ordinary-ok"`,
 `exit_code: -1`, `timed_out: true` and `stderr: "Process timed out after 3s"`.
 That is the receipt of operation 8 with a 3 s timeout. The old path took
-about 6.05 s inside the probe. The second wait after SIGTERM also starved
-because one worker was still free.
+6.03–6.08 s inside the probe in `old-path-01` and 6.04–6.08 s in
+`old-path-03`. That equals the 3 s wait plus the 3 s recovery wait after
+SIGTERM. It is consistent with both waits reaching their timeouts. The probe
+does not observe the child exit or either dispatch block, so it does not show
+which phase stalled.
 
-Subject hashes before and after both runs are equal. The old build has
-source sha256 `f9401669…6340` and binary sha256 `dcbf52fb…ba45`.
+Subject hashes before and after each run are equal. The old build has source
+sha256 `f9401669…6340` in every run. Its binary sha256 is `dcbf52fb…ba45` in
+`old-path-01` and `178c8e99…777b` in `old-path-03`.
 
 ## Causes
 
 | Candidate | Evidence for | Evidence against | State |
 | --- | --- | --- | --- |
-| Global-queue starvation delays the second block | Same receipt shape, reproduced 5 of 5 with the real code. The control removes it. | The retained recovery wait was prompt. A constant one-worker probe makes it starve. No one observed a guest starvation source. | Possible, not established |
-| `waitUntilExit` missed the exit in the second block | None | The retained recovery wait saw the exit within 0.058 s. | Open, not tested |
+| Global-queue starvation delays the second block | Same receipt shape, reproduced 10 of 10 with the real code in two runs. The single-hop control is prompt, but it also replaces `waitUntilExit`. | The retained receipt arrived 0.058 s after the deadline, but the probe takes about 6 s. No one observed a guest starvation source or the stalled phase. | Possible, not established |
+| `waitUntilExit` missed the exit in the second block | None | If the old agent ran the current source, its recovery wait ended within 0.058 s. | Open, not tested |
 | Capture-pipe EOF | None | `runShell` captures to files, not pipes, and stdout was complete. | Excluded for this path |
 | Client deadline or app relay | None | The receipt came from the agent with `timed_out: true`, and the host exit was 0 within the 50 s bound. | Excluded as the source of the timeout |
 | Guest load or scheduler stall | None | Unobserved | Unknown |
@@ -151,7 +185,9 @@ block or the child exit time. Those phases stay unknown.
 A bounded wait must not depend on a second block in the same pool as the
 waiter. Any repair belongs to a later leaf, and this slice adds no production
 wait or cancel semantics. A repair must turn `diagnostic:macos-completion-old-path`
-with `EXPECT=clean` green on the changed code.
+with `EXPECT=clean` green on the changed code. That result shows only that the
+repair does not produce this receipt under this occupation. It does not prove
+the cause of the retained failure.
 
 ## Regression invocation
 
@@ -159,6 +195,7 @@ with `EXPECT=clean` green on the changed code.
 mise exec -- task diagnostic:macos-completion-retained
 mise exec -- task diagnostic:macos-completion-old-path OUT=<new directory>
 mise exec -- task diagnostic:macos-completion-old-path OUT=<new directory> VARIANT=single-hop EXPECT=clean
+mise exec -- task diagnostic:macos-completion-old-path OUT=<new directory> TRIAL_BOUND=4
 mise exec -- task diagnostic:macos-completion-tools
 ```
 
@@ -166,13 +203,52 @@ The second command reports the known defect. It exits 0 when the verdict is
 `defect`, so it stays outside the passing gate. Today `EXPECT=clean` on the old
 variant exits 1.
 
+The fourth command exercises the bounded cleanup. With a 4 s bound, each old
+`free-1` probe is killed during its recovery wait. The verdict is `mixed` and
+the command exits 1. Read its `summary.json` for `owned_resources_clean`.
+
 ## Owned-resource audit
 
 The slice started no VM, app, clone or guest command. Each probe process
-started one `bash` child, and `ProcessRunner` waited for each child. Each probe
-released its blockers before it exited, and each trial process exited within
-its bound. No trial reached the 20 s bound. The slice ran no process cleanup
-by name.
+started one `bash` child. No trial of a `defect` or `clean` run reached the
+20 s bound. In `old-path-03` and `single-hop-03`, every trial left no process
+in its group and no new capture file. The per-user temporary directory held 0
+`testanyware-exec-*` files before and after the `-03` runs and
+`cleanup-check-02`.
+
+`cleanup-check-02` ran the old variant with a 4 s bound. All five `free-1`
+probes reached the bound. For each one, the script identified the probe,
+found its two open capture files, killed it, and moved the files into the
+run. The `.out` files hold `ordinary-ok`. No process survived, no file was
+unattributed, and each cleanup took at most 0.28 s.
+
+The slice ran no process cleanup by name.
+
+## Review integration
+
+Integration k187 assessed the three findings of review k184.
+
+- F1, completion and phase claims. Accepted. The report no longer states
+  that the retained recovery wait succeeded or that the local recovery wait
+  starved. The single-hop control is described as a change of two things.
+  Guest phase observation stays with the live work below.
+- F2, release after a failed calibration. Accepted. The probe released
+  0 blockers when calibration reached the cap with every blocker held. It
+  now releases every admitted blocker that it did not free, and it records
+  `admitted`. The cap check exercises that path in every run.
+- F3, ownership after the trial bound. Accepted. The script killed only the
+  direct probe, so capture files and any descendant could remain. The script
+  now uses the containment that Mechanism under test describes.
+
+An intermediate repair redirected `TMPDIR` to a directory in each run. Darwin
+Foundation ignores `TMPDIR` for `FileManager.default.temporaryDirectory`.
+`cleanup-check-01` used that repair. It reported clean, but its five bounded
+trials left 10 capture files in the per-user temporary directory. Integration
+k187 moved those files into `cleanup-check-01/leaked-captures/`.
+
+`old-path-02` and
+`single-hop-02` used the same intermediate script. Their verdicts are `defect`
+and `clean`, and their capture audits are not valid.
 
 ## Remaining k3 work
 

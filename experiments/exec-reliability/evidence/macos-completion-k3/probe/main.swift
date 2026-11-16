@@ -2,18 +2,21 @@
 // agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift, so that the probe
 // calls the real `ProcessRunner.runShell`.
 //
-// Usage: probe CONDITION TIMEOUT_SECONDS
+// Usage: probe CONDITION TIMEOUT_SECONDS [MAX_BLOCKERS]
 //   CONDITION is one of:
 //     unsaturated  no blockers in the global queue
 //     free-2       saturate the global queue, then free exactly two workers
 //     free-1       saturate the global queue, then free exactly one worker
+//   MAX_BLOCKERS caps calibration (default 512). A cap below the pool size
+//   makes calibration fail with every admitted blocker held, which checks the
+//   release path for a failed calibration.
 //
-// The probe prints one JSON object on stdout. It always releases its blockers
-// before it exits.
+// The probe prints one JSON object on stdout. Before it exits, it releases
+// every blocker that it admitted and did not already free.
 
 import Foundation
 
-let maxBlockers = 512
+let defaultMaxBlockers = 512
 let startWaitMilliseconds = 500
 let surplusWaitSeconds = 5
 let settleMilliseconds = 200
@@ -48,6 +51,13 @@ final class Calibration: @unchecked Sendable {
         return true
     }
 
+    /// The number of blockers that hold, or held, a worker.
+    func admitted() -> Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return running
+    }
+
     func didSurplusRun() -> Bool {
         lock.lock()
         defer { lock.unlock() }
@@ -66,11 +76,13 @@ func emit(_ object: [String: Any]) {
 }
 
 let arguments = CommandLine.arguments
-guard arguments.count == 3,
+guard arguments.count == 3 || arguments.count == 4,
       ["unsaturated", "free-2", "free-1"].contains(arguments[1]),
-      let timeoutSeconds = Int(arguments[2]), timeoutSeconds > 0
+      let timeoutSeconds = Int(arguments[2]), timeoutSeconds > 0,
+      let maxBlockers = arguments.count == 4 ? Int(arguments[3]) : defaultMaxBlockers,
+      maxBlockers > 0
 else {
-    FileHandle.standardError.write("usage: probe unsaturated|free-2|free-1 TIMEOUT_SECONDS\n".data(using: .utf8)!)
+    FileHandle.standardError.write("usage: probe unsaturated|free-2|free-1 TIMEOUT_SECONDS [MAX_BLOCKERS]\n".data(using: .utf8)!)
     exit(64)
 }
 let condition = arguments[1]
@@ -80,6 +92,7 @@ let gate = DispatchSemaphore(value: 0)
 let started = DispatchSemaphore(value: 0)
 var saturatedAt: Int? = nil
 var freed = 0
+var freedSignals = 0
 var surplusRan = false
 let calibrationStart = monotonicSeconds()
 
@@ -104,7 +117,8 @@ if condition != "unsaturated" {
     }
     if let running = saturatedAt {
         freed = condition == "free-2" ? 2 : 1
-        for _ in 0..<min(freed, running) { gate.signal() }
+        freedSignals = min(freed, running)
+        for _ in 0..<freedSignals { gate.signal() }
         let deadline = monotonicSeconds() + Double(surplusWaitSeconds)
         while !calibration.didSurplusRun() && monotonicSeconds() < deadline {
             usleep(10_000)
@@ -146,7 +160,11 @@ if condition != "unsaturated" && (saturatedAt == nil || !surplusRan) {
     record["run_seconds"] = monotonicSeconds() - runStart
 }
 
-let remaining = (saturatedAt ?? 0) - min(freed, saturatedAt ?? 0)
+// Release every admitted blocker that was not freed. This also covers a
+// calibration that reached the cap with every blocker still held.
+let admitted = calibration.admitted()
+let remaining = admitted - freedSignals
 for _ in 0..<remaining { gate.signal() }
+record["admitted"] = admitted
 record["released"] = remaining
 emit(record)
