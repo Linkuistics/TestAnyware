@@ -12,7 +12,8 @@ of ordinary completion, and locate any cleanup/inspection failure.
 
 - Issue #14 failure A, original VM-fit report and `fixture/r3/guest.sh`, plus
   retained `diagnosis-macos-01/`, which did not reproduce that earlier stall.
-- The report and safe process-fixture cleanup from `macos-completion-k3`.
+- The report from `macos-completion-k3` and the safe process-fixture cleanup
+  from `macos-process-fixtures-k185`.
 - `ProcessRunner.runShell`, `collectDescendants`, `directChildren`,
   `waitForExit`, macOS `handleExec` and Rust HTTP/deadline fixtures.
 

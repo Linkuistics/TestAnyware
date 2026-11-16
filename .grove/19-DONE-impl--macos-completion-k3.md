@@ -52,3 +52,23 @@ post-timeout case belongs to `macos-timeout-inspection-k4`. File-backed capture
 already exists; capture-pipe EOF is not an established cause. Select no new
 production wait/cancellation semantics here. Decompose if necessary and finish
 only the first child; never absorb a sibling inquiry into this session.
+
+## Decisions (running log)
+
+- The retained evidence stays in the Ravel-Strategies checkout. k3 hashes all
+  319 files into `retained-manifest.json` and copies only the 32 receipts it
+  cites, because the run belongs to another repository.
+- The old agent `1282f4cf…8a84` matches no local build. The provenance gap
+  stays explicit, and every k3 build is a new condition.
+- The first slice tests the nested `waitForExit` dispatch offline with the
+  real `ProcessRunner.swift`. The retained receipt shows complete stdout and a
+  timeout. That points at exit observation and not at capture.
+- The detector exits 0 when its verdict equals `EXPECT` (default `defect`).
+  The known-defect probe therefore stays outside the passing gate, and a
+  repair must run it with `EXPECT=clean`.
+- The single-hop variant is a detector control, not a repair. This leaf
+  selects no production wait semantics.
+- Decomposed: this leaf keeps the offline slice. The review is
+  `macos-completion-review-k184`. Owned process fixtures go to
+  `macos-process-fixtures-k185`. The live clone and the guest observation go
+  to `macos-completion-live-k186`.

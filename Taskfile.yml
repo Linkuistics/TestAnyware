@@ -183,6 +183,28 @@ tasks:
     cmds:
       - uv run --locked --isolated --python 3.12 python -I evidence/worker-deadline-cleanup-k154/stall_control.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .STALL}}--stall{{end}} {{if .SURVEY}}--survey{{end}} {{range $t := splitList "," (.TESTS | default "")}}{{if $t}}--test {{$t | shellQuote}} {{end}}{{end}}
 
+  diagnostic:macos-completion-retained:
+    desc: Compare the retained issue #14 macOS evidence with the k3 manifest (MODE=snapshot writes it once)
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked --isolated --python 3.12 python -I evidence/macos-completion-k3/retained.py {{.MODE | default "compare" | shellQuote}}
+
+  diagnostic:macos-completion-old-path:
+    desc: 'Build the unchanged agent ProcessRunner into the k3 probe and run its frozen GCD-starvation plan into a new OUT directory. Known defect: exits 0 when the verdict equals EXPECT (default defect). VARIANT=single-hop builds the detector control, which is not a repair'
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python -I evidence/macos-completion-k3/old_path.py {{.OUT | shellQuote}} --variant {{.VARIANT | default "old" | shellQuote}} --expect {{.EXPECT | default "defect" | shellQuote}}
+
+  diagnostic:macos-completion-tools:
+    desc: Check the k3 macOS completion tooling
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check evidence/macos-completion-k3/*.py
+      - uv run --locked python -m ruff format --check evidence/macos-completion-k3/*.py
+      - uv run --locked python -m pyright evidence/macos-completion-k3/*.py
+
   diagnostic:deadline-stall-tools:
     desc: Check the k154 worker-deadline control tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'

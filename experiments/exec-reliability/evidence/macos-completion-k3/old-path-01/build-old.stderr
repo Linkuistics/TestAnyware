@@ -1,0 +1,27 @@
+/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/macos-completion-k3/probe/main.swift:95:20: warning: instance method 'wait' is unavailable from asynchronous contexts; Await a Task handle instead; this is an error in the Swift 6 language mode
+ 93 |         }
+ 94 |         dispatched += 1
+ 95 |         if started.wait(timeout: .now() + .milliseconds(startWaitMilliseconds)) == .timedOut {
+    |                    `- warning: instance method 'wait' is unavailable from asynchronous contexts; Await a Task handle instead; this is an error in the Swift 6 language mode
+ 96 |             if calibration.markSaturated(expected: dispatched - 1) {
+ 97 |                 saturatedAt = dispatched - 1
+
+Dispatch.DispatchSemaphore.wait:2:13: note: 'wait(timeout:)' declared here
+1 | class DispatchSemaphore {
+2 | public func wait(timeout: DispatchTime) -> DispatchTimeoutResult}
+  |             `- note: 'wait(timeout:)' declared here
+3 | 
+
+/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/macos-completion-k3/probe/main.swift:102:21: warning: instance method 'wait' is unavailable from asynchronous contexts; Await a Task handle instead; this is an error in the Swift 6 language mode
+100 |             // The late blocker arrived between the timeout and the check.
+101 |             // Consume its start signal and keep calibrating.
+102 |             started.wait()
+    |                     `- warning: instance method 'wait' is unavailable from asynchronous contexts; Await a Task handle instead; this is an error in the Swift 6 language mode
+103 |         }
+104 |     }
+
+Dispatch.DispatchSemaphore.wait:2:13: note: 'wait()' declared here
+1 | class DispatchSemaphore {
+2 | public func wait()}
+  |             `- note: 'wait()' declared here
+3 | 

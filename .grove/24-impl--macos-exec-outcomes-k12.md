@@ -8,7 +8,7 @@ existing process, HTTP and Host CLI seams, without choosing the correction.
 
 ## Context
 - Reuse the controller and route table from `diagnostic-foundation-k11` and
-  ownership-scoped process fixtures from `macos-completion-k3`.
+  ownership-scoped process fixtures from `macos-process-fixtures-k185`.
 - `ProcessRunner.runShell`, macOS `handleExec`, shared/vendored execution
   types and Rust `AgentClient.exec`/HTTP transport fixtures are source leads.
 - Compare the case matrix in `linux-timeout-lifecycle-k5`; no Linux result
