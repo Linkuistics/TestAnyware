@@ -1,0 +1,81 @@
+{
+  "kind": "vm",
+  "identity": "k186-macos-b1256cae4068418dac994e03f0392f6b",
+  "acquire": {
+    "name": "acquire",
+    "argv": [
+      "/opt/homebrew/bin/testanyware",
+      "vm",
+      "start",
+      "--platform",
+      "macos",
+      "--base",
+      "testanyware-golden-macos-27",
+      "--id",
+      "k186-macos-b1256cae4068418dac994e03f0392f6b",
+      "--json"
+    ],
+    "budget": 420.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "cleanup": {
+    "name": "cleanup",
+    "argv": [
+      "/bin/echo",
+      "no guest cleanup beyond disposal for",
+      "k186-macos-b1256cae4068418dac994e03f0392f6b"
+    ],
+    "budget": 2.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "dispose": {
+    "name": "dispose",
+    "argv": [
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+      "-I",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+      "dispose",
+      "k186-macos-b1256cae4068418dac994e03f0392f6b",
+      "--cli",
+      "/opt/homebrew/bin/testanyware",
+      "--tart",
+      "/opt/homebrew/bin/tart",
+      "--timeout",
+      "5",
+      "--stop-timeout",
+      "30"
+    ],
+    "budget": 41.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "inspect": {
+    "name": "inspect",
+    "argv": [
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+      "-I",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+      "absent",
+      "k186-macos-b1256cae4068418dac994e03f0392f6b",
+      "--cli",
+      "/opt/homebrew/bin/testanyware",
+      "--tart",
+      "/opt/homebrew/bin/tart",
+      "--timeout",
+      "25"
+    ],
+    "budget": 55.0,
+    "expected_exit": 0,
+    "expected_stdout": "616273656e74206b3138362d6d61636f732d62313235366361653430363834313864616339393465303366303339326636620a",
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  }
+}

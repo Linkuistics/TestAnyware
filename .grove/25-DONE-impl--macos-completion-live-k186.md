@@ -65,3 +65,21 @@ Select no new production wait or cancel semantics here.
   with the pool read as the evidence.
 - Guest cleanup action: `/bin/echo` note only. Each request either exits
   or the agent kills its tree, and disposal removes the guest.
+- Result, run `k186-completion-macos-01` (source 4b23ff10): 10/10 serial
+  and 12/12 concurrent requests passed. The longest request took 0.310 s.
+  The clone was disposed and absent, and the ledger holds no residual.
+  Inventories, app PID and subject digests are unchanged.
+- The pool read gave guest `hw.ncpu` 4 and
+  `kern.wq_max_constrained_threads` 64. Its agent-thread half failed:
+  `pgrep -x testanyware-agent` found no process in the guest. A host test
+  showed that `pgrep -x` matches a 17-character name, so truncation is
+  not the cause. Not repeated: the plan runs once.
+- Instrumented clone not run. Its predeclared condition did not hold: no
+  failed sample, and 64 is far above the demand of at most about 8.
+- Source identity: the frozen subjects were committed as 4b23ff10 before
+  the run, so that commit stays separate from the evidence commit. A squash
+  would change the recorded source identity.
+- Review: cut `review-impl` before k4. The leaf adds live measurement
+  tooling, a concurrent wrapper and a receipt checker, and it changes the
+  k3 cause table. The root brief asks for review of material diagnostic
+  work before the next consumer.

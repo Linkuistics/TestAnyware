@@ -213,12 +213,11 @@ tasks:
       - experiments/exec-reliability/completion_k186_run.sh {{.OUT | shellQuote}}
 
   diagnostic:macos-completion-live-check:
-    desc: Judge the guest receipts of one retained k186 controller run directory RUN
-    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    desc: Judge the guest receipts of one retained k186 controller run directory RUN, relative to the repository root
     requires:
       vars: [RUN]
     cmds:
-      - uv run --locked python -I completion_k186_check.py {{.RUN | shellQuote}}
+      - uv run --project experiments/exec-reliability --locked python -I experiments/exec-reliability/completion_k186_check.py {{.RUN | shellQuote}}
 
   diagnostic:macos-completion-live-tools:
     desc: Check the k186 live completion tooling

@@ -7,6 +7,10 @@ agent code that gives the same receipt, and it delivers a detector for that
 ordering. The slice did not run a guest. It makes no claim of a repair and no
 claim that this ordering caused the retained failure.
 
+Leaf k186 later ran the exact workload on one fresh unchanged guest clone (see
+Live clone run). All 22 requests completed. That clean run is not a repair, and
+it neither establishes nor excludes a cause.
+
 ## Retained failure
 
 Issue #14 failure A comes from the run `macos-candidate-01` in the
@@ -171,11 +175,11 @@ sha256 `f9401669…6340` in every run. Its binary sha256 is `dcbf52fb…ba45` in
 
 | Candidate | Evidence for | Evidence against | State |
 | --- | --- | --- | --- |
-| Global-queue starvation delays the second block | Same receipt shape, reproduced 10 of 10 with the real code in two runs. The single-hop control is prompt, but it also replaces `waitUntilExit`. | The retained receipt arrived 0.058 s after the deadline, but the probe takes about 6 s. No one observed a guest starvation source or the stalled phase. | Possible, not established |
+| Global-queue starvation delays the second block | Same receipt shape, reproduced 10 of 10 with the real code in two runs. The single-hop control is prompt, but it also replaces `waitUntilExit`. | The retained receipt arrived 0.058 s after the deadline, but the probe takes about 6 s. No one observed a guest starvation source or the stalled phase. In k186 the same agent build completed 22 of 22 requests. The guest limit is 64 constrained workers, and four concurrent requests need at most about 8. | Possible, not established |
 | `waitUntilExit` missed the exit in the second block | None | If the old agent ran the current source, its recovery wait ended within 0.058 s. | Open, not tested |
 | Capture-pipe EOF | None | `runShell` captures to files, not pipes, and stdout was complete. | Excluded for this path |
 | Client deadline or app relay | None | The receipt came from the agent with `timed_out: true`, and the host exit was 0 within the 50 s bound. | Excluded as the source of the timeout |
-| Guest load or scheduler stall | None | Unobserved | Unknown |
+| Guest load or scheduler stall | None | k186 saw no stall in 22 requests on an idle 4-CPU clone. No one observed the guest load at op 08. | Unknown |
 
 The retained run gives no observation of the guest thread pool, the second
 block or the child exit time. Those phases stay unknown.
@@ -342,15 +346,118 @@ failure, from the unchanged `runShell` on the host in the normal suite. This
 leaf did not inspect the dispatch pool, so the cause of these timeouts is not
 established. The suite is not green until k3 resolves the defect.
 
+## Live clone run (k186)
+
+Leaf k186 ran the exact issue #14 request on one fresh owned clone of
+`testanyware-golden-macos-27`. Run `k186-completion-macos-01` froze its plan
+in `inventory.json` before the first live call and ran once. The source was
+commit `4b23ff10`. The dirty diff holds only the run's own outer records.
+
+The plan ran these calls in this order:
+
+1. Agent health.
+2. Ten serial `file exec --timeout 30 --json "printf ordinary-ok"` requests.
+   Each has a host bound of 50 s.
+3. Guest identity: agent hash, macOS version and architecture.
+4. Three rounds of four concurrent exact requests from `concurrent_k186.py`.
+   Each request has its own host bound of 50 s, then TERM 2 s and KILL 2 s.
+5. A guest pool read: CPU counts, workqueue limits and agent threads.
+6. Agent health.
+
+The checker `completion_k186_check.py` judges each receipt. A sample passes
+when the host exits 0 within 50 s and the receipt has `exit_code` 0,
+`timed_out` false, stdout `ordinary-ok` and empty stderr.
+
+### Results
+
+| Workload | Samples | Passed | Host seconds, minimum to maximum |
+| --- | --- | --- | --- |
+| Serial | 10 | 10 | 0.106 to 0.310 |
+| Concurrent, round 1 | 4 | 4 | 0.142 to 0.146 |
+| Concurrent, round 2 | 4 | 4 | 0.258 to 0.270 |
+| Concurrent, round 3 | 4 | 4 | 0.145 to 0.149 |
+
+The four starts of each round lie within 0.004 s of each other. No request
+reached its host bound, and the wrapper sent no signal.
+
+A clean run of this size bounds the failure rate only loosely. If each request
+failed with probability 0.1, as in the retained run, 22 clean requests would
+occur with probability 0.098. The one-sided 95 % upper bound on the failure
+rate after 0 of 22 is 0.127. After 0 of the 10 serial requests alone, it is
+0.259.
+
+### Phases
+
+| Phase | Observation in k186 |
+| --- | --- |
+| Child exit | Exit 0 in every receipt |
+| Wait completion | Before the guest deadline in every sample (`timed_out` false). The instant is unknown. |
+| Capture read | Complete: stdout `ordinary-ok` and empty stderr in every receipt |
+| Handler response | Every request returned one agent receipt |
+| Client deadline | Not reached. The longest request took 0.310 s against 50 s. |
+| App relay | Unknown. No existing seam observes it separately. |
+
+### Guest identity and pool
+
+| Subject | Identity |
+| --- | --- |
+| Guest agent | `/usr/local/bin/testanyware-agent`, sha256 `1282f4cf…8a84`, the same build as the retained failure |
+| Guest OS | macOS 27.0.1, arm64 |
+| Guest pool | `hw.ncpu` 4, `hw.activecpu` 4, `kern.wq_max_threads` 512, `kern.wq_max_constrained_threads` 64 |
+| Host CLI | 2.8.0, sha256 `44b08089…a340` |
+| App executable | sha256 `2be50799…e91c`, CDHash `1997a620…6b96`, team `TA43A4RUP3` |
+| Bundled agent | sha256 `22dd56ce…b9f5`, not the guest agent |
+| Host pool | `hw.ncpu` 16, `kern.wq_max_constrained_threads` 80 |
+
+The host CLI and the app executable differ from the retained run. The guest
+agent is the same build.
+
+The pool read did not observe the agent threads. In the guest, `pgrep -x
+testanyware-agent` printed no PID, so `ps -M -p` failed with a usage error.
+On the host, `pgrep -x` matches a 17-character binary name, so name truncation
+does not explain the miss. The cause is unknown. The plan ran once, and k186
+did not repeat the read.
+
+### Instrumented clone
+
+Leaf k186 ran no instrumented clone. The task file declared the condition
+before the run: a failed sample, or a constrained limit near the demand of the
+workload. Neither held. A probe of the dispatch pool would have had no stalled
+request to observe. The k3 candidate needs every constrained worker but one
+to be busy, which is 63 of 64 in this guest. The k186 workload asked for at most about
+8.
+
+### Owned-resource audit
+
+| Check | Result |
+| --- | --- |
+| Clone | `k186-macos-b1256cae4068418dac994e03f0392f6b`, acquired in 15.238 s |
+| Guest cleanup | Note only. Each request exited, and disposal removes the guest. |
+| Disposal | `disposed`, 3.920 s. The inventory checker then proved absence in 0.147 s. |
+| Ledger | One resource, state `disposed`, no residual |
+| Public VM inventory | Identical before and after |
+| Tart inventory | Same entries. Only the `Accessed` time of the source golden changed. |
+| App process | PID 1488 before and after |
+| Subjects | Every digest equal before and after |
+| Writer | 89 frames sent, 89 acknowledged, 0 failed, 0 dropped |
+
+The run touched no unrelated guest and booted no golden.
+
+### Regression invocation
+
+`mise exec -- task diagnostic:macos-completion-live OUT=<new path>` boots one
+owned clone and runs the frozen plan. `diagnostic:macos-completion-live-check
+RUN=<run dir>` judges a retained run. `diagnostic:macos-completion-live-tools`
+checks the tooling. The live task needs the TestAnyware app and the retained
+golden.
+
 ## Remaining k3 work
 
-The slice leaves these items of k3 to later leaves:
+These items of k3 remain for later leaves:
 
-- A fresh unchanged macOS clone with ten exact serial operations. The guest
-  timeout is 30 s and the host bound is 50 s. A predeclared concurrent control
-  runs on the same build.
-- Guest observation of the dispatch pool, the child exit and the second block,
-  at most one instrumented clone.
+- The cause of the retained op 08 timeout. A clean run of 22 requests does not
+  establish or exclude any candidate.
+- Guest observation of the agent threads, the child exit and the second block
+  during a failing request. The k186 pool read missed the agent process.
 - The intermittent timeouts of `agent:macos:test` on the host (see Owned
-  process fixtures). Leaf k185 delivered the owned fixtures, so the suite no
-  longer stops unrelated processes.
+  process fixtures). That 16-CPU host has a limit of 80 constrained workers.

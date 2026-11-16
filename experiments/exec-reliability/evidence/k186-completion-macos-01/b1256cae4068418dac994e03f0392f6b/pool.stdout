@@ -1,0 +1,9 @@
+{
+  "command": "sysctl hw.ncpu hw.activecpu kern.wq_max_threads kern.wq_max_constrained_threads; pgrep -x testanyware-agent; ps -M -p $(pgrep -x testanyware-agent)",
+  "exit_code": 1,
+  "ok": true,
+  "schema_version": "1.0",
+  "stderr": "ps: option requires an argument -- p\nusage: ps [-AaCcEefhjlMmrSTvwXx] [-O fmt | -o fmt] [-G gid[,gid...]]\n          [-g grp[,grp...]] [-u [uid,uid...]]\n          [-p pid[,pid...]] [-t tty[,tty...]] [-U user[,user...]]\n       ps [-L]",
+  "stdout": "hw.ncpu: 4\nhw.activecpu: 4\nkern.wq_max_threads: 512\nkern.wq_max_constrained_threads: 64",
+  "timed_out": false
+}
