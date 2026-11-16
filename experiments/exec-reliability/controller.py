@@ -209,8 +209,12 @@ def _refuse_evidence_executables(resource: Resource, evidence_root: Path) -> Non
     The comparison is lexical. `os.path.abspath` joins the working directory
     and normalises, and it reads nothing under the evidence root.
     https://docs.python.org/3.12/library/os.path.html#os.path.abspath
+    POSIX lets `abspath` keep exactly two leading slashes, and `commonpath`
+    always returns one. The root takes the `commonpath` spelling so that the
+    two sides of the comparison use the same form.
+    https://pubs.opengroup.org/onlinepubs/9799919799/basedefs/V1_chap04.html#tag_04_16
     """
-    root = os.path.abspath(evidence_root)
+    root = os.path.commonpath([os.path.abspath(evidence_root)])
     for call in (resource.cleanup, resource.dispose, resource.inspect):
         executable = call.argv[0] if call.argv else ""
         if not os.path.isabs(executable):

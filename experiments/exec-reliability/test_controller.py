@@ -1406,6 +1406,21 @@ def test_review_reserved_names_rejected_before_acquisition(tmp_path, name):
     assert not (tmp_path / owned.identity).exists()
 
 
+@pytest.mark.parametrize("executable_slashes", ["/", "//"])
+def test_review_double_slash_root_still_refuses_teardown_under_it(tmp_path, executable_slashes):
+    run_id = uuid.uuid4().hex
+    owned = resource(tmp_path, run_id)
+    evidence = tmp_path / "evidence"
+    executable = executable_slashes + str(evidence / "tool").lstrip("/")
+    argv = (executable, *owned.dispose.argv[1:])
+    owned = replace(owned, dispose=replace(owned.dispose, argv=argv))
+    plan = Plan(run_id, (), (owned,), (PEER,), term_grace=0.15, kill_wait=0.3)
+    with pytest.raises(ValueError, match="evidence root"):
+        execute(plan, Path("//" + str(evidence).lstrip("/")))
+    assert not (tmp_path / owned.identity).exists()
+    assert not evidence.exists()
+
+
 def test_review_receipt_io_exception_cannot_skip_other_disposal(tmp_path, monkeypatch):
     import controller
 
