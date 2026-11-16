@@ -265,6 +265,26 @@ def test_review_mutation_omitting_stream_comparison_misses_a_late_write(tmp_path
     assert module.verify(path)["ok"] is True
 
 
+def test_verify_refuses_a_run_directory_from_before_the_writer(tmp_path):
+    # A run directory from before the writer has no storage-close record and no
+    # storage section. Its own identity, files and streams still verify.
+    path, _ = run(tmp_path, [call("bytes", "bytes")])
+    module = retention()
+    result = json.loads((path / "result.json").read_text())
+    del result["storage"]
+    for name in ("result.json", "storage-close.json", "result-identity.json"):
+        (path / name).unlink()
+    (path / "result.json").write_text(json.dumps(result, indent=2) + "\n")
+    module.write_identity(path)
+    report = module.verify(path)
+    assert report["identity"] == "ok"
+    assert all(state == "unchanged" for state in file_states(report).values())
+    assert all(state == "unchanged" for state in stream_states(report).values())
+    assert report["ok"] is False
+    assert report["completion"]["complete"] is False
+    assert any("storage-close" in reason for reason in report["completion"]["reasons"])
+
+
 def test_review_verify_command_reports_and_exits_on_the_verdict(tmp_path):
     path, _ = run(tmp_path, [call("bytes", "bytes")])
     script = HERE / "retention.py"

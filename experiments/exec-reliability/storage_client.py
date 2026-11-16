@@ -122,6 +122,8 @@ class StorageClient:
         self.readiness_reason: str | None = None
         self.readiness_ack: dict[str, object] | None = None
         self.first_failure: str | None = None
+        # The acknowledgement that reported the first failure, if one did.
+        self.failure_ack: dict[str, object] | None = None
         self.spawn_error: str | None = None
 
         self.pid: int | None = None
@@ -141,6 +143,7 @@ class StorageClient:
         self._ack_fd: int | None = None
         self._outbox: deque[_Frame] = deque()
         self.outbox_bytes = 0
+        self.outbox_high_water = 0
         self.drops: dict[str, int] = {}
         self.abandoned: dict[str, int] = {}
         self._seq = 0
@@ -230,6 +233,14 @@ class StorageClient:
         """Send KILL to the exact unreaped writer PID. Later turns reap it within the grace."""
         self._kill(time.monotonic())
 
+    def fail(self, cause: str) -> None:
+        """Fail storage for a cause that the caller detects, such as a missed gate.
+
+        The failure is sticky. It abandons the outbox and closes the frame
+        pipe, so a live writer reads EOF and exits without a close.
+        """
+        self._fail(cause)
+
     # Outbox ------------------------------------------------------------------
 
     def enqueue(self, op: str, name: str, payload: bytes = b"", **fields: object) -> int | None:
@@ -255,11 +266,17 @@ class StorageClient:
         self._seq += 1
         self._outbox.append(_Frame(self._seq, name, data))
         self.outbox_bytes += len(data)
+        self.outbox_high_water = max(self.outbox_high_water, self.outbox_bytes)
         self._sent[self._seq] = op
         return self._seq
 
     def ack(self, seq: int) -> dict[str, object] | None:
         return self.acks.get(seq)
+
+    @property
+    def next_seq(self) -> int:
+        """The sequence number that the next queued frame receives."""
+        return self._seq + 1
 
     @property
     def queued(self) -> int:
@@ -368,7 +385,10 @@ class StorageClient:
                 _close(self._ack_fd)
                 self._ack_fd = None
                 self._parse_acks()
-                self._fail("writer_exit" if self.reaped_at is not None else "ack_eof")
+                # Only the writer holds the write end of this pipe, and it
+                # closes it only by exiting. EOF therefore reports the exit,
+                # which can come before the exact-PID reap observes it.
+                self._fail("writer_exit")
                 return
             self.turn_read += len(data)
             self._ack_buffer += data
@@ -412,7 +432,15 @@ class StorageClient:
                 self.readiness_ack = ack
                 self.ready_at = now
                 self.storage = "ready"
-        elif seq == self._close_seq and ack.get("status") == "ok" and self.storage == "ready":
+        elif ack.get("status") != "ok":
+            # An error acknowledgement fails storage. The cause is the errno
+            # name that the writer reports.
+            code = ack.get("errno")
+            cause = errno.errorcode.get(code, "EIO") if isinstance(code, int) else "EIO"
+            if self.storage == "ready":
+                self.failure_ack = ack
+            self._fail(cause)
+        elif seq == self._close_seq and self.storage == "ready":
             self.storage = "closed"
         return True
 

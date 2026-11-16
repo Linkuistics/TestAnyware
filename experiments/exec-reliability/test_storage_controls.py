@@ -5,22 +5,22 @@ evidence writer, every control fails, and a strict expected-failure marker
 names the slice that removes it. The marker accepts only an assertion failure
 or a watchdog expiry. Any other exception fails the test.
 
-On this build a fault fixture stalls or breaks the storage functions that the
-controller calls today: write_json, the stream opens at the start of _call,
-_hashes and write_identity. A stall is a FIFO open with no peer, which a
-signal can interrupt. The slice that removes a marker switches the fixture to
-the writer wrapper and keeps the assertions unchanged. The adapters
-storage_outcome and writer_descriptors are fixtures in the same sense.
+A fault fixture runs the writer under writer_faults.py, which stops the
+writer, ends it or fails one of its file calls at a named record. The
+assertions are the ones that the controls had before the writer. An autouse
+fixture records every storage client and fails a test that leaves a writer
+unreaped. A reaped writer cannot remain stopped. The adapters storage_outcome
+and writer_descriptors are fixtures in the same sense.
 """
 
 from __future__ import annotations
 
 import errno
 import json
+import math
 import os
 import shutil
 import signal
-import stat
 import sys
 import time
 import uuid
@@ -28,13 +28,14 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
-from typing import Literal, cast
+from typing import cast
 
 import pytest
 
 import controller
 from controller import Call, Plan, Resource, execute
 from retention import completion
+from storage_client import StorageClient
 from writer_client import WRITER, healthy_run
 
 HERE = Path(__file__).resolve().parent
@@ -143,91 +144,88 @@ def watchdog(seconds: float, on_expiry: Callable[[], None]) -> Iterator[None]:
         signal.signal(signal.SIGALRM, previous)
 
 
-class StorageFault:
-    """One storage fault over the controller's current storage functions.
+@dataclass
+class ClientHooks:
+    """Per-test callbacks on the storage client that the controller creates."""
 
-    The fault starts at the record named by `at`. With `persist`, every later
-    storage call has the same fault, as with a stopped or dead writer. A stall
-    blocks on a FIFO open with no peer. A break raises a broken pipe.
+    on_ready: Callable[[StorageClient], None] | None = None
+    on_failure: Callable[[StorageClient, str], None] | None = None
+
+
+HOOKS = ClientHooks()
+CLIENTS: list[StorageClient] = []
+
+
+class RecordedClient(StorageClient):
+    """A storage client that the controls record and observe."""
+
+    def __init__(self, command: tuple[str, ...] = WRITER, **bounds: float | int) -> None:
+        super().__init__(command, **cast(dict[str, float], bounds))
+        CLIENTS.append(self)
+
+    def start(self, root: str, run: str, plan: bytes, subjects: list[str]) -> bool:
+        ready = super().start(root, run, plan, subjects)
+        if ready and HOOKS.on_ready is not None:
+            HOOKS.on_ready(self)
+        return ready
+
+    def fail(self, cause: str) -> None:
+        super().fail(cause)
+        if HOOKS.on_failure is not None:
+            HOOKS.on_failure(self, cause)
+
+
+@pytest.fixture(autouse=True)
+def recorded_clients(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[StorageClient]]:
+    """Record each storage client, and fail a test that leaves a writer unreaped."""
+    CLIENTS.clear()
+    monkeypatch.setattr(HOOKS, "on_ready", None)
+    monkeypatch.setattr(HOOKS, "on_failure", None)
+    monkeypatch.setattr(controller, "StorageClient", RecordedClient)
+    yield CLIENTS
+    live = [client.pid for client in CLIENTS if client.pid is not None and client.reaped_at is None]
+    for pid in live:
+        # Clean up before the failure is reported, so no writer outlives the test.
+        os.kill(pid, signal.SIGKILL)
+        os.waitpid(pid, 0)
+    if live:
+        # Not an AssertionError: the expected-failure markers accept that type
+        # in every phase, so it would hide a live writer behind a marker.
+        pytest.fail(f"the run left writers unreaped: {live}")
+
+
+class WriterFault:
+    """Run the writer under writer_faults.py with the given faults.
+
+    Each fault is `CALL:NAME`. `stall` stops the writer at the open of NAME,
+    `exit` ends it there, and `deny` fails that open with EACCES. The writer
+    stays stopped until it receives KILL or, with `resume`, CONT.
     """
 
     def __init__(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        fifo: Path,
-        *,
-        at: str,
-        action: Literal["stall", "break", "observe"],
-        persist: bool,
-        after: bool = True,
-        on_trigger: Callable[[], None] | None = None,
+        *faults: str,
+        on_ready: Callable[[StorageClient], None] | None = None,
+        resume_on: str | None = None,
     ) -> None:
-        self.fifo = fifo
-        self.at = at
-        self.action = action
-        self.persist = persist
-        self.after = after
-        self.on_trigger = on_trigger
-        self.active = False
-        self.released = False
-        self.seen: list[str] = []
-        os.mkfifo(fifo)
-        write_json = controller.write_json
-        call = controller._call
-        hashes = controller._hashes
-        write_identity = controller.write_identity
+        command = (sys.executable, "-I", str(HERE / "writer_faults.py"), *faults)
+        monkeypatch.setattr(controller, "WRITER", command)
+        if on_ready is not None:
+            monkeypatch.setattr(HOOKS, "on_ready", on_ready)
+        if resume_on is not None:
 
-        def faulty_write_json(path: Path, value: object) -> None:
-            self.storage(path.name)
-            write_json(path, value)
-            self.stored(path.name)
+            def resume(client: StorageClient, cause: str) -> None:
+                if cause == resume_on and client.pid is not None and client.reaped_at is None:
+                    os.kill(client.pid, signal.SIGCONT)
 
-        def faulty_call(
-            selected: Call, root: Path, plan: Plan, inspection: controller._InspectionState
-        ) -> dict[str, object]:
-            self.storage(f"{selected.name}.stdout")
-            return call(selected, root, plan, inspection)
-
-        def faulty_hashes(subjects: tuple[Path, ...]) -> dict[str, str]:
-            self.storage("subjects")
-            return hashes(subjects)
-
-        def faulty_identity(root: Path) -> None:
-            self.storage("identity")
-            write_identity(root)
-
-        monkeypatch.setattr(controller, "write_json", faulty_write_json)
-        monkeypatch.setattr(controller, "_call", faulty_call)
-        monkeypatch.setattr(controller, "_hashes", faulty_hashes)
-        monkeypatch.setattr(controller, "write_identity", faulty_identity)
-
-    def storage(self, name: str) -> None:
-        self.seen.append(name)
-        if not self.after and name == self.at:
-            self.trigger()
-        if not self.active or self.released:
-            return
-        if not self.persist:
-            self.active = False
-        if self.action == "stall":
-            # Opening a FIFO for reading blocks until a writer opens it.
-            # https://man7.org/linux/man-pages/man7/fifo.7.html
-            descriptor = os.open(self.fifo, os.O_RDONLY)
-            os.close(descriptor)
-        elif self.action == "break":
-            raise BrokenPipeError(errno.EPIPE, os.strerror(errno.EPIPE))
-
-    def stored(self, name: str) -> None:
-        if self.after and name == self.at:
-            self.trigger()
-
-    def trigger(self) -> None:
-        self.active = True
-        if self.on_trigger is not None:
-            self.on_trigger()
+            monkeypatch.setattr(HOOKS, "on_failure", resume)
 
     def release(self) -> None:
-        self.released = True
+        """Send KILL to every unreaped writer. The controller then reaps it."""
+        for client in CLIENTS:
+            if client.pid is not None and client.reaped_at is None and not client.residual:
+                os.kill(client.pid, signal.SIGKILL)
 
 
 @dataclass(frozen=True)
@@ -264,11 +262,30 @@ class StorageOutcome:
 def storage_outcome(run: Run) -> StorageOutcome | None:
     """Return the terminal storage outcome that the controller reports.
 
-    On this build execute returns only the run directory, so no outcome exists.
-    The slice that adds the outcome binds this adapter to it.
+    execute returns the run directory with the controller's storage outcome.
+    A phase that has not finished reports an infinite finish.
     """
     storage = getattr(run.returned, "storage", None)
-    return storage if isinstance(storage, StorageOutcome) else None
+    if not isinstance(storage, controller.StorageOutcome):
+        return None
+    return StorageOutcome(
+        publication=storage.publication,
+        writer_reaped=storage.writer_reaped,
+        readiness=storage.readiness,
+        first_failure=storage.first_failure,
+        drops=storage.drops,
+        phases={
+            name: Phase(
+                phase.started,
+                phase.deadline,
+                math.inf if phase.finished is None else phase.finished,
+                phase.outcome,
+            )
+            for name, phase in storage.phases.items()
+        },
+        killed_at=storage.killed_at,
+        reaped_at=storage.reaped_at,
+    )
 
 
 def writer_descriptors(run: Run) -> Mapping[int, str] | None:
@@ -337,7 +354,7 @@ def plan(run_id: str, calls: tuple[Call, ...] = (), resources: tuple[Resource, .
     )
 
 
-def run_control(tmp_path: Path, selected: Plan, fault: StorageFault | None, bound: float) -> Run:
+def run_control(tmp_path: Path, selected: Plan, fault: WriterFault | None, bound: float) -> Run:
     root = tmp_path / "evidence"
     returned: object = None
     raised: OSError | None = None
@@ -459,9 +476,7 @@ def test_control_stalled_writer(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
     workers = capture_workers(monkeypatch)
-    fault = StorageFault(
-        monkeypatch, tmp_path / "stall", at="acquire.json", action="stall", persist=True
-    )
+    fault = WriterFault(monkeypatch, "stall:acquire.json")
     selected = plan(run_id, (workload(tmp_path),), (first,))
     run = run_control(tmp_path, selected, fault, RUN_WATCHDOG)
     assert acquired(tmp_path, first) is not None, "the first resource was never acquired"
@@ -474,14 +489,7 @@ def test_control_stalled_writer(tmp_path, monkeypatch):
 def test_control_blocking_storage_call(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
-    fault = StorageFault(
-        monkeypatch,
-        tmp_path / "stall",
-        at="intent-1.json",
-        action="stall",
-        persist=False,
-        after=False,
-    )
+    fault = WriterFault(monkeypatch, "stall:intent-1.json")
     workers = capture_workers(monkeypatch)
     selected = plan(run_id, (workload(tmp_path),), (first,))
     run = run_control(tmp_path, selected, fault, RUN_WATCHDOG)
@@ -499,32 +507,14 @@ def test_control_blocking_storage_call(tmp_path, monkeypatch):
     assert_phase(outcome, "intent-1", INTENT_GATE)
 
 
-@removed_by("storage-cutover-k166", "a storage error stops owned teardown")
 def test_control_storage_error(tmp_path, monkeypatch):
-    if os.geteuid() == 0:
-        pytest.skip("unavailable: root ignores the removed write permission")
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
     second = vm(tmp_path, run_id, "second-")
-    directory = tmp_path / "evidence" / run_id
-
-    def deny() -> None:
-        directory.chmod(stat.S_IRUSR | stat.S_IXUSR)
-
-    fault = StorageFault(
-        monkeypatch,
-        tmp_path / "unused",
-        at="acquire.json",
-        action="observe",
-        persist=False,
-        on_trigger=deny,
-    )
+    # The writer's create of the next record after the first acquisition fails.
+    fault = WriterFault(monkeypatch, "deny:intent-2.json")
     workers = capture_workers(monkeypatch)
-    try:
-        run = run_control(tmp_path, plan(run_id, (), (first, second)), fault, RUN_WATCHDOG)
-    finally:
-        if directory.exists():
-            directory.chmod(stat.S_IRWXU)
+    run = run_control(tmp_path, plan(run_id, (), (first, second)), fault, RUN_WATCHDOG)
     start = acquired(tmp_path, first)
     assert start is not None, "the first resource was never acquired"
     assert acquired(tmp_path, second) is None, "forward progress continued after the error"
@@ -538,14 +528,12 @@ def test_control_storage_error(tmp_path, monkeypatch):
     assert outcome.first_failure == errno.errorcode[errno.EACCES]
 
 
-@removed_by("storage-cutover-k166", "a dead storage path stops owned teardown")
 def test_control_writer_death(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
     second = vm(tmp_path, run_id, "second-")
-    fault = StorageFault(
-        monkeypatch, tmp_path / "unused", at="acquire.json", action="break", persist=True
-    )
+    # The writer ends when the first acquisition's receipt arrives.
+    fault = WriterFault(monkeypatch, "exit:acquire.json")
     workers = capture_workers(monkeypatch)
     run = run_control(tmp_path, plan(run_id, (), (first, second)), fault, RUN_WATCHDOG)
     start = acquired(tmp_path, first)
@@ -566,9 +554,9 @@ def test_control_writer_death(tmp_path, monkeypatch):
 def test_control_outbox_overflow(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     marker = tmp_path / "later-ran"
-    fault = StorageFault(
-        monkeypatch, tmp_path / "stall", at="subjects-before.json", action="stall", persist=True
-    )
+    # Until pipe-capture-k167 the flood goes to a file, so the writer stops at
+    # the first record after it.
+    fault = WriterFault(monkeypatch, "stall:flood.json")
     calls = (script("flood", FLOOD, FLOOD_BYTES), script("later", TOUCH, marker))
     run = run_control(tmp_path, plan(run_id, calls), fault, RUN_WATCHDOG)
     assert not marker.exists(), "forward progress continued after the outbox drop"
@@ -577,14 +565,11 @@ def test_control_outbox_overflow(tmp_path, monkeypatch):
     assert outcome.drops.get("flood.stdout", 0) > 0
 
 
-@removed_by("storage-cutover-k166", "a missing readiness holds the controller")
 def test_control_readiness_failure(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
     workers = capture_workers(monkeypatch)
-    fault = StorageFault(
-        monkeypatch, tmp_path / "stall", at="plan.json", action="stall", persist=True, after=False
-    )
+    fault = WriterFault(monkeypatch, "stall:plan.json")
     selected = plan(run_id, (workload(tmp_path),), (first,))
     run = run_control(tmp_path, selected, fault, READINESS_WATCHDOG)
     assert run.elapsed <= READINESS_WATCHDOG
@@ -606,14 +591,7 @@ def test_control_intent_gate(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
     second = vm(tmp_path, run_id, "second-")
-    fault = StorageFault(
-        monkeypatch,
-        tmp_path / "stall",
-        at="intent-2.json",
-        action="stall",
-        persist=True,
-        after=False,
-    )
+    fault = WriterFault(monkeypatch, "stall:intent-2.json")
     workers = capture_workers(monkeypatch)
     run = run_control(tmp_path, plan(run_id, (), (first, second)), fault, RUN_WATCHDOG)
     assert acquired(tmp_path, second) is None, "the second resource was acquired past the gate"
@@ -627,6 +605,41 @@ def test_control_intent_gate(tmp_path, monkeypatch):
     assert outcome.first_failure == "intent_gate"
     gate = assert_phase(outcome, "intent-2", INTENT_GATE)
     assert gate.outcome == "missed", f"the intent-2 gate ended {gate.outcome}"
+
+
+def test_intent_gate_with_resumed_writer(tmp_path, monkeypatch):
+    """The intent-2 gate misses while the writer is stopped, and the writer resumes.
+
+    The writer stops at the open of intent-2 and receives CONT only after the
+    gate deadline fails storage. The resumed writer then stores intent-2,
+    reads the end of its frame pipe and exits without a close. So the close
+    wait ends, which the persistent stall in test_control_intent_gate does
+    not establish.
+    """
+    run_id = uuid.uuid4().hex
+    first = vm(tmp_path, run_id)
+    second = vm(tmp_path, run_id, "second-")
+    fault = WriterFault(monkeypatch, "stall:intent-2.json", resume_on="intent_gate")
+    workers = capture_workers(monkeypatch)
+    selected = plan(run_id, (workload(tmp_path),), (first, second))
+    run = run_control(tmp_path, selected, fault, RUN_WATCHDOG)
+    assert run.raised is None, f"the controller raised {run.raised!r}"
+    assert isinstance(run.returned, Path) and run.returned == run.directory
+    assert acquired(tmp_path, second) is None, "the second resource was acquired past the gate"
+    assert not entries(tmp_path, "workload"), "a workload ran after the forward stop"
+    start = acquired(tmp_path, first)
+    assert start is not None, "the first resource was never acquired"
+    assert_teardown_unchanged(tmp_path, first, start.monotonic, workers)
+    outcome = storage_outcome(run)
+    assert outcome is not None, "the run reported no storage outcome"
+    assert outcome.first_failure == "intent_gate"
+    gate = assert_phase(outcome, "intent-2", INTENT_GATE)
+    assert gate.outcome == "missed", f"the intent-2 gate ended {gate.outcome}"
+    assert outcome.writer_reaped is True
+    assert outcome.publication == "incomplete"
+    assert (run.directory / "intent-2.json").exists(), "the resumed writer did not store intent-2"
+    verdict = completion(run.directory)
+    assert verdict["complete"] is False
 
 
 FILESYSTEM_EVENTS = frozenset(
@@ -703,17 +716,10 @@ def test_control_no_controller_storage_calls(tmp_path, monkeypatch):
     first = vm(tmp_path, run_id)
     window: list[list[tuple[str, str]]] = []
 
-    def ready() -> None:
+    def ready(_client: StorageClient) -> None:
         window.append(record_audit_events())
 
-    fault = StorageFault(
-        monkeypatch,
-        tmp_path / "unused",
-        at="subjects-before.json",
-        action="observe",
-        persist=False,
-        on_trigger=ready,
-    )
+    fault = WriterFault(monkeypatch, on_ready=ready)
     selected = plan(run_id, (workload(tmp_path),), (first,))
     try:
         run = run_control(tmp_path, selected, fault, RUN_WATCHDOG)

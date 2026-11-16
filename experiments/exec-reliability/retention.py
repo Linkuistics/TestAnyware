@@ -108,7 +108,12 @@ def _load(path: Path) -> tuple[object, str]:
 
 
 def verify(root: Path) -> dict[str, object]:
-    """Compare current files with the identity and current streams with receipt pins."""
+    """Compare current files with the identity and current streams with receipt pins.
+
+    Every run directory must also pass the completion check. A directory from
+    before the writer has no storage-close record, so it fails that check:
+    nothing in it shows that publication completed.
+    """
     root = root.resolve()
     started = time.monotonic()
     identity, identity_state = _load(root / IDENTITY)
@@ -148,6 +153,8 @@ def verify(root: Path) -> dict[str, object]:
     identity_ok = identity_state == "ok"
     files_ok = all(item["state"] == "unchanged" for item in files) and not unlisted
     streams_ok = result_state == "ok" and all(item["state"] == "unchanged" for item in streams)
+    authority = completion(root)
+    complete_ok = authority["complete"] is True
     return {
         "run_dir": str(root),
         "started_monotonic": started,
@@ -157,7 +164,8 @@ def verify(root: Path) -> dict[str, object]:
         "files": files,
         "unlisted": unlisted,
         "streams": streams,
-        "ok": identity_ok and files_ok and streams_ok,
+        "completion": authority,
+        "ok": identity_ok and files_ok and streams_ok and complete_ok,
     }
 
 
@@ -183,8 +191,7 @@ def completion(root: Path) -> dict[str, object]:
 
     docs/specs/diagnostic-evidence-storage.md, "Completion authority". A run
     directory is complete only when every rule holds. Each failed rule adds a
-    reason. verify() does not call this check until the controller uses the
-    writer.
+    reason. verify() applies this check to every run directory.
     """
     root = root.resolve()
     started = time.monotonic()

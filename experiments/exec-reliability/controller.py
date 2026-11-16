@@ -23,8 +23,11 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal, TypedDict, cast
 
+import storage_client
+import writer
 from inspection import fork_admission
-from retention import IDENTITY, observe_file, write_identity
+from retention import IDENTITY, STORAGE_CLOSE, observe_file
+from storage_client import OUTBOX_CAP, READINESS_CEILING, WRITER, StorageClient
 from turns import Turn, run_turns
 from worker_capture import (
     BootstrapBounds,
@@ -34,6 +37,11 @@ from worker_capture import (
     Worker,
     capture_helper,
 )
+from writer import MAX_PAYLOAD
+
+# docs/specs/diagnostic-evidence-storage.md, "Phases and bounds": each intent
+# gate adds at most 2 seconds before its acquisition.
+INTENT_GATE_CEILING = 2.0
 
 
 @dataclass(frozen=True)
@@ -68,13 +76,33 @@ class Plan:
     bootstrap: BootstrapBounds = BootstrapBounds()
     failure_bounds: FailureBounds = FailureBounds()
     close_bounds: CloseBounds = CloseBounds()
+    readiness_bound: float = READINESS_CEILING
+    intent_gate: float = INTENT_GATE_CEILING
+    outbox_cap: int = OUTBOX_CAP
+
+
+def _json_bytes(value: object) -> bytes:
+    return json.dumps(value, indent=2, default=_encode).encode() + b"\n"
+
+
+def _pin(data: bytes) -> dict[str, object]:
+    return {"length": len(data), "sha256": hashlib.sha256(data).hexdigest()}
 
 
 def write_json(path: Path, value: object) -> None:
-    """Exclusive creation prevents replacement of an earlier receipt."""
-    with path.open("x") as stream:
-        json.dump(value, stream, indent=2, default=_encode)
-        stream.write("\n")
+    """Store one JSON record. Neither route replaces an earlier record.
+
+    A record for a run directory that `execute()` is writing goes to that
+    run's writer. The writer creates its file exclusively. Any other path is
+    created exclusively by this process.
+    """
+    data = _json_bytes(value)
+    storage = _run_storage.get(path.parent)
+    if storage is not None:
+        storage.record(path.name, data)
+        return
+    with path.open("xb") as stream:
+        stream.write(data)
 
 
 def _encode(value: object) -> str:
@@ -85,7 +113,10 @@ def _encode(value: object) -> str:
     raise TypeError(type(value).__name__)
 
 
-def _hashes(subjects: tuple[Path, ...]) -> dict[str, str]:
+# The writer now hashes the subjects. This function stays as the seam that
+# the bound validation tests patch: a plan that fails validation must never
+# reach subject hashing, the writer or a fork.
+def _hashes(subjects: tuple[Path, ...]) -> dict[str, str]:  # pyright: ignore[reportUnusedFunction]
     result: dict[str, str] = {}
     for subject in subjects:
         try:
@@ -110,6 +141,13 @@ def _validate(plan: Plan) -> None:
         raise ValueError("this controller currently supports macOS hosts only")
     if not re.fullmatch(r"[0-9a-f]{32}", plan.run_id):
         raise ValueError("run_id must be uuid.uuid4().hex")
+    if not (math.isfinite(plan.readiness_bound) and 0 < plan.readiness_bound <= READINESS_CEILING):
+        raise ValueError(f"the readiness bound must be in (0, {READINESS_CEILING:g}] s")
+    if not (math.isfinite(plan.intent_gate) and 0 < plan.intent_gate <= INTENT_GATE_CEILING):
+        raise ValueError(f"the intent gate must be in (0, {INTENT_GATE_CEILING:g}] s")
+    cap = cast(object, plan.outbox_cap)
+    if not isinstance(cap, int) or isinstance(cap, bool) or cap <= 0:
+        raise ValueError("the outbox cap must be a positive integer")
     if not all(math.isfinite(n) and 0 < n <= 2 for n in (plan.term_grace, plan.kill_wait)):
         raise ValueError("termination bounds must be positive and at most two seconds")
     calls = list(plan.calls)
@@ -131,7 +169,13 @@ def _validate(plan: Plan) -> None:
             raise ValueError("absence inspection needs an exact stdout oracle")
     names: set[str] = set()
     for call in calls:
-        reserved = {"plan", "result", "subjects-before", Path(IDENTITY).stem}
+        reserved = {
+            "plan",
+            "result",
+            "subjects-before",
+            Path(IDENTITY).stem,
+            Path(STORAGE_CLOSE).stem,
+        }
         if call.name in reserved or call.name.startswith("intent-"):
             raise ValueError("call name is reserved for controller receipts")
         if not re.fullmatch(r"[a-zA-Z0-9_-]+", call.name) or call.name in names:
@@ -516,6 +560,8 @@ class _InspectionState:
     failure: _InspectionFailure | None = None
     worker: Worker | None = None
     retirements: list[Turn] = field(default_factory=list[Turn])
+    # The run's storage. Its turn drains the outbox beside every command wait.
+    storage: _RunStorage | None = None
 
     def advance_worker(self) -> float | None:
         assert self.worker is not None
@@ -545,17 +591,21 @@ class _InspectionState:
             self.worker.close()
 
     def drive(self, turn: Turn) -> None:
-        """Advance failed worker shutdown beside the active public command.
+        """Advance failed worker shutdown and storage beside the active command.
 
         A finished command yields to the next phase immediately. The worker
         retains its close state and fixed cutoffs across every such phase.
+        The storage turn drains the outbox and reads acknowledgements, so a
+        storage failure is seen while the command runs. It never delays the
+        command, because each storage turn is bounded and nonblocking.
         """
         worker = self.worker
-        if (
+        shutdown = not (
             worker is None
             or (not worker.closed and not self.retirements)
             or (worker.shutdown_finished is not None)
-        ):
+        )
+        if not shutdown and self.storage is None:
             run_turns(turn)
             return
         finished = False
@@ -571,10 +621,19 @@ class _InspectionState:
                 return None
             return self.advance_worker()
 
-        run_turns(
-            Turn(advance_call, safety=turn.safety, readiness=turn.readiness),
-            Turn(advance_worker, safety=True, readiness=self.worker_readiness),
-        )
+        turns = [Turn(advance_call, safety=turn.safety, readiness=turn.readiness)]
+        if shutdown:
+            turns.append(Turn(advance_worker, safety=True, readiness=self.worker_readiness))
+        storage = self.storage
+        if storage is not None:
+
+            def advance_storage() -> float | None:
+                if finished:
+                    return None
+                return storage.client.advance()
+
+            turns.append(Turn(advance_storage, readiness=storage.client.interests))
+        run_turns(*turns)
 
     def snapshot(
         self,
@@ -877,15 +936,342 @@ def _safe_call(
         }
 
 
-def execute(plan: Plan, evidence_root: Path) -> Path:
+# docs/specs/diagnostic-evidence-storage.md, "Result snapshot": the
+# subjects-after wait ends by S + W/2. Until storage-publication-k168 adds the
+# publication window, the wait uses the largest W/2, which is 5 seconds.
+SUBJECTS_AFTER_BOUND = 5.0
+
+
+@dataclass(frozen=True)
+class StoragePhase:
+    """One storage phase: its absolute start and deadline, end and outcome."""
+
+    started: float
+    deadline: float
+    finished: float | None
+    outcome: str
+
+
+@dataclass(frozen=True)
+class StorageOutcome:
+    """The storage state that `execute()` reports in memory after the run.
+
+    The publication bounds and the terminal storage section arrive with
+    storage-publication-k168. Until then, `publication` says `complete` only
+    for an `ok` close acknowledgement and a reaped writer.
+    """
+
+    readiness: str
+    readiness_reason: str | None
+    first_failure: str | None
+    forward_stop: str | None
+    publication: str
+    writer_reaped: bool
+    exit_status: int | None
+    residual: bool
+    killed_at: float | None
+    reaped_at: float | None
+    drops: dict[str, int]
+    abandoned: dict[str, int]
+    phases: dict[str, StoragePhase]
+    snapshot: dict[str, object] | None
+    close_ack: dict[str, object] | None
+
+
+class RunDirectory(Path):
+    """The run directory. `storage` holds the run's storage outcome.
+
+    Python 3.12 supports subclasses of `Path`
+    (https://docs.python.org/3.12/whatsnew/3.12.html#pathlib). A derived path,
+    such as `directory / "result.json"`, has no storage outcome.
+    """
+
+    storage: StorageOutcome | None = None
+
+
+class _RunStorage:
+    """Send one run's records to its writer and keep the storage state.
+
+    Storage failure is sticky. Once storage is not ready, `healthy()` is
+    False and the controller stops forward progress.
+    """
+
+    def __init__(self, plan: Plan, root: Path) -> None:
+        self.plan = plan
+        self.root = root
+        # Read the module globals at call time, so a test can substitute the
+        # writer command or the client.
+        self.client = StorageClient(
+            WRITER, readiness_bound=plan.readiness_bound, outbox_cap=plan.outbox_cap
+        )
+        self.records: dict[int, str] = {}
+        self.digests: dict[str, dict[str, object]] = {}
+        self.phases: dict[str, StoragePhase] = {}
+        self.forward_stop: str | None = None
+        self.close_ack: dict[str, object] | None = None
+        self.result_snapshot: dict[str, object] | None = None
+
+    # Readiness ---------------------------------------------------------------
+
+    def start(self, plan: bytes, subjects: tuple[Path, ...]) -> dict[str, str]:
+        """Start the writer and return the subjects-before digests.
+
+        Without readiness, every subject digest is `unavailable:storage`.
+        """
+        client = self.client
+        self.records[client.next_seq] = "plan"
+        self.digests["plan"] = _pin(plan)
+        names = [str(subject) for subject in subjects]
+        client.start(str(self.root.parent), self.root.name, plan, names)
+        if client.spawned_at is not None and client.readiness_deadline is not None:
+            self.phases["readiness"] = StoragePhase(
+                client.spawned_at,
+                client.readiness_deadline,
+                client.ready_at if client.readiness == "ready" else client.failed_at,
+                client.readiness,
+            )
+        ack = client.readiness_ack
+        if client.storage == "ready" and ack is not None:
+            if ack.get("run_dir") != str(self.root):
+                client.fail("run_dir")
+        if not self.healthy() or ack is None:
+            return {name: "unavailable:storage" for name in names}
+        digests = ack.get("subjects")
+        if not isinstance(digests, dict) or set(cast(dict[str, object], digests)) != set(names):
+            client.fail("protocol")
+            return {name: "unavailable:storage" for name in names}
+        return cast(dict[str, str], digests)
+
+    def healthy(self) -> bool:
+        if self.client.storage != "ready":
+            self._stop()
+        return self.forward_stop is None
+
+    def _stop(self) -> None:
+        if self.forward_stop is None:
+            client = self.client
+            self.forward_stop = client.first_failure or client.readiness_reason or client.storage
+
+    # Records -----------------------------------------------------------------
+
+    def record(self, name: str, data: bytes) -> int | None:
+        """Serialise one record into the outbox. Return its first sequence number.
+
+        A record larger than one frame becomes a create and appends. A drop
+        fails storage. The result record gets no digest entry.
+        """
+        client = self.client
+        if name != "result":
+            self.digests[name] = _pin(data)
+        first: int | None = None
+        for offset in range(0, max(len(data), 1), MAX_PAYLOAD):
+            chunk = data[offset : offset + MAX_PAYLOAD]
+            if offset:
+                op = "append"
+            else:
+                op = "result" if name == "result" else "create"
+            seq = client.enqueue(op, name, chunk)
+            if seq is None:
+                if client.drops.get(name):
+                    client.fail("outbox_drop")
+                self._stop()
+                return first
+            self.records[seq] = name
+            first = seq if first is None else first
+        return first
+
+    # P2: intent gate ---------------------------------------------------------
+
+    def gate(self, index: int, data: bytes, drive: Callable[[Turn], None]) -> bool:
+        """Store intent record `index` and wait for its acknowledgement.
+
+        The wait runs as scheduler turns and ends by the gate deadline. A
+        missed, late or failed acknowledgement fails storage, so the
+        resource is never acquired.
+        """
+        if not self.healthy():
+            return False
+        name = f"intent-{index}"
+        started = time.monotonic()
+        deadline = started + self.plan.intent_gate
+        seq = self.record(f"{name}.json", data)
+        client = self.client
+
+        def advance() -> float | None:
+            wake = client.advance()
+            if seq is None or client.ack(seq) is not None or client.storage != "ready":
+                return None
+            if time.monotonic() >= deadline:
+                return None
+            return min(wake, deadline)
+
+        if seq is not None:
+            drive(Turn(advance, readiness=client.interests))
+        finished = time.monotonic()
+        ack = client.ack(seq) if seq is not None else None
+        if ack is not None and ack.get("status") == "ok" and finished <= deadline:
+            outcome = "acknowledged"
+        elif ack is not None and ack.get("status") == "ok":
+            outcome = "late"
+        elif ack is not None or client.storage != "ready":
+            outcome = "failed"
+        else:
+            outcome = "missed"
+        if outcome in ("late", "missed"):
+            client.fail("intent_gate")
+        self.phases[name] = StoragePhase(started, deadline, finished, outcome)
+        return outcome == "acknowledged" and self.healthy()
+
+    # After teardown ----------------------------------------------------------
+
+    def subjects_after(self, subjects: tuple[Path, ...]) -> dict[str, str]:
+        names = [str(subject) for subject in subjects]
+        unavailable = {name: "unavailable:storage" for name in names}
+        if not self.healthy():
+            return unavailable
+        client = self.client
+        seq = client.enqueue("subjects", "subjects-after")
+        if seq is None:
+            self._stop()
+            return unavailable
+        self.records[seq] = "subjects-after"
+        deadline = time.monotonic() + SUBJECTS_AFTER_BOUND
+        run_turns(
+            client.turn(
+                lambda: (
+                    client.ack(seq) is not None
+                    or client.storage != "ready"
+                    or time.monotonic() >= deadline
+                )
+            )
+        )
+        ack = client.ack(seq)
+        digests = ack.get("subjects") if ack is not None and ack.get("status") == "ok" else None
+        if not isinstance(digests, dict) or set(cast(dict[str, object], digests)) != set(names):
+            return unavailable
+        return cast(dict[str, str], digests)
+
+    def snapshot(self) -> dict[str, object]:
+        """Return the result's storage section, as of the result's own sequence."""
+        client = self.client
+        sequence = client.next_seq
+        enqueued = time.monotonic()
+        failed = {seq: ack for seq, ack in client.acks.items() if ack.get("status") != "ok"}
+        failure: dict[str, object] | None = None
+        if client.first_failure is not None:
+            ack = client.failure_ack
+            seq = ack.get("seq") if ack is not None else None
+            failure = {
+                "cause": client.first_failure,
+                "sequence": seq,
+                "operation": ack.get("op") if ack is not None else None,
+                "record": self.records.get(seq) if isinstance(seq, int) else None,
+                "errno": ack.get("errno") if ack is not None else None,
+            }
+        readiness = self.phases.get("readiness")
+        section: dict[str, object] = {
+            "sequence": sequence,
+            "enqueued_monotonic": enqueued,
+            "publication": "pending",
+            "readiness": {
+                "outcome": client.readiness,
+                "reason": client.readiness_reason,
+                "started": readiness.started if readiness else None,
+                "deadline": readiness.deadline if readiness else None,
+                "finished": readiness.finished if readiness else None,
+            },
+            "frames": {
+                "enqueued": sequence - 1,
+                "acknowledged": len(client.acks),
+                "failed": len(failed),
+                "dropped": sum(client.drops.values()),
+                "abandoned": sum(client.abandoned.values()),
+            },
+            "drops": dict(client.drops),
+            "abandoned": dict(client.abandoned),
+            "first_failure": failure,
+            "outbox_high_water": client.outbox_high_water,
+            "forward_stop": self.forward_stop,
+            "intent_gates": {
+                name: asdict(phase) for name, phase in self.phases.items() if name != "readiness"
+            },
+            "digests": dict(self.digests),
+            "writer_reported": {
+                "subjects-before": (client.readiness_ack or {}).get("subjects_before"),
+            },
+        }
+        self.result_snapshot = section
+        return section
+
+    # Close -------------------------------------------------------------------
+
+    def close(self) -> None:
+        """Request the close transaction and drive turns until the writer settles.
+
+        storage-publication-k168 bounds this wait. A stalled writer can still
+        hold it in this slice.
+        """
+        client = self.client
+        seq = client.request_close() if client.storage == "ready" else None
+        run_turns(client.turn(lambda: False))
+        if seq is not None:
+            self.close_ack = client.ack(seq)
+
+    def finish(self) -> None:
+        """End an unsettled writer after an exception: fail storage, KILL, reap."""
+        client = self.client
+        if client.pid is None or client.reaped_at is not None or client.residual:
+            return
+        client.fail("controller_exception")
+        client.kill()
+        run_turns(client.turn(lambda: True))
+
+    def outcome(self) -> StorageOutcome:
+        client = self.client
+        self.healthy()
+        if client.residual:
+            publication = "residual"
+        elif client.killed_at is not None:
+            publication = "killed"
+        elif client.storage == "closed" and client.reaped_at is not None:
+            publication = "complete"
+        else:
+            publication = "incomplete"
+        return StorageOutcome(
+            readiness=client.readiness,
+            readiness_reason=client.readiness_reason,
+            first_failure=client.first_failure,
+            forward_stop=self.forward_stop,
+            publication=publication,
+            writer_reaped=client.reaped_at is not None,
+            exit_status=client.exit_status,
+            residual=client.residual,
+            killed_at=client.killed_at,
+            reaped_at=client.reaped_at,
+            drops=dict(client.drops),
+            abandoned=dict(client.abandoned),
+            phases=dict(self.phases),
+            snapshot=self.result_snapshot,
+            close_ack=self.close_ack,
+        )
+
+
+# Live runs, by run directory. `write_json` sends their records to the writer.
+_run_storage: dict[Path, _RunStorage] = {}
+
+
+def execute(plan: Plan, evidence_root: Path) -> RunDirectory:
     """Execute once, stop cases at first failure, always attempt owned teardown.
 
     Register intent before acquisition: even a failed start can leave a clone.
     Callers must use only fresh, run-named resources and trusted public commands.
+    Every run record goes through the run's writer. The returned path carries
+    the storage outcome in its `storage` attribute.
     """
     _validate(plan)
     root = evidence_root.resolve() / plan.run_id
-    root.mkdir(parents=True, exist_ok=False)
+    if os.path.lexists(root):
+        raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(root))
     all_calls = plan.calls + tuple(
         call
         for resource in plan.resources
@@ -899,100 +1285,107 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
                 Path(__file__).with_name("worker_capture.py").resolve(),
                 Path(__file__).with_name("turns.py").resolve(),
                 Path(__file__).with_name("retention.py").resolve(),
+                Path(storage_client.__file__).resolve(),
+                Path(writer.__file__).resolve(),
                 Path(sys.executable).resolve(),
                 Path("/bin/ps"),
-                *plan.subjects,
+                # The writer hashes from its working directory "/".
+                *(subject.absolute() for subject in plan.subjects),
                 *(Path(call.argv[0]).resolve() for call in all_calls),
             )
         )
     )
-    write_json(root / "plan.json", asdict(plan))
-    before = _hashes(subjects)
-    write_json(root / "subjects-before.json", before)
-    receipts: list[dict[str, object]] = []
-    worker = Worker(
-        run_id=plan.run_id,
-        bootstrap=plan.bootstrap,
-        failure_bounds=plan.failure_bounds,
-        close_bounds=plan.close_bounds,
-    )
-    inspection_state = _InspectionState(worker=worker)
-    ledger: list[dict[str, object]] = []
-    attempted: list[Resource] = []
-    unreached = [resource.acquire.name for resource in plan.resources] + [
-        call.name for call in plan.calls
-    ]
-    admission = fork_admission()
-    ok = admission["ok"] and not any(value.startswith("unavailable:") for value in before.values())
+    storage = _RunStorage(plan, root)
+    _run_storage[root] = storage
     try:
-        if ok:
-            ok = worker.start()
-        for resource in plan.resources:
-            if not ok:
-                break
-            attempted.append(resource)
-            try:
-                write_json(root / f"intent-{len(attempted)}.json", asdict(resource))
-            except OSError as error:
-                receipts.append(
-                    {
-                        "name": resource.acquire.name,
-                        "ok": False,
-                        "reason": "intent_io_error",
-                        "error": str(error),
-                    }
-                )
-                ok = False
-                break
-            unreached.remove(resource.acquire.name)
-            receipt = _safe_call(resource.acquire, root, plan, inspection_state)
-            receipts.append(receipt)
-            ok = receipt["ok"] is True
-        for call in plan.calls:
-            if not ok:
-                break
-            unreached.remove(call.name)
-            receipt = _safe_call(call, root, plan, inspection_state)
-            receipts.append(receipt)
-            ok = receipt["ok"] is True
-    finally:
-        try:
-            for resource in reversed(attempted):
-                cleanup = _safe_call(resource.cleanup, root, plan, inspection_state)
-                disposal = _safe_call(resource.dispose, root, plan, inspection_state)
-                inspection = _safe_call(resource.inspect, root, plan, inspection_state)
-                receipts.extend((cleanup, disposal, inspection))
-                disposed = disposal["ok"] is True and inspection["ok"] is True
-                ledger.append(
-                    {
-                        "kind": resource.kind,
-                        "identity": resource.identity,
-                        "state": "disposed" if disposed else "uncertain",
-                        "cleanup_ok": cleanup["ok"],
-                        "remedy_argv": resource.dispose.argv,
-                    }
-                )
-                ok = ok and cleanup["ok"] is True and disposed
-        finally:
-            inspection_state.close()
-        ok = ok and worker.failure is None
-        after = _hashes(subjects)
-        ok = ok and before == after
-        write_json(
-            root / "result.json",
-            {
-                "run_id": plan.run_id,
-                "ok": ok,
-                "fork_admission": admission,
-                "inspection_failure": inspection_state.failure,
-                "inspection_worker": worker.evidence(),
-                "calls": receipts,
-                "resources": ledger,
-                "unreached": unreached,
-                "subjects_before": before,
-                "subjects_after": after,
-            },
+        before = storage.start(_json_bytes(asdict(plan)), subjects)
+        receipts: list[dict[str, object]] = []
+        worker = Worker(
+            run_id=plan.run_id,
+            bootstrap=plan.bootstrap,
+            failure_bounds=plan.failure_bounds,
+            close_bounds=plan.close_bounds,
         )
-        # Pin result.json and every other run file without a hash cycle.
-        write_identity(root)
-    return root
+        inspection_state = _InspectionState(worker=worker, storage=storage)
+        ledger: list[dict[str, object]] = []
+        attempted: list[Resource] = []
+        unreached = [resource.acquire.name for resource in plan.resources] + [
+            call.name for call in plan.calls
+        ]
+        admission = fork_admission()
+        ok = (
+            storage.healthy()
+            and admission["ok"]
+            and not any(value.startswith("unavailable:") for value in before.values())
+        )
+        try:
+            if ok:
+                ok = worker.start()
+            for index, resource in enumerate(plan.resources, start=1):
+                if not ok:
+                    break
+                # The resource enters teardown only after its intent is stored.
+                # A resource whose gate fails is never acquired.
+                if not storage.gate(index, _json_bytes(asdict(resource)), inspection_state.drive):
+                    ok = False
+                    break
+                attempted.append(resource)
+                unreached.remove(resource.acquire.name)
+                receipt = _safe_call(resource.acquire, root, plan, inspection_state)
+                receipts.append(receipt)
+                ok = receipt["ok"] is True
+            for call in plan.calls:
+                if not ok or not storage.healthy():
+                    ok = False
+                    break
+                unreached.remove(call.name)
+                receipt = _safe_call(call, root, plan, inspection_state)
+                receipts.append(receipt)
+                ok = receipt["ok"] is True
+        finally:
+            try:
+                for resource in reversed(attempted):
+                    cleanup = _safe_call(resource.cleanup, root, plan, inspection_state)
+                    disposal = _safe_call(resource.dispose, root, plan, inspection_state)
+                    inspection = _safe_call(resource.inspect, root, plan, inspection_state)
+                    receipts.extend((cleanup, disposal, inspection))
+                    disposed = disposal["ok"] is True and inspection["ok"] is True
+                    ledger.append(
+                        {
+                            "kind": resource.kind,
+                            "identity": resource.identity,
+                            "state": "disposed" if disposed else "uncertain",
+                            "cleanup_ok": cleanup["ok"],
+                            "remedy_argv": resource.dispose.argv,
+                        }
+                    )
+                    ok = ok and cleanup["ok"] is True and disposed
+            finally:
+                inspection_state.close()
+        ok = ok and worker.failure is None
+        after = storage.subjects_after(subjects)
+        ok = ok and before == after
+        # The snapshot is taken before the verdict uses it: a failure from here
+        # on cannot reach the stored result, only the in-memory outcome.
+        ok = ok and storage.healthy()
+        result: dict[str, object] = {
+            "run_id": plan.run_id,
+            "ok": ok,
+            "fork_admission": admission,
+            "inspection_failure": inspection_state.failure,
+            "inspection_worker": worker.evidence(),
+            "calls": receipts,
+            "resources": ledger,
+            "unreached": unreached,
+            "subjects_before": before,
+            "subjects_after": after,
+            "storage": storage.snapshot(),
+        }
+        storage.record("result", _json_bytes(result))
+        storage.close()
+    finally:
+        _run_storage.pop(root, None)
+        storage.finish()
+    directory = RunDirectory(root)
+    directory.storage = storage.outcome()
+    return directory

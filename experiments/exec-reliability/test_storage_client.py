@@ -391,6 +391,25 @@ def test_epipe_marks_storage_failed_and_abandons_the_outbox(clients, tmp_path):
     assert client.abandoned["later.json"] == 1
 
 
+def test_error_ack_after_readiness_fails_storage_with_its_errno(clients, tmp_path):
+    client = make(clients, faulty("deny:intent-1.json"))
+    assert client.start(str(tmp_path), "run", PLAN, [])
+    seq = client.enqueue("create", "intent-1.json", b"{}")
+    assert seq is not None
+    deadline = time.monotonic() + 2.0
+    until(lambda: client.storage != "ready" or time.monotonic() >= deadline, client)
+    assert client.storage == "failed"
+    assert client.first_failure == "EACCES"
+    assert client.failure_ack is not None
+    assert client.failure_ack["seq"] == seq and client.failure_ack["errno"] == errno.EACCES
+    assert client.enqueue("create", "later.json", b"{}") is None
+    assert client.abandoned["later.json"] == 1
+    # The failure closed the frame pipe, so the writer exits without a close.
+    deadline = time.monotonic() + 2.0
+    until(lambda: client.reaped_at is not None or time.monotonic() >= deadline, client)
+    assert client.exit_status is not None and client.exit_status != 0
+
+
 def test_writer_death_after_readiness_marks_storage_failed(clients, tmp_path):
     client = make(clients, faulty("exit:intent-1.json"))
     assert client.start(str(tmp_path), "run", PLAN, [])

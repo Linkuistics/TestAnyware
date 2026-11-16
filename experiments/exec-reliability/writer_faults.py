@@ -8,6 +8,9 @@ descriptor that the writer opened by the run-file name NAME. The real close
 still runs first, so an injected close fault leaks no descriptor. Calls on
 other descriptors, such as the acknowledgement pipe, are unchanged.
 
+CALL `deny` makes the open of NAME fail with EACCES, so the writer rejects
+that frame with an error acknowledgement and carries on.
+
 CALL `stall` stops the writer with SIGSTOP when it opens NAME, before the
 write. CALL `exit` ends the writer at once with status 70 at the same point.
 The name `@start` applies either fault before the writer reads its first
@@ -37,7 +40,7 @@ import writer  # noqa: E402 - the path entry above makes the module importable
 
 EIO_CALLS = ("close", "read", "write")
 STOP_CALLS = ("stall", "exit")
-CALLS = (*EIO_CALLS, *STOP_CALLS, "report")
+CALLS = (*EIO_CALLS, *STOP_CALLS, "deny", "report")
 START = "@start"
 EXIT_STATUS = 70
 # The snapshot checks descriptors below this bound. The writer opens few.
@@ -112,6 +115,8 @@ class FaultyOs:
 
     def open(self, path: str, flags: int, mode: int = 0o777, *, dir_fd: int | None = None) -> int:
         name = os.path.basename(path)
+        if ("deny", name) in self.faults:
+            raise PermissionError(errno.EACCES, os.strerror(errno.EACCES), name)
         descriptor = os.open(path, flags, mode, dir_fd=dir_fd)
         self.names[descriptor] = name
         for call in STOP_CALLS:
