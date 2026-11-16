@@ -42,14 +42,16 @@ suite green.
 1. `storage-controls-k163` writes the nine required controls first. Each
    control fails on the current build. The production code does not change.
 2. `storage-writer-k164` builds the writer process, the frame protocol, the
-   close transaction and the completion authority in `retention.py`. The
-   controller does not use the writer yet.
+   close transaction and the completion check in `retention.py`. The
+   controller does not use the writer yet, and `verify()` keeps its current
+   rules.
 3. `storage-client-k165` builds the controller side of the channel. This is the
    writer spawn, readiness, the nonblocking outbox and the acknowledgement
    reader.
 4. `storage-cutover-k166` sends every run record from `execute()` through the
    writer. It adds the intent gate, forward stop and the storage section of the
-   result snapshot.
+   result snapshot. In the same change, `verify()` starts to apply the
+   completion check to every run directory.
 5. `pipe-capture-k167` replaces the call stream files with pipes, the running
    digests and the bounded final drain.
 6. `storage-publication-k168` adds the publication phase, the writer stop, the
@@ -75,4 +77,5 @@ None of these slices needs a live virtual machine.
 
 - Crash recovery and `fsync` are out of scope by the spec.
 - The spec does not say how `retention.py` treats run directories from before
-  the writer. `storage-writer-k164` decides this and records the decision.
+  the writer. `storage-cutover-k166` decides this and records the decision,
+  because it switches `verify()` to the completion check.

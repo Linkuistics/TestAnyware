@@ -2,16 +2,22 @@
 
 ## Goal
 
-Build the writer process and make `retention.py` accept a run only through the
-writer's close record. The controller does not use the writer in this slice.
+Build the writer process and the completion check in `retention.py`. The
+controller does not use the writer in this slice.
 
 ## Context
 
 The spec sections are "Ownership", "Channel contract", "Phases and bounds"
 (the close transaction only), "Completion authority" and "Controller-crash
 limits". The review leaf `diagnostic-disposal-k160` placed the change to
-`retention.py` in the same slice as the writer. The close record and the only
-reader that accepts it form one working increment.
+`retention.py` in the same slice as the writer. The close record and the check
+that accepts it form one working increment.
+
+Today `execute()` writes no close record, and the healthy run test in
+`test_retention.py` requires `verify()` to accept its run directory. So
+`verify()` keeps its current rules in this slice. `storage-cutover-k166`
+switches `verify()` to the completion check when `execute()` starts to produce
+the close record.
 
 ## Done when
 
@@ -28,17 +34,22 @@ reader that accepts it form one working increment.
 - On end of input without a close frame, the writer applies the complete
   frames, discards a partial frame and writes `eof_without_close`. It writes no
   identity file.
-- `retention.py` verifies a run by the rules in "Completion authority". A
-  missing or changed `storage-close` makes the run incomplete. So does
-  `eof_without_close`.
+- A completion check in `retention.py` applies the rules in "Completion
+  authority" to a run directory. A missing or changed `storage-close` makes the
+  run incomplete. So does `eof_without_close`. Tests apply the check to
+  directories that the writer produces.
+- `verify()` does not call the completion check yet.
 - The close record review control passes. It also fails on a writer build that
   writes the identity file before `storage-close`.
 - Tests drive the writer with a test client over pipes.
-- The task file records the decision for run directories from before the
-  writer.
 - The full suite passes, and `execute()` does not change.
 
 ## Notes
 
 The writer holds only its three standard descriptors and its run-directory
 descriptor. The inherited state control checks this after the cutover.
+
+The existing callers and tests read files such as `result.json`,
+`plan.json` and `result-identity.json`. Map each record name to the file name
+that they read today. If the spec's record names cannot keep those file names,
+record the conflict before the cutover depends on it.

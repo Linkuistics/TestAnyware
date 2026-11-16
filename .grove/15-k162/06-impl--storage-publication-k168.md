@@ -30,8 +30,9 @@ The spec sections are "Phases and bounds" (P3), "Terminal outcome",
   readiness to the end of publication.
 - The result snapshot review control passes. A writer killed after the result
   frame and before the close frame leaves the outcome `incomplete`.
-- The markers come off the stalled writer, blocking storage call and no
-  controller storage calls controls, and those controls pass.
+- The markers come off the stalled writer, blocking storage call, outbox
+  overflow, intent gate and no controller storage calls controls, and those
+  controls pass.
 - No control in the node keeps a marker.
 - The foundation report section "Evidence storage design (k18)" records the
   delivered behaviour and its limits.

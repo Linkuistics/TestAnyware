@@ -24,11 +24,26 @@ reporting" and "Result snapshot". The call streams stay in files until
 - The result snapshot carries the storage section from the spec. The
   publication field is `pending`.
 - `execute()` still returns the run directory as a `Path`.
-- The markers come off the storage error, writer death, outbox overflow,
-  readiness failure and intent gate controls, and those controls pass.
+- `verify()` applies the completion check from `storage-writer-k164` to every
+  run directory. The healthy run test in `test_retention.py` passes without
+  change.
+- The task file records the decision for run directories from before the
+  writer.
+- The controls switch their fault fixtures to the writer wrapper. Their
+  assertions do not change.
+- The markers come off the storage error, writer death and readiness failure
+  controls, and those controls pass.
+- Tests in this slice show the intent gate with a writer that stalls on
+  intent-2 and resumes after the gate deadline. The second resource is never
+  acquired, forward progress stops and the first teardown does not change.
+- Each control that keeps its marker fails under its watchdog. It leaves no
+  live writer and no stopped fixture process.
 - The full suite passes.
 
 ## Notes
 
 A stalled writer can still hold the close wait in this slice.
-`storage-publication-k168` bounds that wait.
+`storage-publication-k168` bounds that wait. The intent gate and outbox
+overflow controls keep a writer stalled through close, so their markers stay
+until that slice. The resumed stall above does not establish the persistent
+stall case.
