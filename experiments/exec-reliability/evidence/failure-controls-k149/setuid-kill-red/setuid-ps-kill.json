@@ -1,0 +1,411 @@
+{
+  "control": "actual-identified-setuid-ps-kill",
+  "python": "3.12.15 (main, Oct  9 2026, 15:10:57) [Clang 22.1.3 ]",
+  "mutant": "suppress-kill",
+  "sender": {
+    "real_uid": 501,
+    "effective_uid": 501
+  },
+  "ps_executable": {
+    "path": "/bin/ps",
+    "owner_uid": 0,
+    "owner_gid": 0,
+    "mode_octal": "0o104755",
+    "setuid": true,
+    "sha256": "a06fe087161557f1f8c030672eaedcd90bc6a8e92b8f2d44e07cffedc3349205"
+  },
+  "argv": [
+    "/bin/ps",
+    "-axww",
+    "-o",
+    "pid=,ppid=,pgid=,uid=,ruid=,stat=,lstart=,command="
+  ],
+  "cap_bytes": 262144,
+  "subjects_before": {
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/inspection.py": "a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/failure-controls-k149/setuid_ps_kill.py": "e0a9375425ea51b39a7d0772e1736cc438b8a09d28c07d7830fa8ddf08b2d7fc"
+  },
+  "subjects_after": {
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/inspection.py": "a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/failure-controls-k149/setuid_ps_kill.py": "e0a9375425ea51b39a7d0772e1736cc438b8a09d28c07d7830fa8ddf08b2d7fc"
+  },
+  "subjects_unchanged": true,
+  "trials": [
+    {
+      "trial": 0,
+      "created": [
+        {
+          "pid": 99339,
+          "ppid": 99336,
+          "pgid": 99211,
+          "created_monotonic": 426702.301766333
+        }
+      ],
+      "kill_observations": [
+        {
+          "target": 99339,
+          "signal": "SIGKILL",
+          "before": {
+            "monotonic": 426702.342097166,
+            "state": "live_unreaped"
+          },
+          "identity": {
+            "started_monotonic": 426702.342137333,
+            "finished_monotonic": 426702.344854,
+            "argv": [
+              "/bin/ps",
+              "-o",
+              "pid=,ppid=,pgid=,uid=,ruid=,svuid=,stat=,comm=",
+              "-p",
+              "99339"
+            ],
+            "returncode": 0,
+            "stdout": "99339 99336 99211     0   501     0 S    /bin/ps\n",
+            "pid": 99339,
+            "ppid": 99336,
+            "pgid": 99211,
+            "uid": 0,
+            "ruid": 501,
+            "svuid": 0,
+            "stat": "S",
+            "comm": "/bin/ps"
+          },
+          "before_confirm": {
+            "monotonic": 426702.344869541,
+            "state": "live_unreaped"
+          },
+          "kill_monotonic": 426702.344891875,
+          "kill_result": "suppressed",
+          "kill_returned_monotonic": 426702.344892291,
+          "after": {
+            "monotonic": 426702.344892458,
+            "state": "live_unreaped"
+          }
+        }
+      ],
+      "capture": {
+        "stdout": "    1     0     1     0     0 Ss   Wed 11 Nov 18:03:48 2026     /sbin/launchd\n  341     1   341     0     0 Ss   Wed 11 Nov 18:42:22 2026     /usr/libexec/logd\n  343     1   343     0     0 Ss   Wed 11 Nov 18:42:22 2026     /usr/libexec/smd\n  344     1   344     0     0 Ss   Wed 11 Nov 18:42:22 2026     /usr/libexec/UserEventAgent (System)\n  346     1   346     0     0 Ss   Wed 11 Nov 18:42:22 2026     /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Supp",
+        "stderr": "",
+        "returncode": -13,
+        "pid": 99339,
+        "argv": [
+          "/bin/ps",
+          "-axww",
+          "-o",
+          "pid=,ppid=,pgid=,uid=,ruid=,stat=,lstart=,command="
+        ],
+        "admission": {
+          "ok": true,
+          "reason": "ready",
+          "python_threads": 1,
+          "native_threads": 1,
+          "sigchld": "SIG_DFL",
+          "native_sigchld": "SIG_DFL",
+          "error": null,
+          "errno": null
+        },
+        "started_monotonic": 426702.300790625,
+        "created_monotonic": 426702.301766333,
+        "capture_deadline_monotonic": 426707.250789791,
+        "deadline_monotonic": 426707.300789791,
+        "finished_monotonic": 426702.352523041,
+        "kill_monotonic": 426702.342075375,
+        "kill_errno": null,
+        "reaped": true,
+        "reaped_monotonic": 426702.352521458,
+        "reap_errno": null,
+        "ownership_lost": false,
+        "close_errors": [],
+        "error": "ps output limit exceeded",
+        "error_errno": null,
+        "residual_remedy": null,
+        "worker": null,
+        "stdout_bytes": 262144
+      },
+      "post_audit": {
+        "waitpid": {
+          "errno": 10
+        },
+        "pid_query": {
+          "started_monotonic": 426702.352548,
+          "finished_monotonic": 426702.355303291,
+          "argv": [
+            "/bin/ps",
+            "-o",
+            "pid=,ppid=,pgid=,uid=,ruid=,svuid=,stat=,comm=",
+            "-p",
+            "99339"
+          ],
+          "returncode": 1,
+          "stdout": ""
+        },
+        "children": []
+      },
+      "checks": {
+        "child_published_by_engine": true,
+        "cap_triggered_kill": true,
+        "one_engine_kill_observed": true,
+        "live_unreaped_before_kill": true,
+        "identified_setuid_ps": true,
+        "kill_sent": false,
+        "killed_by_sigkill": false,
+        "reaped_before_deadline": true,
+        "no_residual": true,
+        "owner_released": true,
+        "no_children_left": true
+      },
+      "passed": false
+    },
+    {
+      "trial": 1,
+      "created": [
+        {
+          "pid": 99346,
+          "ppid": 99336,
+          "pgid": 99211,
+          "created_monotonic": 426702.393833125
+        }
+      ],
+      "kill_observations": [
+        {
+          "target": 99346,
+          "signal": "SIGKILL",
+          "before": {
+            "monotonic": 426702.437724583,
+            "state": "live_unreaped"
+          },
+          "identity": {
+            "started_monotonic": 426702.437785958,
+            "finished_monotonic": 426702.440784958,
+            "argv": [
+              "/bin/ps",
+              "-o",
+              "pid=,ppid=,pgid=,uid=,ruid=,svuid=,stat=,comm=",
+              "-p",
+              "99346"
+            ],
+            "returncode": 0,
+            "stdout": "99346 99336 99211     0   501     0 S    /bin/ps\n",
+            "pid": 99346,
+            "ppid": 99336,
+            "pgid": 99211,
+            "uid": 0,
+            "ruid": 501,
+            "svuid": 0,
+            "stat": "S",
+            "comm": "/bin/ps"
+          },
+          "before_confirm": {
+            "monotonic": 426702.4408085,
+            "state": "live_unreaped"
+          },
+          "kill_monotonic": 426702.440845041,
+          "kill_result": "suppressed",
+          "kill_returned_monotonic": 426702.440845833,
+          "after": {
+            "monotonic": 426702.440846041,
+            "state": "live_unreaped"
+          }
+        }
+      ],
+      "capture": {
+        "stdout": "    1     0     1     0     0 Ss   Wed 11 Nov 18:03:48 2026     /sbin/launchd\n  341     1   341     0     0 Ss   Wed 11 Nov 18:42:22 2026     /usr/libexec/logd\n  343     1   343     0     0 Ss   Wed 11 Nov 18:42:22 2026     /usr/libexec/smd\n  344     1   344     0     0 Ss   Wed 11 Nov 18:42:22 2026     /usr/libexec/UserEventAgent (System)\n  346     1   346     0     0 Ss   Wed 11 Nov 18:42:22 2026     /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Supp",
+        "stderr": "",
+        "returncode": -13,
+        "pid": 99346,
+        "argv": [
+          "/bin/ps",
+          "-axww",
+          "-o",
+          "pid=,ppid=,pgid=,uid=,ruid=,stat=,lstart=,command="
+        ],
+        "admission": {
+          "ok": true,
+          "reason": "ready",
+          "python_threads": 1,
+          "native_threads": 1,
+          "sigchld": "SIG_DFL",
+          "native_sigchld": "SIG_DFL",
+          "error": null,
+          "errno": null
+        },
+        "started_monotonic": 426702.392725416,
+        "created_monotonic": 426702.393833125,
+        "capture_deadline_monotonic": 426707.34272325004,
+        "deadline_monotonic": 426707.39272325,
+        "finished_monotonic": 426702.44635525,
+        "kill_monotonic": 426702.437697416,
+        "kill_errno": null,
+        "reaped": true,
+        "reaped_monotonic": 426702.44635375,
+        "reap_errno": null,
+        "ownership_lost": false,
+        "close_errors": [],
+        "error": "ps output limit exceeded",
+        "error_errno": null,
+        "residual_remedy": null,
+        "worker": null,
+        "stdout_bytes": 262144
+      },
+      "post_audit": {
+        "waitpid": {
+          "errno": 10
+        },
+        "pid_query": {
+          "started_monotonic": 426702.446377125,
+          "finished_monotonic": 426702.449196583,
+          "argv": [
+            "/bin/ps",
+            "-o",
+            "pid=,ppid=,pgid=,uid=,ruid=,svuid=,stat=,comm=",
+            "-p",
+            "99346"
+          ],
+          "returncode": 1,
+          "stdout": ""
+        },
+        "children": []
+      },
+      "checks": {
+        "child_published_by_engine": true,
+        "cap_triggered_kill": true,
+        "one_engine_kill_observed": true,
+        "live_unreaped_before_kill": true,
+        "identified_setuid_ps": true,
+        "kill_sent": false,
+        "killed_by_sigkill": false,
+        "reaped_before_deadline": true,
+        "no_residual": true,
+        "owner_released": true,
+        "no_children_left": true
+      },
+      "passed": false
+    },
+    {
+      "trial": 2,
+      "created": [
+        {
+          "pid": 99350,
+          "ppid": 99336,
+          "pgid": 99211,
+          "created_monotonic": 426702.49028625
+        }
+      ],
+      "kill_observations": [
+        {
+          "target": 99350,
+          "signal": "SIGKILL",
+          "before": {
+            "monotonic": 426702.534874916,
+            "state": "live_unreaped"
+          },
+          "identity": {
+            "started_monotonic": 426702.534936708,
+            "finished_monotonic": 426702.538303375,
+            "argv": [
+              "/bin/ps",
+              "-o",
+              "pid=,ppid=,pgid=,uid=,ruid=,svuid=,stat=,comm=",
+              "-p",
+              "99350"
+            ],
+            "returncode": 0,
+            "stdout": "99350 99336 99211     0   501     0 S    /bin/ps\n",
+            "pid": 99350,
+            "ppid": 99336,
+            "pgid": 99211,
+            "uid": 0,
+            "ruid": 501,
+            "svuid": 0,
+            "stat": "S",
+            "comm": "/bin/ps"
+          },
+          "before_confirm": {
+            "monotonic": 426702.538319791,
+            "state": "live_unreaped"
+          },
+          "kill_monotonic": 426702.538346791,
+          "kill_result": "suppressed",
+          "kill_returned_monotonic": 426702.538347333,
+          "after": {
+            "monotonic": 426702.538347458,
+            "state": "live_unreaped"
+          }
+        }
+      ],
+      "capture": {
+        "stdout": "    1     0     1     0     0 Ss   Wed 11 Nov 18:03:48 2026     /sbin/launchd\n  341     1   341     0     0 Ss   Wed 11 Nov 18:42:22 2026     /usr/libexec/logd\n  343     1   343     0     0 Ss   Wed 11 Nov 18:42:22 2026     /usr/libexec/smd\n  344     1   344     0     0 Ss   Wed 11 Nov 18:42:22 2026     /usr/libexec/UserEventAgent (System)\n  346     1   346     0     0 Ss   Wed 11 Nov 18:42:22 2026     /System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/FSEvents.framework/Versions/A/Supp",
+        "stderr": "",
+        "returncode": -13,
+        "pid": 99350,
+        "argv": [
+          "/bin/ps",
+          "-axww",
+          "-o",
+          "pid=,ppid=,pgid=,uid=,ruid=,stat=,lstart=,command="
+        ],
+        "admission": {
+          "ok": true,
+          "reason": "ready",
+          "python_threads": 1,
+          "native_threads": 1,
+          "sigchld": "SIG_DFL",
+          "native_sigchld": "SIG_DFL",
+          "error": null,
+          "errno": null
+        },
+        "started_monotonic": 426702.489220666,
+        "created_monotonic": 426702.49028625,
+        "capture_deadline_monotonic": 426707.439218875,
+        "deadline_monotonic": 426707.489218875,
+        "finished_monotonic": 426702.545933291,
+        "kill_monotonic": 426702.534846,
+        "kill_errno": null,
+        "reaped": true,
+        "reaped_monotonic": 426702.545929208,
+        "reap_errno": null,
+        "ownership_lost": false,
+        "close_errors": [],
+        "error": "ps output limit exceeded",
+        "error_errno": null,
+        "residual_remedy": null,
+        "worker": null,
+        "stdout_bytes": 262144
+      },
+      "post_audit": {
+        "waitpid": {
+          "errno": 10
+        },
+        "pid_query": {
+          "started_monotonic": 426702.545954583,
+          "finished_monotonic": 426702.548893833,
+          "argv": [
+            "/bin/ps",
+            "-o",
+            "pid=,ppid=,pgid=,uid=,ruid=,svuid=,stat=,comm=",
+            "-p",
+            "99350"
+          ],
+          "returncode": 1,
+          "stdout": ""
+        },
+        "children": []
+      },
+      "checks": {
+        "child_published_by_engine": true,
+        "cap_triggered_kill": true,
+        "one_engine_kill_observed": true,
+        "live_unreaped_before_kill": true,
+        "identified_setuid_ps": true,
+        "kill_sent": false,
+        "killed_by_sigkill": false,
+        "reaped_before_deadline": true,
+        "no_residual": true,
+        "owner_released": true,
+        "no_children_left": true
+      },
+      "passed": false
+    }
+  ],
+  "passed": false
+}

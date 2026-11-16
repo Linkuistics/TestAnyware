@@ -1,0 +1,302 @@
+{
+  "leaf": "diagnostic-failure-controls-k149",
+  "cases": [
+    {
+      "id": "timing-stale-term-k121",
+      "observations": [
+        "fork-authority-k121/candidate-full: test_worker_capture.py:112 waitpid 20.291 us after cutoff"
+      ],
+      "classification": "fixture_defect",
+      "mechanism": "The runtime admitted the stale reap before the cutoff. The test timestamped the later syscall entry.",
+      "repair": "test_worker_capture.py asserts admission time and retains execution time.",
+      "controls": [
+        "admission-k121",
+        "admission-final",
+        "admission-reap-ignores-cutoff",
+        "timing-tests-final",
+        "timing-tests-reap-ignores-cutoff",
+        "timing-tests-signal-ignores-cutoff",
+        "timing-tests-committed",
+        "timing-tests-reviewed-stale-reap-admission",
+        "timing-tests-reviewed-stale-signal-admission"
+      ]
+    },
+    {
+      "id": "timing-denied-kill-k139",
+      "observations": [
+        "startup-frame-controls-k139/candidate-full-1: test_shutdown.py:298, 81st probe 347 us after cutoff"
+      ],
+      "classification": "fixture_defect",
+      "mechanism": "Same admission/execution gap as k121.",
+      "repair": "test_shutdown.py asserts admission time and retains execution time.",
+      "controls": [
+        "admission-k139",
+        "timing-tests-final",
+        "timing-tests-committed",
+        "timing-tests-reviewed-stale-reap-admission",
+        "timing-tests-reviewed-stale-signal-admission"
+      ]
+    },
+    {
+      "id": "timing-deferred-reap-k116",
+      "observations": [
+        "fork-channel-k116/parent-full-1: blocking-2-deferred-reap probe 4.944 ms after cutoff"
+      ],
+      "classification": "fixture_defect",
+      "mechanism": "Same admission/execution gap.",
+      "repair": "test_shutdown.py admission assertion.",
+      "controls": [
+        "admission-k116",
+        "timing-tests-final",
+        "timing-tests-committed",
+        "timing-tests-reviewed-stale-reap-admission",
+        "timing-tests-reviewed-stale-signal-admission"
+      ]
+    },
+    {
+      "id": "timing-deferred-reap-k129",
+      "observations": [
+        "command-dispatch-k129/candidate-full-1: same node 215.5 us after cutoff"
+      ],
+      "classification": "fixture_defect",
+      "mechanism": "Same admission/execution gap.",
+      "repair": "test_shutdown.py admission assertion.",
+      "controls": [
+        "admission-k129",
+        "timing-tests-final",
+        "timing-tests-committed",
+        "timing-tests-reviewed-stale-reap-admission",
+        "timing-tests-reviewed-stale-signal-admission"
+      ]
+    },
+    {
+      "id": "interrupted-live-group-k145",
+      "observations": [
+        "caller-cleanup-k145/candidate-v2-full: assert -9 == 0, PID TERM then PID KILL",
+        "readiness-wakes-k132/parent-full: run fc704d02398c4f98af67261d02a55821, same shape"
+      ],
+      "classification": "fixture_defect",
+      "mechanism": "The frozen peer's readiness loop ignored TERM until its child declared readiness. Readiness never arrived within 0.3 s, so the runtime correctly sent KILL.",
+      "repair": "Commit d5251d7 (k143) honours TERM before child readiness.",
+      "controls": [
+        "scope-readiness-red",
+        "scope-readiness-green"
+      ]
+    },
+    {
+      "id": "exited-leader-grace-k132",
+      "observations": [
+        "readiness-wakes-k132/parent-full-2 [True]: run 067dc917, leader exit 167.8 ms after TERM",
+        "[False]: run bdbfc1a5, leader exit 158.3 ms after TERM, rc -9"
+      ],
+      "classification": "unavoidable_missed_scheduling_bound",
+      "mechanism": "The fixture must exit within the 150 ms TERM grace. Measured post-TERM exit is 33-50 ms, also under 3x CPU oversubscription. The historical stall is not reproduced and its cause is unidentified. Runtime receipts are correct.",
+      "repair": null,
+      "controls": [
+        "exit-latency-final",
+        "exit-latency-k132",
+        "exit-latency-final-load48"
+      ]
+    },
+    {
+      "id": "late-created-identity",
+      "observations": [
+        "worker-deadline-k87/full-1",
+        "persistent-worker-k94/full-1",
+        "persistent-worker-k94/full-4",
+        "bootstrap-bounds-k106/full-final-2",
+        "k140 parent-full: 11 failures, KeyError 'after_term' or assert (False)"
+      ],
+      "classification": "fixture_defect",
+      "mechanism": "The worker wrote its witness file after TERM inside the runtime's 13.5 ms KILL window. Every failure left a partial late-created-shutdown-*.tmp file.",
+      "repair": "The worker records TERM state in an inherited anonymous mmap. The parent publishes the witness after capture.",
+      "controls": [
+        "late-identity-old",
+        "late-identity-old-stall",
+        "late-identity-final",
+        "late-identity-final-stall",
+        "late-identity-final-drop",
+        "late-identity-committed"
+      ]
+    },
+    {
+      "id": "prebuffer-k106",
+      "observations": [
+        "bootstrap-bounds-k106: 2 x 'worker did not prebuffer the identity'"
+      ],
+      "classification": "unavoidable_missed_scheduling_bound",
+      "mechanism": "The fixture waits 150 ms for worker progress. No runtime operation is involved. The cause of the stall is unidentified.",
+      "repair": null,
+      "controls": []
+    },
+    {
+      "id": "exiting-state-k110",
+      "observations": [
+        "incremental-shutdown-k110/green-full run e0d6a3f2: table '30416 30416 ?E' 2.8 ms after observed leader exit, state unknown, termination_ok False"
+      ],
+      "classification": "runtime_defect",
+      "mechanism": "Kqueue reports ESRCH from exit start, so the runtime observes exit while ps still prints ?E (P_WEXIT, no threads). The parser rejected ?E.",
+      "repair": "controller.py accepts ?-with-E and counts E members as non-executable.",
+      "controls": [
+        "exiting-leader-red",
+        "exiting-leader-green",
+        "test_controller.py grammar rows",
+        "full-final"
+      ]
+    },
+    {
+      "id": "helper-capture-deadline",
+      "observations": [
+        "expired-request-controls-k137/candidate-full: group_kill_precedes_inspection[hang], [ignore-term], later_zombie",
+        "termination-cutoff-k85/full-1: later_zombie permission_unknown",
+        "worker-phases-k104/green and bootstrap-bounds-k106/full-final: live_group helper -9",
+        "command-dispatch-k129 and k137: group_snapshot_uses_real_worker",
+        "bootstrap-bounds-k106/full-final-3: real_ps_failure 'usage:' in ''",
+        "k137 parent-full: disposal and expected interruption",
+        "worker-deadline-k87: fixture /bin/ps -p TimeoutExpired after 1 s",
+        "k137: test_turns /bin/ps timeout"
+      ],
+      "classification": "unavoidable_missed_scheduling_bound",
+      "mechanism": "A real ps helper ran past its capture deadline (about 128 ms). The runtime killed and reaped it and failed closed as unknown or permission_unknown. Measured ps latency never exceeds 62.1 ms in 340 group queries.",
+      "repair": null,
+      "controls": [
+        "ps-latency"
+      ]
+    },
+    {
+      "id": "empty-pid-k85",
+      "observations": [
+        "termination-cutoff-k85/full-1: 4 x ValueError: invalid literal for int() with base 10: ''"
+      ],
+      "classification": "unavoidable_missed_scheduling_bound",
+      "mechanism": "TERM at 0.3 s arrived before the peer printed its child PID. The current fixture keeps that 0.3 s startup dependency. A startup stall reproduces the exact error on final inputs.",
+      "repair": null,
+      "controls": [
+        "scope-parent-final",
+        "scope-parent-startup-stall"
+      ]
+    },
+    {
+      "id": "lost-result-frame-k114",
+      "observations": [
+        "termination-turns-k114/green-full: lost-result 'incomplete worker frame length', worker exit 70"
+      ],
+      "classification": "runtime_defect",
+      "mechanism": "Cleanup saw control EOF without recording it after an empty result frame.",
+      "repair": "k116 records the observed EOF (worker_capture.py:1395-1396).",
+      "controls": [
+        "eof-order-final",
+        "eof-order-omit-cleanup-eof"
+      ]
+    },
+    {
+      "id": "close-before-ready-k104",
+      "observations": [
+        "worker-phases-k104/green: assert 0.04 <= 1.7e-05"
+      ],
+      "classification": "fixture_defect",
+      "mechanism": "The test expected the old 50 ms TERM delay.",
+      "repair": "Corrected in k104.",
+      "controls": []
+    },
+    {
+      "id": "mutation-site-k114",
+      "observations": [
+        "termination-turns-k114/green-full: late_observation_cannot_extend count 0"
+      ],
+      "classification": "fixture_defect",
+      "mechanism": "A source-mutation control named an absent site.",
+      "repair": "Corrected in k114.",
+      "controls": []
+    },
+    {
+      "id": "expired-request-none",
+      "observations": [
+        "k129, k132 and k134 parent runs: assert None"
+      ],
+      "classification": "fixture_defect",
+      "mechanism": "Unconditional residual-remedy assertion.",
+      "repair": "Corrected in k137 with red/green controls.",
+      "controls": [
+        "expired-request-controls-k137"
+      ]
+    },
+    {
+      "id": "setup-tooling",
+      "observations": [
+        "k93 audit runs",
+        "k104 setup quoting",
+        "k124 missing planning files",
+        "k129 synthetic clock",
+        "k85 fake clock",
+        "k85/k87 Taskfile FileNotFoundError",
+        "k77 green-01 witness race"
+      ],
+      "classification": "fixture_defect",
+      "mechanism": "Tooling and fixture setup defects.",
+      "repair": "Corrected by the producing leaves.",
+      "controls": []
+    },
+    {
+      "id": "checker-ceiling-k77",
+      "observations": [
+        "k77 green-02: pytest 60 s cap at 99%"
+      ],
+      "classification": "unavoidable_missed_scheduling_bound",
+      "mechanism": "green-03 passed in 54.39 s. The ceiling was not raised.",
+      "repair": null,
+      "controls": []
+    }
+  ],
+  "real_controls": [
+    {
+      "name": "actual-identified-setuid-ps-kill",
+      "status": "pass",
+      "evidence": [
+        "setuid-kill-green",
+        "setuid-kill-red"
+      ]
+    },
+    {
+      "name": "genuine-uid-denial-and-permission-unknown",
+      "status": "pass",
+      "evidence": [
+        "foreign-owner/owner-receipt.json",
+        "foreign-denial/foreign-denial.json",
+        "foreign-owner/owner-cleanup.json",
+        "foreign-denial-self (owned plumbing check, verdict fail as designed)"
+      ],
+      "owner_action": "On 2026-11-16 the human ran `sudo /usr/bin/python3 -I experiments/exec-reliability/evidence/failure-controls-k149/foreign_owner.py experiments/exec-reliability/evidence/failure-controls-k149/foreign-owner` and reported it ready.",
+      "fixture": "pid 43433, ppid 43429 (owner), pgid 43433, uid/ruid/svuid -2 (nobody 4294967294), stat Ss, /bin/sleep",
+      "sender": "uid 501, euid 501, inputs-committed",
+      "result": "group TERM and KILL EPERM, outcome permission_unknown, final table missing, termination failed; pid TERM and KILL EPERM, signal_error, termination failed; fixture identity unchanged between scopes; owner SIGKILL and exact waitpid 43433 (signal 9), fixture absent, owner has no children; 16 of 16 checks true; subjects unchanged"
+    }
+  ],
+  "review": {
+    "reviewer": "independent subagent review of the runtime and test diff",
+    "verdicts": {
+      "exiting-state parser": "accept with changes",
+      "admission assertions": "accept with changes",
+      "late-identity mmap": "accept"
+    },
+    "applied": [
+      "controller.py comment: kqueue ESRCH starts when proc_find fails after the last thread ends, not at exit start",
+      "admission assertions also bound syscall time minus admission time to [0, 0.05) s, so a stale admission clock fails",
+      "final-reap waitpid adapter branches on runtime admission time, falling back to the wrapper clock only when admission is unknown"
+    ],
+    "controls": {
+      "timing-tests-reviewed": "94 passed",
+      "timing-tests-reviewed-stale-reap-admission": "88 failed, 6 passed",
+      "timing-tests-reviewed-stale-signal-admission": "70 failed, 24 passed",
+      "timing-tests-reviewed-reap-ignores-cutoff": "22 failed, 72 passed",
+      "timing-tests-reviewed-signal-ignores-cutoff": "8 failed, 86 passed",
+      "late-identity-reviewed": "27 passed",
+      "full-reviewed": "5 failed, 970 passed: test_bootstrap timing bounds missed by 80 to 129 ms while an external jj process used about 11 cores (load average 21.3); not repaired, not counted",
+      "full-reviewed-2": "975 passed",
+      "inputs-committed": "inputs-reviewed plus one Ruff import-block blank line in two test files",
+      "timing-tests-committed": "94 passed",
+      "late-identity-committed": "27 passed",
+      "full-committed": "975 passed"
+    }
+  }
+}

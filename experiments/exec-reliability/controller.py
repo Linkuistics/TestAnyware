@@ -403,7 +403,14 @@ def _group_snapshot(
                 raise ValueError("ps returned a foreign process group")
             # macOS ps(1): run state, then zero or more documented modifiers.
             # https://developer.apple.com/library/archive/documentation/System/Conceptual/ManPages_iPhoneOS/man1/ps.1.html
-            if not re.fullmatch(rb"[IRSTUZ][+<>AELNSsVWX]*", state):
+            # ps prints E only for P_WEXIT before SZOMB. It prints "?" when it
+            # reads no thread state, as for an exiting task without threads.
+            # "?" alone can also mean an unreadable task, so it needs E.
+            # https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/print.c
+            # https://github.com/apple-oss-distributions/adv_cmds/blob/main/ps/tasks.c
+            if not re.fullmatch(rb"[IRSTUZ][+<>AELNSsVWX]*", state) and not re.fullmatch(
+                rb"\?[+<>ALNSsVWX]*E[+<>ALNSsVWX]*", state
+            ):
                 raise ValueError("unsupported process state")
             members.append({"pid": int(member_pid), "pgid": int(pgid), "stat": state.decode()})
         if not any(member["pid"] == pid for member in members):
@@ -411,9 +418,19 @@ def _group_snapshot(
         if time.monotonic() >= deadline:
             raise TimeoutError("group inspection deadline exhausted before probe")
         observation["members"] = members
+        # Z is dead. E is P_WEXIT, from P_LEXIT, which exit sets once after it
+        # holds every other thread and never clears, so an E member never runs
+        # user code again. Kqueue reports ESRCH once proc_find fails, after the
+        # last thread ends but before SZOMB, so the leader can still show ?E
+        # (no threads, not yet a zombie) after its observed exit.
+        # https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_exit.c
+        # https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/kern_event.c
         observation["state"] = (
             "zombie_only"
-            if all(str(member["stat"]).startswith("Z") for member in members)
+            if all(
+                str(member["stat"]).startswith("Z") or "E" in str(member["stat"])
+                for member in members
+            )
             else "live"
         )
         # Signal 0 checks permissions/existence without delivering a signal.

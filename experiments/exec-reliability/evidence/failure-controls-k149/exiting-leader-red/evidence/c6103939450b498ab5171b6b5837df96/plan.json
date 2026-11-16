@@ -1,0 +1,37 @@
+{
+  "run_id": "c6103939450b498ab5171b6b5837df96",
+  "calls": [
+    {
+      "name": "exiting-7",
+      "argv": [
+        "/Users/antony/.cache/uv/builds-v0/.tmpKb8ngo/bin/python",
+        "-I",
+        "-c",
+        "\nimport os, signal, sys, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\nblock = bytearray(int(sys.argv[1]))\nfor index in range(0, len(block), 4096):\n    block[index] = 1\nos.write(1, b\"%d\\n\" % os.getpid())\ntime.sleep(30)\n",
+        "2000000000"
+      ],
+      "budget": 1.5,
+      "expected_exit": -9,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "deadline"
+    }
+  ],
+  "resources": [],
+  "subjects": [],
+  "term_grace": 0.15,
+  "kill_wait": 0.5,
+  "bootstrap": {
+    "readiness": 1,
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "failure_bounds": {
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "close_bounds": {
+    "grace": 0.05,
+    "kill_reap": 2
+  }
+}

@@ -4,6 +4,7 @@ import errno
 import json
 import os
 import signal
+import sys
 import time
 import uuid
 from dataclasses import asdict
@@ -14,6 +15,24 @@ import pytest
 import controller
 import inspection
 import worker_capture
+
+# Scheduler delay between runtime admission and syscall entry stays below this.
+ADMISSION_GAP = 0.05
+
+
+def _admitted(runtime_function):
+    """Return the runtime's own cutoff admission reading for a wrapped syscall.
+
+    The runtime admits each owner operation from an earlier clock read. A
+    scheduler delay can move the syscall past the cutoff after that admission.
+    The cutoff contract therefore applies to admission. Tests keep the later
+    execution time as evidence of lateness, not as a cutoff failure.
+    """
+    caller = sys._getframe(2)
+    if caller.f_code.co_name != runtime_function:
+        return None
+    admitted = caller.f_locals.get("now")
+    return admitted if isinstance(admitted, float) else None
 
 
 @pytest.mark.parametrize(
@@ -100,7 +119,7 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
         failure = worker_capture.FailureBounds(term_grace=0.25, kill_reap=0.16)
     close = worker_capture.CloseBounds(grace=0.04, kill_reap=0.13)
     worker = worker_capture.Worker(failure_bounds=failure, close_bounds=close)
-    calls, probes, turns = [], [], []
+    calls, probes, admissions, turns = [], [], [], []
     injected = False
 
     def service(command, control, result, session, deadline):
@@ -127,6 +146,7 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
         assert flags == os.WNOHANG
         if worker.owner is not None and pid == worker.owner.pid:
             probes.append(time.monotonic())
+            admissions.append(_admitted("_reap"))
             if mode == "deferred-reap":
                 return 0, 0
             if mode == "overrun" and not injected:
@@ -135,7 +155,14 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
         return original_waitpid(pid, flags)
 
     def killpg(pid, sig):
-        calls.append({"pid": pid, "signal": sig.name, "monotonic": time.monotonic()})
+        calls.append(
+            {
+                "pid": pid,
+                "signal": sig.name,
+                "monotonic": time.monotonic(),
+                "admitted": _admitted("_signal"),
+            }
+        )
         return original_killpg(pid, sig)
 
     monkeypatch.setattr(worker_capture, "_service", service)
@@ -293,9 +320,17 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
                 0, phase["finished_monotonic"] - phase["deadline_monotonic"]
             )
             assert phase["outcome"]
-        assert all(item["monotonic"] < end for item in calls)
+        # A syscall may execute after end when the runtime admitted it before end.
+        assert all(item["admitted"] is not None and item["admitted"] < end for item in calls)
+        # Admission must be the clock read that leads to this syscall, not a stale one.
+        assert all(0 <= item["monotonic"] - item["admitted"] < ADMISSION_GAP for item in calls)
         if mode != "expired":
-            assert all(item < end for item in probes)
+            assert all(item is not None and item < end for item in admissions)
+            assert all(
+                0 <= probe - item < ADMISSION_GAP
+                for probe, item in zip(probes, admissions, strict=True)
+                if item is not None
+            )
         if mode != "orderly":
             assert worker.failure
     finally:
@@ -326,6 +361,7 @@ def test_declared_shutdown_real_child_phases(tmp_path, monkeypatch, mode, sample
                     "runtime": runtime,
                     "calls": calls,
                     "probes": probes,
+                    "admissions": admissions,
                     "turns": turns,
                     "audit": audit,
                 },

@@ -2472,6 +2472,9 @@ runpy.run_path({str(PEER)!r}, run_name='__main__')
         (b"123 123 Z\n\n", b"", 0, "process table row"),
         (b"123 123 Z extra\n", b"", 0, "process table row"),
         (b"123 123 Z\n124 123 ?\n", b"", 0, "unsupported process state"),
+        (b"123 123 Z\n124 123 ?S\n", b"", 0, "unsupported process state"),
+        (b"123 123 ?Z\n", b"", 0, "unsupported process state"),
+        (b"123 123 ?EZ\n", b"", 0, "unsupported process state"),
         (b"123 123 Zgarbage\n", b"", 0, "unsupported process state"),
         (b"123 123 \xff\n", b"", 0, "unsupported process state"),
         (b"123 123 Z\n", b"warning", 0, "clean process table"),
@@ -2521,7 +2524,12 @@ def test_group_snapshot_rejects_invalid_table_before_probe(
             "zombie_only",
             4096,
         ),
-        (b"123 123 U<ANELNSsVWX+>\n", "live", 1),
+        (b"123 123 U<ANLNSsVWX+>\n", "live", 1),
+        # E is P_WEXIT before SZOMB: an irreversibly exiting member (k110).
+        (b"123 123 ?E\n", "zombie_only", 1),
+        (b"123 123 ?E\n124 123 Z\n", "zombie_only", 2),
+        (b"123 123 U<AELNSsVWX+>\n", "zombie_only", 1),
+        (b"123 123 ?E\n124 123 S\n", "live", 2),
     ],
 )
 def test_group_snapshot_accepts_valid_tables_and_limits(monkeypatch, stdout, expected_state, count):

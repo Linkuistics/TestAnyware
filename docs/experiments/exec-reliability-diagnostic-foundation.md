@@ -2075,3 +2075,60 @@ The [k21 audit](../../experiments/exec-reliability/evidence/k21-audit-02/report.
 No `peer.py` fixture process survives, and a [positive control](../../experiments/exec-reliability/evidence/k21-audit-02/filter-control.txt) shows that the filter detects a live fixture. The repository retains the first audit, but it is superseded, because its filter matched its own command. No change touches the 295,217 earlier evidence paths.
 
 These pins are snapshots, not immutable publication. Verification compares two snapshots, so it cannot see a change that is reverted between them. A digest inside the run directory does not resist a writer that also rewrites the identity, so anchor its digest elsewhere. k17 stays open: setuid `ps` and UID-denial controls are unavailable, historical timing failures and the k145 interrupted live-group failure stand, and k18 owns stalled storage. Ten-clone acceptance remains **0/10, unavailable**.
+
+## Failure classification and real controls (k149)
+
+The [k149 report](../../experiments/exec-reliability/evidence/failure-controls-k149/report.md)
+classifies every retained process-control failure that blocked k17. Its
+[verdicts](../../experiments/exec-reliability/evidence/failure-controls-k149/verdicts.json)
+give each observation group a class, a mechanism and its controls.
+
+Two runtime defects explain historical failures. The parser rejected the `?E`
+state that macOS `ps` prints for an exiting task. The controller now accepts it
+and counts the member as non-executable. A real 2 GB leader control fails before
+the repair and passes after it. The k114 lost-result frame came from the EOF
+order that k116 repaired. A mutant that removes that repair reproduces the
+exact message.
+
+Fixture defects explain the admission-timing failures and the late-created
+identity failures. The tests timestamped syscall entry instead of runtime
+admission. The worker wrote a witness file inside the runtime KILL window. Both
+fixtures are repaired, and their runtime mutants still fail. After an independent
+review, the admission tests also bound the gap from admission to syscall. Mutants
+with a stale admission clock now fail.
+
+The k145 and k132
+interrupted live groups came from the old peer readiness loop, which k143
+repaired.
+
+Five groups are missed scheduling bounds with no identified cause. These are the
+k132 exited-leader grace, the k106 prebuffer wait, the helper capture deadline,
+the k85 peer startup and the k77 checker ceiling. Controls under load do not
+reproduce them, and no bound was raised. In each case, the runtime failed
+closed.
+
+The actual setuid `ps` KILL control passes. The runtime kills its own unreaped
+`/bin/ps` child with a measured live window and reaps it within 14 ms.
+
+The real UID-denial control also passes. The human ran the owner script with
+`sudo`. It created one `/bin/sleep` fixture with UID `nobody` for real,
+effective and saved UIDs. The kernel refused each group and PID signal with
+EPERM.
+
+With no observed exit, the final table was missing. Group KILL therefore
+gave `permission_unknown`, and termination failed closed. The owner killed and
+reaped the fixture by its exact PID.
+
+### k17 reconciliation
+
+| k17 condition | State |
+|---|---|
+| Leader exit, conditional PID KILL, group inspection, distinct permission outcomes, totals | Met with injected EPERM, the real `?E` repair and the real UID-denial control. |
+| Fork-fixture deadlock, opposed fixtures, owned-child cleanup | Met in k20 to k146. The k149 controls audit every owned child. |
+| Stream and result identity, failing controls | Met in k21 and k148. |
+| Historical audit, preserved receipts, exact identities, `ps` usage error | Met. 311,586 earlier paths are unchanged, and the setuid `ps` control verifies identity. |
+| Verdicts with hashes, Taskfile, handoff | Met by this section and the k149 tasks. |
+
+The k149 evidence meets every k17 condition. The specific review of the k149
+runtime and test change is the last k17 work. k18 owns stalled storage.
+Ten-clone acceptance remains **0/10, unavailable**.

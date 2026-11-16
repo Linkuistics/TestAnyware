@@ -2,9 +2,11 @@
 
 import errno
 import json
+import mmap
 import os
 import select
 import signal
+import struct
 import subprocess
 import sys
 import time
@@ -13,6 +15,24 @@ from pathlib import Path
 import pytest
 
 import inspection
+
+# Scheduler delay between runtime admission and syscall entry stays below this.
+ADMISSION_GAP = 0.05
+
+
+def _admitted(runtime_function):
+    """Return the runtime's own cutoff admission reading for a wrapped syscall.
+
+    The runtime admits each owner operation from an earlier clock read. A
+    scheduler delay can move the syscall past the cutoff after that admission.
+    The cutoff contract therefore applies to admission. Tests keep the later
+    execution time as evidence of lateness, not as a cutoff failure.
+    """
+    caller = sys._getframe(2)
+    if caller.f_code.co_name != runtime_function:
+        return None
+    admitted = caller.f_locals.get("now")
+    return admitted if isinstance(admitted, float) else None
 
 
 @pytest.mark.parametrize("ready", [False, True], ids=["pid", "group"])
@@ -51,10 +71,20 @@ def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch,
 
     def waitpid(pid, flags):
         now = time.monotonic()
-        calls.append({"operation": "waitpid", "pid": pid, "flags": flags, "time": now})
+        admitted = _admitted("_reap")
+        calls.append(
+            {
+                "operation": "waitpid",
+                "pid": pid,
+                "flags": flags,
+                "time": now,
+                "admitted": admitted,
+            }
+        )
         # Simulated deferred observation, not kernel unreapability. The child
         # can really exit, but its status remains pinned until the independent audit.
-        if now < end or operation != "final-reap":
+        # Branch on runtime admission, so scheduler delay after it cannot reap early.
+        if (now if admitted is None else admitted) < end or operation != "final-reap":
             return 0, 0
         result = original_waitpid(pid, flags)
         observed.append(result)
@@ -62,13 +92,25 @@ def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch,
 
     def kill(pid, sig):
         calls.append(
-            {"operation": "kill", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            {
+                "operation": "kill",
+                "pid": pid,
+                "signal": int(sig),
+                "time": time.monotonic(),
+                "admitted": _admitted("_signal"),
+            }
         )
         return original_kill(pid, sig)
 
     def killpg(pid, sig):
         calls.append(
-            {"operation": "killpg", "pid": pid, "signal": int(sig), "time": time.monotonic()}
+            {
+                "operation": "killpg",
+                "pid": pid,
+                "signal": int(sig),
+                "time": time.monotonic(),
+                "admitted": _admitted("_signal"),
+            }
         )
         return original_killpg(pid, sig)
 
@@ -109,7 +151,10 @@ def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch,
                 worker_capture._reap(owner)
         retain(tmp_path, f"worker-deadline-{operation}-{ready}", receipt)
         assert crossed_in_cleanup is (operation == "cleanup-cutoff")
-        assert not [call for call in calls if call["time"] >= end]
+        # A syscall may execute after end when the runtime admitted it before end.
+        assert not [call for call in calls if call["admitted"] is None or call["admitted"] >= end]
+        # Admission must be the clock read that leads to this syscall, not a stale one.
+        assert all(0 <= call["time"] - call["admitted"] < ADMISSION_GAP for call in calls)
         assert receipt.error and receipt.residual_remedy
         assert not worker["reaped"] and pid in worker_capture._owners
         assert worker["shutdown_deadline_monotonic"] == end
@@ -1920,6 +1965,10 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
     terminated = False
     control_reads = []
     before = set(worker_capture._helper_obligations)
+    # The forked worker inherits this anonymous shared page. The runtime may
+    # KILL a TERM-handled worker at its grace, so after TERM the worker records
+    # its witness here with memory stores only. The parent publishes the file.
+    shared = mmap.mmap(-1, struct.calcsize("=?d"))
 
     def term(sig, frame):
         nonlocal terminated
@@ -1982,11 +2031,9 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
             while not terminated and time.monotonic() < end:
                 time.sleep(0.001)
             assert terminated and held is not None
+            shared[:] = struct.pack("=?d", terminated, time.monotonic())
             os.write(held[0], held[1])
             os.write(fd, data)  # Late terminal/reap must never retire the obligation.
-            info = json.loads(witness.read_text())
-            info.update(published_monotonic=time.monotonic(), after_term=terminated)
-            publish_witness(info)
             return
         original_write(fd, data, deadline)
 
@@ -2037,12 +2084,19 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
             # makes no claim about an observed PID-versus-group signal.
             assert worker["signal_scope"] == "pid"
         info = json.loads(witness.read_text())
+        if delay == "shutdown":
+            after_term, published = struct.unpack("=?d", shared)
+            info.update(after_term=after_term, published_monotonic=published or None)
+            publish_witness(info)
         if delay == "prebuffer":
             assert info["pipe_before_term"] and info["term_disposition"] == "SIG_DFL"
             assert worker["returncode"] == -signal.SIGTERM
             assert any(item["signal"] == "SIGTERM" for item in worker["signals"])
         if delay == "shutdown":
             assert info["after_term"] and info["published_monotonic"] >= end - 0.05
+            # The parent must have read part of the late publication itself.
+            # An overflow prefix may stop the capped read before the identity.
+            assert control_reads
         else:
             assert delayed
         identities = [

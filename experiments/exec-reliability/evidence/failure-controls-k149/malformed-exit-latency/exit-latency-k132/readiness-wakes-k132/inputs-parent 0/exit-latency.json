@@ -1,0 +1,640 @@
+{
+  "control": "scope-parent-exit-latency-after-group-term",
+  "inputs": "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability",
+  "python": "3.12.15 (main, Oct  9 2026, 15:10:57) [Clang 22.1.3 ]",
+  "budget": 0.3,
+  "term_grace": 0.15,
+  "kill_wait": 0.3,
+  "load_processes": 0,
+  "load_audit": [],
+  "historical_k132": {
+    "term_to_exit_drop_kill": 0.167848375,
+    "kill_before_exit": true
+  },
+  "subjects_before": {
+    "controller.py": "c3d697fe3883701f8a23d34d01f74fa7ac9f14a1371020a11b081e11cb7b656e",
+    "inspection.py": "a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1",
+    "peer.py": "525a4373985179304f4b381ef65081ec33d6d58de4f9a2ddedef7bffe5b73b0b",
+    "preflight.py": "6b3ff8d4a261f8b4f35592fe1039c247a3aaff210f44233f1eac7c94f9cb3bad",
+    "retention.py": "26b8ad589baa34757a09fa0c39439a816a41c7c73ad7eaca579705373138161c",
+    "self_check.py": "a34b1fff7cd5a0f6591ff366ba43d39328f0cc0fffaa0575dc09ba9d3ee41925",
+    "test_bootstrap.py": "0b3bdd9162a5c00f45332fa0f0ef3ff7ee1795154a0397c096565c15dde97625",
+    "test_controller.py": "e0690eec123a55cb249722f4811e1c511684285fdfb301b8a2daba6eeed7d838",
+    "test_inspection.py": "91d197f8a09301b9a9dec6356f27cbb06d37611117723fe5d0a4782357df9074",
+    "test_retention.py": "0d2eec2a36c52621267ec881626c918f37283e51036f13b8ed5939224f0097ff",
+    "test_shutdown.py": "77f01e39173aedadc4a70233cdaf2c2b8d23d9bd4b2de2fa570c12327eaf7ff7",
+    "test_turns.py": "874efaaaf1a73d4e86c494ce56800069899a8e0e69b30d42c44be63085b9969b",
+    "test_worker_capture.py": "8dc8572c829577095d44c34981d84200ec55e7f3638ea70d54e5db729a3fc574",
+    "turns.py": "dde3f9a7ddb2406bc6e1e9f94e4a562e5ab7cb5e883899ec65a7b0645215b96f",
+    "worker_capture.py": "05dc982b0f4c27a381a092e83099fce87fec632e8f6fbbbcbbb6ca70275e1191"
+  },
+  "subjects_after": {
+    "controller.py": "c3d697fe3883701f8a23d34d01f74fa7ac9f14a1371020a11b081e11cb7b656e",
+    "inspection.py": "a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1",
+    "peer.py": "525a4373985179304f4b381ef65081ec33d6d58de4f9a2ddedef7bffe5b73b0b",
+    "preflight.py": "6b3ff8d4a261f8b4f35592fe1039c247a3aaff210f44233f1eac7c94f9cb3bad",
+    "retention.py": "26b8ad589baa34757a09fa0c39439a816a41c7c73ad7eaca579705373138161c",
+    "self_check.py": "a34b1fff7cd5a0f6591ff366ba43d39328f0cc0fffaa0575dc09ba9d3ee41925",
+    "test_bootstrap.py": "0b3bdd9162a5c00f45332fa0f0ef3ff7ee1795154a0397c096565c15dde97625",
+    "test_controller.py": "e0690eec123a55cb249722f4811e1c511684285fdfb301b8a2daba6eeed7d838",
+    "test_inspection.py": "91d197f8a09301b9a9dec6356f27cbb06d37611117723fe5d0a4782357df9074",
+    "test_retention.py": "0d2eec2a36c52621267ec881626c918f37283e51036f13b8ed5939224f0097ff",
+    "test_shutdown.py": "77f01e39173aedadc4a70233cdaf2c2b8d23d9bd4b2de2fa570c12327eaf7ff7",
+    "test_turns.py": "874efaaaf1a73d4e86c494ce56800069899a8e0e69b30d42c44be63085b9969b",
+    "test_worker_capture.py": "8dc8572c829577095d44c34981d84200ec55e7f3638ea70d54e5db729a3fc574",
+    "turns.py": "dde3f9a7ddb2406bc6e1e9f94e4a562e5ab7cb5e883899ec65a7b0645215b96f",
+    "worker_capture.py": "05dc982b0f4c27a381a092e83099fce87fec632e8f6fbbbcbbb6ca70275e1191"
+  },
+  "subjects_unchanged": true,
+  "summary": {
+    "count": 20,
+    "min": 0.03612058301223442,
+    "median": 0.040799478971166536,
+    "max": 0.047994458000175655,
+    "killed": 20,
+    "group_scope": 20,
+    "children_absent": true
+  },
+  "runs": [
+    {
+      "run": "evidence/fc3297ab5e3f4adf878475bf01a07b9c",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29090,
+        "outcome": "sent",
+        "monotonic": 428218.322467625,
+        "finished_monotonic": 428218.322478
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29090,
+        "outcome": "sent",
+        "monotonic": 428218.474337375,
+        "finished_monotonic": 428218.474350166
+      },
+      "term_deadline_monotonic": 428218.47241975,
+      "leader_exit_monotonic": 428218.370462083,
+      "term_to_exit": 0.047994458000175655,
+      "returncode": 0,
+      "child": "29091",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/360aa0dbffd04b99bfd11adae56f9b37",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29095,
+        "outcome": "sent",
+        "monotonic": 428218.801831041,
+        "finished_monotonic": 428218.801843041
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29095,
+        "outcome": "sent",
+        "monotonic": 428218.952618166,
+        "finished_monotonic": 428218.952630958
+      },
+      "term_deadline_monotonic": 428218.951792625,
+      "leader_exit_monotonic": 428218.848622,
+      "term_to_exit": 0.046790959022473544,
+      "returncode": 0,
+      "child": "29096",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/68a66f2731794189a32fdef9fde5dedf",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29198,
+        "outcome": "sent",
+        "monotonic": 428219.280978833,
+        "finished_monotonic": 428219.280987916
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29198,
+        "outcome": "sent",
+        "monotonic": 428219.431118708,
+        "finished_monotonic": 428219.43113025
+      },
+      "term_deadline_monotonic": 428219.43095037504,
+      "leader_exit_monotonic": 428219.322688958,
+      "term_to_exit": 0.04171012504957616,
+      "returncode": 0,
+      "child": "29199",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/778cbcddcb544d719cc738e2d4b77259",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29248,
+        "outcome": "sent",
+        "monotonic": 428219.767831,
+        "finished_monotonic": 428219.767842833
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29248,
+        "outcome": "sent",
+        "monotonic": 428219.918300291,
+        "finished_monotonic": 428219.918313666
+      },
+      "term_deadline_monotonic": 428219.917792083,
+      "leader_exit_monotonic": 428219.813465041,
+      "term_to_exit": 0.04563404101645574,
+      "returncode": 0,
+      "child": "29249",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/a8219a4eecff41c69e22c202427b5b27",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29253,
+        "outcome": "sent",
+        "monotonic": 428220.24638075,
+        "finished_monotonic": 428220.246393375
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29253,
+        "outcome": "sent",
+        "monotonic": 428220.396858833,
+        "finished_monotonic": 428220.3968825
+      },
+      "term_deadline_monotonic": 428220.396337416,
+      "leader_exit_monotonic": 428220.289761541,
+      "term_to_exit": 0.04338079103035852,
+      "returncode": 0,
+      "child": "29254",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/bafe875ae73b4fa0bfe1ad9d9f7012e0",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29258,
+        "outcome": "sent",
+        "monotonic": 428220.726641833,
+        "finished_monotonic": 428220.726652291
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29258,
+        "outcome": "sent",
+        "monotonic": 428220.87845125,
+        "finished_monotonic": 428220.878462375
+      },
+      "term_deadline_monotonic": 428220.87660812505,
+      "leader_exit_monotonic": 428220.766676083,
+      "term_to_exit": 0.040034249948803335,
+      "returncode": 0,
+      "child": "29259",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/6f9678219b254d3a8357ddbf4489af25",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29263,
+        "outcome": "sent",
+        "monotonic": 428221.213824875,
+        "finished_monotonic": 428221.213834791
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29263,
+        "outcome": "sent",
+        "monotonic": 428221.3651545,
+        "finished_monotonic": 428221.365166583
+      },
+      "term_deadline_monotonic": 428221.36379058304,
+      "leader_exit_monotonic": 428221.252221416,
+      "term_to_exit": 0.0383965409710072,
+      "returncode": 0,
+      "child": "29264",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/3360222cd55f4ed99ae29accf1bb6055",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29277,
+        "outcome": "sent",
+        "monotonic": 428221.693899833,
+        "finished_monotonic": 428221.693909
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29277,
+        "outcome": "sent",
+        "monotonic": 428221.84409625,
+        "finished_monotonic": 428221.844111208
+      },
+      "term_deadline_monotonic": 428221.843863375,
+      "leader_exit_monotonic": 428221.731447041,
+      "term_to_exit": 0.0375472079613246,
+      "returncode": 0,
+      "child": "29278",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/aea49add8fa4408bb7787d15b0dc01cb",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29282,
+        "outcome": "sent",
+        "monotonic": 428222.172580958,
+        "finished_monotonic": 428222.172592083
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29282,
+        "outcome": "sent",
+        "monotonic": 428222.323423791,
+        "finished_monotonic": 428222.323437166
+      },
+      "term_deadline_monotonic": 428222.322545833,
+      "leader_exit_monotonic": 428222.21024425,
+      "term_to_exit": 0.03766329202335328,
+      "returncode": 0,
+      "child": "29283",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/e60d70b04d394293b0350ec04306704a",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29287,
+        "outcome": "sent",
+        "monotonic": 428222.65078125,
+        "finished_monotonic": 428222.650793541
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29287,
+        "outcome": "sent",
+        "monotonic": 428222.801099208,
+        "finished_monotonic": 428222.801110833
+      },
+      "term_deadline_monotonic": 428222.80074404104,
+      "leader_exit_monotonic": 428222.689810291,
+      "term_to_exit": 0.03902904101414606,
+      "returncode": 0,
+      "child": "29288",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/20e08be7f12e4ef49814c8bf1d15526f",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29292,
+        "outcome": "sent",
+        "monotonic": 428223.128621625,
+        "finished_monotonic": 428223.128631875
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29292,
+        "outcome": "sent",
+        "monotonic": 428223.2789295,
+        "finished_monotonic": 428223.278942458
+      },
+      "term_deadline_monotonic": 428223.278587791,
+      "leader_exit_monotonic": 428223.169404083,
+      "term_to_exit": 0.04078245797427371,
+      "returncode": 0,
+      "child": "29293",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/624b0d7d54394ec1b9e2f04a1986e39f",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29306,
+        "outcome": "sent",
+        "monotonic": 428223.610277458,
+        "finished_monotonic": 428223.610287375
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29306,
+        "outcome": "sent",
+        "monotonic": 428223.760729833,
+        "finished_monotonic": 428223.760742666
+      },
+      "term_deadline_monotonic": 428223.760239625,
+      "leader_exit_monotonic": 428223.650626375,
+      "term_to_exit": 0.040348917013034225,
+      "returncode": 0,
+      "child": "29307",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/d7b52716a44c42ea8c225efdd37f22f2",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29311,
+        "outcome": "sent",
+        "monotonic": 428224.089239458,
+        "finished_monotonic": 428224.089256208
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29311,
+        "outcome": "sent",
+        "monotonic": 428224.241033208,
+        "finished_monotonic": 428224.241047916
+      },
+      "term_deadline_monotonic": 428224.23919345805,
+      "leader_exit_monotonic": 428224.132489416,
+      "term_to_exit": 0.04324995802016929,
+      "returncode": 0,
+      "child": "29312",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/b285d64ea8bf41ec9b1411d5fd36a412",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29316,
+        "outcome": "sent",
+        "monotonic": 428224.56904425,
+        "finished_monotonic": 428224.569055541
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29316,
+        "outcome": "sent",
+        "monotonic": 428224.72009075,
+        "finished_monotonic": 428224.720106333
+      },
+      "term_deadline_monotonic": 428224.7190035,
+      "leader_exit_monotonic": 428224.614275791,
+      "term_to_exit": 0.045231540978420526,
+      "returncode": 0,
+      "child": "29317",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/21c47d93fdfb468ead750adb9c641bd9",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29321,
+        "outcome": "sent",
+        "monotonic": 428225.050595958,
+        "finished_monotonic": 428225.050606125
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29321,
+        "outcome": "sent",
+        "monotonic": 428225.202450875,
+        "finished_monotonic": 428225.202464416
+      },
+      "term_deadline_monotonic": 428225.20055795804,
+      "leader_exit_monotonic": 428225.091412458,
+      "term_to_exit": 0.04081649996805936,
+      "returncode": 0,
+      "child": "29322",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/ff7389f915d14377869bfbd361b68aa2",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29326,
+        "outcome": "sent",
+        "monotonic": 428225.531644708,
+        "finished_monotonic": 428225.531654625
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29326,
+        "outcome": "sent",
+        "monotonic": 428225.682334208,
+        "finished_monotonic": 428225.682348833
+      },
+      "term_deadline_monotonic": 428225.681609083,
+      "leader_exit_monotonic": 428225.577699166,
+      "term_to_exit": 0.04605445801280439,
+      "returncode": 0,
+      "child": "29327",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/a84c5e6294404765ba0f4d16bd664edb",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29341,
+        "outcome": "sent",
+        "monotonic": 428226.01266325,
+        "finished_monotonic": 428226.012674708
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29341,
+        "outcome": "sent",
+        "monotonic": 428226.164296125,
+        "finished_monotonic": 428226.164308833
+      },
+      "term_deadline_monotonic": 428226.162630291,
+      "leader_exit_monotonic": 428226.048783833,
+      "term_to_exit": 0.03612058301223442,
+      "returncode": 0,
+      "child": "29342",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/27913dc2b47847d884a028d291929922",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29347,
+        "outcome": "sent",
+        "monotonic": 428226.491474791,
+        "finished_monotonic": 428226.491487
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29347,
+        "outcome": "sent",
+        "monotonic": 428226.643505541,
+        "finished_monotonic": 428226.643519375
+      },
+      "term_deadline_monotonic": 428226.64144525,
+      "leader_exit_monotonic": 428226.533134916,
+      "term_to_exit": 0.0416601249598898,
+      "returncode": 0,
+      "child": "29348",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/eddd1090406348a1bc83cc18e6d2eb71",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29352,
+        "outcome": "sent",
+        "monotonic": 428226.97167725,
+        "finished_monotonic": 428226.971691208
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29352,
+        "outcome": "sent",
+        "monotonic": 428227.12415225,
+        "finished_monotonic": 428227.124165083
+      },
+      "term_deadline_monotonic": 428227.121641541,
+      "leader_exit_monotonic": 428227.010888333,
+      "term_to_exit": 0.03921108302893117,
+      "returncode": 0,
+      "child": "29353",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    },
+    {
+      "run": "evidence/d1bf877864174eff98736b6c19acaab7",
+      "signal_scope": "group",
+      "term": {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 29357,
+        "outcome": "sent",
+        "monotonic": 428227.460869041,
+        "finished_monotonic": 428227.460879541
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 29357,
+        "outcome": "sent",
+        "monotonic": 428227.6108815,
+        "finished_monotonic": 428227.610895708
+      },
+      "term_deadline_monotonic": 428227.61083695805,
+      "leader_exit_monotonic": 428227.501175125,
+      "term_to_exit": 0.040306084032636136,
+      "returncode": 0,
+      "child": "29358",
+      "child_audit": [
+        ""
+      ],
+      "child_absent": true
+    }
+  ]
+}

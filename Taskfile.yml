@@ -10,6 +10,146 @@ vars:
   BIN: '{{.ROOT_DIR}}/cli-rs/target/debug/testanyware'
 
 tasks:
+  diagnostic:failure-preserve:
+    desc: Snapshot or compare all earlier evidence before and after the k149 controls
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [MODE]
+    cmds:
+      - uv run --locked python evidence/failure-controls-k149/preserve.py {{.MODE | shellQuote}}
+
+  diagnostic:setuid-kill:
+    desc: Retain actual setuid-ps KILL controls through the real helper engine
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k149/setuid_ps_kill.py {{.OUT | shellQuote}} --trials {{.TRIALS | default "5"}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
+
+  diagnostic:scope-readiness:
+    desc: Reproduce the k145 interrupted live-group shape with declared child readiness
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k149/scope_readiness.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT | default "3"}}
+
+  diagnostic:admission-timing:
+    desc: Separate reap cutoff admission from syscall execution for one input set
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k149/admission_timing.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT | default "5"}}
+
+  diagnostic:failure-prepare:
+    desc: Freeze one k149 input set with an optional declared mutation
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [SOURCE, DEST]
+    cmds:
+      - uv run --locked python evidence/failure-controls-k149/prepare.py {{.SOURCE | shellQuote}} {{.DEST | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
+
+  diagnostic:failure-timing-tests:
+    desc: Run the repaired cutoff timing tests in one frozen input set with retained receipts
+    dir: '{{.INPUTS}}'
+    requires:
+      vars: [INPUTS, OUT]
+    env:
+      DIAGNOSTIC_EVIDENCE: '{{.OUT}}/receipts'
+    cmds:
+      - mkdir -p {{.OUT | shellQuote}}
+      - uv run --locked --isolated --python 3.12 python -m pytest -vv -p no:cacheprovider --junitxml={{.OUT | shellQuote}}/pytest.xml test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations test_shutdown.py::test_declared_shutdown_real_child_phases
+
+  diagnostic:late-identity-tests:
+    desc: Run the late-created identity fixture tests in one frozen input set with retained receipts
+    dir: '{{.INPUTS}}'
+    requires:
+      vars: [INPUTS, OUT]
+    env:
+      DIAGNOSTIC_EVIDENCE: '{{.OUT}}/receipts'
+    cmds:
+      - mkdir -p {{.OUT | shellQuote}}
+      - uv run --locked --isolated --python 3.12 python -m pytest -vv -p no:cacheprovider --junitxml={{.OUT | shellQuote}}/pytest.xml test_worker_capture.py -k late_created_identity
+
+  diagnostic:failure-full-suite:
+    desc: Run the full exec-reliability suite in one frozen k149 input set with retained receipts
+    dir: '{{.INPUTS}}'
+    requires:
+      vars: [INPUTS, OUT]
+    env:
+      DIAGNOSTIC_EVIDENCE: '{{.OUT}}/receipts'
+    cmds:
+      - mkdir -p {{.OUT | shellQuote}}
+      - uv run --locked --isolated --python 3.12 python -m pytest -q -p no:cacheprovider --junitxml={{.OUT | shellQuote}}/pytest.xml
+
+  diagnostic:eof-order-tests:
+    desc: Run the fork-failure EOF-order controls in one frozen input set with retained receipts
+    dir: '{{.INPUTS}}'
+    requires:
+      vars: [INPUTS, OUT]
+    env:
+      DIAGNOSTIC_EVIDENCE: '{{.OUT}}/receipts'
+    cmds:
+      - mkdir -p {{.OUT | shellQuote}}
+      - uv run --locked --isolated --python 3.12 python -m pytest -vv -p no:cacheprovider --junitxml={{.OUT | shellQuote}}/pytest.xml test_worker_capture.py -k "fork_failure_lost_result_eof_order or (worker_fork_failure_evidence and lost-result)"
+
+  diagnostic:foreign-denial:
+    desc: Drive real controller termination against a separately owned foreign-UID fixture (pass SELF=1 for the owned plumbing check)
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    vars:
+      OWNER: '{{.OWNER | default ""}}'
+      SELF: '{{.SELF | default ""}}'
+    cmds:
+      - uv run --locked --isolated --python 3.12 python -I evidence/failure-controls-k149/foreign_denial.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .SELF}}--self-fixture{{else}}--owner-dir {{.OWNER | shellQuote}}{{end}}
+
+  diagnostic:scope-parent-tests:
+    desc: Run the scope-parent group tests in one frozen input set with retained receipts
+    dir: '{{.INPUTS}}'
+    requires:
+      vars: [INPUTS, OUT]
+    env:
+      DIAGNOSTIC_EVIDENCE: '{{.OUT}}/receipts'
+    cmds:
+      - mkdir -p {{.OUT | shellQuote}}
+      - uv run --locked --isolated --python 3.12 python -m pytest -vv -p no:cacheprovider --junitxml={{.OUT | shellQuote}}/pytest.xml test_controller.py -k "exited_leader_does_not_hide or live_group_is_failure_even"
+
+  diagnostic:ps-latency:
+    desc: Measure real ps latency idle, under CPU load and against exiting processes
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python -I evidence/failure-controls-k149/ps_latency.py {{.OUT | shellQuote}}
+
+  diagnostic:exiting-leader:
+    desc: Run real slow-exiting group leaders through one frozen controller input set
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    vars:
+      REPEAT: '{{.REPEAT | default "10"}}'
+    cmds:
+      - uv run --locked --isolated --python 3.12 python -I evidence/failure-controls-k149/exiting_leader.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT}}
+
+  diagnostic:exit-latency:
+    desc: Measure scope-parent leader exit latency after group TERM for one input set
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k149/exit_latency.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT | default "20"}} --load {{.LOAD | default "0"}}
+
+  diagnostic:failure-tools:
+    desc: Check k149 failure-control evidence tooling
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check evidence/failure-controls-k149/*.py
+      - uv run --locked python -m ruff format --check evidence/failure-controls-k149/*.py
+      - uv run --locked python -m pyright evidence/failure-controls-k149/*.py
+
   diagnostic:overlap-audit:
     desc: Verify retained worker overlap comparisons and independent receipts
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
