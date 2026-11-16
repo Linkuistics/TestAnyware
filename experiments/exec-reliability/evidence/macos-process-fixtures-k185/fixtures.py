@@ -11,15 +11,24 @@ test file of `--baseline-rev`, which has the broad cleanup. The expected
 verdict is `killed`.
 
 The control is a child of this script, so its PID cannot name another process
-until this script reaps it. Before the broad arm runs, the script lists the
-processes of this user that match the broad pattern. It refuses to run when
-any process other than its own control matches, because the restored cleanup
-would stop that process.
+until this script reaps it. The script stops and reaps the control on every
+exit after it starts, and it records any error and any cleanup failure.
+
+The restored broad cleanup signals every process of this user that matches the
+pattern. A scan cannot make that safe, because a process can start between the
+scan and the signal. So the broad arm runs only with `--isolated-host`, which
+declares that no other process of this user can match. On that host, the
+script still refuses a match that it sees before the build or before a run. A
+failed scan stops the script, because a failed scan does not show absence.
 
 Every input, bound and hash goes into OUT/plan.json before the first run. OUT
-must not exist. The script exits 0 only when every run gives the `--expect`
-verdict and the owned arm leaves no matching process of its own behind.
-Suite failures are recorded per test case. They are not part of the verdict.
+must not exist. A run counts only when the suite finishes inside its bound and
+both fixture cases finish. In the owned arm, the run also needs a cleanup
+receipt from each fixture case and no survivor. Otherwise its verdict is
+`invalid-exercise`. The script exits 0 only when at least one run happens,
+every run gives the `--expect` verdict and the owned arm leaves no matching
+process of its own behind. Suite failures are recorded per test case. They are
+not part of the verdict.
 """
 
 from __future__ import annotations
@@ -58,6 +67,10 @@ KILL_PATTERN = re.compile(r"\b(pkill|killall)\b")
 XCTEST_CASE = re.compile(r"Test Case '-\[(\S+) (\w+)\]' (passed|failed) \(([\d.]+) seconds\)")
 SWIFT_TESTING_FAIL = re.compile(r"Test (\w+)\(\) (?:failed|recorded an issue)")
 FIXTURE_LINE = re.compile(r"owned-process-fixture: (.+)")
+FIXTURE_CASES = (
+    "ProcessRunnerTests.testDescendantHoldingFDDoesNotWedgeAfterParentExits",
+    "ProcessRunnerTests.testDetachedRunReturnsImmediately",
+)
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -104,7 +117,11 @@ def kill_audit(baseline: bytes) -> dict[str, Any]:
 
 
 def matching_pids() -> list[dict[str, str]]:
-    """Lists the processes of this user that the broad pattern selects."""
+    """Lists the processes of this user that the broad pattern selects.
+
+    `pgrep` exits 1 when nothing matches. Any other failure raises, because a
+    failed scan does not show that no process matches.
+    """
     done = subprocess.run(
         ["pgrep", "-U", str(os.getuid()), "-lf", BROAD_PATTERN],
         capture_output=True,
@@ -112,6 +129,8 @@ def matching_pids() -> list[dict[str, str]]:
         timeout=10,
         check=False,
     )
+    if done.returncode not in (0, 1) or (done.returncode == 0) != bool(done.stdout.strip()):
+        raise RuntimeError(f"pgrep failed: exit {done.returncode}, stderr {done.stderr.strip()!r}")
     rows: list[dict[str, str]] = []
     for line in done.stdout.splitlines():
         pid, _, command = line.strip().partition(" ")
@@ -172,6 +191,41 @@ def parse_suite(log: Path) -> dict[str, Any]:
     }
 
 
+def exercise_problems(arm: str, suite: dict[str, Any]) -> list[str]:
+    """Explains why a run did not exercise the fixture cleanup, if it did not.
+
+    A control that survives a suite which never reached the fixture cases is
+    not evidence. The owned arm also needs a cleanup receipt from each case.
+    """
+    problems: list[str] = []
+    if suite["hit_bound"]:
+        problems.append(f"suite stopped at the {SUITE_BOUND_SECONDS} s bound")
+    finished = [c["case"] for c in suite["xctest_cases"]]
+    for case in FIXTURE_CASES:
+        if not any(name.endswith(case) for name in finished):
+            problems.append(f"{case} did not finish")
+    if arm == "owned":
+        receipts = [line for line in suite["fixture_lines"] if not line.startswith("unresolved")]
+        if len(receipts) < len(FIXTURE_CASES):
+            problems.append(f"{len(receipts)} cleanup receipts, expected {len(FIXTURE_CASES)}")
+        problems.extend(
+            f"fixture cleanup: {line}"
+            for line in suite["fixture_lines"]
+            if line.startswith("unresolved") or line.endswith("survived")
+        )
+    return problems
+
+
+def stop_control_safely(proc: subprocess.Popen[bytes]) -> dict[str, Any]:
+    """Stops and reaps the control, and records a cleanup failure instead of
+    raising it, so the error that ended the run stays the one that propagates.
+    """
+    try:
+        return stop_control(proc)
+    except Exception as exc:  # noqa: BLE001 - the failure is the evidence
+        return {"cleanup_error": repr(exc), "alive_after_cleanup": proc.poll() is None}
+
+
 def stop_control(proc: subprocess.Popen[bytes]) -> dict[str, Any]:
     code = proc.poll()
     if code is not None:
@@ -216,7 +270,20 @@ def main() -> int:
     parser.add_argument("--expect", choices=("survives", "killed"), required=True)
     parser.add_argument("--runs", type=int, default=3)
     parser.add_argument("--baseline-rev", required=True)
+    parser.add_argument(
+        "--isolated-host",
+        action="store_true",
+        help="declare that no other process of this user can match; the broad arm needs it",
+    )
     args = parser.parse_args()
+    if args.runs < 1:
+        parser.error("--runs must be at least 1")
+    if args.arm == "broad" and not args.isolated_host:
+        parser.error(
+            "the broad arm restores an unrestricted `pkill -f`, which a scan cannot make "
+            "safe on a shared host; pass --isolated-host only on a host where no other "
+            "process of this user can match"
+        )
 
     out: Path = args.out.resolve()
     if out.exists():
@@ -231,6 +298,7 @@ def main() -> int:
         "arm": args.arm,
         "expect": args.expect,
         "runs": args.runs,
+        "isolated_host": args.isolated_host,
         "baseline_rev": args.baseline_rev,
         "baseline_test_sha256": sha256_bytes(baseline),
         "subjects_before": subjects,
@@ -273,7 +341,13 @@ def main() -> int:
         for n in range(1, args.runs + 1):
             run_dir = out / f"run-{n:02d}"
             run_dir.mkdir()
-            before = {row["pid"] for row in matching_pids()}
+            matching = matching_pids()
+            if args.arm == "broad" and matching:
+                raise SystemExit(
+                    f"refusing broad run {n}: other processes of this user match "
+                    f"{BROAD_PATTERN!r}: {matching}"
+                )
+            before = {row["pid"] for row in matching}
             control = subprocess.Popen(
                 CONTROL_ARGV,
                 stdin=subprocess.DEVNULL,
@@ -281,20 +355,34 @@ def main() -> int:
                 stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
-            selected = str(control.pid) in {row["pid"] for row in matching_pids()}
-            record: dict[str, Any] = {
-                "control": {
-                    "pid": control.pid,
-                    "started": started(control.pid),
-                    "selected_by_broad_pattern": selected,
-                },
-            }
-            suite = run_bounded(suite_argv, suite_cwd, run_dir / "suite.log", SUITE_BOUND_SECONDS)
-            record["suite"] = suite | parse_suite(run_dir / "suite.log")
-            record["control"] |= stop_control(control)
+            record: dict[str, Any] = {"control": {"pid": control.pid}, "matching_before": matching}
+            try:
+                record["control"]["started"] = started(control.pid)
+                selected = str(control.pid) in {row["pid"] for row in matching_pids()}
+                record["control"]["selected_by_broad_pattern"] = selected
+                suite = run_bounded(
+                    suite_argv, suite_cwd, run_dir / "suite.log", SUITE_BOUND_SECONDS
+                )
+                record["suite"] = suite | parse_suite(run_dir / "suite.log")
+            except BaseException as exc:
+                record["error"] = repr(exc)
+                raise
+            finally:
+                # Runs on every exit after the control starts. A cleanup
+                # failure is recorded beside the error that ended the run.
+                record["control"] |= stop_control_safely(control)
+                if "error" in record:
+                    (run_dir / "run.json").write_text(json.dumps(record, indent=2) + "\n")
+            if "cleanup_error" in record["control"]:
+                (run_dir / "run.json").write_text(json.dumps(record, indent=2) + "\n")
+                raise RuntimeError(f"control cleanup failed: {record['control']}")
             after = [r for r in matching_pids() if r["pid"] not in before]
             record["matching_new_after"] = after
+            problems = exercise_problems(args.arm, record["suite"])
+            record["exercise_problems"] = problems
             verdict = "survives" if record["control"]["alive_after_suite"] else "killed"
+            if problems:
+                verdict = "invalid-exercise"
             if not selected:
                 verdict = "invalid-control"
             record["verdict"] = verdict
@@ -303,7 +391,7 @@ def main() -> int:
             (run_dir / "run.json").write_text(json.dumps(record, indent=2) + "\n")
             print(
                 f"run-{n:02d}: verdict={verdict} suite_exit={suite['exit']} "
-                f"failed={record['suite']['xctest_failed']}",
+                f"failed={record['suite']['xctest_failed']} problems={problems}",
                 flush=True,
             )
     finally:
@@ -313,7 +401,8 @@ def main() -> int:
     subjects_after = {
         str(p.relative_to(ROOT)): sha256(p) for p in (TEST_FILE, FIXTURE_FILE, RUNNER, SELF)
     }
-    ok = all(v == args.expect for v in verdicts) and subjects_after == subjects
+    ok = bool(verdicts) and all(v == args.expect for v in verdicts)
+    ok = ok and subjects_after == subjects
     if args.arm == "owned" and leaks:
         ok = False
     summary = {

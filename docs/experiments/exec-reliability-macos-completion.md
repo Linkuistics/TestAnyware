@@ -283,6 +283,47 @@ hashes were the same before and after every run. The audit in each `plan.json`
 finds no `pkill` or `killall` in the agent package source. The same scan finds
 two in the baseline test file.
 
+### Review k188 and repairs in k189
+
+Review k188 found five gaps in the k185 fixture and control. Leaf k189
+verified each gap in the source and repaired it. The retained runs above are
+unchanged.
+
+- Ownership. The fixture could adopt any process that held the PID after
+  fixture creation. That included the xctest process itself, which can start
+  less than 1 s before the fixture. A PID file that named xctest made cleanup
+  send SIGTERM to the test runner. The fixture now has three conditions. A
+  child must start after the fixture and run in the test session. It must be
+  neither the test process nor an ancestor. Its identity must also stay the
+  same across the check. A process that fails the binding is refused and never signalled.
+- Cancellation. A child that `track` had not bound was outside teardown.
+  `pidFile` now registers each name, and `cleanUp` resolves each name that
+  `track` did not bind. A name that cleanup cannot resolve fails the test.
+- Fault arm. One scan before the build could not protect a shared host, and a
+  failed `pgrep` counted as no match. A failed scan now stops the script. The
+  script also refuses a visible match before each run. The broad arm runs
+  only with `ISOLATED_HOST=1`, because a process can still start between a
+  scan and the restored `pkill -f`. Only an isolated host closes that window.
+- Exercise. A run now counts only when the suite finishes inside its bound
+  and both fixture cases finish. In the owned arm, the run also needs one
+  cleanup receipt from each case and no survivor. Otherwise its verdict is
+  `invalid-exercise`. A plan with no runs fails. All 40 retained runs pass
+  this check.
+- Control cleanup. The script now stops and reaps the control on every exit
+  after the control starts. It records the error and any cleanup failure.
+
+`OwnedProcessFixtureTests` holds four cases: the test process, an older
+process, a process in another session and a cancelled `track`. In fault
+injection, a suite that failed to start and a failed `pgrep` after the control start
+each left the control stopped and reaped. Each also left the original error in
+`run.json`. Two live owned runs in `owned-k189` gave `survives` with no
+exercise problem and no suite failure.
+
+Two limits remain. Darwin has no process handle, so the kernel can reuse a
+PID between the identity check and `kill`. A process of the same session can
+also start after the fixture and take the PID of an exited child before
+`track` reads it. Both need a PID reuse inside one test.
+
 ### Intermittent suite failure
 
 The suite failed in 7 of 20 owned runs and in 4 of 20 broad runs. Fisher's

@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 import XCTest
 
 /// The kernel identity of one process: its PID and its start time.
@@ -22,6 +23,7 @@ struct ProcessIdentity: Equatable, Sendable, CustomStringConvertible {
         let identity: ProcessIdentity
         let command: String
         let zombie: Bool
+        let parent: pid_t
     }
 
     /// Reads the process that holds `pid` now, or nil when no process holds it.
@@ -41,7 +43,8 @@ struct ProcessIdentity: Equatable, Sendable, CustomStringConvertible {
                 startMicroseconds: info.pbi_start_tvusec
             ),
             command: command,
-            zombie: info.pbi_status == UInt32(SZOMB)
+            zombie: info.pbi_status == UInt32(SZOMB),
+            parent: pid_t(info.pbi_ppid)
         )
     }
 
@@ -57,14 +60,27 @@ struct ProcessIdentity: Equatable, Sendable, CustomStringConvertible {
 ///
 /// The test's shell command writes the child's PID into a file in a
 /// directory that only this fixture uses (`echo $$` before `exec`, or `echo $!`
-/// after `&`). `track` reads that PID and accepts the process only when it
-/// started after the fixture was created and runs the expected command.
-/// `cleanUp` signals a tracked child only while its PID still carries the
-/// recorded start time. The fixture never selects a process by name.
+/// after `&`). `pidFile` registers the file's name. `track` reads the PID and
+/// binds the process to this test only when all three conditions hold:
 ///
-/// Limit: the kernel can reuse a PID between the identity check and `kill`.
-/// That window is a few microseconds, and Darwin has no process handle
-/// that would close it.
+/// - the process started after the fixture was created,
+/// - the process runs in the session of the test process,
+/// - the process is neither the test process nor one of its ancestors, and
+/// - its PID and start time stay the same across the check.
+///
+/// A process that fails the binding is refused and never signalled. A bound
+/// child is recorded at once, so cancellation of `track` cannot drop it.
+/// `cleanUp` signals a recorded child only while its PID still carries the
+/// recorded start time. It also resolves each registered name that `track`
+/// did not bind. The fixture never selects a process by name.
+///
+/// Limits: the kernel can reuse a PID between the identity check and `kill`.
+/// That window is a few microseconds, and Darwin has no process handle that
+/// would close it. A process of the same session that starts after the
+/// fixture and takes the child's PID before `track` reads it also passes the
+/// binding. That needs the child to exit and its PID to come back inside one
+/// test. Foundation gives each child its own process group, so the group
+/// cannot narrow the binding further.
 actor OwnedProcessFixture {
     enum FixtureError: Error, CustomStringConvertible {
         case noPidFile(String)
@@ -77,12 +93,20 @@ actor OwnedProcessFixture {
         }
     }
 
-    /// What `cleanUp` did with one tracked child.
+    /// What `cleanUp` did with one recorded child.
     enum CleanupOutcome: Equatable, Sendable {
         case alreadyGone
         case stoppedByTerm
         case stoppedByKill
         case survived
+    }
+
+    /// What `cleanUp` did: one outcome for each child that it could identify,
+    /// and one explanation for each registered PID file that it could not
+    /// resolve. An unresolved file can leave a launched child running.
+    struct CleanupReport: Sendable {
+        var outcomes: [(ProcessIdentity, CleanupOutcome)] = []
+        var unresolved: [String] = []
     }
 
     /// Bound for a child to write its PID file and finish its `exec`.
@@ -95,13 +119,19 @@ actor OwnedProcessFixture {
 
     let directory: URL
     private let notBeforeMicroseconds: UInt64
+    /// The session of the test process. Its children inherit it.
+    private let session: pid_t
+    /// Names that `pidFile` handed out. It is nonisolated, so a lock guards it.
+    private let registered = OSAllocatedUnfairLock(initialState: Set<String>())
     private var tracked: [ProcessIdentity] = []
+    private var trackedNames: Set<String> = []
 
     init() throws {
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("testanyware-process-fixture-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
         notBeforeMicroseconds = Self.wallClockMicroseconds()
+        session = getsid(0)
     }
 
     /// Creates a fixture and registers its cleanup as a teardown block of
@@ -109,73 +139,87 @@ actor OwnedProcessFixture {
     static func make(for testCase: XCTestCase) throws -> OwnedProcessFixture {
         let fixture = try OwnedProcessFixture()
         testCase.addTeardownBlock {
-            let outcomes = await fixture.cleanUp()
-            for (identity, outcome) in outcomes {
+            let report = await fixture.cleanUp()
+            for (identity, outcome) in report.outcomes {
                 FileHandle.standardError.write(Data(
                     "owned-process-fixture: \(identity) \(outcome)\n".utf8
                 ))
                 XCTAssertNotEqual(outcome, .survived, "owned child \(identity) survived cleanup")
             }
+            for detail in report.unresolved {
+                FileHandle.standardError.write(Data("owned-process-fixture: unresolved \(detail)\n".utf8))
+                XCTFail("owned-process-fixture could not resolve a launched child: \(detail)")
+            }
         }
         return fixture
     }
 
-    /// The path of the PID file `name` in this fixture's directory. The
-    /// directory name holds only a UUID, so it is safe inside single quotes.
+    /// The path of the PID file `name` in this fixture's directory, which
+    /// `cleanUp` then resolves. The directory name holds only a UUID, so it is
+    /// safe inside single quotes. Call it before the child starts.
     nonisolated func pidFile(_ name: String) -> String {
-        directory.appendingPathComponent(name).path
+        registered.withLock { _ = $0.insert(name) }
+        return directory.appendingPathComponent(name).path
     }
 
-    /// Reads the PID that the child wrote to `pidFile(name)` and records the
-    /// child's identity. Waits up to `trackBound` for the file and for the
-    /// child's command to become `command`.
+    /// Reads the PID that the child wrote to `pidFile(name)`, binds the child
+    /// to this test and records it. Waits up to `trackBound` for the file and
+    /// for the child's command to become `command`.
     @discardableResult
     func track(_ name: String, command: String) async throws -> ProcessIdentity {
         let path = pidFile(name)
         let deadline = Date().addingTimeInterval(Self.trackBound)
         var pid: pid_t?
-        var last: ProcessIdentity.Observation?
+        var bound: ProcessIdentity?
+        var lastCommand = ""
         while Date() < deadline {
-            if pid == nil, let text = try? String(contentsOfFile: path, encoding: .utf8),
-               text.hasSuffix("\n"),
-               let value = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
-                pid = value
-            }
+            if pid == nil { pid = Self.readPid(path) }
             if let pid {
-                last = ProcessIdentity.observe(pid: pid)
-                if let last, last.command == command { break }
+                switch sight(pid) {
+                case .gone:
+                    throw FixtureError.notOwned("pid \(pid) from \(path) exited before it ran \(command)")
+                case .foreign(let reason):
+                    throw FixtureError.notOwned("\(reason), so it is not this test's child")
+                case .owned(let seen):
+                    if let bound, seen.identity != bound {
+                        throw FixtureError.notOwned("pid \(pid) changed from \(bound) to \(seen.identity)")
+                    }
+                    if bound == nil {
+                        // The binding holds now, so the fixture owns this child
+                        // whatever happens to `track` from here on.
+                        bound = seen.identity
+                        record(seen.identity, name: name)
+                    }
+                    if seen.command == command { return seen.identity }
+                    lastCommand = seen.command
+                }
             }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
         guard let pid else {
             throw FixtureError.noPidFile("no PID in \(path) within \(Self.trackBound) s")
         }
-        guard let last, !last.zombie else {
-            throw FixtureError.notOwned("pid \(pid) from \(path) exited before it was identified")
-        }
-        let started = last.identity.startSeconds * 1_000_000 + last.identity.startMicroseconds
-        guard started + Self.clockAllowanceMicroseconds >= notBeforeMicroseconds else {
-            throw FixtureError.notOwned("pid \(pid) started before this fixture, so it is not this test's child")
-        }
-        // The start time shows that the test created this process, so the
-        // fixture tracks it even when the command check below fails.
-        tracked.append(last.identity)
-        guard last.command == command else {
-            throw FixtureError.notOwned("pid \(pid) runs \(last.command), not \(command)")
-        }
-        return last.identity
+        throw FixtureError.notOwned("pid \(pid) runs \(lastCommand), not \(command)")
     }
 
-    /// Stops every tracked child that is still alive, then removes the
+    /// Stops every recorded child that is still alive, resolves and stops
+    /// each registered child that `track` did not bind, then removes the
     /// directory. SIGTERM first, SIGKILL after `termGrace`.
-    func cleanUp() async -> [(ProcessIdentity, CleanupOutcome)] {
-        var outcomes: [(ProcessIdentity, CleanupOutcome)] = []
+    func cleanUp() async -> CleanupReport {
+        var report = CleanupReport()
+        let pending = registered.withLock { $0 }.subtracting(trackedNames).sorted()
+        for name in pending {
+            if let detail = await resolve(name) { report.unresolved.append(detail) }
+        }
         for identity in tracked {
-            outcomes.append((identity, await Self.stop(identity)))
+            report.outcomes.append((identity, await Self.stop(identity)))
         }
         tracked.removeAll()
-        try? FileManager.default.removeItem(at: directory)
-        return outcomes
+        trackedNames.removeAll()
+        if report.unresolved.isEmpty {
+            try? FileManager.default.removeItem(at: directory)
+        }
+        return report
     }
 
     /// Signals `identity` only while its PID still carries its start time.
@@ -187,6 +231,88 @@ actor OwnedProcessFixture {
         kill(identity.pid, SIGKILL)
         if await waitForExit(identity, seconds: killBound) { return .stoppedByKill }
         return .survived
+    }
+
+    // MARK: - Binding
+
+    private enum Sighting {
+        /// No live process holds the PID, so the child has exited.
+        case gone
+        /// A live process holds the PID, but nothing binds it to this test.
+        case foreign(String)
+        /// The process holding the PID is bound to this test.
+        case owned(ProcessIdentity.Observation)
+    }
+
+    /// Checks whether the process that holds `pid` now is this test's child.
+    private func sight(_ pid: pid_t) -> Sighting {
+        // The test process and its ancestors can share the session and start
+        // inside the clock allowance, but a child of the test is never one
+        // of them.
+        guard !Self.selfAndAncestors().contains(pid) else {
+            return .foreign("pid \(pid) is the test process or one of its ancestors")
+        }
+        guard let before = ProcessIdentity.observe(pid: pid), !before.zombie else { return .gone }
+        let started = before.identity.startSeconds * 1_000_000 + before.identity.startMicroseconds
+        guard started + Self.clockAllowanceMicroseconds >= notBeforeMicroseconds else {
+            return .foreign("pid \(pid) started before this fixture")
+        }
+        let processSession = getsid(pid)
+        // A second observation shows that the session belongs to the same
+        // process. A changed identity means the first process exited.
+        guard let after = ProcessIdentity.observe(pid: pid), !after.zombie,
+              after.identity == before.identity else { return .gone }
+        guard processSession == session else {
+            return .foreign("pid \(pid) runs in session \(processSession), not test session \(session)")
+        }
+        return .owned(after)
+    }
+
+    private func record(_ identity: ProcessIdentity, name: String) {
+        tracked.append(identity)
+        trackedNames.insert(name)
+    }
+
+    /// Binds and records the child of a registered name that `track` did not
+    /// bind. Returns an explanation when no child can be identified.
+    private func resolve(_ name: String) async -> String? {
+        let path = pidFile(name)
+        let deadline = Date().addingTimeInterval(Self.trackBound)
+        var pid = Self.readPid(path)
+        while pid == nil, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 10_000_000)
+            pid = Self.readPid(path)
+        }
+        guard let pid else {
+            return "no PID in \(path) within \(Self.trackBound) s, so a launched child may remain"
+        }
+        switch sight(pid) {
+        case .gone:
+            return nil
+        case .foreign(let reason):
+            return "\(reason), so cleanup did not signal it and the child from \(path) is unknown"
+        case .owned(let seen):
+            record(seen.identity, name: name)
+            return nil
+        }
+    }
+
+    /// The PIDs from this process up its parent chain to launchd.
+    private static func selfAndAncestors() -> Set<pid_t> {
+        var chain: Set<pid_t> = []
+        var current = getpid()
+        while current > 0, chain.insert(current).inserted {
+            guard let seen = ProcessIdentity.observe(pid: current) else { break }
+            current = seen.parent
+        }
+        return chain
+    }
+
+    private static func readPid(_ path: String) -> pid_t? {
+        guard let text = try? String(contentsOfFile: path, encoding: .utf8), text.hasSuffix("\n") else {
+            return nil
+        }
+        return pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     private static func waitForExit(_ identity: ProcessIdentity, seconds: TimeInterval) async -> Bool {

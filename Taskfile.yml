@@ -206,12 +206,12 @@ tasks:
       - uv run --locked python -m pyright evidence/macos-completion-k3/*.py
 
   diagnostic:macos-process-fixtures:
-    desc: 'Run the macOS agent suite beside an unrelated `sleep 300` control into a new OUT directory. ARM=owned (default) expects the control to survive. ARM=broad restores the pre-k185 broad cleanup in a temporary copy and expects the control to be killed. It refuses to run while other processes of this user match the broad pattern'
+    desc: 'Run the macOS agent suite beside an unrelated `sleep 300` control into a new OUT directory. ARM=owned (default) expects the control to survive. ARM=broad restores the pre-k185 broad cleanup in a temporary copy and expects the control to be killed. The broad cleanup signals every matching process of this user, so ARM=broad also needs ISOLATED_HOST=1, which declares a host where no other process of this user can match. It still refuses to run while it sees such a process'
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
     requires:
       vars: [OUT]
     cmds:
-      - uv run --locked --isolated --python 3.12 python -I evidence/macos-process-fixtures-k185/fixtures.py {{.OUT | shellQuote}} --arm {{.ARM | default "owned" | shellQuote}} --expect {{.EXPECT | default (eq (.ARM | default "owned") "broad" | ternary "killed" "survives") | shellQuote}} --runs {{.RUNS | default "3" | shellQuote}} --baseline-rev {{.BASELINE_REV | default "990641750f0735fcb400e93fcc0974800f26f28b" | shellQuote}}
+      - uv run --locked --isolated --python 3.12 python -I evidence/macos-process-fixtures-k185/fixtures.py {{.OUT | shellQuote}} --arm {{.ARM | default "owned" | shellQuote}} --expect {{.EXPECT | default (eq (.ARM | default "owned") "broad" | ternary "killed" "survives") | shellQuote}} --runs {{.RUNS | default "3" | shellQuote}} --baseline-rev {{.BASELINE_REV | default "990641750f0735fcb400e93fcc0974800f26f28b" | shellQuote}}{{if .ISOLATED_HOST}} --isolated-host{{end}}
 
   diagnostic:macos-process-fixtures-tools:
     desc: Check the k185 process-fixture control tooling
