@@ -34,6 +34,22 @@ tasks:
     cmds:
       - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k149/scope_readiness.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT | default "3"}}
 
+  diagnostic:scope-readiness-k151:
+    desc: Rerun the k145 readiness control with the k151 child audit (absent, present or unknown)
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k151/scope_readiness.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT | default "3"}}
+
+  diagnostic:absence-controls:
+    desc: Show that the k149 absence predicate fails and the k151 verdict passes on real ps results
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k151/absence_controls.py {{.OUT | shellQuote}}
+
   diagnostic:admission-timing:
     desc: Separate reap cutoff admission from syscall execution for one input set
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
@@ -143,12 +159,15 @@ tasks:
       - uv run --locked --isolated --python 3.12 python evidence/failure-controls-k149/exit_latency.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --repeat {{.REPEAT | default "20"}} --load {{.LOAD | default "0"}}
 
   diagnostic:failure-tools:
-    desc: Check k149 failure-control evidence tooling
+    desc: Check k149 and k151 failure-control evidence tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
     cmds:
       - uv run --locked python -m ruff check evidence/failure-controls-k149/*.py
       - uv run --locked python -m ruff format --check evidence/failure-controls-k149/*.py
       - uv run --locked python -m pyright evidence/failure-controls-k149/*.py
+      - uv run --locked python -m ruff check evidence/failure-controls-k151/*.py
+      - uv run --locked python -m ruff format --check evidence/failure-controls-k151/*.py
+      - uv run --locked python -m pyright evidence/failure-controls-k151/*.py
 
   diagnostic:overlap-audit:
     desc: Verify retained worker overlap comparisons and independent receipts

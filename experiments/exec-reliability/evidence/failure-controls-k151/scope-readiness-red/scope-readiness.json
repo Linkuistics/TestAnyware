@@ -1,0 +1,546 @@
+{
+  "control": "k145-interrupted-live-group-readiness-k151",
+  "inputs": "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/caller-cleanup-k145/candidate-v2",
+  "python": "3.12.15 (main, Oct  9 2026, 15:10:57) [Clang 22.1.3 ]",
+  "pid": 97932,
+  "interrupt_after": 0.3,
+  "term_grace": 0.15,
+  "kill_wait": 0.3,
+  "subjects_before": {
+    "controller.py": "805b52b957526cf658a93ae128b14f0fe12debfb93d6f5281fdf97d7656678d7",
+    "inspection.py": "a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1",
+    "peer.py": "a13a9f7304bbc93a9acb31950030286115423987781a9697f3e3f904842d9a51",
+    "preflight.py": "6b3ff8d4a261f8b4f35592fe1039c247a3aaff210f44233f1eac7c94f9cb3bad",
+    "self_check.py": "a34b1fff7cd5a0f6591ff366ba43d39328f0cc0fffaa0575dc09ba9d3ee41925",
+    "test_bootstrap.py": "0b3bdd9162a5c00f45332fa0f0ef3ff7ee1795154a0397c096565c15dde97625",
+    "test_controller.py": "5d90c1e4fa8bde860fcf95e9289d39f05cf839a30e0e68115badcede166259a6",
+    "test_inspection.py": "91d197f8a09301b9a9dec6356f27cbb06d37611117723fe5d0a4782357df9074",
+    "test_shutdown.py": "5e631a6da97e8b42de8d7752a43c5ac9dda1b1ffb2d567137d179905f1ee5237",
+    "test_turns.py": "874efaaaf1a73d4e86c494ce56800069899a8e0e69b30d42c44be63085b9969b",
+    "test_worker_capture.py": "ea87735b1ba470a503e6c902211c353cf5edf398d5df9b3d029058116f0a3f35",
+    "turns.py": "dde3f9a7ddb2406bc6e1e9f94e4a562e5ab7cb5e883899ec65a7b0645215b96f",
+    "worker_capture.py": "b62446d001bd5ae07b4aa44f4000ba4f160eaaee352cbdf83d8d8e5dd995c368"
+  },
+  "subjects_after": {
+    "controller.py": "805b52b957526cf658a93ae128b14f0fe12debfb93d6f5281fdf97d7656678d7",
+    "inspection.py": "a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1",
+    "peer.py": "a13a9f7304bbc93a9acb31950030286115423987781a9697f3e3f904842d9a51",
+    "preflight.py": "6b3ff8d4a261f8b4f35592fe1039c247a3aaff210f44233f1eac7c94f9cb3bad",
+    "self_check.py": "a34b1fff7cd5a0f6591ff366ba43d39328f0cc0fffaa0575dc09ba9d3ee41925",
+    "test_bootstrap.py": "0b3bdd9162a5c00f45332fa0f0ef3ff7ee1795154a0397c096565c15dde97625",
+    "test_controller.py": "5d90c1e4fa8bde860fcf95e9289d39f05cf839a30e0e68115badcede166259a6",
+    "test_inspection.py": "91d197f8a09301b9a9dec6356f27cbb06d37611117723fe5d0a4782357df9074",
+    "test_shutdown.py": "5e631a6da97e8b42de8d7752a43c5ac9dda1b1ffb2d567137d179905f1ee5237",
+    "test_turns.py": "874efaaaf1a73d4e86c494ce56800069899a8e0e69b30d42c44be63085b9969b",
+    "test_worker_capture.py": "ea87735b1ba470a503e6c902211c353cf5edf398d5df9b3d029058116f0a3f35",
+    "turns.py": "dde3f9a7ddb2406bc6e1e9f94e4a562e5ab7cb5e883899ec65a7b0645215b96f",
+    "worker_capture.py": "b62446d001bd5ae07b4aa44f4000ba4f160eaaee352cbdf83d8d8e5dd995c368"
+  },
+  "subjects_unchanged": true,
+  "cases": [
+    {
+      "offset_after_planned_term": -0.2,
+      "readiness_method": "missing-directory",
+      "run": "evidence/060b7bb676f3495b9129c69d38adf54d",
+      "planned_monotonic": 435501.503595,
+      "started_monotonic": 435501.515916166,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 97937,
+        "outcome": "sent",
+        "monotonic": 435501.816977458,
+        "finished_monotonic": 435501.8169885
+      },
+      "kill": null,
+      "term_deadline_monotonic": 435501.966941333,
+      "ready_written_monotonic": 435501.604233083,
+      "ready_after_term": -0.2127443749923259,
+      "leader_exit_monotonic": 435501.830485375,
+      "returncode": 0,
+      "reason": "interrupted",
+      "child_stdout": "97938",
+      "child_identity": 97938,
+      "child_identity_source": "peer-stdout",
+      "child_audit": [
+        {
+          "monotonic": 435501.847539833,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "child_status": "absent",
+      "child_status_reason": "ps exited 1 with empty stdout and stderr for the retained PID",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1218,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": 0.05,
+      "readiness_method": "missing-directory",
+      "run": "evidence/c9bf39c4331e44cd895ed76d7f711aa4",
+      "planned_monotonic": 435501.892758166,
+      "started_monotonic": 435501.904005791,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 97945,
+        "outcome": "sent",
+        "monotonic": 435502.204735833,
+        "finished_monotonic": 435502.204746541
+      },
+      "kill": null,
+      "term_deadline_monotonic": 435502.354700208,
+      "ready_written_monotonic": 435502.243510083,
+      "ready_after_term": 0.0387742500170134,
+      "leader_exit_monotonic": 435502.252384,
+      "returncode": 0,
+      "reason": "interrupted",
+      "child_stdout": "97946",
+      "child_identity": 97946,
+      "child_identity_source": "peer-stdout",
+      "child_audit": [
+        {
+          "monotonic": 435502.269795166,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "child_status": "absent",
+      "child_status_reason": "ps exited 1 with empty stdout and stderr for the retained PID",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1219,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": 0.13,
+      "readiness_method": "missing-directory",
+      "run": "evidence/bbd80c61eefc4db3b6f8726308c59d56",
+      "planned_monotonic": 435502.31484425,
+      "started_monotonic": 435502.326083041,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 97953,
+        "outcome": "sent",
+        "monotonic": 435502.627241958,
+        "finished_monotonic": 435502.627251375
+      },
+      "kill": null,
+      "term_deadline_monotonic": 435502.777206416,
+      "ready_written_monotonic": 435502.745097791,
+      "ready_after_term": 0.11785583302844316,
+      "leader_exit_monotonic": 435502.753873041,
+      "returncode": 0,
+      "reason": "interrupted",
+      "child_stdout": "97955",
+      "child_identity": 97955,
+      "child_identity_source": "peer-stdout",
+      "child_audit": [
+        {
+          "monotonic": 435502.777741625,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "child_status": "absent",
+      "child_status_reason": "ps exited 1 with empty stdout and stderr for the retained PID",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1220,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": null,
+      "readiness_method": "missing-directory",
+      "run": "evidence/22da9e42f4764f1988c77687c7180b0b",
+      "planned_monotonic": 435502.824629375,
+      "started_monotonic": 435502.8344635,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 97975,
+        "outcome": "sent",
+        "monotonic": 435503.135414166,
+        "finished_monotonic": 435503.135421958
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "pid",
+        "target": 97975,
+        "outcome": "sent",
+        "monotonic": 435503.285730625,
+        "finished_monotonic": 435503.285740041
+      },
+      "term_deadline_monotonic": 435503.285386333,
+      "ready_written_monotonic": null,
+      "ready_after_term": null,
+      "leader_exit_monotonic": 435503.293274875,
+      "returncode": -9,
+      "reason": "interrupted",
+      "child_stdout": "",
+      "child_identity": null,
+      "child_identity_source": "none",
+      "child_audit": [],
+      "child_status": "unknown",
+      "child_status_reason": "no child identity was retained",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1218,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": -0.2,
+      "readiness_method": "missing-directory",
+      "run": "evidence/b5c80bd34e024c6ba87627f6f1bfe853",
+      "planned_monotonic": 435503.358293666,
+      "started_monotonic": 435503.369640041,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 97984,
+        "outcome": "sent",
+        "monotonic": 435503.670554041,
+        "finished_monotonic": 435503.670561583
+      },
+      "kill": null,
+      "term_deadline_monotonic": 435503.820525625,
+      "ready_written_monotonic": 435503.458586583,
+      "ready_after_term": -0.21196745801717043,
+      "leader_exit_monotonic": 435503.676913708,
+      "returncode": 0,
+      "reason": "interrupted",
+      "child_stdout": "97986",
+      "child_identity": 97986,
+      "child_identity_source": "peer-stdout",
+      "child_audit": [
+        {
+          "monotonic": 435503.693755083,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "child_status": "absent",
+      "child_status_reason": "ps exited 1 with empty stdout and stderr for the retained PID",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1224,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": 0.05,
+      "readiness_method": "missing-directory",
+      "run": "evidence/fb92abed78324c7d844b0b9d01ee2a4a",
+      "planned_monotonic": 435503.737215416,
+      "started_monotonic": 435503.748639083,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 98005,
+        "outcome": "sent",
+        "monotonic": 435504.050117625,
+        "finished_monotonic": 435504.050126416
+      },
+      "kill": null,
+      "term_deadline_monotonic": 435504.200085291,
+      "ready_written_monotonic": 435504.08792675,
+      "ready_after_term": 0.03780912503134459,
+      "leader_exit_monotonic": 435504.1066155,
+      "returncode": 0,
+      "reason": "interrupted",
+      "child_stdout": "98006",
+      "child_identity": 98006,
+      "child_identity_source": "peer-stdout",
+      "child_audit": [
+        {
+          "monotonic": 435504.131722416,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "child_status": "absent",
+      "child_status_reason": "ps exited 1 with empty stdout and stderr for the retained PID",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1226,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": 0.13,
+      "readiness_method": "missing-directory",
+      "run": "evidence/3ac5b01a5a9a465e9e69157689bfb1c7",
+      "planned_monotonic": 435504.175344,
+      "started_monotonic": 435504.186691708,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 98024,
+        "outcome": "sent",
+        "monotonic": 435504.487645875,
+        "finished_monotonic": 435504.487653666
+      },
+      "kill": null,
+      "term_deadline_monotonic": 435504.637619375,
+      "ready_written_monotonic": 435504.606027208,
+      "ready_after_term": 0.11838133295532316,
+      "leader_exit_monotonic": 435504.612059958,
+      "returncode": 0,
+      "reason": "interrupted",
+      "child_stdout": "98025",
+      "child_identity": 98025,
+      "child_identity_source": "peer-stdout",
+      "child_audit": [
+        {
+          "monotonic": 435504.628862,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "child_status": "absent",
+      "child_status_reason": "ps exited 1 with empty stdout and stderr for the retained PID",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1224,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": null,
+      "readiness_method": "missing-directory",
+      "run": "evidence/eb65115bd02c42cb8912a4256d05937e",
+      "planned_monotonic": 435504.67263825,
+      "started_monotonic": 435504.682548666,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 98038,
+        "outcome": "sent",
+        "monotonic": 435504.983269291,
+        "finished_monotonic": 435504.983277541
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "pid",
+        "target": 98038,
+        "outcome": "sent",
+        "monotonic": 435505.134302958,
+        "finished_monotonic": 435505.134317583
+      },
+      "term_deadline_monotonic": 435505.13323520805,
+      "ready_written_monotonic": null,
+      "ready_after_term": null,
+      "leader_exit_monotonic": 435505.140579458,
+      "returncode": -9,
+      "reason": "interrupted",
+      "child_stdout": "",
+      "child_identity": null,
+      "child_identity_source": "none",
+      "child_audit": [],
+      "child_status": "unknown",
+      "child_status_reason": "no child identity was retained",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1225,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": -0.2,
+      "readiness_method": "missing-directory",
+      "run": "evidence/ee3901ff24d645c398307f331b7f9a4b",
+      "planned_monotonic": 435505.201995916,
+      "started_monotonic": 435505.213469166,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 98103,
+        "outcome": "sent",
+        "monotonic": 435505.514273625,
+        "finished_monotonic": 435505.514281708
+      },
+      "kill": null,
+      "term_deadline_monotonic": 435505.664243958,
+      "ready_written_monotonic": 435505.302607708,
+      "ready_after_term": -0.2116659169550985,
+      "leader_exit_monotonic": 435505.526985708,
+      "returncode": 0,
+      "reason": "interrupted",
+      "child_stdout": "98104",
+      "child_identity": 98104,
+      "child_identity_source": "peer-stdout",
+      "child_audit": [
+        {
+          "monotonic": 435505.543830666,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "child_status": "absent",
+      "child_status_reason": "ps exited 1 with empty stdout and stderr for the retained PID",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1222,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": 0.05,
+      "readiness_method": "missing-directory",
+      "run": "evidence/aea7df839bab46b58dedd2710222f5f1",
+      "planned_monotonic": 435505.589073583,
+      "started_monotonic": 435505.600116916,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 98160,
+        "outcome": "sent",
+        "monotonic": 435505.90050475,
+        "finished_monotonic": 435505.900513375
+      },
+      "kill": null,
+      "term_deadline_monotonic": 435506.05047787505,
+      "ready_written_monotonic": 435505.939308208,
+      "ready_after_term": 0.03880345798097551,
+      "leader_exit_monotonic": 435505.949637916,
+      "returncode": 0,
+      "reason": "interrupted",
+      "child_stdout": "98161",
+      "child_identity": 98161,
+      "child_identity_source": "peer-stdout",
+      "child_audit": [
+        {
+          "monotonic": 435505.971991166,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "child_status": "absent",
+      "child_status_reason": "ps exited 1 with empty stdout and stderr for the retained PID",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1224,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": 0.13,
+      "readiness_method": "missing-directory",
+      "run": "evidence/e7025660e9aa4ec98405c9531ed36185",
+      "planned_monotonic": 435506.016321583,
+      "started_monotonic": 435506.028074916,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 98192,
+        "outcome": "sent",
+        "monotonic": 435506.328723375,
+        "finished_monotonic": 435506.328732208
+      },
+      "kill": null,
+      "term_deadline_monotonic": 435506.47869375005,
+      "ready_written_monotonic": 435506.446790291,
+      "ready_after_term": 0.11806691600941122,
+      "leader_exit_monotonic": 435506.459192125,
+      "returncode": 0,
+      "reason": "interrupted",
+      "child_stdout": "98193",
+      "child_identity": 98193,
+      "child_identity_source": "peer-stdout",
+      "child_audit": [
+        {
+          "monotonic": 435506.476314625,
+          "returncode": 1,
+          "stdout": "",
+          "stderr": ""
+        }
+      ],
+      "child_status": "absent",
+      "child_status_reason": "ps exited 1 with empty stdout and stderr for the retained PID",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1225,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    },
+    {
+      "offset_after_planned_term": null,
+      "readiness_method": "missing-directory",
+      "run": "evidence/f4f915397c334cd89fd74907450fd063",
+      "planned_monotonic": 435506.521505291,
+      "started_monotonic": 435506.53135625,
+      "term": {
+        "signal": "TERM",
+        "scope": "pid",
+        "target": 98203,
+        "outcome": "sent",
+        "monotonic": 435506.833875,
+        "finished_monotonic": 435506.83388375
+      },
+      "kill": {
+        "signal": "KILL",
+        "scope": "pid",
+        "target": 98203,
+        "outcome": "sent",
+        "monotonic": 435506.984862625,
+        "finished_monotonic": 435506.9848755
+      },
+      "term_deadline_monotonic": 435506.98384550004,
+      "ready_written_monotonic": null,
+      "ready_after_term": null,
+      "leader_exit_monotonic": 435506.992146875,
+      "returncode": -9,
+      "reason": "interrupted",
+      "child_stdout": "",
+      "child_identity": null,
+      "child_identity_source": "none",
+      "child_audit": [],
+      "child_status": "unknown",
+      "child_status_reason": "no child identity was retained",
+      "case_path_scan": {
+        "returncode": 0,
+        "stderr": "",
+        "rows": 1226,
+        "scanner_row_listed": true,
+        "matches": []
+      }
+    }
+  ]
+}

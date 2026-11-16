@@ -33,3 +33,21 @@ controls and original-receipt pointers are in
 k17 stays open through this integration. k18 owns stalled storage. No live guest,
 app or ten-clone acceptance claim follows. The real UID-denial fixture needs a
 separately authorised human owner; do not recreate it on inferred permission.
+
+## Findings
+
+- R1 is a real issue. The k145 and k132 peers printed the child PID, so the
+  never-ready control does not explain those runs. The k151 verdicts keep the
+  old-peer defect and record the attribution as unresolved.
+- R2 is a real issue. The k151 readiness tool needs an identity and a clean `ps`
+  result for "absent". Otherwise it reports "unknown". `absence_controls.py`
+  fails the k149 predicate in three cases and passes the k151 verdict in five.
+- R3 is a real issue. The k151 verdicts record the five groups as
+  `bound_exhausted_cause_unknown` and keep the part of each mechanism that a
+  control demonstrates.
+- The stale k110 mechanism phrase now matches the runtime comment.
+
+The k17 whole contract stays unmet. The human chose an instrumented soak over
+accepting the six cases as visible limits, so historical-failure-soak-k152 owns
+it. The evidence is in
+`experiments/exec-reliability/evidence/failure-controls-k151`.

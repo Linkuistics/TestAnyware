@@ -2097,15 +2097,16 @@ fixtures are repaired, and their runtime mutants still fail. After an independen
 review, the admission tests also bound the gap from admission to syscall. Mutants
 with a stale admission clock now fail.
 
-The k145 and k132
-interrupted live groups came from the old peer readiness loop, which k143
-repaired.
+The old peer ignored TERM until its child declared readiness, and k143
+repaired that defect. The k151 section below shows that this defect does not
+explain the k145 and k132 interrupted live groups.
 
-Five groups are missed scheduling bounds with no identified cause. These are the
+Five groups ran out a bound, and no control identifies the cause. These are the
 k132 exited-leader grace, the k106 prebuffer wait, the helper capture deadline,
 the k85 peer startup and the k77 checker ceiling. Controls under load do not
 reproduce them, and no bound was raised. In each case, the runtime failed
-closed.
+closed. The k151 section below withdraws the k149 claim that these misses were
+unavoidable.
 
 The actual setuid `ps` KILL control passes. The runtime kills its own unreaped
 `/bin/ps` child with a measured live window and reaps it within 14 ms.
@@ -2119,16 +2120,43 @@ With no observed exit, the final table was missing. Group KILL therefore
 gave `permission_unknown`, and termination failed closed. The owner killed and
 reaped the fixture by its exact PID.
 
+## Review integration of the k149 classification (k151)
+
+The k150 review found three problems in the k149 classification. The
+[k151 report](../../experiments/exec-reliability/evidence/failure-controls-k151/report.md)
+applies them. The
+[k151 verdicts](../../experiments/exec-reliability/evidence/failure-controls-k151/verdicts.json)
+replace the k149 verdicts and record the k149 file hash.
+
+Both historical interrupted runs printed the child PID. The k145 run printed
+34536, and the k132 run printed 16638. The old peer prints that PID only after
+its readiness loop ends, so readiness came before KILL. The never-ready control
+reproduces −9 but prints no PID, so it shows a different condition. The cause of
+the historical KILL stays unresolved.
+
+The k149 readiness tool counted a missing child identity, or any failed `ps`
+query, as absence. The k151 tool needs a retained PID and a `ps` result that
+exits 1 with empty output. Every other result is "unknown". A control on real
+`ps` results fails the k149 predicate in three cases and passes the k151 verdict
+in five. In the k151 reruns, the three never-ready k145 cases end "unknown".
+
+The five missed bounds now have the class `bound_exhausted_cause_unknown`.
+Observed exhaustion, a demonstrated partial mechanism and an unknown cause stay
+separate in each verdict.
+
 ### k17 reconciliation
 
 | k17 condition | State |
 |---|---|
 | Leader exit, conditional PID KILL, group inspection, distinct permission outcomes, totals | Met with injected EPERM, the real `?E` repair and the real UID-denial control. |
-| Fork-fixture deadlock, opposed fixtures, owned-child cleanup | Met in k20 to k146. The k149 controls audit every owned child. |
+| Fork-fixture deadlock, opposed fixtures, owned-child cleanup | Met in k20 to k146. Three never-ready k145 control children are "unknown" because the old peer retains no identity. Case-path scans find no process. |
 | Stream and result identity, failing controls | Met in k21 and k148. |
-| Historical audit, preserved receipts, exact identities, `ps` usage error | Met. 311,586 earlier paths are unchanged, and the setuid `ps` control verifies identity. |
-| Verdicts with hashes, Taskfile, handoff | Met by this section and the k149 tasks. |
+| Historical audit, preserved receipts, exact identities, `ps` usage error | Met. A `ps` usage error no longer counts as absence in the readiness tool. |
+| Historical failures explained | Not met. The k145 interrupted group and five missed bounds have no demonstrated cause. |
+| Verdicts with hashes, Taskfile, handoff | Met by this section and the k149 and k151 tasks. |
 
-The k149 evidence meets every k17 condition. The specific review of the k149
-runtime and test change is the last k17 work. k18 owns stalled storage.
-Ten-clone acceptance remains **0/10, unavailable**.
+The k17 whole contract is not met. Retained receipts cannot explain the six open
+cases. The human chose new instrumented evidence over accepting them as visible
+limits. Historical-failure-soak-k152 records the missing timestamps in one
+bounded soak. k18 owns stalled storage. Ten-clone acceptance remains
+**0/10, unavailable**.

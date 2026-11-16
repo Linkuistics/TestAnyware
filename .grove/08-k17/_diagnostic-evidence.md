@@ -175,3 +175,25 @@ those conditions, not another aggregate inventory. Required privileged-owner
 input keeps that task live rather than producing another unavailable completion.
 k17 stays open; k18 owns stalled storage and guest acceptance stays
 **0/10, unavailable**.
+
+## Review integration and the open acceptance decision
+
+Diagnostic-failure-controls-k151 applied the three k150 findings. The k151
+evidence keeps the k149 receipts and replaces the k149 verdicts. The child audit
+now reports "unknown" without a retained identity or a clean `ps` result. A
+red/green control on real `ps` results shows the change.
+
+Six historical cases have no demonstrated cause. The k145 interrupted group
+printed its child PID, so the never-ready control does not explain it. Five
+groups ran out a bound, and the runtime failed closed in each. No control
+reproduces those stalls. The retained receipts carry no timestamp that could
+separate the possible causes.
+
+The k17 whole contract is therefore not met. Another inventory or control rerun
+cannot close it from the retained data.
+
+The human chose new instrumented evidence over accepting the six cases as
+visible limits. Historical-failure-soak-k152 records the missing timestamps in
+one bounded soak. It explains each recurrence, or it records the run count
+without a recurrence. k17 stays open until k152 reports. k18 owns stalled
+storage, and guest acceptance stays **0/10, unavailable**.
