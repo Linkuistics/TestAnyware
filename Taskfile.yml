@@ -66,6 +66,12 @@ tasks:
     cmds:
       - uv run --locked python evidence/failure-controls-k149/prepare.py {{.SOURCE | shellQuote}} {{.DEST | shellQuote}} {{if .MUTANT}}--mutant {{.MUTANT | shellQuote}}{{end}}
 
+  diagnostic:storage-controls:
+    desc: Run only the nine required evidence-storage controls, each a strict expected failure
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m pytest -p no:cacheprovider -rxXs test_storage_controls.py
+
   diagnostic:failure-timing-tests:
     desc: Run the repaired cutoff timing tests in one frozen input set with retained receipts
     dir: '{{.INPUTS}}'
