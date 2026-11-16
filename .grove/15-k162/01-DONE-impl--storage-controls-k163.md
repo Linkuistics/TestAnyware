@@ -66,13 +66,20 @@ The four review controls belong to the slices that build their rules.
 The controls are in `experiments/exec-reliability/test_storage_controls.py`.
 The task `diagnostic:storage-controls` runs them. On 2026-11-17 the run gave 9
 expected failures in 54 s. The full suite gave 975 passed and 9 expected
-failures. The production code is unchanged.
+failures. The production code is unchanged. After the repairs of
+`storage-controls-k171`, a second run on 2026-11-17 gave the same counts: 9
+expected failures in 54 s, and 975 passed with 9 expected failures.
 
 Each fault fixture wraps the current storage functions of the controller.
 These are `write_json`, the stream opens at the start of `_call`, `_hashes`
 and `write_identity`. A stall is a read open of a FIFO with no peer. The
 watchdog interrupts that open and releases the fault. The `finally` block of
-`execute` then disposes of the resources, so no control leaks a marker.
+`execute` then starts the teardown. In the storage-error and writer-death
+controls, the teardown commands do not start, so the first marker stays.
+
+Each resource command and the workload append one entry to a history file
+after their action succeeds. Disposal cannot erase an acquisition. The
+controls read that history, the worker shutdown record and the phase receipts.
 
 - **Stalled writer.** The fixture stalls every storage call after the
   `acquire` receipt. The watchdog expires at 12 s. Cause: the next storage
@@ -83,13 +90,15 @@ watchdog interrupts that open and releases the fault. The `finally` block of
   makes that open on its own thread, and no deadline covers it.
 - **Storage error.** The fixture removes the write permission from the run
   directory after the `acquire` receipt. The assertion "teardown changed after
-  the storage error" fails, and the first resource stays acquired. Cause: the
+  the storage error: teardown actions were []" fails, and the first resource
+  stays acquired. Cause: the
   stream opens of `cleanup` and `dispose` fail with `EACCES`. `_safe_call`
   records `controller_io_error` and does not start the commands. As root the
   control reports `unavailable`, because root ignores the permission.
 - **Writer death.** The fixture raises a broken pipe from every storage call
   after the `acquire` receipt. The assertion "teardown changed after the
-  writer died" fails, and the first resource stays acquired. Cause: the same
+  writer died: teardown actions were []" fails, and the first resource stays
+  acquired. Cause: the same
   as the storage error. A teardown command cannot start without its evidence
   files.
 - **Outbox overflow.** The fixture stalls every storage call after the
@@ -103,8 +112,10 @@ watchdog interrupts that open and releases the fault. The `finally` block of
   watchdog expires at 12 s. Cause: no intent gate exists, so the controller
   waits on that open without limit.
 - **No controller storage calls.** An audit hook records filesystem events
-  after the `subjects-before` record. The assertion fails with 71 `open`
-  events, the first on `intent-1.json`. Cause: the controller thread opens
+  after the `subjects-before` record. The assertion fails with 66 events of
+  the kinds `open`, `os.scandir` and `pathlib.Path.rglob`, the first an open
+  of `intent-1.json`. The k163 run gave 71 `open` events with the earlier
+  resource commands. Cause: the controller thread opens
   every evidence file itself.
 - **Inherited state.** A call reports the kinds of its standard descriptors.
   The assertion fails, because descriptors 1 and 2 are regular files, not

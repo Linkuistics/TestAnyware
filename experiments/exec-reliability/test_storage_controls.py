@@ -27,7 +27,7 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import pytest
 
@@ -46,6 +46,13 @@ PUBLICATION_WINDOW = 1.0
 OUTBOX_CAP = 64 * 1024
 REAP_GRACE = 2.0
 
+# Scheduling tolerance for phase assertions. The bounds are conditional
+# scheduling guarantees, so each check allows this much lateness. A stalled
+# storage path holds a phase for the whole watchdog bound, far beyond it.
+TOLERANCE = 0.5
+# A teardown step can follow a missed intent gate, so its slack includes it.
+STEP_SLACK = INTENT_GATE + TOLERANCE
+
 # Watchdog bounds. The final build finishes each control within its bound:
 # the declared phases above, the writer reap grace and about four seconds of
 # fixture teardown. On this build a stalled storage call holds the controller
@@ -56,6 +63,28 @@ RUN_WATCHDOG = 12.0
 FLOOD_BYTES = 1024 * 1024
 FLOOD = "import sys; sys.stdout.buffer.write(b'x' * int(sys.argv[1]))"
 TOUCH = "import sys; open(sys.argv[1], 'x').close()"
+# A resource or workload command that appends one history entry after its
+# action succeeds. A skipped or failed action leaves no entry, and disposal
+# cannot erase an acquisition.
+RECORDED = """
+import json, os, sys, time
+action, identity, root, history = sys.argv[1:]
+marker = os.path.join(root, identity)
+if action == "acquire":
+    open(marker, "x").close()
+elif action == "dispose":
+    os.unlink(marker)
+elif action == "inspect":
+    if os.path.exists(marker):
+        sys.exit(1)
+    print("absent")
+line = {"action": action, "identity": identity, "monotonic": time.monotonic()}
+fd = os.open(history, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+try:
+    os.write(fd, json.dumps(line).encode() + b"\\n")
+finally:
+    os.close(fd)
+"""
 DESCRIPTORS = """
 import json, os, stat
 null = os.stat(os.devnull).st_rdev
@@ -207,12 +236,26 @@ class Run:
 
 
 @dataclass(frozen=True)
+class Phase:
+    """One declared phase receipt: absolute start, deadline, finish and outcome."""
+
+    started: float
+    deadline: float
+    finished: float
+    outcome: str
+
+
+@dataclass(frozen=True)
 class StorageOutcome:
     publication: str
     writer_reaped: bool
     readiness: str
     first_failure: str | None
     drops: Mapping[str, int]
+    # Keyed "readiness", "intent-<n>" and "publication".
+    phases: Mapping[str, Phase]
+    killed_at: float | None
+    reaped_at: float | None
 
 
 def storage_outcome(run: Run) -> StorageOutcome | None:
@@ -246,27 +289,35 @@ def declare(plan: Plan) -> Plan:
     return replace(plan, **{name: value for name, value in bounds.items() if name in present})
 
 
-def peer(name: str, mode: str, *args: object, budget: float = 3) -> Call:
-    return Call(name, (sys.executable, str(PEER), mode, *map(str, args)), budget)
-
-
 def script(name: str, source: str, *args: object, budget: float = 3) -> Call:
     return Call(name, (sys.executable, "-I", "-c", source, *map(str, args)), budget)
+
+
+def history_path(tmp_path: Path) -> Path:
+    return tmp_path / "history.jsonl"
+
+
+def recorded(tmp_path: Path, name: str, action: str, identity: str, budget: float) -> Call:
+    return script(name, RECORDED, action, identity, tmp_path, history_path(tmp_path), budget=budget)
+
+
+def workload(tmp_path: Path) -> Call:
+    return recorded(tmp_path, "workload", "workload", "workload", 3)
 
 
 def vm(tmp_path: Path, run_id: str, prefix: str = "") -> Resource:
     identity = f"diag-{run_id}-{prefix or 'first'}"
 
-    def action(name: str, mode: str) -> Call:
-        return peer(f"{prefix}{name}", mode, identity, tmp_path, budget=0.2)
+    def action(name: str, budget: float = 0.2) -> Call:
+        return recorded(tmp_path, f"{prefix}{name}", name, identity, budget)
 
     return Resource(
         "vm",
         identity,
-        peer(f"{prefix}acquire", "acquire", identity, tmp_path),
-        action("cleanup", "bytes"),
-        action("dispose", "dispose"),
-        replace(action("inspect", "inspect"), expected_stdout=b"absent\n"),
+        action("acquire", 3),
+        action("cleanup"),
+        action("dispose"),
+        replace(action("inspect"), expected_stdout=b"absent\n"),
     )
 
 
@@ -300,12 +351,103 @@ def owned(tmp_path: Path, resource: Resource) -> bool:
     return (tmp_path / resource.identity).exists()
 
 
-def assert_killed_publication(run: Run, bound: float) -> StorageOutcome:
+@dataclass(frozen=True)
+class Entry:
+    action: str
+    identity: str
+    monotonic: float
+
+
+def history(tmp_path: Path) -> list[Entry]:
+    path = history_path(tmp_path)
+    if not path.exists():
+        return []
+    return [Entry(**json.loads(line)) for line in path.read_text().splitlines()]
+
+
+def entries(tmp_path: Path, identity: str) -> list[Entry]:
+    return [entry for entry in history(tmp_path) if entry.identity == identity]
+
+
+def acquired(tmp_path: Path, resource: Resource) -> Entry | None:
+    found = [e for e in entries(tmp_path, resource.identity) if e.action == "acquire"]
+    assert len(found) <= 1, f"{resource.identity} was acquired more than once"
+    return found[0] if found else None
+
+
+def workload_finished(tmp_path: Path) -> Entry:
+    found = entries(tmp_path, "workload")
+    assert len(found) == 1, "the workload did not finish exactly once"
+    return found[0]
+
+
+def capture_workers(monkeypatch: pytest.MonkeyPatch) -> list[controller.Worker]:
+    workers: list[controller.Worker] = []
+    start = controller.Worker.start
+
+    def recorded_start(self: controller.Worker) -> bool:
+        workers.append(self)
+        return start(self)
+
+    monkeypatch.setattr(controller.Worker, "start", recorded_start)
+    return workers
+
+
+def assert_teardown_unchanged(
+    tmp_path: Path, resource: Resource, anchor: float, workers: list[controller.Worker]
+) -> float:
+    """Assert that cleanup, disposal, inspection and worker close each ran.
+
+    Each step must finish within its own budget and the step slack after the
+    previous step. The anchor is the last forward-progress event before the
+    teardown. The return value is the worker's shutdown finish.
+    """
+    steps = (resource.cleanup, resource.dispose, resource.inspect)
+    actions = [e.action for e in entries(tmp_path, resource.identity) if e.action != "acquire"]
+    assert actions == ["cleanup", "dispose", "inspect"], f"teardown actions were {actions}"
+    done = [e for e in entries(tmp_path, resource.identity) if e.action != "acquire"]
+    previous = anchor
+    for step, entry in zip(steps, done, strict=True):
+        assert entry.monotonic >= previous, f"{step.name} ran before the previous step"
+        late = entry.monotonic - previous - step.budget - STEP_SLACK
+        assert late <= 0, f"{step.name} finished {late:.3f} s past its ceiling"
+        previous = entry.monotonic
+    assert len(workers) == 1, "the inspection worker did not start exactly once"
+    shutdown = workers[0].shutdown
+    assert shutdown is not None, "the inspection worker did not close"
+    assert shutdown["outcome"] == "reaped", f"the worker close ended {shutdown['outcome']}"
+    assert shutdown["overrun"] is False, "the worker close overran its bounds"
+    started = cast(float, shutdown["started_monotonic"])
+    finished = cast(float, shutdown["finished_monotonic"])
+    assert started >= previous, "the worker close started before the last inspection"
+    assert started - previous <= TOLERANCE, "the worker close started late"
+    return finished
+
+
+def assert_phase(outcome: StorageOutcome, name: str, bound: float) -> Phase:
+    phase = outcome.phases.get(name)
+    assert phase is not None, f"the run recorded no {name} phase"
+    assert phase.deadline - phase.started <= bound + 1e-6, f"the {name} phase exceeds {bound} s"
+    assert phase.finished <= phase.deadline + TOLERANCE, f"the {name} phase finished late"
+    return phase
+
+
+def assert_killed_publication(run: Run, bound: float, worker_closed: float) -> StorageOutcome:
     assert run.elapsed <= bound
     outcome = storage_outcome(run)
     assert outcome is not None, "the run reported no terminal storage outcome"
     assert outcome.publication == "killed"
     assert outcome.writer_reaped is True
+    publication = outcome.phases.get("publication")
+    assert publication is not None, "the run recorded no publication phase"
+    assert publication.started >= worker_closed, "publication started before worker close"
+    window = publication.deadline - publication.started
+    assert abs(window - PUBLICATION_WINDOW) <= 1e-6, f"publication window was {window} s"
+    assert outcome.killed_at is not None, "the writer received no KILL"
+    assert outcome.killed_at >= publication.deadline, "the writer received KILL before P"
+    assert outcome.killed_at - publication.deadline <= TOLERANCE, "KILL came late after P"
+    assert outcome.reaped_at is not None, "the writer reap was not recorded"
+    assert outcome.reaped_at <= publication.deadline + REAP_GRACE, "reap came after P + 2 s"
     return outcome
 
 
@@ -313,22 +455,16 @@ def assert_killed_publication(run: Run, bound: float) -> StorageOutcome:
 def test_control_stalled_writer(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
-    closed: list[float] = []
-    close = controller._InspectionState.close
-
-    def timed_close(self: controller._InspectionState) -> None:
-        close(self)
-        closed.append(time.monotonic())
-
-    monkeypatch.setattr(controller._InspectionState, "close", timed_close)
+    workers = capture_workers(monkeypatch)
     fault = StorageFault(
         monkeypatch, tmp_path / "stall", at="acquire.json", action="stall", persist=True
     )
-    selected = plan(run_id, (peer("workload", "bytes"),), (first,))
+    selected = plan(run_id, (workload(tmp_path),), (first,))
     run = run_control(tmp_path, selected, fault, RUN_WATCHDOG)
-    assert not owned(tmp_path, first), "disposal did not finish"
-    assert closed, "the inspection worker did not close"
-    assert_killed_publication(run, RUN_WATCHDOG)
+    assert acquired(tmp_path, first) is not None, "the first resource was never acquired"
+    anchor = workload_finished(tmp_path).monotonic
+    closed = assert_teardown_unchanged(tmp_path, first, anchor, workers)
+    assert_killed_publication(run, RUN_WATCHDOG, closed)
 
 
 @removed_by("storage-publication-k168", "the first P2 open blocks the controller")
@@ -343,10 +479,21 @@ def test_control_blocking_storage_call(tmp_path, monkeypatch):
         persist=False,
         after=False,
     )
-    selected = plan(run_id, (peer("workload", "bytes"),), (first,))
+    workers = capture_workers(monkeypatch)
+    selected = plan(run_id, (workload(tmp_path),), (first,))
     run = run_control(tmp_path, selected, fault, RUN_WATCHDOG)
-    assert not owned(tmp_path, first)
-    assert_killed_publication(run, RUN_WATCHDOG)
+    # The blocked intent-1 record misses its gate, so nothing is acquired and
+    # no workload runs. The rest matches the stalled-writer control.
+    assert acquired(tmp_path, first) is None, "the first resource was acquired past the gate"
+    assert not entries(tmp_path, "workload"), "the workload ran after the forward stop"
+    assert len(workers) == 1, "the inspection worker did not start exactly once"
+    shutdown = workers[0].shutdown
+    assert shutdown is not None, "the inspection worker did not close"
+    assert shutdown["outcome"] == "reaped", f"the worker close ended {shutdown['outcome']}"
+    assert shutdown["overrun"] is False, "the worker close overran its bounds"
+    closed = cast(float, shutdown["finished_monotonic"])
+    outcome = assert_killed_publication(run, RUN_WATCHDOG, closed)
+    assert_phase(outcome, "intent-1", INTENT_GATE)
 
 
 @removed_by("storage-cutover-k166", "a storage error stops owned teardown")
@@ -369,13 +516,19 @@ def test_control_storage_error(tmp_path, monkeypatch):
         persist=False,
         on_trigger=deny,
     )
+    workers = capture_workers(monkeypatch)
     try:
         run = run_control(tmp_path, plan(run_id, (), (first, second)), fault, RUN_WATCHDOG)
     finally:
         if directory.exists():
             directory.chmod(stat.S_IRWXU)
-    assert not owned(tmp_path, first), "teardown changed after the storage error"
-    assert not owned(tmp_path, second), "forward progress continued after the storage error"
+    start = acquired(tmp_path, first)
+    assert start is not None, "the first resource was never acquired"
+    assert acquired(tmp_path, second) is None, "forward progress continued after the error"
+    try:
+        assert_teardown_unchanged(tmp_path, first, start.monotonic, workers)
+    except AssertionError as error:
+        raise AssertionError(f"teardown changed after the storage error: {error}") from None
     assert run.raised is None, f"the controller raised {run.raised!r}"
     outcome = storage_outcome(run)
     assert outcome is not None, "the run reported no terminal storage outcome"
@@ -390,9 +543,15 @@ def test_control_writer_death(tmp_path, monkeypatch):
     fault = StorageFault(
         monkeypatch, tmp_path / "unused", at="acquire.json", action="break", persist=True
     )
+    workers = capture_workers(monkeypatch)
     run = run_control(tmp_path, plan(run_id, (), (first, second)), fault, RUN_WATCHDOG)
-    assert not owned(tmp_path, first), "teardown changed after the writer died"
-    assert not owned(tmp_path, second), "forward progress continued after the writer died"
+    start = acquired(tmp_path, first)
+    assert start is not None, "the first resource was never acquired"
+    assert acquired(tmp_path, second) is None, "forward progress continued after the death"
+    try:
+        assert_teardown_unchanged(tmp_path, first, start.monotonic, workers)
+    except AssertionError as error:
+        raise AssertionError(f"teardown changed after the writer died: {error}") from None
     assert run.raised is None, f"the controller raised {run.raised!r}"
     outcome = storage_outcome(run)
     assert outcome is not None, "the run reported no terminal storage outcome"
@@ -419,27 +578,24 @@ def test_control_outbox_overflow(tmp_path, monkeypatch):
 def test_control_readiness_failure(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
-    started: list[bool] = []
-    start = controller.Worker.start
-
-    def recorded_start(self: controller.Worker) -> bool:
-        started.append(True)
-        return start(self)
-
-    monkeypatch.setattr(controller.Worker, "start", recorded_start)
+    workers = capture_workers(monkeypatch)
     fault = StorageFault(
         monkeypatch, tmp_path / "stall", at="plan.json", action="stall", persist=True, after=False
     )
-    selected = plan(run_id, (peer("workload", "bytes"),), (first,))
+    selected = plan(run_id, (workload(tmp_path),), (first,))
     run = run_control(tmp_path, selected, fault, READINESS_WATCHDOG)
     assert run.elapsed <= READINESS_WATCHDOG
-    assert not owned(tmp_path, first), "the controller acquired before readiness"
-    assert not started, "an inspection worker started before readiness"
+    assert acquired(tmp_path, first) is None, "the controller acquired before readiness"
+    assert not entries(tmp_path, "workload"), "a workload ran before readiness"
+    assert not workers, "an inspection worker started before readiness"
     assert not list(run.directory.glob("intent-*")), "an intent record exists"
     outcome = storage_outcome(run)
     assert outcome is not None, "the run reported no terminal storage outcome"
     assert outcome.readiness == "failed"
     assert outcome.writer_reaped is True
+    readiness = assert_phase(outcome, "readiness", READINESS_BOUND)
+    assert outcome.reaped_at is not None, "the writer reap was not recorded"
+    assert outcome.reaped_at <= readiness.deadline + REAP_GRACE, "reap came after deadline + 2 s"
 
 
 @removed_by("storage-publication-k168", "a stalled intent record holds the controller")
@@ -455,11 +611,19 @@ def test_control_intent_gate(tmp_path, monkeypatch):
         persist=True,
         after=False,
     )
+    workers = capture_workers(monkeypatch)
     run = run_control(tmp_path, plan(run_id, (), (first, second)), fault, RUN_WATCHDOG)
-    assert not owned(tmp_path, second), "the second resource was acquired past the gate"
-    assert not owned(tmp_path, first), "the first resource's teardown changed"
-    outcome = assert_killed_publication(run, RUN_WATCHDOG)
+    assert acquired(tmp_path, second) is None, "the second resource was acquired past the gate"
+    start = acquired(tmp_path, first)
+    assert start is not None, "the first resource was never acquired"
+    try:
+        closed = assert_teardown_unchanged(tmp_path, first, start.monotonic, workers)
+    except AssertionError as error:
+        raise AssertionError(f"the first resource's teardown changed: {error}") from None
+    outcome = assert_killed_publication(run, RUN_WATCHDOG, closed)
     assert outcome.first_failure == "intent_gate"
+    gate = assert_phase(outcome, "intent-2", INTENT_GATE)
+    assert gate.outcome == "missed", f"the intent-2 gate ended {gate.outcome}"
 
 
 FILESYSTEM_EVENTS = frozenset(
@@ -547,7 +711,7 @@ def test_control_no_controller_storage_calls(tmp_path, monkeypatch):
         persist=False,
         on_trigger=ready,
     )
-    selected = plan(run_id, (peer("workload", "bytes"),), (first,))
+    selected = plan(run_id, (workload(tmp_path),), (first,))
     try:
         run = run_control(tmp_path, selected, fault, RUN_WATCHDOG)
     finally:
