@@ -35,3 +35,28 @@ before leaf k4 builds on the k3 report.
 ## Notes
 The guest pool read missed the agent process (`pgrep -x` found none). The
 producer recorded that miss as a limit and did not repeat the read.
+
+## Review outcome
+
+Six actionable findings are recorded in
+`docs/experiments/exec-reliability-macos-completion-review-k190.md`, against
+source commit `4b23ff10258b0d5e387482917c86b99547b5e006` and evidence commit
+`c414438b40a8df487347cebb81abc2b0514ea0b5`. The retained 22 receipts support
+the observed clean run; missing-sample acceptance, JSON null acceptance,
+unobserved inner pipe EOF, hidden failure exits, omitted tooling hashes and
+unstated statistical assumptions prevent relying on the reusable verdict
+path and its unqualified bounds.
+
+This was an inspection-only review. No production/test code changed and no
+test, build, lint, format or live diagnostic command ran. Findings describe
+source-derived failure cases, not induced failures in the retained run.
+
+## Decisions (running log)
+
+The six findings affect explicit complete-receipt, evidence-freeze or
+diagnostic-inference acceptance; they meet the material-risk bar. Cut one
+`integrate-review-impl` sibling using the producer stem
+`macos-completion-live`, immediately before the next live sibling k4. It owns
+triage, fixes and verification and consumes this review commit. Keep the
+original frozen-source commit separate and the historical evidence intact.
+Other live root siblings remain, so retirement closes no parent node.
