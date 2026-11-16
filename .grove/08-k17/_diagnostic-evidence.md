@@ -142,3 +142,14 @@ k21 consumes immutable observations and residual inputs without treating worker 
 k18 owns storage stalls and must preserve the scheduler's in-memory safety boundary.
 The process scheduler alone certifies neither retained-file identity nor disposal through blocked evidence storage.
 Guest acceptance remains 0/10 unavailable, and k17 remains open through review reconciliation and k21.
+
+The complete implementation review is recorded in bounded-inspection-k147 beside this brief.
+It inspected producer commit `33c7cee4`, the current runtime and callers, the full material control inventory and retained comparison artifacts, without rerunning tests, builds, linters or formatters.
+No new actionable defect was established, so no integration leaf is required before k21.
+Independent checks confirmed the exact full-run identities, rejecting mutations, sixteen overlap receipts, frozen runtime bytes and the 293,984-path preservation commitment.
+
+This closes the implementation-review prerequisite only.
+Historical timing failures and k145's interrupted live-group failure remain unexplained; passing later samples do not repair them.
+Real setuid-ps KILL and genuine different-UID denial remain unavailable, preventing a full guarantee.
+k21 must retain these limits and independent worker, helper, workload and observed-member obligations in result identity.
+k17 remains open for retained-evidence work and its whole-contract assessment; k18 still owns blocked storage and guest acceptance remains 0/10 unavailable.
