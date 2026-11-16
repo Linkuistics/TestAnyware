@@ -58,10 +58,14 @@ final class ProcessRunnerTests: XCTestCase {
         //
         // We simulate by having bash spawn a `sleep` that outlives bash:
         // the parent shell exits immediately while sleep hangs around
-        // holding the inherited stdout FD.
+        // holding the inherited stdout FD. The shell writes the sleep's
+        // PID to a fixture file, so cleanup stops that process only.
+        let fixture = try OwnedProcessFixture.make(for: self)
+        let pidFile = fixture.pidFile("lingering-sleep.pid")
         let start = Date()
         let result = try await ProcessRunner.runShell(
-            command: "echo parent-done; sleep 30 &", timeoutSeconds: 5
+            command: "echo parent-done; sleep 30 & echo $! > '\(pidFile)'",
+            timeoutSeconds: 5
         )
         let elapsed = Date().timeIntervalSince(start)
         XCTAssertEqual(result.stdout, "parent-done")
@@ -70,26 +74,21 @@ final class ProcessRunnerTests: XCTestCase {
         // The bash itself exits in <100ms; we should not be stuck waiting
         // for the backgrounded sleep to drain its inherited FD.
         XCTAssertLessThan(elapsed, 4.0)
-        // Best-effort cleanup of the lingering sleep so tests don't
-        // accumulate background processes when run repeatedly.
-        _ = try? await ProcessRunner.runShell(
-            command: "pkill -f 'sleep 30' 2>/dev/null; true",
-            timeoutSeconds: 2
-        )
+        // The teardown block stops the tracked sleep after the test.
+        try await fixture.track("lingering-sleep.pid", command: "sleep")
     }
 
-    func testDetachedRunReturnsImmediately() throws {
+    func testDetachedRunReturnsImmediately() async throws {
+        // The detached shell writes its own PID, then becomes the sleep
+        // through exec. The fixture stops that process only.
+        let fixture = try OwnedProcessFixture.make(for: self)
+        let pidFile = fixture.pidFile("detached-sleep.pid")
         let start = Date()
-        try ProcessRunner.runShellDetached(command: "sleep 30")
+        try ProcessRunner.runShellDetached(
+            command: "echo $$ > '\(pidFile)'; exec sleep 30"
+        )
         let elapsed = Date().timeIntervalSince(start)
         XCTAssertLessThan(elapsed, 1.0)
-        // Cleanup
-        let cleanup = Process()
-        cleanup.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        cleanup.arguments = ["-f", "sleep 30"]
-        cleanup.standardOutput = FileHandle.nullDevice
-        cleanup.standardError = FileHandle.nullDevice
-        try? cleanup.run()
-        cleanup.waitUntilExit()
+        try await fixture.track("detached-sleep.pid", command: "sleep")
     }
 }

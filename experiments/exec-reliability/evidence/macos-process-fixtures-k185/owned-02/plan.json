@@ -1,0 +1,34 @@
+{
+  "arm": "owned",
+  "expect": "survives",
+  "runs": 15,
+  "baseline_rev": "990641750f0735fcb400e93fcc0974800f26f28b",
+  "baseline_test_sha256": "07fac70ad07ba5aa45f0ae2ffaade2b8159a768ff809c91b1ffd5db3d5fd137c",
+  "subjects_before": {
+    "agents/macos/Tests/TestAnywareAgentTests/ProcessRunnerTests.swift": "f87d658030e6f2e89c8d9d109307dd5520f2ff6dd1e2983f0c1644a3efe0b6a2",
+    "agents/macos/Tests/TestAnywareAgentTests/OwnedProcessFixture.swift": "999076b8c061fd0e8f5bee7ae0c52183a7acedf2c7c0cc9c2ba1bdaddc010a73",
+    "agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift": "f9401669408f532aeafdcc277ff7553080b42e7c6d462abf8f59b04a84d86340",
+    "experiments/exec-reliability/evidence/macos-process-fixtures-k185/fixtures.py": "b51ef3256f9a5834afe9ddd8a8490bba47c75e09cfdb121ec8b91c8eb19f4e27"
+  },
+  "broad_pattern": "sleep 30",
+  "control_argv": [
+    "sleep",
+    "300"
+  ],
+  "bounds": {
+    "build_seconds": 900.0,
+    "suite_seconds": 240.0,
+    "stop_grace_seconds": 2.0
+  },
+  "host": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "uid": 501
+  },
+  "swift": "Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)\nTarget: arm64-apple-macosx27.0.0\nswift-driver version: 1.168.6",
+  "kill_audit": {
+    "pattern": "\\b(pkill|killall)\\b",
+    "current_hits": {},
+    "baseline_test_hits": 2
+  },
+  "matching_before": []
+}

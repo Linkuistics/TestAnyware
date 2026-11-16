@@ -1,0 +1,71 @@
+{
+  "control": {
+    "pid": 66966,
+    "started": "Tue 17 Nov 09:34:57 2026",
+    "selected_by_broad_pattern": true,
+    "alive_after_suite": true,
+    "returncode": -15,
+    "stopped_by": "script-term"
+  },
+  "suite": {
+    "argv": [
+      "mise",
+      "exec",
+      "--",
+      "task",
+      "agent:macos:test"
+    ],
+    "cwd": "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14",
+    "exit": 201,
+    "hit_bound": false,
+    "seconds": 18.23,
+    "log": "suite.log",
+    "log_sha256": "d33b33308586d94f75e1aa8fda2db6548ea1bbd409c89f877930e9fd8424976e",
+    "xctest_cases": [
+      {
+        "case": "TestAnywareAgentTests.ProcessRunnerTests.testCapturesStderrSeparately",
+        "result": "passed",
+        "seconds": 0.075
+      },
+      {
+        "case": "TestAnywareAgentTests.ProcessRunnerTests.testCapturesStdoutAndExitCode",
+        "result": "passed",
+        "seconds": 0.073
+      },
+      {
+        "case": "TestAnywareAgentTests.ProcessRunnerTests.testDescendantHoldingFDDoesNotWedgeAfterParentExits",
+        "result": "passed",
+        "seconds": 0.083
+      },
+      {
+        "case": "TestAnywareAgentTests.ProcessRunnerTests.testDetachedRunReturnsImmediately",
+        "result": "passed",
+        "seconds": 0.024
+      },
+      {
+        "case": "TestAnywareAgentTests.ProcessRunnerTests.testHandlesLargeOutputWithoutPipeDeadlock",
+        "result": "failed",
+        "seconds": 10.402
+      },
+      {
+        "case": "TestAnywareAgentTests.ProcessRunnerTests.testTimeoutReturnsTimedOutFlag",
+        "result": "passed",
+        "seconds": 1.084
+      }
+    ],
+    "xctest_failed": [
+      "TestAnywareAgentTests.ProcessRunnerTests.testHandlesLargeOutputWithoutPipeDeadlock"
+    ],
+    "swift_testing_failed": [],
+    "failure_lines": [
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/macos/Tests/TestAnywareAgentTests/ProcessRunnerTests.swift:32: error: -[TestAnywareAgentTests.ProcessRunnerTests testHandlesLargeOutputWithoutPipeDeadlock] : XCTAssertEqual failed: (\"-1\") is not equal to (\"0\")",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/macos/Tests/TestAnywareAgentTests/ProcessRunnerTests.swift:33: error: -[TestAnywareAgentTests.ProcessRunnerTests testHandlesLargeOutputWithoutPipeDeadlock] : XCTAssertFalse failed"
+    ],
+    "fixture_lines": [
+      "pid 67181 started 1794868504.315861 stoppedByTerm",
+      "pid 67182 started 1794868504.396368 stoppedByTerm"
+    ]
+  },
+  "matching_new_after": [],
+  "verdict": "survives"
+}

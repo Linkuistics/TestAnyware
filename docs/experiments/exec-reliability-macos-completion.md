@@ -250,6 +250,57 @@ k187 moved those files into `cleanup-check-01/leaked-captures/`.
 `single-hop-02` used the same intermediate script. Their verdicts are `defect`
 and `clean`, and their capture audits are not valid.
 
+## Owned process fixtures
+
+Leaf k185 replaced the `pkill -f 'sleep 30'` cleanup in
+`ProcessRunnerTests.swift`. The two tests that used it now start their
+`sleep 30` through an owned fixture,
+`agents/macos/Tests/TestAnywareAgentTests/OwnedProcessFixture.swift`. The test
+shell writes the PID of the `sleep` into a file in a directory that only one
+fixture uses.
+
+The fixture records the PID and the kernel start time of that process. It accepts the process only when it started after the fixture and
+runs `sleep`. A teardown block sends SIGTERM, waits 2 s, then sends SIGKILL
+and waits 2 s. It signals only while the PID still carries the recorded start
+time. The leaf did not change `ProcessRunner.swift` (sha256 `f9401669…6340`).
+
+`task diagnostic:macos-process-fixtures` starts an unrelated `sleep 300` beside
+the suite. The broad pattern selects that control in every run. `ARM=owned`
+runs `agent:macos:test` on the working tree. `ARM=broad` is the fault control.
+It runs `swift test` on a temporary copy of the package with the test file of
+`990641750f` (sha256 `07fac70a…137c`). The fault arm refuses to run while
+another process of this user matches `sleep 30`.
+
+| Run | Arm | Runs | Control survived | Fixture outcomes | Suite runs with a failure |
+| --- | --- | --- | --- | --- | --- |
+| `owned-01` | owned | 5 | 5 | 10 `stoppedByTerm` | 3 |
+| `owned-02` | owned | 15 | 15 | 30 `stoppedByTerm` | 4 |
+| `broad-01` | broad | 5 | 0 | none | 1 |
+| `broad-02` | broad | 15 | 0 | none | 3 |
+
+No owned run left a new process that the broad pattern matches. The subject
+hashes were the same before and after every run. The audit in each `plan.json`
+finds no `pkill` or `killall` in the agent package source. The same scan finds
+two in the baseline test file.
+
+### Intermittent suite failure
+
+The suite failed in 7 of 20 owned runs and in 4 of 20 broad runs. Fisher's
+exact test gives p = 0.48, so these runs do not show a difference between the
+arms. Every failure is in `testHandlesLargeOutputWithoutPipeDeadlock` or
+`testCapturesStdoutAndExitCode`. Each failing test reports exit -1 and
+`timed_out` after its full timeout of 10 s or 5 s. The same commands complete
+in about 0.07 s.
+
+`testCapturesStdoutAndExitCode` runs before the two fixture tests. It failed in
+two owned runs and in one broad run, so its failures come before any fixture
+code runs. The fixture tests passed in all 20 owned runs.
+
+These receipts have the completed-then-timed-out shape of the retained
+failure, from the unchanged `runShell` on the host in the normal suite. This
+leaf did not inspect the dispatch pool, so the cause of these timeouts is not
+established. The suite is not green until k3 resolves the defect.
+
 ## Remaining k3 work
 
 The slice leaves these items of k3 to later leaves:
@@ -259,5 +310,6 @@ The slice leaves these items of k3 to later leaves:
   runs on the same build.
 - Guest observation of the dispatch pool, the child exit and the second block,
   at most one instrumented clone.
-- Owned process fixtures in `ProcessRunnerTests.swift`, which replace the
-  `pkill -f 'sleep 30'` cleanup before `agent:macos:test` runs.
+- The intermittent timeouts of `agent:macos:test` on the host (see Owned
+  process fixtures). Leaf k185 delivered the owned fixtures, so the suite no
+  longer stops unrelated processes.
