@@ -36,6 +36,8 @@ import controller
 from controller import Call, Plan, Resource, execute
 from retention import completion
 from storage_client import StorageClient
+from turns import Turn, run_turns
+from writer import encode_frame
 from writer_client import WRITER, healthy_run
 
 HERE = Path(__file__).resolve().parent
@@ -65,7 +67,20 @@ READINESS_WATCHDOG = READINESS_BOUND + REAP_GRACE + 2.0
 RUN_WATCHDOG = 12.0
 
 FLOOD_BYTES = 1024 * 1024
-FLOOD = "import sys; sys.stdout.buffer.write(b'x' * int(sys.argv[1]))"
+# The flood writes its stdout, then appends its finish to the history. That
+# entry anchors the teardown that follows it.
+FLOOD = """
+import json, os, sys, time
+count, history = int(sys.argv[1]), sys.argv[2]
+sys.stdout.buffer.write(b"x" * count)
+sys.stdout.flush()
+line = {"action": "flood", "identity": "flood", "monotonic": time.monotonic()}
+fd = os.open(history, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644)
+try:
+    os.write(fd, json.dumps(line).encode() + b"\\n")
+finally:
+    os.close(fd)
+"""
 TOUCH = "import sys; open(sys.argv[1], 'x').close()"
 # A resource or workload command that appends one history entry after its
 # action succeeds. A skipped or failed action leaves no entry, and disposal
@@ -286,6 +301,16 @@ def storage_outcome(run: Run) -> StorageOutcome | None:
         killed_at=storage.killed_at,
         reaped_at=storage.reaped_at,
     )
+
+
+def first_failure_snapshot(run: Run) -> Mapping[str, object]:
+    """Return the first failure from the result's storage snapshot."""
+    storage = getattr(run.returned, "storage", None)
+    assert isinstance(storage, controller.StorageOutcome), "the run reported no storage outcome"
+    assert storage.snapshot is not None, "the run took no result snapshot"
+    failure = storage.snapshot["first_failure"]
+    assert isinstance(failure, Mapping), f"the snapshot's first failure was {failure!r}"
+    return cast(Mapping[str, object], failure)
 
 
 def writer_descriptors(run: Run) -> Mapping[int, str] | None:
@@ -526,6 +551,9 @@ def test_control_storage_error(tmp_path, monkeypatch):
     outcome = storage_outcome(run)
     assert outcome is not None, "the run reported no terminal storage outcome"
     assert outcome.first_failure == errno.errorcode[errno.EACCES]
+    failure = first_failure_snapshot(run)
+    assert failure["operation"] == "create" and failure["record"] == "intent-2.json"
+    assert isinstance(failure["sequence"], int) and failure["errno"] == errno.EACCES
 
 
 def test_control_writer_death(tmp_path, monkeypatch):
@@ -550,17 +578,32 @@ def test_control_writer_death(tmp_path, monkeypatch):
     assert outcome.writer_reaped is True
 
 
-@removed_by("storage-publication-k168", "the controller blocks on storage instead of dropping")
+@removed_by(
+    "pipe-capture-k167, then storage-publication-k168",
+    "the flood stream bypasses the writer, and then the controller blocks on storage",
+)
 def test_control_outbox_overflow(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
+    first = vm(tmp_path, run_id)
     marker = tmp_path / "later-ran"
-    # Until pipe-capture-k167 the flood goes to a file, so the writer stops at
-    # the first record after it.
-    fault = WriterFault(monkeypatch, "stall:flood.json")
-    calls = (script("flood", FLOOD, FLOOD_BYTES), script("later", TOUCH, marker))
-    run = run_control(tmp_path, plan(run_id, calls), fault, RUN_WATCHDOG)
+    # The writer stops at the open of the flood's stdout record, before it
+    # drains any of the stream, so the stream fills the outbox. Until
+    # pipe-capture-k167 the stream goes to a file. The writer then stops only
+    # when its close transaction pins that file, and the close wait holds the
+    # controller until storage-publication-k168 bounds it.
+    fault = WriterFault(monkeypatch, "stall:flood.stdout")
+    workers = capture_workers(monkeypatch)
+    calls = (
+        script("flood", FLOOD, FLOOD_BYTES, history_path(tmp_path)),
+        script("later", TOUCH, marker),
+    )
+    run = run_control(tmp_path, plan(run_id, calls, (first,)), fault, RUN_WATCHDOG)
     assert not marker.exists(), "forward progress continued after the outbox drop"
-    outcome = assert_killed_publication(run, RUN_WATCHDOG)
+    assert acquired(tmp_path, first) is not None, "the first resource was never acquired"
+    flood = entries(tmp_path, "flood")
+    assert len(flood) == 1, "the flood did not finish exactly once"
+    closed = assert_teardown_unchanged(tmp_path, first, flood[0].monotonic, workers)
+    outcome = assert_killed_publication(run, RUN_WATCHDOG, closed)
     assert outcome.first_failure == "outbox_drop"
     assert outcome.drops.get("flood.stdout", 0) > 0
 
@@ -638,8 +681,121 @@ def test_intent_gate_with_resumed_writer(tmp_path, monkeypatch):
     assert outcome.writer_reaped is True
     assert outcome.publication == "incomplete"
     assert (run.directory / "intent-2.json").exists(), "the resumed writer did not store intent-2"
+    failure = first_failure_snapshot(run)
+    assert failure["operation"] == "create" and failure["record"] == "intent-2.json"
+    assert isinstance(failure["sequence"], int) and failure["errno"] is None
     verdict = completion(run.directory)
     assert verdict["complete"] is False
+
+
+# Run storage repairs ----------------------------------------------------------
+#
+# These tests drive one run's storage against the real writer, without a plan
+# execution. A small outbox cap makes a direct control frame miss the cap.
+
+SMALL_CAP = 1024
+
+
+def started_storage(tmp_path: Path, **bounds: object) -> controller._RunStorage:
+    selected = replace(plan(uuid.uuid4().hex), **bounds)
+    storage = controller._RunStorage(selected, tmp_path / "evidence" / selected.run_id)
+    storage.start(b"{}\n", ())
+    assert storage.healthy(), f"storage did not start: {storage.client.first_failure}"
+    return storage
+
+
+def fill_outbox(storage: controller._RunStorage, name: str, op: str, room: int) -> None:
+    """Queue one record that leaves `room` bytes under the cap, with no turn."""
+    client = storage.client
+    overhead = len(encode_frame(client.next_seq, op, b"", name=name))
+    payload = b"x" * (client.outbox_cap - client.outbox_bytes - overhead - room)
+    assert storage.record(name, payload) is not None, "the filler record was dropped"
+    assert client.outbox_cap - client.outbox_bytes == room
+
+
+def close_within_watchdog(storage: controller._RunStorage) -> None:
+    with watchdog(RUN_WATCHDOG, lambda: None):
+        storage.close()
+    assert storage.client.reaped_at is not None, "the writer was not reaped after close"
+
+
+def test_dropped_close_frame_fails_storage_and_settles(tmp_path):
+    storage = started_storage(tmp_path, outbox_cap=SMALL_CAP)
+    client = storage.client
+    # The result fits, and the close frame does not. The writer stays responsive.
+    close_size = len(encode_frame(client.next_seq + 1, "close"))
+    fill_outbox(storage, "result", "result", close_size - 1)
+    close_within_watchdog(storage)
+    assert client.drops == {"close": 1}
+    assert client.first_failure == "outbox_drop"
+    assert storage.close_ack is None
+    assert storage.snapshot()["first_failure"] == {
+        "cause": "outbox_drop",
+        "sequence": None,
+        "operation": "close",
+        "record": "close",
+        "errno": None,
+    }
+
+
+def test_dropped_subjects_after_frame_fails_storage(tmp_path):
+    storage = started_storage(tmp_path, outbox_cap=SMALL_CAP)
+    client = storage.client
+    subjects_size = len(encode_frame(client.next_seq + 1, "subjects"))
+    fill_outbox(storage, "filler.json", "create", subjects_size - 1)
+    subject = Path(sys.executable)
+    assert storage.subjects_after((subject,)) == {str(subject): "unavailable:storage"}
+    assert client.drops == {"subjects-after": 1}
+    assert client.first_failure == "outbox_drop"
+    assert storage.forward_stop == "outbox_drop"
+    assert storage.snapshot()["first_failure"] == {
+        "cause": "outbox_drop",
+        "sequence": None,
+        "operation": "subjects",
+        "record": "subjects-after",
+        "errno": None,
+    }
+    close_within_watchdog(storage)
+
+
+def gate_through(drive: Callable[[Turn], None], tmp_path: Path) -> controller._RunStorage:
+    storage = started_storage(tmp_path)
+    assert storage.gate(2, b'{"intent": 2}\n', drive) is False
+    return storage
+
+
+def assert_intent_failure(storage: controller._RunStorage, outcome: str) -> None:
+    assert storage.phases["intent-2"].outcome == outcome
+    assert storage.client.first_failure == "intent_gate"
+    [seq] = [seq for seq, name in storage.records.items() if name == "intent-2.json"]
+    expected = {
+        "cause": "intent_gate",
+        "sequence": seq,
+        "operation": "create",
+        "record": "intent-2.json",
+        "errno": None,
+    }
+    assert storage.snapshot()["first_failure"] == expected
+    close_within_watchdog(storage)
+    # A later acknowledgement does not replace the failure that the gate detected.
+    assert storage.client.failure_ack is None
+    assert storage.snapshot()["first_failure"] == expected
+
+
+def test_missed_intent_gate_keeps_its_frame_in_the_snapshot(tmp_path):
+    # No turn runs, so no acknowledgement arrives before the deadline.
+    storage = gate_through(lambda turn: time.sleep(INTENT_GATE + 0.05), tmp_path)
+    assert_intent_failure(storage, "missed")
+
+
+def test_late_intent_acknowledgement_keeps_its_frame_in_the_snapshot(tmp_path):
+    def drive(turn: Turn) -> None:
+        # The acknowledgement arrives, and the gate then sees it after the deadline.
+        run_turns(turn)
+        time.sleep(INTENT_GATE + 0.05)
+
+    storage = gate_through(drive, tmp_path)
+    assert_intent_failure(storage, "late")
 
 
 FILESYSTEM_EVENTS = frozenset(

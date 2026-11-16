@@ -30,4 +30,6 @@ child process. The stdout match then reads the file back.
 - The inherited writer review control passes. It reports `writer_open` and adds
   no wait for end of file.
 - The marker comes off the inherited state control, and the control passes.
+- The outbox overflow control keeps its marker. Its reason then names only
+  `storage-publication-k168`, which bounds the close wait.
 - The full suite passes.

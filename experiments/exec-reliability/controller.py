@@ -1008,6 +1008,9 @@ class _RunStorage:
         self.digests: dict[str, dict[str, object]] = {}
         self.phases: dict[str, StoragePhase] = {}
         self.forward_stop: str | None = None
+        # The frame that a controller-detected first failure names. An error
+        # acknowledgement names its own frame in the client's failure_ack.
+        self.failure_context: dict[str, object] | None = None
         self.close_ack: dict[str, object] | None = None
         self.result_snapshot: dict[str, object] | None = None
 
@@ -1052,6 +1055,23 @@ class _RunStorage:
             client = self.client
             self.forward_stop = client.first_failure or client.readiness_reason or client.storage
 
+    def _fail(self, cause: str, operation: str, record: str, sequence: int | None) -> None:
+        """Fail storage for a cause that the controller detects, and keep its frame.
+
+        The context is kept only when this call sets the first failure. A
+        later error acknowledgement cannot replace it, because the client
+        keeps a failure acknowledgement only while storage is ready. An
+        unqueued frame has no sequence number.
+        """
+        client = self.client
+        if client.storage == "ready":
+            self.failure_context = {
+                "sequence": sequence,
+                "operation": operation,
+                "record": record,
+            }
+        client.fail(cause)
+
     # Records -----------------------------------------------------------------
 
     def record(self, name: str, data: bytes) -> int | None:
@@ -1073,7 +1093,7 @@ class _RunStorage:
             seq = client.enqueue(op, name, chunk)
             if seq is None:
                 if client.drops.get(name):
-                    client.fail("outbox_drop")
+                    self._fail("outbox_drop", op, name, None)
                 self._stop()
                 return first
             self.records[seq] = name
@@ -1118,7 +1138,8 @@ class _RunStorage:
         else:
             outcome = "missed"
         if outcome in ("late", "missed"):
-            client.fail("intent_gate")
+            assert seq is not None
+            self._fail("intent_gate", "create", f"{name}.json", seq)
         self.phases[name] = StoragePhase(started, deadline, finished, outcome)
         return outcome == "acknowledged" and self.healthy()
 
@@ -1132,6 +1153,8 @@ class _RunStorage:
         client = self.client
         seq = client.enqueue("subjects", "subjects-after")
         if seq is None:
+            # The client was ready, so the outbox cap dropped the frame.
+            self._fail("outbox_drop", "subjects", "subjects-after", None)
             self._stop()
             return unavailable
         self.records[seq] = "subjects-after"
@@ -1160,14 +1183,21 @@ class _RunStorage:
         failure: dict[str, object] | None = None
         if client.first_failure is not None:
             ack = client.failure_ack
-            seq = ack.get("seq") if ack is not None else None
             failure = {
                 "cause": client.first_failure,
-                "sequence": seq,
-                "operation": ack.get("op") if ack is not None else None,
-                "record": self.records.get(seq) if isinstance(seq, int) else None,
-                "errno": ack.get("errno") if ack is not None else None,
+                "sequence": None,
+                "operation": None,
+                "record": None,
+                "errno": None,
             }
+            if ack is not None:
+                seq = ack.get("seq")
+                failure["sequence"] = seq
+                failure["operation"] = ack.get("op")
+                failure["record"] = self.records.get(seq) if isinstance(seq, int) else None
+                failure["errno"] = ack.get("errno")
+            elif self.failure_context is not None:
+                failure.update(self.failure_context)
         readiness = self.phases.get("readiness")
         section: dict[str, object] = {
             "sequence": sequence,
@@ -1209,10 +1239,16 @@ class _RunStorage:
         """Request the close transaction and drive turns until the writer settles.
 
         storage-publication-k168 bounds this wait. A stalled writer can still
-        hold it in this slice.
+        hold it in this slice. A dropped close frame fails storage, so a live
+        writer reads the end of its frame pipe and exits.
         """
         client = self.client
-        seq = client.request_close() if client.storage == "ready" else None
+        seq: int | None = None
+        if client.storage == "ready":
+            seq = client.request_close()
+            if seq is None:
+                # A ready client returns None only when the outbox cap drops the frame.
+                self._fail("outbox_drop", "close", "close", None)
         run_turns(client.turn(lambda: False))
         if seq is not None:
             self.close_ack = client.ack(seq)
