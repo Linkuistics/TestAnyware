@@ -1,0 +1,1533 @@
+{
+  "sources": {
+    "retention.py": "26b8ad589baa34757a09fa0c39439a816a41c7c73ad7eaca579705373138161c",
+    "controller.py": "c3d697fe3883701f8a23d34d01f74fa7ac9f14a1371020a11b081e11cb7b656e",
+    "evidence/k21-audit-01/audit.py": "9266ad76c1b75a8f74e11ec492df2fd04f22a684cf7e9f4a4fb178c36db4147b"
+  },
+  "run_dirs": 145,
+  "causes": {
+    "verified": 62,
+    "unlisted only": 63,
+    "identity missing": 7,
+    "identity invalid": 2,
+    "changed or missing": 11
+  },
+  "ps_returncode": 0,
+  "ps_stderr": "",
+  "surviving_fixture_processes": [
+    "46851 46851 /bin/zsh -c source /Users/antony/.claude/shell-snapshots/snapshot-zsh-1794805936099-6wcb39.sh 2>/dev/null || true && setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL 2>/dev/null || true && { \\builtin unalias -- 'which'; \\builtin unset -f -- 'which'; } >/dev/null 2>&1 || true && { \\builtin unalias -- 'unsetenv'; \\builtin unset -f -- 'unsetenv'; } >/dev/null 2>&1 || true && eval 'cd /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability; mkdir evidence/k21-audit-01 && cat > evidence/k21-audit-01/audit.py <<'\"'\"'E'\"'\"'\\012\"\"\"k21 resource audit: verify every retained run in k21-green-01 and check for surviving fixtures.\"\"\"\\012import collections, hashlib, json, subprocess, sys\\012from pathlib import Path\\012HERE = Path(__file__).resolve().parents[2]\\012sys.path.insert(0, str(HERE))\\012import retention\\012out = Path(sys.argv[1])\\012runs = HERE / \"evidence/k21-green-01/runs\"\\012items, causes = [], collections.Counter()\\012for d in sorted(p for p in runs.iterdir() if p.is_dir()):\\012    r = retention.verify(d)\\012    changed = [(f[\"path\"], f[\"state\"]) for f in r[\"files\"] if f[\"state\"] != \"unchanged\"]\\012    streams = [(s[\"call\"], s[\"stream\"], s[\"state\"]) for s in r[\"streams\"] if s[\"state\"] != \"unchanged\"]\\012    if r[\"ok\"]: cause = \"verified\"\\012    elif r[\"identity\"] != \"ok\": cause = \"identity \" + r[\"identity\"].split(\":\")[0]\\012    elif changed or streams: cause = \"changed or missing\"\\012    else: cause = \"unlisted only\"\\012    causes[cause] += 1\\012    items.append({\"run\": d.name, \"ok\": r[\"ok\"], \"cause\": cause, \"identity\": r[\"identity\"],\\012                  \"changed\": changed, \"streams\": streams, \"unlisted\": r[\"unlisted\"]})\\012ps = subprocess.run([\"/bin/ps\", \"-axo\", \"pid=,pgid=,command=\"], capture_output=True, text=True, timeout=10)\\012fixtures = [l for l in ps.stdout.splitlines() if \"peer.py\" in l and str(HERE) in l]\\012report = {\"sources\": {p: hashlib.sha256((HERE / p).read_bytes()).hexdigest()\\012                      for p in (\"retention.py\", \"controller.py\", \"evidence/k21-audit-01/audit.py\")},\\012          \"run_dirs\": len(items), \"causes\": causes, \"ps_returncode\": ps.returncode,\\012          \"ps_stderr\": ps.stderr, \"surviving_fixture_processes\": fixtures, \"runs\": items}\\012with out.open(\"x\") as s: json.dump(report, s, indent=2)\\012print(json.dumps({k: report[k] for k in (\"run_dirs\", \"causes\", \"ps_returncode\", \"surviving_fixture_processes\")}))\\012E\\012uv run --locked python evidence/k21-audit-01/audit.py evidence/k21-audit-01/report.json' && pwd -P >| /tmp/claude-7d5b-cwd"
+  ],
+  "runs": [
+    {
+      "run": "014e7bb6db0e4a45b82a6bb586eeafd1",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "033e03e9e6414a819a092d542fff125a",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "03c928ba7ef94ae09a6b1e36a6c8ca94",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "caller-reap-audit.json"
+      ]
+    },
+    {
+      "run": "06adc64544024f25bb5ee2afb0590321",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "skipped-query-audit.json"
+      ]
+    },
+    {
+      "run": "079768269cd74e2193103674d21d5c7d",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "request-identity-independent-audit.json"
+      ]
+    },
+    {
+      "run": "0acbdfdb127a4688adcd5c135e6305ba",
+      "ok": false,
+      "cause": "identity missing",
+      "identity": "missing",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "0aec828970d8416da023420335d26c2b",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "caller-reap-audit.json"
+      ]
+    },
+    {
+      "run": "0b2809d275874fcd877bfebb80accdc0",
+      "ok": false,
+      "cause": "identity invalid",
+      "identity": "invalid: result.json is not pinned",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "0b368b1a474b4d508dd1d7d497a27848",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "0b8faab6c3a84f72b3721c9db2de3cb3",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "pinning-control.json"
+      ]
+    },
+    {
+      "run": "0d9c777c3e5444008823fe27c4b702ca",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [],
+      "streams": [
+        [
+          "bytes",
+          "stdout",
+          "changed"
+        ]
+      ],
+      "unlisted": []
+    },
+    {
+      "run": "0de22f5f8d4d4b3293cc27af1242dff5",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json",
+        "scope-control.json"
+      ]
+    },
+    {
+      "run": "0f0381a4362847f38153530bf786c2f1",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [
+        [
+          "result.json",
+          "changed"
+        ]
+      ],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "1258243778bf4b5a84db044067b96e3a",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "140da39dd5654167b7b9d6aa141d5a5d",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "15557636111649ee83983fc0bb40f1d7",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "1927b35d7d5148279363ffc7cec196d0",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [],
+      "streams": [
+        [
+          "bytes",
+          "stdout",
+          "changed"
+        ]
+      ],
+      "unlisted": []
+    },
+    {
+      "run": "1b68aa36fcbb4f0e8de2b971de056ff9",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "1c0b45b170d641df8d35dd4eb8d2c135",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "1c15e8efeaec410498beaff9c856ff54",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "live-classification-audit.json"
+      ]
+    },
+    {
+      "run": "1f8291d410a642d7952642fa40f86864",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json",
+        "scope-control.json"
+      ]
+    },
+    {
+      "run": "209b3a34cc7d44d4b940893cc999f07a",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "239993a9a29e427cafd7ae5d75ddf5b9",
+      "ok": false,
+      "cause": "identity missing",
+      "identity": "missing",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "23df8f1f24a044ef86922f4b36f8d936",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "fresh-run-audit.json"
+      ]
+    },
+    {
+      "run": "24e89f3ffaa54839950a95634ceac668",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json"
+      ]
+    },
+    {
+      "run": "253f598c6c154dd5844f2cdc57b224d8",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "production-overlap-audit.json"
+      ]
+    },
+    {
+      "run": "2644679466ef4c4285c3cc53dbeaf32e",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "274e4e753fa847c3b2413ee1ed65b86c",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "final-query-audit.json"
+      ]
+    },
+    {
+      "run": "2abb7b8fa1df470890fbdb1af7210a10",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "2aeb82d648b64e19befd0478b32075ca",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "sticky-inspection-audit.json"
+      ]
+    },
+    {
+      "run": "2b4286195e144bf398857e601a1d3473",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "2b4b4846280f4b21a24f44f86640769f",
+      "ok": false,
+      "cause": "identity missing",
+      "identity": "missing",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "2bcadbc4f42545708a3e295b6f7ba974",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json"
+      ]
+    },
+    {
+      "run": "2c02fdb6e88d4b2cbbd4204de0408504",
+      "ok": false,
+      "cause": "identity invalid",
+      "identity": "invalid: Expecting property name enclosed in double quotes: line 1 column 2 (char 1)",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "2e5c131528554264a2b9806d63a84dc4",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "pinning-control.json"
+      ]
+    },
+    {
+      "run": "2f5db910150e44f4b14b8f442b092599",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "3118f60243044cdb8a9f04ee22e9e102",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "production-overlap-audit.json"
+      ]
+    },
+    {
+      "run": "3610d8fdc1304df09acb64af4aacd4db",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "3645d0241fc945da84f3890308f837f3",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "pinning-control.json"
+      ]
+    },
+    {
+      "run": "3880c43c67d44e2ab0c5651d41b798bf",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "3abd5e8761f74896905ff651549da121",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "3b5a61eb4f3e4d4794d9eb5b4be9092a",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "sticky-inspection-audit.json"
+      ]
+    },
+    {
+      "run": "3c44f0dea5ef4fd5b254ab49f8b6c948",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "pinning-control.json"
+      ]
+    },
+    {
+      "run": "3c64670c18934a6fa485574ccb93447f",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "3fbf2dd81cf242edaeb4d8d78b9b3714",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "production-overlap-audit.json"
+      ]
+    },
+    {
+      "run": "403fbc48af6b467caa18d68ef7f0e0d1",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "435b807b52494d32bcee1e4f5be3d4a2",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [
+        [
+          "bytes.stdout",
+          "missing"
+        ]
+      ],
+      "streams": [
+        [
+          "bytes",
+          "stdout",
+          "missing"
+        ]
+      ],
+      "unlisted": []
+    },
+    {
+      "run": "46b2fae2fbfc45bc871949d5930f736a",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "528fa542f61f4a3d8018f6c59b8e4c60",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "helper-safety-control.json"
+      ]
+    },
+    {
+      "run": "5345c9bf0c6e4043b5e549ec3f65ce46",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "real-ps-failure-audit.json"
+      ]
+    },
+    {
+      "run": "55881f1338e64aae918f473d1e7355e8",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "persistent-worker-independent-audit.json"
+      ]
+    },
+    {
+      "run": "5617ff18f2994d14891a69452a13c8b1",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "5766576bbd754b978d4108d681309be0",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json"
+      ]
+    },
+    {
+      "run": "59abf4483cf649268d28330ae059d347",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "inspection-order.json"
+      ]
+    },
+    {
+      "run": "59b38b629cfc4389a16346e1547876cb",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "5a1667af88e9422198f652ea781f3ff6",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "extra.json"
+      ]
+    },
+    {
+      "run": "5a4ce3000a7c420882bdd86c768d547b",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "5c08faaace524d31ba9a76212862df49",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "caller-reap-audit.json"
+      ]
+    },
+    {
+      "run": "5c940d30ed1e43e3938398de8511cc79",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json",
+        "scope-control.json"
+      ]
+    },
+    {
+      "run": "5cb5bbe28c1b4a1abab4f00fe2d75664",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "leader-reap-audit.json"
+      ]
+    },
+    {
+      "run": "6030ff60cf9e49319f3f13c775b680c3",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "623d9d1233eb4cd3bde075bd506a2cbf",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "leader-reap-audit.json"
+      ]
+    },
+    {
+      "run": "66faac5467ff465bb5fa7d50bacc48e1",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "679759dd82ce4c31a57c36fc9b5203d4",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [
+        [
+          "result.json",
+          "changed"
+        ]
+      ],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "67ebfe3418e349fbbdc8d32fcc436895",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [
+        [
+          "bytes.stderr",
+          "changed"
+        ]
+      ],
+      "streams": [
+        [
+          "bytes",
+          "stderr",
+          "changed"
+        ]
+      ],
+      "unlisted": []
+    },
+    {
+      "run": "6aa9fc54a46a49099bd807cbdd959158",
+      "ok": false,
+      "cause": "identity missing",
+      "identity": "missing",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "6c2c025ef4fa4c92912c9de1e85b2d48",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "production-overlap-audit.json"
+      ]
+    },
+    {
+      "run": "6e618f9bd3764773ac9eaf6397565bc2",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "7289d2253c964803a2e047e8196f3575",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [
+        [
+          "bytes.json",
+          "changed"
+        ]
+      ],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "75aa63cb4945479eb9fa52b236fbd7b5",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "reverse-safety-audit.json"
+      ]
+    },
+    {
+      "run": "7b4da1dea18742c9bf554307a5a08515",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "pinning-control.json"
+      ]
+    },
+    {
+      "run": "7c564695423d4f8abada9392e6238af3",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "fresh-run-audit.json"
+      ]
+    },
+    {
+      "run": "7c5c8bad010845f899e4d1d1ae75f287",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "7e9b19ef70554701adb9d95d2cf6d272",
+      "ok": false,
+      "cause": "identity missing",
+      "identity": "missing",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "82205afbee664a50adfdf5442ec30933",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "fresh-run-audit.json"
+      ]
+    },
+    {
+      "run": "848fd71952a04ab08ed2d102051d0f09",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "production-overlap-audit.json"
+      ]
+    },
+    {
+      "run": "85fa1a59176b41129348b61531ef9420",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "helper-safety-control.json"
+      ]
+    },
+    {
+      "run": "87647604185d4d6e820708a0bf7fdfc6",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "8b27868b053e4b6fa8b646318414f999",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "8dc1384e3ee340069ee194d7ce4c3f33",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "8dff6ca465804dc18bf1abb54cdbe3e4",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "8f88899625c44201ad9288c6f1a00322",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "9113032bb53f4ef4834fed5eba32b9c9",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "91aa0f8d32c947fa8c9a0a488d55d99d",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "production-overlap-audit.json"
+      ]
+    },
+    {
+      "run": "925c5c85444e4bddab22346e512e2e06",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "request-identity-independent-audit.json"
+      ]
+    },
+    {
+      "run": "9297a8ece61042788a2cde3f2cb6f8eb",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "workload-wait-audit.json"
+      ]
+    },
+    {
+      "run": "95b86998a19c4ed395992ce122d3bfc9",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "workload-wait-audit.json"
+      ]
+    },
+    {
+      "run": "96dbd6b5954b459195dd9badfa5c242c",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [
+        [
+          "result.json",
+          "changed"
+        ]
+      ],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "976a7c114f354f89be865d3e96e96b3e",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "9928262e238248589d0bfafd56e41d65",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json"
+      ]
+    },
+    {
+      "run": "995d8bf1be8744de8ed25f00e4fc3abe",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "9a9bedf895154ab2b9061dcbaa09313a",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "9c9e4ca6df6d4431a6c587917a8c335c",
+      "ok": false,
+      "cause": "identity missing",
+      "identity": "missing",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "9e5e08aaf81847978de18a40e868461f",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "9ec8c69fdad64b858aaf0b3251f0e104",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "a06e1af1754a44ef9bba1ffc8af85bb7",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "a0970ac931e044ad92b6383dcfd6666c",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "skipped-query-audit.json"
+      ]
+    },
+    {
+      "run": "a29545e382d245eb8a02aef0349a3fa0",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "a30a1157c8ca44fcb9be243d42fac23c",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "request-identity-independent-audit.json"
+      ]
+    },
+    {
+      "run": "a6f008f4e26a4b798d0b8c0a0bfb8b84",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "helper-safety-control.json"
+      ]
+    },
+    {
+      "run": "a782fa3df186459080a9e1cc544d27ee",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json",
+        "scope-control.json"
+      ]
+    },
+    {
+      "run": "a7db7dfc497f49cb852e7b437b99dce7",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "b16b2c09ad4e4932b459bec687a30717",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json"
+      ]
+    },
+    {
+      "run": "b22dec5831a74549adb3638f7e1f8542",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "b309b6ce917840d18b0b3386db0f7bf1",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "b3c3d3b6c93c4b038b406168c419e755",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "b5302cbbe85544628f1c3c43fc55fb5a",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "caller-reap-audit.json"
+      ]
+    },
+    {
+      "run": "b760577a97de493d9a69bb9c40dc72a4",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "b79f90f694b74774bae6dc2f13fbab2c",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "production-overlap-audit.json"
+      ]
+    },
+    {
+      "run": "bced1dd03eef428f8c3063aec032bdb8",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "helper-safety-control.json"
+      ]
+    },
+    {
+      "run": "bfca77f789e640f89608c69ba6f4f8f7",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [
+        [
+          "result.json",
+          "missing"
+        ]
+      ],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "c00551a18b9e4de39371d171df220a46",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "c076b063e51844f7b6cf8eb747b4d361",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "c1f98e6c77be4d45b9dbdcac29248c6a",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "c2044d903ce94e67b06379bc0ecee26c",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "fresh-run-audit.json"
+      ]
+    },
+    {
+      "run": "c452098e5c8e4baabbe88a07e56268b7",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "c584b3d9e3484b868accf977b5da048a",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "c6781952986749ce88221d9c6cd2a834",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "c8c2b3cf420340619ded75faca0f0ded",
+      "ok": false,
+      "cause": "identity missing",
+      "identity": "missing",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "c8ed82a5ab314a60a3755fbb687a0a6e",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "final-query-audit.json"
+      ]
+    },
+    {
+      "run": "cc2138390d6549c6b2c5bb47325656f8",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "cc3c757ad6d743608aa0fef1d134022c",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "cdbd0414d64b4cb997313caaa06905f1",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "sticky-inspection-audit.json"
+      ]
+    },
+    {
+      "run": "cec2e6f436bd469b8f519d9e07812efe",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "cf0ab296d4854c2bb934686839c08019",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "sticky-inspection-audit.json"
+      ]
+    },
+    {
+      "run": "cf629635443f494db78533ea823714c5",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "caller-reap-audit.json"
+      ]
+    },
+    {
+      "run": "d48c89bcf153486dac57a834a59094f4",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "d6fd4acfd43a476b89a559116d4a3f39",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "d7be20475c5f4876852173fdd1972dc1",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "d95348b115e94a7dbf78e2f440b8f2db",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "e0362db7ea744b9096cbb28db4b00ef0",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "e0adaa7dcc5a4a63babf54a06cbf92df",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "caller-reap-audit.json"
+      ]
+    },
+    {
+      "run": "e284e1e4aba84f9d8d0a06c0670e2627",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "production-overlap-audit.json"
+      ]
+    },
+    {
+      "run": "e3c71e5b4b564594bba10c82e968ad6d",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "inspection-order.json"
+      ]
+    },
+    {
+      "run": "e642354cf96e4e378da18187827c74dd",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "fresh-run-audit.json"
+      ]
+    },
+    {
+      "run": "ee20433512704b4a884add94e1779eee",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "leader-reap-audit.json"
+      ]
+    },
+    {
+      "run": "ee7c5e405f374ec7b1630c43707c81ee",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json"
+      ]
+    },
+    {
+      "run": "ef00f86cafab4303be34fe53f3d5091f",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "f2227988aeb04dbaad16cfc068027a77",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "sticky-inspection-audit.json"
+      ]
+    },
+    {
+      "run": "f3c8f41bafbd435c966820c2a06ea23c",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "f4f8daffe6884d28a8589e81fc7b3e9f",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "f55c87dbb5ec402b9b4b389ab28941cc",
+      "ok": false,
+      "cause": "unlisted only",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": [
+        "known-child-audit.json"
+      ]
+    },
+    {
+      "run": "f583390a0bbe4167a8c0170a53343964",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [
+        [
+          "late-writer.stdout",
+          "changed"
+        ]
+      ],
+      "streams": [
+        [
+          "late-writer",
+          "stdout",
+          "changed"
+        ]
+      ],
+      "unlisted": []
+    },
+    {
+      "run": "f9a5e3cc6ed84b9e891e09c829194371",
+      "ok": true,
+      "cause": "verified",
+      "identity": "ok",
+      "changed": [],
+      "streams": [],
+      "unlisted": []
+    },
+    {
+      "run": "ff7ac7a11ac547ddb3dca808267aaa20",
+      "ok": false,
+      "cause": "changed or missing",
+      "identity": "ok",
+      "changed": [],
+      "streams": [
+        [
+          "bytes",
+          "stdout",
+          "changed"
+        ]
+      ],
+      "unlisted": []
+    }
+  ]
+}

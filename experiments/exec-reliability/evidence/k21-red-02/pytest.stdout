@@ -1,0 +1,813 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.12.15, pytest-9.2.0, pluggy-1.7.0 -- /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python
+cachedir: .pytest_cache
+rootdir: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability
+configfile: pyproject.toml
+testpaths: test_controller.py, test_inspection.py, test_worker_capture.py, test_bootstrap.py, test_shutdown.py, test_turns.py, test_retention.py
+collecting ... collected 968 items / 711 deselected / 257 selected
+
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[acquire] PASSED [  0%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[workload] PASSED [  0%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[cleanup] PASSED [  1%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[dispose] PASSED [  1%]
+test_controller.py::test_review_inspection_failure_is_sticky_during_safety[inspect] PASSED [  1%]
+test_controller.py::test_review_sticky_failure_preserves_reverse_safety_and_signals PASSED [  2%]
+test_controller.py::test_review_live_table_does_not_poison_later_inspection PASSED [  2%]
+test_controller.py::test_review_skipped_query_preserves_later_safety_inspection[missing-exit] PASSED [  3%]
+test_controller.py::test_review_skipped_query_preserves_later_safety_inspection[cutoff] PASSED [  3%]
+test_controller.py::test_review_real_ps_failure_disables_later_queries_and_probes PASSED [  3%]
+test_controller.py::test_review_final_query_requires_observed_exit[False] PASSED [  4%]
+test_controller.py::test_review_final_query_requires_observed_exit[True] PASSED [  4%]
+test_controller.py::test_review_final_live_table_cannot_be_retried PASSED [  5%]
+test_controller.py::test_review_kill_eperm_uses_only_final_postsignal_table PASSED [  5%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[withheld] PASSED [  5%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[missing] PASSED [  6%]
+test_controller.py::test_review_nonblocking_reap_retains_failed_owner[expired] PASSED [  6%]
+test_controller.py::test_review_expected_interruption_continues_same_resource PASSED [  7%]
+test_controller.py::test_review_unexpected_interruption_still_stops PASSED [  7%]
+test_controller.py::test_review_resource_deadline_cannot_be_declared_success PASSED [  7%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[plan] PASSED [  8%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[result] PASSED [  8%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[result-identity] FAILED [  8%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[subjects-before] PASSED [  9%]
+test_controller.py::test_review_reserved_names_rejected_before_acquisition[intent-1] PASSED [  9%]
+test_controller.py::test_review_receipt_io_exception_cannot_skip_other_disposal PASSED [ 10%]
+test_controller.py::test_review_skipped_acquisitions_are_unreached PASSED [ 10%]
+test_controller.py::test_review_zero_exit_wrong_stdout_is_failure PASSED [ 10%]
+test_controller.py::test_review_preflight_keeps_missing_declared_subjects PASSED [ 11%]
+test_controller.py::test_review_graceful_pid_exit_needs_no_kill PASSED   [ 11%]
+test_controller.py::test_review_fork_handler_reaps_gracefully PASSED     [ 12%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[True] PASSED [ 12%]
+test_controller.py::test_review_signal_scope_has_opposed_child_outcomes[False] PASSED [ 12%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[True] PASSED [ 13%]
+test_controller.py::test_review_wrong_signal_scope_is_detected[False] PASSED [ 13%]
+test_controller.py::test_review_controller_survival_is_observed_by_another_process PASSED [ 14%]
+test_controller.py::test_review_group_signals_and_inspection_finish_before_reaping PASSED [ 14%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[usage] PASSED [ 14%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[timeout] PASSED [ 15%]
+test_controller.py::test_review_failed_group_inspection_is_never_absence[foreign] PASSED [ 15%]
+test_controller.py::test_review_group_kill_precedes_inspection[hang] PASSED [ 15%]
+test_controller.py::test_review_group_kill_precedes_inspection[ignore-term] PASSED [ 16%]
+test_controller.py::test_review_live_signal_permission_uncertainty_is_retained PASSED [ 16%]
+test_controller.py::test_review_later_zombie_table_cannot_repair_earlier_eperm PASSED [ 17%]
+test_controller.py::test_review_exited_leader_does_not_hide_a_surviving_group_member[False] PASSED [ 17%]
+test_controller.py::test_review_exited_leader_does_not_hide_a_surviving_group_member[True] PASSED [ 17%]
+test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[False] PASSED [ 18%]
+test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit[True] PASSED [ 18%]
+test_controller.py::test_review_checker_unreaped_timeout_still_retains_verdict PASSED [ 19%]
+test_controller.py::test_review_fork_publishes_child_before_stdout_and_releases_on_failure PASSED [ 19%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[None] PASSED [ 19%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[poll] PASSED [ 20%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[wait] PASSED [ 20%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[waitpid] PASSED [ 21%]
+test_controller.py::test_review_pinning_control_detects_real_early_reap[wait-any] PASSED [ 21%]
+test_controller.py::test_review_isolated_reap_overrun_and_removed_gate[False] PASSED [ 21%]
+test_controller.py::test_review_isolated_reap_overrun_and_removed_gate[True] PASSED [ 22%]
+test_controller.py::test_review_late_observation_cannot_extend_reap_deadline[False] PASSED [ 22%]
+test_controller.py::test_review_late_observation_cannot_extend_reap_deadline[True] PASSED [ 22%]
+test_controller.py::test_review_pid_late_observation_cannot_extend_reap_deadline PASSED [ 23%]
+test_controller.py::test_review_survival_checker_rejects_controller_self_signal[False] PASSED [ 23%]
+test_controller.py::test_review_survival_checker_rejects_controller_self_signal[True] PASSED [ 24%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[acquisition-32] PASSED [ 24%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[acquisition-40] PASSED [ 24%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[worker-32] PASSED [ 25%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[worker-40] PASSED [ 25%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[helper-32] PASSED [ 26%]
+test_inspection.py::test_review_native_auto_reap_rejected_before_creation[helper-40] PASSED [ 26%]
+test_inspection.py::test_review_worker_transports_real_native_auto_reap_refusal[32] PASSED [ 26%]
+test_inspection.py::test_review_worker_transports_real_native_auto_reap_refusal[40] PASSED [ 27%]
+test_inspection.py::test_review_admission_allows_default_single_thread_controller PASSED [ 27%]
+test_inspection.py::test_review_admission_rejects_live_python_thread_before_acquisition PASSED [ 28%]
+test_inspection.py::test_review_helper_close_error_preserves_receipt_and_reaps[stdout] PASSED [ 28%]
+test_inspection.py::test_review_helper_close_error_preserves_receipt_and_reaps[stderr] PASSED [ 28%]
+test_inspection.py::test_review_helper_last_sleep_gets_final_nonblocking_observation PASSED [ 29%]
+test_inspection.py::test_review_helper_late_creation_signals_pinned_child_without_new_allowance PASSED [ 29%]
+test_inspection.py::test_review_helper_echild_releases_stale_owner_without_claiming_exit PASSED [ 29%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[hang] PASSED [ 30%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[stdout] PASSED [ 30%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[stderr] PASSED [ 31%]
+test_inspection.py::test_review_helper_failure_keeps_execute_safety_and_stops_queries[admission] PASSED [ 31%]
+test_inspection.py::test_review_admission_rejects_native_pthread_absent_from_python_registry PASSED [ 31%]
+test_inspection.py::test_review_admission_rejects_nondefault_sigchld_before_acquisition[1] PASSED [ 32%]
+test_inspection.py::test_review_admission_rejects_nondefault_sigchld_before_acquisition[<lambda>] PASSED [ 32%]
+test_inspection.py::test_review_admission_rejects_native_sigchld_hidden_from_python[ignore] PASSED [ 33%]
+test_inspection.py::test_review_admission_rejects_native_sigchld_hidden_from_python[handler] PASSED [ 33%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[0-1] PASSED [ 33%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[-1-1] PASSED [ 34%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[95-1] PASSED [ 34%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[97-1] PASSED [ 35%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[96-0] PASSED [ 35%]
+test_inspection.py::test_review_admission_rejects_unavailable_or_malformed_native_observation[96--1] PASSED [ 35%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[library] PASSED [ 36%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[symbol] PASSED [ 36%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[errno] PASSED [ 36%]
+test_inspection.py::test_review_admission_rejects_unavailable_native_sigchld[unexpected_return] PASSED [ 37%]
+test_inspection.py::test_review_admission_retains_native_library_error_before_acquisition PASSED [ 37%]
+test_inspection.py::test_review_admission_retains_missing_native_query_before_acquisition PASSED [ 38%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[healthy] PASSED [ 38%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[partial] PASSED [ 38%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[hang] PASSED [ 39%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[stdout] PASSED [ 39%]
+test_inspection.py::test_review_helper_capture_bounds_real_pipes_and_reaps[stderr] PASSED [ 40%]
+test_inspection.py::test_review_helper_residual_ownership_never_uses_blocking_wait PASSED [ 40%]
+test_inspection.py::test_review_helper_admission_rejects_before_creation PASSED [ 40%]
+test_inspection.py::test_review_worker_group_kill_reaches_live_raw_helper PASSED [ 41%]
+test_inspection.py::test_review_raw_helper_resets_before_exec PASSED     [ 41%]
+test_inspection.py::test_review_raw_helper_child_failure_uses_exit_without_hooks[reset] PASSED [ 42%]
+test_inspection.py::test_review_raw_helper_child_failure_uses_exit_without_hooks[exec] PASSED [ 42%]
+test_inspection.py::test_review_raw_helper_child_failure_uses_exit_without_hooks[pending-signal] PASSED [ 42%]
+test_inspection.py::test_review_raw_helper_parent_failure_keeps_ownership[fork] PASSED [ 43%]
+test_inspection.py::test_review_raw_helper_parent_failure_keeps_ownership[parent-mask-restore] PASSED [ 43%]
+test_inspection.py::test_review_raw_helper_accepts_closed_standard_descriptors PASSED [ 43%]
+test_inspection.py::test_review_helper_exec_requires_created_publication[release] PASSED [ 44%]
+test_inspection.py::test_review_helper_exec_requires_created_publication[failure] PASSED [ 44%]
+test_inspection.py::test_review_helper_exec_requires_created_publication[expired] PASSED [ 45%]
+test_inspection.py::test_review_real_helper_gate_rejects_wrong_token_or_eof[wrong-token] PASSED [ 45%]
+test_inspection.py::test_review_real_helper_gate_rejects_wrong_token_or_eof[eof] PASSED [ 45%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[python-thread-python_threads-helper] PASSED [ 46%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[python-thread-python_threads-worker] PASSED [ 46%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[native-thread-native_threads-helper] PASSED [ 47%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[native-thread-native_threads-worker] PASSED [ 47%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[sigchld-sigchld-helper] PASSED [ 47%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[sigchld-sigchld-worker] PASSED [ 48%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[native-auto-reap-sigchld-helper] PASSED [ 48%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[native-auto-reap-sigchld-worker] PASSED [ 49%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[observation-error-native_observation_error-helper] PASSED [ 49%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[observation-error-native_observation_error-worker] PASSED [ 49%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[preparation-deadline-None-helper] PASSED [ 50%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[preparation-deadline-None-worker] PASSED [ 50%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[observation-deadline-None-helper] PASSED [ 50%]
+test_inspection.py::test_review_fork_boundary_rechecks_prepared_state[observation-deadline-None-worker] PASSED [ 51%]
+test_worker_capture.py::test_review_worker_preserves_real_helper_admission_refusal PASSED [ 51%]
+test_worker_capture.py::test_review_worker_bounds_real_delayed_helper_creation PASSED [ 52%]
+test_worker_capture.py::test_review_worker_resets_handlers_masks_wakeup_and_evidence_fd PASSED [ 52%]
+test_worker_capture.py::test_review_worker_startup_delay_uses_pid_only_without_group_authority PASSED [ 52%]
+test_worker_capture.py::test_review_worker_rejects_fork_before_creation PASSED [ 53%]
+test_worker_capture.py::test_review_worker_retains_real_fork_errno_without_child PASSED [ 53%]
+test_worker_capture.py::test_review_worker_does_not_run_inherited_exit_hook PASSED [ 54%]
+test_worker_capture.py::test_review_worker_channel_close_error_keeps_receipt_and_other_closes PASSED [ 54%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed0] PASSED [ 54%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed1] PASSED [ 55%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed2] PASSED [ 55%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed3] PASSED [ 56%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed4] PASSED [ 56%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed5] PASSED [ 56%]
+test_worker_capture.py::test_review_worker_captures_with_closed_standard_streams[closed6] PASSED [ 57%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[nested-result] PASSED [ 57%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[nested-readiness] PASSED [ 57%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[malformed] PASSED [ 58%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[duplicate-key] PASSED [ 58%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[bad-token] PASSED [ 59%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[bad-timestamp] PASSED [ 59%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[bad-field-type] PASSED [ 59%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[oversized-frame] PASSED [ 60%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[oversized-channel] PASSED [ 60%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[partial-frame] PASSED [ 61%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[exit-before-intent] PASSED [ 61%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[duplicate-readiness] PASSED [ 61%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[predispatch-start] PASSED [ 62%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[reversed-query] PASSED [ 62%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[future-finish] PASSED [ 63%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-start] PASSED [ 63%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-finish] PASSED [ 63%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-deadline] PASSED [ 64%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[null-cutoff] PASSED [ 64%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[early-cutoff] PASSED [ 64%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[late-cutoff] PASSED [ 65%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[early-created] PASSED [ 65%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[future-created] PASSED [ 66%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[kill-before-create] PASSED [ 66%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[reap-before-kill] PASSED [ 66%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[kill-without-create] PASSED [ 67%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[reaped-without-stamp] PASSED [ 67%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[stamp-without-reaped] PASSED [ 68%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[zero-pid] PASSED [ 68%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[negative-pid] PASSED [ 68%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[negative-group-pid] PASSED [ 69%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[boolean-pid] PASSED [ 69%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[string-pid] PASSED [ 70%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[pid-without-created] PASSED [ 70%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[created-without-pid] PASSED [ 70%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[kill-errno-without-kill] PASSED [ 71%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[wrong-cutoff] PASSED [ 71%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[nan-finish] PASSED [ 71%]
+test_worker_capture.py::test_review_worker_rejects_hostile_channel[infinite-finish] PASSED [ 72%]
+test_worker_capture.py::test_review_group_snapshot_uses_real_worker PASSED [ 72%]
+test_worker_capture.py::test_review_worker_retains_timing_for_real_killed_helper PASSED [ 73%]
+test_worker_capture.py::test_review_worker_accepts_genuine_terminal_receipts[early-exit] PASSED [ 73%]
+test_worker_capture.py::test_review_worker_accepts_genuine_terminal_receipts[exec-failure] PASSED [ 73%]
+test_worker_capture.py::test_review_created_identity_survives_worker_result_loss PASSED [ 74%]
+test_worker_capture.py::test_review_matching_reap_resolves_created_identity PASSED [ 74%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[duplicate] PASSED [ 75%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[token] PASSED [ 75%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[ppid] PASSED [ 75%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[pgid] PASSED [ 76%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[boolean-pid] PASSED [ 76%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[stale] PASSED [ 77%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[future] PASSED [ 77%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[deadline] PASSED [ 77%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[extra] PASSED [ 78%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[result-pid] PASSED [ 78%]
+test_worker_capture.py::test_review_created_identity_rejects_conflicts[result-created] PASSED [ 78%]
+test_worker_capture.py::test_review_worker_exit_after_publication_keeps_gate_closed PASSED [ 79%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[fork-error] PASSED [ 79%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[lost-result] PASSED [ 80%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[setup-error] PASSED [ 80%]
+test_worker_capture.py::test_review_worker_fork_failure_evidence[silent] PASSED [ 80%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-bool] PASSED [ 81%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-zero] PASSED [ 81%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-negative] PASSED [ 82%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-string] PASSED [ 82%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[errno-missing] PASSED [ 82%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[extra-field] PASSED [ 83%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[wrong-token] PASSED [ 83%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[wrong-deadline] PASSED [ 84%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[before-dispatch] PASSED [ 84%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[future] PASSED [ 84%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[nan] PASSED [ 85%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[duplicate-key] PASSED [ 85%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[duplicate] PASSED [ 85%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[failure-then-created] PASSED [ 86%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[created-then-failure] PASSED [ 86%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-errno] PASSED [ 87%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-admission] PASSED [ 87%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[terminal-time] PASSED [ 87%]
+test_worker_capture.py::test_review_worker_rejects_invalid_fork_failure[worker-publication-expired] PASSED [ 88%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[control-tail] PASSED [ 88%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[short-header] PASSED [ 89%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[short-frame] PASSED [ 89%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[oversized] PASSED [ 89%]
+test_worker_capture.py::test_review_fork_failure_requires_clean_channel_end[open-tail] PASSED [ 90%]
+test_worker_capture.py::test_review_fork_failure_preserves_errno_on_publication_error[timeout] PASSED [ 90%]
+test_worker_capture.py::test_review_fork_failure_preserves_errno_on_publication_error[broken-pipe] PASSED [ 91%]
+test_worker_capture.py::test_review_distinct_created_identities_remain_obligations PASSED [ 91%]
+test_worker_capture.py::test_review_parent_rejects_published_late_fork_failure[read] PASSED [ 91%]
+test_worker_capture.py::test_review_parent_rejects_published_late_fork_failure[select] PASSED [ 92%]
+test_worker_capture.py::test_review_confirmed_fork_failure_keeps_worker_failure[unclean-exit] PASSED [ 92%]
+test_worker_capture.py::test_review_confirmed_fork_failure_keeps_worker_failure[unreaped] PASSED [ 92%]
+test_retention.py::test_review_streams_are_pinned_at_an_observation_interval FAILED [ 93%]
+test_retention.py::test_review_wrong_stdout_is_judged_from_the_pinned_bytes FAILED [ 93%]
+test_retention.py::test_review_exact_stdout_uses_the_pinned_bytes FAILED [ 94%]
+test_retention.py::test_review_mutation_rereading_stdout_loses_the_pinned_verdict FAILED [ 94%]
+test_retention.py::test_review_late_writer_invalidates_the_original_receipt FAILED [ 94%]
+test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[receipt-changed] FAILED [ 95%]
+test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[result-changed] FAILED [ 95%]
+test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[result-missing] FAILED [ 96%]
+test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[stderr-changed] FAILED [ 96%]
+test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[stdout-missing] FAILED [ 96%]
+test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[unlisted-added] FAILED [ 97%]
+test_retention.py::test_review_verify_rejects_corrupted_result_identity[digest] FAILED [ 97%]
+test_retention.py::test_review_verify_rejects_corrupted_result_identity[syntax] FAILED [ 98%]
+test_retention.py::test_review_verify_rejects_corrupted_result_identity[missing] FAILED [ 98%]
+test_retention.py::test_review_verify_rejects_corrupted_result_identity[no-result] FAILED [ 98%]
+test_retention.py::test_review_verify_cannot_see_a_change_reverted_before_the_check FAILED [ 99%]
+test_retention.py::test_review_mutation_omitting_stream_comparison_misses_a_late_write FAILED [ 99%]
+test_retention.py::test_review_verify_command_reports_and_exits_on_the_verdict FAILED [100%]
+
+=================================== FAILURES ===================================
+___ test_review_reserved_names_rejected_before_acquisition[result-identity] ____
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_reserved_names_rej2')
+name = 'result-identity'
+
+    @pytest.mark.parametrize(
+        "name", ["plan", "result", "result-identity", "subjects-before", "intent-1"]
+    )
+    def test_review_reserved_names_rejected_before_acquisition(tmp_path, name):
+        run_id = uuid.uuid4().hex
+        owned = resource(tmp_path, run_id)
+        owned = replace(owned, cleanup=replace(owned.cleanup, name=name))
+>       with pytest.raises(ValueError, match="reserved"):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE ValueError
+
+test_controller.py:1398: Failed
+__________ test_review_streams_are_pinned_at_an_observation_interval ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_streams_are_pinned0')
+
+    def test_review_streams_are_pinned_at_an_observation_interval(tmp_path):
+        path, result = run(tmp_path, [call("bytes", "bytes")])
+        receipt = result["calls"][0]
+>       streams = receipt["streams"]
+                  ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'streams'
+
+test_retention.py:40: KeyError
+___________ test_review_wrong_stdout_is_judged_from_the_pinned_bytes ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_wrong_stdout_is_ju0')
+
+    def test_review_wrong_stdout_is_judged_from_the_pinned_bytes(tmp_path):
+        bad_oracle = replace(call("wrong-absence", "bytes"), expected_stdout=b"absent\n")
+        _, result = run(tmp_path, [bad_oracle, call("later", "bytes")])
+        receipt = result["calls"][0]
+        assert receipt["returncode"] == 0
+        assert receipt["stdout_matches"] is False
+>       assert receipt["streams"]["stdout"]["sha256"] == sha(EXPECTED)
+               ^^^^^^^^^^^^^^^^^^
+E       KeyError: 'streams'
+
+test_retention.py:69: KeyError
+________________ test_review_exact_stdout_uses_the_pinned_bytes ________________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_exact_stdout_uses_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109059c40>
+
+    def test_review_exact_stdout_uses_the_pinned_bytes(tmp_path, monkeypatch):
+>       append_after_pin(monkeypatch)
+
+test_retention.py:89: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x109059c40>
+
+    def append_after_pin(monkeypatch):
+        """Append to stdout after the controller's single read returns."""
+>       original = controller.observe_file
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'controller' has no attribute 'observe_file'
+
+test_retention.py:76: AttributeError
+________ test_review_mutation_rereading_stdout_loses_the_pinned_verdict ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_mutation_rereading0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10905a270>
+
+    def test_review_mutation_rereading_stdout_loses_the_pinned_verdict(tmp_path, monkeypatch):
+>       append_after_pin(monkeypatch)
+
+test_retention.py:102: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10905a270>
+
+    def append_after_pin(monkeypatch):
+        """Append to stdout after the controller's single read returns."""
+>       original = controller.observe_file
+                   ^^^^^^^^^^^^^^^^^^^^^^^
+E       AttributeError: module 'controller' has no attribute 'observe_file'
+
+test_retention.py:76: AttributeError
+___________ test_review_late_writer_invalidates_the_original_receipt ___________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_late_writer_invali0')
+
+    def test_review_late_writer_invalidates_the_original_receipt(tmp_path):
+        release, declaration = tmp_path / "release", tmp_path / "late.spawned"
+        writer = replace(
+            call("late-writer", "late-writer", release, declaration), expected_stdout=b"early\n"
+        )
+        path = None
+        child = None
+        audit: dict[str, object] = {}
+        try:
+            path, result = run(tmp_path, [writer, call("later", "bytes")])
+            child = int(declaration.read_text())
+            receipt = result["calls"][0]
+            assert receipt["reason"] == "exit"
+            assert receipt["returncode"] == 0
+            assert receipt["stdout_matches"] is True
+>           assert receipt["streams"]["stdout"] == {
+                   ^^^^^^^^^^^^^^^^^^
+                **receipt["streams"]["stdout"],
+                "length": 6,
+                "sha256": sha(b"early\n"),
+            }
+E           KeyError: 'streams'
+
+test_retention.py:132: KeyError
+_ test_review_verify_rejects_changed_missing_and_added_files[receipt-changed] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_rejects_cha0')
+mutation = 'receipt-changed'
+
+    @pytest.mark.parametrize("mutation", sorted(MUTATIONS))
+    def test_review_verify_rejects_changed_missing_and_added_files(tmp_path, mutation):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+>       assert retention().verify(path)["ok"] is True
+               ^^^^^^^^^^^
+
+test_retention.py:208: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_retention.py:22: in retention
+    return importlib.import_module("retention")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'retention', import_ = <function _gcd_import at 0x10362c0e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'retention'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_review_verify_rejects_changed_missing_and_added_files[result-changed] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_rejects_cha1')
+mutation = 'result-changed'
+
+    @pytest.mark.parametrize("mutation", sorted(MUTATIONS))
+    def test_review_verify_rejects_changed_missing_and_added_files(tmp_path, mutation):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+>       assert retention().verify(path)["ok"] is True
+               ^^^^^^^^^^^
+
+test_retention.py:208: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_retention.py:22: in retention
+    return importlib.import_module("retention")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'retention', import_ = <function _gcd_import at 0x10362c0e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'retention'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_review_verify_rejects_changed_missing_and_added_files[result-missing] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_rejects_cha2')
+mutation = 'result-missing'
+
+    @pytest.mark.parametrize("mutation", sorted(MUTATIONS))
+    def test_review_verify_rejects_changed_missing_and_added_files(tmp_path, mutation):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+>       assert retention().verify(path)["ok"] is True
+               ^^^^^^^^^^^
+
+test_retention.py:208: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_retention.py:22: in retention
+    return importlib.import_module("retention")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'retention', import_ = <function _gcd_import at 0x10362c0e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'retention'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_review_verify_rejects_changed_missing_and_added_files[stderr-changed] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_rejects_cha3')
+mutation = 'stderr-changed'
+
+    @pytest.mark.parametrize("mutation", sorted(MUTATIONS))
+    def test_review_verify_rejects_changed_missing_and_added_files(tmp_path, mutation):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+>       assert retention().verify(path)["ok"] is True
+               ^^^^^^^^^^^
+
+test_retention.py:208: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_retention.py:22: in retention
+    return importlib.import_module("retention")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'retention', import_ = <function _gcd_import at 0x10362c0e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'retention'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_review_verify_rejects_changed_missing_and_added_files[stdout-missing] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_rejects_cha4')
+mutation = 'stdout-missing'
+
+    @pytest.mark.parametrize("mutation", sorted(MUTATIONS))
+    def test_review_verify_rejects_changed_missing_and_added_files(tmp_path, mutation):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+>       assert retention().verify(path)["ok"] is True
+               ^^^^^^^^^^^
+
+test_retention.py:208: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_retention.py:22: in retention
+    return importlib.import_module("retention")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'retention', import_ = <function _gcd_import at 0x10362c0e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'retention'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+__ test_review_verify_rejects_changed_missing_and_added_files[unlisted-added] __
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_rejects_cha5')
+mutation = 'unlisted-added'
+
+    @pytest.mark.parametrize("mutation", sorted(MUTATIONS))
+    def test_review_verify_rejects_changed_missing_and_added_files(tmp_path, mutation):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+>       assert retention().verify(path)["ok"] is True
+               ^^^^^^^^^^^
+
+test_retention.py:208: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_retention.py:22: in retention
+    return importlib.import_module("retention")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'retention', import_ = <function _gcd_import at 0x10362c0e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'retention'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_________ test_review_verify_rejects_corrupted_result_identity[digest] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_rejects_cor0')
+corruption = 'digest'
+
+    @pytest.mark.parametrize("corruption", ["digest", "syntax", "missing", "no-result"])
+    def test_review_verify_rejects_corrupted_result_identity(tmp_path, corruption):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+        identity_path = path / "result-identity.json"
+>       identity = json.loads(identity_path.read_text())
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_retention.py:225: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/a12b7bbf6dcc4ef59a77281b8536ab0a/result-identity.json')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/a12b7bbf6dcc4ef59a77281b8536ab0a/result-identity.json'
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1013: FileNotFoundError
+_________ test_review_verify_rejects_corrupted_result_identity[syntax] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_rejects_cor1')
+corruption = 'syntax'
+
+    @pytest.mark.parametrize("corruption", ["digest", "syntax", "missing", "no-result"])
+    def test_review_verify_rejects_corrupted_result_identity(tmp_path, corruption):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+        identity_path = path / "result-identity.json"
+>       identity = json.loads(identity_path.read_text())
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_retention.py:225: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/86a54be1344b41d6840ff065cece1296/result-identity.json')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/86a54be1344b41d6840ff065cece1296/result-identity.json'
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1013: FileNotFoundError
+________ test_review_verify_rejects_corrupted_result_identity[missing] _________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_rejects_cor2')
+corruption = 'missing'
+
+    @pytest.mark.parametrize("corruption", ["digest", "syntax", "missing", "no-result"])
+    def test_review_verify_rejects_corrupted_result_identity(tmp_path, corruption):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+        identity_path = path / "result-identity.json"
+>       identity = json.loads(identity_path.read_text())
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_retention.py:225: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/bfc81bf8026d4045b4fe44f577a71a8f/result-identity.json')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/bfc81bf8026d4045b4fe44f577a71a8f/result-identity.json'
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1013: FileNotFoundError
+_______ test_review_verify_rejects_corrupted_result_identity[no-result] ________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_rejects_cor3')
+corruption = 'no-result'
+
+    @pytest.mark.parametrize("corruption", ["digest", "syntax", "missing", "no-result"])
+    def test_review_verify_rejects_corrupted_result_identity(tmp_path, corruption):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+        identity_path = path / "result-identity.json"
+>       identity = json.loads(identity_path.read_text())
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+test_retention.py:225: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1027: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/e973626cf0034043aa857420a58b7404/result-identity.json')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/e973626cf0034043aa857420a58b7404/result-identity.json'
+
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/pathlib.py:1013: FileNotFoundError
+_______ test_review_verify_cannot_see_a_change_reverted_before_the_check _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_cannot_see_0')
+
+    def test_review_verify_cannot_see_a_change_reverted_before_the_check(tmp_path):
+        # Limit control: a digest compares two snapshots, not the interval between them.
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+        original = (path / "bytes.stdout").read_bytes()
+        (path / "bytes.stdout").write_bytes(b"intervening")
+        (path / "bytes.stdout").write_bytes(original)
+>       assert retention().verify(path)["ok"] is True
+               ^^^^^^^^^^^
+
+test_retention.py:253: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_retention.py:22: in retention
+    return importlib.import_module("retention")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'retention', import_ = <function _gcd_import at 0x10362c0e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'retention'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_____ test_review_mutation_omitting_stream_comparison_misses_a_late_write ______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_mutation_omitting_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x1097c6c00>
+
+    def test_review_mutation_omitting_stream_comparison_misses_a_late_write(tmp_path, monkeypatch):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+>       module = retention()
+                 ^^^^^^^^^^^
+
+test_retention.py:258: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+test_retention.py:22: in retention
+    return importlib.import_module("retention")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/Users/antony/.local/share/uv/python/cpython-3.12.15-macos-aarch64-none/lib/python3.12/importlib/__init__.py:90: in import_module
+    return _bootstrap._gcd_import(name[level:], package, level)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+<frozen importlib._bootstrap>:1387: in _gcd_import
+    ???
+<frozen importlib._bootstrap>:1360: in _find_and_load
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+name = 'retention', import_ = <function _gcd_import at 0x10362c0e0>
+
+>   ???
+E   ModuleNotFoundError: No module named 'retention'
+
+<frozen importlib._bootstrap>:1324: ModuleNotFoundError
+_________ test_review_verify_command_reports_and_exits_on_the_verdict __________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_command_rep0')
+
+    def test_review_verify_command_reports_and_exits_on_the_verdict(tmp_path):
+        path, _ = run(tmp_path, [call("bytes", "bytes")])
+        script = HERE / "retention.py"
+        first = tmp_path / "verify-1.json"
+        passed = subprocess.run(
+            [sys.executable, str(script), "verify", str(path), "--out", str(first)],
+            capture_output=True,
+            timeout=10,
+        )
+>       assert passed.returncode == 0, passed.stderr
+E       AssertionError: b"/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python: can't open file '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/retention.py': [Errno 2] No such file or directory
+E         "
+E       assert 2 == 0
+E        +  where 2 = CompletedProcess(args=['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/retention.py', 'verify', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/9f96f9b691e44fc1b9e8de6b5c5b11a3', '--out', '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_command_rep0/verify-1.json'], returncode=2, stdout=b'', stderr=b"/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python: can't open file '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/retention.py': [Errno 2] No such file or directory\n").returncode
+
+test_retention.py:277: AssertionError
+- generated xml file: /Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/pytest.xml -
+=========================== short test summary info ============================
+FAILED test_controller.py::test_review_reserved_names_rejected_before_acquisition[result-identity] - Failed: DID NOT RAISE ValueError
+FAILED test_retention.py::test_review_streams_are_pinned_at_an_observation_interval - KeyError: 'streams'
+FAILED test_retention.py::test_review_wrong_stdout_is_judged_from_the_pinned_bytes - KeyError: 'streams'
+FAILED test_retention.py::test_review_exact_stdout_uses_the_pinned_bytes - AttributeError: module 'controller' has no attribute 'observe_file'
+FAILED test_retention.py::test_review_mutation_rereading_stdout_loses_the_pinned_verdict - AttributeError: module 'controller' has no attribute 'observe_file'
+FAILED test_retention.py::test_review_late_writer_invalidates_the_original_receipt - KeyError: 'streams'
+FAILED test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[receipt-changed] - ModuleNotFoundError: No module named 'retention'
+FAILED test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[result-changed] - ModuleNotFoundError: No module named 'retention'
+FAILED test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[result-missing] - ModuleNotFoundError: No module named 'retention'
+FAILED test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[stderr-changed] - ModuleNotFoundError: No module named 'retention'
+FAILED test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[stdout-missing] - ModuleNotFoundError: No module named 'retention'
+FAILED test_retention.py::test_review_verify_rejects_changed_missing_and_added_files[unlisted-added] - ModuleNotFoundError: No module named 'retention'
+FAILED test_retention.py::test_review_verify_rejects_corrupted_result_identity[digest] - FileNotFoundError: [Errno 2] No such file or directory: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/a12b7bbf6dcc4ef59a77281b8536ab0a/result-identity.json'
+FAILED test_retention.py::test_review_verify_rejects_corrupted_result_identity[syntax] - FileNotFoundError: [Errno 2] No such file or directory: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/86a54be1344b41d6840ff065cece1296/result-identity.json'
+FAILED test_retention.py::test_review_verify_rejects_corrupted_result_identity[missing] - FileNotFoundError: [Errno 2] No such file or directory: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/bfc81bf8026d4045b4fe44f577a71a8f/result-identity.json'
+FAILED test_retention.py::test_review_verify_rejects_corrupted_result_identity[no-result] - FileNotFoundError: [Errno 2] No such file or directory: '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/e973626cf0034043aa857420a58b7404/result-identity.json'
+FAILED test_retention.py::test_review_verify_cannot_see_a_change_reverted_before_the_check - ModuleNotFoundError: No module named 'retention'
+FAILED test_retention.py::test_review_mutation_omitting_stream_comparison_misses_a_late_write - ModuleNotFoundError: No module named 'retention'
+FAILED test_retention.py::test_review_verify_command_reports_and_exits_on_the_verdict - AssertionError: b"/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python: can't open file '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/retention.py': [Errno 2] No such file or directory
+  "
+assert 2 == 0
+ +  where 2 = CompletedProcess(args=['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/retention.py', 'verify', '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/k21-red-02/runs/9f96f9b691e44fc1b9e8de6b5c5b11a3', '--out', '/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1169/test_review_verify_command_rep0/verify-1.json'], returncode=2, stdout=b'', stderr=b"/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python: can't open file '/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/retention.py': [Errno 2] No such file or directory\n").returncode
+=============== 19 failed, 238 passed, 711 deselected in 31.50s ================

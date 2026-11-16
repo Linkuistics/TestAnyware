@@ -86,6 +86,24 @@ def main() -> None:
             time.sleep(0.005)
         # Never re-enter Popen.wait from a handler interrupting another wait.
         child.wait(timeout=1)
+    elif mode == "late-writer":
+        # The leader exits at once. Its declared child keeps the inherited
+        # stdout descriptor and appends only after the release marker.
+        release, declaration = map(Path, args)
+        child = subprocess.Popen([sys.executable, __file__, "late-child", str(release)])
+        pending = declaration.with_suffix(".tmp")
+        pending.write_text(str(child.pid))
+        pending.replace(declaration)
+        sys.stdout.buffer.write(b"early\n")
+        sys.stdout.flush()
+    elif mode == "late-child":
+        release = Path(args[0])
+        end = time.monotonic() + 5
+        while not release.exists() and time.monotonic() < end:
+            time.sleep(0.005)
+        if release.exists():
+            sys.stdout.buffer.write(b"late\n")
+            sys.stdout.flush()
     elif mode == "fail":
         print("forced public interface failure", file=sys.stderr)
         sys.exit(23)

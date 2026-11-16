@@ -419,6 +419,15 @@ tasks:
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/self_check.py {{.OUT | default "" | shellQuote}} --controls-only
 
+  diagnostic:verify:
+    desc: Compare one retained run directory with its result identity and stream pins. Requires RUN=<run directory> and OUT=<new verdict file>
+    dir: '{{.ROOT_DIR}}'
+    preconditions:
+      - sh: test -n "{{.RUN | default ""}}" && test -n "{{.OUT | default ""}}"
+        msg: 'set RUN=<retained run directory> and OUT=<a new verdict file>'
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/retention.py verify {{.RUN | default "" | shellQuote}} --out {{.OUT | default "" | shellQuote}}
+
   diagnostic:preflight:
     desc: Read-only installed tool help, public app status, VM/Tart inventories and build prerequisites; no boot, guest workload, installation or app quit. Requires OUT=<new evidence directory>
     dir: '{{.ROOT_DIR}}'

@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Literal, TypedDict, cast
 
 from inspection import fork_admission
+from retention import IDENTITY, observe_file, write_identity
 from turns import Turn, run_turns
 from worker_capture import (
     BootstrapBounds,
@@ -130,7 +131,8 @@ def _validate(plan: Plan) -> None:
             raise ValueError("absence inspection needs an exact stdout oracle")
     names: set[str] = set()
     for call in calls:
-        if call.name in {"plan", "result", "subjects-before"} or call.name.startswith("intent-"):
+        reserved = {"plan", "result", "subjects-before", Path(IDENTITY).stem}
+        if call.name in reserved or call.name.startswith("intent-"):
             raise ValueError("call name is reserved for controller receipts")
         if not re.fullmatch(r"[a-zA-Z0-9_-]+", call.name) or call.name in names:
             raise ValueError("call names must be unique safe filenames")
@@ -823,10 +825,18 @@ def _call(call: Call, root: Path, plan: Plan, inspection: _InspectionState) -> d
                 and receipt["termination_ok"] is True
                 and receipt["within_process_bounds"] is True
             )
+    # Pin each raw stream after reap and the termination decision. A surviving
+    # writer can still append later; retention.verify compares with these pins.
+    observed: dict[str, bytes | None] = {}
+    streams: dict[str, dict[str, object]] = {}
+    for stream in ("stdout", "stderr"):
+        observed[stream], streams[stream] = observe_file(root / f"{call.name}.{stream}")
+    receipt["streams"] = streams
+    if any(data is None for data in observed.values()):
+        receipt["ok"] = False
     if call.expected_stdout is not None:
-        receipt["stdout_matches"] = (
-            root / f"{call.name}.stdout"
-        ).read_bytes() == call.expected_stdout
+        # Judge exactly the pinned bytes, never a second read.
+        receipt["stdout_matches"] = observed["stdout"] == call.expected_stdout
         receipt["ok"] = receipt["ok"] is True and receipt["stdout_matches"] is True
     receipt["elapsed"] = time.monotonic() - start
     write_json(root / f"{call.name}.json", receipt)
@@ -871,6 +881,7 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
                 Path(__file__).with_name("inspection.py").resolve(),
                 Path(__file__).with_name("worker_capture.py").resolve(),
                 Path(__file__).with_name("turns.py").resolve(),
+                Path(__file__).with_name("retention.py").resolve(),
                 Path(sys.executable).resolve(),
                 Path("/bin/ps"),
                 *plan.subjects,
@@ -965,4 +976,6 @@ def execute(plan: Plan, evidence_root: Path) -> Path:
                 "subjects_after": after,
             },
         )
+        # Pin result.json and every other run file without a hash cycle.
+        write_identity(root)
     return root

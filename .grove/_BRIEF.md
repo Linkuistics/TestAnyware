@@ -266,6 +266,9 @@ contract remains open through reviewed implementation and retained evidence;
 unavailable real permission/setuid-ps controls cannot become a full guarantee
 claim. This planning continuation changes no delivered runtime condition.
 
+retained-evidence-k21 delivers stream pins, a result identity and a later verifier.
+These are snapshots, not immutable publication, and k17 stays open.
+
 `diagnostic-foundation-k11` owns the reusable controller, ledger, forced-failure
 self-checks and the per-OS build/routing prerequisite table. Causal leaves reuse
 that handoff and add only their question's concrete fixtures and diagnostics.

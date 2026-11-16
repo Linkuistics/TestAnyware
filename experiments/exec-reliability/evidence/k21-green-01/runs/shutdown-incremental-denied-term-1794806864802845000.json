@@ -1,0 +1,135 @@
+{
+  "runtime": {
+    "run_id": "1c4ceffb0c35419fb3cd3d8eb7af106b",
+    "session_token": "17bedb7e979f4026ac328ca8d9331800",
+    "owner": {
+      "pid": 42925,
+      "shutdown_deadline_monotonic": 424142.852103375,
+      "ready": true,
+      "reaped": true,
+      "ownership_lost": false,
+      "returncode": -9,
+      "signals": [
+        {
+          "signal": "SIGTERM",
+          "monotonic": 424142.742099875,
+          "errno": 1
+        },
+        {
+          "signal": "SIGKILL",
+          "monotonic": 424142.742191458
+        }
+      ],
+      "reap_errno": null,
+      "reap_attempts": 2
+    },
+    "failure": "controlled sticky failure; failure grace overrun",
+    "admission": {
+      "ok": true,
+      "reason": "ready",
+      "python_threads": 1,
+      "native_threads": 1,
+      "sigchld": "SIG_DFL",
+      "native_sigchld": "SIG_DFL",
+      "error": null,
+      "errno": null
+    },
+    "bootstrap_bounds": {
+      "readiness": 1,
+      "term_grace": 2,
+      "kill_reap": 2
+    },
+    "failure_bounds": {
+      "term_grace": 0.07,
+      "kill_reap": 0.16
+    },
+    "close_bounds": {
+      "grace": 0.04,
+      "kill_reap": 0.13
+    },
+    "shutdown": {
+      "mode": "failure",
+      "started_monotonic": 424142.742169625,
+      "term_deadline_monotonic": 424142.742169625,
+      "kill_deadline_monotonic": 424142.852103375,
+      "finished_monotonic": 424142.743467958,
+      "overrun": false,
+      "lateness_seconds": 0.0,
+      "deadline_exhausted": false,
+      "outcome": "reaped",
+      "signals": [
+        {
+          "signal": "SIGTERM",
+          "monotonic": 424142.742099875,
+          "errno": 1
+        },
+        {
+          "signal": "SIGKILL",
+          "monotonic": 424142.742191458
+        }
+      ],
+      "phases": {
+        "grace": {
+          "started_monotonic": 424142.742099875,
+          "deadline_monotonic": 424142.742169625,
+          "finished_monotonic": 424142.742191458,
+          "outcome": "escalated",
+          "timing_outcome": "late",
+          "overrun": true,
+          "lateness_seconds": 2.1832995116710663e-05,
+          "deadline_exhausted": true
+        },
+        "kill_reap": {
+          "started_monotonic": 424142.742191458,
+          "deadline_monotonic": 424142.852103375,
+          "finished_monotonic": 424142.743467958,
+          "outcome": "reaped",
+          "timing_outcome": "on_time",
+          "overrun": false,
+          "lateness_seconds": 0.0,
+          "deadline_exhausted": false
+        }
+      }
+    },
+    "startup_started_monotonic": 424142.740599958,
+    "startup_deadline_monotonic": 424143.740599958,
+    "readiness_finished_monotonic": 424142.742079125,
+    "readiness_outcome": "ready",
+    "readiness_lateness_seconds": 0.0,
+    "readiness_overrun": false,
+    "startup_finished_monotonic": 424142.742080791,
+    "bootstrap_shutdown": null,
+    "shutdown_started_monotonic": 424142.742169625,
+    "shutdown_finished_monotonic": 424142.743467958,
+    "closed": true,
+    "residual_remedy": null
+  },
+  "calls": [
+    {
+      "pid": 42925,
+      "signal": "SIGKILL",
+      "monotonic": 424142.742193833
+    }
+  ],
+  "probes": [
+    424142.742188,
+    424142.743460541
+  ],
+  "turns": [
+    {
+      "monotonic": 424142.742202458,
+      "wake": 424142.743200166
+    },
+    {
+      "monotonic": 424142.743524666,
+      "wake": null
+    }
+  ],
+  "audit": {
+    "reaped": true,
+    "source": "original exact-child WNOHANG",
+    "mode": "denied-term",
+    "sample": 1,
+    "driver": "incremental"
+  }
+}

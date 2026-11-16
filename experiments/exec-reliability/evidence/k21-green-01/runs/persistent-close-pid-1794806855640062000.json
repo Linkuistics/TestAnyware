@@ -1,0 +1,112 @@
+{
+  "runtime": {
+    "run_id": "2be3aa064a8b40398f736fdfb5e19e05",
+    "session_token": "4259a91751b24fba8482fd5a74dee226",
+    "owner": {
+      "pid": 42270,
+      "shutdown_deadline_monotonic": 424135.578950125,
+      "ready": false,
+      "reaped": true,
+      "ownership_lost": false,
+      "returncode": -9,
+      "signals": [
+        {
+          "signal": "SIGTERM",
+          "monotonic": 424131.578982166
+        },
+        {
+          "signal": "SIGKILL",
+          "monotonic": 424133.579178083
+        }
+      ],
+      "reap_errno": null,
+      "reap_attempts": 1592
+    },
+    "failure": "worker close did not return cleanly; failure grace overrun",
+    "admission": null,
+    "bootstrap_bounds": {
+      "readiness": 1,
+      "term_grace": 2,
+      "kill_reap": 2
+    },
+    "failure_bounds": {
+      "term_grace": 2,
+      "kill_reap": 2
+    },
+    "close_bounds": {
+      "grace": 0.05,
+      "kill_reap": 2
+    },
+    "shutdown": {
+      "mode": "failure",
+      "started_monotonic": 424131.578950125,
+      "term_deadline_monotonic": 424133.578950125,
+      "kill_deadline_monotonic": 424135.578950125,
+      "finished_monotonic": 424133.580498083,
+      "overrun": false,
+      "lateness_seconds": 0.0,
+      "deadline_exhausted": false,
+      "outcome": "reaped",
+      "signals": [
+        {
+          "signal": "SIGTERM",
+          "monotonic": 424131.578982166
+        },
+        {
+          "signal": "SIGKILL",
+          "monotonic": 424133.579178083
+        }
+      ],
+      "phases": {
+        "grace": {
+          "started_monotonic": 424131.578950125,
+          "deadline_monotonic": 424133.578950125,
+          "finished_monotonic": 424133.579178083,
+          "outcome": "escalated",
+          "timing_outcome": "late",
+          "overrun": true,
+          "lateness_seconds": 0.00022795796394348145,
+          "deadline_exhausted": true
+        },
+        "kill_reap": {
+          "started_monotonic": 424133.579178083,
+          "deadline_monotonic": 424135.578950125,
+          "finished_monotonic": 424133.580498083,
+          "outcome": "reaped",
+          "timing_outcome": "on_time",
+          "overrun": false,
+          "lateness_seconds": 0.0,
+          "deadline_exhausted": false
+        }
+      }
+    },
+    "startup_started_monotonic": null,
+    "startup_deadline_monotonic": null,
+    "readiness_finished_monotonic": null,
+    "readiness_outcome": null,
+    "readiness_lateness_seconds": null,
+    "readiness_overrun": null,
+    "startup_finished_monotonic": null,
+    "bootstrap_shutdown": null,
+    "shutdown_started_monotonic": 424131.578950125,
+    "shutdown_finished_monotonic": 424133.580498083,
+    "closed": true,
+    "residual_remedy": null
+  },
+  "calls": [
+    {
+      "scope": "pid",
+      "target": 42270,
+      "signal": 15
+    },
+    {
+      "scope": "pid",
+      "target": 42270,
+      "signal": 9
+    }
+  ],
+  "audit": {
+    "pid": 42270,
+    "reaped": true
+  }
+}

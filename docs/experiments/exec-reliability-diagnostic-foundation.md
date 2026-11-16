@@ -57,6 +57,7 @@ From the repository root:
 ```sh
 mise exec -- task diagnostic:self-check OUT=experiments/exec-reliability/evidence/self-check-new-condition
 mise exec -- task diagnostic:preflight OUT=experiments/exec-reliability/evidence/preflight-new-condition
+mise exec -- task diagnostic:verify RUN=<retained run directory> OUT=<new verdict file>
 ```
 
 The self-check uses the locked Python project in
@@ -215,8 +216,8 @@ Review `diagnostic-foundation-k15` is committed at `4bb47c05`, against producer
 | F2, live routes described as unavailable without a prerequisite | Applied clarification; actual probe, bounds and dual-inventory checker move to `diagnostic-routes-k19` ahead of causal consumers. No installed live route is proved here. |
 | F3, raised or stalled controller I/O skips disposal | Applied reserved-name validation and per-action raised-I/O isolation. Blocking-storage architecture moves to `diagnostic-disposal-k18` and its implementation/review continuation. A blocked evidence filesystem still voids the disposal ceiling. |
 | F4, unconditional escalation and ambiguous group evidence | k20 is reviewed in k22 and reconciled in k23 below. Live-member false success is corrected. Sampling and helper supervision remain explicit prerequisites; termination bounds are conditional until their reviewed repair. |
-| F5, mutable raw captures and no stream/result identity | Real, moved to k17. The self-check wrapper now hashes retained artifacts after the suite, including result files; general `execute` receipts still lack stream lengths/digests and cannot freeze a surviving writer. Neither a snapshot nor normal leader exit proves stable publication. |
-| F6, weak controls and missing checker verdict | k16 supplies wrong-stdout rejection and checker verdicts. k20 adds opposed PID/group fixtures, deliberate scope mutations, a separately observed controller survivor and graceful fork reaping. Remaining late-writer controls belong to `retained-evidence-k21`. The old index stays historical. |
+| F5, mutable raw captures and no stream/result identity | Applied in k21 below. Each `execute` receipt pins stdout and stderr length and SHA-256 at a monotonic interval. `result-identity.json` pins `result.json` and every other run file. `retention.py verify` rejects a changed, missing or added file. A pin is a snapshot, not immutable publication. A change that is reverted before a check stays invisible. |
+| F6, weak controls and missing checker verdict | k16 supplies wrong-stdout rejection and checker verdicts. k20 adds opposed PID/group fixtures, deliberate scope mutations, a separately observed controller survivor and graceful fork reaping. k21 adds the surviving late-writer fixture, corrupted-identity controls and two rejected mutations. The old index stays historical. |
 | F7, incomplete historical fake-resource audit | Applied by new itemized local audits. Every historical uncertain entry has its exact path checked; original uncertain receipts remain unchanged. See the audit below. |
 | F8, already-absent disposal remains uncertain | Retain the conservative result now. k19 must demonstrate a specific VM_NOT_FOUND outcome plus independent absence before accepting it; arbitrary exit 3 is insufficient. Existing remedy argv may fail for an absent resource. |
 | F9, small inconsistencies | Applied explicit exclusive OUT, preservation of missing preflight subjects, acquisition accounting and macOS docstring. Existing-golden refusal moves to k19: NAME-nonempty alone is insufficient. Do not use those recipes as a demonstrated safe replacement guard. |
@@ -2058,3 +2059,19 @@ The comparison gate remains rejected: one original parent suite has three worklo
 The driver catches advisory readiness sampling/select `OSError` and `ValueError` and falls back to its existing deadline-capped sleep, preserving worker retirement KILL/reap/receipt. Owner callback exceptions still propagate. The [k136 report](../../experiments/exec-reliability/evidence/readiness-review-k136/report.md) classifies the runtime fault and missing closure observations from k135, retains the RED and first assertion-rounding failure, and records seven passing controls twice plus four rejected fallback/closure mutants. Two final full suites pass all 903 tests and static checks; the frozen reviewed driver with the same final tests fails exactly the four new advisory-error cases. All 27 recorded exact-fixture audits report absence, every checker child is reaped, and all 248,391 prior evidence paths are unchanged.
 
 The retirement authority controls are simulated and distinct from the real full-suite fixtures. This repair establishes neither concurrent production ownership nor teardown overlap. The entire aggregate charter, historical failures and final k28 review remain in complete-worker-scheduler-k134; k28/k17 remain open and ten-clone acceptance remains **0/10, unavailable**.
+
+## Retained evidence identity (k21)
+
+The controller now reads each raw stream once, after leader reap and after the termination decision. The receipt records the length, the SHA-256 digest and the monotonic read interval. The exact stdout oracle judges those same bytes.
+
+After it writes `result.json`, the controller writes `result-identity.json`. That file pins every other run file and excludes itself, so no hash cycle exists. The `diagnostic:verify` task compares current files with these pins. It rejects a changed, missing or unlisted file, a changed stream and a corrupted identity.
+
+The [k21 green run](../../experiments/exec-reliability/evidence/k21-green-01/verdict.json) passes lint, format, strict types and all 968 tests, with 18 new retention controls. Its source hashes before and after the suite are equal. The [k21 red run](../../experiments/exec-reliability/evidence/k21-red-02/) records 19 failures against the old controller.
+
+In the late-writer control, the leader exits 0 with stdout `early`. The receipt matches its exact oracle, but termination fails with the live member identity and the remedy. After release, the child appends `late`, and verification rejects the original receipt. `result.json` and the call receipt stay unchanged. The suite rejects two mutations: a second stdout read and a verifier that omits the stream comparison.
+
+The [k21 audit](../../experiments/exec-reliability/evidence/k21-audit-02/report.json) verifies all 145 retained run directories. 62 pass. 63 fail only because older tests write audit files into the run directory after `execute` returns. Seven have no identity because the run ended before `result.json` or the directory is not a run. The other 13 are deliberate corruption controls.
+
+No `peer.py` fixture process survives, and a [positive control](../../experiments/exec-reliability/evidence/k21-audit-02/filter-control.txt) shows that the filter detects a live fixture. The repository retains the first audit, but it is superseded, because its filter matched its own command. No change touches the 295,217 earlier evidence paths.
+
+These pins are snapshots, not immutable publication. Verification compares two snapshots, so it cannot see a change that is reverted between them. A digest inside the run directory does not resist a writer that also rewrites the identity, so anchor its digest elsewhere. k17 stays open: setuid `ps` and UID-denial controls are unavailable, historical timing failures and the k145 interrupted live-group failure stand, and k18 owns stalled storage. Ten-clone acceptance remains **0/10, unavailable**.

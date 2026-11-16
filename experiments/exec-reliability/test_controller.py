@@ -1285,7 +1285,13 @@ def test_implicit_turn_driver_drift_changes_subjects_after(tmp_path, monkeypatch
 
     runtime = tmp_path / "runtime"
     runtime.mkdir()
-    for name in ("controller.py", "inspection.py", "worker_capture.py", "turns.py"):
+    for name in (
+        "controller.py",
+        "inspection.py",
+        "worker_capture.py",
+        "turns.py",
+        "retention.py",
+    ):
         (runtime / name).write_bytes((HERE / name).read_bytes())
     subject = runtime / "turns.py"
     before = hashlib.sha256(subject.read_bytes()).hexdigest()
@@ -1388,7 +1394,9 @@ def test_review_resource_deadline_cannot_be_declared_success(tmp_path):
     assert not (tmp_path / owned.identity).exists()
 
 
-@pytest.mark.parametrize("name", ["plan", "result", "subjects-before", "intent-1"])
+@pytest.mark.parametrize(
+    "name", ["plan", "result", "result-identity", "subjects-before", "intent-1"]
+)
 def test_review_reserved_names_rejected_before_acquisition(tmp_path, name):
     run_id = uuid.uuid4().hex
     owned = resource(tmp_path, run_id)
