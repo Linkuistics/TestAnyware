@@ -35,3 +35,18 @@ unavailable. Leaf `diagnostic-routes-k19` waits for this work.
 ## Notes
 
 The leaf keys and slugs are for the planning session to choose.
+
+## Decisions (running log)
+
+- The plan is the node `evidence-writer-k162` with six impl leaves. The node
+  earns its level because the thirteen controls form one joint completion test.
+- The slices follow the order of ownership in the spec. They are controls,
+  writer, client, cutover, pipe capture and publication.
+- The nine required controls come first as strict expected-failure tests. The
+  four review controls go to the slices that build their rules.
+- The change to `retention.py` stays with the writer slice, as
+  `diagnostic-disposal-k160` placed it.
+- `execute()` keeps returning a `Path`. The terminal outcome needs a new entry
+  point.
+- Each impl producer cuts its own review leaf. The plan cuts only
+  `evidence-storage-k161`.
