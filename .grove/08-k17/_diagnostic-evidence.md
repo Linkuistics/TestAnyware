@@ -153,3 +153,25 @@ Historical timing failures and k145's interrupted live-group failure remain unex
 Real setuid-ps KILL and genuine different-UID denial remain unavailable, preventing a full guarantee.
 k21 must retain these limits and independent worker, helper, workload and observed-member obligations in result identity.
 k17 remains open for retained-evidence work and its whole-contract assessment; k18 still owns blocked storage and guest acceptance remains 0/10 unavailable.
+
+## Retained identity review and remaining acceptance
+
+Retained-evidence-k148 inspected producer commit `14f1e91d` and its source,
+recorded controls, full artifact anchors and resource audit without rerunning
+verification workloads. No actionable defect was established, so no integration
+leaf is required. Stream pins and the exact stdout oracle share one observed
+byte sequence; result identity follows the full result without a cycle; later
+verification rejects changed, missing and added files. The late-writer record
+keeps termination failure and adds the subsequent stream rejection, with a
+positive known-child absence observation. The review records one nonblocking
+audit-category correction in its own findings. Snapshot, identity trust and
+storage limits remain unchanged.
+
+The whole-contract check still fails on unresolved historical timing/fixture
+observations and missing real setuid-`ps` KILL and UID-denial controls. With no
+other live child remaining, diagnostic-failure-controls-k149 owns the concrete
+reproduction, repair and real-control attempts. Its handoff is evidence resolving
+those conditions, not another aggregate inventory. Required privileged-owner
+input keeps that task live rather than producing another unavailable completion.
+k17 stays open; k18 owns stalled storage and guest acceptance stays
+**0/10, unavailable**.
