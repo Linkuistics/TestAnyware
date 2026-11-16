@@ -8,9 +8,17 @@ Each copy runs in its own process session. Each copy has its own host bound of B
 seconds from its own start. At that bound the script sends TERM to the copy's group,
 waits at most 2 s, sends KILL and waits at most 2 s more for the reap.
 
+A reap does not end the capture. A descendant of the copy can keep a pipe open, and
+the bytes read up to the reap can then be a prefix of the output. After the last reap,
+the script reads each open pipe for at most 1 s more, until EOF. It records for each
+stream whether it saw EOF. It sends no signal after a reap, because the group of a
+reaped leader can be empty and its number reusable.
+
 The script prints one JSON object on stdout. It keeps the raw stdout and stderr of
-every copy as hex, its return code or signal, and its monotonic start and end.
-The script does not interpret the guest receipt. A later checker reads it.
+every copy as hex, `stdout_eof` and `stderr_eof`, its return code or signal, and its
+monotonic start and end. The script does not interpret the guest receipt. A later
+checker reads it. The script exits 0 only when every copy exited 0 and both of its
+streams reached EOF.
 """
 
 import json
@@ -25,11 +33,16 @@ COMMAND = "printf ordinary-ok"
 GUEST_TIMEOUT = "30"
 TERM_GRACE = 2.0
 KILL_WAIT = 2.0
+CAPTURE_GRACE = 1.0
 POLL = 0.005
 
 
-def _drain(stream: IO[bytes] | None) -> bytes:
-    """Read what the pipe holds now. A descendant that keeps the pipe cannot block us."""
+def _drain(stream: IO[bytes] | None) -> tuple[bytes, bool]:
+    """Read what the pipe holds now, and say whether the read reached EOF.
+
+    An empty pipe that a writer still holds raises BlockingIOError: that is not EOF.
+    Only an empty read is EOF. A descendant that keeps the pipe cannot block us.
+    """
     assert stream is not None
     fd = stream.fileno()
     os.set_blocking(fd, False)
@@ -38,11 +51,10 @@ def _drain(stream: IO[bytes] | None) -> bytes:
         try:
             chunk = os.read(fd, 65536)
         except BlockingIOError:
-            break
+            return b"".join(chunks), False
         if not chunk:
-            break
+            return b"".join(chunks), True
         chunks.append(chunk)
-    return b"".join(chunks)
 
 
 def _signal(pgid: int, number: signal.Signals) -> str:
@@ -85,14 +97,25 @@ def main() -> int:
         )
     out: list[bytes] = [b""] * count
     err: list[bytes] = [b""] * count
+    out_eof = [False] * count
+    err_eof = [False] * count
+
+    def drain(index: int) -> None:
+        proc = procs[index]
+        if not out_eof[index]:
+            chunk, out_eof[index] = _drain(proc.stdout)
+            out[index] += chunk
+        if not err_eof[index]:
+            chunk, err_eof[index] = _drain(proc.stderr)
+            err[index] += chunk
+
     while any(child["status"] is None for child in children):
         now = time.monotonic()
         for index, child in enumerate(children):
             if child["status"] is not None:
                 continue
             proc = procs[index]
-            out[index] += _drain(proc.stdout)
-            err[index] += _drain(proc.stderr)
+            drain(index)
             pid, status = os.waitpid(proc.pid, os.WNOHANG)
             if pid == proc.pid:
                 child["status"] = status
@@ -110,10 +133,20 @@ def main() -> int:
                 child["status"] = "unreaped"
                 child["ended_monotonic"] = now
         time.sleep(POLL)
+    capture_deadline = time.monotonic() + CAPTURE_GRACE
+    while True:
+        for index in range(count):
+            drain(index)
+        if all(out_eof) and all(err_eof) or time.monotonic() >= capture_deadline:
+            break
+        time.sleep(POLL)
     for index, child in enumerate(children):
         proc = procs[index]
-        out[index] += _drain(proc.stdout)
-        err[index] += _drain(proc.stderr)
+        for stream in (proc.stdout, proc.stderr):
+            assert stream is not None
+            stream.close()
+        child["stdout_eof"] = out_eof[index]
+        child["stderr_eof"] = err_eof[index]
         status = child["status"]
         if isinstance(status, int):
             child["returncode"] = os.waitstatus_to_exitcode(status)
@@ -122,6 +155,7 @@ def main() -> int:
         child["stderr_hex"] = err[index].hex()
     print(json.dumps({"count": count, "bound": bound, "children": children}, indent=2))
     healthy = all(child.get("returncode") == 0 for child in children)
+    healthy = healthy and all(out_eof) and all(err_eof)
     return 0 if healthy else 1
 
 

@@ -366,7 +366,9 @@ The plan ran these calls in this order:
 
 The checker `completion_k186_check.py` judges each receipt. A sample passes
 when the host exits 0 within 50 s and the receipt has `exit_code` 0,
-`timed_out` false, stdout `ordinary-ok` and empty stderr.
+`timed_out` false, stdout `ordinary-ok` and empty stderr. Review k190 found
+gaps in this checker and in the outer tools. Leaf k191 repaired them. See
+Review k190 and repairs in k191.
 
 ### Results
 
@@ -380,11 +382,24 @@ when the host exits 0 within 50 s and the receipt has `exit_code` 0,
 The four starts of each round lie within 0.004 s of each other. No request
 reached its host bound, and the wrapper sent no signal.
 
-A clean run of this size bounds the failure rate only loosely. If each request
-failed with probability 0.1, as in the retained run, 22 clean requests would
-occur with probability 0.098. The one-sided 95 % upper bound on the failure
-rate after 0 of 22 is 0.127. After 0 of the 10 serial requests alone, it is
-0.259.
+The table gives the verdicts of the k186 checker. The k191 checker judges the
+same records again. The ten serial samples pass. The twelve concurrent samples
+are unknown, because the k186 wrapper did not record EOF on their pipes.
+
+A clean run of this size bounds the failure rate only loosely. The figures in
+this paragraph are conditional illustrations, not empirical bounds. Each
+figure assumes independent requests with one common failure probability. This
+run does not establish that model. Serial and concurrent requests ran on one
+guest, and the k3 candidate is a shared dispatch pool, which can correlate
+failures.
+
+Under the model, a failure probability of 0.1 per request, as in the
+retained run, gives 22 clean requests with probability 0.098 (`0.9**22`). The
+one-sided 95 % bound after 0 of 22 is 0.127 (`1 - 0.05**(1/22)`). The bound
+after the 10 serial requests alone is 0.259 (`1 - 0.05**(1/10)`). The 12
+concurrent requests are a different exposure, so the serial figure does not
+cover them. If every request failed together with probability 0.1, all 22
+would succeed with probability 0.9.
 
 ### Phases
 
@@ -446,10 +461,63 @@ The run touched no unrelated guest and booted no golden.
 ### Regression invocation
 
 `mise exec -- task diagnostic:macos-completion-live OUT=<new path>` boots one
-owned clone and runs the frozen plan. `diagnostic:macos-completion-live-check
-RUN=<run dir>` judges a retained run. `diagnostic:macos-completion-live-tools`
-checks the tooling. The live task needs the TestAnyware app and the retained
-golden.
+owned clone and runs the frozen plan. Since k191, the task exits 1 when the
+probe fails, the verdict is not true, the receipt check fails or a tool digest
+changes. `diagnostic:macos-completion-live-check RUN=<run dir>` judges a
+retained run and exits 0 only for verdict `pass`.
+`diagnostic:macos-completion-live-tools` checks the tooling and runs its
+controls without a VM. The live task needs the TestAnyware app and the
+retained golden.
+
+### Review k190 and repairs in k191
+
+Review k190 inspected the k186 tools and records. It reported six findings at
+P2. Leaf k191 reproduced or read each one and accepted all six. No
+finding changes the 22 retained receipts. Each one is a JSON object with the
+expected fields. Leaf k191 ran no live diagnostic and replaced no k186 record.
+
+| Finding | Disposition and repair |
+| --- | --- |
+| F1: a JSON `null` receipt passes | Reproduced: `judge(0, 0.1, b"null")` returned `pass`. The checker now needs one object with each expected field. |
+| F2: absent samples and controller failure pass | Read in the source. The checker now needs the frozen shape and unique names and indices. It also checks the host evidence. |
+| F3: capture ends at the leader reap | Read in the source. The wrapper now reads each pipe until EOF, for at most 1 s after the last reap. It records `stdout_eof` and `stderr_eof`. |
+| F4: the live task exits 0 after a failure | Read in the source: the runner ended with `cat`. The probe and the runner now exit 1 on each failure. |
+| F5: the checker and runner have no digests | Read in the source. Both are now controller subjects. The runner also hashes ten tools before the probe and after the check. |
+| F6: the bounds assume independent requests | Accepted. Results now states the model and marks the figures as conditional. |
+
+The checker now has three verdicts: `pass`, `fail` and `unknown`. A sample
+fails when a condition is false. A sample is unknown when no condition is
+false but EOF on a stream has no record. The run fails when a sample fails, a
+sample is missing or duplicate, or the host evidence is not healthy. Healthy
+host evidence has these properties:
+
+- `result.json` has `ok` true and no unreached call.
+- No inspection failure, and equal non-empty subject digests.
+- No failed, dropped or abandoned storage frame, and an orderly storage close.
+- Each serial and wrapper call exits 0 with EOF on both streams.
+
+The k191 checker judged the retained run as `unknown`, with exit 1. The ten
+serial samples pass. The twelve concurrent samples are unknown, and the host
+evidence has no failure. The record is
+`experiments/exec-reliability/evidence/k191-recheck/check.json`.
+
+The concurrent budget grows from 56 s to 57 s, to cover the 1 s capture grace.
+The source changes, so the next live run has a new frozen-source commit.
+
+The controls in `test_completion_k186.py` need no VM. They break each property
+above and expect a refusal. A fake CLI leaves a descendant that writes the
+second half of the receipt after the leader exits. Fake outer commands drive
+the runner through each failure exit.
+
+Against the k186 wrapper, runner and probe, all seven of their controls fail.
+With the k191 tools, all 32 controls pass. The k186 checker has a different
+`judge` signature, so the checker controls do not run against it. Inspection
+and the F1 reproduction supply its failures.
+
+Two limits remain. The k186 run has no digests of its checker or runner
+through the check, and no record supplies them. All 21 recorded subject
+digests match. The wrapper keeps a capture grace of 1 s, so a descendant that holds
+a pipe longer makes the sample fail, not wait.
 
 ## Remaining k3 work
 

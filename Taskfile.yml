@@ -213,20 +213,21 @@ tasks:
       - experiments/exec-reliability/completion_k186_run.sh {{.OUT | shellQuote}}
 
   diagnostic:macos-completion-live-check:
-    desc: Judge the guest receipts of one retained k186 controller run directory RUN, relative to the repository root
+    desc: Judge one retained k186 controller run directory RUN, relative to the repository root, against the frozen shape and its host evidence. Exit 0 only for verdict pass
     requires:
       vars: [RUN]
     cmds:
       - uv run --project experiments/exec-reliability --locked python -I experiments/exec-reliability/completion_k186_check.py {{.RUN | shellQuote}}
 
   diagnostic:macos-completion-live-tools:
-    desc: Check the k186 live completion tooling
+    desc: Check the k186 live completion tooling and run its controls, which need no VM
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
     cmds:
-      - uv run --locked python -m ruff check completion_k186.py completion_k186_check.py concurrent_k186.py
-      - uv run --locked python -m ruff format --check completion_k186.py completion_k186_check.py concurrent_k186.py
-      - uv run --locked python -m pyright completion_k186.py completion_k186_check.py concurrent_k186.py
+      - uv run --locked python -m ruff check completion_k186.py completion_k186_check.py concurrent_k186.py test_completion_k186.py
+      - uv run --locked python -m ruff format --check completion_k186.py completion_k186_check.py concurrent_k186.py test_completion_k186.py
+      - uv run --locked python -m pyright completion_k186.py completion_k186_check.py concurrent_k186.py test_completion_k186.py
       - shellcheck completion_k186_run.sh
+      - uv run --locked python -m pytest -q -p no:cacheprovider test_completion_k186.py
 
   diagnostic:macos-process-fixtures:
     desc: 'Run the macOS agent suite beside an unrelated `sleep 300` control into a new OUT directory. ARM=owned (default) expects the control to survive. ARM=broad restores the pre-k185 broad cleanup in a temporary copy and expects the control to be killed. The broad cleanup signals every matching process of this user, so ARM=broad also needs ISOLATED_HOST=1, which declares a host where no other process of this user can match. It still refuses to run while it sees such a process'

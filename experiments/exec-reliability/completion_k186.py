@@ -44,9 +44,10 @@ GUEST_TIMEOUT = 30
 HOST_BOUND = GUEST_TIMEOUT + 20.0  # raw host exec: guest budget plus 20 s
 CONCURRENT_ROUNDS = 3
 CONCURRENT_COUNT = 4
-# Each copy: 50 s, then TERM 2 s and KILL 2 s, plus start-up. The controller adds its own
+# Each copy: 50 s, then TERM 2 s and KILL 2 s. After the last reap the wrapper reads the
+# pipes for at most 1 s until EOF. Start-up takes 2 s more. The controller adds its own
 # TERM 2 s and KILL 2 s after this budget.
-CONCURRENT_BUDGET = HOST_BOUND + 2.0 + 2.0 + 2.0
+CONCURRENT_BUDGET = HOST_BOUND + 2.0 + 2.0 + 1.0 + 2.0
 PROBE_GUEST_TIMEOUT = 5
 PROBE_BOUND = PROBE_GUEST_TIMEOUT + 20.0
 ORDINARY = "printf ordinary-ok"
@@ -95,6 +96,8 @@ def plan(tools: dict[str, str]) -> Plan:
         HERE / "routes_k19.py",
         HERE / "controller.py",
         WRAPPER,
+        HERE / "completion_k186_check.py",
+        HERE / "completion_k186_run.sh",
         CHECKER,
         REPO / "Taskfile.yml",
         Path(cli).resolve(),
@@ -153,6 +156,8 @@ def main() -> None:
         },
     )
     print(f"verdict {outcome.verdict} run {outcome.run_dir}", flush=True)
+    if outcome.verdict is not True:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
