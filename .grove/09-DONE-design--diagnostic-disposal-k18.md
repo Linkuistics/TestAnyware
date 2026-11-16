@@ -59,3 +59,51 @@ I/O; that remains this leaf's design and reviewed implementation continuation.
 
 No live VM needed for this design. No installed app changes. Preserve all old
 failed conditions and the historical 0/10 unavailable trial.
+
+## Decisions (running log)
+
+**Storage boundary.** One separate evidence writer process owns every evidence
+file operation. The controller starts it as a fresh interpreter with an exec.
+A writer thread is not possible, because fork admission requires exactly one
+Python thread and one native thread. Storage in the inspection worker would
+join two failure domains. Asynchronous file calls and longer timeouts cannot
+interrupt a blocked call on the only thread.
+
+**Controller filesystem rule.** From storage readiness until publication ends,
+the controller thread makes no filesystem call. The controller never resolves,
+creates or reads the evidence root. The writer resolves it. An audit-hook
+control checks the rule.
+
+**Command descriptors.** Every call writes its standard output and error to
+pipes that the scheduler drains. The expected-output match uses the bytes in
+memory, not a readback. The validator lexically refuses a teardown executable
+that is relative or under the evidence root.
+
+**One acknowledgement gate.** Only the intent record before each acquisition
+waits for an acknowledgement, for at most two seconds. An intent file is the
+only trace of an acquisition after a controller crash. A missed gate prevents
+that acquisition and stops forward progress. Teardown never waits for storage.
+
+**Bounds.** Readiness ends within five seconds of the spawn, and a failed
+writer is reaped within two seconds. Publication starts after worker close and
+has a window W of at most ten seconds. Subjects-after digests wait until
+S + W/2. At P the writer receives KILL, and the reap poll ends at P plus two
+seconds. The outbox holds at most 64 MiB, and a frame holds at most 1 MiB.
+
+**Records.** The spec `docs/specs/diagnostic-evidence-storage.md` is the
+artifact. No ADR is written, because the diagnostic controller is an
+investigation harness and the choice is not hard to reverse. The inspection
+spec stays unchanged. Its statements remain true, and an edit would first need
+a partial prose conversion of more than 60 findings. The new spec links to it.
+
+**Supporting documents.** The visual document is
+`docs/design/diagnostic-evidence-storage/`, served by
+`mise exec -- task design:storage-preview` on port 8766. The foundation report
+gains the section "Evidence storage design (k18)" after a `tc: on` marker. The
+historical sections stay pending.
+
+**Successor kind.** The successor is a planning leaf, not an implementation
+leaf. A design session that cuts implementation leaves does the work of
+planning. The planning leaf slices the writer, pipe capture, channel and
+controls into implementation leaves before k19. A review-design leaf precedes
+it.

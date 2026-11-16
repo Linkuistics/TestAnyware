@@ -2302,3 +2302,29 @@ storage. Five cases did not recur and are not explained. On 2026-11-16 the
 human accepted the five cases and the run 42 gap as visible limits, and k17
 closed. These limits are not guarantees. A recurrence reopens its causal
 question. Ten-clone acceptance remains **0/10, unavailable**.
+
+<!-- tc: on -->
+
+## Evidence storage design (k18)
+
+The [evidence storage spec](../specs/diagnostic-evidence-storage.md) answers
+finding F3 of review k15. A blocking evidence call on the controller's only
+thread can stop teardown. Catching OSError does not help when the call never
+returns.
+
+The spec moves every evidence file operation into one separate writer process.
+After storage readiness, the controller makes no filesystem call until
+publication ends. Records cross a bounded outbox as serialised frames. Workload
+and teardown output reaches the controller through pipes, not evidence files.
+Only the intent record before each acquisition waits for an acknowledgement,
+for at most two seconds. Storage failure stops forward progress and never
+changes teardown.
+
+- [Phases and bounds](../specs/diagnostic-evidence-storage.md#phases-and-bounds) — The writer acknowledges readiness within five seconds. Publication gets a window of ten seconds. Each expiry leads to KILL and a two-second reap.
+- [Forward stop and failure reporting](../specs/diagnostic-evidence-storage.md#forward-stop-and-failure-reporting) — The result counts every frame and keeps the controller's own digest of each record.
+- [Controller-crash limits](../specs/diagnostic-evidence-storage.md#controller-crash-limits) — Owned resources stay acquired, and acknowledged intent records survive.
+- [Test seams and required controls](../specs/diagnostic-evidence-storage.md#test-seams-and-required-controls) — Nine controls must fail on the build without the writer.
+- [Visual document](../design/diagnostic-evidence-storage/README.md) — Ownership, phase and failure views of the same contract.
+
+This leaf changes no code and runs no control. Ten-clone acceptance remains
+**0/10, unavailable**.

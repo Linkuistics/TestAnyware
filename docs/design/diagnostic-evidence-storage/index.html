@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Design diagrams</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: system-ui, sans-serif;
+      color: light-dark(#202124, #e6e6e6);
+      background: light-dark(#fff, #181a1b);
+      --muted: light-dark(#5b5e63, #b2b5bb);
+      --border: light-dark(#dce0e5, #3d4248);
+      --accent: light-dark(#1557b0, #9bc5ff);
+      --tint: light-dark(#f0f6ff, #202d3e);
+      --surface: light-dark(#f5f6f8, #222527);
+    }
+    * { box-sizing: border-box; }
+    body { max-width: none; margin: 0; padding: 24px; line-height: 1.5; }
+    h1 { font-size: 1.6rem; margin: 0 0 8px; }
+    h2 { font-size: 1.35rem; margin: 0; }
+    h3 { font-size: 1.12rem; margin: 0; }
+    p { max-width: 90ch; }
+    a { color: var(--accent); overflow-wrap: anywhere; }
+    button, a, summary { touch-action: manipulation; }
+    :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+    [hidden] { display: none !important; }
+    .secondary, .breadcrumb { color: var(--muted); font-size: 0.9rem; }
+    p.secondary, .discussion-summary { white-space: pre-line; }
+    .document-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 32px; align-items: start; margin-top: 28px; }
+    .outline { position: sticky; top: 20px; max-height: calc(100vh - 40px); overflow: auto; padding-right: 12px; }
+    .outline h2 { font-size: 1rem; margin-bottom: 12px; }
+    .outline ul { list-style: none; padding: 0; margin: 0; }
+    .outline ul ul { padding-left: 12px; border-left: 1px solid var(--border); margin: 6px 0 16px; }
+    .outline li { margin: 7px 0; }
+    .outline a { text-decoration: none; font-size: 0.9rem; }
+    .outline a:hover { text-decoration: underline; }
+    .outline .topic-link { font-weight: 650; }
+    .outline .badge { font-size: 0.7rem; margin-left: 4px; }
+    main, .topic, .diagram-section { min-width: 0; }
+    .discussion { padding: 20px; border: 1px solid var(--accent); border-radius: 10px; background: var(--tint); margin-top: 24px; scroll-margin-top: 20px; }
+    .discussion h2 { font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+    .discussion .discussion-title { font-size: 1.3rem; margin-top: 6px; }
+    .discussion .badge { white-space: normal; overflow-wrap: anywhere; }
+    .discussion-summary { margin: 12px 0; }
+    .discussion-list { margin: 10px 0 0; padding-left: 20px; }
+    .discussion-list li { margin: 4px 0; }
+    .list-label { font-size: 0.9rem; font-weight: 650; margin: 14px 0 4px; }
+    .topic { margin-bottom: 48px; scroll-margin-top: 20px; }
+    .topic-header { border-bottom: 2px solid var(--border); padding-bottom: 12px; margin-bottom: 16px; }
+    .topic-header p { margin: 6px 0 0; }
+    .diagram-section { padding: 18px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 24px; scroll-margin-top: 20px; }
+    .diagram-section:target, .diagram-section:has(:target), .topic:target > .topic-header, .discussion:target { outline: 3px solid var(--accent); outline-offset: 3px; }
+    .diagram-section:target, .diagram-section:has(:target) { background: var(--tint); }
+    .heading { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: baseline; justify-content: space-between; }
+    .heading h3, .heading h2 { flex: 1 1 280px; overflow-wrap: anywhere; }
+    .heading-links, .markers { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+    .heading-links { font-size: 0.85rem; }
+    .breadcrumb { margin: 0 0 8px; }
+    .markers { margin-top: 8px; }
+    .badge { display: inline-block; font-size: 0.75rem; font-weight: 650; padding: 1px 7px; border: 1px solid var(--border); border-radius: 20px; white-space: nowrap; }
+    .badge.updated { color: var(--accent); border-color: var(--accent); }
+    .diagram { overflow: auto; max-width: 100%; padding: 16px 0; min-height: 60px; }
+    .diagram svg { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+    .diagram img { display: block; max-width: 100%; height: auto; margin: 0 auto; }
+    .diagram.native-size img { max-width: none; }
+    .svg-controls { margin-top: 12px; font-size: 0.85rem; color: var(--muted); }
+    .svg-controls label { display: inline-flex; align-items: center; gap: 7px; }
+    .svg-controls input { accent-color: var(--accent); }
+    summary { cursor: pointer; width: fit-content; }
+    pre { overflow: auto; max-width: 100%; padding: 12px; background: var(--surface); font-size: 0.85rem; }
+    .error { color: light-dark(#a31b1b, #ffabab); border-left: 3px solid currentColor; padding-left: 12px; overflow-wrap: anywhere; }
+    #status:empty { display: none; }
+    footer { margin-top: 28px; }
+    @media (max-width: 900px) {
+      .document-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+      .outline { position: static; max-height: 20rem; padding: 14px; border: 1px solid var(--border); border-radius: 8px; }
+    }
+    @media (max-width: 560px) {
+      body { padding: 16px; }
+      .discussion, .diagram-section { padding: 14px; }
+      .heading h3, .heading h2 { flex-basis: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <header><h1 id="title">Design diagrams</h1><p id="intro"></p></header>
+  <section id="discussion" class="discussion" aria-labelledby="discussion-label" hidden></section>
+  <div id="status" role="status">Loading diagrams.json…</div>
+  <div class="document-layout">
+    <aside class="outline" aria-labelledby="outline-title">
+      <h2 id="outline-title">Document outline</h2>
+      <nav id="navigation" aria-label="Document outline"></nav>
+    </aside>
+    <main id="diagrams"></main>
+  </div>
+  <footer class="secondary">Source-defined diagrams · Mermaid 12.0.0 when used · Wide diagrams scroll within their panels.</footer>
+  <noscript>This viewer requires JavaScript. Open diagrams.json to find diagram sources and rendered SVG files.</noscript>
+  <script type="module">
+    const status = document.getElementById('status');
+    const appearance = window.matchMedia('(prefers-color-scheme: dark)');
+    const loaded = [];
+    const objectUrls = new Set();
+    let mermaid;
+    let revision = 0;
+    window.addEventListener('pagehide', event => {
+      if (!event.persisted) for (const url of objectUrls) URL.revokeObjectURL(url);
+    });
+
+    function element(tag, text = '', className = '') {
+      const node = document.createElement(tag);
+      node.textContent = text;
+      node.className = className;
+      return node;
+    }
+    function link(text, href, className = '') {
+      const node = element('a', text, className);
+      node.href = href;
+      return node;
+    }
+    function report(target, context, error) {
+      const message = element('p', context + ': ' + (error instanceof Error ? error.message : String(error)), 'error');
+      message.setAttribute('role', 'alert');
+      target.replaceChildren(message);
+    }
+    async function read(url) {
+      const response = await fetch(url, { cache: 'no-store' });
+      if (!response.ok) throw new Error('HTTP ' + response.status + ' while loading ' + url);
+      return await response.text();
+    }
+    function isObject(value) {
+      return value !== null && typeof value === 'object' && !Array.isArray(value);
+    }
+    function validId(value) {
+      return typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_-]*$/.test(value);
+    }
+    function localUrl(value, label, extension = '') {
+      if (typeof value !== 'string' || !value.trim()) throw new Error(label + ' must be a nonempty URL string.');
+      const url = new URL(value, document.baseURI);
+      if (url.origin !== location.origin || !/^https?:$/.test(url.protocol) || (extension && !url.pathname.endsWith(extension))) {
+        throw new Error(label + ' must be a same-origin HTTP(S) ' + (extension ? extension + ' ' : '') + 'URL.');
+      }
+      return url.href;
+    }
+    function validate(value) {
+      if (!isObject(value)) throw new Error('Manifest must be an object.');
+      if (typeof value.title !== 'string' || !value.title.trim() || typeof value.intro !== 'string') throw new Error('Manifest needs a nonempty title and an intro string.');
+      if (!Array.isArray(value.diagrams) || value.diagrams.length === 0) throw new Error('Manifest diagrams must be a nonempty array.');
+      if (value.groups !== undefined && !Array.isArray(value.groups)) throw new Error('Manifest groups must be an array when present.');
+      const groupIds = new Set();
+      const groups = (value.groups ?? []).map((group, index) => {
+        const label = 'Group ' + (index + 1);
+        if (!isObject(group) || !validId(group.id) || groupIds.has(group.id)) throw new Error(label + ' needs a unique valid id.');
+        if (typeof group.title !== 'string' || !group.title.trim() || typeof group.description !== 'string') throw new Error(label + ' needs a nonempty title and a description string.');
+        groupIds.add(group.id);
+        return { id: group.id, title: group.title, description: group.description };
+      });
+      const ids = new Set();
+      const diagrams = value.diagrams.map((item, index) => {
+        const label = 'Diagram ' + (index + 1);
+        if (!isObject(item)) throw new Error(label + ' must be an object.');
+        if (!validId(item.id) || ids.has(item.id)) throw new Error(label + ' needs a unique id starting with a letter, followed by letters, digits, underscores or hyphens.');
+        if (typeof item.title !== 'string' || !item.title.trim() || typeof item.source !== 'string' || !item.source.trim()) throw new Error(label + ' needs nonempty title and source strings.');
+        if (item.caption !== undefined && typeof item.caption !== 'string') throw new Error(label + ' caption must be a string when present.');
+        if (item.group !== undefined && (typeof item.group !== 'string' || !groupIds.has(item.group))) throw new Error(label + ' refers to an unknown group: ' + String(item.group));
+        const renderer = item.renderer === undefined ? 'mermaid' : item.renderer;
+        if (renderer !== 'mermaid' && renderer !== 'svg') throw new Error(label + ' has an unknown renderer: ' + String(renderer));
+        const url = localUrl(item.source, label + ' source', renderer === 'mermaid' ? '.mmd' : '');
+        const renderedUrl = renderer === 'svg' ? localUrl(item.rendered, label + ' rendered', '.svg') : undefined;
+        ids.add(item.id);
+        return { ...item, renderer, url, renderedUrl };
+      });
+      let discussion;
+      if (value.discussion !== undefined) {
+        const item = value.discussion;
+        if (!isObject(item) || typeof item.title !== 'string' || !item.title.trim() || typeof item.status !== 'string' || !item.status.trim() || typeof item.summary !== 'string') throw new Error('Discussion needs nonempty title and status strings, and a summary string.');
+        if (item.updatedDiagrams !== undefined && item.updatedDiagramIds !== undefined) throw new Error('Discussion must supply only one of updatedDiagrams and updatedDiagramIds.');
+        if (!Array.isArray(item.diagramIds)) throw new Error('Discussion diagramIds must be an array of diagram IDs.');
+        const discussedIds = new Set();
+        for (const id of item.diagramIds) {
+          if (typeof id !== 'string' || !ids.has(id) || discussedIds.has(id)) throw new Error('Discussion diagramIds contains an unknown or duplicate diagram ID: ' + String(id));
+          discussedIds.add(id);
+        }
+        const hasSummaries = item.updatedDiagrams !== undefined;
+        const field = hasSummaries ? 'updatedDiagrams' : 'updatedDiagramIds';
+        if (!Array.isArray(item[field])) throw new Error('Discussion ' + field + ' must be an array.');
+        const updatedIds = new Set();
+        const updatedDiagrams = item[field].map((entry, index) => {
+          const label = 'Discussion ' + field + ' entry ' + (index + 1);
+          if (hasSummaries && !isObject(entry)) throw new Error(label + ' must be an object with an id and summary.');
+          const id = hasSummaries ? entry.id : entry;
+          if (!validId(id) || !ids.has(id) || updatedIds.has(id)) throw new Error(label + ' contains an invalid, unknown or duplicate diagram ID: ' + String(id));
+          if (hasSummaries && (typeof entry.summary !== 'string' || !entry.summary.trim())) throw new Error(label + ' needs a nonempty summary string.');
+          updatedIds.add(id);
+          return hasSummaries ? { id, summary: entry.summary } : { id };
+        });
+        discussion = { title: item.title, status: item.status, summary: item.summary,
+          diagramIds: [...item.diagramIds], updatedDiagrams };
+      }
+      return { title: value.title, intro: value.intro, groups, discussion, diagrams };
+    }
+    function addDiscussion(manifest) {
+      if (!manifest.discussion) return;
+      const item = manifest.discussion;
+      const panel = document.getElementById('discussion');
+      const label = element('h2', 'Current discussion');
+      label.id = 'discussion-label';
+      const heading = element('div', '', 'heading');
+      heading.append(element('h3', item.title, 'discussion-title'), element('span', item.status, 'badge'));
+      panel.append(label, heading, element('p', item.summary, 'discussion-summary'));
+      const byId = new Map(manifest.diagrams.map(diagram => [diagram.id, diagram]));
+      for (const [title, entries] of [['Discussed diagrams', item.diagramIds.map(id => ({ id }))], ['Updated in this discussion', item.updatedDiagrams]]) {
+        panel.append(element('p', title, 'list-label'));
+        if (entries.length === 0) {
+          panel.append(element('p', 'None listed.', 'secondary'));
+          continue;
+        }
+        const list = element('ul', '', 'discussion-list');
+        for (const { id, summary } of entries) {
+          const row = element('li');
+          row.append(link(byId.get(id).title, '#diagram-' + id));
+          if (summary) row.append(' — ' + summary);
+          list.append(row);
+        }
+        panel.append(list);
+      }
+      panel.hidden = false;
+    }
+    function addDiagram(item, container, group, current, updated) {
+      const section = element('section', '', 'diagram-section');
+      section.id = 'diagram-' + item.id;
+      const breadcrumb = element('p', '', 'breadcrumb');
+      if (group) {
+        breadcrumb.append('Topic: ', link(group.title, '#group-' + group.id));
+      } else {
+        breadcrumb.textContent = 'Diagrams';
+      }
+      const title = element(group ? 'h3' : 'h2', item.title);
+      title.id = 'heading-' + item.id;
+      section.setAttribute('aria-labelledby', title.id);
+      const heading = element('div', '', 'heading');
+      const links = element('div', '', 'heading-links');
+      const permalink = link('Permalink', '#' + section.id);
+      permalink.setAttribute('aria-label', 'Permalink to ' + item.title);
+      links.append(permalink, link('Diagram source', item.url));
+      if (item.renderer === 'svg') links.append(link('Full-size SVG', item.renderedUrl));
+      heading.append(title, links);
+      section.append(breadcrumb, heading);
+      const markers = element('div', '', 'markers');
+      if (current.has(item.id)) markers.append(element('span', 'Current', 'badge'));
+      if (updated.has(item.id)) markers.append(element('span', 'Updated', 'badge updated'));
+      if (markers.childElementCount) section.append(markers);
+      const target = element('div', 'Loading diagram…', 'diagram');
+      target.id = 'view-' + item.id;
+      target.setAttribute('aria-label', item.title);
+      target.tabIndex = 0;
+      if (item.renderer === 'svg') {
+        const controls = element('div', '', 'svg-controls');
+        const label = element('label');
+        const checkbox = element('input');
+        checkbox.type = 'checkbox';
+        checkbox.setAttribute('aria-controls', target.id);
+        checkbox.addEventListener('change', () => target.classList.toggle('native-size', checkbox.checked));
+        label.append(checkbox, 'Display at native size (scroll within diagram)');
+        controls.append(label);
+        section.append(controls);
+      }
+      const code = element('code', 'Loading source…');
+      const pre = element('pre');
+      pre.append(code);
+      const details = element('details');
+      details.append(element('summary', 'Show source'), pre);
+      const sourceStatus = element('div');
+      section.append(target, sourceStatus);
+      if (item.caption) section.append(element('p', item.caption, 'secondary'));
+      section.append(details);
+      container.append(section);
+      return { ...item, target, code, sourceStatus };
+    }
+    function addDocument(manifest) {
+      const current = new Set(manifest.discussion?.diagramIds ?? []);
+      const updated = new Set(manifest.discussion?.updatedDiagrams.map(item => item.id) ?? []);
+      const outline = element('ul');
+      const navigation = document.getElementById('navigation');
+      if (manifest.discussion) {
+        const discussion = element('li');
+        discussion.append(link('Current discussion', '#discussion', 'topic-link'));
+        outline.append(discussion);
+      }
+      const groups = manifest.groups.map(group => ({
+        ...group, diagrams: manifest.diagrams.filter(item => item.group === group.id)
+      }));
+      const ungrouped = manifest.diagrams.filter(item => item.group === undefined);
+      if (ungrouped.length) groups.push({ id: null, title: manifest.groups.length ? 'Other diagrams' : 'Diagrams', diagrams: ungrouped });
+      const entries = [];
+      for (const group of groups) {
+        const row = element('li');
+        const list = element('ul');
+        let container = document.getElementById('diagrams');
+        if (group.id !== null) {
+          container = element('section', '', 'topic');
+          container.id = 'group-' + group.id;
+          const header = element('header', '', 'topic-header');
+          const heading = element('h2', group.title);
+          heading.id = 'topic-heading-' + group.id;
+          container.setAttribute('aria-labelledby', heading.id);
+          header.append(heading);
+          if (group.description) header.append(element('p', group.description, 'secondary'));
+          container.append(header);
+          document.getElementById('diagrams').append(container);
+          row.append(link(group.title, '#' + container.id, 'topic-link'));
+        } else if (manifest.groups.length) {
+          row.append(element('span', group.title, 'topic-link'));
+        }
+        for (const item of group.diagrams) {
+          entries.push(addDiagram(item, container, group.id === null ? null : group, current, updated));
+          const entry = element('li');
+          const diagramLink = link(item.title, '#diagram-' + item.id);
+          if (updated.has(item.id)) diagramLink.append(' ', element('span', 'Updated', 'badge updated'));
+          entry.append(diagramLink);
+          list.append(entry);
+        }
+        row.append(list);
+        outline.append(row);
+      }
+      navigation.append(outline);
+      return entries;
+    }
+    function scrollToHash() {
+      if (!location.hash) return;
+      let id;
+      try { id = decodeURIComponent(location.hash.slice(1)); } catch { return; }
+      document.getElementById(id)?.scrollIntoView({ block: 'start' });
+    }
+    function scheduleHashScroll() {
+      requestAnimationFrame(scrollToHash);
+    }
+    async function renderSvg(item) {
+      let objectUrl;
+      try {
+        const source = await read(item.renderedUrl);
+        const parsed = new DOMParser().parseFromString(source, 'image/svg+xml');
+        const root = parsed.documentElement;
+        if (parsed.querySelector('parsererror') || root.localName !== 'svg' || root.namespaceURI !== 'http://www.w3.org/2000/svg') {
+          throw new Error('The rendered file is not a valid SVG document.');
+        }
+        objectUrl = URL.createObjectURL(new Blob([source], { type: 'image/svg+xml' }));
+        objectUrls.add(objectUrl);
+        const image = new Image();
+        image.alt = item.title;
+        image.decoding = 'async';
+        await new Promise((resolve, reject) => {
+          image.onload = resolve;
+          image.onerror = () => reject(new Error('The SVG image could not be decoded.'));
+          image.src = objectUrl;
+        });
+        // Percentage-sized exports still have a usable native size in their viewBox.
+        const viewBox = root.getAttribute('viewBox')?.trim().split(/[\s,]+/).map(Number);
+        const width = root.getAttribute('width');
+        const useViewBox = (!width || width.trim().endsWith('%')) && viewBox?.length === 4 && viewBox.every(Number.isFinite) && viewBox[2] > 0 && viewBox[3] > 0;
+        image.width = useViewBox ? viewBox[2] : image.naturalWidth;
+        image.height = useViewBox ? viewBox[3] : image.naturalHeight;
+        item.target.replaceChildren(image);
+      } catch (error) {
+        if (objectUrl) { URL.revokeObjectURL(objectUrl); objectUrls.delete(objectUrl); }
+        report(item.target, 'SVG rendering failed for ' + item.title + '; source remains available', error);
+      }
+    }
+    async function renderDiagrams() {
+      const currentRevision = ++revision;
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true,
+        layout: 'dagre', look: 'classic', theme: appearance.matches ? 'dark' : 'default',
+        fontFamily: 'system-ui, sans-serif', themeVariables: { fontSize: '16px' },
+        flowchart: { useMaxWidth: false, htmlLabels: false, curve: 'linear', nodeSpacing: 26, rankSpacing: 36 } });
+      for (const item of loaded) {
+        if (currentRevision !== revision) return;
+        try {
+          const rendered = await mermaid.render('svg-' + item.id + '-' + currentRevision, item.sourceText);
+          if (currentRevision !== revision) return;
+          item.target.innerHTML = rendered.svg;
+        } catch (error) {
+          if (currentRevision === revision) report(item.target, 'Rendering ' + item.title + ' failed; source remains available', error);
+        }
+      }
+    }
+    async function main() {
+      let manifest;
+      try {
+        if (!/^https?:$/.test(location.protocol)) throw new Error('Serve this directory over HTTP(S) to load its manifest and sources.');
+        manifest = validate(JSON.parse(await read('./diagrams.json')));
+      } catch (error) { report(status, 'Manifest error', error); return; }
+      document.title = manifest.title;
+      document.getElementById('title').textContent = manifest.title;
+      document.getElementById('intro').textContent = manifest.intro;
+      addDiscussion(manifest);
+      const entries = addDocument(manifest);
+      window.addEventListener('hashchange', scheduleHashScroll);
+      scheduleHashScroll();
+      status.textContent = 'Loading diagram sources and rendered assets…';
+      const sources = entries.map(async item => {
+        try {
+          item.sourceText = await read(item.url);
+          item.code.textContent = item.sourceText;
+        } catch (error) {
+          item.code.textContent = 'Source could not be loaded.';
+          report(item.sourceStatus, 'Source error for ' + item.title, error);
+          if (item.renderer === 'mermaid') report(item.target, 'Mermaid needs its source to render', error);
+        }
+      });
+      const images = entries.filter(item => item.renderer === 'svg').map(renderSvg);
+      await Promise.all([...sources, ...images]);
+      loaded.push(...entries.filter(item => item.renderer === 'mermaid' && typeof item.sourceText === 'string'));
+      if (!loaded.length) {
+        status.textContent = '';
+        scheduleHashScroll();
+        return;
+      }
+      try {
+        mermaid = (await import('https://cdn.jsdelivr.net/npm/mermaid@12.0.0/dist/mermaid.esm.min.mjs')).default;
+        await renderDiagrams();
+        status.textContent = '';
+        appearance.addEventListener('change', () => renderDiagrams().catch(error => report(status, 'Theme rendering failed', error)));
+      } catch (error) {
+        report(status, 'Mermaid renderer unavailable; source links remain usable', error);
+        for (const item of loaded) report(item.target, 'Renderer error', error);
+      }
+      // Initial/deferred deep links need final geometry. Theme changes do not retarget them.
+      scheduleHashScroll();
+    }
+    await main();
+  </script>
+</body>
+</html>

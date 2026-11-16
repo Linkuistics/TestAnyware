@@ -1,0 +1,27 @@
+sequenceDiagram
+  participant C as Controller scheduler
+  participant E as Evidence writer
+  participant R as Resources and inspection worker
+  Note over C: P0 validate, import, start writer. Nothing owned.
+  C->>E: P1 setup frame: run name, plan, subjects
+  E-->>C: Readiness with subject digests, within 5 s of spawn
+  Note over C: P2 owned run starts. No controller filesystem call.
+  C->>R: Start inspection worker
+  loop Each resource n
+    C->>E: intent-n frame
+    E-->>C: intent-n acknowledgement, gate at most 2 s
+    C->>R: Acquire resource n
+  end
+  C-)E: Call output, receipts, observations, fire and forget
+  C->>R: Cleanup, disposal, inspection, worker close
+  Note over C: Teardown never waits for an acknowledgement
+  Note over C: P3 publication starts at S, cutoff P = S + W, W at most 10 s
+  C-)E: Ledger, subjects-after request
+  E-->>C: Subjects-after digests, until S + W/2
+  C-)E: Result, identity request, close
+  alt Writer acknowledges close before P
+    C->>E: Exact-PID nonblocking reap by P + 2 s
+  else Writer unfinished at P
+    C->>E: KILL, then poll reap until P + 2 s
+  end
+  Note over C: An unreaped writer is a residual in the run outcome

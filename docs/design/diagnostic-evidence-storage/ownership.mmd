@@ -1,0 +1,15 @@
+flowchart TB
+  C["Start here: controller<br/>One scheduler, sole signal and reap owner<br/>No filesystem call from readiness to publication end"]:::start
+  O["Outbox<br/>Serialised frames, at most 64 MiB"]
+  E["Evidence writer<br/>Fresh interpreter, own session, cwd /<br/>Owns run directory and every evidence descriptor"]
+  S[("Evidence storage<br/>May stall or fail")]
+  T["Workload and teardown commands<br/>stdin null, stdout and stderr pipes, cwd /"]
+  W["Inspection worker<br/>Unchanged inspection contract"]
+  C -->|"1. Enqueue immutable records"| O
+  O -->|"2. Nonblocking frame writes"| E
+  E -->|"3. Blocking open, write, read, hash"| S
+  E -.->|"4. Acknowledgements by sequence number"| C
+  C -->|"Starts, drains pipes, signals, reaps"| T
+  C -->|"Requests, closes, reaps"| W
+  C -->|"KILL by frozen PID while unreaped, exact-PID reap"| E
+  classDef start fill:#17354b,color:#fff,stroke:#17354b,font-weight:bold

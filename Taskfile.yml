@@ -627,6 +627,11 @@ tasks:
     cmds:
       - python3 -m http.server {{.PORT | default "8764" | shellQuote}} --bind 127.0.0.1 --directory {{.ROOT_DIR | shellQuote}}/docs/design/diagnostic-process-inspection
 
+  design:storage-preview:
+    desc: Serve the evidence-storage design at localhost (PORT defaults to 8766); stop with Ctrl-C
+    cmds:
+      - python3 -m http.server {{.PORT | default "8766" | shellQuote}} --bind 127.0.0.1 --directory {{.ROOT_DIR | shellQuote}}/docs/design/diagnostic-evidence-storage
+
   diagnostic:self-check:
     desc: Retain lint/type/per-test verdicts and bounded local diagnostic receipts. Requires OUT=<new evidence directory>
     dir: '{{.ROOT_DIR}}'

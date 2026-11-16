@@ -1,0 +1,15 @@
+flowchart TB
+  F["Start here: storage failure<br/>Error ack, EPIPE, early writer exit,<br/>outbox drop or missed intent gate"]:::start
+  P{"Phase?"}
+  R["P1 readiness failure<br/>KILL writer, reap within 2 s"]
+  N["Acquire nothing, start no worker<br/>Storage unavailable"]
+  X["P2 forward stop, sticky<br/>No further acquisition or workload call"]
+  D["Teardown unchanged<br/>Cleanup, disposal, inspection, worker close<br/>keep their own deadlines"]
+  Q["P3 publication cutoff<br/>Missing digests become unavailable:storage"]
+  K["KILL at P, reap until P + 2 s<br/>Unreaped writer becomes a residual"]
+  O["Run outcome in memory<br/>Storage section, ledger, residuals"]
+  F -->|"1"| P
+  P -->|"2a. P1"| R --> N --> O
+  P -->|"2b. P2"| X --> D --> O
+  P -->|"2c. P3"| Q --> K --> O
+  classDef start fill:#17354b,color:#fff,stroke:#17354b,font-weight:bold
