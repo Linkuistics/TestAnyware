@@ -92,6 +92,13 @@ All paths below are under
   passed 975 tests. Inputs kept the same hashes.
 - `audit.py` writes `resource-audit.json` from retained files. It lists each
   child in each of 10 runs and its removal. No child is without a removal.
+- Correction by worker-deadline-cleanup-k157: the two bullets above overstate
+  the evidence. `resource-audit.json` lists only the 248 children of the
+  control inventory, and it credits the runtime with fixture reaps. The stalled
+  final survey had 143 direct children, not 104. The k157
+  `child-inventory.json` lists 486 children from the receipts and names each
+  reaper from a recorded fact. Two reapers stay unknown. The original
+  acceptance stands, with that inventory as its evidence.
 - The k152 verdict case is now `fixture_defect`, with six controls. The k17
   whole contract lists it as repaired, not open. The run 42 gap stays unknown.
 - I cut `review-impl` for this leaf. The repair adds SIGKILL paths to shared

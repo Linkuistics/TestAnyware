@@ -2264,9 +2264,41 @@ other fixtures already removed their own children.
 
 The final survey passed with the stall and without it. The full suite passed
 975 tests on the same frozen inputs. This leaf does not change `worker_capture.py`.
+The k154
 [resource-audit.json](../../experiments/exec-reliability/evidence/worker-deadline-cleanup-k154/resource-audit.json)
-lists each child in each run and the actor that removed it.
+lists only the 248 children in the control inventory. That inventory omits
+children that a fixture or the runtime reaped without a deadline receipt or a
+stalled signal. The audit also credits the runtime with each child that was
+"reaped before audit", also when a fixture reaped it.
+
+The k157 review integration replaces that claim with
+[child-inventory.json](../../experiments/exec-reliability/evidence/worker-deadline-cleanup-k157/child-inventory.json).
+`task diagnostic:child-inventory` writes it from the retained k154 receipts. It
+lists 486 direct children of the control in the 10 control runs, and 238 of
+them are absent from the control inventory. It names a reaper only from a
+recorded wait status, owner record or removal record:
+
+| Reaper | Children |
+| --- | --- |
+| Fixture | 308 |
+| Runtime | 157 |
+| Control, after an exact-PID SIGKILL | 4 |
+| launchd, after a manual exact-PID SIGKILL | 15 |
+| Unknown | 2 |
+
+The two unknown children are in run
+`pause-survey-stall-after-20261116T221759-D57F2FF0`. The control saw both of
+them already reaped, and no receipt names the reaper. Receipts name no signaller
+for 258 children, and the inventory records those signallers as unknown.
+
+The receipts cannot prove that they name every child. A direct child that
+nobody reaped stays a child of the control in `ps`. Eight runs end with no such
+row, so each child in those runs was reaped. The other two runs keep their k154
+control defects: 15 children that a manual exact-PID SIGKILL removed, and the
+control's own `ps` row. A child without a receipt has an unknown reaper.
 
 The cause of the run 42 observation gap is still unknown. k18 owns stalled
-storage. The k17 whole contract is still not met, because five cases did not
-recur and are not explained. Ten-clone acceptance remains **0/10, unavailable**.
+storage. Five cases did not recur and are not explained. On 2026-11-16 the
+human accepted the five cases and the run 42 gap as visible limits, and k17
+closed. These limits are not guarantees. A recurrence reopens its causal
+question. Ten-clone acceptance remains **0/10, unavailable**.

@@ -1,0 +1,136 @@
+task: [diagnostic:child-inventory] uv run --locked --isolated --python 3.12 python -I evidence/worker-deadline-cleanup-k157/child_inventory.py
+Installed 9 packages in 67ms
+{
+  "children_listed": 486,
+  "children_missing_from_control_inventory": 238,
+  "reapers": {
+    "control": 4,
+    "fixture": 308,
+    "launchd after the control exited": 15,
+    "runtime": 157,
+    "unknown": 2
+  },
+  "signallers": {
+    "control": 4,
+    "fixture": 62,
+    "manual exact-PID SIGKILL": 15,
+    "runtime": 147,
+    "unknown": 258
+  },
+  "runs_with_children_after_cleanup": [
+    "pause-survey-stall-after-20261116T221233-8BA68CAF",
+    "red-stall-before-20261116T220516-CED8ECF0"
+  ],
+  "per_run": {
+    "all-stall-after-20261116T220804-3F4B7BC1": {
+      "children_listed": 10,
+      "children_missing_from_control_inventory": 0,
+      "reapers": {
+        "fixture": 10
+      },
+      "checker_pids": [],
+      "checker_is_listed_child": false
+    },
+    "green-stall-after-20261116T220735-183657FC": {
+      "children_listed": 2,
+      "children_missing_from_control_inventory": 0,
+      "reapers": {
+        "fixture": 2
+      },
+      "checker_pids": [],
+      "checker_is_listed_child": false
+    },
+    "nostall-after-20261116T220739-17F190C6": {
+      "children_listed": 2,
+      "children_missing_from_control_inventory": 0,
+      "reapers": {
+        "fixture": 2
+      },
+      "checker_pids": [],
+      "checker_is_listed_child": false
+    },
+    "nostall-before-20261116T220615-9DF7DD00": {
+      "children_listed": 2,
+      "children_missing_from_control_inventory": 0,
+      "reapers": {
+        "fixture": 2
+      },
+      "checker_pids": [],
+      "checker_is_listed_child": false
+    },
+    "pause-survey-nostall-final-20261116T222343-AC58EFB2": {
+      "children_listed": 170,
+      "children_missing_from_control_inventory": 160,
+      "reapers": {
+        "fixture": 68,
+        "runtime": 102
+      },
+      "checker_pids": [
+        84276
+      ],
+      "checker_is_listed_child": false
+    },
+    "pause-survey-stall-after-20261116T221233-8BA68CAF": {
+      "children_listed": 22,
+      "children_missing_from_control_inventory": 7,
+      "reapers": {
+        "fixture": 4,
+        "launchd after the control exited": 15,
+        "runtime": 3
+      },
+      "checker_pids": [
+        64912
+      ],
+      "checker_is_listed_child": false
+    },
+    "pause-survey-stall-after-20261116T221759-D57F2FF0": {
+      "children_listed": 131,
+      "children_missing_from_control_inventory": 32,
+      "reapers": {
+        "fixture": 107,
+        "runtime": 22,
+        "unknown": 2
+      },
+      "checker_pids": [
+        77754
+      ],
+      "checker_is_listed_child": false
+    },
+    "pause-survey-stall-final-20261116T222240-CA3911A9": {
+      "children_listed": 143,
+      "children_missing_from_control_inventory": 39,
+      "reapers": {
+        "fixture": 113,
+        "runtime": 30
+      },
+      "checker_pids": [
+        82938
+      ],
+      "checker_is_listed_child": false
+    },
+    "red-stall-before-20261116T220516-CED8ECF0": {
+      "children_listed": 2,
+      "children_missing_from_control_inventory": 0,
+      "reapers": {
+        "control": 2
+      },
+      "checker_pids": [],
+      "checker_is_listed_child": false
+    },
+    "red-stall-before-20261116T220611-5E895BD1": {
+      "children_listed": 2,
+      "children_missing_from_control_inventory": 0,
+      "reapers": {
+        "control": 2
+      },
+      "checker_pids": [],
+      "checker_is_listed_child": false
+    }
+  }
+}
+task: [diagnostic:child-inventory] uv run --locked python -m ruff check evidence/worker-deadline-cleanup-k157/child_inventory.py
+All checks passed!
+task: [diagnostic:child-inventory] uv run --locked python -m ruff format --check evidence/worker-deadline-cleanup-k157/child_inventory.py
+1 file already formatted
+task: [diagnostic:child-inventory] uv run --locked python -m pyright evidence/worker-deadline-cleanup-k157/child_inventory.py
+0 errors, 0 warnings, 0 informations

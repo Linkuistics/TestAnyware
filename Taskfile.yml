@@ -185,6 +185,15 @@ tasks:
       - uv run --locked python -m ruff format --check evidence/worker-deadline-cleanup-k154/*.py
       - uv run --locked python -m pyright evidence/worker-deadline-cleanup-k154/*.py
 
+  diagnostic:child-inventory:
+    desc: List each child PID that the k154 control runs record, with the reaper and signaller that receipts name (k157)
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked --isolated --python 3.12 python -I evidence/worker-deadline-cleanup-k157/child_inventory.py
+      - uv run --locked python -m ruff check evidence/worker-deadline-cleanup-k157/child_inventory.py
+      - uv run --locked python -m ruff format --check evidence/worker-deadline-cleanup-k157/child_inventory.py
+      - uv run --locked python -m pyright evidence/worker-deadline-cleanup-k157/child_inventory.py
+
   diagnostic:soak-tools:
     desc: Check the k152 soak, timeline and control tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'

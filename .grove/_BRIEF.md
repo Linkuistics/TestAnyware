@@ -439,3 +439,12 @@ see [their original briefs and current routing](../docs/planning/grove-history/R
 Their unfinished worker/scheduler contracts belong to k28 and live k71, with
 k72 before k71 and final full-runtime review before k21. This structural change
 certifies no aggregate complete and preserves every root acceptance condition.
+
+## k17 closed with visible limits
+
+On 2026-11-16 the human closed `diagnostic-evidence-k17` after its review
+integration, worker-deadline-cleanup-k157. Five historical timing cases did not
+recur in the k152 soak and have no demonstrated cause. The cause of the run 42
+observation gap is unknown. The human accepted both as visible limits, not as
+guarantees. k18 owns stalled storage, and guest acceptance stays
+**0/10, unavailable**.

@@ -197,3 +197,22 @@ visible limits. Historical-failure-soak-k152 records the missing timestamps in
 one bounded soak. It explains each recurrence, or it records the run count
 without a recurrence. k17 stays open until k152 reports. k18 owns stalled
 storage, and guest acceptance stays **0/10, unavailable**.
+
+## Soak result and fixture cleanup
+
+The k152 soak reproduced one case, the run 42 deadline, and five cases did not
+recur. Worker-deadline-cleanup-k154 reproduced the run 42 leak with a stalled
+signal and repaired the fixtures, so that case is a `fixture_defect`. The cause
+of the run 42 observation gap is still unknown.
+
+Worker-deadline-cleanup-k157 integrated the k156 review of k154. Its
+`child-inventory.json` lists 486 direct children from the retained receipts.
+It names a reaper only from a recorded fact, and two reapers stay unknown. It
+replaces the k154 claim that `resource-audit.json` lists each child.
+
+Five historical cases did not recur in the bounded soak and have no
+demonstrated cause. The cause of the run 42 observation gap is unknown. On
+2026-11-16 the human accepted both as visible limits and closed k17. The limits
+are not guarantees. A recurrence of any of the five cases reopens its causal
+question. k18 owns stalled storage, and guest acceptance stays
+**0/10, unavailable**.
