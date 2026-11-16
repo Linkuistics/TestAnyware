@@ -26,7 +26,7 @@ from typing import Literal, TypedDict, cast
 import storage_client
 import writer
 from inspection import fork_admission
-from retention import IDENTITY, STORAGE_CLOSE, observe_file
+from retention import IDENTITY, STORAGE_CLOSE
 from storage_client import OUTBOX_CAP, READINESS_CEILING, WRITER, StorageClient
 from turns import Turn, run_turns
 from worker_capture import (
@@ -42,6 +42,12 @@ from writer import MAX_PAYLOAD
 # docs/specs/diagnostic-evidence-storage.md, "Phases and bounds": each intent
 # gate adds at most 2 seconds before its acquisition.
 INTENT_GATE_CEILING = 2.0
+
+# docs/specs/diagnostic-evidence-storage.md, "Workload and teardown
+# descriptors": a turn reads at most 64 KiB from each stream. The final drain
+# after leader reap makes at most 16 such reads for each stream.
+STREAM_READ = 64 * 1024
+FINAL_READS = 16
 
 
 @dataclass(frozen=True)
@@ -127,7 +133,7 @@ def _hashes(subjects: tuple[Path, ...]) -> dict[str, str]:  # pyright: ignore[re
     return result
 
 
-def _validate(plan: Plan) -> None:
+def _validate(plan: Plan, evidence_root: Path | None = None) -> None:
     if not isinstance(cast(object, plan.bootstrap), BootstrapBounds):
         raise ValueError("invalid bootstrap bounds")
     plan.bootstrap.validate()
@@ -167,6 +173,8 @@ def _validate(plan: Plan) -> None:
             raise ValueError("cleanup/disposal exceeds the commissioned ceiling")
         if resource.inspect.expected_stdout is None:
             raise ValueError("absence inspection needs an exact stdout oracle")
+        if evidence_root is not None:
+            _refuse_evidence_executables(resource, evidence_root)
     names: set[str] = set()
     for call in calls:
         reserved = {
@@ -193,6 +201,22 @@ def _validate(plan: Plan) -> None:
             raise ValueError("expected interruption needs interrupt_after")
         if call.expected_reason == "deadline" and call.interrupt_after is not None:
             raise ValueError("expected deadline cannot declare interruption")
+
+
+def _refuse_evidence_executables(resource: Resource, evidence_root: Path) -> None:
+    """Refuse a teardown executable that is relative or under the evidence root.
+
+    The comparison is lexical. `os.path.abspath` joins the working directory
+    and normalises, and it reads nothing under the evidence root.
+    https://docs.python.org/3.12/library/os.path.html#os.path.abspath
+    """
+    root = os.path.abspath(evidence_root)
+    for call in (resource.cleanup, resource.dispose, resource.inspect):
+        executable = call.argv[0] if call.argv else ""
+        if not os.path.isabs(executable):
+            raise ValueError("a teardown executable must be an absolute path")
+        if os.path.commonpath([os.path.normpath(executable), root]) == root:
+            raise ValueError("a teardown executable must not lie under the evidence root")
 
 
 def _exited(pid: int) -> bool:
@@ -550,6 +574,133 @@ def _final_snapshot(
     }
 
 
+class _Stream:
+    """One captured stream: its read end and the bytes read so far."""
+
+    def __init__(self, record: str, fd: int) -> None:
+        self.record = record
+        self.fd: int | None = fd
+        self.data = bytearray()
+        self.digest = hashlib.sha256()
+        self.eof = False
+        self.reads = 0
+        self.final_reads = 0
+        self.completeness: Literal["eof", "writer_open", "cutoff"] | None = None
+
+
+class _Capture:
+    """Drain one call's stdout and stderr pipes and send the bytes to the writer.
+
+    The controller keeps only the nonblocking read ends. `os.pipe()` makes
+    both ends non-inheritable (PEP 446), and `Popen` duplicates the write
+    ends onto descriptors 1 and 2 in the child only.
+    https://docs.python.org/3.12/library/os.html#os.pipe
+    """
+
+    def __init__(self, name: str, storage: _RunStorage | None) -> None:
+        self.storage = storage
+        self.streams: dict[str, _Stream] = {}
+        self.write_ends: list[int] = []
+        try:
+            for stream in ("stdout", "stderr"):
+                read_end, write_end = os.pipe()
+                self.streams[stream] = _Stream(f"{name}.{stream}", read_end)
+                self.write_ends.append(write_end)
+                os.set_blocking(read_end, False)
+        except OSError:
+            self.close()
+            raise
+        for captured in self.streams.values():
+            self._send(captured, b"", create=True)
+
+    def _send(self, captured: _Stream, chunk: bytes, *, create: bool = False) -> None:
+        if self.storage is not None:
+            self.storage.stream(captured.record, chunk, create=create)
+
+    def close_write_ends(self) -> None:
+        """Close the controller's write ends, so EOF depends only on the call."""
+        while self.write_ends:
+            os.close(self.write_ends.pop())
+
+    def _read(self, captured: _Stream) -> Literal["data", "again", "eof"]:
+        assert captured.fd is not None
+        try:
+            chunk = os.read(captured.fd, STREAM_READ)
+        except BlockingIOError:
+            return "again"
+        if not chunk:
+            captured.eof = True
+            return "eof"
+        captured.data += chunk
+        captured.digest.update(chunk)
+        self._send(captured, chunk)
+        return "data"
+
+    def drain(self) -> None:
+        """Make at most one read of each open stream."""
+        for captured in self.streams.values():
+            if captured.fd is not None and not captured.eof:
+                captured.reads += 1
+                self._read(captured)
+
+    def advance(self) -> float:
+        self.drain()
+        return time.monotonic() + 0.005
+
+    def readiness(self) -> tuple[tuple[int, ...], tuple[int, ...]]:
+        reads = tuple(
+            captured.fd
+            for captured in self.streams.values()
+            if captured.fd is not None and not captured.eof
+        )
+        return reads, ()
+
+    def final_drain(self) -> None:
+        """Read each stream until EOF or EAGAIN, at most 16 times, and close it.
+
+        The drain never waits. EAGAIN means a descendant still holds a write
+        end, so the stream is `writer_open`. The read limit gives `cutoff`.
+        """
+        for captured in self.streams.values():
+            if captured.fd is None:
+                continue
+            outcome: Literal["data", "again", "eof"] = "eof" if captured.eof else "data"
+            while outcome == "data" and captured.final_reads < FINAL_READS:
+                captured.final_reads += 1
+                outcome = self._read(captured)
+            captured.completeness = (
+                "eof" if outcome == "eof" else "writer_open" if outcome == "again" else "cutoff"
+            )
+            os.close(captured.fd)
+            captured.fd = None
+
+    def close(self) -> None:
+        """Close every descriptor that remains, also after an error.
+
+        Each stream record gets its digest entry from the bytes in memory.
+        """
+        self.close_write_ends()
+        for captured in self.streams.values():
+            if captured.fd is not None:
+                os.close(captured.fd)
+                captured.fd = None
+            if self.storage is not None:
+                self.storage.digests[captured.record] = _pin(bytes(captured.data))
+
+    def receipts(self) -> dict[str, dict[str, object]]:
+        return {
+            stream: {
+                "record": captured.record,
+                "length": len(captured.data),
+                "sha256": captured.digest.hexdigest(),
+                "completeness": captured.completeness,
+                "reads": captured.reads,
+                "final_reads": captured.final_reads,
+            }
+            for stream, captured in self.streams.items()
+        }
+
+
 class _InspectionFailure(TypedDict):
     call: str
     observation: GroupObservation
@@ -562,6 +713,8 @@ class _InspectionState:
     retirements: list[Turn] = field(default_factory=list[Turn])
     # The run's storage. Its turn drains the outbox beside every command wait.
     storage: _RunStorage | None = None
+    # The active call's streams. Its turn drains the pipes beside the command.
+    capture: _Capture | None = None
 
     def advance_worker(self) -> float | None:
         assert self.worker is not None
@@ -605,7 +758,7 @@ class _InspectionState:
             or (not worker.closed and not self.retirements)
             or (worker.shutdown_finished is not None)
         )
-        if not shutdown and self.storage is None:
+        if not shutdown and self.storage is None and self.capture is None:
             run_turns(turn)
             return
         finished = False
@@ -633,6 +786,15 @@ class _InspectionState:
                 return storage.client.advance()
 
             turns.append(Turn(advance_storage, readiness=storage.client.interests))
+        capture = self.capture
+        if capture is not None:
+
+            def advance_capture() -> float | None:
+                if finished:
+                    return None
+                return capture.advance()
+
+            turns.append(Turn(advance_capture, readiness=capture.readiness))
         run_turns(*turns)
 
     def snapshot(
@@ -835,88 +997,103 @@ def _call(call: Call, root: Path, plan: Plan, inspection: _InspectionState) -> d
     }
     events: list[dict[str, object]] = []
     receipt["signals"] = events
-    with (
-        (root / f"{call.name}.stdout").open("xb") as stdout,
-        (root / f"{call.name}.stderr").open("xb") as stderr,
-    ):
+    capture = _Capture(call.name, inspection.storage)
+    inspection.capture = capture
+    try:
         try:
             # Separate session isolates the command CLI from this controller.
-            # File streams avoid communicate() waiting for descendant pipe EOF.
+            # The controller drains the pipes in its own turns and never waits
+            # for EOF, so a descendant that holds a write end cannot hold it.
             # https://docs.python.org/3.12/library/subprocess.html#subprocess.Popen
             process = _WorkloadProcess(
                 call.argv,
                 stdin=subprocess.DEVNULL,
-                stdout=stdout,
-                stderr=stderr,
+                stdout=capture.write_ends[0],
+                stderr=capture.write_ends[1],
+                cwd="/",
                 start_new_session=True,
             )
         except OSError as error:
             receipt["error"] = str(error)
-        else:
-            _workload_owners[process.pid] = process
-            receipt.update(pid=process.pid, pgid=process.pid)
-            receipt["signal_scope"] = "pid" if call.interrupt_after is not None else "group"
-            deadline = start + (call.interrupt_after or call.budget)
-            try:
-                exited = _wait(process.pid, deadline, drive=inspection.drive)
-            except OSError as error:
-                receipt["reason"] = "observation_error"
-                receipt["error"] = str(error)
-                exited = False
-            if exited:
-                receipt["reason"] = "exit"
-                leader_exit = time.monotonic()
-                receipt["leader_exit_monotonic"] = leader_exit
-                reap_deadline = leader_exit + plan.kill_wait
-                inspection_deadline = reap_deadline - min(0.1, plan.kill_wait / 4)
-                receipt["inspection_deadline_monotonic"] = inspection_deadline
-                group = inspection.snapshot(
-                    call.name, process.pid, inspection_deadline, leader_exit
-                )
-                receipt["group_observations"] = [group]
-                receipt["termination_ok"] = group["state"] == "zombie_only"
-            else:
-                if receipt["reason"] != "observation_error":
-                    receipt["reason"] = "interrupted" if call.interrupt_after else "deadline"
-                reap_deadline = _terminate(
-                    process.pid, call.interrupt_after is not None, plan, receipt, inspection
-                )
-            observations = receipt.get("group_observations")
-            if isinstance(observations, list) and observations:
-                final = cast(GroupObservation, observations[-1])
-                if final["state"] != "zombie_only":
-                    receipt["residual_members"] = final["members"]
-                    receipt["residual_pgid"] = process.pid
-                    receipt["residual_remedy"] = (
-                        "Inspect retained member PID/PGID and command identities independently; "
-                        "release known fixture markers or clean only revalidated owned members. "
-                        "Do not signal this group after leader reap. "
-                        "Unknown inspection is not absence."
-                    )
-            _reap_leader(process, reap_deadline, receipt, drive=inspection.drive)
-            receipt["ok"] = (
-                receipt["reason"] == call.expected_reason
-                and receipt["returncode"] == call.expected_exit
-                and receipt["reaped"] is True
-                and receipt["termination_ok"] is True
-                and receipt["within_process_bounds"] is True
-            )
-    # Pin each raw stream after reap and the termination decision. A surviving
-    # writer can still append later; retention.verify compares with these pins.
-    observed: dict[str, bytes | None] = {}
-    streams: dict[str, dict[str, object]] = {}
-    for stream in ("stdout", "stderr"):
-        observed[stream], streams[stream] = observe_file(root / f"{call.name}.{stream}")
+            process = None
+        finally:
+            capture.close_write_ends()
+        if process is not None:
+            _supervise(call, plan, inspection, process, receipt)
+        # The final drain follows the termination decision and leader reap.
+        # It reads what the leader left in the pipes, and it never waits.
+        capture.final_drain()
+    finally:
+        inspection.capture = None
+        capture.close()
+    streams = capture.receipts()
     receipt["streams"] = streams
-    if any(data is None for data in observed.values()):
+    if any(stream["completeness"] != "eof" for stream in streams.values()):
         receipt["ok"] = False
     if call.expected_stdout is not None:
-        # Judge exactly the pinned bytes, never a second read.
-        receipt["stdout_matches"] = observed["stdout"] == call.expected_stdout
+        # Judge exactly the bytes in memory, never a readback.
+        receipt["stdout_matches"] = bytes(capture.streams["stdout"].data) == call.expected_stdout
         receipt["ok"] = receipt["ok"] is True and receipt["stdout_matches"] is True
     receipt["elapsed"] = time.monotonic() - start
     write_json(root / f"{call.name}.json", receipt)
     return receipt
+
+
+def _supervise(
+    call: Call,
+    plan: Plan,
+    inspection: _InspectionState,
+    process: _WorkloadProcess,
+    receipt: dict[str, object],
+) -> None:
+    """Wait for the leader, decide termination, and reap the leader."""
+    start = cast(float, receipt["started_monotonic"])
+    _workload_owners[process.pid] = process
+    receipt.update(pid=process.pid, pgid=process.pid)
+    receipt["signal_scope"] = "pid" if call.interrupt_after is not None else "group"
+    deadline = start + (call.interrupt_after or call.budget)
+    try:
+        exited = _wait(process.pid, deadline, drive=inspection.drive)
+    except OSError as error:
+        receipt["reason"] = "observation_error"
+        receipt["error"] = str(error)
+        exited = False
+    if exited:
+        receipt["reason"] = "exit"
+        leader_exit = time.monotonic()
+        receipt["leader_exit_monotonic"] = leader_exit
+        reap_deadline = leader_exit + plan.kill_wait
+        inspection_deadline = reap_deadline - min(0.1, plan.kill_wait / 4)
+        receipt["inspection_deadline_monotonic"] = inspection_deadline
+        group = inspection.snapshot(call.name, process.pid, inspection_deadline, leader_exit)
+        receipt["group_observations"] = [group]
+        receipt["termination_ok"] = group["state"] == "zombie_only"
+    else:
+        if receipt["reason"] != "observation_error":
+            receipt["reason"] = "interrupted" if call.interrupt_after else "deadline"
+        reap_deadline = _terminate(
+            process.pid, call.interrupt_after is not None, plan, receipt, inspection
+        )
+    observations = receipt.get("group_observations")
+    if isinstance(observations, list) and observations:
+        final = cast(GroupObservation, observations[-1])
+        if final["state"] != "zombie_only":
+            receipt["residual_members"] = final["members"]
+            receipt["residual_pgid"] = process.pid
+            receipt["residual_remedy"] = (
+                "Inspect retained member PID/PGID and command identities independently; "
+                "release known fixture markers or clean only revalidated owned members. "
+                "Do not signal this group after leader reap. "
+                "Unknown inspection is not absence."
+            )
+    _reap_leader(process, reap_deadline, receipt, drive=inspection.drive)
+    receipt["ok"] = (
+        receipt["reason"] == call.expected_reason
+        and receipt["returncode"] == call.expected_exit
+        and receipt["reaped"] is True
+        and receipt["termination_ok"] is True
+        and receipt["within_process_bounds"] is True
+    )
 
 
 def _safe_call(
@@ -1099,6 +1276,20 @@ class _RunStorage:
             self.records[seq] = name
             first = seq if first is None else first
         return first
+
+    def stream(self, name: str, chunk: bytes, *, create: bool = False) -> None:
+        """Send one stream chunk as a create or an append frame.
+
+        A chunk holds at most 64 KiB, so it fits one frame. A drop fails
+        storage. The capture keeps the bytes in memory in every case.
+        """
+        seq = self.client.enqueue("create" if create else "append", name, chunk)
+        if seq is None:
+            if self.client.drops.get(name):
+                self._fail("outbox_drop", "create" if create else "append", name, None)
+            self._stop()
+            return
+        self.records[seq] = name
 
     # P2: intent gate ---------------------------------------------------------
 
@@ -1304,7 +1495,7 @@ def execute(plan: Plan, evidence_root: Path) -> RunDirectory:
     Every run record goes through the run's writer. The returned path carries
     the storage outcome in its `storage` attribute.
     """
-    _validate(plan)
+    _validate(plan, evidence_root)
     root = evidence_root.resolve() / plan.run_id
     if os.path.lexists(root):
         raise FileExistsError(errno.EEXIST, os.strerror(errno.EEXIST), str(root))

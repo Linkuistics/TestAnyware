@@ -313,14 +313,21 @@ def first_failure_snapshot(run: Run) -> Mapping[str, object]:
     return cast(Mapping[str, object], failure)
 
 
-def writer_descriptors(run: Run) -> Mapping[int, str] | None:
-    """Return the descriptor kinds that the writer reported, or None.
+def writer_descriptors(report: Path) -> list[Mapping[int, str]]:
+    """Return the descriptor kinds of each writer snapshot after setup.
 
-    No writer exists on this build. The slice that adds the writer wrapper
-    report binds this adapter to it.
+    The `report:PATH` fault of writer_faults.py appends one snapshot before
+    the first read and one before each acknowledgement. Only the
+    acknowledgement snapshots follow the open of the run directory.
     """
-    report = getattr(run.returned, "writer_descriptors", None)
-    return report if isinstance(report, Mapping) else None
+    if not report.exists():
+        return []
+    lines = [json.loads(line) for line in report.read_bytes().splitlines()]
+    return [
+        {int(fd): kind for fd, kind in line["descriptors"].items()}
+        for line in lines
+        if line["point"] == "ack"
+    ]
 
 
 def declare(plan: Plan) -> Plan:
@@ -578,18 +585,14 @@ def test_control_writer_death(tmp_path, monkeypatch):
     assert outcome.writer_reaped is True
 
 
-@removed_by(
-    "pipe-capture-k167, then storage-publication-k168",
-    "the flood stream bypasses the writer, and then the controller blocks on storage",
-)
+@removed_by("storage-publication-k168", "the close wait holds the controller")
 def test_control_outbox_overflow(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
     marker = tmp_path / "later-ran"
     # The writer stops at the open of the flood's stdout record, before it
-    # drains any of the stream, so the stream fills the outbox. Until
-    # pipe-capture-k167 the stream goes to a file. The writer then stops only
-    # when its close transaction pins that file, and the close wait holds the
+    # drains any of the stream, so the stream fills the outbox. The drop fails
+    # storage and stops forward progress. The close wait then holds the
     # controller until storage-publication-k168 bounds it.
     fault = WriterFault(monkeypatch, "stall:flood.stdout")
     workers = capture_workers(monkeypatch)
@@ -888,18 +891,131 @@ def test_control_no_controller_storage_calls(tmp_path, monkeypatch):
     assert not owned(tmp_path, first)
 
 
-@removed_by("pipe-capture-k167", "calls write their streams to evidence files")
-def test_control_inherited_state(tmp_path):
+def test_control_inherited_state(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
+    report = tmp_path / "writer-descriptors.jsonl"
+    fault = WriterFault(monkeypatch, f"report:{report}")
     run = run_control(
-        tmp_path, plan(run_id, (script("descriptors", DESCRIPTORS),)), None, RUN_WATCHDOG
+        tmp_path, plan(run_id, (script("descriptors", DESCRIPTORS),)), fault, RUN_WATCHDOG
     )
-    report = json.loads((run.directory / "descriptors.stdout").read_bytes())
-    assert report == {"0": "null", "1": "fifo", "2": "fifo"}
-    writer = writer_descriptors(run)
-    assert writer is not None, "the writer reported no descriptors"
-    assert set(writer) >= {0, 1, 2}
-    assert sorted(writer.values()) == ["directory", "fifo", "fifo", "null"]
+    # The call holds its two stream pipes and the null device, so it holds no
+    # writer pipe end. The writer holds its three standard descriptors and the
+    # run directory, so it holds no call pipe end.
+    called = json.loads((run.directory / "descriptors.stdout").read_bytes())
+    assert called == {"0": "null", "1": "fifo", "2": "fifo"}
+    snapshots = writer_descriptors(report)
+    assert snapshots, "the writer reported no descriptors after setup"
+    for writer in snapshots:
+        assert set(writer) >= {0, 1, 2}, writer
+        assert sorted(writer.values()) == ["directory", "fifo", "fifo", "null"], writer
+
+
+# Review control: buffered output at exit -----------------------------------
+#
+# The fixture writes 8 KiB to stdout and exits. The pipe buffer holds all of
+# it, so the fixture never blocks. The control replaces every drain turn with
+# no read, so the bytes reach memory only through the final drain after the
+# leader reap. A build without the final drain loses them.
+
+BUFFERED = b"b" * 8192
+BUFFERED_SOURCE = "import sys; sys.stdout.buffer.write(b'b' * 8192)"
+
+
+def buffered_output_control(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(controller._Capture, "drain", lambda self: None)
+    call = replace(script("buffered", BUFFERED_SOURCE), expected_stdout=BUFFERED)
+    run = run_control(tmp_path, plan(uuid.uuid4().hex, (call,)), None, RUN_WATCHDOG)
+    assert run.raised is None
+    receipt = json.loads((run.directory / "buffered.json").read_bytes())
+    stdout = receipt["streams"]["stdout"]
+    assert stdout["reads"] == 0, "a drain turn read the stream before the leader reap"
+    assert receipt["stdout_matches"] is True, "the stdout match failed"
+    assert stdout["completeness"] == "eof"
+    assert stdout["length"] == len(BUFFERED)
+    assert receipt["ok"] is True
+    assert (run.directory / "buffered.stdout").read_bytes() == BUFFERED
+
+
+def test_control_buffered_output(tmp_path, monkeypatch):
+    buffered_output_control(tmp_path, monkeypatch)
+
+
+def test_control_buffered_output_fails_without_the_final_drain(tmp_path, monkeypatch):
+    def close_without_reading(self: controller._Capture) -> None:
+        for captured in self.streams.values():
+            if captured.fd is not None:
+                captured.completeness = "eof" if captured.eof else "writer_open"
+                os.close(captured.fd)
+                captured.fd = None
+
+    monkeypatch.setattr(controller._Capture, "final_drain", close_without_reading)
+    with pytest.raises(AssertionError) as failure:
+        buffered_output_control(tmp_path, monkeypatch)
+    assert "the stdout match failed" in str(failure.value)
+
+
+# Review control: inherited writer ------------------------------------------
+#
+# The fixture starts a descendant in a new session. The descendant inherits
+# the stdout write end, never writes and outlives the run. The leader writes
+# one line and exits. The receipt must state `writer_open` and fail, and the
+# controller must not wait for EOF. A build that waits blocks in its read
+# until the watchdog ends it.
+
+LINGERING = """
+import subprocess, sys
+child = subprocess.Popen(
+    [sys.executable, "-I", "-c", "import time; time.sleep(60)"],
+    stdin=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    start_new_session=True,
+)
+with open(sys.argv[1], "x") as pid_file:
+    pid_file.write(str(child.pid))
+sys.stdout.write("leader\\n")
+"""
+# The control finishes in about one second. A wait for EOF lasts until the
+# descendant ends, so this watchdog ends it first.
+LINGERING_WATCHDOG = 4.0
+
+
+def inherited_writer_control(tmp_path: Path) -> None:
+    pid_file = tmp_path / "descendant.pid"
+    call = script("lingering", LINGERING, pid_file)
+    try:
+        run = run_control(tmp_path, plan(uuid.uuid4().hex, (call,)), None, LINGERING_WATCHDOG)
+    finally:
+        if pid_file.exists():
+            try:
+                os.killpg(int(pid_file.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    assert run.raised is None
+    receipt = json.loads((run.directory / "lingering.json").read_bytes())
+    stdout = receipt["streams"]["stdout"]
+    assert stdout["completeness"] == "writer_open", stdout
+    assert receipt["streams"]["stderr"]["completeness"] == "eof"
+    assert receipt["ok"] is False, "a stream without EOF passed"
+    assert stdout["final_reads"] <= controller.FINAL_READS
+    assert (run.directory / "lingering.stdout").read_bytes() == b"leader\n"
+
+
+def test_control_inherited_writer(tmp_path):
+    inherited_writer_control(tmp_path)
+
+
+def test_control_inherited_writer_fails_on_a_build_that_waits_for_eof(tmp_path, monkeypatch):
+    final_drain = controller._Capture.final_drain
+
+    def wait_for_eof(self: controller._Capture) -> None:
+        for captured in self.streams.values():
+            if captured.fd is not None:
+                os.set_blocking(captured.fd, True)
+        final_drain(self)
+
+    monkeypatch.setattr(controller._Capture, "final_drain", wait_for_eof)
+    with pytest.raises(WatchdogExpired):
+        inherited_writer_control(tmp_path)
 
 
 # Review control: close record ----------------------------------------------

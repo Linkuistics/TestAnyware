@@ -34,7 +34,7 @@ def file_states(report):
     return {item["path"]: item["state"] for item in report["files"]}
 
 
-def test_review_streams_are_pinned_at_an_observation_interval(tmp_path):
+def test_review_streams_are_pinned_from_the_bytes_in_memory(tmp_path):
     path, result = run(tmp_path, [call("bytes", "bytes")])
     receipt = result["calls"][0]
     streams = receipt["streams"]
@@ -42,9 +42,11 @@ def test_review_streams_are_pinned_at_an_observation_interval(tmp_path):
     assert streams["stdout"]["sha256"] == sha(EXPECTED)
     assert streams["stderr"]["length"] == len(b"separate stderr\n")
     assert streams["stderr"]["sha256"] == sha(b"separate stderr\n")
-    for pin in streams.values():
-        assert receipt["leader_exit_monotonic"] <= pin["started_monotonic"]
-        assert pin["started_monotonic"] <= pin["finished_monotonic"]
+    for stream, pin in streams.items():
+        assert pin["completeness"] == "eof"
+        assert pin["record"] == f"bytes.{stream}"
+        assert pin["final_reads"] <= controller.FINAL_READS
+    assert (path / "bytes.stdout").read_bytes() == EXPECTED
     stored = json.loads((path / "bytes.json").read_text())
     assert stored["streams"] == streams
     identity = json.loads((path / "result-identity.json").read_text())
@@ -71,22 +73,20 @@ def test_review_wrong_stdout_is_judged_from_the_pinned_bytes(tmp_path):
     assert result["unreached"] == ["later"]
 
 
-def append_after_pin(monkeypatch):
-    """Append to stdout after the controller's single read returns."""
-    original = controller.observe_file
+def store_with_late_bytes(monkeypatch):
+    """Send the writer one more stdout line than the controller read."""
+    original = controller._RunStorage.stream
 
-    def observe_then_append(path):
-        observed = original(path)
-        if path.suffix == ".stdout":
-            with path.open("ab") as late:
-                late.write(b"late\n")
-        return observed
+    def stream_with_late_bytes(self, name, chunk, *, create=False):
+        if name.endswith(".stdout") and chunk:
+            chunk += b"late\n"
+        original(self, name, chunk, create=create)
 
-    monkeypatch.setattr(controller, "observe_file", observe_then_append)
+    monkeypatch.setattr(controller._RunStorage, "stream", stream_with_late_bytes)
 
 
-def test_review_exact_stdout_uses_the_pinned_bytes(tmp_path, monkeypatch):
-    append_after_pin(monkeypatch)
+def test_review_exact_stdout_uses_the_bytes_in_memory(tmp_path, monkeypatch):
+    store_with_late_bytes(monkeypatch)
     exact = replace(call("bytes", "bytes"), expected_stdout=EXPECTED)
     path, result = run(tmp_path, [exact])
     receipt = result["calls"][0]
@@ -98,23 +98,24 @@ def test_review_exact_stdout_uses_the_pinned_bytes(tmp_path, monkeypatch):
     assert report["ok"] is False
 
 
-def test_review_mutation_rereading_stdout_loses_the_pinned_verdict(tmp_path, monkeypatch):
-    append_after_pin(monkeypatch)
+def test_review_mutation_rereading_stdout_loses_the_memory_verdict(tmp_path, monkeypatch):
+    store_with_late_bytes(monkeypatch)
     mutate_function(
         monkeypatch,
         controller,
         "_call",
-        'observed["stdout"] == call.expected_stdout',
+        'bytes(capture.streams["stdout"].data) == call.expected_stdout',
         '(root / f"{call.name}.stdout").read_bytes() == call.expected_stdout',
     )
     exact = replace(call("bytes", "bytes"), expected_stdout=EXPECTED)
     _, result = run(tmp_path, [exact])
-    # The mutated controller judges different bytes from the bytes it pinned.
-    assert result["calls"][0]["stdout_matches"] is False
-    assert result["calls"][0]["streams"]["stdout"]["sha256"] == sha(EXPECTED)
+    # The readback finds no file, an empty file or the stored bytes. None of
+    # them equals the bytes in memory, so the mutated verdict never passes.
+    assert result["calls"][0].get("stdout_matches") is not True
+    assert result["ok"] is False
 
 
-def test_review_late_writer_invalidates_the_original_receipt(tmp_path):
+def test_review_late_writer_cannot_change_the_retained_stream(tmp_path):
     release, declaration = tmp_path / "release", tmp_path / "late.spawned"
     writer = replace(
         call("late-writer", "late-writer", release, declaration), expected_stdout=b"early\n"
@@ -133,7 +134,9 @@ def test_review_late_writer_invalidates_the_original_receipt(tmp_path):
             **receipt["streams"]["stdout"],
             "length": 6,
             "sha256": sha(b"early\n"),
+            "completeness": "writer_open",
         }
+        assert receipt["streams"]["stderr"]["completeness"] == "writer_open"
         # The live group fails termination before any late-write verdict exists.
         assert receipt["termination_ok"] is False
         assert any(item["pid"] == child for item in receipt["residual_members"])
@@ -153,12 +156,14 @@ def test_review_late_writer_invalidates_the_original_receipt(tmp_path):
             observations.append(inspect_pid(child))
         audit["child_after_release"] = observations
         assert observations[-1]["state"] == "absent"
-        assert (path / "late-writer.stdout").read_bytes() == b"early\nlate\n"
+        # The controller closed its read end, so the late write meets a
+        # broken pipe. The stored stream keeps exactly the bytes in memory.
+        assert (path / "late-writer.stdout").read_bytes() == b"early\n"
         after = retention().verify(path)
         audit["verify_after_release"] = after
-        assert after["ok"] is False
-        assert stream_states(after)[("late-writer", "stdout")] == "changed"
-        assert file_states(after)["late-writer.stdout"] == "changed"
+        assert after["ok"] is True
+        assert stream_states(after)[("late-writer", "stdout")] == "unchanged"
+        assert file_states(after)["late-writer.stdout"] == "unchanged"
         # The original failed receipt and result stay as they were.
         assert file_states(after)["result.json"] == "unchanged"
         assert file_states(after)["late-writer.json"] == "unchanged"
@@ -253,15 +258,22 @@ def test_review_verify_cannot_see_a_change_reverted_before_the_check(tmp_path):
     assert retention().verify(path)["ok"] is True
 
 
-def test_review_mutation_omitting_stream_comparison_misses_a_late_write(tmp_path, monkeypatch):
+def test_review_late_write_is_caught_without_the_stream_comparison(tmp_path, monkeypatch):
     path, _ = run(tmp_path, [call("bytes", "bytes")])
     module = retention()
-    # Rewrite the identity after the late write: only the receipt pin still differs.
+    # Rewrite the identity after the late write: the receipt pin and the
+    # storage digest entry still differ. Each one detects the change alone.
     change(path / "bytes.stdout")
     (path / "result-identity.json").unlink()
     module.write_identity(path)
-    assert module.verify(path)["ok"] is False
+    report = module.verify(path)
+    assert report["ok"] is False
+    assert stream_states(report)[("bytes", "stdout")] == "changed"
+    assert report["completion"]["complete"] is False
     mutate_function(monkeypatch, module, "verify", "and streams_ok", "")
+    assert module.verify(path)["ok"] is False
+    monkeypatch.undo()
+    mutate_function(monkeypatch, module, "verify", "and streams_ok and complete_ok", "")
     assert module.verify(path)["ok"] is True
 
 

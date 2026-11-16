@@ -2334,7 +2334,7 @@ def test_review_isolated_reap_overrun_and_removed_gate(tmp_path, monkeypatch, re
         mutate_function(
             monkeypatch,
             controller,
-            "_call",
+            "_supervise",
             'and receipt["within_process_bounds"] is True',
             "and True",
         )
@@ -2429,6 +2429,8 @@ def test_review_survival_checker_rejects_controller_self_signal(tmp_path, monkey
     script = f"""
 import json, os, runpy, signal, sys
 from pathlib import Path
+# Calls run in "/", so the controller module comes from an explicit path.
+sys.path.insert(0, {str(HERE)!r})
 original = os.kill
 def misdirect(pid, sig):
     if sig == signal.SIGTERM:
