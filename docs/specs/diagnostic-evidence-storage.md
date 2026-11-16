@@ -153,7 +153,9 @@ or contains a path separator. The reserved names are `plan`, `result`,
 
 The writer creates each file exclusively, without following links, relative
 to its run-directory descriptor. A larger record is a sequence of append
-frames after one exclusive create.
+frames after one exclusive create. An append writes only to the file that its
+create made, and only while that file has one link. The writer refuses an
+append to a replaced or linked file.
 
 The frame pipe end is nonblocking in the controller. Each scheduler turn writes
 until the pipe reports `EAGAIN` or until 256 KiB. `EAGAIN` leaves the frame in

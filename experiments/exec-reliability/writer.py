@@ -81,6 +81,27 @@ def _failed(call: str, error: OSError) -> Rejected:
     return Rejected("failed", error.errno if error.errno is not None else errno.EIO, call)
 
 
+def _close(descriptor: int) -> None:
+    """Close a descriptor and report a failed close as a rejection of the frame."""
+    try:
+        os.close(descriptor)
+    except OSError as error:
+        raise _failed("close", error) from error
+
+
+def _close_after_error(descriptor: int) -> None:
+    """Close a descriptor while another error propagates. That error stays primary."""
+    try:
+        os.close(descriptor)
+    except OSError:
+        pass
+
+
+# A non-regular file has no stored bytes to pin. No call fails for it, so the
+# writer reports the errno that names a wrong file type.
+_NOT_REGULAR = getattr(errno, "EFTYPE", errno.EINVAL)
+
+
 def _valid_name(name: object) -> bool:
     return (
         isinstance(name, str)
@@ -159,7 +180,8 @@ class Writer:
         self.run_name: str | None = None
         self.closed = False
         self.subjects: list[str] = []
-        self.created: set[str] = set()
+        # Each created record maps to the device and inode that the create made.
+        self.created: dict[str, tuple[int, int]] = {}
         self.last_seq: int | None = None
         self.last_applied: int | None = None
         self.refused = 0
@@ -291,8 +313,10 @@ class Writer:
                 self.run_fd = os.open(run, _DIRECTORY, dir_fd=root_fd)
             except OSError as error:
                 raise _failed("open", error) from error
-        finally:
-            os.close(root_fd)
+        except BaseException:
+            _close_after_error(root_fd)
+            raise
+        _close(root_fd)
         self.run_name = run
         self.subjects = listed
         self.create("plan", payload)
@@ -318,50 +342,77 @@ class Writer:
 
     # File operations relative to the run-directory descriptor ---------------
 
-    def _write(self, flags: int, name: str, data: bytes) -> None:
+    def _write(self, flags: int, name: str, data: bytes) -> tuple[int, int]:
+        """Write one record and return the device and inode that the bytes reached.
+
+        An append opens the record again by name. A hard link at that name is
+        another file, which `O_NOFOLLOW` does not detect. The append therefore
+        writes only to the inode that the create made, and only while that
+        inode has one link.
+        """
         file_name = record_file(name)
         try:
             descriptor = os.open(file_name, flags, 0o644, dir_fd=self.run_fd)
         except OSError as error:
             raise _failed("open", error) from error
         try:
+            try:
+                status = os.fstat(descriptor)
+            except OSError as error:
+                raise _failed("fstat", error) from error
+            inode = (status.st_dev, status.st_ino)
+            if not flags & os.O_CREAT:
+                if inode != self.created[name]:
+                    raise _refused(errno.ENOENT)
+                if status.st_nlink != 1:
+                    raise _refused(errno.EMLINK)
             view = memoryview(data)
             while view:
-                view = view[os.write(descriptor, view) :]
-        except OSError as error:
-            raise _failed("write", error) from error
-        finally:
-            os.close(descriptor)
+                try:
+                    view = view[os.write(descriptor, view) :]
+                except OSError as error:
+                    raise _failed("write", error) from error
+        except BaseException:
+            _close_after_error(descriptor)
+            raise
+        _close(descriptor)
+        return inode
 
     def create(self, name: str, data: bytes) -> None:
-        self._write(_CREATE, name, data)
-        self.created.add(name)
+        self.created[name] = self._write(_CREATE, name, data)
 
     def append(self, name: str, data: bytes) -> None:
         self._write(_APPEND, name, data)
 
     def _pin(self, directory: int, name: str, path: str) -> dict[str, object]:
+        """Pin one run file. A file that cannot be pinned fails the close."""
         started = time.monotonic()
         try:
             descriptor = os.open(name, _PIN, dir_fd=directory)
         except OSError as error:
-            return {"path": path, "error": str(error), "started_monotonic": started,
-                    "finished_monotonic": time.monotonic()}  # fmt: skip
+            raise _failed("open", error) from error
         try:
-            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
-                return {"path": path, "error": "not a regular file",
-                        "started_monotonic": started,
-                        "finished_monotonic": time.monotonic()}  # fmt: skip
+            try:
+                mode = os.fstat(descriptor).st_mode
+            except OSError as error:
+                raise _failed("fstat", error) from error
+            if not stat.S_ISREG(mode):
+                raise Rejected("failed", _NOT_REGULAR, "fstat")
             digest = hashlib.sha256()
             length = 0
-            while chunk := os.read(descriptor, MAX_PAYLOAD):
+            while True:
+                try:
+                    chunk = os.read(descriptor, MAX_PAYLOAD)
+                except OSError as error:
+                    raise _failed("read", error) from error
+                if not chunk:
+                    break
                 digest.update(chunk)
                 length += len(chunk)
-        except OSError as error:
-            return {"path": path, "error": str(error), "started_monotonic": started,
-                    "finished_monotonic": time.monotonic()}  # fmt: skip
-        finally:
-            os.close(descriptor)
+        except BaseException:
+            _close_after_error(descriptor)
+            raise
+        _close(descriptor)
         return {
             "path": path,
             "length": length,
@@ -391,8 +442,10 @@ class Writer:
                 raise _failed("open", error) from error
             try:
                 pins.extend(self._listing(child, path + "/"))
-            finally:
-                os.close(child)
+            except BaseException:
+                _close_after_error(child)
+                raise
+            _close(child)
         return pins
 
     # Close transaction ------------------------------------------------------

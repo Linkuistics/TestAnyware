@@ -7,16 +7,23 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import time
 from pathlib import Path
 
 import pytest
 
 from retention import completion
-from writer import LENGTHS, MAX_PAYLOAD, encode_frame
+from writer import _NOT_REGULAR, LENGTHS, MAX_PAYLOAD, encode_frame
 from writer_client import WriterClient, file_pin, healthy_run, pin
 
 PLAN = b'{"run_id": "run"}\n'
+FAULTS = Path(__file__).resolve().parent / "writer_faults.py"
+
+
+def faulty(*faults: str) -> tuple[str, ...]:
+    """The command of a writer whose named file calls fail with EIO."""
+    return (sys.executable, "-I", str(FAULTS), *faults)
 
 
 @pytest.fixture
@@ -180,6 +187,88 @@ def test_create_does_not_follow_a_planted_link(tmp_path, client):
     reply = client.request("create", b"data", name="planted")
     assert (reply["status"], reply["errno"]) == ("failed", errno.EEXIST)
     assert not outside.exists()
+
+
+@pytest.mark.parametrize("target", ["outside", "plan.json"])
+def test_append_refuses_a_hard_link_that_replaces_the_record(tmp_path, client, target):
+    run_dir = ready(client, tmp_path)
+    linked = tmp_path / "outside" if target == "outside" else run_dir / target
+    if target == "outside":
+        linked.write_bytes(b"outside")
+    before = linked.read_bytes()
+    assert client.request("create", b"inside", name="stream")["status"] == "ok"
+    (run_dir / "stream").unlink()
+    os.link(linked, run_dir / "stream")
+    assert_refused(client.request("append", b"more", name="stream"), "append", errno.ENOENT)
+    assert linked.read_bytes() == before
+
+
+def test_append_refuses_a_record_with_a_second_link(tmp_path, client):
+    run_dir = ready(client, tmp_path)
+    assert client.request("create", b"inside", name="stream")["status"] == "ok"
+    os.link(run_dir / "stream", tmp_path / "outside")
+    assert_refused(client.request("append", b"more", name="stream"), "append", errno.EMLINK)
+    assert (tmp_path / "outside").read_bytes() == b"inside"
+
+
+def test_failed_close_of_a_record_is_acknowledged(tmp_path):
+    client = WriterClient(faulty("close:stream"))
+    try:
+        ready(client, tmp_path)
+        reply = client.request("create", b"data", name="stream")
+        assert (reply["status"], reply["errno"], reply["call"]) == ("failed", errno.EIO, "close")
+        assert client.request("create", b"next", name="next")["status"] == "ok"
+    finally:
+        client.stop()
+
+
+def test_failed_cleanup_keeps_the_primary_write_error(tmp_path):
+    client = WriterClient(faulty("write:stream", "close:stream"))
+    try:
+        ready(client, tmp_path)
+        reply = client.request("create", b"data", name="stream")
+        assert (reply["status"], reply["errno"], reply["call"]) == ("failed", errno.EIO, "write")
+    finally:
+        client.stop()
+
+
+def _plant_symlink(run_dir: Path) -> None:
+    (run_dir / "planted").symlink_to(run_dir / "plan.json")
+
+
+def _plant_fifo(run_dir: Path) -> None:
+    os.mkfifo(run_dir / "planted")
+
+
+def _plant_file(run_dir: Path) -> None:
+    (run_dir / "planted").write_bytes(b"planted")
+
+
+@pytest.mark.parametrize(
+    ("faults", "plant", "code", "call"),
+    [
+        ((), _plant_symlink, errno.ELOOP, "open"),
+        ((), _plant_fifo, _NOT_REGULAR, "fstat"),
+        (("read:planted",), _plant_file, errno.EIO, "read"),
+        (("close:planted",), _plant_file, errno.EIO, "close"),
+        (("close:storage-close.json",), None, errno.EIO, "close"),
+    ],
+    ids=["symlink", "fifo", "read", "pin-close", "record-close"],
+)
+def test_failed_close_step_writes_no_identity(tmp_path, faults, plant, code, call):
+    client = WriterClient(faulty(*faults))
+    try:
+        run_dir = ready(client, tmp_path)
+        if plant is not None:
+            plant(run_dir)
+        reply = client.request("close")
+        assert (reply["status"], reply["errno"], reply["call"]) == ("failed", code, call)
+        assert client.remaining_output() == b""
+        assert client.process.wait(10) != 0
+    finally:
+        client.stop()
+    assert (run_dir / "storage-close.json").exists()
+    assert not (run_dir / "result-identity.json").exists()
 
 
 def test_files_stay_in_the_run_directory_after_a_rename(tmp_path, client):
