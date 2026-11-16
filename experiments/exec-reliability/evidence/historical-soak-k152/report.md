@@ -5,8 +5,10 @@
 Five of the six open k17 cases did not recur in 46 instrumented runs. This
 result makes no claim of cause. The sixth case, checker-ceiling-k77, has a
 mechanism from retained timestamps and is outside the soak claim. One new
-failure occurred in run 42. Its timestamps show a host-wide stall of about
-160 ms, and they show a fixture defect that leaked one process.
+failure occurred in run 42. Its timestamps show that the fixture deadline
+passed during a gap in the parent's observations. They also show a fixture
+defect that leaked one process. A shared host pause is an inference, and its
+cause is unknown.
 
 The verdicts are in [verdicts.json](verdicts.json). They replace the k151
 verdicts and record the k151 file hash.
@@ -39,6 +41,11 @@ damaged copies, by deleting each required field and by reversing each ordered
 pair. The checker detected each of the 87 copies. During the soak, no run
 reported a timing problem.
 
+The k155 review integration corrected two limits of this control. The control
+never deleted a KILL, and one ordered pair, child spawn before child readiness,
+is not a real order. The [k155 recheck](../historical-soak-k155/report.md)
+applies the corrected rules to every retained record.
+
 ## Exposure for each historical shape
 
 | Case | Exposure in the soak | Recurrences |
@@ -46,14 +53,14 @@ reported a timing problem.
 | interrupted-live-group-k145 | 46 interrupted live-exit records, none with KILL | 0 |
 | exited-leader-grace-k132 | 138 TERMed records, leader exit 34.3 to 60.5 ms after TERM, grace 150 ms | 0 |
 | prebuffer-k106 | 92 prebuffer witnesses, helper start to end bound at most 10.2 ms | 0 |
-| helper-capture-deadline | 1260 real `/bin/ps` helpers, longest 23.7 ms, window at least 87.5 ms | 0 |
+| helper-capture-deadline | 1260 real `/bin/ps` group helpers, longest 23.7 ms, window at least 87.5 ms. No JUnit failure is a fixture `/bin/ps` timeout (k155). | 0 |
 | empty-pid-k85 | 138 TERMed records, each with the PID printed at least 215 ms before TERM | 0 |
 
 The interval statistics for each condition are in `soak/analysis.json`. Load
 added up to 19 ms to the median spawn-to-readiness time. It changed the median
 TERM-to-exit time by less than 1 ms.
 
-## Run 42: host stall and fixture leak
+## Run 42: deadline exhaustion and fixture leak
 
 Run 42 was a full, idle run. Two tests failed. The first was
 `test_worker_shutdown_deadline_closes_owner_operations[stale-kill-group]`. The
@@ -64,9 +71,10 @@ before the deadline. The parent then made no logged syscall until after the
 deadline. The receipt finished 140 ms after the deadline.
 
 The soak load sampler runs in another process. It woke 161 ms late in the same
-window. Its next-largest delay in 808 samples was 12 milliseconds. So both
-processes stalled together, for about 160 milliseconds. The cause of the host
-stall is unknown.
+window. Its next-largest delay in 808 samples was 12 milliseconds. The two
+gaps overlap. A one-second sample cannot place its delay inside its interval,
+so it cannot show that both processes paused together. A shared host pause is
+therefore an inference, and its cause is unknown.
 
 After the deadline, the runtime sent no signal. That is the designed
 fail-closed behaviour. The fixture child loops on `signal.pause()`, so it needs

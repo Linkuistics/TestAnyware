@@ -1983,13 +1983,14 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
         nonlocal held
         if data.startswith(b"{") and b'"created_monotonic"' in data:
             identity = json.loads(data)
-            # k152: the worker stamps the identity write. created_monotonic
-            # is the helper start, so the gap between them is now visible.
+            # k155: this stamp marks the start of the identity write. It
+            # precedes witness I/O and pipe delivery, and the shutdown branch
+            # holds delivery until TERM. Only the reap bound follows delivery.
             publish_witness(
                 {
                     "identity": identity,
                     "query_deadline": deadline,
-                    "identity_written_monotonic": time.monotonic(),
+                    "identity_write_started_monotonic": time.monotonic(),
                 }
             )
             if publication == "malformed":

@@ -76,6 +76,9 @@ def main() -> None:
         declaration = Path(ready).with_suffix(".spawned.tmp")
         declaration.write_text(str(child.pid))
         declaration.replace(Path(ready).with_suffix(".spawned"))
+        # k155: child_spawned follows Popen, the declaration write and the
+        # rename. The child runs independently, so its readiness can precede
+        # this stamp. handler_installed precedes Popen, so it orders first.
         stamp("child_spawned", child=child.pid)
         end = time.monotonic() + 4
         while not stopping and not Path(ready).exists() and time.monotonic() < end:

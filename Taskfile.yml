@@ -202,6 +202,15 @@ tasks:
     cmds:
       - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k152/analyse.py {{.SOAK | shellQuote}} {{.SOAK | shellQuote}}/analysis.json
 
+  diagnostic:soak-recheck:
+    desc: Recheck the retained k152 timing records with the k155 rules, without a workload
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check evidence/historical-soak-k155/*.py
+      - uv run --locked python -m ruff format --check evidence/historical-soak-k155/*.py
+      - uv run --locked python -m pyright evidence/historical-soak-k155/*.py
+      - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k155/recheck.py evidence/historical-soak-k152 evidence/historical-soak-k155/recheck.json
+
   diagnostic:overlap-audit:
     desc: Verify retained worker overlap comparisons and independent receipts
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'

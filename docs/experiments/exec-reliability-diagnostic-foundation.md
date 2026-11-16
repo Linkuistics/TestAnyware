@@ -2171,7 +2171,8 @@ replace the k151 verdicts and record the k151 file hash.
 
 The soak stamps child readiness, TERM, KILL, leader exit, helper start and end
 and system load in each run. A frozen control checked each field. The checker
-detected each of 87 damaged copies of the control records. The plan was frozen
+detected each of 87 damaged copies of the control records. Review k153 found
+gaps in that control, and k155 repairs them. The plan was frozen
 before the first run. It ran 46 runs once, in 811.5 seconds, in idle and loaded
 conditions.
 
@@ -2180,8 +2181,11 @@ with the exposure counts, and claim no cause. The retained timestamps explain
 checker-ceiling-k77: a slower input runtime reached the 60-second cap. No stall
 caused it.
 
-Run 42 failed two tests that are not historical shapes. A host-wide stall of
-about 160 milliseconds used up the deadline of the stale-kill-group fixture.
+Run 42 failed two tests that are not historical shapes. The deadline of the
+stale-kill-group fixture passed during a gap in parent observations. A load
+sample in the same interval arrived about 160 milliseconds late. A shared host
+pause is an inference from that overlap, and its cause is unknown.
+
 The runtime then failed closed and sent no signal. The fixture has no fallback
 cleanup, so it leaked one child and its owner record. The second failure found
 that record. The soak audit did not cover that child, and a manual scan found
@@ -2190,14 +2194,38 @@ and removed it. Leaf `worker-deadline-cleanup` owns the fixture repair.
 The Taskfile adds `diagnostic:soak-tools`, `diagnostic:soak-control`,
 `diagnostic:soak` and `diagnostic:soak-analyse`.
 
-### k17 reconciliation after k152
+## Review integration of the k152 soak (k155)
+
+The
+[k155 report](../../experiments/exec-reliability/evidence/historical-soak-k155/report.md)
+records the dispositions of the five k153 findings. Each finding is real, and
+k155 repairs each one. No finding needs a new soak.
+
+- The fixture field `identity_write_started_monotonic` replaces the old name.
+  It marks the start of the write, before delivery.
+- The k152 checker enforced child spawn before child readiness. That order is
+  not real, because the parent stamps the spawn after a declaration rename.
+- The k152 control never removed a KILL. The recheck requires KILL wherever
+  the controller must send it.
+- The k152 helper predicate covers runtime group helpers only. No retained
+  JUnit failure is a fixture `/bin/ps` timeout.
+- The run 42 host stall is an inference, not a measured fact.
+
+`task diagnostic:soak-recheck` rechecks the 282 retained records in 47 runs
+and runs no workload. All 4277 damaged copies fail and all 188 permitted
+sequences pass. Each of two weakened rule sets fails, as the recheck expects.
+
+### k17 reconciliation after k155
 
 | k17 condition | State |
 |---|---|
-| Historical failures explained | Not met as stated. checker-ceiling-k77 is explained. Five cases did not recur in 46 instrumented runs, and their cause stays unknown. |
+| Historical failures explained | Not met as stated. checker-ceiling-k77 is explained. Five cases did not recur in 46 instrumented runs, and their cause stays unknown. The k155 recheck finds the same counts under the repaired rules. |
 | Other k17 conditions | As in the k151 reconciliation. |
 
 The k17 whole contract is not met. A bounded result without recurrence does not
 explain a historical failure. The human decides if that result is enough. The
-stale-kill-group fixture leak is open in `worker-deadline-cleanup`. k18 owns
-stalled storage. Ten-clone acceptance remains **0/10, unavailable**.
+k155 repairs change the evidence rules, not this state.
+
+The cause of the run 42 observation gaps is unknown. The stale-kill-group
+fixture leak is open in `worker-deadline-cleanup`. k18 owns stalled storage.
+Ten-clone acceptance remains **0/10, unavailable**.

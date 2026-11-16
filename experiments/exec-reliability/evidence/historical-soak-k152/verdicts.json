@@ -99,7 +99,8 @@
       "child_cleanup": "k151 red: 9 timed cases end absent by retained PID. 3 never-ready cases end unknown because no child identity was retained. Their case-path scans find no process naming the case path. Green: 12 of 12 absent.",
       "k151_change": "R1 and R2: attribution unresolved, child audit tri-state",
       "k152": "46 interrupted live-exit records, 0 with KILL. TERM came 215 ms or more after the PID print in all 138 TERMed records.",
-      "k152_change": "Did not recur in 46 instrumented soak runs. No cause is claimed."
+      "k152_change": "Did not recur in 46 instrumented soak runs. No cause is claimed.",
+      "k155_change": "R3: the k155 recheck requires KILL wherever the controller must send it. All 94 group deadline records hold KILL, and the 47 interrupted PID records exited before the TERM deadline."
     },
     {
       "id": "exited-leader-grace-k132",
@@ -191,7 +192,8 @@
       "demonstrated": "The runtime killed and reaped each late ps helper and failed closed. The control's maximum ps latency is 62.1 ms in 340 queries, below the historical deadline.",
       "k151_change": "R3: no control demonstrates that the miss was unavoidable",
       "k152": "1260 real /bin/ps helpers, none killed. The longest took 23.7 ms against a capture window of at least 87.5 ms.",
-      "k152_change": "Did not recur in 46 instrumented soak runs. No cause is claimed."
+      "k152_change": "Did not recur in 46 instrumented soak runs. No cause is claimed.",
+      "k155_change": "R4: the k152 predicate covered only runtime group helpers. The k155 recheck found no fixture /bin/ps timeout in any retained JUnit failure. The 1260 helpers are exposure for the group-helper subset only."
     },
     {
       "id": "empty-pid-k85",
@@ -290,11 +292,12 @@
         "same run: test_review_worker_rejects_fork_before_creation, owner 4100 left in worker_capture._owners"
       ],
       "classification": "fixture_defect_open",
-      "mechanism": "The parent made 40 WNOHANG polls about 6 ms apart, the last 64 ms before the 0.3 s deadline. It made no further syscall until after the deadline, and the receipt finished 140 ms after it. The soak load sampler, another process, woke 161 ms late over the same window. Its next-largest delay in 808 samples was 12 ms. So a host-wide stall of about 160 ms crossed the deadline. The runtime then correctly sent no signal. The fixture child waits on signal.pause() and the fixture has no cleanup for a child the runtime did not signal. The child stayed alive as PID 4100, and its owner record failed the next test.",
+      "mechanism": "The parent made 40 WNOHANG polls about 6 ms apart, the last 64 ms before the 0.3 s deadline. It made no further syscall until after the deadline, and the receipt finished 140 ms after it. The soak load sampler, another process, woke 161 ms late over the same window. Its next-largest delay in 808 samples was 12 ms. The deadline passed during the parent's observation gap. The two gaps overlap, so a shared host pause is an inference with unknown cause. The runtime then correctly sent no signal. The fixture child waits on signal.pause() and the fixture has no cleanup for a child the runtime did not signal. The child stayed alive as PID 4100, and its owner record failed the next test.",
       "repair": null,
       "repair_owner": "worker-deadline-cleanup (leaf cut by k152)",
       "controls": [],
-      "resource": "PID 4100, pgid 4100, ppid 1, started Mon 16 Nov 21:07:57 2026, found by a manual ps scan after the soak and removed with SIGKILL to its group at 21:15:53. ps then exited 1."
+      "resource": "PID 4100, pgid 4100, ppid 1, started Mon 16 Nov 21:07:57 2026, found by a manual ps scan after the soak and removed with SIGKILL to its group at 21:15:53. ps then exited 1.",
+      "k155_change": "R5: a one-second sample cannot place its delay, so the host pause is an inference. The deadline exhaustion and the fixture leak stand."
     }
   ],
   "k17_whole_contract": {

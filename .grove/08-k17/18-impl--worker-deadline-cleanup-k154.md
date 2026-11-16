@@ -7,10 +7,11 @@ no signal before the deadline.
 
 ## Context
 
-In k152 soak run 42, a host-wide stall of about 160 milliseconds crossed the
-0.3-second deadline of
-`test_worker_shutdown_deadline_closes_owner_operations[stale-kill-group]`. The
-runtime correctly sent no signal after the deadline. The fixture child loops on
+In k152 soak run 42, the 0.3-second deadline of
+`test_worker_shutdown_deadline_closes_owner_operations[stale-kill-group]`
+passed during a gap in parent observations. Review integration k155 labels a
+shared host pause as an inference with an unknown cause. The runtime correctly
+sent no signal after the deadline. The fixture child loops on
 `signal.pause()`.
 
 The `finally` block in
