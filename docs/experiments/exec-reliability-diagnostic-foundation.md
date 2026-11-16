@@ -2160,3 +2160,44 @@ cases. The human chose new instrumented evidence over accepting them as visible
 limits. Historical-failure-soak-k152 records the missing timestamps in one
 bounded soak. k18 owns stalled storage. Ten-clone acceptance remains
 **0/10, unavailable**.
+
+## Historical failure soak (k152)
+
+The
+[k152 report](../../experiments/exec-reliability/evidence/historical-soak-k152/report.md)
+records one bounded soak of the six open k17 cases. The
+[k152 verdicts](../../experiments/exec-reliability/evidence/historical-soak-k152/verdicts.json)
+replace the k151 verdicts and record the k151 file hash.
+
+The soak stamps child readiness, TERM, KILL, leader exit, helper start and end
+and system load in each run. A frozen control checked each field. The checker
+detected each of 87 damaged copies of the control records. The plan was frozen
+before the first run. It ran 46 runs once, in 811.5 seconds, in idle and loaded
+conditions.
+
+Five cases did not recur in those 46 runs. Their verdicts say "did not recur",
+with the exposure counts, and claim no cause. The retained timestamps explain
+checker-ceiling-k77: a slower input runtime reached the 60-second cap. No stall
+caused it.
+
+Run 42 failed two tests that are not historical shapes. A host-wide stall of
+about 160 milliseconds used up the deadline of the stale-kill-group fixture.
+The runtime then failed closed and sent no signal. The fixture has no fallback
+cleanup, so it leaked one child and its owner record. The second failure found
+that record. The soak audit did not cover that child, and a manual scan found
+and removed it. Leaf `worker-deadline-cleanup` owns the fixture repair.
+
+The Taskfile adds `diagnostic:soak-tools`, `diagnostic:soak-control`,
+`diagnostic:soak` and `diagnostic:soak-analyse`.
+
+### k17 reconciliation after k152
+
+| k17 condition | State |
+|---|---|
+| Historical failures explained | Not met as stated. checker-ceiling-k77 is explained. Five cases did not recur in 46 instrumented runs, and their cause stays unknown. |
+| Other k17 conditions | As in the k151 reconciliation. |
+
+The k17 whole contract is not met. A bounded result without recurrence does not
+explain a historical failure. The human decides if that result is enough. The
+stale-kill-group fixture leak is open in `worker-deadline-cleanup`. k18 owns
+stalled storage. Ten-clone acceptance remains **0/10, unavailable**.

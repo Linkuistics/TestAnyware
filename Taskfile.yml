@@ -169,6 +169,39 @@ tasks:
       - uv run --locked python -m ruff format --check evidence/failure-controls-k151/*.py
       - uv run --locked python -m pyright evidence/failure-controls-k151/*.py
 
+  diagnostic:soak-tools:
+    desc: Check the k152 soak, timeline and control tooling
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check evidence/historical-soak-k152/*.py
+      - uv run --locked python -m ruff format --check evidence/historical-soak-k152/*.py
+      - uv run --locked python -m pyright evidence/historical-soak-k152/*.py
+
+  diagnostic:soak-control:
+    desc: Run the k152 frozen timing control once in frozen INPUTS, into a new OUT directory
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k152/soak.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --plan evidence/historical-soak-k152/control-plan.json
+      - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k152/control.py {{.OUT | shellQuote}} {{.OUT | shellQuote}}/control.json
+
+  diagnostic:soak:
+    desc: Run the k152 soak once to its frozen plan in frozen INPUTS, into a new OUT directory
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k152/soak.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} --plan evidence/historical-soak-k152/plan.json
+
+  diagnostic:soak-analyse:
+    desc: Classify each run of a finished k152 SOAK directory against the open cases
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [SOAK]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python evidence/historical-soak-k152/analyse.py {{.SOAK | shellQuote}} {{.SOAK | shellQuote}}/analysis.json
+
   diagnostic:overlap-audit:
     desc: Verify retained worker overlap comparisons and independent receipts
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'

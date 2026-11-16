@@ -1,0 +1,12 @@
+{
+  "leaf": "historical-failure-soak-k152",
+  "soak_tool_audit": {
+    "scope": "stamped peer PIDs and load processes only",
+    "residual_process_runs": [],
+    "load_residue_runs": []
+  },
+  "gap": "The soak process audit did not cover worker forks of the pytest process.",
+  "manual_scan": " 4100     1  4100      0 Ss   Mon 16 Nov 21:07:57 2026           07:27 /Users/antony/.cache/uv/builds-v0/.tmp4D6Ku0/bin/python -m pytest -vv -p no:cacheprovider --junitxml=/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/historical-soak-k152/soak/runs/042-full-idle-ac1a6eb7/pytest.xml\n 4100     1  4100 Ss   Mon 16 Nov 21:07:57 2026     /Users/antony/.cache/uv/builds-v0/.tmp4D6Ku0/bin/python -m pytest -vv -p no:cacheprovider --junitxml=/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/historical-soak-k152/soak/runs/042-full-idle-ac1a6eb7/pytest.xml\nkillpg 4100 rc=0 at 21:15:53\nps rc=1 after cleanup\n",
+  "after_cleanup": "ps -axo scan for historical-soak-k152 found 0 processes.",
+  "control_run": "control/soak.json: no residual or load residue."
+}

@@ -1,0 +1,264 @@
+{
+  "failed_call": "acquire",
+  "held_call": "dispose",
+  "fault": "transport",
+  "worker": {
+    "pid": 8971,
+    "state": "absent",
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "",
+    "monotonic": 441098.047232208
+  },
+  "leaders": [
+    {
+      "pid": 8972,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 441098.049815875
+    },
+    {
+      "pid": 8974,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 441098.052304291
+    },
+    {
+      "pid": 8975,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 441098.0546325
+    },
+    {
+      "pid": 8976,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 441098.056923166
+    }
+  ],
+  "helpers": [
+    {
+      "pid": 8973,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 441098.05909675
+    }
+  ],
+  "marker_remains": true,
+  "lifecycle": {
+    "run_id": "994452f0c297403e8d055d70dd4bad6e",
+    "session_token": "4953ac3cf68f40be876bc9e8031adb37",
+    "owner": {
+      "pid": 8971,
+      "shutdown_deadline_monotonic": 441097.636843083,
+      "ready": true,
+      "reaped": true,
+      "ownership_lost": false,
+      "returncode": -9,
+      "signals": [
+        {
+          "signal": "SIGTERM",
+          "monotonic": 441097.424237458
+        },
+        {
+          "signal": "SIGKILL",
+          "monotonic": 441097.436843083
+        }
+      ],
+      "reap_errno": null,
+      "reap_attempts": 22
+    },
+    "failure": "worker capture failed: invalid request identity object",
+    "admission": {
+      "ok": true,
+      "reason": "ready",
+      "python_threads": 1,
+      "native_threads": 1,
+      "sigchld": "SIG_DFL",
+      "native_sigchld": "SIG_DFL",
+      "error": null,
+      "errno": null
+    },
+    "bootstrap_bounds": {
+      "readiness": 1,
+      "term_grace": 2,
+      "kill_reap": 2
+    },
+    "failure_bounds": {
+      "term_grace": 0.08,
+      "kill_reap": 0.2
+    },
+    "close_bounds": {
+      "grace": 0.05,
+      "kill_reap": 2
+    },
+    "shutdown": {
+      "mode": "failure",
+      "started_monotonic": 441097.43853725,
+      "term_deadline_monotonic": 441097.436843083,
+      "kill_deadline_monotonic": 441097.636843083,
+      "finished_monotonic": 441097.438554416,
+      "overrun": false,
+      "lateness_seconds": 0.0,
+      "deadline_exhausted": false,
+      "outcome": "reaped",
+      "signals": [
+        {
+          "signal": "SIGTERM",
+          "monotonic": 441097.424237458
+        },
+        {
+          "signal": "SIGKILL",
+          "monotonic": 441097.436843083
+        }
+      ],
+      "phases": {
+        "grace": {
+          "started_monotonic": null,
+          "deadline_monotonic": 441097.436843083,
+          "finished_monotonic": 441097.436843083,
+          "outcome": "already_retiring",
+          "timing_outcome": "at_deadline",
+          "overrun": false,
+          "lateness_seconds": 0.0,
+          "deadline_exhausted": true
+        },
+        "kill_reap": {
+          "started_monotonic": 441097.436843083,
+          "deadline_monotonic": 441097.636843083,
+          "finished_monotonic": 441097.438554416,
+          "outcome": "reaped",
+          "timing_outcome": "on_time",
+          "overrun": false,
+          "lateness_seconds": 0.0,
+          "deadline_exhausted": false
+        }
+      }
+    },
+    "startup_started_monotonic": 441097.393294375,
+    "startup_deadline_monotonic": 441098.393294375,
+    "readiness_finished_monotonic": 441097.395245166,
+    "readiness_outcome": "ready",
+    "readiness_lateness_seconds": 0.0,
+    "readiness_overrun": false,
+    "startup_finished_monotonic": 441097.395247125,
+    "bootstrap_shutdown": null,
+    "shutdown_started_monotonic": 441097.43853725,
+    "shutdown_finished_monotonic": 441097.438554416,
+    "closed": true,
+    "residual_remedy": null
+  },
+  "held": {
+    "name": "dispose",
+    "argv": [
+      "/Users/antony/.cache/uv/builds-v0/.tmp4D6Ku0/bin/python",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/historical-soak-k152/inputs/peer.py",
+      "hang",
+      "diag-994452f0c297403e8d055d70dd4bad6e-vm",
+      "/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1315/test_production_worker_retirem6"
+    ],
+    "budget": 0.4,
+    "started_monotonic": 441097.448020875,
+    "wall_start_ns": 1794823819763825000,
+    "reason": "deadline",
+    "returncode": -15,
+    "reaped": true,
+    "ok": false,
+    "signals": [
+      {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 8975,
+        "outcome": "sent",
+        "monotonic": 441097.848734416,
+        "finished_monotonic": 441097.848770958
+      },
+      {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 8975,
+        "outcome": "permission_unknown",
+        "monotonic": 441097.9986185,
+        "errno": 1,
+        "error": "[Errno 1] Operation not permitted",
+        "finished_monotonic": 441097.998663125,
+        "permission_observation": {
+          "started_monotonic": 441097.998670666,
+          "finished_monotonic": 441097.998670666,
+          "query_attempted": false,
+          "helper": null,
+          "state": "unknown",
+          "members": [],
+          "stdout": "",
+          "stderr": "",
+          "returncode": null,
+          "probe_started_monotonic": null,
+          "probe_finished_monotonic": null,
+          "probe_errno": null,
+          "probe_outcome": "not_attempted",
+          "error": "local inspection unavailable after acquire"
+        }
+      }
+    ],
+    "pid": 8975,
+    "pgid": 8975,
+    "signal_scope": "group",
+    "group_observations": [
+      {
+        "started_monotonic": 441097.998670666,
+        "finished_monotonic": 441097.998670666,
+        "query_attempted": false,
+        "helper": null,
+        "state": "unknown",
+        "members": [],
+        "stdout": "",
+        "stderr": "",
+        "returncode": null,
+        "probe_started_monotonic": null,
+        "probe_finished_monotonic": null,
+        "probe_errno": null,
+        "probe_outcome": "not_attempted",
+        "error": "local inspection unavailable after acquire"
+      }
+    ],
+    "term_deadline_monotonic": 441097.998393583,
+    "kill_reap_deadline_monotonic": 441098.298393583,
+    "inspection_deadline_monotonic": 441098.223393583,
+    "leader_exit_monotonic": 441097.854161125,
+    "termination_ok": false,
+    "residual_members": [],
+    "residual_pgid": 8975,
+    "residual_remedy": "Inspect retained member PID/PGID and command identities independently; release known fixture markers or clean only revalidated owned members. Do not signal this group after leader reap. Unknown inspection is not absence.",
+    "authority_closed_monotonic": 441097.998712958,
+    "reap_deadline_monotonic": 441098.298393583,
+    "within_process_bounds": true,
+    "reap_attempts": 1,
+    "reap_last_result": "reaped",
+    "reaped_monotonic": 441097.99873525,
+    "streams": {
+      "stdout": {
+        "length": 8,
+        "sha256": "95aebb28195b8d737effe0df18d71d39c8d8ba6569286fd3930fbc9f9767181e",
+        "started_monotonic": 441097.998875,
+        "finished_monotonic": 441097.999193583
+      },
+      "stderr": {
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "started_monotonic": 441097.999199541,
+        "finished_monotonic": 441097.999255458
+      }
+    },
+    "elapsed": 0.5512377499835566
+  }
+}

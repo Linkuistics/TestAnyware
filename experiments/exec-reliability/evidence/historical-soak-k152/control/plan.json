@@ -1,0 +1,37 @@
+{
+  "workloads": {
+    "targeted": {
+      "tests": [
+        "test_controller.py::test_review_exited_leader_does_not_hide_a_surviving_group_member",
+        "test_controller.py::test_review_live_group_is_failure_even_with_expected_leader_exit",
+        "test_controller.py::test_review_real_ps_failure_disables_later_queries_and_probes",
+        "test_worker_capture.py::test_late_created_identity_prebuffered_before_default_term"
+      ],
+      "timeout_seconds": 120,
+      "covers": [
+        "interrupted-live-group-k145",
+        "exited-leader-grace-k132",
+        "empty-pid-k85",
+        "helper-capture-deadline",
+        "prebuffer-k106"
+      ]
+    },
+    "full": {
+      "tests": [],
+      "timeout_seconds": 600,
+      "covers": [
+        "all six, inside the whole suite where k85, k106 and k77 failed"
+      ]
+    }
+  },
+  "load_processes": 32,
+  "load_sample_seconds": 1.0,
+  "statement": "k152 frozen control: one idle targeted run, which must give 4 scope and 2 prebuffer records with every field present and ordered.",
+  "blocks": [
+    {
+      "workload": "targeted",
+      "runs": 1
+    }
+  ],
+  "wall_budget_seconds": 300
+}

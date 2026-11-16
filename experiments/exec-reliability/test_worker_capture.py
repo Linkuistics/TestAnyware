@@ -1983,7 +1983,15 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
         nonlocal held
         if data.startswith(b"{") and b'"created_monotonic"' in data:
             identity = json.loads(data)
-            publish_witness({"identity": identity, "query_deadline": deadline})
+            # k152: the worker stamps the identity write. created_monotonic
+            # is the helper start, so the gap between them is now visible.
+            publish_witness(
+                {
+                    "identity": identity,
+                    "query_deadline": deadline,
+                    "identity_written_monotonic": time.monotonic(),
+                }
+            )
             if publication == "malformed":
                 identity["ppid"] = parent
                 data = json.dumps(identity).encode() + b"\n"
@@ -2022,7 +2030,13 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
             # its identity is already in the pipe before parent TERM.
             assert signal.getsignal(signal.SIGTERM) == signal.SIG_DFL
             info = json.loads(witness.read_text())
-            info.update(pipe_before_term=True, term_disposition="SIG_DFL")
+            # k152: this branch runs after the helper is reaped, so its time
+            # bounds the helper end from above.
+            info.update(
+                pipe_before_term=True,
+                term_disposition="SIG_DFL",
+                pipe_before_term_monotonic=time.monotonic(),
+            )
             publish_witness(info)
             while time.monotonic() < end:
                 time.sleep(0.001)
@@ -2054,14 +2068,28 @@ def test_late_created_identity_is_cleanup_only(tmp_path, monkeypatch, delay, pub
     def select(reads, writes, errors, timeout):
         result = original_select(reads, writes, errors, timeout)
         if os.getpid() == parent and delay in {"select", "prebuffer"} and not delayed:
-            until = time.monotonic() + 0.15
+            started = time.monotonic()
+            until = started + 0.15
+            outcome = "expired"
             while time.monotonic() < until:
                 if witness.exists():
                     info = json.loads(witness.read_text())
                     if delay == "select" or info.get("pipe_before_term"):
+                        outcome = "witnessed"
                         break
                 time.sleep(0.001)
-            else:
+            # k152: the parent alone writes this file, so the worker witness
+            # keeps one writer while the parent wait is stamped.
+            witness.with_suffix(".parent.json").write_text(
+                json.dumps(
+                    {
+                        "wait_started_monotonic": started,
+                        "wait_left_monotonic": time.monotonic(),
+                        "outcome": outcome,
+                    }
+                )
+            )
+            if outcome == "expired":
                 raise AssertionError("worker did not prebuffer the identity")
             pause()
         return result

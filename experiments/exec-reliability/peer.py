@@ -1,5 +1,6 @@
 """Local fake public command peer; never touches a VM or a real app."""
 
+import os
 import signal
 import subprocess
 import sys
@@ -8,8 +9,30 @@ import uuid
 from pathlib import Path
 
 
+def stamp(event: str, **fields: object) -> None:
+    """Record one monotonic event when a k152 soak asks for peer timing.
+
+    Each process appends only to its own file, so every file has one writer.
+    Without PEER_STAMPS the peer behaves exactly as before.
+    """
+    directory = os.environ.get("PEER_STAMPS")
+    if not directory:
+        return
+    import json  # Imported only here, so unstamped peers keep their start cost.
+
+    line = {"event": event, "pid": os.getpid(), "monotonic": time.monotonic(), **fields}
+    fd = os.open(
+        Path(directory) / f"{os.getpid()}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o644
+    )
+    try:
+        os.write(fd, json.dumps(line).encode() + b"\n")
+    finally:
+        os.close(fd)
+
+
 def main() -> None:
     mode, *args = sys.argv[1:]
+    stamp("start", mode=mode, ppid=os.getppid())
     if mode == "bytes":
         sys.stdout.buffer.write(bytes.fromhex("00ff80410a"))
         sys.stderr.buffer.write(b"separate stderr\n")
@@ -26,6 +49,7 @@ def main() -> None:
         release, ready = map(Path, args)
         if mode != "held-child":
             ready.write_bytes(b"ready")
+            stamp("ready_written")
         end = time.monotonic() + 5
         while not release.exists() and time.monotonic() < end:
             time.sleep(0.005)
@@ -38,6 +62,7 @@ def main() -> None:
             stopping = True
 
         signal.signal(signal.SIGTERM, stop)
+        stamp("handler_installed")
         child = subprocess.Popen(
             [
                 sys.executable,
@@ -51,18 +76,23 @@ def main() -> None:
         declaration = Path(ready).with_suffix(".spawned.tmp")
         declaration.write_text(str(child.pid))
         declaration.replace(Path(ready).with_suffix(".spawned"))
+        stamp("child_spawned", child=child.pid)
         end = time.monotonic() + 4
         while not stopping and not Path(ready).exists() and time.monotonic() < end:
             time.sleep(0.005)
+        stamp("readiness_loop_left", ready=Path(ready).exists(), stopping=stopping)
         print(child.pid, flush=True)
+        stamp("pid_printed")
         while not stopping and time.monotonic() < end:
             time.sleep(0.005)
+        stamp("stop_loop_left", stopping=stopping)
         # PID-only TERM deliberately leaves the child to the independent test
         # owner's release marker. Group TERM lets this parent reap the child.
         try:
             child.wait(timeout=0.03)
         except subprocess.TimeoutExpired:
             pass
+        stamp("child_wait_left", returncode=child.returncode)
     elif mode == "fork":
         release, ready = map(Path, args)
         child_ready = ready.with_suffix(".child")
