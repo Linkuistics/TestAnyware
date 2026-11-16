@@ -2229,3 +2229,44 @@ k155 repairs change the evidence rules, not this state.
 The cause of the run 42 observation gaps is unknown. The stale-kill-group
 fixture leak is open in `worker-deadline-cleanup`. k18 owns stalled storage.
 Ten-clone acceptance remains **0/10, unavailable**.
+
+## Worker deadline fixture cleanup (k154)
+
+The
+[k154 evidence](../../experiments/exec-reliability/evidence/worker-deadline-cleanup-k154/)
+repairs the run 42 fixture leak. The
+[k152 verdicts](../../experiments/exec-reliability/evidence/historical-soak-k152/verdicts.json)
+now classify `host-stall-stale-kill-k152` as a repaired fixture defect.
+
+`task diagnostic:deadline-stall` runs the deadline tests in one frozen input set.
+With `STALL=1`, the first runtime signal waits until the shutdown deadline. The
+runtime then refuses each signal, as it did in run 42. The control needs no host
+stall.
+After the tests, the control checks each child with `waitpid`. It removes a live
+child with SIGKILL to its exact PID.
+
+Before the repair, both stale-kill variants failed and left a live child and an
+owner record. After the repair, the same control left no child and no record.
+Each test still fails, because a child that only the fixture removed means the
+runtime missed its deadline.
+
+A survey ran the stall over 170 variants of the nine tests whose children wait
+on `signal.pause()`. Three more fixtures leaked under the stall:
+
+- `test_startup_frame_rejection_is_failed_and_reaped`
+- `test_startup_frame_written_at_real_cutoff_is_late`
+- `test_persistent_worker_startup_fault_is_bounded_and_reaped`
+
+They now use the same exact-child removal.
+`test_persistent_worker_close_has_one_fixed_grace` checked an exit status before
+it dropped its owner record. It now drops the record first. The
+other fixtures already removed their own children.
+
+The final survey passed with the stall and without it. The full suite passed
+975 tests on the same frozen inputs. This leaf does not change `worker_capture.py`.
+[resource-audit.json](../../experiments/exec-reliability/evidence/worker-deadline-cleanup-k154/resource-audit.json)
+lists each child in each run and the actor that removed it.
+
+The cause of the run 42 observation gap is still unknown. k18 owns stalled
+storage. The k17 whole contract is still not met, because five cases did not
+recur and are not explained. Ten-clone acceptance remains **0/10, unavailable**.

@@ -169,6 +169,22 @@ tasks:
       - uv run --locked python -m ruff format --check evidence/failure-controls-k151/*.py
       - uv run --locked python -m pyright evidence/failure-controls-k151/*.py
 
+  diagnostic:deadline-stall:
+    desc: Run the k154 worker-deadline control in frozen INPUTS, into a new OUT directory (STALL=1 delays the first runtime signal to the deadline, SURVEY=1 records non-failing tests as notes)
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [INPUTS, OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python -I evidence/worker-deadline-cleanup-k154/stall_control.py {{.INPUTS | shellQuote}} {{.OUT | shellQuote}} {{if .STALL}}--stall{{end}} {{if .SURVEY}}--survey{{end}} {{range $t := splitList "," (.TESTS | default "")}}{{if $t}}--test {{$t | shellQuote}} {{end}}{{end}}
+
+  diagnostic:deadline-stall-tools:
+    desc: Check the k154 worker-deadline control tooling
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check evidence/worker-deadline-cleanup-k154/*.py
+      - uv run --locked python -m ruff format --check evidence/worker-deadline-cleanup-k154/*.py
+      - uv run --locked python -m pyright evidence/worker-deadline-cleanup-k154/*.py
+
   diagnostic:soak-tools:
     desc: Check the k152 soak, timeline and control tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'

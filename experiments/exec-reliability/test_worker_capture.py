@@ -20,6 +20,42 @@ import inspection
 ADMISSION_GAP = 0.05
 
 
+_real_kill = os.kill
+_real_waitpid = os.waitpid
+
+
+def _remove_unreaped_child(owner):
+    """Remove the exact child that the runtime left unreaped after its deadline.
+
+    The runtime must refuse to signal after its deadline, so the fixture removes
+    its own child. An unreaped direct child keeps its PID, so the signal cannot
+    reach another process. Return the removal record, or None after a runtime reap.
+    """
+    import worker_capture
+
+    if owner is None or owner.reaped:
+        return None
+    removal = {"pid": owner.pid, "signal": int(signal.SIGKILL), "time": time.monotonic()}
+    try:
+        _real_kill(owner.pid, signal.SIGKILL)
+    except OSError as error:
+        removal["kill_errno"] = error.errno
+    end = time.monotonic() + 1
+    while time.monotonic() < end:
+        try:
+            found, status = _real_waitpid(owner.pid, os.WNOHANG)
+        except ChildProcessError:
+            removal["reap"] = "ECHILD"
+            break
+        if found == owner.pid:
+            removal.update(reap="fixture", status=status)
+            break
+        time.sleep(0.001)
+    if "reap" in removal:
+        worker_capture._owners.pop(owner.pid, None)
+    return removal
+
+
 def _admitted(runtime_function):
     """Return the runtime's own cutoff admission reading for a wrapped syscall.
 
@@ -175,6 +211,23 @@ def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch,
                     audit.update(reaped=True, status=status, source="independent exact-child reap")
                     break
                 time.sleep(0.001)
+        if not audit["reaped"]:
+            # The runtime sent no signal before its deadline, so the child still
+            # loops on signal.pause(). The runtime must refuse to signal after the
+            # deadline, so this fixture removes the child that it created. The
+            # child is unreaped, so its PID cannot name another process.
+            audit["fixture_kill"] = {"signal": int(signal.SIGKILL), "time": time.monotonic()}
+            try:
+                original_kill(pid, signal.SIGKILL)
+            except OSError as error:
+                audit["fixture_kill"]["errno"] = error.errno
+            kill_end = time.monotonic() + 1
+            while time.monotonic() < kill_end:
+                found, status = original_waitpid(pid, os.WNOHANG)
+                if found == pid:
+                    audit.update(reaped=True, status=status, source="fixture exact-child kill")
+                    break
+                time.sleep(0.001)
         if audit["reaped"]:
             worker_capture._owners.pop(pid, None)
         root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path / "receipts"))
@@ -192,6 +245,8 @@ def test_worker_shutdown_deadline_closes_owner_operations(tmp_path, monkeypatch,
             + "\n"
         )
         assert audit["reaped"]
+        # A child that only the fixture ended means the runtime missed its deadline.
+        assert "fixture_kill" not in audit
 
 
 @pytest.mark.parametrize(
@@ -2467,15 +2522,23 @@ def test_persistent_worker_startup_fault_is_bounded_and_reaped(tmp_path, monkeyp
 
     monkeypatch.setattr(worker_capture, "_service", service)
     worker = worker_capture.Worker()
-    assert worker.start() is False
-    assert worker.failure and worker.closed
-    assert worker.owner.reaped
-    assert worker.startup_finished - worker.startup_started < 1.5
-    path = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
-    path.mkdir(parents=True, exist_ok=True)
-    (path / f"persistent-startup-{fault}-{time.time_ns()}.json").write_text(
-        json.dumps(worker.evidence(), indent=2)
-    )
+    try:
+        assert worker.start() is False
+        assert worker.failure and worker.closed
+        assert worker.owner.reaped
+        assert worker.startup_finished - worker.startup_started < 1.5
+    finally:
+        removal = _remove_unreaped_child(worker.owner)
+        path = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
+        path.mkdir(parents=True, exist_ok=True)
+        evidence = worker.evidence()
+        if removal is not None:
+            evidence["fixture_kill"] = removal
+        (path / f"persistent-startup-{fault}-{time.time_ns()}.json").write_text(
+            json.dumps(evidence, indent=2)
+        )
+    # A child that only the fixture removed means the runtime missed its deadline.
+    assert removal is None
     with pytest.raises(ChildProcessError):
         os.waitpid(worker.owner.pid, os.WNOHANG)
 
@@ -2700,9 +2763,11 @@ def test_persistent_worker_close_has_one_fixed_grace(tmp_path, monkeypatch, mode
                 found, status = os.waitpid(owner.pid, os.WNOHANG)
                 if found == owner.pid:
                     audit.update(reaped=True, status=status)
+                    # Remove the record before the status check, so a failure
+                    # here cannot leave a record for a later test.
+                    worker_capture._owners.pop(owner.pid, None)
                     if mode in {"expired", "expired-polled"}:
                         assert os.waitstatus_to_exitcode(status) == -signal.SIGTERM
-                    worker_capture._owners.pop(owner.pid, None)
                     break
                 time.sleep(0.001)
         (root / f"persistent-close-audit-{mode}-{time.time_ns()}.json").write_text(

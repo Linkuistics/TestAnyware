@@ -19,6 +19,41 @@ import inspection
 import worker_capture
 from turns import Turn
 
+_real_kill = os.kill
+_real_waitpid = os.waitpid
+
+
+def _remove_unreaped_child(owner):
+    """Remove the exact child that the runtime left unreaped after its deadline.
+
+    The runtime must refuse to signal after its deadline, so the fixture removes
+    its own child. An unreaped direct child keeps its PID, so the signal cannot
+    reach another process. Return the removal record, or None after a runtime reap.
+    """
+    import worker_capture
+
+    if owner is None or owner.reaped:
+        return None
+    removal = {"pid": owner.pid, "signal": int(signal.SIGKILL), "time": time.monotonic()}
+    try:
+        _real_kill(owner.pid, signal.SIGKILL)
+    except OSError as error:
+        removal["kill_errno"] = error.errno
+    end = time.monotonic() + 1
+    while time.monotonic() < end:
+        try:
+            found, status = _real_waitpid(owner.pid, os.WNOHANG)
+        except ChildProcessError:
+            removal["reap"] = "ECHILD"
+            break
+        if found == owner.pid:
+            removal.update(reap="fixture", status=status)
+            break
+        time.sleep(0.001)
+    if "reap" in removal:
+        worker_capture._owners.pop(owner.pid, None)
+    return removal
+
 
 @pytest.mark.parametrize(
     "fault,message",
@@ -121,9 +156,7 @@ def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fau
         sys.setrecursionlimit(recursion_limit)
         worker.close()
         owner = worker.owner
-        assert owner is not None and owner.reaped
-        with pytest.raises(ChildProcessError):
-            os.waitpid(owner.pid, os.WNOHANG)
+        removal = _remove_unreaped_child(owner)
         root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
         root.mkdir(parents=True, exist_ok=True)
         (root / f"startup-frame-{fault}-{time.time_ns()}.json").write_text(
@@ -131,7 +164,7 @@ def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fau
                 {
                     "runtime": worker.evidence(),
                     "chunks": chunks,
-                    "audit": {"reaped": True},
+                    "audit": {"reaped": removal is None, "fixture_kill": removal},
                     "decoder": "stdlib Python scanner; recursion limit 1000"
                     if fault == "nesting"
                     else "native",
@@ -140,6 +173,10 @@ def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fau
             )
             + "\n"
         )
+        # A child that only the fixture removed means the runtime missed its deadline.
+        assert owner is not None and owner.reaped and removal is None
+        with pytest.raises(ChildProcessError):
+            os.waitpid(owner.pid, os.WNOHANG)
 
 
 def test_startup_frame_written_at_real_cutoff_is_late(tmp_path, monkeypatch):
@@ -206,9 +243,7 @@ def test_startup_frame_written_at_real_cutoff_is_late(tmp_path, monkeypatch):
         os.close(report_read)
         worker.close()
         owner = worker.owner
-        assert owner is not None and owner.reaped
-        with pytest.raises(ChildProcessError):
-            os.waitpid(owner.pid, os.WNOHANG)
+        removal = _remove_unreaped_child(owner)
         root = Path(os.environ.get("DIAGNOSTIC_EVIDENCE", tmp_path))
         root.mkdir(parents=True, exist_ok=True)
         (root / f"startup-frame-real-cutoff-{time.time_ns()}.json").write_text(
@@ -217,13 +252,17 @@ def test_startup_frame_written_at_real_cutoff_is_late(tmp_path, monkeypatch):
                     "runtime": worker.evidence(),
                     "read_entered": entered,
                     "child_write_started": written,
-                    "audit": {"reaped": True},
+                    "audit": {"reaped": removal is None, "fixture_kill": removal},
                     "injection": "real pipe read delayed until child's real cutoff write",
                 },
                 indent=2,
             )
             + "\n"
         )
+        # A child that only the fixture removed means the runtime missed its deadline.
+        assert owner is not None and owner.reaped and removal is None
+        with pytest.raises(ChildProcessError):
+            os.waitpid(owner.pid, os.WNOHANG)
 
 
 def _journal_startup_worker(worker, tmp_path):

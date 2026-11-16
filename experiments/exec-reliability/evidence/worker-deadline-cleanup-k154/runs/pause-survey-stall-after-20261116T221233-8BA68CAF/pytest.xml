@@ -1,0 +1,2832 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="18" skipped="0" tests="22" time="19.121" timestamp="2026-11-16T22:12:34.271349+11:00" hostname="byrd.local"><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[overflow-invalid worker startup frame]" time="0.244"><failure message="assert (_Owner(pid=64933, shutdown_deadline_monotonic=444832.16209825, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=64933, shutdown_deadline_monotonic=444832.16209825, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b137260&gt;
+fault = 'overflow', message = 'invalid worker startup frame'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'invalid worker startup frame; bootstrap grace overrun; bootstrap shutdown overrun' == 'invalid worker startup frame'
+E             
+E             - invalid worker startup frame
+E             + invalid worker startup frame; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b137260&gt;
+fault = 'overflow', message = 'invalid worker startup frame'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=64933, shutdown_deadline_monotonic=444832.16209825, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=64933, shutdown_deadline_monotonic=444832.16209825, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[empty-eof-invalid worker startup frame]" time="0.006" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[partial-eof-invalid worker startup frame]" time="0.005" /><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[tail-invalid worker startup identity]" time="0.246"><failure message="assert (_Owner(pid=64954, shutdown_deadline_monotonic=444832.43376845797, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=64954, shutdown_deadline_monotonic=444832.43376845797, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i3')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b1bd340&gt;
+fault = 'tail', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun' == 'invalid worker startup identity'
+E             
+E             - invalid worker startup identity
+E             + invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i3')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b1bd340&gt;
+fault = 'tail', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=64954, shutdown_deadline_monotonic=444832.43376845797, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=64954, shutdown_deadline_monotonic=444832.43376845797, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[session-invalid worker startup identity]" time="0.245"><failure message="assert (_Owner(pid=64967, shutdown_deadline_monotonic=444832.6901195, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=64967, shutdown_deadline_monotonic=444832.6901195, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i4')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b1bcfb0&gt;
+fault = 'session', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun' == 'invalid worker startup identity'
+E             
+E             - invalid worker startup identity
+E             + invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i4')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b1bcfb0&gt;
+fault = 'session', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=64967, shutdown_deadline_monotonic=444832.6901195, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=64967, shutdown_deadline_monotonic=444832.6901195, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[pid-invalid worker startup identity]" time="0.240"><failure message="assert (_Owner(pid=64980, shutdown_deadline_monotonic=444832.941841708, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=64980, shutdown_deadline_monotonic=444832.941841708, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i5')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4da030&gt;
+fault = 'pid', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun' == 'invalid worker startup identity'
+E             
+E             - invalid worker startup identity
+E             + invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i5')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4da030&gt;
+fault = 'pid', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=64980, shutdown_deadline_monotonic=444832.941841708, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=64980, shutdown_deadline_monotonic=444832.941841708, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[pgid-invalid worker startup identity]" time="0.244"><failure message="assert (_Owner(pid=64984, shutdown_deadline_monotonic=444833.191440583, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=64984, shutdown_deadline_monotonic=444833.191440583, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i6')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4dbef0&gt;
+fault = 'pgid', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun' == 'invalid worker startup identity'
+E             
+E             - invalid worker startup identity
+E             + invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i6')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4dbef0&gt;
+fault = 'pgid', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=64984, shutdown_deadline_monotonic=444833.191440583, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=64984, shutdown_deadline_monotonic=444833.191440583, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[sid-invalid worker startup identity]" time="0.247"><failure message="assert (_Owner(pid=64986, shutdown_deadline_monotonic=444833.44497224997, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=64986, shutdown_deadline_monotonic=444833.44497224997, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i7')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b1bda30&gt;
+fault = 'sid', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun' == 'invalid worker startup identity'
+E             
+E             - invalid worker startup identity
+E             + invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i7')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b1bda30&gt;
+fault = 'sid', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=64986, shutdown_deadline_monotonic=444833.44497224997, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=64986, shutdown_deadline_monotonic=444833.44497224997, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[missing-invalid worker startup identity]" time="0.247"><failure message="assert (_Owner(pid=64988, shutdown_deadline_monotonic=444833.70079254097, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=64988, shutdown_deadline_monotonic=444833.70079254097, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i8')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b1bd3a0&gt;
+fault = 'missing', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun' == 'invalid worker startup identity'
+E             
+E             - invalid worker startup identity
+E             + invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i8')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b1bd3a0&gt;
+fault = 'missing', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=64988, shutdown_deadline_monotonic=444833.70079254097, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=64988, shutdown_deadline_monotonic=444833.70079254097, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[extra-invalid worker startup identity]" time="0.244"><failure message="assert (_Owner(pid=65012, shutdown_deadline_monotonic=444833.95699237497, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=65012, shutdown_deadline_monotonic=444833.95699237497, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i9')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4ac650&gt;
+fault = 'extra', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun' == 'invalid worker startup identity'
+E             
+E             - invalid worker startup identity
+E             + invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i9')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4ac650&gt;
+fault = 'extra', message = 'invalid worker startup identity'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=65012, shutdown_deadline_monotonic=444833.95699237497, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=65012, shutdown_deadline_monotonic=444833.95699237497, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[duplicate-duplicate worker publication key]" time="0.241"><failure message="assert (_Owner(pid=65019, shutdown_deadline_monotonic=444834.20837562496, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=65019, shutdown_deadline_monotonic=444834.20837562496, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i10')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4acfb0&gt;
+fault = 'duplicate', message = 'duplicate worker publication key'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'duplicate worker publication key; bootstrap grace overrun; bootstrap shutdown overrun' == 'duplicate worker publication key'
+E             
+E             - duplicate worker publication key
+E             + duplicate worker publication key; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i10')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4acfb0&gt;
+fault = 'duplicate', message = 'duplicate worker publication key'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=65019, shutdown_deadline_monotonic=444834.20837562496, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=65019, shutdown_deadline_monotonic=444834.20837562496, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[nesting-worker publication nesting exceeds decoder limit]" time="0.247"><failure message="assert (_Owner(pid=65030, shutdown_deadline_monotonic=444834.45916929096, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=65030, shutdown_deadline_monotonic=444834.45916929096, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i11')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4ad520&gt;
+fault = 'nesting', message = 'worker publication nesting exceeds decoder limit'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'worker publication nesting exceeds decoder limit; bootstrap grace overrun; bootstrap shutdown overrun' == 'worker publication nesting exceeds decoder limit'
+E             
+E             - worker publication nesting exceeds decoder limit
+E             + worker publication nesting exceeds decoder limit; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i11')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4ad520&gt;
+fault = 'nesting', message = 'worker publication nesting exceeds decoder limit'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=65030, shutdown_deadline_monotonic=444834.45916929096, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=65030, shutdown_deadline_monotonic=444834.45916929096, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_rejection_is_failed_and_reaped[json-Expecting property name enclosed in double quotes: line 1 column 2 (char 1)]" time="0.237"><failure message="assert (_Owner(pid=65048, shutdown_deadline_monotonic=444834.71401, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=65048, shutdown_deadline_monotonic=444834.71401, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i12')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4ae4b0&gt;
+fault = 'json'
+message = 'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+&gt;           assert worker.failure == message
+E           AssertionError: assert 'Expecting property name enclosed in double quotes: line 1 column 2 (char 1); bootstrap grace overrun; bootstrap shutdown overrun' == 'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)'
+E             
+E             - Expecting property name enclosed in double quotes: line 1 column 2 (char 1)
+E             + Expecting property name enclosed in double quotes: line 1 column 2 (char 1); bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:108: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_rejection_i12')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4ae4b0&gt;
+fault = 'json'
+message = 'Expecting property name enclosed in double quotes: line 1 column 2 (char 1)'
+
+    @pytest.mark.parametrize(
+        "fault,message",
+        [
+            ("overflow", "invalid worker startup frame"),
+            ("empty-eof", "invalid worker startup frame"),
+            ("partial-eof", "invalid worker startup frame"),
+            ("tail", "invalid worker startup identity"),
+            ("session", "invalid worker startup identity"),
+            ("pid", "invalid worker startup identity"),
+            ("pgid", "invalid worker startup identity"),
+            ("sid", "invalid worker startup identity"),
+            ("missing", "invalid worker startup identity"),
+            ("extra", "invalid worker startup identity"),
+            ("duplicate", "duplicate worker publication key"),
+            ("nesting", "worker publication nesting exceeds decoder limit"),
+            ("json", "Expecting property name enclosed in double quotes: line 1 column 2 (char 1)"),
+        ],
+    )
+    def test_startup_frame_rejection_is_failed_and_reaped(tmp_path, monkeypatch, fault, message):
+        """Dropping EOF, cap, tail, identity or decoder rejection must fail before expiry."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        real_read = os.read
+        chunks = []
+        journaled = False
+    
+        def read(fd, size):
+            nonlocal journaled
+            if fd == worker.control and not journaled:
+                _journal_startup_worker(worker, tmp_path)
+                journaled = True
+            data = real_read(fd, size)
+            if fd == worker.control:
+                chunks.append(len(data))
+            return data
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                identity = {
+                    "session": session,
+                    "pid": os.getpid(),
+                    "pgid": os.getpgrp(),
+                    "sid": os.getsid(0),
+                }
+                if fault in {"session", "pid", "pgid", "sid"}:
+                    identity[fault] = "wrong" if fault == "session" else os.getpid() + 1
+                elif fault == "missing":
+                    del identity["sid"]
+                elif fault == "extra":
+                    identity["unexpected"] = 1
+                frame = json.dumps(identity).encode() + b"\n"
+                if fault == "overflow":
+                    frame = b"x" * 4097
+                elif fault == "empty-eof":
+                    os._exit(0)
+                elif fault == "partial-eof":
+                    frame = b'{"session":'
+                elif fault == "tail":
+                    frame += b"x"
+                elif fault == "duplicate":
+                    frame = b'{"session":"wrong",' + frame[1:]
+                elif fault == "nesting":
+                    frame = b"[" * 1100 + b"0" + b"]" * 1100 + b"\n"
+                elif fault == "json":
+                    frame = b"{invalid}\n"
+                assert os.write(control, frame) == len(frame)
+                if fault == "partial-eof":
+                    os._exit(0)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        recursion_limit = sys.getrecursionlimit()
+        if fault == "nesting":
+            # Native decoding accepts every tested depth permitted by this frame cap.
+            # Exercise the defensive path with the stdlib's recursive Python scanner.
+            monkeypatch.setattr(json.scanner, "make_scanner", json.scanner.py_make_scanner)
+            sys.setrecursionlimit(1000)
+        try:
+            assert not worker.start()
+            assert worker.failure == message
+            assert worker.readiness_outcome == "failed"
+            assert worker.readiness_finished &lt; worker.startup_deadline
+            if fault == "overflow":
+                # Once the 4097th byte arrives, no additional read (even size zero) is allowed.
+                assert sum(chunks) == 4097 and chunks[-1] &gt; 0
+            assert worker.owner is not None and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+            assert worker.startup_finished - worker.startup_started &lt; 0.3 + 0.23
+            assert not worker.start()
+        finally:
+            sys.setrecursionlimit(recursion_limit)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=65048, shutdown_deadline_monotonic=444834.71401, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=65048, shutdown_deadline_monotonic=444834.71401, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:124: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_startup_frame_written_at_real_cutoff_is_late" time="0.544"><failure message="assert (_Owner(pid=65058, shutdown_deadline_monotonic=444835.256632333, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)&#10; +  where False = _Owner(pid=65058, shutdown_deadline_monotonic=444835.256632333, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_written_at_0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4acec0&gt;
+
+    def test_startup_frame_written_at_real_cutoff_is_late(tmp_path, monkeypatch):
+        """Accepting a real cutoff write or relabelling its postparse result must fail."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        report_read, report_write = os.pipe()
+        real_read = os.read
+        entered = []
+        written = None
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result, report_write})
+                frame = (
+                    json.dumps(
+                        {
+                            "session": session,
+                            "pid": os.getpid(),
+                            "pgid": os.getpgrp(),
+                            "sid": os.getsid(0),
+                        }
+                    ).encode()
+                    + b"\n"
+                )
+                time.sleep(max(0, deadline - time.monotonic()))
+                written = time.monotonic()
+                assert os.write(control, frame) == len(frame)
+                os.write(report_write, str(written).encode())
+                os.close(report_write)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def read(fd, size):
+            if fd == worker.control:
+                _journal_startup_worker(worker, tmp_path)
+                entered.append(time.monotonic())
+                # A real pipe read begins before cutoff and completes on the child's write.
+                assert select.select([fd], [], [], 0.5)[0] == [fd]
+            return real_read(fd, size)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        try:
+            assert not worker.start()
+            os.close(report_write)
+            report_write = None
+            written = float(real_read(report_read, 100))
+            assert len(entered) == 1 and entered[0] &lt; worker.startup_deadline
+            assert worker.startup_deadline &lt;= written &lt;= worker.readiness_finished
+&gt;           assert worker.failure == "late worker readiness"
+E           AssertionError: assert 'late worker readiness; bootstrap grace overrun; bootstrap shutdown overrun' == 'late worker readiness'
+E             
+E             - late worker readiness
+E             + late worker readiness; bootstrap grace overrun; bootstrap shutdown overrun
+
+test_bootstrap.py:196: AssertionError
+
+During handling of the above exception, another exception occurred:
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_startup_frame_written_at_0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4acec0&gt;
+
+    def test_startup_frame_written_at_real_cutoff_is_late(tmp_path, monkeypatch):
+        """Accepting a real cutoff write or relabelling its postparse result must fail."""
+        worker = worker_capture.Worker(
+            bootstrap=worker_capture.BootstrapBounds(readiness=0.3, term_grace=0.07, kill_reap=0.16)
+        )
+        report_read, report_write = os.pipe()
+        real_read = os.read
+        entered = []
+        written = None
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result, report_write})
+                frame = (
+                    json.dumps(
+                        {
+                            "session": session,
+                            "pid": os.getpid(),
+                            "pgid": os.getpgrp(),
+                            "sid": os.getsid(0),
+                        }
+                    ).encode()
+                    + b"\n"
+                )
+                time.sleep(max(0, deadline - time.monotonic()))
+                written = time.monotonic()
+                assert os.write(control, frame) == len(frame)
+                os.write(report_write, str(written).encode())
+                os.close(report_write)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        def read(fd, size):
+            if fd == worker.control:
+                _journal_startup_worker(worker, tmp_path)
+                entered.append(time.monotonic())
+                # A real pipe read begins before cutoff and completes on the child's write.
+                assert select.select([fd], [], [], 0.5)[0] == [fd]
+            return real_read(fd, size)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "read", read)
+        try:
+            assert not worker.start()
+            os.close(report_write)
+            report_write = None
+            written = float(real_read(report_read, 100))
+            assert len(entered) == 1 and entered[0] &lt; worker.startup_deadline
+            assert worker.startup_deadline &lt;= written &lt;= worker.readiness_finished
+            assert worker.failure == "late worker readiness"
+            assert worker.readiness_outcome == "late"
+            assert worker.readiness_finished - worker.startup_deadline &lt; 0.1
+            assert worker.owner is not None and not worker.owner.ready and worker.owner.reaped
+            assert worker.bootstrap_shutdown["outcome"] == "reaped"
+            assert worker.bootstrap_shutdown["overrun"] is False
+            assert worker.shutdown_finished &lt; worker.shutdown_started + 0.23
+        finally:
+            if report_write is not None:
+                os.close(report_write)
+            os.close(report_read)
+            worker.close()
+            owner = worker.owner
+&gt;           assert owner is not None and owner.reaped
+E           assert (_Owner(pid=65058, shutdown_deadline_monotonic=444835.256632333, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) is not None and False)
+E            +  where False = _Owner(pid=65058, shutdown_deadline_monotonic=444835.256632333, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+
+test_bootstrap.py:209: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[ready]" time="0.028" /><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[term]" time="0.394"><failure message="AssertionError: assert 'residual_ownership' == 'reaped'&#10;  &#10;  - reaped&#10;  + residual_ownership">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_declared_bootstrap_real_c1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4acef0&gt;
+mode = 'term'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+        bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            try:
+                if mode == "ready":
+                    time.sleep(0.02)
+                    original_service(command, control, result, session, deadline)
+                inspection.reset_after_fork({command, control, result})
+                if mode != "term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        worker = worker_capture.Worker(bootstrap=bounds)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                if mode == "deferred-reap":
+                    return 0, 0  # Simulated observation delay; the real child is killable.
+                if mode == "overrun" and worker.kill_at is not None and not injected:
+                    injected = True
+                    time.sleep(0.27)  # Simulated syscall-return stall, never a renewed allowance.
+            return original_waitpid(pid, flags)
+    
+        def kill(pid, sig):
+            calls.append({"scope": "pid", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append({"scope": "group", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        audit = {"reaped": False, "mode": mode, "independent": "original exact-child WNOHANG"}
+        runtime = None
+        try:
+            assert worker.start() is (mode == "ready")
+            worker.close()
+            runtime = worker.evidence()
+            assert runtime["bootstrap_bounds"] == {
+                "readiness": 0.15,
+                "term_grace": 0.07,
+                "kill_reap": 0.16,
+            }
+            assert runtime["startup_deadline_monotonic"] == pytest.approx(
+                worker.startup_started + 0.15, rel=0, abs=1e-9
+            )
+            observed = runtime["readiness_finished_monotonic"]
+            deadline = runtime["startup_deadline_monotonic"]
+            assert runtime["readiness_outcome"] == ("ready" if mode == "ready" else "expired")
+            assert runtime["readiness_overrun"] is (mode != "ready")
+            assert runtime["readiness_lateness_seconds"] == max(0.0, observed - deadline)
+            if mode != "ready":
+                # Observation slack is a test-host allowance, never runtime authority.
+                assert 0 &lt;= observed - deadline &lt; 0.05
+            owner = worker.owner
+            assert owner is not None
+            audit["pid"] = owner.pid
+            if mode == "ready":
+                assert worker.failure is None and owner.reaped and owner.returncode == 0
+                assert runtime["bootstrap_shutdown"] is None and not calls
+            else:
+                assert worker.failure and worker.closed
+                phase = runtime["bootstrap_shutdown"]
+                assert phase["term_deadline_monotonic"] == pytest.approx(
+                    worker.shutdown_started + 0.07, rel=0, abs=1e-9
+                )
+                assert phase["kill_deadline_monotonic"] == pytest.approx(
+                    worker.shutdown_started + 0.23, rel=0, abs=1e-9
+                )
+&gt;               assert phase["outcome"] == (
+                    "residual_ownership" if mode in {"deferred-reap", "overrun"} else "reaped"
+                )
+E               AssertionError: assert 'residual_ownership' == 'reaped'
+E                 
+E                 - reaped
+E                 + residual_ownership
+
+test_bootstrap.py:459: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[kill]" time="0.388"><failure message="AssertionError: assert 'residual_ownership' == 'reaped'&#10;  &#10;  - reaped&#10;  + residual_ownership">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_declared_bootstrap_real_c2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4daf90&gt;
+mode = 'kill'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+        bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            try:
+                if mode == "ready":
+                    time.sleep(0.02)
+                    original_service(command, control, result, session, deadline)
+                inspection.reset_after_fork({command, control, result})
+                if mode != "term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        worker = worker_capture.Worker(bootstrap=bounds)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                if mode == "deferred-reap":
+                    return 0, 0  # Simulated observation delay; the real child is killable.
+                if mode == "overrun" and worker.kill_at is not None and not injected:
+                    injected = True
+                    time.sleep(0.27)  # Simulated syscall-return stall, never a renewed allowance.
+            return original_waitpid(pid, flags)
+    
+        def kill(pid, sig):
+            calls.append({"scope": "pid", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append({"scope": "group", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        audit = {"reaped": False, "mode": mode, "independent": "original exact-child WNOHANG"}
+        runtime = None
+        try:
+            assert worker.start() is (mode == "ready")
+            worker.close()
+            runtime = worker.evidence()
+            assert runtime["bootstrap_bounds"] == {
+                "readiness": 0.15,
+                "term_grace": 0.07,
+                "kill_reap": 0.16,
+            }
+            assert runtime["startup_deadline_monotonic"] == pytest.approx(
+                worker.startup_started + 0.15, rel=0, abs=1e-9
+            )
+            observed = runtime["readiness_finished_monotonic"]
+            deadline = runtime["startup_deadline_monotonic"]
+            assert runtime["readiness_outcome"] == ("ready" if mode == "ready" else "expired")
+            assert runtime["readiness_overrun"] is (mode != "ready")
+            assert runtime["readiness_lateness_seconds"] == max(0.0, observed - deadline)
+            if mode != "ready":
+                # Observation slack is a test-host allowance, never runtime authority.
+                assert 0 &lt;= observed - deadline &lt; 0.05
+            owner = worker.owner
+            assert owner is not None
+            audit["pid"] = owner.pid
+            if mode == "ready":
+                assert worker.failure is None and owner.reaped and owner.returncode == 0
+                assert runtime["bootstrap_shutdown"] is None and not calls
+            else:
+                assert worker.failure and worker.closed
+                phase = runtime["bootstrap_shutdown"]
+                assert phase["term_deadline_monotonic"] == pytest.approx(
+                    worker.shutdown_started + 0.07, rel=0, abs=1e-9
+                )
+                assert phase["kill_deadline_monotonic"] == pytest.approx(
+                    worker.shutdown_started + 0.23, rel=0, abs=1e-9
+                )
+&gt;               assert phase["outcome"] == (
+                    "residual_ownership" if mode in {"deferred-reap", "overrun"} else "reaped"
+                )
+E               AssertionError: assert 'residual_ownership' == 'reaped'
+E                 
+E                 - reaped
+E                 + residual_ownership
+
+test_bootstrap.py:459: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[deferred-reap]" time="0.393"><failure message="assert [] == [&lt;Signals.SIGTERM: 15&gt;, &lt;Signals.SIGKILL: 9&gt;]&#10;  &#10;  Right contains 2 more items, first extra item: &lt;Signals.SIGTERM: 15&gt;&#10;  &#10;  Full diff: (-: missing in left side, +: extra in left side)&#10;  + []&#10;  - [&#10;  -     &lt;Signals.SIGTERM: 15&gt;,&#10;  -     &lt;Signals.SIGKILL: 9&gt;,&#10;  - ]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_declared_bootstrap_real_c3')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4d9a30&gt;
+mode = 'deferred-reap'
+
+    @pytest.mark.parametrize("mode", ["ready", "term", "kill", "deferred-reap", "overrun"])
+    def test_declared_bootstrap_real_child_bounds(tmp_path, monkeypatch, mode):
+        """Hard-coded readiness/TERM/KILL budgets or hiding an overrun must fail."""
+        bounds = worker_capture.BootstrapBounds(readiness=0.15, term_grace=0.07, kill_reap=0.16)
+        original_service = worker_capture._service
+        original_waitpid = os.waitpid
+        original_kill, original_killpg = os.kill, os.killpg
+        calls = []
+        injected = False
+    
+        def service(command, control, result, session, deadline):
+            try:
+                if mode == "ready":
+                    time.sleep(0.02)
+                    original_service(command, control, result, session, deadline)
+                inspection.reset_after_fork({command, control, result})
+                if mode != "term":
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        worker = worker_capture.Worker(bootstrap=bounds)
+    
+        def waitpid(pid, flags):
+            nonlocal injected
+            assert flags == os.WNOHANG
+            if worker.owner is not None and pid == worker.owner.pid:
+                if mode == "deferred-reap":
+                    return 0, 0  # Simulated observation delay; the real child is killable.
+                if mode == "overrun" and worker.kill_at is not None and not injected:
+                    injected = True
+                    time.sleep(0.27)  # Simulated syscall-return stall, never a renewed allowance.
+            return original_waitpid(pid, flags)
+    
+        def kill(pid, sig):
+            calls.append({"scope": "pid", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_kill(pid, sig)
+    
+        def killpg(pid, sig):
+            calls.append({"scope": "group", "pid": pid, "signal": int(sig), "time": time.monotonic()})
+            return original_killpg(pid, sig)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        monkeypatch.setattr(os, "waitpid", waitpid)
+        monkeypatch.setattr(os, "kill", kill)
+        monkeypatch.setattr(os, "killpg", killpg)
+        audit = {"reaped": False, "mode": mode, "independent": "original exact-child WNOHANG"}
+        runtime = None
+        try:
+            assert worker.start() is (mode == "ready")
+            worker.close()
+            runtime = worker.evidence()
+            assert runtime["bootstrap_bounds"] == {
+                "readiness": 0.15,
+                "term_grace": 0.07,
+                "kill_reap": 0.16,
+            }
+            assert runtime["startup_deadline_monotonic"] == pytest.approx(
+                worker.startup_started + 0.15, rel=0, abs=1e-9
+            )
+            observed = runtime["readiness_finished_monotonic"]
+            deadline = runtime["startup_deadline_monotonic"]
+            assert runtime["readiness_outcome"] == ("ready" if mode == "ready" else "expired")
+            assert runtime["readiness_overrun"] is (mode != "ready")
+            assert runtime["readiness_lateness_seconds"] == max(0.0, observed - deadline)
+            if mode != "ready":
+                # Observation slack is a test-host allowance, never runtime authority.
+                assert 0 &lt;= observed - deadline &lt; 0.05
+            owner = worker.owner
+            assert owner is not None
+            audit["pid"] = owner.pid
+            if mode == "ready":
+                assert worker.failure is None and owner.reaped and owner.returncode == 0
+                assert runtime["bootstrap_shutdown"] is None and not calls
+            else:
+                assert worker.failure and worker.closed
+                phase = runtime["bootstrap_shutdown"]
+                assert phase["term_deadline_monotonic"] == pytest.approx(
+                    worker.shutdown_started + 0.07, rel=0, abs=1e-9
+                )
+                assert phase["kill_deadline_monotonic"] == pytest.approx(
+                    worker.shutdown_started + 0.23, rel=0, abs=1e-9
+                )
+                assert phase["outcome"] == (
+                    "residual_ownership" if mode in {"deferred-reap", "overrun"} else "reaped"
+                )
+                assert phase["overrun"] is (mode in {"deferred-reap", "overrun"})
+                assert phase["deadline_exhausted"] is phase["overrun"]
+                assert phase["lateness_seconds"] == max(
+                    0.0, phase["finished_monotonic"] - phase["kill_deadline_monotonic"]
+                )
+                if mode == "deferred-reap":
+                    assert 0 &lt; phase["lateness_seconds"] &lt; 0.05
+                elif mode == "overrun":
+                    assert phase["lateness_seconds"] &gt;= 0.04
+                assert all(item["scope"] == "pid" and item["pid"] == owner.pid for item in calls)
+                assert all(item["time"] &lt; owner.shutdown_deadline_monotonic for item in calls)
+                if mode == "term":
+                    assert [item["signal"] for item in calls] == [signal.SIGTERM]
+                    assert owner.reaped and owner.returncode == -signal.SIGTERM
+                elif mode == "overrun":
+                    assert injected and not calls and not owner.reaped
+                    assert phase["overrun"] is True and runtime["residual_remedy"]
+                else:
+&gt;                   assert [item["signal"] for item in calls] == [signal.SIGTERM, signal.SIGKILL]
+E                   assert [] == [&lt;Signals.SIGTERM: 15&gt;, &lt;Signals.SIGKILL: 9&gt;]
+E                     
+E                     Right contains 2 more items, first extra item: &lt;Signals.SIGTERM: 15&gt;
+E                     
+E                     Full diff: (-: missing in left side, +: extra in left side)
+E                     + []
+E                     - [
+E                     -     &lt;Signals.SIGTERM: 15&gt;,
+E                     -     &lt;Signals.SIGKILL: 9&gt;,
+E                     - ]
+
+test_bootstrap.py:480: AssertionError</failure></testcase><testcase classname="test_bootstrap" name="test_declared_bootstrap_real_child_bounds[overrun]" time="0.430" /><testcase classname="test_worker_capture" name="test_persistent_worker_startup_fault_is_bounded_and_reaped[silent]" time="5.003"><failure message="AssertionError: assert False&#10; +  where False = _Owner(pid=65237, shutdown_deadline_monotonic=444841.934642, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped&#10;[+1 more line; full report in element text]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_persistent_worker_startup0')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b4dbf50&gt;
+fault = 'silent'
+
+    @pytest.mark.parametrize("fault", ["silent", "identity", "late"])
+    def test_persistent_worker_startup_fault_is_bounded_and_reaped(tmp_path, monkeypatch, fault):
+        import worker_capture
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if fault == "identity":
+                    os.write(control, b'{"session":"wrong"}\n')
+                elif fault == "late":
+                    time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                    os.write(control, b'{"session":"late"}\n')
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        worker = worker_capture.Worker()
+        assert worker.start() is False
+        assert worker.failure and worker.closed
+&gt;       assert worker.owner.reaped
+E       AssertionError: assert False
+E        +  where False = _Owner(pid=65237, shutdown_deadline_monotonic=444841.934642, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+E        +    where _Owner(pid=65237, shutdown_deadline_monotonic=444841.934642, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) = Worker(session_token='2efc7321bf8d4483b554c6f77e7f1713', run_id='eab5f352c37449698d21e9eb3f87bf4c', owner=_Owner(pid=65237, shutdown_deadline_monotonic=444841.934642, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1), failure='worker readiness deadline exhausted; bootstrap grace overrun; bootstrap shutdown overrun', channels=[], command=12, control=13, result=15, started=False, closed=True, admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, startup_started=444836.933331791, startup_finished=444841.935237041, shutdown_started=444837.934642, shutdown_finished=444841.935204083, kill_at=444839.934642, bootstrap=BootstrapBounds(readiness=1, term_grace=2, kill_reap=2), failure_bounds=FailureBounds(term_grace=2, kill_reap=2), close_bounds=CloseBounds(grace=0.05, kill_reap=2), shutdown={'mode': 'bootstrap', 'started_monotonic': 444837.934642, 'term_deadline_monotonic': 444839.934642, 'kill_deadline_monotonic': 444841.934642, 'finished_monotonic': 444841.935204083, 'overrun': True, 'lateness_seconds': 0.000562082976102829, 'deadline_exhausted': True, 'outcome': 'residual_ownership', 'signals': [], 'phases': {'grace': {'started_monotonic': 444837.934642, 'deadline_monotonic': 444839.934642, 'finished_monotonic': 444841.935204083, 'outcome': 'residual_ownership', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 2.000562082976103, 'deadline_exhausted': True}, 'kill_reap': {'started_monotonic': None, 'deadline_monotonic': 444841.934642, 'finished_monotonic': 444841.935204083, 'outcome': 'not_entered', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 0.000562082976102829, 'deadline_exhausted': True}}}, startup_deadline=444837.933331791, readiness_finished=444837.934601416, readiness_outcome='expired', bootstrap_shutdown={'mode': 'bootstrap', 'started_monotonic': 444837.934642, 'term_deadline_monotonic': 444839.934642, 'kill_deadline_monotonic': 444841.934642, 'finished_monotonic': 444841.935204083, 'overrun': True, 'lateness_seconds': 0.000562082976102829, 'deadline_exhausted': True, 'outcome': 'residual_ownership', 'signals': [], 'phases': {'grace': {'started_monotonic': 444837.934642, 'deadline_monotonic': 444839.934642, 'finished_monotonic': 444841.935204083, 'outcome': 'residual_ownership', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 2.000562082976103, 'deadline_exhausted': True}, 'kill_reap': {'started_monotonic': None, 'deadline_monotonic': 444841.934642, 'finished_monotonic': 444841.935204083, 'outcome': 'not_entered', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 0.000562082976102829, 'deadline_exhausted': True}}}).owner
+
+test_worker_capture.py:2491: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_persistent_worker_startup_fault_is_bounded_and_reaped[identity]" time="4.011"><failure message="AssertionError: assert False&#10; +  where False = _Owner(pid=65259, shutdown_deadline_monotonic=444845.961581833, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped&#10;[+1 more line; full report in element text]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_persistent_worker_startup1')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b6ff650&gt;
+fault = 'identity'
+
+    @pytest.mark.parametrize("fault", ["silent", "identity", "late"])
+    def test_persistent_worker_startup_fault_is_bounded_and_reaped(tmp_path, monkeypatch, fault):
+        import worker_capture
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if fault == "identity":
+                    os.write(control, b'{"session":"wrong"}\n')
+                elif fault == "late":
+                    time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                    os.write(control, b'{"session":"late"}\n')
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        worker = worker_capture.Worker()
+        assert worker.start() is False
+        assert worker.failure and worker.closed
+&gt;       assert worker.owner.reaped
+E       AssertionError: assert False
+E        +  where False = _Owner(pid=65259, shutdown_deadline_monotonic=444845.961581833, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+E        +    where _Owner(pid=65259, shutdown_deadline_monotonic=444845.961581833, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) = Worker(session_token='db4b9ff182784dfca821a6854e59e6d8', run_id='b0912ee7659c454f916f118289c1d958', owner=_Owner(pid=65259, shutdown_deadline_monotonic=444845.961581833, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1), failure='invalid worker startup identity; bootstrap grace overrun; bootstrap shutdown overrun', channels=[], command=12, control=13, result=15, started=False, closed=True, admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, startup_started=444841.959487125, startup_finished=444845.969250958, shutdown_started=444841.961581833, shutdown_finished=444845.969219833, kill_at=444843.961581833, bootstrap=BootstrapBounds(readiness=1, term_grace=2, kill_reap=2), failure_bounds=FailureBounds(term_grace=2, kill_reap=2), close_bounds=CloseBounds(grace=0.05, kill_reap=2), shutdown={'mode': 'bootstrap', 'started_monotonic': 444841.961581833, 'term_deadline_monotonic': 444843.961581833, 'kill_deadline_monotonic': 444845.961581833, 'finished_monotonic': 444845.969219833, 'overrun': True, 'lateness_seconds': 0.007637999951839447, 'deadline_exhausted': True, 'outcome': 'residual_ownership', 'signals': [], 'phases': {'grace': {'started_monotonic': 444841.961581833, 'deadline_monotonic': 444843.961581833, 'finished_monotonic': 444845.969219833, 'outcome': 'residual_ownership', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 2.0076379999518394, 'deadline_exhausted': True}, 'kill_reap': {'started_monotonic': None, 'deadline_monotonic': 444845.961581833, 'finished_monotonic': 444845.969219833, 'outcome': 'not_entered', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 0.007637999951839447, 'deadline_exhausted': True}}}, startup_deadline=444842.959487125, readiness_finished=444841.961571833, readiness_outcome='failed', bootstrap_shutdown={'mode': 'bootstrap', 'started_monotonic': 444841.961581833, 'term_deadline_monotonic': 444843.961581833, 'kill_deadline_monotonic': 444845.961581833, 'finished_monotonic': 444845.969219833, 'overrun': True, 'lateness_seconds': 0.007637999951839447, 'deadline_exhausted': True, 'outcome': 'residual_ownership', 'signals': [], 'phases': {'grace': {'started_monotonic': 444841.961581833, 'deadline_monotonic': 444843.961581833, 'finished_monotonic': 444845.969219833, 'outcome': 'residual_ownership', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 2.0076379999518394, 'deadline_exhausted': True}, 'kill_reap': {'started_monotonic': None, 'deadline_monotonic': 444845.961581833, 'finished_monotonic': 444845.969219833, 'outcome': 'not_entered', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 0.007637999951839447, 'deadline_exhausted': True}}}).owner
+
+test_worker_capture.py:2491: AssertionError</failure></testcase><testcase classname="test_worker_capture" name="test_persistent_worker_startup_fault_is_bounded_and_reaped[late]" time="5.004"><failure message="AssertionError: assert False&#10; +  where False = _Owner(pid=65435, shutdown_deadline_monotonic=444850.996468, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped&#10;[+1 more line; full report in element text]">tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1324/test_persistent_worker_startup2')
+monkeypatch = &lt;_pytest.monkeypatch.MonkeyPatch object at 0x10b6fc3b0&gt;
+fault = 'late'
+
+    @pytest.mark.parametrize("fault", ["silent", "identity", "late"])
+    def test_persistent_worker_startup_fault_is_bounded_and_reaped(tmp_path, monkeypatch, fault):
+        import worker_capture
+    
+        def service(command, control, result, session, deadline):
+            try:
+                inspection.reset_after_fork({command, control, result})
+                if fault == "identity":
+                    os.write(control, b'{"session":"wrong"}\n')
+                elif fault == "late":
+                    time.sleep(max(0, deadline - time.monotonic()) + 0.02)
+                    os.write(control, b'{"session":"late"}\n')
+                while True:
+                    signal.pause()
+            finally:
+                os._exit(70)
+    
+        monkeypatch.setattr(worker_capture, "_service", service)
+        worker = worker_capture.Worker()
+        assert worker.start() is False
+        assert worker.failure and worker.closed
+&gt;       assert worker.owner.reaped
+E       AssertionError: assert False
+E        +  where False = _Owner(pid=65435, shutdown_deadline_monotonic=444850.996468, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1).reaped
+E        +    where _Owner(pid=65435, shutdown_deadline_monotonic=444850.996468, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1) = Worker(session_token='39eb9c12a9694b05bb941a4576f33d42', run_id='5911254e771e48f78bb1fe9cd8530b27', owner=_Owner(pid=65435, shutdown_deadline_monotonic=444850.996468, ready=False, reaped=False, ownership_lost=False, returncode=None, signals=[], reap_errno=None, reap_attempts=1), failure='worker readiness deadline exhausted; bootstrap grace overrun; bootstrap shutdown overrun', channels=[], command=12, control=13, result=15, started=False, closed=True, admission={'ok': True, 'reason': 'ready', 'python_threads': 1, 'native_threads': 1, 'sigchld': 'SIG_DFL', 'native_sigchld': 'SIG_DFL', 'error': None, 'errno': None}, startup_started=444845.994033625, startup_finished=444850.996942958, shutdown_started=444846.996468, shutdown_finished=444850.996913166, kill_at=444848.996468, bootstrap=BootstrapBounds(readiness=1, term_grace=2, kill_reap=2), failure_bounds=FailureBounds(term_grace=2, kill_reap=2), close_bounds=CloseBounds(grace=0.05, kill_reap=2), shutdown={'mode': 'bootstrap', 'started_monotonic': 444846.996468, 'term_deadline_monotonic': 444848.996468, 'kill_deadline_monotonic': 444850.996468, 'finished_monotonic': 444850.996913166, 'overrun': True, 'lateness_seconds': 0.0004451660206541419, 'deadline_exhausted': True, 'outcome': 'residual_ownership', 'signals': [], 'phases': {'grace': {'started_monotonic': 444846.996468, 'deadline_monotonic': 444848.996468, 'finished_monotonic': 444850.996913166, 'outcome': 'residual_ownership', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 2.000445166020654, 'deadline_exhausted': True}, 'kill_reap': {'started_monotonic': None, 'deadline_monotonic': 444850.996468, 'finished_monotonic': 444850.996913166, 'outcome': 'not_entered', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 0.0004451660206541419, 'deadline_exhausted': True}}}, startup_deadline=444846.994033625, readiness_finished=444846.996421166, readiness_outcome='expired', bootstrap_shutdown={'mode': 'bootstrap', 'started_monotonic': 444846.996468, 'term_deadline_monotonic': 444848.996468, 'kill_deadline_monotonic': 444850.996468, 'finished_monotonic': 444850.996913166, 'overrun': True, 'lateness_seconds': 0.0004451660206541419, 'deadline_exhausted': True, 'outcome': 'residual_ownership', 'signals': [], 'phases': {'grace': {'started_monotonic': 444846.996468, 'deadline_monotonic': 444848.996468, 'finished_monotonic': 444850.996913166, 'outcome': 'residual_ownership', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 2.000445166020654, 'deadline_exhausted': True}, 'kill_reap': {'started_monotonic': None, 'deadline_monotonic': 444850.996468, 'finished_monotonic': 444850.996913166, 'outcome': 'not_entered', 'timing_outcome': 'late', 'overrun': True, 'lateness_seconds': 0.0004451660206541419, 'deadline_exhausted': True}}}).owner
+
+test_worker_capture.py:2491: AssertionError</failure></testcase></testsuite></testsuites>

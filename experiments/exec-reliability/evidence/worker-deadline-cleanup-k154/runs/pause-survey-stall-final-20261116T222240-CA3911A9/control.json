@@ -1,0 +1,2715 @@
+{
+  "inputs": "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/worker-deadline-cleanup-k154/inputs-final",
+  "inputs_sha256_before": {
+    "controller.py": "d17740e60cd4c82693867cc95264dbafcbb9f6773aa326bdbfe304e1fbcfa98c",
+    "inspection.py": "a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1",
+    "peer.py": "b315e4eda759a87844b075fe670732688d3ae4dea5aca8a580b8440bc557ddb3",
+    "preflight.py": "6b3ff8d4a261f8b4f35592fe1039c247a3aaff210f44233f1eac7c94f9cb3bad",
+    "retention.py": "26b8ad589baa34757a09fa0c39439a816a41c7c73ad7eaca579705373138161c",
+    "self_check.py": "a34b1fff7cd5a0f6591ff366ba43d39328f0cc0fffaa0575dc09ba9d3ee41925",
+    "test_bootstrap.py": "28e61b44ad8b3947dd02f97826213ed96a0795b2023a6a78b2350db565731b7c",
+    "test_controller.py": "0f632f6339707500fc3ae3e1a358a7d6a1daa5c75685c798e05ee76585491192",
+    "test_inspection.py": "91d197f8a09301b9a9dec6356f27cbb06d37611117723fe5d0a4782357df9074",
+    "test_retention.py": "0d2eec2a36c52621267ec881626c918f37283e51036f13b8ed5939224f0097ff",
+    "test_shutdown.py": "eb355fa0fe68cbd7ce26c07ffeb8cbf84942a20cc0ae604f39ae8ae13f3a9cde",
+    "test_turns.py": "874efaaaf1a73d4e86c494ce56800069899a8e0e69b30d42c44be63085b9969b",
+    "test_worker_capture.py": "a90e3bfd7464050bb4425a612718f682da710a2822d16affd9e85bf4c6be81fd",
+    "turns.py": "dde3f9a7ddb2406bc6e1e9f94e4a562e5ab7cb5e883899ec65a7b0645215b96f",
+    "worker_capture.py": "05dc982b0f4c27a381a092e83099fce87fec632e8f6fbbbcbbb6ca70275e1191"
+  },
+  "inputs_sha256_after": {
+    "controller.py": "d17740e60cd4c82693867cc95264dbafcbb9f6773aa326bdbfe304e1fbcfa98c",
+    "inspection.py": "a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1",
+    "peer.py": "b315e4eda759a87844b075fe670732688d3ae4dea5aca8a580b8440bc557ddb3",
+    "preflight.py": "6b3ff8d4a261f8b4f35592fe1039c247a3aaff210f44233f1eac7c94f9cb3bad",
+    "retention.py": "26b8ad589baa34757a09fa0c39439a816a41c7c73ad7eaca579705373138161c",
+    "self_check.py": "a34b1fff7cd5a0f6591ff366ba43d39328f0cc0fffaa0575dc09ba9d3ee41925",
+    "test_bootstrap.py": "28e61b44ad8b3947dd02f97826213ed96a0795b2023a6a78b2350db565731b7c",
+    "test_controller.py": "0f632f6339707500fc3ae3e1a358a7d6a1daa5c75685c798e05ee76585491192",
+    "test_inspection.py": "91d197f8a09301b9a9dec6356f27cbb06d37611117723fe5d0a4782357df9074",
+    "test_retention.py": "0d2eec2a36c52621267ec881626c918f37283e51036f13b8ed5939224f0097ff",
+    "test_shutdown.py": "eb355fa0fe68cbd7ce26c07ffeb8cbf84942a20cc0ae604f39ae8ae13f3a9cde",
+    "test_turns.py": "874efaaaf1a73d4e86c494ce56800069899a8e0e69b30d42c44be63085b9969b",
+    "test_worker_capture.py": "a90e3bfd7464050bb4425a612718f682da710a2822d16affd9e85bf4c6be81fd",
+    "turns.py": "dde3f9a7ddb2406bc6e1e9f94e4a562e5ab7cb5e883899ec65a7b0645215b96f",
+    "worker_capture.py": "05dc982b0f4c27a381a092e83099fce87fec632e8f6fbbbcbbb6ca70275e1191"
+  },
+  "control_sha256": "4e77e18032fb7ba907fb1671fe70cc69115a23dfc57eabdb4d83276606b2d395",
+  "stall": true,
+  "survey": true,
+  "tests": [
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[final-reap-pid]",
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[final-reap-group]",
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-term-pid]",
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-term-group]",
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-kill-pid]",
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-kill-group]",
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[at-cutoff-pid]",
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[at-cutoff-group]",
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[cleanup-cutoff-pid]",
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[cleanup-cutoff-group]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[overflow-invalid worker startup frame]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[empty-eof-invalid worker startup frame]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[partial-eof-invalid worker startup frame]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[tail-invalid worker startup identity]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[session-invalid worker startup identity]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[pid-invalid worker startup identity]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[pgid-invalid worker startup identity]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[sid-invalid worker startup identity]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[missing-invalid worker startup identity]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[extra-invalid worker startup identity]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[duplicate-duplicate worker publication key]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[nesting-worker publication nesting exceeds decoder limit]",
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[json-Expecting property name enclosed in double quotes: line 1 column 2 (char 1)]",
+    "test_bootstrap.py::test_startup_frame_written_at_real_cutoff_is_late",
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[ready]",
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[term]",
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[kill]",
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[deferred-reap]",
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[overrun]",
+    "test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[silent]",
+    "test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[identity]",
+    "test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[late]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[orderly]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[term]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[kill]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[failure]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[retiring-term]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[retiring-kill]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[expired]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[expired-polled]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[denied-term]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[denied-kill]",
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[command-failure]",
+    "test_worker_capture.py::test_persistent_worker_close_before_ready_uses_pid",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-orderly]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-healthy-stall]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-failure-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-failure-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-deferred-reap]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-overrun]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-prior-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-denied-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-prior-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-denied-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-finite]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-expired]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-reserve]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-aged-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-orderly]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-healthy-stall]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-failure-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-failure-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-deferred-reap]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-overrun]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-prior-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-denied-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-prior-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-denied-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-finite]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-expired]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-reserve]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-aged-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-orderly]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-healthy-stall]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-failure-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-failure-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-deferred-reap]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-overrun]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-prior-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-denied-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-prior-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-denied-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-finite]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-expired]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-reserve]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-aged-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-orderly]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-healthy-stall]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-failure-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-failure-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-deferred-reap]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-overrun]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-prior-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-denied-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-prior-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-denied-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-finite]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-expired]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-reserve]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-aged-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-orderly]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-healthy-stall]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-failure-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-failure-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-deferred-reap]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-overrun]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-prior-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-denied-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-prior-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-denied-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-finite]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-expired]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-reserve]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-aged-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-orderly]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-healthy-stall]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-failure-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-failure-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-deferred-reap]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-overrun]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-prior-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-denied-term]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-prior-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-denied-kill]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-finite]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-expired]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-reserve]",
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-aged-term]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-after]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-before]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-equal]",
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-after]"
+  ],
+  "pytest_exit": 1,
+  "outcomes": {
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[final-reap-pid]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[final-reap-group]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-term-pid]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-term-group]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-kill-pid]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-kill-group]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[at-cutoff-pid]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[at-cutoff-group]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[cleanup-cutoff-pid]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[cleanup-cutoff-group]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[overflow-invalid worker startup frame]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[empty-eof-invalid worker startup frame]": {
+      "call": "passed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[partial-eof-invalid worker startup frame]": {
+      "call": "passed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[tail-invalid worker startup identity]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[session-invalid worker startup identity]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[pid-invalid worker startup identity]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[pgid-invalid worker startup identity]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[sid-invalid worker startup identity]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[missing-invalid worker startup identity]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[extra-invalid worker startup identity]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[duplicate-duplicate worker publication key]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[nesting-worker publication nesting exceeds decoder limit]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[json-Expecting property name enclosed in double quotes: line 1 column 2 (char 1)]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_startup_frame_written_at_real_cutoff_is_late": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[ready]": {
+      "call": "passed"
+    },
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[term]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[kill]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[deferred-reap]": {
+      "call": "failed"
+    },
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[overrun]": {
+      "call": "passed"
+    },
+    "test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[silent]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[identity]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[late]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[orderly]": {
+      "call": "passed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[term]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[kill]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[failure]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[retiring-term]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[retiring-kill]": {
+      "call": "passed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[expired]": {
+      "call": "passed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[expired-polled]": {
+      "call": "passed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[denied-term]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[denied-kill]": {
+      "call": "passed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[command-failure]": {
+      "call": "failed"
+    },
+    "test_worker_capture.py::test_persistent_worker_close_before_ready_uses_pid": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-orderly]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-healthy-stall]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-failure-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-failure-kill]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-deferred-reap]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-overrun]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-prior-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-denied-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-prior-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-denied-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-finite]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-expired]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-reserve]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-aged-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-orderly]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-healthy-stall]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-failure-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-failure-kill]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-deferred-reap]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-overrun]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-prior-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-denied-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-prior-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-denied-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-finite]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-expired]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-reserve]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-aged-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-orderly]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-healthy-stall]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-failure-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-failure-kill]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-deferred-reap]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-overrun]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-prior-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-denied-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-prior-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-denied-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-finite]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-expired]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-reserve]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-aged-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-orderly]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-healthy-stall]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-failure-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-failure-kill]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-deferred-reap]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-overrun]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-prior-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-denied-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-prior-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-denied-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-finite]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-expired]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-reserve]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-aged-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-orderly]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-healthy-stall]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-failure-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-failure-kill]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-deferred-reap]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-overrun]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-prior-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-denied-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-prior-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-denied-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-finite]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-expired]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-reserve]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-aged-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-orderly]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-healthy-stall]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-failure-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-failure-kill]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-deferred-reap]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-overrun]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-prior-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-denied-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-prior-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-denied-kill]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-finite]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-expired]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-reserve]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-aged-term]": {
+      "call": "failed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-after]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-before]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-equal]": {
+      "call": "passed"
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-after]": {
+      "call": "passed"
+    }
+  },
+  "stalls": {
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[final-reap-pid]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445439.481304083,
+      "resumed": 445439.53971975,
+      "deadline": 445439.529684625,
+      "pid": 82952
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[final-reap-group]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445440.859791166,
+      "resumed": 445440.9148175,
+      "deadline": 445440.90874770796,
+      "pid": 82959
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-term-pid]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445442.19477925,
+      "resumed": 445442.253627625,
+      "deadline": 445442.244532125,
+      "pid": 82969
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-term-group]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445443.569463416,
+      "resumed": 445443.6276365,
+      "deadline": 445443.61759499996,
+      "pid": 82971
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-kill-pid]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445444.927633583,
+      "resumed": 445444.977707625,
+      "deadline": 445444.97701599996,
+      "pid": 82981
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[stale-kill-group]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445446.288502916,
+      "resumed": 445446.347163083,
+      "deadline": 445446.338235041,
+      "pid": 82982
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[at-cutoff-pid]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445447.644109166,
+      "resumed": 445447.701544916,
+      "deadline": 445447.692373958,
+      "pid": 82992
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[at-cutoff-group]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445448.982217916,
+      "resumed": 445449.041007916,
+      "deadline": 445449.03096575,
+      "pid": 83002
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[cleanup-cutoff-pid]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445450.345455041,
+      "resumed": 445450.404866666,
+      "deadline": 445450.394871666,
+      "pid": 83003
+    },
+    "test_worker_capture.py::test_worker_shutdown_deadline_closes_owner_operations[cleanup-cutoff-group]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445451.689597291,
+      "resumed": 445451.74022225,
+      "deadline": 445451.73738158296,
+      "pid": 83013
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[overflow-invalid worker startup frame]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445452.798845583,
+      "resumed": 445453.033431125,
+      "deadline": 445453.02880904096,
+      "pid": 83036
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[empty-eof-invalid worker startup frame]": {
+      "stalled": false
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[partial-eof-invalid worker startup frame]": {
+      "stalled": false
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[tail-invalid worker startup identity]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445453.061076291,
+      "resumed": 445453.291175416,
+      "deadline": 445453.291036875,
+      "pid": 83150
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[session-invalid worker startup identity]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445453.315707541,
+      "resumed": 445453.54931075,
+      "deadline": 445453.54566712497,
+      "pid": 83165
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[pid-invalid worker startup identity]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445453.566127708,
+      "resumed": 445453.80241175,
+      "deadline": 445453.79609749996,
+      "pid": 83167
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[pgid-invalid worker startup identity]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445453.824352166,
+      "resumed": 445454.058262791,
+      "deadline": 445454.05431599997,
+      "pid": 83169
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[sid-invalid worker startup identity]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445454.080777125,
+      "resumed": 445454.312875916,
+      "deadline": 445454.310737666,
+      "pid": 83171
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[missing-invalid worker startup identity]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445454.342995333,
+      "resumed": 445454.575577333,
+      "deadline": 445454.57293774997,
+      "pid": 83173
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[extra-invalid worker startup identity]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445454.600671291,
+      "resumed": 445454.831408916,
+      "deadline": 445454.830629083,
+      "pid": 83201
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[duplicate-duplicate worker publication key]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445454.864189958,
+      "resumed": 445455.1042685,
+      "deadline": 445455.09414529096,
+      "pid": 83203
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[nesting-worker publication nesting exceeds decoder limit]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445455.141837625,
+      "resumed": 445455.381914833,
+      "deadline": 445455.371790958,
+      "pid": 83205
+    },
+    "test_bootstrap.py::test_startup_frame_rejection_is_failed_and_reaped[json-Expecting property name enclosed in double quotes: line 1 column 2 (char 1)]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445455.415990625,
+      "resumed": 445455.651019541,
+      "deadline": 445455.645937083,
+      "pid": 83207
+    },
+    "test_bootstrap.py::test_startup_frame_written_at_real_cutoff_is_late": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445455.972339416,
+      "resumed": 445456.203037458,
+      "deadline": 445456.202291333,
+      "pid": 83218
+    },
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[ready]": {
+      "stalled": false
+    },
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[term]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445456.409021666,
+      "resumed": 445456.640907166,
+      "deadline": 445456.638830041,
+      "pid": 83221
+    },
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[kill]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445456.824321208,
+      "resumed": 445457.064386166,
+      "deadline": 445457.054231041,
+      "pid": 83222
+    },
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[deferred-reap]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445457.247202,
+      "resumed": 445457.477936208,
+      "deadline": 445457.477044416,
+      "pid": 83223
+    },
+    "test_bootstrap.py::test_declared_bootstrap_real_child_bounds[overrun]": {
+      "stalled": false
+    },
+    "test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[silent]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445458.941992041,
+      "resumed": 445462.946469625,
+      "deadline": 445462.941779166,
+      "pid": 83225
+    },
+    "test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[identity]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445462.973063083,
+      "resumed": 445466.975663333,
+      "deadline": 445466.973031875,
+      "pid": 83317
+    },
+    "test_worker_capture.py::test_persistent_worker_startup_fault_is_bounded_and_reaped[late]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445468.01290675,
+      "resumed": 445472.021899416,
+      "deadline": 445472.012715083,
+      "pid": 83355
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[orderly]": {
+      "stalled": false
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445472.115083208,
+      "resumed": 445474.123210541,
+      "deadline": 445474.114940083,
+      "pid": 83556
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[kill]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445474.262657625,
+      "resumed": 445476.263024625,
+      "deadline": 445476.26228774997,
+      "pid": 83579
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[failure]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445476.292616291,
+      "resumed": 445480.299603333,
+      "deadline": 445480.292589833,
+      "pid": 83589
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[retiring-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445480.328219166,
+      "resumed": 445480.738231333,
+      "deadline": 445480.72818950005,
+      "pid": 83680
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[retiring-kill]": {
+      "stalled": false
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[expired]": {
+      "stalled": false
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[expired-polled]": {
+      "stalled": false
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[denied-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445480.8016975,
+      "resumed": 445481.211789541,
+      "deadline": 445481.201664375,
+      "pid": 83685
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[denied-kill]": {
+      "stalled": false
+    },
+    "test_worker_capture.py::test_persistent_worker_close_has_one_fixed_grace[command-failure]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445481.681839083,
+      "resumed": 445485.689813208,
+      "deadline": 445485.681732875,
+      "pid": 83687
+    },
+    "test_worker_capture.py::test_persistent_worker_close_before_ready_uses_pid": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445485.746660541,
+      "resumed": 445489.753776333,
+      "deadline": 445489.746613375,
+      "pid": 83883
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-orderly]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-healthy-stall]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445489.834248083,
+      "resumed": 445489.971940166,
+      "deadline": 445489.96388283296,
+      "pid": 83903
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-failure-term]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445489.997705125,
+      "resumed": 445490.237759166,
+      "deadline": 445490.22765495797,
+      "pid": 83904
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-failure-kill]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445490.269684416,
+      "resumed": 445490.501933,
+      "deadline": 445490.499638083,
+      "pid": 83905
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-deferred-reap]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445490.526714625,
+      "resumed": 445490.766782041,
+      "deadline": 445490.75665891595,
+      "pid": 83906
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-overrun]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-prior-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445491.09007325,
+      "resumed": 445491.206155833,
+      "deadline": 445491.199921291,
+      "pid": 83908
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-denied-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445491.237003208,
+      "resumed": 445491.353452375,
+      "deadline": 445491.3468695,
+      "pid": 83909
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-prior-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-denied-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-finite]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445491.502619958,
+      "resumed": 445491.612571125,
+      "deadline": 445491.602462,
+      "pid": 83913
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-expired]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-reserve]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445491.648396875,
+      "resumed": 445491.950682416,
+      "deadline": 445491.948302125,
+      "pid": 83924
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-0-aged-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445492.215216833,
+      "resumed": 445492.383757541,
+      "deadline": 445492.375049041,
+      "pid": 83925
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-orderly]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-healthy-stall]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445492.459528041,
+      "resumed": 445492.605591583,
+      "deadline": 445492.589197208,
+      "pid": 83927
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-failure-term]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445492.637407875,
+      "resumed": 445492.874807666,
+      "deadline": 445492.867355958,
+      "pid": 83928
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-failure-kill]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445492.896760291,
+      "resumed": 445493.1352975,
+      "deadline": 445493.126712958,
+      "pid": 83929
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-deferred-reap]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445493.1590485,
+      "resumed": 445493.396209083,
+      "deadline": 445493.389011416,
+      "pid": 83930
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-overrun]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-prior-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445493.707897333,
+      "resumed": 445493.827779625,
+      "deadline": 445493.817732625,
+      "pid": 83932
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-denied-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445493.86308175,
+      "resumed": 445493.98296775,
+      "deadline": 445493.972949541,
+      "pid": 83933
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-prior-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-denied-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-finite]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445494.126339333,
+      "resumed": 445494.233573416,
+      "deadline": 445494.226258291,
+      "pid": 83945
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-expired]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-reserve]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445494.252714125,
+      "resumed": 445494.56213125,
+      "deadline": 445494.552639458,
+      "pid": 83947
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-1-aged-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445494.838180083,
+      "resumed": 445495.004058791,
+      "deadline": 445494.99814645795,
+      "pid": 83948
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-orderly]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-healthy-stall]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445495.063785041,
+      "resumed": 445495.198444583,
+      "deadline": 445495.193568333,
+      "pid": 83976
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-failure-term]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445495.214246666,
+      "resumed": 445495.451525833,
+      "deadline": 445495.44421474996,
+      "pid": 83977
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-failure-kill]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445495.477289125,
+      "resumed": 445495.710197083,
+      "deadline": 445495.707239708,
+      "pid": 83978
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-deferred-reap]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445495.739109416,
+      "resumed": 445495.979169791,
+      "deadline": 445495.96906312497,
+      "pid": 83979
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-overrun]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-prior-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445496.302491583,
+      "resumed": 445496.417315708,
+      "deadline": 445496.412309833,
+      "pid": 83981
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-denied-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445496.431672916,
+      "resumed": 445496.551605416,
+      "deadline": 445496.541592041,
+      "pid": 83991
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-prior-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-denied-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-finite]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445496.685861833,
+      "resumed": 445496.793831,
+      "deadline": 445496.785780666,
+      "pid": 83994
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-expired]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-reserve]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 445496.814411958,
+      "resumed": 445497.122986291,
+      "deadline": 445497.114340833,
+      "pid": 83996
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[blocking-2-aged-term]": {
+      "stalled": true,
+      "signal": "SIGKILL",
+      "started": 445497.40943875,
+      "resumed": 445497.579379833,
+      "deadline": 445497.569313375,
+      "pid": 83997
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-orderly]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-healthy-stall]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-failure-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-failure-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-deferred-reap]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-overrun]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-prior-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-denied-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-prior-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-denied-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-finite]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-expired]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-reserve]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-0-aged-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-orderly]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-healthy-stall]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-failure-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-failure-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-deferred-reap]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-overrun]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-prior-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-denied-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-prior-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-denied-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-finite]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-expired]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-reserve]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-1-aged-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-orderly]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-healthy-stall]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-failure-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-failure-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-deferred-reap]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-overrun]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-prior-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-denied-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-prior-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-denied-kill]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-finite]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-expired]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-reserve]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_declared_shutdown_real_child_phases[incremental-2-aged-term]": {
+      "stalled": false
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84209
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84210
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-pid-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84211
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84212
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84213
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[exited-group-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84214
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84215
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84216
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-pid-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84217
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84218
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84219
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[live-group-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84220
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84221
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84222
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-pid-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84223
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84224
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84225
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-exited-group-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84226
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84227
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84228
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-pid-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84229
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84230
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84231
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-live-group-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84232
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84233
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84234
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-pid-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84235
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84236
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84237
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[echild-group-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84238
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84239
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84240
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-pid-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84241
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84242
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84243
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[eio-group-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84244
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84245
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84246
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-pid-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84247
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-before]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84248
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-equal]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84249
+    },
+    "test_shutdown.py::test_worker_first_reap_at_fixed_cutoff[late-eio-group-after]": {
+      "stalled": true,
+      "signal": "SIGTERM",
+      "started": 100.0,
+      "resumed": 100.0,
+      "deadline": 100.0,
+      "pid": 84250
+    }
+  },
+  "resources": [
+    {
+      "sources": [
+        "deadline audit receipt",
+        "stalled signal"
+      ],
+      "pid": 82952,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "deadline audit receipt",
+        "stalled signal"
+      ],
+      "pid": 82959,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "deadline audit receipt",
+        "stalled signal"
+      ],
+      "pid": 82969,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "deadline audit receipt",
+        "stalled signal"
+      ],
+      "pid": 82971,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "deadline audit receipt",
+        "stalled signal"
+      ],
+      "pid": 82981,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "deadline audit receipt",
+        "stalled signal"
+      ],
+      "pid": 82982,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "deadline audit receipt",
+        "stalled signal"
+      ],
+      "pid": 82992,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "deadline audit receipt",
+        "stalled signal"
+      ],
+      "pid": 83002,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "deadline audit receipt",
+        "stalled signal"
+      ],
+      "pid": 83003,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "deadline audit receipt",
+        "stalled signal"
+      ],
+      "pid": 83013,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83036,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83150,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83165,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83167,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83169,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83171,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83173,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83201,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83203,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83205,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83207,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83218,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83221,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83222,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83223,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83225,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83317,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83355,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83556,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83579,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83589,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83680,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83685,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83687,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83883,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83903,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83904,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83905,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83906,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83908,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83909,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83913,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83924,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83925,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83927,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83928,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83929,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83930,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83932,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83933,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83945,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83947,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83948,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83976,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83977,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83978,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83979,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83981,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83991,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83994,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83996,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 83997,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84209,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84210,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84211,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84212,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84213,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84214,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84215,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84216,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84217,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84218,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84219,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84220,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84221,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84222,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84223,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84224,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84225,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84226,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84227,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84228,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84229,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84230,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84231,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84232,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84233,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84234,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84235,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84236,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84237,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84238,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84239,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84240,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84241,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84242,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84243,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84244,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84245,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84246,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84247,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84248,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84249,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    },
+    {
+      "sources": [
+        "stalled signal"
+      ],
+      "pid": 84250,
+      "owner_record_after_tests": false,
+      "state_after_tests": "reaped before audit",
+      "removal": "not needed"
+    }
+  ],
+  "children_before_cleanup": [],
+  "children_after_cleanup": [],
+  "wall_started": 1794828161.38328,
+  "wall_finished": 1794828223.0720289,
+  "verdict": "pass",
+  "reasons": [],
+  "notes": [
+    "a stalled test did not fail",
+    "a test did not reach the stalled signal"
+  ]
+}

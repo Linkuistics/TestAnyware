@@ -291,13 +291,20 @@
         "historical-soak-k152/soak run 042-full-idle-ac1a6eb7: test_worker_shutdown_deadline_closes_owner_operations[stale-kill-group] assert False (no killpg)",
         "same run: test_review_worker_rejects_fork_before_creation, owner 4100 left in worker_capture._owners"
       ],
-      "classification": "fixture_defect_open",
+      "classification": "fixture_defect",
       "mechanism": "The parent made 40 WNOHANG polls about 6 ms apart, the last 64 ms before the 0.3 s deadline. It made no further syscall until after the deadline, and the receipt finished 140 ms after it. The soak load sampler, another process, woke 161 ms late over the same window. Its next-largest delay in 808 samples was 12 ms. The deadline passed during the parent's observation gap. The two gaps overlap, so a shared host pause is an inference with unknown cause. The runtime then correctly sent no signal. The fixture child waits on signal.pause() and the fixture has no cleanup for a child the runtime did not signal. The child stayed alive as PID 4100, and its owner record failed the next test.",
-      "repair": null,
-      "repair_owner": "worker-deadline-cleanup (leaf cut by k152)",
-      "controls": [],
+      "repair": "test_worker_capture.py and test_bootstrap.py remove an unreaped fixture child with SIGKILL to its exact PID, reap it, drop its owner record and then fail. The runtime is unchanged and still sends no signal after its deadline.",
+      "controls": [
+        "worker-deadline-cleanup-k154/runs/red-stall-before-20261116T220611-5E895BD1",
+        "worker-deadline-cleanup-k154/runs/green-stall-after-20261116T220735-183657FC",
+        "worker-deadline-cleanup-k154/runs/all-stall-after-20261116T220804-3F4B7BC1",
+        "worker-deadline-cleanup-k154/runs/pause-survey-stall-final-20261116T222240-CA3911A9",
+        "worker-deadline-cleanup-k154/runs/pause-survey-nostall-final-20261116T222343-AC58EFB2",
+        "worker-deadline-cleanup-k154/runs/full-suite-final-20261116T222519-54DEB4BA"
+      ],
       "resource": "PID 4100, pgid 4100, ppid 1, started Mon 16 Nov 21:07:57 2026, found by a manual ps scan after the soak and removed with SIGKILL to its group at 21:15:53. ps then exited 1.",
-      "k155_change": "R5: a one-second sample cannot place its delay, so the host pause is an inference. The deadline exhaustion and the fixture leak stand."
+      "k155_change": "R5: a one-second sample cannot place its delay, so the host pause is an inference. The deadline exhaustion and the fixture leak stand.",
+      "k154_change": "A frozen control delays the first runtime signal until the deadline, so it reproduces the leak without a host stall. Before the repair, both stale-kill variants left a live child and an owner record. After it, 170 pause-fixture variants left no child and no record. The cause of the run 42 observation gap stays unknown."
     }
   ],
   "k17_whole_contract": {
@@ -312,10 +319,12 @@
     "explained": [
       "checker-ceiling-k77"
     ],
-    "open": [
+    "open": [],
+    "note": "Five historical cases did not recur in 46 runs, which does not explain them. Whether that bounded result suffices for k17 is a human decision.",
+    "repaired": [
       "host-stall-stale-kill-k152"
     ],
-    "note": "Five historical cases did not recur in 46 runs, which does not explain them. Whether that bounded result suffices for k17 is a human decision."
+    "k154_note": "The run 42 fixture leak is repaired. The deadline exhaustion that exposed it is not explained, and k18 owns stalled storage."
   },
   "soak": {
     "plan": "experiments/exec-reliability/evidence/historical-soak-k152/plan.json",
