@@ -239,7 +239,8 @@ def test_an_unreadable_hypervisor_inventory_hides_no_present_public_entry(tmp_pa
 
 # ---- disposal --------------------------------------------------------------------------------
 
-STOPPED = (0, {"schema_version": "1.0", "ok": True, "id": NAME}, 0.0)
+# The reply of `vm stop ID --json` on success (vm.rs `run_vm_stop`, the same in v2.8.0).
+STOPPED = (0, {"schema_version": "1.0", "ok": True, "id": NAME, "stopped": True}, 0.0)
 NOT_FOUND = (3, {"schema_version": "1.0", "ok": False, "code": "VM_NOT_FOUND", "message": "m"}, 0.0)
 
 
@@ -268,6 +269,15 @@ REFUSED_STOPS: dict[str, tuple[int, object, float]] = {
     "exit-0-not-json": (0, "stopped", 0.0),
     "other-schema": (3, {"schema_version": "2.0", "ok": False, "code": "VM_NOT_FOUND"}, 0.0),
     "stop-hangs": (0, STOPPED[1], 5.0),
+    # Success envelopes that prove no stop of NAME (review k182, finding F2).
+    "ok-without-stop": (0, {"schema_version": "1.0", "ok": True}, 0.0),
+    "ok-id-without-stop": (0, {"schema_version": "1.0", "ok": True, "id": NAME}, 0.0),
+    "stopped-false": (0, {**STOPPED[1], "stopped": False}, 0.0),
+    "stopped-not-boolean": (0, {**STOPPED[1], "stopped": "true"}, 0.0),
+    "dry-run": (0, {**STOPPED[1], "dry_run": True, "stopped": False}, 0.0),
+    "dry-run-claims-stopped": (0, {**STOPPED[1], "dry_run": True}, 0.0),
+    "other-id": (0, {**STOPPED[1], "id": "k19-linux-ffffffffffffffffffffffffffffffff"}, 0.0),
+    "stopped-without-id": (0, {"schema_version": "1.0", "ok": True, "stopped": True}, 0.0),
 }
 
 
@@ -384,3 +394,79 @@ def test_each_golden_recipe_runs_the_guard_before_its_create(platform: str) -> N
     assert done.returncode == 0 and len(guard_at) == 1 and len(create_at) == 1
     assert guard_at[0] < create_at[0]
     assert "--cli " + str(REPO / "cli-rs/target/debug/testanyware") in lines[guard_at[0]]
+
+
+# Names that a shell would rewrite. Unquoted, each one turns into another name, and the first
+# three turn into the retained golden. Review k182, finding F1.
+HOSTILE_NAMES = {
+    "double-quoted": f'"{GOLDEN}"',
+    "single-quoted": f"'{GOLDEN}'",
+    "command-substitution": "testanyware-golden-linux-$(printf 24.04)",
+    "parameter": "k19-$HOME",
+    "space": "k19 golden",
+    "semicolon": "k19;true",
+}
+
+
+def _rendered(platform: str, name: str) -> tuple[str, str]:
+    """The guard and create command lines that `task --dry` renders for NAME."""
+    task = shutil.which("task")
+    assert task is not None
+    done = subprocess.run(
+        [task, "-d", str(REPO), "--dry", f"vm:create-golden-{platform}", f"NAME={name}"],
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert done.returncode == 0, done.stderr
+    guard_lines = [
+        line.split("] ", 1)[1]
+        for line in done.stderr.splitlines()
+        if line.startswith("task: [vm:golden-name-free] ")
+    ]
+    create_lines = [
+        line.split("] ", 1)[1]
+        for line in done.stderr.splitlines()
+        if line.startswith(f"task: [vm:create-golden-{platform}] ")
+    ]
+    assert len(guard_lines) == 1 and len(create_lines) == 1, done.stderr
+    return guard_lines[0], create_lines[0]
+
+
+def _argv_of(tmp_path: Path, line: str, program: str, label: str) -> list[str]:
+    """Run one rendered line under sh with PROGRAM replaced by a recorder; return its argv."""
+    bin_dir = tmp_path / f"bin-{label}"
+    bin_dir.mkdir()
+    recorder = bin_dir / "recorder"
+    recorder.write_text('#!/bin/sh\nprintf \'%s\\0\' "$@" > "$RECORD"\n')
+    recorder.chmod(recorder.stat().st_mode | stat.S_IXUSR)
+    (bin_dir / "python3").symlink_to(recorder)
+    assert line.startswith(program + " "), line
+    record = tmp_path / f"{label}.argv"
+    done = subprocess.run(
+        ["/bin/sh", "-c", str(recorder) + line[len(program) :]],
+        env={"PATH": f"{bin_dir}:/usr/bin:/bin", "RECORD": str(record), "HOME": str(tmp_path)},
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert done.returncode == 0 and record.exists(), done.stderr
+    return record.read_bytes().decode().split("\0")[:-1]
+
+
+@pytest.mark.parametrize("name", sorted(HOSTILE_NAMES))
+@pytest.mark.parametrize("platform", ["macos", "linux"])
+def test_the_guard_and_the_create_receive_the_same_literal_name(
+    tmp_path: Path, platform: str, name: str
+) -> None:
+    literal = HOSTILE_NAMES[name]
+    guard_line, create_line = _rendered(platform, literal)
+    checked = _argv_of(tmp_path, guard_line, "python3", "guard")
+    created = _argv_of(
+        tmp_path, create_line, str(REPO / "cli-rs/target/debug/testanyware"), "create"
+    )
+    assert checked[1:3] == [str(REPO / "scripts/vm_inventory.py"), "absent"]
+    assert created[:2] == ["vm", "create-golden"]
+    assert checked[3] == literal
+    assert created[created.index("--name") + 1] == literal

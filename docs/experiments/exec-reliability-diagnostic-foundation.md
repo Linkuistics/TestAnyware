@@ -2544,14 +2544,16 @@ private connection files.
   read. A nonzero exit, a timeout or an executable that cannot run means
   "unreadable". Malformed JSON, a wrong envelope, a truncated listing,
   mismatched counts or a malformed item also mean "unreadable".
-- `dispose ID` accepts exit 0 with a success envelope, or exit 3 with an error
+- `dispose ID` accepts exit 0 with a success envelope that names `id` ID, has
+  `stopped: true` and has no `dry_run`. It also accepts exit 3 with an error
   envelope whose `code` is `VM_NOT_FOUND`. Then it requires absence from both
-  listings. Any other exit 3, such as `GOLDEN_NOT_FOUND` or a bare exit 3,
+  listings. A success envelope without those fields, a dry run or a reply for
+  another VM fails (repair k183). Any other exit 3, such as `GOLDEN_NOT_FOUND` or a bare exit 3,
   fails. A failure prints a remedy that names both listings, `vm stop`, and
   the manual `tart stop` and `tart delete` steps.
 
-`experiments/exec-reliability/test_vm_inventory.py` runs 52 controls against
-fake peers. Five deliberate faults in the checker made the controls fail
+`experiments/exec-reliability/test_vm_inventory.py` ran 52 controls against
+fake peers in k19, and runs 72 after k183. Five deliberate faults in the checker made the controls fail
 (`k19-red-01`). The faults accept any exit 3, skip the tart listing, read
 malformed JSON as empty, ignore truncation, and skip absence after a stop.
 After the run restored the source, its hash matched the hash before.
@@ -2572,10 +2574,18 @@ that cannot be read.
 Two faults made the controls fail (`k19-red-02`): removing the guard from the
 Linux recipe, and ignoring the guard's exit status.
 
+The guard, both create commands and the three `NAME` preconditions pass
+`NAME` through `shellQuote` (repair k183). Before k183 the create commands
+interpolated `NAME` unquoted. The guard then checked one string and the
+create shell received another. For example, `NAME="testanyware-golden-linux-24.04"`
+with its quote characters passed the guard and named the retained golden in
+the create command.
+
 ### Checks and open findings
 
-- The k19 files pass lint, format, types, shellcheck and their 52 controls
-  (`k19-checks-02`). The directory `k19-checks-01` holds a harness error
+- The k19 files passed lint, format, types, shellcheck and their 52 controls
+  (`k19-checks-02`). After k183 they pass all five checks with 72 controls
+  (`k183-checks-03`). The directory `k19-checks-01` holds a harness error
   that ran no check.
 - `diagnostic:self-check` timed out (`k19-self-check-01`). The whole suite
   without the k19 test file took 124 s and 127 s on this host. The frozen
@@ -2591,6 +2601,44 @@ Linux recipe, and ignoring the guard's exit status.
 | The 2.8.0 start help denies macOS support. | A product leaf repairs the help text. |
 | The suite exceeds the 120 s self-check budget on this host. | A later leaf decides the budget or the suite size. |
 | One storage control failed once under load. | A later leaf examines the timing of that control. |
+
+### Review k182 integration (k183)
+
+Review k182 found two seams. A source read showed both, and k183 repaired both.
+
+| Finding | Repair | Controls |
+| --- | --- | --- |
+| F1, high: the guard checked the shell-quoted `NAME`, but the create commands received the unquoted `NAME` | Quote `NAME` in both create commands and the three preconditions | 12 controls render each recipe with `task --dry` for 6 names that a shell rewrites. Each control runs the rendered guard and create lines under `/bin/sh` with recording fakes. The guard and the create must receive the same literal name. |
+| F2, medium: any exit-0 success envelope counted as `stopped` | Require `id` ID, `stopped: true` and no `dry_run` | 8 refused replies: no `stopped`, `id` without `stopped`, `stopped: false`, `stopped: "true"`, two dry runs, another id and `stopped` without `id`. The `STOPPED` fixture now matches the real reply. |
+
+Seven deliberate faults made the controls fail (`k183-red-02`). Four faults
+weakened the stop check: any success envelope, no `id` check, no `dry_run`
+check, and a truthy `stopped`. Three faults removed `shellQuote` from the
+Linux create, the macOS create and the guard. After each fault the runner
+restored the subject, and the hashes matched the hashes before.
+
+`k183-red-01`
+holds an earlier run of the same faults with a runner that failed type
+checks. `k183-checks-01` holds a harness error in which zsh passed the file
+list as one path. `k183-checks-02` found one format and two type findings,
+and k183 repaired them before `k183-checks-03`.
+
+The real reply comes from `run_vm_stop` in
+`cli-rs/crates/testanyware-cli/src/commands/vm.rs`. It is
+`{"schema_version": "1.0", "ok": true, "id": ID, "stopped": true}` in both
+this checkout and tag `v2.8.0`. The installed CLI reports version 2.8.0.
+
+**Limits.** The k19 route runs used the checker before k183. They did not
+keep the raw stop envelope, only the verdict `disposed ID stopped`. That the
+two `route` stops replied with `stopped: true` for their own id is therefore
+derived from the v2.8.0 source, not observed. The checker observed
+independent absence from both inventories after each stop. The `VM_NOT_FOUND`
+branch did not change.
+
+The F1 controls run the rendered lines under `/bin/sh`, while Task
+runs its commands in its own shell interpreter. Both follow POSIX single
+quotes, but the controls do not run the Task interpreter on the create line.
+k183 created no golden and ran no live VM command.
 
 Ten-clone acceptance remains **0/10, unavailable**. k19 established routes and
 did not run a causal workload.

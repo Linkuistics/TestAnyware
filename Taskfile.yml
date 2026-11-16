@@ -1145,7 +1145,7 @@ tasks:
       GUARD_CLI: '{{.GUARD_CLI | default "testanyware"}}'
       GUARD_TART: '{{.GUARD_TART | default "tart"}}'
     preconditions:
-      - sh: test -n "{{.NAME}}"
+      - sh: test -n {{.NAME | shellQuote}}
         msg: 'set NAME=<a golden name that does not exist yet>'
     cmds:
       - python3 -I '{{.ROOT_DIR}}/scripts/vm_inventory.py' absent {{.NAME | shellQuote}} --cli {{.GUARD_CLI | shellQuote}} --tart {{.GUARD_TART | shellQuote}}
@@ -1158,12 +1158,12 @@ tasks:
     env:
       TESTANYWARE_AGENT_BIN_OVERRIDE: '{{.ROOT_DIR}}/agents/macos/.build/release/testanyware-agent'
     preconditions:
-      - sh: test -n "{{.NAME}}"
+      - sh: test -n {{.NAME | shellQuote}}
         msg: 'set NAME=<a golden name that does not exist yet>'
     cmds:
       - task: vm:golden-name-free
         vars: {NAME: '{{.NAME}}', GUARD_CLI: '{{.CLI}}'}
-      - '{{.CLI}} vm create-golden --platform macos --version {{.VERSION | default "27"}} --name {{.NAME}}'
+      - '{{.CLI}} vm create-golden --platform macos --version {{.VERSION | default "27"}} --name {{.NAME | shellQuote}}'
 
   vm:create-golden-linux:
     desc: 'Build a Linux golden that carries this checkout''s agent, not the Homebrew-bundled one. Needs NAME=<golden> (use a new name: a rebuild replaces a golden of the same name); optional VERSION (default 24.04). The build grows the disk to 50 GB and fails when / is under 40 GB. About 20 to 40 minutes, and it pulls an image. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'
@@ -1173,12 +1173,12 @@ tasks:
     env:
       TESTANYWARE_AGENT_BIN_OVERRIDE: '{{.ROOT_DIR}}/agents/linux'
     preconditions:
-      - sh: test -n "{{.NAME}}"
+      - sh: test -n {{.NAME | shellQuote}}
         msg: 'set NAME=<a golden name that does not exist yet>'
     cmds:
       - task: vm:golden-name-free
         vars: {NAME: '{{.NAME}}', GUARD_CLI: '{{.CLI}}'}
-      - '{{.CLI}} vm create-golden --platform linux --version {{.VERSION | default "24.04"}} --name {{.NAME}}'
+      - '{{.CLI}} vm create-golden --platform linux --version {{.VERSION | default "24.04"}} --name {{.NAME | shellQuote}}'
 
   vm:linux-golden-disk-live:
     desc: 'Does a clone of a Linux golden have the free disk that golden creation grows it for? Needs GOLDEN=<golden>; starts a clone, reads `df` of /, and fails when under MIN_AVAIL_GB (default 30) is available. A grown golden gives about 36 GB; one built before the growth gives about 8.8 GB. About 1 minute; always stops and deletes the clone. Run it from a terminal that may reach guest IPs (macOS Local Network permission)'

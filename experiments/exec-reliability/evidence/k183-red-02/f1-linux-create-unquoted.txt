@@ -1,0 +1,169 @@
+......FFFFFF                                                             [100%]
+=================================== FAILURES ===================================
+_ test_the_guard_and_the_create_receive_the_same_literal_name[linux-command-substitution] _
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1466/test_the_guard_and_the_create_6')
+platform = 'linux', name = 'command-substitution'
+
+    @pytest.mark.parametrize("name", sorted(HOSTILE_NAMES))
+    @pytest.mark.parametrize("platform", ["macos", "linux"])
+    def test_the_guard_and_the_create_receive_the_same_literal_name(
+        tmp_path: Path, platform: str, name: str
+    ) -> None:
+        literal = HOSTILE_NAMES[name]
+        guard_line, create_line = _rendered(platform, literal)
+        checked = _argv_of(tmp_path, guard_line, "python3", "guard")
+        created = _argv_of(
+            tmp_path, create_line, str(REPO / "cli-rs/target/debug/testanyware"), "create"
+        )
+        assert checked[1:3] == [str(REPO / "scripts/vm_inventory.py"), "absent"]
+        assert created[:2] == ["vm", "create-golden"]
+        assert checked[3] == literal
+>       assert created[created.index("--name") + 1] == literal
+E       AssertionError: assert 'testanyware-...n-linux-24.04' == 'testanyware-...printf 24.04)'
+E         
+E         - testanyware-golden-linux-$(printf 24.04)
+E         ?                          ---------     -
+E         + testanyware-golden-linux-24.04
+
+test_vm_inventory.py:472: AssertionError
+_ test_the_guard_and_the_create_receive_the_same_literal_name[linux-double-quoted] _
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1466/test_the_guard_and_the_create_7')
+platform = 'linux', name = 'double-quoted'
+
+    @pytest.mark.parametrize("name", sorted(HOSTILE_NAMES))
+    @pytest.mark.parametrize("platform", ["macos", "linux"])
+    def test_the_guard_and_the_create_receive_the_same_literal_name(
+        tmp_path: Path, platform: str, name: str
+    ) -> None:
+        literal = HOSTILE_NAMES[name]
+        guard_line, create_line = _rendered(platform, literal)
+        checked = _argv_of(tmp_path, guard_line, "python3", "guard")
+        created = _argv_of(
+            tmp_path, create_line, str(REPO / "cli-rs/target/debug/testanyware"), "create"
+        )
+        assert checked[1:3] == [str(REPO / "scripts/vm_inventory.py"), "absent"]
+        assert created[:2] == ["vm", "create-golden"]
+        assert checked[3] == literal
+>       assert created[created.index("--name") + 1] == literal
+E       assert 'testanyware-...n-linux-24.04' == '"testanyware...-linux-24.04"'
+E         
+E         - "testanyware-golden-linux-24.04"
+E         ? -                              -
+E         + testanyware-golden-linux-24.04
+
+test_vm_inventory.py:472: AssertionError
+_ test_the_guard_and_the_create_receive_the_same_literal_name[linux-parameter] _
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1466/test_the_guard_and_the_create_8')
+platform = 'linux', name = 'parameter'
+
+    @pytest.mark.parametrize("name", sorted(HOSTILE_NAMES))
+    @pytest.mark.parametrize("platform", ["macos", "linux"])
+    def test_the_guard_and_the_create_receive_the_same_literal_name(
+        tmp_path: Path, platform: str, name: str
+    ) -> None:
+        literal = HOSTILE_NAMES[name]
+        guard_line, create_line = _rendered(platform, literal)
+        checked = _argv_of(tmp_path, guard_line, "python3", "guard")
+        created = _argv_of(
+            tmp_path, create_line, str(REPO / "cli-rs/target/debug/testanyware"), "create"
+        )
+        assert checked[1:3] == [str(REPO / "scripts/vm_inventory.py"), "absent"]
+        assert created[:2] == ["vm", "create-golden"]
+        assert checked[3] == literal
+>       assert created[created.index("--name") + 1] == literal
+E       AssertionError: assert 'k19-/private..._the_create_8' == 'k19-$HOME'
+E         
+E         - k19-$HOME
+E         + k19-/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1466/test_the_guard_and_the_create_8
+
+test_vm_inventory.py:472: AssertionError
+_ test_the_guard_and_the_create_receive_the_same_literal_name[linux-semicolon] _
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1466/test_the_guard_and_the_create_9')
+platform = 'linux', name = 'semicolon'
+
+    @pytest.mark.parametrize("name", sorted(HOSTILE_NAMES))
+    @pytest.mark.parametrize("platform", ["macos", "linux"])
+    def test_the_guard_and_the_create_receive_the_same_literal_name(
+        tmp_path: Path, platform: str, name: str
+    ) -> None:
+        literal = HOSTILE_NAMES[name]
+        guard_line, create_line = _rendered(platform, literal)
+        checked = _argv_of(tmp_path, guard_line, "python3", "guard")
+        created = _argv_of(
+            tmp_path, create_line, str(REPO / "cli-rs/target/debug/testanyware"), "create"
+        )
+        assert checked[1:3] == [str(REPO / "scripts/vm_inventory.py"), "absent"]
+        assert created[:2] == ["vm", "create-golden"]
+        assert checked[3] == literal
+>       assert created[created.index("--name") + 1] == literal
+E       AssertionError: assert 'k19' == 'k19;true'
+E         
+E         - k19;true
+E         + k19
+
+test_vm_inventory.py:472: AssertionError
+_ test_the_guard_and_the_create_receive_the_same_literal_name[linux-single-quoted] _
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1466/test_the_guard_and_the_create_10')
+platform = 'linux', name = 'single-quoted'
+
+    @pytest.mark.parametrize("name", sorted(HOSTILE_NAMES))
+    @pytest.mark.parametrize("platform", ["macos", "linux"])
+    def test_the_guard_and_the_create_receive_the_same_literal_name(
+        tmp_path: Path, platform: str, name: str
+    ) -> None:
+        literal = HOSTILE_NAMES[name]
+        guard_line, create_line = _rendered(platform, literal)
+        checked = _argv_of(tmp_path, guard_line, "python3", "guard")
+        created = _argv_of(
+            tmp_path, create_line, str(REPO / "cli-rs/target/debug/testanyware"), "create"
+        )
+        assert checked[1:3] == [str(REPO / "scripts/vm_inventory.py"), "absent"]
+        assert created[:2] == ["vm", "create-golden"]
+        assert checked[3] == literal
+>       assert created[created.index("--name") + 1] == literal
+E       assert 'testanyware-...n-linux-24.04' == "'testanyware...-linux-24.04'"
+E         
+E         - 'testanyware-golden-linux-24.04'
+E         ? -                              -
+E         + testanyware-golden-linux-24.04
+
+test_vm_inventory.py:472: AssertionError
+___ test_the_guard_and_the_create_receive_the_same_literal_name[linux-space] ___
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1466/test_the_guard_and_the_create_11')
+platform = 'linux', name = 'space'
+
+    @pytest.mark.parametrize("name", sorted(HOSTILE_NAMES))
+    @pytest.mark.parametrize("platform", ["macos", "linux"])
+    def test_the_guard_and_the_create_receive_the_same_literal_name(
+        tmp_path: Path, platform: str, name: str
+    ) -> None:
+        literal = HOSTILE_NAMES[name]
+        guard_line, create_line = _rendered(platform, literal)
+        checked = _argv_of(tmp_path, guard_line, "python3", "guard")
+        created = _argv_of(
+            tmp_path, create_line, str(REPO / "cli-rs/target/debug/testanyware"), "create"
+        )
+        assert checked[1:3] == [str(REPO / "scripts/vm_inventory.py"), "absent"]
+        assert created[:2] == ["vm", "create-golden"]
+        assert checked[3] == literal
+>       assert created[created.index("--name") + 1] == literal
+E       AssertionError: assert 'k19' == 'k19 golden'
+E         
+E         - k19 golden
+E         + k19
+
+test_vm_inventory.py:472: AssertionError
+=========================== short test summary info ============================
+FAILED test_vm_inventory.py::test_the_guard_and_the_create_receive_the_same_literal_name[linux-command-substitution]
+FAILED test_vm_inventory.py::test_the_guard_and_the_create_receive_the_same_literal_name[linux-double-quoted]
+FAILED test_vm_inventory.py::test_the_guard_and_the_create_receive_the_same_literal_name[linux-parameter]
+FAILED test_vm_inventory.py::test_the_guard_and_the_create_receive_the_same_literal_name[linux-semicolon]
+FAILED test_vm_inventory.py::test_the_guard_and_the_create_receive_the_same_literal_name[linux-single-quoted]
+FAILED test_vm_inventory.py::test_the_guard_and_the_create_receive_the_same_literal_name[linux-space]
+6 failed, 6 passed, 60 deselected in 2.07s

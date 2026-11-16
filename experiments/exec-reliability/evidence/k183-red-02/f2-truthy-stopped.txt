@@ -1,0 +1,18 @@
+..............F.....                                                     [100%]
+=================================== FAILURES ===================================
+_______ test_disposal_refuses_any_other_stop_result[stopped-not-boolean] _______
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1465/test_disposal_refuses_any_othe14')
+stop = 'stopped-not-boolean'
+
+    @pytest.mark.parametrize("stop", sorted(REFUSED_STOPS))
+    def test_disposal_refuses_any_other_stop_result(tmp_path: Path, stop: str) -> None:
+        done = check(tmp_path, "dispose", stop=REFUSED_STOPS[stop], timeout=1)
+>       assert done.returncode == 3 and done.stdout == ""
+E       AssertionError: assert (0 == 3)
+E        +  where 0 = CompletedProcess(args=['/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliab...--stop-timeout', '1'], returncode=0, stdout='disposed k19-linux-0123456789abcdef0123456789abcdef stopped\n', stderr='').returncode
+
+test_vm_inventory.py:287: AssertionError
+=========================== short test summary info ============================
+FAILED test_vm_inventory.py::test_disposal_refuses_any_other_stop_result[stopped-not-boolean]
+1 failed, 19 passed, 52 deselected in 7.85s

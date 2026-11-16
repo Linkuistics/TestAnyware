@@ -5,8 +5,9 @@
       Print `absent NAME` and exit 0 only when both inventories parse and neither lists NAME.
       Exit 1 when an inventory lists NAME. Exit 2 when an inventory cannot be read.
   vm_inventory.py dispose ID [--cli PATH] [--tart PATH] [--stop-timeout S] [--timeout S]
-      Run `vm stop ID --json`. Accept exit 0 with a success envelope, or exit 3 with an error
-      envelope whose code is VM_NOT_FOUND. Then require absence from both inventories. Print
+      Run `vm stop ID --json`. Accept exit 0 with a success envelope that has `id` ID,
+      `stopped: true` and no `dry_run`, or exit 3 with an error envelope whose code is
+      VM_NOT_FOUND. Then require absence from both inventories. Print
       `disposed ID stopped` or `disposed ID already-absent` and exit 0. Any other outcome exits
       nonzero and prints a remedy on stderr.
 
@@ -137,15 +138,25 @@ def absent(args: argparse.Namespace) -> int:
     return ABSENT
 
 
-def _stop_outcome(ran: Ran) -> str | None:
-    """`stopped`, `already-absent`, or None for any other result of `vm stop --json`."""
+def _stop_outcome(ran: Ran, identity: str) -> str | None:
+    """`stopped`, `already-absent`, or None for any other result of `vm stop IDENTITY --json`.
+
+    A stop counts only when the reply names IDENTITY and says `stopped: true`. A dry run, a
+    reply for another VM or a success envelope without that field is no proof of a stop.
+    """
     try:
         envelope = _object(_decode(ran.stdout, "vm stop output"), "vm stop output")
     except InspectionError:
         return None
     if envelope.get("schema_version") != "1.0":
         return None
-    if ran.exit == 0 and envelope.get("ok") is True:
+    if (
+        ran.exit == 0
+        and envelope.get("ok") is True
+        and envelope.get("stopped") is True
+        and envelope.get("id") == identity
+        and "dry_run" not in envelope
+    ):
         return "stopped"
     if ran.exit == 3 and envelope.get("ok") is False and envelope.get("code") == "VM_NOT_FOUND":
         return "already-absent"
@@ -169,7 +180,7 @@ def dispose(args: argparse.Namespace) -> int:
         print(f"vm stop gave no result: {error}", file=sys.stderr)
         print(_remedy(identity, args.cli, args.tart), file=sys.stderr)
         return DISPOSAL_FAILED
-    outcome = _stop_outcome(ran)
+    outcome = _stop_outcome(ran, identity)
     if outcome is None:
         print(
             f"vm stop exited {ran.exit} without a proved stop or VM_NOT_FOUND: "
