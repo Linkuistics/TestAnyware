@@ -1,9 +1,9 @@
 """Required storage controls from docs/specs/diagnostic-evidence-storage.md.
 
 Each control asserts the final behaviour of the spec. On the build before the
-evidence writer, every control fails, and a strict expected-failure marker
-names the slice that removes it. The marker accepts only an assertion failure
-or a watchdog expiry. Any other exception fails the test.
+evidence writer, every control failed. Each slice removed the strict
+expected-failure markers of the controls that it made pass. Since
+storage-publication-k168, no control keeps a marker.
 
 A fault fixture runs the writer under writer_faults.py, which stops the
 writer, ends it or fails one of its file calls at a named record. The
@@ -129,14 +129,6 @@ print(json.dumps(report))
 
 class WatchdogExpired(Exception):
     """A control exceeded the bound that the spec gives the run."""
-
-
-def removed_by(slice_name: str, gap: str) -> pytest.MarkDecorator:
-    return pytest.mark.xfail(
-        strict=True,
-        raises=(AssertionError, WatchdogExpired),
-        reason=f"{slice_name} removes this marker: {gap}",
-    )
 
 
 @contextmanager
@@ -503,7 +495,6 @@ def assert_killed_publication(run: Run, bound: float, worker_closed: float) -> S
     return outcome
 
 
-@removed_by("storage-publication-k168", "a stopped storage path holds the controller")
 def test_control_stalled_writer(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
@@ -517,7 +508,6 @@ def test_control_stalled_writer(tmp_path, monkeypatch):
     assert_killed_publication(run, RUN_WATCHDOG, closed)
 
 
-@removed_by("storage-publication-k168", "the first P2 open blocks the controller")
 def test_control_blocking_storage_call(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
@@ -585,15 +575,13 @@ def test_control_writer_death(tmp_path, monkeypatch):
     assert outcome.writer_reaped is True
 
 
-@removed_by("storage-publication-k168", "the close wait holds the controller")
 def test_control_outbox_overflow(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
     marker = tmp_path / "later-ran"
     # The writer stops at the open of the flood's stdout record, before it
     # drains any of the stream, so the stream fills the outbox. The drop fails
-    # storage and stops forward progress. The close wait then holds the
-    # controller until storage-publication-k168 bounds it.
+    # storage and stops forward progress. Publication then ends at P with KILL.
     fault = WriterFault(monkeypatch, "stall:flood.stdout")
     workers = capture_workers(monkeypatch)
     calls = (
@@ -632,7 +620,6 @@ def test_control_readiness_failure(tmp_path, monkeypatch):
     assert outcome.reaped_at <= readiness.deadline + REAP_GRACE, "reap came after deadline + 2 s"
 
 
-@removed_by("storage-publication-k168", "a stalled intent record holds the controller")
 def test_control_intent_gate(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
@@ -869,7 +856,6 @@ def stop_audit_events() -> None:
     _audit_log = None
 
 
-@removed_by("storage-publication-k168", "the controller thread makes the storage calls")
 def test_control_no_controller_storage_calls(tmp_path, monkeypatch):
     run_id = uuid.uuid4().hex
     first = vm(tmp_path, run_id)
@@ -886,7 +872,7 @@ def test_control_no_controller_storage_calls(tmp_path, monkeypatch):
         stop_audit_events()
     assert window, "the run never reached readiness"
     events = window[0]
-    assert events == [], f"controller storage events after readiness: {events[:5]}"
+    assert events == [], f"controller storage events after readiness: {sorted(set(events))}"
     assert run.raised is None
     assert not owned(tmp_path, first)
 
@@ -1070,3 +1056,97 @@ def test_control_close_record_fails_identity_before_storage_close(tmp_path):
     with pytest.raises(AssertionError) as failure:
         close_record_control(tmp_path, build)
     assert "the identity listing lacks the storage-close record" in str(failure.value)
+
+
+# Review control: result snapshot -------------------------------------------
+#
+# The result is a snapshot. Its publication field says `pending`, and no
+# digest entry names the result. The control kills the writer after the
+# writer acknowledges the result frame and before the close frame. The writer
+# then exits before P, so the publication outcome is `incomplete`.
+
+
+def kill_writer_before_close(monkeypatch: pytest.MonkeyPatch) -> list[int]:
+    """Make each run's close first wait for the result ack, then kill the writer."""
+    killed: list[int] = []
+    close = controller._RunStorage.close
+
+    def killing_close(storage: controller._RunStorage) -> None:
+        client = storage.client
+        result = [seq for seq, name in storage.records.items() if name == "result"]
+        assert result, "the run queued no result frame"
+        deadline = time.monotonic() + READINESS_BOUND
+        run_turns(
+            client.turn(lambda: client.ack(result[0]) is not None or time.monotonic() >= deadline)
+        )
+        ack = client.ack(result[0])
+        assert ack is not None and ack["status"] == "ok", f"the result ack was {ack!r}"
+        assert client.pid is not None
+        os.kill(client.pid, signal.SIGKILL)
+        killed.append(client.pid)
+        close(storage)
+
+    monkeypatch.setattr(controller._RunStorage, "close", killing_close)
+    return killed
+
+
+def result_snapshot_control(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    run_id = uuid.uuid4().hex
+    killed = kill_writer_before_close(monkeypatch)
+    root = tmp_path / "evidence"
+    with watchdog(RUN_WATCHDOG, lambda: None):
+        outcome = controller.execute_outcome(plan(run_id, (workload(tmp_path),)), root)
+    assert killed, "the control did not kill the writer"
+    result = json.loads((outcome.run_dir / "result.json").read_bytes())
+    section = result["storage"]
+    assert section["publication"] == "pending"
+    assert "result" not in section["digests"], "a digest entry names the result"
+    assert section == outcome.storage.snapshot
+    assert not (outcome.run_dir / "result-identity.json").exists(), "an identity record exists"
+    assert outcome.storage.publication == "incomplete", outcome.storage.publication
+    assert outcome.storage.killed_at is None, "the controller sent KILL"
+    assert outcome.storage.writer_reaped is True
+    assert outcome.storage.identity is None
+    assert outcome.verdict is False
+    publication = outcome.storage.phases["publication"]
+    assert publication.finished is not None
+    assert publication.finished <= publication.deadline, "publication waited for P"
+    assert completion(outcome.run_dir)["complete"] is False
+
+
+def test_control_result_snapshot(tmp_path, monkeypatch):
+    result_snapshot_control(tmp_path, monkeypatch)
+
+
+def test_control_result_snapshot_fails_with_a_result_digest(tmp_path, monkeypatch):
+    # A build that pins the result before its snapshot names the result in
+    # the snapshot's digest entries.
+    snapshot = controller._RunStorage.snapshot
+
+    def pinning_snapshot(storage: controller._RunStorage) -> dict[str, object]:
+        storage.digests["result"] = {"length": 0, "sha256": ""}
+        return snapshot(storage)
+
+    monkeypatch.setattr(controller._RunStorage, "snapshot", pinning_snapshot)
+    with pytest.raises(AssertionError) as failure:
+        result_snapshot_control(tmp_path, monkeypatch)
+    assert "a digest entry names the result" in str(failure.value)
+
+
+def test_healthy_run_outcome_is_complete(tmp_path):
+    run_id = uuid.uuid4().hex
+    root = tmp_path / "evidence"
+    with watchdog(RUN_WATCHDOG, lambda: None):
+        outcome = controller.execute_outcome(plan(run_id, (workload(tmp_path),)), root)
+    assert outcome.storage.publication == "complete"
+    assert outcome.verdict is True
+    assert outcome.result["ok"] is True
+    assert outcome.residuals == []
+    assert isinstance(outcome.run_dir, Path) and outcome.run_dir.storage is outcome.storage
+    identity = (outcome.run_dir / "result-identity.json").read_bytes()
+    assert outcome.storage.identity is not None
+    assert outcome.storage.identity["length"] == len(identity)
+    publication = outcome.storage.phases["publication"]
+    assert publication.outcome == "complete"
+    assert abs(publication.deadline - publication.started - PUBLICATION_WINDOW) <= 1e-6
+    assert completion(outcome.run_dir)["complete"] is True

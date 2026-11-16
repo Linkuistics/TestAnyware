@@ -229,9 +229,25 @@ class StorageClient:
         self._close_seq = self.enqueue("close", "close")
         return self._close_seq
 
-    def kill(self) -> None:
-        """Send KILL to the exact unreaped writer PID. Later turns reap it within the grace."""
-        self._kill(time.monotonic())
+    def kill(self, reap_deadline: float | None = None) -> None:
+        """Send KILL to the exact unreaped writer PID. Later turns reap it within the grace.
+
+        `reap_deadline` replaces the default deadline, which is the KILL time
+        plus the grace. Publication passes P plus the grace, so a late turn
+        cannot extend the reap.
+        """
+        self._kill(time.monotonic(), reap_deadline)
+
+    def expect_exit(self, reap_deadline: float) -> None:
+        """Poll for the reap of a writer that acknowledged close, until the deadline.
+
+        The writer gets no KILL. An unreaped writer at the deadline becomes a
+        residual, as after a KILL.
+        """
+        if self.pid is None or self.reaped_at is not None or self.residual:
+            return
+        if self.reap_deadline is None:
+            self.reap_deadline = reap_deadline
 
     def fail(self, cause: str) -> None:
         """Fail storage for a cause that the caller detects, such as a missed gate.
@@ -318,7 +334,7 @@ class StorageClient:
         return self._next_wake(now)
 
     def _reap_due(self) -> bool:
-        return self.killed_at is not None and self.reaped_at is None and not self.residual
+        return self.reap_deadline is not None and self.reaped_at is None and not self.residual
 
     def _settled(self) -> bool:
         # A reaped writer settles only after its acknowledgements drain to EOF.
@@ -475,7 +491,7 @@ class StorageClient:
         _close(self._frame_fd)
         self._frame_fd = None
 
-    def _kill(self, now: float) -> None:
+    def _kill(self, now: float, reap_deadline: float | None = None) -> None:
         """Send KILL once to the exact unreaped writer PID and start the reap bound."""
         if self.killed_at is not None or self.pid is None or self.reaped_at is not None:
             return
@@ -484,7 +500,7 @@ class StorageClient:
         if self.residual:
             return
         self.killed_at = now
-        self.reap_deadline = now + REAP_GRACE
+        self.reap_deadline = now + REAP_GRACE if reap_deadline is None else reap_deadline
         try:
             os.kill(self.pid, signal.SIGKILL)
         except OSError as error:

@@ -21,13 +21,13 @@ from collections.abc import Callable
 from contextlib import closing
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Literal, TypedDict, cast
+from typing import Literal, NotRequired, TypedDict, cast
 
 import storage_client
 import writer
 from inspection import fork_admission
 from retention import IDENTITY, STORAGE_CLOSE
-from storage_client import OUTBOX_CAP, READINESS_CEILING, WRITER, StorageClient
+from storage_client import OUTBOX_CAP, READINESS_CEILING, REAP_GRACE, WRITER, StorageClient
 from turns import Turn, run_turns
 from worker_capture import (
     BootstrapBounds,
@@ -42,6 +42,10 @@ from writer import MAX_PAYLOAD
 # docs/specs/diagnostic-evidence-storage.md, "Phases and bounds": each intent
 # gate adds at most 2 seconds before its acquisition.
 INTENT_GATE_CEILING = 2.0
+
+# docs/specs/diagnostic-evidence-storage.md, "Phases and bounds": the declared
+# publication window W is at most 10 seconds.
+PUBLICATION_CEILING = 10.0
 
 # docs/specs/diagnostic-evidence-storage.md, "Workload and teardown
 # descriptors": a turn reads at most 64 KiB from each stream. The final drain
@@ -84,6 +88,7 @@ class Plan:
     close_bounds: CloseBounds = CloseBounds()
     readiness_bound: float = READINESS_CEILING
     intent_gate: float = INTENT_GATE_CEILING
+    publication_window: float = PUBLICATION_CEILING
     outbox_cap: int = OUTBOX_CAP
 
 
@@ -151,6 +156,9 @@ def _validate(plan: Plan, evidence_root: Path | None = None) -> None:
         raise ValueError(f"the readiness bound must be in (0, {READINESS_CEILING:g}] s")
     if not (math.isfinite(plan.intent_gate) and 0 < plan.intent_gate <= INTENT_GATE_CEILING):
         raise ValueError(f"the intent gate must be in (0, {INTENT_GATE_CEILING:g}] s")
+    window = plan.publication_window
+    if not (math.isfinite(window) and 0 < window <= PUBLICATION_CEILING):
+        raise ValueError(f"the publication window must be in (0, {PUBLICATION_CEILING:g}] s")
     cap = cast(object, plan.outbox_cap)
     if not isinstance(cap, int) or isinstance(cap, bool) or cap <= 0:
         raise ValueError("the outbox cap must be a positive integer")
@@ -294,6 +302,8 @@ class GroupObservation(TypedDict):
     probe_errno: int | None
     probe_outcome: str
     error: str | None
+    # The exception type of a raised error, beside its message in `error`.
+    error_type: NotRequired[str]
 
 
 class _WorkloadProcess(subprocess.Popen[bytes]):
@@ -352,6 +362,7 @@ class _LeaderReap:
         except OSError as error:
             self.receipt["reap_last_result"] = "error"
             self.receipt["reap_error"] = str(error)
+            self.receipt["reap_error_type"] = type(error).__name__
             self.receipt["reap_errno"] = error.errno
             self._retain_residual()
             return None
@@ -527,12 +538,14 @@ def _group_snapshot(
             if error.errno != errno.EPERM:
                 observation["state"] = "unknown"
                 observation["error"] = str(error)
+                observation["error_type"] = type(error).__name__
         if time.monotonic() >= deadline:
             raise TimeoutError("group inspection deadline exhausted after probe")
     except (OSError, ValueError) as error:
         observation["state"] = "unknown"
         observation["members"] = []
         observation["error"] = str(error)
+        observation["error_type"] = type(error).__name__
     observation["finished_monotonic"] = time.monotonic()
     return observation
 
@@ -719,6 +732,9 @@ class _InspectionState:
     storage: _RunStorage | None = None
     # The active call's streams. Its turn drains the pipes beside the command.
     capture: _Capture | None = None
+    # The null device for command input, opened before readiness. A command
+    # start after readiness then opens no file in the controller.
+    null: int | None = None
 
     def advance_worker(self) -> float | None:
         assert self.worker is not None
@@ -895,6 +911,7 @@ class _Termination:
         except OSError as error:
             self.observer_ok = False
             self.receipt["exit_observation_error"] = str(error)
+            self.receipt["exit_observation_error_type"] = type(error).__name__
 
     def _send(self, sig: signal.Signals) -> None:
         event: dict[str, object] = {
@@ -913,7 +930,12 @@ class _Termination:
             else:
                 os.killpg(self.pid, sig)
         except OSError as error:
-            event.update(errno=error.errno, error=str(error), outcome="signal_error")
+            event.update(
+                errno=error.errno,
+                error=str(error),
+                error_type=type(error).__name__,
+                outcome="signal_error",
+            )
             if not self.pid_only and error.errno == errno.EPERM:
                 event["outcome"] = "permission_unknown"
         event["finished_monotonic"] = time.monotonic()
@@ -1011,7 +1033,7 @@ def _call(call: Call, root: Path, plan: Plan, inspection: _InspectionState) -> d
             # https://docs.python.org/3.12/library/subprocess.html#subprocess.Popen
             process = _WorkloadProcess(
                 call.argv,
-                stdin=subprocess.DEVNULL,
+                stdin=subprocess.DEVNULL if inspection.null is None else inspection.null,
                 stdout=capture.write_ends[0],
                 stderr=capture.write_ends[1],
                 cwd="/",
@@ -1019,6 +1041,7 @@ def _call(call: Call, root: Path, plan: Plan, inspection: _InspectionState) -> d
             )
         except OSError as error:
             receipt["error"] = str(error)
+            receipt["error_type"] = type(error).__name__
             process = None
         finally:
             capture.close_write_ends()
@@ -1061,6 +1084,7 @@ def _supervise(
     except OSError as error:
         receipt["reason"] = "observation_error"
         receipt["error"] = str(error)
+        receipt["error_type"] = type(error).__name__
         exited = False
     if exited:
         receipt["reason"] = "exit"
@@ -1114,13 +1138,8 @@ def _safe_call(
             "ok": False,
             "reason": "controller_io_error",
             "error": str(error),
+            "error_type": type(error).__name__,
         }
-
-
-# docs/specs/diagnostic-evidence-storage.md, "Result snapshot": the
-# subjects-after wait ends by S + W/2. Until storage-publication-k168 adds the
-# publication window, the wait uses the largest W/2, which is 5 seconds.
-SUBJECTS_AFTER_BOUND = 5.0
 
 
 @dataclass(frozen=True)
@@ -1135,11 +1154,21 @@ class StoragePhase:
 
 @dataclass(frozen=True)
 class StorageOutcome:
-    """The storage state that `execute()` reports in memory after the run.
+    """The terminal storage section that the controller reports in memory.
 
-    The publication bounds and the terminal storage section arrive with
-    storage-publication-k168. Until then, `publication` says `complete` only
-    for an `ok` close acknowledgement and a reaped writer.
+    docs/specs/diagnostic-evidence-storage.md, "Terminal outcome". The
+    `publication` field is one of these values:
+
+    - `complete`: an `ok` close acknowledgement arrived before P, and the
+      controller reaped the writer.
+    - `incomplete`: the close acknowledgement reported an error or never
+      arrived, and the writer exited before P.
+    - `killed`: the controller sent KILL to the writer, and reaped it. In a
+      run that returns, the KILL came at P.
+    - `residual`: the writer was unreaped at P plus 2 seconds.
+
+    `identity` holds the length and SHA-256 digest of the identity record
+    from an `ok` close acknowledgement. A caller can anchor that digest.
     """
 
     readiness: str
@@ -1150,13 +1179,16 @@ class StorageOutcome:
     writer_reaped: bool
     exit_status: int | None
     residual: bool
+    residual_pid: int | None
     killed_at: float | None
     reaped_at: float | None
     drops: dict[str, int]
     abandoned: dict[str, int]
+    frames: dict[str, int]
     phases: dict[str, StoragePhase]
     snapshot: dict[str, object] | None
     close_ack: dict[str, object] | None
+    identity: dict[str, object] | None
 
 
 class RunDirectory(Path):
@@ -1194,6 +1226,11 @@ class _RunStorage:
         self.failure_context: dict[str, object] | None = None
         self.close_ack: dict[str, object] | None = None
         self.result_snapshot: dict[str, object] | None = None
+        # The publication phase, with S as its start and P = S + W as its deadline.
+        self.publication: StoragePhase | None = None
+        # True when the controller ended the writer with KILL: at P, or after
+        # an exception. A KILL after a readiness failure does not count.
+        self.controller_kill = False
 
     # Readiness ---------------------------------------------------------------
 
@@ -1340,7 +1377,28 @@ class _RunStorage:
 
     # After teardown ----------------------------------------------------------
 
+    def begin_publication(self) -> StoragePhase:
+        """Start publication at S, once, and return its phase with P = S + W.
+
+        The controller calls this after the last teardown action and the
+        settled worker close. A direct call of `subjects_after` or `close`
+        starts the phase itself.
+        """
+        if self.publication is None:
+            started = time.monotonic()
+            deadline = started + self.plan.publication_window
+            self.publication = StoragePhase(started, deadline, None, "pending")
+            self.phases["publication"] = self.publication
+        return self.publication
+
     def subjects_after(self, subjects: tuple[Path, ...]) -> dict[str, str]:
+        """Request the subjects-after digests and wait for them until S + W/2.
+
+        That instant is the only cutoff. A digest that has not arrived by
+        then is `unavailable:storage`.
+        """
+        phase = self.begin_publication()
+        cutoff = phase.started + (phase.deadline - phase.started) / 2
         names = [str(subject) for subject in subjects]
         unavailable = {name: "unavailable:storage" for name in names}
         if not self.healthy():
@@ -1353,17 +1411,14 @@ class _RunStorage:
             self._stop()
             return unavailable
         self.records[seq] = "subjects-after"
-        deadline = time.monotonic() + SUBJECTS_AFTER_BOUND
         run_turns(
-            client.turn(
-                lambda: (
-                    client.ack(seq) is not None
-                    or client.storage != "ready"
-                    or time.monotonic() >= deadline
-                )
+            self._bounded_turn(
+                lambda: client.ack(seq) is not None or client.storage != "ready", cutoff
             )
         )
-        ack = client.ack(seq)
+        # As at the intent gate, the turn ends at the first turn that reads the
+        # acknowledgement. A read after the cutoff is late.
+        ack = client.ack(seq) if time.monotonic() <= cutoff else None
         digests = ack.get("subjects") if ack is not None and ack.get("status") == "ok" else None
         if not isinstance(digests, dict) or set(cast(dict[str, object], digests)) != set(names):
             return unavailable
@@ -1374,7 +1429,6 @@ class _RunStorage:
         client = self.client
         sequence = client.next_seq
         enqueued = time.monotonic()
-        failed = {seq: ack for seq, ack in client.acks.items() if ack.get("status") != "ok"}
         failure: dict[str, object] | None = None
         if client.first_failure is not None:
             ack = client.failure_ack
@@ -1405,20 +1459,16 @@ class _RunStorage:
                 "deadline": readiness.deadline if readiness else None,
                 "finished": readiness.finished if readiness else None,
             },
-            "frames": {
-                "enqueued": sequence - 1,
-                "acknowledged": len(client.acks),
-                "failed": len(failed),
-                "dropped": sum(client.drops.values()),
-                "abandoned": sum(client.abandoned.values()),
-            },
+            "frames": self._frame_counts(),
             "drops": dict(client.drops),
             "abandoned": dict(client.abandoned),
             "first_failure": failure,
             "outbox_high_water": client.outbox_high_water,
             "forward_stop": self.forward_stop,
             "intent_gates": {
-                name: asdict(phase) for name, phase in self.phases.items() if name != "readiness"
+                name: asdict(phase)
+                for name, phase in self.phases.items()
+                if name.startswith("intent-")
             },
             "digests": dict(self.digests),
             "writer_reported": {
@@ -1428,15 +1478,46 @@ class _RunStorage:
         self.result_snapshot = section
         return section
 
+    def _frame_counts(self) -> dict[str, int]:
+        client = self.client
+        failed = [ack for ack in client.acks.values() if ack.get("status") != "ok"]
+        return {
+            "enqueued": client.next_seq - 1,
+            "acknowledged": len(client.acks),
+            "failed": len(failed),
+            "dropped": sum(client.drops.values()),
+            "abandoned": sum(client.abandoned.values()),
+        }
+
+    def _bounded_turn(self, until: Callable[[], bool], deadline: float) -> Turn:
+        """Return a client turn that ends when `until` holds or at `deadline`.
+
+        Before the deadline, the wake never passes it, so the turn ends at the
+        deadline and not at the next idle wake. Due reap work still runs.
+        """
+        inner = self.client.turn(lambda: until() or time.monotonic() >= deadline)
+
+        def advance() -> float | None:
+            wake = inner.advance()
+            if wake is None or time.monotonic() >= deadline:
+                return wake
+            return min(wake, deadline)
+
+        return Turn(advance, readiness=self.client.interests)
+
     # Close -------------------------------------------------------------------
 
     def close(self) -> None:
-        """Request the close transaction and drive turns until the writer settles.
+        """Send one close frame and run publication to its terminal outcome.
 
-        storage-publication-k168 bounds this wait. A stalled writer can still
-        hold it in this slice. A dropped close frame fails storage, so a live
-        writer reads the end of its frame pipe and exits.
+        The turns drain the outbox and read acknowledgements until P. A writer
+        that acknowledged close by P gets no KILL, and turns reap it by P plus
+        2 seconds. At P, an unfinished writer receives KILL, with the same reap
+        bound. An unreaped writer at P plus 2 seconds becomes a residual, so it
+        never blocks the controller. A dropped close frame fails storage, and a
+        live writer then reads the end of its frame pipe and exits.
         """
+        phase = self.begin_publication()
         client = self.client
         seq: int | None = None
         if client.storage == "ready":
@@ -1444,9 +1525,21 @@ class _RunStorage:
             if seq is None:
                 # A ready client returns None only when the outbox cap drops the frame.
                 self._fail("outbox_drop", "close", "close", None)
-        run_turns(client.turn(lambda: False))
+        run_turns(self._bounded_turn(lambda: False, phase.deadline))
+        reap_deadline = phase.deadline + REAP_GRACE
+        if client.pid is not None and client.reaped_at is None and not client.residual:
+            if client.storage == "closed":
+                client.expect_exit(reap_deadline)
+            elif client.killed_at is None:
+                client.kill(reap_deadline)
+                self.controller_kill = client.killed_at is not None
+            run_turns(client.turn(lambda: True))
         if seq is not None:
             self.close_ack = client.ack(seq)
+        self.publication = StoragePhase(
+            phase.started, phase.deadline, time.monotonic(), self._publication_outcome()
+        )
+        self.phases["publication"] = self.publication
 
     def finish(self) -> None:
         """End an unsettled writer after an exception: fail storage, KILL, reap."""
@@ -1454,41 +1547,98 @@ class _RunStorage:
         if client.pid is None or client.reaped_at is not None or client.residual:
             return
         client.fail("controller_exception")
-        client.kill()
+        if client.killed_at is None:
+            client.kill()
+            self.controller_kill = client.killed_at is not None
         run_turns(client.turn(lambda: True))
+
+    def _publication_outcome(self) -> str:
+        client = self.client
+        if client.residual:
+            return "residual"
+        if self.controller_kill:
+            return "killed"
+        if client.storage == "closed" and client.reaped_at is not None:
+            return "complete"
+        return "incomplete"
 
     def outcome(self) -> StorageOutcome:
         client = self.client
         self.healthy()
-        if client.residual:
-            publication = "residual"
-        elif client.killed_at is not None:
-            publication = "killed"
-        elif client.storage == "closed" and client.reaped_at is not None:
-            publication = "complete"
-        else:
-            publication = "incomplete"
+        close_ack = self.close_ack
+        identity: dict[str, object] | None = None
+        if close_ack is not None and close_ack.get("status") == "ok":
+            pin = close_ack.get("identity")
+            if isinstance(pin, dict):
+                identity = dict(cast(dict[str, object], pin))
         return StorageOutcome(
             readiness=client.readiness,
             readiness_reason=client.readiness_reason,
             first_failure=client.first_failure,
             forward_stop=self.forward_stop,
-            publication=publication,
+            publication=self._publication_outcome(),
             writer_reaped=client.reaped_at is not None,
             exit_status=client.exit_status,
             residual=client.residual,
+            residual_pid=client.pid if client.residual else None,
             killed_at=client.killed_at,
             reaped_at=client.reaped_at,
             drops=dict(client.drops),
             abandoned=dict(client.abandoned),
+            frames=self._frame_counts(),
             phases=dict(self.phases),
             snapshot=self.result_snapshot,
-            close_ack=self.close_ack,
+            close_ack=close_ack,
+            identity=identity,
         )
 
 
 # Live runs, by run directory. `write_json` sends their records to the writer.
 _run_storage: dict[Path, _RunStorage] = {}
+
+
+@dataclass(frozen=True)
+class RunOutcome:
+    """The run outcome that the controller returns to its caller in memory.
+
+    docs/specs/diagnostic-evidence-storage.md, "Terminal outcome". `result`
+    is the result record as the controller serialised it, so its verdict and
+    its storage section are snapshots. `verdict` is the overall verdict. It
+    requires a passing result and the publication outcome `complete`.
+    `residuals` names each owned process that the run left behind, including
+    a residual writer. A caller learns the safety outcome without reading
+    evidence back.
+    """
+
+    run_dir: RunDirectory
+    verdict: bool
+    result: dict[str, object]
+    ledger: list[dict[str, object]]
+    residuals: list[dict[str, object]]
+    storage: StorageOutcome
+
+
+def _residuals(
+    receipts: list[dict[str, object]], storage: StorageOutcome
+) -> list[dict[str, object]]:
+    found: list[dict[str, object]] = []
+    for receipt in receipts:
+        if "residual_leader_pid" in receipt:
+            found.append(
+                {"kind": "leader", "call": receipt["name"], "pid": receipt["residual_leader_pid"]}
+            )
+        if "residual_pgid" in receipt:
+            found.append(
+                {
+                    "kind": "group",
+                    "call": receipt["name"],
+                    "pgid": receipt["residual_pgid"],
+                    "members": receipt.get("residual_members"),
+                }
+            )
+    if storage.residual:
+        found.append({"kind": "writer", "pid": storage.residual_pid})
+    return found
 
 
 def execute(plan: Plan, evidence_root: Path) -> RunDirectory:
@@ -1497,8 +1647,14 @@ def execute(plan: Plan, evidence_root: Path) -> RunDirectory:
     Register intent before acquisition: even a failed start can leave a clone.
     Callers must use only fresh, run-named resources and trusted public commands.
     Every run record goes through the run's writer. The returned path carries
-    the storage outcome in its `storage` attribute.
+    the storage outcome in its `storage` attribute. `execute_outcome` returns
+    the full run outcome.
     """
+    return execute_outcome(plan, evidence_root).run_dir
+
+
+def execute_outcome(plan: Plan, evidence_root: Path) -> RunOutcome:
+    """Execute once, as `execute` does, and return the terminal run outcome."""
     _validate(plan, evidence_root)
     root = evidence_root.resolve() / plan.run_id
     if os.path.lexists(root):
@@ -1526,6 +1682,9 @@ def execute(plan: Plan, evidence_root: Path) -> RunDirectory:
             )
         )
     )
+    # P0 opens the null device for command input, so no command start after
+    # readiness opens a file in the controller.
+    null = os.open(os.devnull, os.O_RDONLY)
     storage = _RunStorage(plan, root)
     _run_storage[root] = storage
     try:
@@ -1537,7 +1696,7 @@ def execute(plan: Plan, evidence_root: Path) -> RunDirectory:
             failure_bounds=plan.failure_bounds,
             close_bounds=plan.close_bounds,
         )
-        inspection_state = _InspectionState(worker=worker, storage=storage)
+        inspection_state = _InspectionState(worker=worker, storage=storage, null=null)
         ledger: list[dict[str, object]] = []
         attempted: list[Resource] = []
         unreached = [resource.acquire.name for resource in plan.resources] + [
@@ -1593,6 +1752,8 @@ def execute(plan: Plan, evidence_root: Path) -> RunDirectory:
                     ok = ok and cleanup["ok"] is True and disposed
             finally:
                 inspection_state.close()
+        # P3 starts after the last teardown action and the settled worker close.
+        storage.begin_publication()
         ok = ok and worker.failure is None
         after = storage.subjects_after(subjects)
         ok = ok and before == after
@@ -1617,6 +1778,15 @@ def execute(plan: Plan, evidence_root: Path) -> RunDirectory:
     finally:
         _run_storage.pop(root, None)
         storage.finish()
+        os.close(null)
     directory = RunDirectory(root)
-    directory.storage = storage.outcome()
-    return directory
+    outcome = storage.outcome()
+    directory.storage = outcome
+    return RunOutcome(
+        run_dir=directory,
+        verdict=result["ok"] is True and outcome.publication == "complete",
+        result=result,
+        ledger=ledger,
+        residuals=_residuals(receipts, outcome),
+        storage=outcome,
+    )

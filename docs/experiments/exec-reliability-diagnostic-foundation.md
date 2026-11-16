@@ -2353,3 +2353,65 @@ document.
 k160 changes neither the architecture nor a teardown bound, so no redesign or
 ADR follows. Four new controls cover the corrected rules. k160 changes no code
 and runs no control.
+
+### Delivered behaviour (k162)
+
+Node k162 builds the writer and moves every run record behind it. Its last
+slice, k168, bounds publication and returns the terminal outcome to the
+caller. All thirteen controls pass: the nine required controls and the four
+review controls. No control keeps an expected-failure marker.
+
+**Publication.** The controller starts publication at S, after the last
+teardown action and the settled inspection-worker close. The deadline P is S
+plus the declared window W. The plan field `publication_window` declares W,
+and validation refuses a value above ten seconds.
+
+The subjects-after wait ends at S plus W/2. A digest that the controller reads after that instant is
+`unavailable:storage`. The controller then serialises the result snapshot and
+sends one close frame. Its turns drain the outbox and read acknowledgements
+until P.
+
+**Stop and reap.** A writer that acknowledges close by P gets no KILL. The
+controller polls for its reap until P plus two seconds. At P, an unfinished
+writer receives KILL, with the same reap deadline. A writer that remains
+unreaped then becomes a residual, and the controller stops waiting for it.
+Publication therefore adds at most twelve seconds after worker close.
+
+The stalled-writer, blocking-call, outbox-overflow and intent-gate controls each
+end with KILL at P and a reap before P plus two seconds.
+
+**Terminal outcome.** `execute_outcome()` returns a `RunOutcome`. It holds the
+run directory, the overall verdict, the result as serialised, the ledger, the
+residuals and the terminal storage section. The storage section holds the
+final frame counts, the close acknowledgement, the identity length and
+digest, and the writer's exit or residual state.
+
+The publication field is
+`complete`, `incomplete`, `killed` or `residual`. The verdict requires a
+passing result and `complete`. `execute()` still returns the run directory as
+a `Path`, with the storage section in its `storage` attribute. k168 changes
+neither `peer.py` nor `preflight.py`.
+
+**Quiet controller.** The controller opens the null device for command input
+in P0, before readiness. The audit hook control then records no filesystem
+event and no import event from readiness to the end of publication. Each
+controller error record keeps its message in `error` and adds the exception
+type in `error_type`. No record holds a formatted traceback.
+
+**Limits.**
+
+- `killed` names only a KILL that the controller sends at P, or after an
+  exception. After a readiness failure, the client sends KILL itself, and
+  the outcome is `incomplete`.
+- A digest or close acknowledgement counts as on time when the controller
+  reads it by the cutoff. The acknowledgement carries no receipt time, so a
+  late read of an early acknowledgement counts as late.
+- A writer in an uninterruptible operation ignores KILL. It can stay
+  unreaped after P plus two seconds. The controls use interruptible stalls,
+  so this case stays a timing condition without a control.
+- The result snapshot review control kills the writer from the test, after
+  the result acknowledgement and before the close frame. It shows the
+  `incomplete` outcome and a retained directory that fails completion.
+
+Ten-clone acceptance remains **0/10, unavailable**, because k162 needs no live
+VM.

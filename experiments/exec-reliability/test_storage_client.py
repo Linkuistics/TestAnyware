@@ -314,6 +314,35 @@ def test_kill_reaps_a_stopped_writer_within_the_grace(clients, tmp_path):
     assert client.first_failure in ("writer_exit", "ack_eof")
 
 
+def test_kill_uses_the_given_reap_deadline(clients, tmp_path):
+    client = ready(clients, tmp_path)
+    deadline = time.monotonic() + 0.5
+    client.kill(deadline)
+    assert client.reap_deadline == deadline
+    until(lambda: client.reaped_at is not None, client)
+    assert_killed_and_reaped(client)
+
+
+def test_expected_exit_without_an_exit_becomes_a_residual_without_kill(clients, tmp_path):
+    client = ready(clients, tmp_path)
+    assert client.pid is not None
+    pid = client.pid
+    os.kill(pid, signal.SIGSTOP)
+    deadline = time.monotonic() + 0.2
+    client.expect_exit(deadline)
+    started = time.monotonic()
+    until(lambda: True, client)
+    assert time.monotonic() - started <= 0.2 + TOLERANCE
+    assert client.residual is True
+    assert client.killed_at is None, "an expected exit sent KILL"
+    assert client.reaped_at is None
+    assert client._frame_fd is None and client._ack_fd is None
+    # The residual writer is outside the client now, so the test ends it.
+    os.kill(pid, signal.SIGKILL)
+    os.waitpid(pid, 0)
+    clients.remove(client)
+
+
 # Per-turn budgets ---------------------------------------------------------------
 
 
