@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import platform
+import shutil
 import subprocess
 import sys
 import time
@@ -114,9 +115,17 @@ def audit(tag: str | None) -> dict[str, Any]:
     return result
 
 
-def inside_argv(tag: str, seam: str) -> tuple[str, ...]:
+def docker_path() -> str:
+    """The absolute docker executable. The controller refuses a bare name."""
+    found = shutil.which("docker")
+    if found is None:
+        raise SystemExit("unavailable prerequisite: docker")
+    return str(Path(found).absolute())
+
+
+def inside_argv(docker_exe: str, tag: str, seam: str) -> tuple[str, ...]:
     return (
-        "docker",
+        docker_exe,
         "run",
         "--rm",
         "--init",
@@ -149,8 +158,9 @@ def inside_argv(tag: str, seam: str) -> tuple[str, ...]:
 def plan(python: str) -> Plan:
     run_id = uuid.uuid4().hex
     tag = run_tag(run_id)
+    docker_exe = docker_path()
     calls = tuple(
-        Call(seam, inside_argv(tag, seam), INSIDE_BUDGET)
+        Call(seam, inside_argv(docker_exe, tag, seam), INSIDE_BUDGET)
         for seam in ("reference", "process", "traced")
     ) + (
         Call(

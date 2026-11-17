@@ -1,9 +1,11 @@
 """Controls for the runner, seams and checker of leaf `linux-timeout-lifecycle-k5`."""
 
+from pathlib import Path
 from typing import Any
 
 import pytest
 
+import controller
 import linux_k5
 import linux_k5_check as checker
 import linux_k5_seam as seam_module
@@ -156,3 +158,11 @@ def test_every_required_defect_names_a_known_seam_and_case() -> None:
     names = set(by_name())
     assert all(seam in SEAMS and case in names for seam, case, _ in checker.REQUIRED)
     assert not any(seam == "reference" for seam, _, _ in checker.REQUIRED)
+
+
+def test_the_controller_accepts_the_frozen_plan() -> None:
+    frozen = linux_k5.plan("/usr/bin/python3")
+    assert [call.name for call in frozen.calls] == ["reference", "process", "traced", "host"]
+    assert all(Path(call.argv[0]).is_absolute() for call in frozen.calls)
+    validate = getattr(controller, "_validate")  # noqa: B009 - the controller's own refusal rules
+    validate(frozen)
