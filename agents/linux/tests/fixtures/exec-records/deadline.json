@@ -1,0 +1,58 @@
+{
+  "case": "deadline",
+  "source": "agents/linux/tests/record_exec_replies.py (k217)",
+  "request": {
+    "command": "printf 'before deadline\\n'; printf 'deadline err\\n' >&2; sleep 30.41477956470135",
+    "timeout": 2
+  },
+  "httpStatus": 200,
+  "body": {
+    "exitCode": -1,
+    "stdout": "",
+    "stderr": "Process timed out",
+    "id": "c4db43f7-85ee-442d-8093-e4e9d52f59f9",
+    "outcome": {
+      "kind": "timed_out",
+      "timeoutSeconds": 2
+    },
+    "evidence": {
+      "stdout": {
+        "base64": "YmVmb3JlIGRlYWRsaW5lCg==",
+        "bytes": 16,
+        "fileBytes": 16,
+        "sha256": "61445f08cf013457146da620d76f2426efd3b51b51ca79712c28fc0f6949db2a",
+        "capture": "complete"
+      },
+      "stderr": {
+        "base64": "ZGVhZGxpbmUgZXJyCg==",
+        "bytes": 13,
+        "fileBytes": 13,
+        "sha256": "0461125795b538dcc2031a27b3a1b45b14a09b24bf2d5e3886aa96a2031b9c6d",
+        "capture": "complete"
+      }
+    },
+    "lifecycle": {
+      "leaderPid": 21,
+      "groupId": 21,
+      "leaderStartTime": "34714",
+      "spawnMs": 0,
+      "durationMs": 2003,
+      "ownerLatenessMs": 3,
+      "finalisedAfterMs": 1
+    },
+    "remainingGroup": null,
+    "termination": {
+      "termSentAfterMs": 0,
+      "killSentAfterMs": 0,
+      "leaderStatus": {
+        "kind": "signalled",
+        "signal": 15
+      },
+      "leaderExitAfterMs": 0,
+      "groupEmpty": "yes",
+      "groupEmptyAfterMs": 0,
+      "withinBounds": true
+    },
+    "legacyProjection": "linux"
+  }
+}

@@ -120,6 +120,7 @@ class AgentRequestHandler(BaseHTTPRequestHandler):
 
 
 def run_server(port: int = 8648) -> None:
+    system_endpoints.prepare_exec_captures()
     server = HTTPServer(("0.0.0.0", port), AgentRequestHandler)
     try:
         server.serve_forever()

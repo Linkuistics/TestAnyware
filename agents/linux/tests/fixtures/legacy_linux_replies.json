@@ -1,0 +1,314 @@
+{
+  "source": "experiments/exec-reliability/evidence/linux-timeout-lifecycle-k5/run-03/b9ecb57852d04eb1a11c41a8a02a5577/host.stdout",
+  "note": "The replies of the old Linux agent (before k217) through raw HTTP and the checkout Host CLI, recorded by the k5 matrix. Bodies are the decoded HTTP bodies; CLI streams are hex.",
+  "cases": [
+    {
+      "case": "oracle-text",
+      "command": "printf 'Explain this change.'; printf 'separate stderr\\n' >&2",
+      "timeout": 10,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": 0,
+        "stdout": "Explain this change.",
+        "stderr": "separate stderr"
+      },
+      "cliText": {
+        "returncode": 0,
+        "stdoutHex": "4578706c61696e2074686973206368616e67652e",
+        "stderrHex": "7365706172617465207374646572720a"
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "printf 'Explain this change.'; printf 'separate stderr\\n' >&2",
+          "exit_code": 0,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "separate stderr",
+          "stdout": "Explain this change.",
+          "timed_out": false
+        }
+      }
+    },
+    {
+      "case": "binary",
+      "command": "printf '\\000\\377\\200A\\n'",
+      "timeout": 10,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": -1,
+        "stdout": "",
+        "stderr": "'utf-8' codec can't decode byte 0xff in position 1: invalid start byte"
+      },
+      "cliText": {
+        "returncode": 255,
+        "stdoutHex": "",
+        "stderrHex": "277574662d382720636f6465632063616e2774206465636f64652062797465203078666620696e20706f736974696f6e20313a20696e76616c696420737461727420627974650a"
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "printf '\\000\\377\\200A\\n'",
+          "exit_code": -1,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "'utf-8' codec can't decode byte 0xff in position 1: invalid start byte",
+          "stdout": "",
+          "timed_out": false
+        }
+      }
+    },
+    {
+      "case": "exit-23-partial",
+      "command": "printf 'partial out\\n'; printf 'partial err\\n' >&2; exit 23",
+      "timeout": 10,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": 23,
+        "stdout": "partial out",
+        "stderr": "partial err"
+      },
+      "cliText": {
+        "returncode": 23,
+        "stdoutHex": "7061727469616c206f7574",
+        "stderrHex": "7061727469616c206572720a"
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "printf 'partial out\\n'; printf 'partial err\\n' >&2; exit 23",
+          "exit_code": 23,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "partial err",
+          "stdout": "partial out",
+          "timed_out": false
+        }
+      }
+    },
+    {
+      "case": "exit-255",
+      "command": "printf 'before exit\\n'; exit 255",
+      "timeout": 10,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": 255,
+        "stdout": "before exit",
+        "stderr": ""
+      },
+      "cliText": {
+        "returncode": 255,
+        "stdoutHex": "6265666f72652065786974",
+        "stderrHex": ""
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "printf 'before exit\\n'; exit 255",
+          "exit_code": 255,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "",
+          "stdout": "before exit",
+          "timed_out": false
+        }
+      }
+    },
+    {
+      "case": "signal-kill",
+      "command": "printf 'before signal\\n'; kill -KILL $$",
+      "timeout": 10,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": -9,
+        "stdout": "before signal",
+        "stderr": ""
+      },
+      "cliText": {
+        "returncode": 247,
+        "stdoutHex": "6265666f7265207369676e616c",
+        "stderrHex": ""
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "printf 'before signal\\n'; kill -KILL $$",
+          "exit_code": -9,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "",
+          "stdout": "before signal",
+          "timed_out": false
+        }
+      }
+    },
+    {
+      "case": "signal-hup",
+      "command": "printf 'before hangup\\n'; kill -HUP $$",
+      "timeout": 10,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": -1,
+        "stdout": "before hangup",
+        "stderr": ""
+      },
+      "cliText": {
+        "returncode": 255,
+        "stdoutHex": "6265666f72652068616e677570",
+        "stderrHex": ""
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "printf 'before hangup\\n'; kill -HUP $$",
+          "exit_code": -1,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "",
+          "stdout": "before hangup",
+          "timed_out": false
+        }
+      }
+    },
+    {
+      "case": "deadline",
+      "command": "printf 'before deadline\\n'; printf 'deadline err\\n' >&2; sleep 30.41477956470135",
+      "timeout": 2,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": -1,
+        "stdout": "",
+        "stderr": "Process timed out"
+      },
+      "cliText": {
+        "returncode": 255,
+        "stdoutHex": "",
+        "stderrHex": "50726f636573732074696d6564206f75740a"
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "printf 'before deadline\\n'; printf 'deadline err\\n' >&2; sleep 30.61477956470135",
+          "exit_code": -1,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "Process timed out",
+          "stdout": "",
+          "timed_out": false
+        }
+      }
+    },
+    {
+      "case": "deadline-term-ignored",
+      "command": "trap '' TERM; printf 'ignoring term\\n'; sleep 30.42477956470135",
+      "timeout": 2,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": -1,
+        "stdout": "",
+        "stderr": "Process timed out"
+      },
+      "cliText": {
+        "returncode": 255,
+        "stdoutHex": "",
+        "stderrHex": "50726f636573732074696d6564206f75740a"
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "trap '' TERM; printf 'ignoring term\\n'; sleep 30.62477956470135",
+          "exit_code": -1,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "Process timed out",
+          "stdout": "",
+          "timed_out": false
+        }
+      }
+    },
+    {
+      "case": "issue-sleep",
+      "command": "sleep 120",
+      "timeout": 2,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": -1,
+        "stdout": "",
+        "stderr": "Process timed out"
+      },
+      "cliText": {
+        "returncode": 255,
+        "stdoutHex": "",
+        "stderrHex": "50726f636573732074696d6564206f75740a"
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "sleep 120",
+          "exit_code": -1,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "Process timed out",
+          "stdout": "",
+          "timed_out": false
+        }
+      }
+    },
+    {
+      "case": "issue-fork-wait",
+      "command": "sleep 120 & p=$!; echo $p > /tmp/vmrel-k16/child.pid; wait",
+      "timeout": 2,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": -1,
+        "stdout": "",
+        "stderr": "Process timed out"
+      },
+      "cliText": {
+        "returncode": 255,
+        "stdoutHex": "",
+        "stderrHex": "50726f636573732074696d6564206f75740a"
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "sleep 120 & p=$!; echo $p > /tmp/vmrel-k16/child.pid; wait",
+          "exit_code": -1,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "Process timed out",
+          "stdout": "",
+          "timed_out": false
+        }
+      }
+    },
+    {
+      "case": "spawn-failure",
+      "command": "printf 'never runs\\n'",
+      "timeout": 10,
+      "httpStatus": 200,
+      "body": {
+        "exitCode": -1,
+        "stdout": "",
+        "stderr": "[Errno 11] Resource temporarily unavailable"
+      },
+      "cliText": {
+        "returncode": 255,
+        "stdoutHex": "",
+        "stderrHex": "5b4572726e6f2031315d205265736f757263652074656d706f726172696c7920756e617661696c61626c650a"
+      },
+      "cliJson": {
+        "returncode": 0,
+        "stdout": {
+          "command": "printf 'never runs\\n'",
+          "exit_code": -1,
+          "ok": true,
+          "schema_version": "1.0",
+          "stderr": "[Errno 11] Resource temporarily unavailable",
+          "stdout": "",
+          "timed_out": false
+        }
+      }
+    }
+  ]
+}

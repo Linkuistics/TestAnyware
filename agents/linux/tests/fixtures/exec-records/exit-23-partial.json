@@ -1,0 +1,47 @@
+{
+  "case": "exit-23-partial",
+  "source": "agents/linux/tests/record_exec_replies.py (k217)",
+  "request": {
+    "command": "printf 'partial out\\n'; printf 'partial err\\n' >&2; exit 23",
+    "timeout": 10
+  },
+  "httpStatus": 200,
+  "body": {
+    "exitCode": 23,
+    "stdout": "partial out",
+    "stderr": "partial err",
+    "id": "84e9b270-d228-4e32-b8ad-c762b62ad98a",
+    "outcome": {
+      "kind": "exited",
+      "exitCode": 23
+    },
+    "evidence": {
+      "stdout": {
+        "base64": "cGFydGlhbCBvdXQK",
+        "bytes": 12,
+        "fileBytes": 12,
+        "sha256": "0fd0123e195d5ab1bf56ae2edc5c2db4062aed95c80a26b74a22c37ba76e44bb",
+        "capture": "complete"
+      },
+      "stderr": {
+        "base64": "cGFydGlhbCBlcnIK",
+        "bytes": 12,
+        "fileBytes": 12,
+        "sha256": "d33c1c3edc5d5a997f7e92029b9bb78e7b531b647e3b64214cdbf7fb18bf20fe",
+        "capture": "complete"
+      }
+    },
+    "lifecycle": {
+      "leaderPid": 13,
+      "groupId": 13,
+      "leaderStartTime": "34714",
+      "spawnMs": 0,
+      "durationMs": 0,
+      "ownerLatenessMs": 0,
+      "finalisedAfterMs": 0
+    },
+    "remainingGroup": "none",
+    "termination": null,
+    "legacyProjection": "linux"
+  }
+}

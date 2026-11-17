@@ -1363,6 +1363,46 @@ tasks:
       - swift build
       - swift test
 
+  # ---- Linux In-VM agent ---------------------------------------------------
+
+  agent:linux:test:
+    desc: Run the Linux In-VM agent tests from its locked Python project, on the host and then in a pinned Linux container, where the lifecycle controls must run (Docker; no guest)
+    dir: '{{.ROOT_DIR}}/agents/linux'
+    vars:
+      # python:3.12-slim on linux/arm64, the image of the k5 matrix
+      # (experiments/exec-reliability/linux_k5.py). The daemon knows it only by digest.
+      LINUX_TEST_IMAGE: python@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
+    preconditions:
+      - sh: docker image inspect {{.LINUX_TEST_IMAGE}} >/dev/null 2>&1
+        msg: 'the Linux lifecycle controls need Docker and the pinned image: docker pull {{.LINUX_TEST_IMAGE}}'
+    cmds:
+      - uv sync --locked
+      - uv run --locked ruff check .
+      - uv run --locked python -m pytest -q -p no:cacheprovider
+      # The container borrows pytest from the locked project. Its packages are pure Python.
+      # TESTANYWARE_LINUX_CONTROLS=required turns a skipped lifecycle control into a failure.
+      - >-
+        deps="$(uv run --locked python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" &&
+        docker run --rm --init --network none -u 1000:1000
+        -v "$PWD:/agent:ro" -v "$deps:/deps:ro"
+        -e PYTHONPATH=/deps -e PYTHONDONTWRITEBYTECODE=1 -e TESTANYWARE_LINUX_CONTROLS=required
+        -w /agent {{.LINUX_TEST_IMAGE}}
+        python3 -m pytest -q -p no:cacheprovider
+
+  agent:linux:record-exec-replies:
+    desc: Record the Linux agent's exec replies in a pinned Linux container as Host CLI fixtures (agents/linux/tests/fixtures/exec-records; Docker; no guest)
+    dir: '{{.ROOT_DIR}}/agents/linux'
+    vars:
+      LINUX_TEST_IMAGE: python@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016
+    cmds:
+      - mkdir -p tests/fixtures/exec-records
+      - >-
+        docker run --rm --init --network none -u 1000:1000
+        -v "$PWD:/agent:ro" -v "$PWD/tests/fixtures/exec-records:/out"
+        -e PYTHONPATH=/agent -e PYTHONDONTWRITEBYTECODE=1
+        -w /agent {{.LINUX_TEST_IMAGE}}
+        python3 -m tests.record_exec_replies /out
+
   agent:macos:build:
     desc: Build the release macOS In-VM agent at agents/macos/.build/release/testanyware-agent (what a golden build installs when TESTANYWARE_AGENT_BIN_OVERRIDE names it)
     dir: '{{.ROOT_DIR}}/agents/macos'

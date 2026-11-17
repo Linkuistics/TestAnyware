@@ -37,7 +37,7 @@ Authoritative sources (the JSON keys and optionality rules must match):
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Liveness + "accessibility is ready" check. Returns 200 with no required body once agent + AX are ready. |
-| POST | `/exec` | Execute a command. It always returns 200. The response body holds the exit code. |
+| POST | `/exec` | Execute a command. A valid request returns 200. The response body holds the exit code. |
 | POST | `/upload?path=<percent-encoded>` | Stream a file to the VM filesystem (raw `application/octet-stream` body). |
 | POST | `/download?path=<percent-encoded>` | Stream a file from the VM filesystem (raw `application/octet-stream` response). |
 | POST | `/shutdown` | Ask the agent to terminate (used by test harnesses). |
@@ -126,8 +126,14 @@ Extends `ElementQuery` with a required `value`:
 ### `ExecRequest` — `/exec`
 
 ```json
-{ "command": "uname -a", "timeout": 60, "detach": false }
+{ "command": "uname -a", "timeout": 60, "detach": false, "id": "run-7.step-2" }
 ```
+
+The Linux agent reads the optional `id`. It has 1 to 64 characters from
+`A-Z`, `a-z`, `0-9`, `.`, `_` and `-`. Without an `id`, the agent makes
+one. An attached request returns 400 with `exec_failed` in three cases.
+The command is not a string, the timeout is not a number, or the `id`
+is not valid.
 
 ### File transfer — `/upload`, `/download`
 
@@ -197,16 +203,24 @@ Encodes `CGRect` as flat keys (`boundsX`, `boundsY`, `boundsWidth`,
 ### Exec response — `/exec`
 
 Exec returns 2xx even on a non-zero exit. Callers must check `exitCode`.
+Every agent sends the legacy fields:
 
 ```json
-{
-  "success":  true,
-  "message":  null,
-  "stdout":   "...",
-  "stderr":   "...",
-  "exitCode": 0
-}
+{ "exitCode": 0, "stdout": "...", "stderr": "..." }
 ```
+
+The Linux agent also sends the typed exec record beside them. The record
+holds the command `id`, the `outcome`, the exact `evidence` of each
+stream, the `lifecycle` times, `remainingGroup`, `termination` and
+`legacyProjection`. A key that does not apply holds `null`.
+
+The legacy fields are a projection of the record. They keep the values of the old
+Linux agent, so an old Host CLI reads the same reply. The record is
+defined in `docs/specs/guest-command-lifecycle.md`, section "Exec
+record". The Linux model is `ExecRecord` in
+`agents/linux/testanyware_agent/models.py`.
+
+Detached commands return only the legacy fields.
 
 ### `ErrorResponse` — any non-2xx
 

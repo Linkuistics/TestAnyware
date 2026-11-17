@@ -482,3 +482,39 @@ task diagnostic:linux-timeout-live-tools
 The run needs the golden image, tart and the Host CLI on `PATH`. It boots one
 clone and disposes it. The run exits 0 only when every call ends as planned and
 the checker exits 0. A reproduced failure B does not fail the run.
+
+## Run against the lifecycle owner (leaf k217)
+
+Leaf k217 gave the Linux agent its lifecycle owner and the typed exec record.
+On 2026-11-18 the leaf ran the unchanged matrix once against that agent. The
+run is `experiments/exec-reliability/evidence/linux-timeout-lifecycle-k217/run-01`.
+Its run directory is `d57b537cd9914b629f13bcfa65913ddb`, and its tag is
+`960270925275`. It found no leftover subject.
+
+| Step | Exit | Result |
+| --- | --- | --- |
+| `diagnostic:linux-timeout-lifecycle` | 0 | Verdict true. No ledger entry and no residual. |
+| `diagnostic:linux-timeout-lifecycle-check` | 0 | The evidence is sound. |
+| `diagnostic:linux-timeout-lifecycle-old-path` | 201 | Seven frozen defects are missing. |
+
+The old-path detector now fails. These defects are missing:
+
+- `survivor-at-bound` for `issue-fork-wait`, in the process, traced, HTTP,
+  CLI text and CLI JSON seams. The owner ends the whole group before it
+  replies.
+- `term-skipped` for traced `deadline` and traced `issue-sleep`. The owner
+  sends SIGTERM to the group first.
+
+The other defects stay, on purpose. They are properties of the legacy fields,
+and the legacy fields keep the values of the old agent. The typed record beside
+them carries the exact bytes and the outcome. The matrix does not read the
+record.
+
+Every HTTP, CLI text and CLI JSON receipt of the run equals its receipt in
+`run-03`. For HTTP, the legacy fields are equal, and the reply has no
+`timedOut`. For CLI JSON, the envelope is equal apart from the `command` text,
+because the deadline commands differ in their sleep length. So the unchanged
+Host CLI prints the same output and returns the same exit code.
+
+The files `check.stdout`, `check.exit`, `old-path.stdout`, `old-path.stderr`
+and `old-path.exit` keep each checker output and its exit status.

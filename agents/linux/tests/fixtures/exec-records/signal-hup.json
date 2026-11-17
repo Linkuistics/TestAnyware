@@ -1,0 +1,48 @@
+{
+  "case": "signal-hup",
+  "source": "agents/linux/tests/record_exec_replies.py (k217)",
+  "request": {
+    "command": "printf 'before hangup\\n'; kill -HUP $$",
+    "timeout": 10
+  },
+  "httpStatus": 200,
+  "body": {
+    "exitCode": -1,
+    "stdout": "before hangup",
+    "stderr": "",
+    "id": "a4744625-8169-4cd9-9650-f9a81130b04c",
+    "outcome": {
+      "kind": "signalled",
+      "signal": 1,
+      "signalName": "SIGHUP"
+    },
+    "evidence": {
+      "stdout": {
+        "base64": "YmVmb3JlIGhhbmd1cAo=",
+        "bytes": 14,
+        "fileBytes": 14,
+        "sha256": "37fd97eb32ca697c65359e1634808ca8b56d6f11ef27a78024aaddb4b806d2f4",
+        "capture": "complete"
+      },
+      "stderr": {
+        "base64": "",
+        "bytes": 0,
+        "fileBytes": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "capture": "complete"
+      }
+    },
+    "lifecycle": {
+      "leaderPid": 19,
+      "groupId": 19,
+      "leaderStartTime": "34714",
+      "spawnMs": 0,
+      "durationMs": 0,
+      "ownerLatenessMs": 0,
+      "finalisedAfterMs": 0
+    },
+    "remainingGroup": "none",
+    "termination": null,
+    "legacyProjection": "linux"
+  }
+}

@@ -1,26 +1,40 @@
 """System endpoint handlers: /health, /exec, /upload, /download, /shutdown."""
 
 import os
+import re
 import subprocess
 import tempfile
 import threading
+import time
 from typing import BinaryIO
+
+from testanyware_agent import exec_owner
 
 # Fixed streaming buffer — memory use is bounded by this regardless of
 # file size (ADR-0001: no whole-file buffering on either end).
 CHUNK_SIZE = 1024 * 1024  # 1 MiB
 
 
+def prepare_exec_captures() -> None:
+    """Remove the capture directories of an earlier agent run."""
+    exec_owner.prepare_capture_root()
+
+
 def handle_health(accessible: bool) -> tuple[int, dict]:
     return 200, {"accessible": accessible, "platform": "linux"}
 
 
+EXEC_ID_PATTERN = re.compile(r"[A-Za-z0-9._-]{1,64}")
+
+
 def handle_exec(body: dict) -> tuple[int, dict]:
+    request_start = time.monotonic()
     command = body.get("command", "")
     timeout = body.get("timeout", 30)
     detach = body.get("detach", False)
 
     if detach:
+        # A detached command has no owner and no record (spec "Limits").
         subprocess.Popen(
             ["/bin/bash", "-c", command],
             stdout=subprocess.DEVNULL,
@@ -29,30 +43,21 @@ def handle_exec(body: dict) -> tuple[int, dict]:
         )
         return 200, {"exitCode": 0, "stdout": "", "stderr": ""}
 
-    try:
-        result = subprocess.run(
-            ["/bin/bash", "-c", command],
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-        )
-        return 200, {
-            "exitCode": result.returncode,
-            "stdout": result.stdout.rstrip(),
-            "stderr": result.stderr.rstrip(),
+    if not isinstance(command, str):
+        return 400, {"error": "exec_failed", "details": "command must be a string"}
+    if isinstance(timeout, bool) or not isinstance(timeout, int | float):
+        return 400, {"error": "exec_failed", "details": "timeout must be a number of seconds"}
+    exec_id = body.get("id")
+    if exec_id is None:
+        exec_id = exec_owner.new_exec_id()
+    elif not isinstance(exec_id, str) or not EXEC_ID_PATTERN.fullmatch(exec_id):
+        return 400, {
+            "error": "exec_failed",
+            "details": "id must have 1 to 64 characters from A-Z, a-z, 0-9, '.', '_' and '-'",
         }
-    except subprocess.TimeoutExpired:
-        return 200, {
-            "exitCode": -1,
-            "stdout": "",
-            "stderr": "Process timed out",
-        }
-    except Exception as e:
-        return 200, {
-            "exitCode": -1,
-            "stdout": "",
-            "stderr": str(e),
-        }
+
+    record = exec_owner.run_command(command, timeout, exec_id, request_start)
+    return 200, record.to_dict()
 
 
 def handle_upload(

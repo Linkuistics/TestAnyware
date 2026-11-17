@@ -3,12 +3,16 @@ name = "testanyware-agent"
 version = "0.0.0"
 description = "TestAnyware in-VM Linux agent (HTTP server on port 8648)"
 requires-python = ">=3.12"
+dependencies = []
 
 # Intentionally NOT installable as a wheel. The Linux golden image
 # runs the agent via `python3 -m testanyware_agent` against the
 # system Python so that `python3-pyatspi` (apt-installed) is on
 # the import path. This pyproject.toml exists for development
 # tooling (ruff, pytest) only.
+
+[dependency-groups]
+dev = ["pytest>=9,<10", "ruff>=0.17,<0.18"]
 
 [tool.ruff]
 line-length = 100

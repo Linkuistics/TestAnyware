@@ -8,7 +8,7 @@ manifest of leaf k224.
 
 ## Context
 
-- The freeze manifest, trial plan and checker of leaves 67 and 68.
+- The freeze manifest, trial plan and checker of leaves k223 and k224.
 - Root brief: sections "Done when", "Acceptance inventory and bounds" and
   "Constraints".
 - Spec: section "Validation route", steps 6 and 7.

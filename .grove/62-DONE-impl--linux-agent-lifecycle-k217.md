@@ -59,3 +59,33 @@ This leaf is the first part of candidate B. Leaf k220 owns the rest of B.
 Cancellation, the threaded server, record retention and the exact-length
 download belong to leaf k220. Do not start them here. Do not replace a golden.
 New goldens use `TESTANYWARE_AGENT_BIN_OVERRIDE`.
+
+## Decisions (running log)
+
+- The lifecycle controls need a Linux kernel, because the owner uses pidfd and
+  `waitid`. `agent:linux:test` runs the suite on the host first. Then it runs
+  the suite in the pinned k5 image, with no network and uid 1000. In the
+  container, `TESTANYWARE_LINUX_CONTROLS=required` turns a skipped control into
+  a failure. The container borrows pytest from the locked project.
+- Every record key is always present. A key that does not apply holds `null`.
+  The spec example shows `"termination": null`, so "present" means not null.
+- The unavailable-status control replaces only the leader waiter. The stalled
+  capture control replaces only the capture `open`. Both seams sit in
+  `OwnerSeams`. The leader and the files stay real.
+- The spawn-failure cases run in a fresh interpreter under `RLIMIT_NPROC` 1,
+  as k5 did. A fork of the threaded test process could deadlock.
+- An attached request with a command that is not a string, a timeout that is
+  not a number, or an invalid `id` now returns 400 `exec_failed`. The old
+  agent returned 200 with -1 and a Python error text. The Host CLI types
+  `command` as a string and `timeout` as an integer, so it never sends these.
+- The k5 matrix ran once against the new agent. The old-path detector fails
+  with seven missing defects, and each receipt equals `run-03`. The report
+  section "Run against the lifecycle owner (leaf k217)" records it.
+- No old Linux failure exists for the SIGTERM-ignoring row. In k5 `run-03`,
+  `deadline-term-ignored` shows no survivor, because the old agent sent
+  SIGKILL to the leader at the deadline.
+- The fixtures for leaf k218 are in `agents/linux/tests/fixtures/exec-records`.
+  `task agent:linux:record-exec-replies` records them again. Times, PIDs and
+  generated ids differ from run to run.
+- `ruff format` ran only on the new files. Eight old files do not match the
+  formatter. Formatting them is not part of this leaf.
