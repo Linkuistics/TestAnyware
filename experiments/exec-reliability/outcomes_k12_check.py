@@ -38,6 +38,10 @@ Defect classes:
   CLI error, without the errno.
 - `grace-exceeded`: the TERM grace was longer than 2 s.
 - `kill-reap-exceeded`: the reap after KILL was longer than 2 s.
+- `phase-marks-invalid`: a reference deadline record lacks a phase mark that
+  its case needs, or its marks are out of order. TERM needs the deadline, TERM
+  and reap marks. A case that ignores TERM also needs the grace-expired and KILL
+  marks. Without this class, absent marks would read as zero-length phases.
 - `residual-process`: a case left a process that carries its sleep token.
 """
 
@@ -48,7 +52,7 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
-from outcomes_k12_seam import GRACE, KILL_WAIT, TIMED_OUT_TEXT, Case, cases
+from outcomes_k12_seam import GRACE, HOST_MARGIN, KILL_WAIT, TIMED_OUT_TEXT, Case, cases
 
 SLACK = 0.25  # the scheduling allowance on a 2 s phase bound
 SPAWN_ERRNO = 35  # EAGAIN, the errno of a spawn under RLIMIT_NPROC of 1
@@ -134,6 +138,10 @@ def status_defects(case: Case, obs: dict[str, Any]) -> list[str]:
         if timed_out is not True:
             found.append("deadline-not-flagged")
         if end == "deadline-signal":
+            # Only the reference reports this end. Its signal must be the one the
+            # case needs: KILL when the shell ignores TERM, TERM otherwise.
+            if code != case.code:
+                found.append("status-mismatch")
             return found
     elif timed_out is True:
         found.append(RACE)
@@ -247,6 +255,25 @@ def reference_phases(record: dict[str, Any]) -> dict[str, float]:
     return phases
 
 
+def mark_defects(case: Case, record: dict[str, Any]) -> list[str]:
+    """Check that a reference deadline record has the ordered marks its case needs."""
+    if case.end != "deadline":
+        return []
+    names = ["deadline_ns", "term_ns"]
+    if case.code == 9:
+        names += ["grace_expired_ns", "kill_ns"]
+    names.append("reap_ns")
+    marks: list[int] = []
+    for name in names:
+        mark = record.get(name)
+        if not isinstance(mark, int):
+            return ["phase-marks-invalid"]
+        marks.append(mark)
+    if any(later < earlier for earlier, later in zip(marks, marks[1:], strict=False)):
+        return ["phase-marks-invalid"]
+    return []
+
+
 def phase_defects(phases: dict[str, float]) -> list[str]:
     found: list[str] = []
     if phases.get("grace", 0.0) > GRACE + SLACK:
@@ -267,7 +294,9 @@ def judge(seam: str, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
             defects += stream_defects(case.stdout, obs["stdout"], "stdout")
             defects += stream_defects(case.stderr, obs["stderr"], "stderr")
         if seam == "reference":
-            phases = reference_phases(record)
+            invalid = mark_defects(case, record)
+            defects += invalid
+            phases = {} if invalid else reference_phases(record)
         elif seam == "traced":
             phases = trace_phases(record.get("trace", []))
         else:
@@ -286,6 +315,7 @@ def judge(seam: str, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "stdout_hex": obs["stdout"].hex(),
                 "stderr_hex": obs["stderr"].hex(),
                 "seconds": (record["end_ns"] - record["start_ns"]) / 1e9,
+                "ceiling_seconds": case.timeout + HOST_MARGIN,
                 "phases": phases,
                 "bound_exceeded": bool(record.get("bound_exceeded")) or "transport_error" in record,
             }
@@ -331,6 +361,10 @@ def soundness(
         where = f"{verdict['seam']}/{verdict['case']}"
         if verdict["bound_exceeded"]:
             problems.append(f"{where} exceeded its bound")
+        # The agreed ceiling is the guest budget plus 20 s; for an ordinary case
+        # that is 30 s. The checker measures it here and does not trust the flag.
+        if verdict["seconds"] > verdict["ceiling_seconds"]:
+            problems.append(f"{where} exceeded the agreed {verdict['ceiling_seconds']} s ceiling")
         if "residual-process" in verdict["defects"]:
             problems.append(f"{where} left a residual process")
         if verdict["seam"] == "reference" and verdict["defects"]:

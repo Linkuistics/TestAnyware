@@ -22,12 +22,17 @@ evidence. The completion wait race stays with k3, and inspection stays with k4.
 - The CLI text mode exits 255 on a deadline and has no timeout flag.
 - Three CLI JSON calls that ended by themselves came back as 10 s timeouts. This
   matches the completed-then-timed-out receipt of k3.
+- Leaf k201 repaired three review findings in the tooling. A repeat run showed
+  the same defects. None of its CLI JSON calls came back as a timeout.
 
 ## Matrix
 
 Each case is a `bash -c` command. The timeout is 10 s, except on the two
 deadline cases, which use 2 s. Each seam has its own sleep token, such as
-`sleep 30.31`, so the audit can find each process by its exact command.
+`sleep 30.31`, so the audit can find each process by its exact command. Since
+k201, the token also ends with a 12-digit run tag, such as
+`sleep 30.31123456789012`. The tag identifies the process as a process of this
+run.
 
 | Case | Command | Faithful outcome |
 | --- | --- | --- |
@@ -36,8 +41,8 @@ deadline cases, which use 2 s. Each seam has its own sleep token, such as
 | `exit-23-partial` | `printf 'partial out\n'; printf 'partial err\n' >&2; exit 23` | exit 23, both lines with LF |
 | `signal-kill` | `printf 'before signal\n'; kill -KILL $$` | signal 9, stdout with LF |
 | `exit-9` | `printf 'before exit\n'; exit 9` | exit 9, stdout with LF |
-| `deadline` | `printf 'before deadline\n'; sleep 30.<seam>1` | deadline, TERM ends it |
-| `deadline-term-ignored` | `trap '' TERM; printf 'ignoring term\n'; sleep 30.<seam>2` | deadline, KILL ends it |
+| `deadline` | `printf 'before deadline\n'; sleep 30.<seam>1<tag>` | deadline, TERM ends it |
+| `deadline-term-ignored` | `trap '' TERM; printf 'ignoring term\n'; sleep 30.<seam>2<tag>` | deadline, KILL ends it |
 | `spawn-failure` | `printf 'never runs\n'` under `RLIMIT_NPROC` of 1 | spawn error, errno 35 |
 
 The oracle stdout is `4578706c61696e2074686973206368616e67652e` (20 bytes). The
@@ -321,6 +326,52 @@ same before and after the run.
 `inventory.json`, the build logs, `summary.json` and `check.json`. The run
 directory `b695d8e3a3d648ab9b0cf2e08ce5547d/` holds the plan, the controller
 result and the stdout of each seam call.
+
+## Review integration (k201)
+
+Review leaf `macos-exec-outcomes-k200` raised three findings. Leaf
+`macos-exec-outcomes-k201` checked each one against the source. The source
+supports all three, and k201 repaired each one.
+
+| Finding | Classification | Repair |
+| --- | --- | --- |
+| P1, cleanup ownership | real issue against the root brief | Each sleep token ends with a run tag. `sweep()` and `audit()` read the start time and command again before each kill. |
+| P2, checker gate | real issue | The class `phase-marks-invalid` rejects absent or unordered phase marks. The `deadline` case expects signal 15, and `deadline-term-ignored` expects signal 9. |
+| P2, CLI ceiling | real issue against the root brief | The CLI bound is the guest budget plus 20 s, with no extra margin. The checker compares each measured time with that ceiling. |
+
+The run tag is the run identifier modulo 10^12, as 12 digits. The runner
+passes it to each seam call and records it in `inventory.json`. An orphaned
+process moves to `launchd`, so its ancestry cannot identify it. The exact
+command with the tag identifies it instead.
+
+A new test control found one more defect. A reference record without `reap_ns`
+crashed the checker with `KeyError`. The checker now measures phases only after
+it accepts the marks.
+
+The stricter checker accepts a copy of k12 `run-01`, and the old-path detector
+exits 0 on that copy. The recorded `run-01` stays unchanged.
+
+Run `macos-exec-outcomes-k201/run-01` used the repaired tooling once, with no
+retry. The run tag was `934359825428`. The results are:
+
+- The controller verdict is true. The checker reports no problem, and the
+  old-path detector exits 0. Every frozen defect is still present.
+- The reference seam reports every case faithfully. The `deadline` case ends
+  with signal 15 after 2.004 s. The `deadline-term-ignored` case ends with
+  signal 9 after 4.002 s.
+- The longest case took 5.23 s, on the CLI text seam. The ceiling is 22 s.
+- No case left a residual, and the final audit found no leftover. The build
+  directory is gone.
+- The controller calls took 6.2 s, 10.8 s, 10.8 s and 37.7 s. The `http-cli`
+  call took 69.3 s in k12. In this run, no completed CLI JSON call came back as
+  a timeout.
+
+The completed-then-timed-out receipt is therefore intermittent. Later work can
+rely on k12 `run-01` to show that it occurs. It cannot rely on either run for
+its frequency. The race stays with k3.
+
+The run directory is
+`experiments/exec-reliability/evidence/macos-exec-outcomes-k201/run-01/`.
 
 ## Regression invocation
 

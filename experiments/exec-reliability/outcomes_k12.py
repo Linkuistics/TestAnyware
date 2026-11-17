@@ -17,10 +17,16 @@ The script freezes the cases, the bounds, the subject digests and the plan in
 OUT/inventory.json before the first case runs. Then it runs one controller plan
 once. Each seam of `outcomes_k12_seam.py` is one call. No call retries.
 
+The run tag is 12 decimal digits taken from the run ID. Each seam call gets the
+tag, and each deadline command ends its sleep token with it.
+
 After the plan, the script audits the host for owned leftovers: any process whose
-command names the build directory or a k12 sleep token. It kills and records
-each one. Then it removes the build directory. `outcomes_k12_check.py` judges the
-evidence. This script judges nothing beyond the controller verdict.
+command names the build directory or is exactly a sleep token of this run. The
+build directory comes from `mkdtemp`, and the tag is unique to the run. A same-user
+`sleep 30.11` or a concurrent run therefore does not match. The audit checks the
+start time and command of each match again, then kills and records it. Then it
+removes the build directory. `outcomes_k12_check.py` judges the evidence. This
+script judges nothing beyond the controller verdict.
 """
 
 from __future__ import annotations
@@ -52,6 +58,7 @@ from outcomes_k12_seam import (
     SEAMS,
     STOP_BOUND,
     cases,
+    current,
     processes,
 )
 
@@ -72,7 +79,16 @@ BUILD_BOUND = 600.0  # one build step must finish within this
 REFERENCE_BUDGET = 60.0
 PROBE_BUDGET = 300.0
 HTTP_CLI_BUDGET = 600.0
-TOKEN = re.compile(r"^sleep 30\.[1-6][12]$")
+
+
+def run_tag(run_id: str) -> str:
+    """The 12-digit run tag that ends each sleep token of this run."""
+    return f"{int(run_id, 16) % 10**12:012d}"
+
+
+def token_pattern(tag: str) -> re.Pattern[str]:
+    return re.compile(rf"^sleep 30\.[1-6][12]{tag}$")
+
 
 LOOPBACK_MAIN = """\
 import Foundation
@@ -176,13 +192,20 @@ def build(work: Path, out: Path) -> tuple[dict[str, Path], list[dict[str, Any]]]
     return built, records
 
 
-def audit(work: Path) -> list[dict[str, Any]]:
-    """Record and kill each owned leftover: the build directory or a k12 token."""
+def audit(work: Path, tag: str | None) -> list[dict[str, Any]]:
+    """Record and kill each owned leftover: the build directory or a token of this run.
+
+    Without a tag, no seam ran, so only the build directory can own a process.
+    """
+    token = token_pattern(tag) if tag else None
     found: list[dict[str, Any]] = []
     for pid, start, command in processes():
         if pid == os.getpid():
             continue
-        if str(work) in command or TOKEN.match(command.strip()):
+        if str(work) in command or (token and token.match(command.strip())):
+            if current(pid) != (start, command):
+                found.append({"pid": pid, "start": start, "command": command, "killed": False})
+                continue
             try:
                 os.kill(pid, signal.SIGKILL)
                 killed = True
@@ -194,7 +217,7 @@ def audit(work: Path) -> list[dict[str, Any]]:
 
 def plan(python: str, built: dict[str, Path]) -> Plan:
     run_id = uuid.uuid4().hex
-    seam = (python, "-I", str(SEAM))
+    seam = (python, "-I", str(SEAM), run_tag(run_id))
     calls = (
         Call("reference", (*seam, "reference"), REFERENCE_BUDGET),
         Call("process", (*seam, "process", str(built["probe-default"])), PROBE_BUDGET),
@@ -232,9 +255,11 @@ def main() -> None:
     out.mkdir(parents=True, exist_ok=False)
     work = Path(tempfile.mkdtemp(prefix="k12-build-"))
     summary: dict[str, Any] = {"build_dir": str(work)}
+    tag: str | None = None
     try:
         built, builds = build(work, out)
         frozen = plan(sys.executable, built)
+        tag = run_tag(frozen.run_id)
         write_json(
             out / "inventory.json",
             {
@@ -245,6 +270,7 @@ def main() -> None:
                     "machine": platform.machine(),
                     "kernel": platform.release(),
                 },
+                "run_tag": tag,
                 "commit": tool_version(["/usr/bin/git", "-C", str(REPO), "rev-parse", "HEAD"]),
                 "tools": {
                     "swiftc": tool_version(["/usr/bin/swiftc", "--version"]),
@@ -277,7 +303,7 @@ def main() -> None:
                 "cases": {
                     seam: [
                         asdict(case) | {"stdout": case.stdout.hex(), "stderr": case.stderr.hex()}
-                        for case in cases(seam)
+                        for case in cases(seam, tag)
                     ]
                     for seam in SEAMS
                 },
@@ -292,7 +318,7 @@ def main() -> None:
             residuals=outcome.residuals,
         )
     finally:
-        summary["leftovers"] = audit(work)
+        summary["leftovers"] = audit(work, tag)
         shutil.rmtree(work, ignore_errors=True)
         summary["build_dir_removed"] = not work.exists()
         write_json(out / "summary.json", summary)

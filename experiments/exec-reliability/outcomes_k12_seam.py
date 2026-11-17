@@ -1,10 +1,12 @@
 """Run the frozen k12 exec cases through one seam and print the raw evidence.
 
 Usage:
-  outcomes_k12_seam.py reference
-  outcomes_k12_seam.py process PROBE
-  outcomes_k12_seam.py traced PROBE
-  outcomes_k12_seam.py http-cli AGENT APP CLI
+  outcomes_k12_seam.py RUN reference
+  outcomes_k12_seam.py RUN process PROBE
+  outcomes_k12_seam.py RUN traced PROBE
+  outcomes_k12_seam.py RUN http-cli AGENT APP CLI
+
+RUN is the run tag: 12 decimal digits that the runner derives from its run ID.
 
 The script prints one JSON object on stdout. Bytes are hex, so nothing is decoded
 or trimmed. The script judges nothing. `outcomes_k12_check.py` judges the object.
@@ -20,9 +22,13 @@ Spawn failure uses `RLIMIT_NPROC` of 1 on the process that spawns the shell. The
 user already owns more processes than that, so the next fork or spawn fails with
 EAGAIN. The label is `instrumentation: rlimit-nproc`.
 
-Each deadline command sleeps for a seam-specific `30.NM` seconds. That token
-identifies a leftover `sleep` positively. After each case, the script lists the
-processes that carry the token, records them and kills them.
+Each deadline command sleeps for `30.NM` seconds followed by the run tag, for
+example `sleep 30.21004718293846`. N names the seam and M names the case. The tag
+makes the token unique to one run, so the token identifies a leftover `sleep` of
+this run positively. A same-user `sleep 30.21` or a concurrent run carries another
+token. After each case, the script lists the processes whose command is exactly
+the token. It checks the start time and the command of each one again, then kills
+and records it.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ from __future__ import annotations
 import http.client
 import json
 import os
+import re
 import resource
 import signal
 import socket
@@ -48,7 +55,7 @@ ORACLE_BINARY = bytes.fromhex("00ff80410a")
 GUEST_TIMEOUT = 2  # the deadline cases ask for this timeout
 ORDINARY_TIMEOUT = 10  # every other case asks for this timeout
 HOST_MARGIN = 20  # a raw host exec gets its timeout plus this bound
-CLI_MARGIN = 10  # the CLI adds this to its HTTP timeout, so its bound gets it too
+CLI_MARGIN = 10  # the CLI adds this to its HTTP timeout. The host bound stays HOST_MARGIN.
 GRACE = 2.0  # the faithful TERM grace
 KILL_WAIT = 2.0  # the faithful kill and reap bound
 READY_BOUND = 10.0  # an agent or the app must accept a connection within this
@@ -57,6 +64,7 @@ STOP_BOUND = 2.0  # a stopped agent or app must exit within this after TERM
 SEAMS = ("reference", "process", "traced", "http", "cli-text", "cli-json")
 SEAM_DIGIT = {"reference": 1, "process": 2, "traced": 3, "http": 4, "cli-text": 5, "cli-json": 6}
 TIMED_OUT_TEXT = b"Process timed out after"
+RUN_TAG = re.compile(r"^[0-9]{12}$")
 
 
 @dataclass(frozen=True)
@@ -64,8 +72,10 @@ class Case:
     """One frozen exec case and its faithful outcome.
 
     `end` is `exit`, `signal`, `deadline` or `spawn-failure`. `code` is the exit
-    status for `exit` and the signal number for `signal`. A deadline case keeps the
-    bytes that the command wrote before the deadline.
+    status for `exit` and the signal number for `signal`. For `deadline`, `code` is
+    the signal that ends the reference process: TERM (15) when the shell honours
+    TERM, and KILL (9) when it ignores TERM. A deadline case keeps the bytes that
+    the command wrote before the deadline.
     """
 
     name: str
@@ -77,15 +87,19 @@ class Case:
     code: int | None
 
 
-def deadline_command(seam: str, index: int, ignore_term: bool) -> str:
-    token = f"sleep 30.{SEAM_DIGIT[seam]}{index}"
+def deadline_command(seam: str, index: int, ignore_term: bool, run: str) -> str:
+    token = f"sleep 30.{SEAM_DIGIT[seam]}{index}{run}"
     if ignore_term:
         return f"trap '' TERM; printf 'ignoring term\\n'; {token}"
     return f"printf 'before deadline\\n'; {token}"
 
 
-def cases(seam: str) -> tuple[Case, ...]:
-    """The eight cases. Only the sleep token of a deadline case depends on the seam."""
+def cases(seam: str, run: str = "") -> tuple[Case, ...]:
+    """The eight cases. Only the sleep token of a deadline case depends on the seam and run.
+
+    The checker judges names, timeouts, streams and statuses, which do not depend on
+    `run`. It calls this function without a run tag.
+    """
     return (
         Case(
             "oracle-text",
@@ -134,21 +148,21 @@ def cases(seam: str) -> tuple[Case, ...]:
         ),
         Case(
             "deadline",
-            deadline_command(seam, 1, ignore_term=False),
+            deadline_command(seam, 1, ignore_term=False, run=run),
             GUEST_TIMEOUT,
             b"before deadline\n",
             b"",
             "deadline",
-            None,
+            15,
         ),
         Case(
             "deadline-term-ignored",
-            deadline_command(seam, 2, ignore_term=True),
+            deadline_command(seam, 2, ignore_term=True, run=run),
             GUEST_TIMEOUT,
             b"ignoring term\n",
             b"",
             "deadline",
-            None,
+            9,
         ),
         Case(
             "spawn-failure",
@@ -193,17 +207,34 @@ def identity(pid: int) -> str | None:
     return None
 
 
+def current(pid: int) -> tuple[str, str] | None:
+    """The start time and command of one process now, or None when it is gone."""
+    for row_pid, start, command in processes():
+        if row_pid == pid:
+            return start, command
+    return None
+
+
 def sweep(token: str) -> list[dict[str, Any]]:
-    """Record and kill each process whose command is exactly the sleep token."""
+    """Record and kill each process whose command is exactly this run's sleep token.
+
+    The token carries the run tag, so a match is a process of this run. Before the
+    kill, the start time and the command must still be the listed ones. A pid that
+    a new process took in between, or a process that is gone, is recorded and left alone.
+    """
     found: list[dict[str, Any]] = []
     for pid, start, command in processes():
-        if command.strip() == token:
-            killed = True
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                killed = False
-            found.append({"pid": pid, "start": start, "command": command, "killed": killed})
+        if command.strip() != token:
+            continue
+        if current(pid) != (start, command):
+            found.append({"pid": pid, "start": start, "command": command, "killed": False})
+            continue
+        killed = True
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            killed = False
+        found.append({"pid": pid, "start": start, "command": command, "killed": killed})
     return found
 
 
@@ -507,7 +538,7 @@ def cli_case(cli: str, env: dict[str, str], vm: str, case: Case, json_mode: bool
     argv = [cli, "exec", case.command, "--vm", vm, "--timeout", str(case.timeout)]
     if json_mode:
         argv.append("--json")
-    bound = case.timeout + CLI_MARGIN + HOST_MARGIN
+    bound = case.timeout + HOST_MARGIN  # the agreed raw host exec ceiling; never raised
     record: dict[str, Any] = {
         "case": case.name,
         "command": case.command,
@@ -547,7 +578,7 @@ def write_spec(state: Path, vm: str, port: int) -> None:
     (state / "vms" / f"{vm}.json").write_text(json.dumps(spec))
 
 
-def http_cli(agent: str, app: str, cli: str) -> dict[str, Any]:
+def http_cli(tag: str, agent: str, app: str, cli: str) -> dict[str, Any]:
     result: dict[str, Any] = {"seam": "http-cli", "servers": [], "stops": []}
     owned: list[Owned] = []
     root = Path(tempfile.mkdtemp(prefix="k12", dir="/tmp"))  # a socket path has 103 bytes at most
@@ -627,7 +658,7 @@ def http_cli(agent: str, app: str, cli: str) -> dict[str, Any]:
         }
         for seam in ("http", "cli-text", "cli-json"):
             records: list[dict[str, Any]] = []
-            for case in cases(seam):
+            for case in cases(seam, tag):
                 limited = case.end == "spawn-failure"
                 if seam == "http":
                     record = http_case(limited_port if limited else normal_port, case)
@@ -652,15 +683,16 @@ def http_cli(agent: str, app: str, cli: str) -> dict[str, Any]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 2:
+    if len(argv) < 3 or not RUN_TAG.match(argv[1]):
         print(__doc__, file=sys.stderr)
         return 64
-    seam = argv[1]
+    run, seam = argv[1], argv[2]
+    argv = [argv[0], *argv[2:]]
     result: dict[str, Any]
     if seam == "reference" and len(argv) == 2:
         work = Path(tempfile.mkdtemp(prefix="k12-reference-"))
         records: list[dict[str, Any]] = []
-        for case in cases(seam):
+        for case in cases(seam, run):
             record = reference_case(case, work)
             record["residuals"] = settle(case)
             records.append(record)
@@ -671,7 +703,7 @@ def main(argv: list[str]) -> int:
     elif seam in ("process", "traced") and len(argv) == 3:
         work = Path(tempfile.mkdtemp(prefix=f"k12-{seam}-"))
         records = []
-        for index, case in enumerate(cases(seam)):
+        for index, case in enumerate(cases(seam, run)):
             trace = work / f"{index}-{case.name}.jsonl" if seam == "traced" else None
             record = probe_case(argv[2], case, trace)
             record["residuals"] = settle(case)
@@ -681,7 +713,7 @@ def main(argv: list[str]) -> int:
         work.rmdir()
         result = {"seam": seam, seam: records, "work_removed": not work.exists()}
     elif seam == "http-cli" and len(argv) == 5:
-        result = http_cli(argv[2], argv[3], argv[4])
+        result = http_cli(run, argv[2], argv[3], argv[4])
     else:
         print(__doc__, file=sys.stderr)
         return 64
