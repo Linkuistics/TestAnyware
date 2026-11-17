@@ -7,15 +7,22 @@ timeout of the k3 report.
 
 ## Result
 
-One fresh unchanged clone reproduced a post-timeout stall. The guest command was a
-process listing, not the known-child `ps -p` observation. The listing printed its
-whole table, including its own `ps` row, and the agent then reported a guest timeout
-at 30 s. The same command ran in 0.150 s three operations earlier on the same clone.
+On one fresh unchanged clone, a process-listing command timed out after the
+intentional timeouts. The command was not the known-child `ps -p` observation. The
+listing printed 460 rows that end with its own `ps` row, and the agent then reported
+a guest timeout at 30 s. The same command ran in 0.150 s three operations earlier on
+the same clone.
+
+The checker counts this call only from revision 2, which changed after the run. So
+the result is a post-hoc expansion. It is not a predeclared
+reproduction of the historical known-child observation, and it does not prove a
+shared cause.
 
 The evidence is incomplete. The complete original r3 fixture condition stopped at its
-cancel case because of a plan defect. The cause of the stall is not proved. The
-shape is consistent with the k3 completed-then-timed-out mechanism, but no evidence
-in this run shows when the guest shell exited.
+cancel case because of a plan defect. A second plan defect ran its online case
+without the pinned URL and hash. The cause of the stall is not proved. The shape is
+consistent with the k3 completed-then-timed-out mechanism, but no evidence in this
+run shows when `ps` or the guest shell exited.
 
 ## Old failures, kept separate
 
@@ -29,12 +36,13 @@ them and does not copy them.
 | `macos-02/clone-1` | r2 | guest timeout at 30 s | `timeout pid=709`, then `Process timed out after 30s` |
 | `macos-03/clone-1` | r3 | 33.067 s, guest timeout | `timeout pid=666`, then `Process timed out after 30s` |
 
-The `macos-01` receipt shows that `ps -p` prints nothing when the child is gone. So
-the `macos-02` and `macos-03` stdout is also complete output. Those receipts do not
-show whether `ps` blocked or whether the command completed and the agent did not
-observe the exit. The `macos-03` elapsed time of 33 s is the 30 s deadline plus the
-agent's 3 s second wait. That second wait also timed out, so the agent did not
-observe the shell exit within 3 s after TERM.
+The `macos-01` receipt shows that `ps -p` prints nothing when the child is gone. The
+`macos-02` and `macos-03` receipts hold the PID line, no `ps` row and the agent's
+timeout note. A timed-out sample cannot show whether the child was absent or
+whether more output would have followed. Those receipts also do not show whether
+`ps` blocked or whether the command completed and the agent did not observe the
+exit. The `macos-03` elapsed time of 33 s is consistent with the 30 s deadline and an
+expired 3 s second wait after TERM. No phase timestamp measures those waits.
 
 These samples are different from the ordinary-command timeout of the k3 report
 (`macos-candidate-01` op 08, 30.058 s). That command was not preceded by an
@@ -53,8 +61,8 @@ intentional timeout. The retained `diagnosis-macos-01/` run did not reproduce fa
 
 ## Frozen plan and run
 
-The plan `experiments/exec-reliability/timeout_k4.py` freezes one clone of
-`testanyware-golden-macos-27` and 36 calls in this order:
+The plan `experiments/exec-reliability/timeout_k4.py` froze one clone of
+`testanyware-golden-macos-27` and 36 calls for run 02, in this order:
 
 1. `health-before`.
 2. `issue-sleep`: exact issue #14 `sleep 120`, guest timeout 2 s.
@@ -66,6 +74,9 @@ The plan `experiments/exec-reliability/timeout_k4.py` freezes one clone of
 6. The complete r3 VM-fit sequence, from a byte-exact copy of the fixture under
    `experiments/exec-reliability/evidence/macos-timeout-inspection-k4/fixture-r3/`.
    The plan refuses to run when a hash differs from the retained `frozen.json`.
+   Run 02 did not reproduce two original invocations: the online case and the
+   cancel expectation. The section "Plan defects and unfinished conditions" gives
+   both.
 
 The r3 condition runs after the issue payloads on the same clone. The original r3
 sequence ran on a clone that had no earlier timeouts. A second unchanged clone would
@@ -91,13 +102,14 @@ Times start at `issue-sleep`.
 |---|---|---|---|
 | `issue-sleep` | 0.000 s | 2.242 s | exit -1, timed out, overhead 0.242 s |
 | `issue-child` | 2.242 s | 2.281 s | exit -1, timed out, overhead 0.281 s |
-| `issue-observe` | 4.524 s | 0.156 s | `child pid=630`, no `ps` row, exit 1 |
+| `issue-observe` | 4.524 s | 0.156 s | `child pid=630`, no `ps` row, exit 1, empty stderr |
 | `after-01` to `after-08` | 4.68 s | 0.14 s to 0.18 s each | normal |
 | `after-03-table` | | 0.150 s | 459 rows |
 | `after-09-table` | 5.808 s | 30.148 s | exit -1, timed out, 460 rows, last row `695 421 … ps -axo …` |
 | `after-10-health` | 35.957 s | 0.081 s | healthy |
+| `r3-online` | 37.770 s | 0.151 s | exit 1, `$2: unbound variable`: the plan omitted the URL and hash |
 | `r3-timeout` | 38.150 s | 2.209 s | exit -1, timed out, overhead 0.209 s |
-| `r3-observe-timeout` | 40.359 s | 0.140 s | normal, child gone |
+| `r3-observe-timeout` | 40.359 s | 0.140 s | `timeout pid=799`, no `ps` row, exit 0 |
 | `r3-cancel` | 40.500 s | 2.108 s | interrupted, CLI exit -15 |
 
 The three intentional timeouts had host overheads of 0.209 s to 0.281 s. Each
@@ -105,18 +117,25 @@ overhead includes the host transport, so each one is an upper bound on the agent
 work after its deadline. No overhead exceeded the 4 s sum of the TERM grace and the
 kill/drain/reap bound, so the run records no grace or reap violation.
 
-The agent killed the issue child: `issue-observe` found no process for PID 630. The
-r3 cancel child, PID 812, survived the CLI interruption, as in `macos-01`. The
-resource cleanup terminated it by its pid file, only after it checked that the
+`issue-observe` listed no process for PID 630. Its exit 1 with empty stderr is the
+`ps -p` no-match result. The run has no signal or exit record for PID 630, so it does
+not show which action ended the child. The r3 observation masks a `ps` failure with
+`|| true`, so its missing row for PID 799 shows only that the fixture listed no row.
+The r3 cancel child, PID 812, survived the CLI interruption, as in `macos-01`. The
+resource cleanup sent TERM to it by its pid file, only after it checked that the
 command was `sleep 120`.
 
 ### The stalled call
 
 `after-09-table` ran `ps -axo pid,ppid,pgid,stat,lstart,etime,command`. Its stdout
 holds 460 rows. `ps` sorts by PID, and its own row (PID 695, parent 421, the agent)
-is the last row. So `ps` wrote its complete table. The stderr holds only the agent's
-note `Process timed out after 30s`. The elapsed time is 30.148 s, so the agent's
-second 3 s wait after TERM succeeded at once.
+is the last row. So the output is substantial.
+
+The output does not show that `ps` finished
+its enumeration or its output, because the run did not time the exit of `ps` or of
+the shell. The stderr holds only the agent's note `Process timed out after 30s`. The
+elapsed time of 30.148 s is consistent with a second 3 s wait after TERM that ended
+almost at once. No phase timestamp measures that wait.
 
 What this shows about the waiting operation:
 
@@ -124,11 +143,12 @@ What this shows about the waiting operation:
   and the agent answered each of the eight earlier after-timeout calls in under 0.2 s.
 - It did not wait on host transport. The host received a guest receipt that states a
   guest timeout, and the next health call took 0.081 s.
-- It did not wait on descendant enumeration as the first cause. The agent enumerates
-  descendants only after its 30 s deadline expires.
-- It waited on its own child or on the agent's exit observation. The output is
-  complete. Either `ps` or the shell did not exit. Or both exited, and the agent did
-  not observe the exit within 30 s. This run cannot distinguish the two cases.
+- It did not wait on descendant enumeration as the first cause. By the agent source,
+  the agent enumerates descendants only after its 30 s deadline expires.
+- It waited on its own child or on the agent's exit observation. Either `ps` or the
+  shell did not exit. Or both exited, and the agent did not observe the exit within
+  30 s. This run cannot distinguish the two cases. It also cannot exclude that `ps`
+  was still enumerating or writing after its last printed row.
 
 The table shows processes in state `U` (uninterruptible wait), for example PID 668
 `hybridsearchd`, 673 `ReportMemoryException` and 674 `mdbulkimport`. These are
@@ -146,15 +166,45 @@ runs after an intentional timeout. It judges run 02 `evidence incomplete, stall
 reproduced`, with `after-09-table` stalled (`check-r2.json`). Revision 2 changes the
 judgement after the run, so the report keeps both results.
 
+Revision 3 follows review k192. It requires a typed receipt and the expected outcome
+of each role. For the r3 calls, the outcome includes the original exit codes. It
+also includes the transfer paths and sizes and the pinned download bytes. A stall counts as a reproduction only with valid local
+evidence and a valid earlier intentional timeout. A printed child without a `ps` row
+is absent only in a valid observation of the plan's own payload.
+
+Revision 3 judges
+run 02 `evidence incomplete, stall reproduced`, with `after-09-table` admitted
+(`check-r3.json`). It also fails `r3-online`, which revision 2 accepted, and
+`r3-cancel`. It reports the run 02 cleanup state as `unknown`.
+
 ## Accounting
 
 - The ledger shows the clone `k4-macos-6de306c9…6979` disposed in 1.215 s, and the
   controller named no residual process. The VM inventory after the run holds no clone.
-- The resource cleanup acted only on the three known pid files. It found PIDs 630 and
-  799 gone, and terminated PID 812.
+- The resource cleanup acted only on the three known pid files. It printed an empty
+  command for PIDs 630 and 799. That cleanup treated an empty or failed `ps` output
+  as a skip, so this output does not show the PIDs gone. It sent TERM to PID 812 and
+  printed `terminated pid=812`. It printed `cleanup complete` without a condition.
+  Clone disposal is the independent guarantee, and it does not prove the earlier
+  absence of any child.
+- The cleanup now reads `kill -0` for each PID and checks that each signalled PID
+  is gone. It ends with `cleanup confirmed` only when no PID ended unknown or
+  alive. Otherwise it ends with `cleanup uncertain` and exits 1. Its guest timeout
+  is now 9 s, for three children with 2 s of TERM grace and 0.5 s of KILL wait.
 - No broad process-name cleanup ran. The host app was not stopped.
 
-## Plan defect and unfinished conditions
+## Plan defects and unfinished conditions
+
+The plan ran `r3-online` as `guest.sh online` with a guest timeout of 30 s. The
+original call passed the pinned yq URL and hash from `cases.json`, with a guest
+timeout of 120 s (`macos-03/clone-1/online.json`, exit 0 in 1.375 s). The guest
+script stopped at `$2: unbound variable` with exit 1. That failed sample stays
+retained.
+
+The plan now passes the original argument and guest timeout, and a control checks
+both. The plan now also checks agent health before the r3 sequence,
+as the original run did. A control pins the r3 call order to the original clone-1
+order.
 
 The plan gave `r3-cancel` the default expected exit 0. The interrupted CLI exits -15,
 so the controller marked the call failed and stopped the plan. These r3 calls did not
@@ -164,7 +214,8 @@ a control checks that value.
 
 These conditions of the leaf remain open:
 
-- The complete original r3 fixture condition, as a separate condition.
+- The complete original r3 fixture condition, as a separate condition. The run 02 r3
+  samples are not that condition, because two of its invocations differ.
 - An instrumented clone that records when the shell and `ps` exit and when the agent
   observes the exit. Only such a run can separate a blocked `ps` from a lost exit.
 
@@ -173,10 +224,12 @@ These conditions of the leaf remain open:
 1. The k3 completed-then-timed-out mechanism. `waitForExit` waits on a second
    global-queue block, which can starve. The k3 detector
    `diagnostic:macos-completion-old-path` reproduces it in a probe. In this run it
-   would show as complete output with a 30 s guest timeout, which matches.
+   would show output that ends with the `ps` row, then a 30 s guest timeout. The
+   receipt matches.
 2. A `ps` exit delay on a process in state `U`. It would show the same receipt.
-3. The `macos-03` shape, 33 s, means the agent also missed the exit during its 3 s
-   wait after TERM. Run 02 has the 30 s shape, so its second wait succeeded.
+3. The `macos-03` shape of 33 s fits an agent that also missed the exit
+   in its 3 s wait after TERM. Run 02 has the 30 s shape, which is consistent
+   with a second wait that succeeded. No phase timestamp measures either wait.
 
 ## Relationship to ordinary completion
 
@@ -191,6 +244,6 @@ whether the intentional timeouts cause the later stall or only precede it.
   plan on one owned clone.
 - `mise exec -- task diagnostic:macos-timeout-inspection-check RUN=<run dir>` judges a
   retained run. It exits 0 only when the stall result is determined and the clone was
-  disposed. On run 02 it exits 0 and reports `reproduced`.
+  disposed. On run 02 revision 3 exits 0 and reports `reproduced`.
 - `mise exec -- task diagnostic:macos-timeout-inspection-tools` checks the tooling and
-  runs 19 controls without a VM. A damaged input makes it exit non-zero.
+  runs 52 controls without a VM. A damaged input makes it exit non-zero.

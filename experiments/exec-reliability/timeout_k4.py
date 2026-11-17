@@ -15,9 +15,10 @@ known children and disposes the clone. The calls run in this order:
    guest timeout 30 s, host bound 50 s). No call separates them.
 3. `after-01` to `after-10`: ten declared observation and health operations.
 4. Condition 2, `r3-*`: the clone-1 sequence of the original macOS VM-fit fixture r3,
-   with its guest script and lesson unchanged. Only the VM identity and the local
-   download paths differ. The original start and stop calls are the resource
-   acquisition and disposal here.
+   with its guest script and lesson unchanged. Each call has the argv and the guest
+   timeout of the original call, from the retained clone-1 records of `macos-03`.
+   Only the VM identity and the local download paths differ. The original start and
+   stop calls are the resource acquisition and disposal here.
 
 A guest timeout gives host exit 0, so the controller continues after it. The controller
 stops the plan only at a host failure. The later calls then stay unreached and recorded.
@@ -25,6 +26,7 @@ timeout_k4_check.py judges the guest receipts afterwards.
 """
 
 import hashlib
+import json
 import sys
 import uuid
 from dataclasses import asdict, replace
@@ -49,7 +51,8 @@ OBSERVE = 30  # ordinary observation guest budget
 INVENTORY = 60  # inventory guest budget
 CANCEL_GUEST = 20  # guest deadline of the r3 cancel case
 CANCEL_AFTER = 2.0  # the r3 host interrupts its CLI after 2 s
-CLEANUP_GUEST = 6  # three known children, at most 2 s of TERM grace each
+# Three known children, each with at most 2 s of TERM grace and 0.5 s of KILL wait.
+CLEANUP_GUEST = 9
 # The guest cleanup ceiling is 30 s. The controller reserves 2 s TERM and 2 s KILL.
 CLEANUP_BOUND = 26.0
 TRANSFER = 150.0  # transfer ceiling
@@ -63,6 +66,10 @@ FIXTURE_SHA256 = {
     "lesson": "0a649e33d19014a527aaf098dd8ad4c671d18bb02b842eaa4f1fa515f31ea23c",
 }
 ROOT = "/tmp/vmfit-k15"  # the fixture's own guest root, fixed inside guest.sh
+# The online case of the original run passed the pinned URL and hash from cases.json,
+# with a guest timeout of 120 s (`macos-03/clone-1/online.json`).
+ONLINE = json.loads((FIXTURE / "cases.json").read_bytes())["platforms"]["macos"]
+ONLINE_GUEST = 120
 
 ISSUE_SLEEP = "sleep 120"
 ISSUE_CHILD = "\n".join(
@@ -97,22 +104,49 @@ ORDINARY = "printf ordinary-ok"
 # The cleanup acts only on the known children: a PID read from a file that this plan
 # wrote, and only while that PID still runs exactly `sleep 120`. TERM has a grace of
 # at most 2 s. KILL follows only for a survivor. Disposal removes everything else.
+# `state` reads `kill -0`: alive, gone (no such process) or unknown (any other error).
+# Each PID ends as `gone`, `other` (the PID now runs another command), `terminated`,
+# `killed`, `unknown` or `survived`. The last line is `cleanup confirmed` only when no
+# PID ended as `unknown` or `survived`. Otherwise it is `cleanup uncertain`, and the
+# command exits 1.
 OWNED_CLEANUP = "\n".join(
     (
+        "state() {",
+        '  if err=$(kill -0 "$1" 2>&1); then echo alive',
+        '  else case "$err" in *[Nn]o\\ such\\ process*) echo gone ;; *) echo unknown ;; esac; fi',
+        "}",
+        "wait_gone() {",
+        "  i=0",
+        '  while [ "$(state "$1")" = alive ] && [ "$i" -lt "$2" ]; do',
+        "    sleep 0.1; i=$((i + 1))",
+        "  done",
+        "}",
+        "outcome=confirmed",
         f"for f in /tmp/taw-exec-reliability/child.pid {ROOT}/timeout.pid {ROOT}/cancel.pid; do",
         '  [ -f "$f" ] || continue',
         '  pid=$(cat "$f")',
         "  cmd=$(ps -p \"$pid\" -o command= | sed 's/ *$//')",
         '  printf \'%s pid=%s command=%s\\n\' "$f" "$pid" "$cmd"',
-        '  [ "$cmd" = "sleep 120" ] || continue',
+        '  if [ "$cmd" != "sleep 120" ]; then',
+        '    s=$(state "$pid")',
+        '    if [ -z "$cmd" ] && [ "$s" = gone ]; then printf \'gone pid=%s\\n\' "$pid"',
+        '    elif [ -n "$cmd" ] && [ "$s" = alive ]; then printf \'other pid=%s\\n\' "$pid"',
+        '    else printf \'unknown pid=%s state=%s\\n\' "$pid" "$s"; outcome=uncertain; fi',
+        "    continue",
+        "  fi",
         '  kill -TERM "$pid"',
-        "  i=0",
-        '  while kill -0 "$pid" 2>/dev/null && [ "$i" -lt 20 ]; do sleep 0.1; i=$((i + 1)); done',
-        '  if kill -0 "$pid" 2>/dev/null; then',
-        '    kill -KILL "$pid"; printf "killed pid=%s\\n" "$pid"',
-        '  else printf "terminated pid=%s\\n" "$pid"; fi',
+        '  wait_gone "$pid" 20',
+        "  action=terminated",
+        '  if [ "$(state "$pid")" = alive ]; then',
+        '    kill -KILL "$pid"; action=killed',
+        '    wait_gone "$pid" 5',
+        "  fi",
+        '  s=$(state "$pid")',
+        '  if [ "$s" = gone ]; then printf \'%s pid=%s\\n\' "$action" "$pid"',
+        '  else printf \'survived pid=%s state=%s\\n\' "$pid" "$s"; outcome=uncertain; fi',
         "done",
-        "printf 'cleanup complete\\n'",
+        "printf 'cleanup %s\\n' \"$outcome\"",
+        '[ "$outcome" = confirmed ]',
     )
 )
 
@@ -132,6 +166,15 @@ def _guest(cli: str, vm: str, name: str, guest_timeout: int, command: str) -> Ca
 
 def _health(cli: str, vm: str, name: str) -> Call:
     return Call(name, (cli, "agent", "health", "--vm", vm, "--json"), HEALTH)
+
+
+def issue_calls(cli: str, vm: str) -> list[Call]:
+    """Condition 1: the exact issue #14 payloads, in their frozen order."""
+    return [
+        _guest(cli, vm, "issue-sleep", GUEST_TIMEOUT, ISSUE_SLEEP),
+        _guest(cli, vm, "issue-child", GUEST_TIMEOUT, ISSUE_CHILD),
+        _guest(cli, vm, "issue-observe", OBSERVE, ISSUE_OBSERVE),
+    ]
 
 
 def after_calls(cli: str, vm: str) -> list[Call]:
@@ -174,7 +217,9 @@ def r3_calls(cli: str, vm: str, fixture: Path, downloads: Path) -> list[Call]:
         expected_exit=-15,
         expected_reason="interrupted",
     )
+    online = f"online {ONLINE['url']} {ONLINE['sha256']}"
     return [
+        _health(cli, vm, "r3-health"),
         _guest(cli, vm, "r3-bootstrap-dir", OBSERVE, f"mkdir -p {ROOT}"),
         upload("guest.sh"),
         upload("lesson"),
@@ -182,7 +227,7 @@ def r3_calls(cli: str, vm: str, fixture: Path, downloads: Path) -> list[Call]:
         case("install", OBSERVE, "install"),
         case("intact", OBSERVE, "intact"),
         *(download(name) for name in ("stdout.bin", "stderr.bin", "artifact.bin", "status.txt")),
-        case("online", OBSERVE, "online"),
+        case("online", ONLINE_GUEST, online),
         case("nonzero", OBSERVE, "nonzero"),
         case("bad-install", OBSERVE, "bad-install"),
         case("timeout", GUEST_TIMEOUT, "timeout"),
@@ -209,9 +254,7 @@ def plan(tools: dict[str, str], downloads: Path) -> Plan:
     vm = f"k4-macos-{run_id}"
     calls = [
         _health(cli, vm, "health-before"),
-        _guest(cli, vm, "issue-sleep", GUEST_TIMEOUT, ISSUE_SLEEP),
-        _guest(cli, vm, "issue-child", GUEST_TIMEOUT, ISSUE_CHILD),
-        _guest(cli, vm, "issue-observe", OBSERVE, ISSUE_OBSERVE),
+        *issue_calls(cli, vm),
         *after_calls(cli, vm),
         *r3_calls(cli, vm, FIXTURE, downloads),
     ]
@@ -279,6 +322,7 @@ def main() -> None:
                 "guest_timeout": GUEST_TIMEOUT,
                 "observe": OBSERVE,
                 "inventory": INVENTORY,
+                "online_guest": ONLINE_GUEST,
                 "host_margin": HOST_MARGIN,
                 "cancel_guest": CANCEL_GUEST,
                 "cancel_after": CANCEL_AFTER,
