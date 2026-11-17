@@ -2,8 +2,7 @@
 
 The wire contract between the host CLI and the in-VM accessibility
 agents. All three agents (macOS, Linux, Windows) implement the same
-surface — the host driver is written once and targets whichever VM is
-running.
+surface. One host driver targets whichever VM runs.
 
 This document is the **real contract**. Both sides must agree on
 endpoint paths, request shapes, and response shapes, or the driver
@@ -26,7 +25,7 @@ Authoritative sources (the JSON keys and optionality rules must match):
   `/upload` and `/download` stream raw bytes as
   `application/octet-stream` (see those endpoints below).
 - Default bind: `0.0.0.0:8648` on the VM. The host connects via the
-  VM's LAN IP (tart: `192.168.64.<n>`; QEMU: reachable over virtio-net).
+  VM's LAN IP: `192.168.64.<n>` under tart, or the virtio-net address under QEMU.
 - Every endpoint is **POST** except `GET /health`.
 - Success is HTTP 2xx with an endpoint-specific response body.
 - Failure is HTTP 4xx/5xx with an `ErrorResponse` body (see below).
@@ -38,7 +37,7 @@ Authoritative sources (the JSON keys and optionality rules must match):
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/health` | Liveness + "accessibility is ready" check. Returns 200 with no required body once agent + AX are ready. |
-| POST | `/exec` | Execute a command. Always 200; exit code is in the response body. |
+| POST | `/exec` | Execute a command. It always returns 200. The response body holds the exit code. |
 | POST | `/upload?path=<percent-encoded>` | Stream a file to the VM filesystem (raw `application/octet-stream` body). |
 | POST | `/download?path=<percent-encoded>` | Stream a file from the VM filesystem (raw `application/octet-stream` response). |
 | POST | `/shutdown` | Ask the agent to terminate (used by test harnesses). |
@@ -50,7 +49,7 @@ Authoritative sources (the JSON keys and optionality rules must match):
 |--------|------|---------|
 | POST | `/windows` | List windows visible to the AX layer. |
 | POST | `/snapshot` | Element tree snapshot, optionally filtered. |
-| POST | `/inspect` | One-element detail (font, color, bounds). |
+| POST | `/inspect` | One-element detail (font, colour, bounds). |
 | POST | `/press` | Activate an element (semantic default action). |
 | POST | `/set-value` | Set an element's value. |
 | POST | `/focus` | Focus an element. |
@@ -60,7 +59,7 @@ Authoritative sources (the JSON keys and optionality rules must match):
 | POST | `/window-resize` | Resize a window. |
 | POST | `/window-move` | Move a window. |
 | POST | `/window-close` | Close a window. |
-| POST | `/window-minimize` | Minimize a window. |
+| POST | `/window-minimize` | Minimise a window. |
 
 ## Request shapes
 
@@ -140,23 +139,25 @@ query parameter, and the file bytes stream raw over
 
 **`POST /upload?path=<percent-encoded>`** — the request body is the raw
 file bytes (`Content-Type: application/octet-stream`). The agent streams
-the body into a temp file **in the destination's own directory**, then
-atomically renames it into place once the transfer completes; any error
-unlinks the temp file, so the destination path is never left holding a
-truncated file. Success returns `ActionResponse` (see below); failure
-returns `ErrorResponse` (`upload_failed`) with a 4xx/5xx status.
+the body into a temp file **in the destination's own directory**. When
+the transfer completes, the agent renames the temp file into place
+atomically. On any error, the agent unlinks the temp file. So the
+destination path never holds a truncated file.
+
+Success returns
+`ActionResponse` (see below). Failure returns `ErrorResponse`
+(`upload_failed`) with a 4xx/5xx status.
 
 **`POST /download?path=<percent-encoded>`** — on success the response
-body is the raw file bytes (`Content-Type: application/octet-stream`);
-on failure the response is an `ErrorResponse` (`download_failed`) JSON
-body, distinguished from a successful transfer by its non-2xx HTTP
-status.
+body is the raw file bytes (`Content-Type: application/octet-stream`).
+On failure the response is an `ErrorResponse` (`download_failed`) JSON
+body. Its non-2xx HTTP status tells it apart from a successful transfer.
 
-`path` is percent-encoded per the standard URI query-component rules so
-that Unicode and special characters in guest paths survive uniformly
-across all three agent stacks. Neither end buffers the whole file:
-memory use is bounded by a fixed streaming buffer regardless of file
-size, in a single request.
+Each end percent-encodes `path` by the standard URI query-component
+rules. So Unicode and special characters in guest paths survive in the
+same way on all three agent stacks. Neither end buffers the whole file.
+A fixed streaming buffer limits memory use in a single request,
+whatever the file size.
 
 ## Response shapes
 
@@ -216,7 +217,7 @@ Exec returns 2xx even on a non-zero exit. Callers must check `exitCode`.
 Common `error` keys: `not_found`, `element_not_found`, `ambiguous`,
 `multiple_matches`, `window_not_found`, `action_unsupported`,
 `accessibility_unavailable`, `exec_failed`, `upload_failed`,
-`download_failed`. Clients must tolerate unknown strings; see
+`download_failed`. Clients must tolerate unknown strings. See
 `docs/reference/error-codes.md`.
 
 ## Nested types
@@ -265,8 +266,8 @@ Common `error` keys: `not_found`, `element_not_found`, `ambiguous`,
 
 ### `UnifiedRole`
 
-Cross-platform role vocabulary: agents map their native roles
-(AXButton, UIA Button, ATK push button) onto this enum so the host can
+Cross-platform role vocabulary. Agents map their native roles
+(AXButton, UIA Button, ATK push button) onto this enum. So the host can
 write one set of selectors. Full list in
 `cli-rs/crates/testanyware-protocol/src/unified_role.rs` — it covers
 interactive widgets (`button`, `checkbox`, `textfield`, `slider`, ...),
@@ -278,10 +279,10 @@ menus (`menu`, `menu-item`, ...), containers (`window`, `dialog`,
 
 The macOS agent vendors a copy of `TestAnywareAgentProtocol` (the host
 CLI has the same sources). We keep them as separate copies so the
-agent builds standalone; the tradeoff is that any protocol change must
-be applied to both copies. A test (`cli/Tests/TestAnywareAgentProtocolTests/`)
+agent builds standalone. The trade-off: each protocol change must go
+into both copies. A test (`cli/Tests/TestAnywareAgentProtocolTests/`)
 exists to catch drift at the encoding level.
 
 Linux and Windows agents implement the same JSON shape in their
-respective languages; they are not Swift — the "contract" is the JSON,
+own languages. They are not Swift. The "contract" is the JSON,
 not the Swift types.
