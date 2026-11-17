@@ -249,10 +249,18 @@ calls ran, and none failed or stayed unreached.
 | `r3-guest-cleanup` | 0.127 s | exit 0 |
 | `r3-observe-after-cleanup` | 0.087 s | exit 0, PIDs 682 and 700 not listed |
 
-Each absence comes from a valid own observation that completed with exit 0. The cancel
-child PID 700 was `sleep` in state `S` with parent PID 699 after the CLI interruption.
-This is the third sample of that survival, after `macos-01` and k4 run 02 PID 812.
-The fixture's own guest cleanup then ended it.
+The unchanged fixture runs `ps -p "$pid" ... || true`, so it hides a failure of `ps`.
+A row that is not listed therefore does not prove that the process was absent. The
+cancel child PID 700 was `sleep` in state `S` with parent PID 699 after the CLI
+interruption. This is the third sample of that survival, after `macos-01` and k4 run 02
+PID 812. The fixture's guest cleanup sends `kill` only to a PID that `ps` lists as
+`sleep`. It ignores the result and records no outcome for each PID.
+
+The later owned cleanup checked each PID with `kill -0` and printed `gone pid=682` and
+`gone pid=700`. This shows that both processes were absent at that later time. It does
+not show when each process exited. It also does not show which action ended PID 700.
+Leaf `macos-exit-observation-instrumented-k195` must base each absence on a valid own
+observation.
 
 ### Accounting
 

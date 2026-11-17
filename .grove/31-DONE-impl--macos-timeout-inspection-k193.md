@@ -65,3 +65,8 @@ controls. So each one is a separate session, and k195 follows this leaf.
   and the fixture's guest cleanup ended it.
 - One clean sample does not exclude an intermittent cause. The cause stays
   with k195.
+- Correction from `macos-timeout-inspection-k197`: the fixture's observation
+  hides a failure of `ps`, so a row that is not listed does not prove absence.
+  The fixture's cleanup records no outcome for each PID. The owned cleanup
+  shows that PIDs 682 and 700 were absent later. It does not show which action
+  ended PID 700.

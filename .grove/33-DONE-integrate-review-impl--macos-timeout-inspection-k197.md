@@ -29,3 +29,20 @@ consumes the report.
 This is a finite integration of the reviewed artifact, using the existing root
 context. Keep optional hardening outside completion obligations. Select no
 production ownership or cancellation mechanism.
+
+## Decisions (running log)
+
+- The k196 review has one finding. It is a real issue. The k193 report said
+  that each absence came from a valid own observation. The fixture runs
+  `ps ... || true`, so a row that is not listed does not prove absence.
+- The report also said that the fixture's cleanup ended PID 700. That cleanup
+  ignores the result of `kill` and records nothing for each PID. The owned
+  cleanup proves only that both PIDs were absent later.
+- The repair qualifies the k193 result paragraph in the report. It changes no
+  data, checker or raw evidence. The checker already reports `not-listed`.
+- The k193 log is a finished record. A correction bullet is appended to it,
+  and the original bullet stays unchanged.
+- The review also noted two limits: the checker does not attest the order of
+  calls, and a failed outer inventory read may not propagate. Both are optional
+  hardening outside this leaf.
+- The time of each exit and the action that ended PID 700 stay open for k195.
