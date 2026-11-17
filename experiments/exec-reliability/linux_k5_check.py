@@ -450,12 +450,24 @@ def missing_required(verdicts: list[dict[str, Any]]) -> list[str]:
     ]
 
 
+def run_dir(out: Path, summary: dict[str, Any]) -> Path | None:
+    """The run directory inside `out`, found by the base name of the recorded path.
+
+    The recorded absolute path stays in the summary as provenance only. So a
+    copied bundle replays from its own bytes and never reads the original tree.
+    """
+    name = Path(str(summary.get("run", ""))).name
+    return out / name if name else None
+
+
 def load(out: Path) -> tuple[dict[str, Any], dict[str, Any]]:
     summary = json.loads((out / "summary.json").read_text())
-    run = Path(str(summary.get("run", "")))
+    run = run_dir(out, summary)
     seams: dict[str, Any] = {}
     for name in (*INSIDE_SEAMS, "host"):
         try:
+            if run is None:
+                raise OSError("the summary names no run directory")
             seams[name] = json.loads((run / f"{name}.stdout").read_bytes())
         except (OSError, ValueError):
             seams[name] = None

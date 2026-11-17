@@ -254,20 +254,63 @@ def observe_here() -> dict[str, Any]:
     return {"ns": mono_ns(), "rows": [row for row in proc_rows() if row["pid"] != me]}
 
 
+def start_ticks_of(pid: int) -> int | None:
+    """The start ticks of the process that holds `pid` now, or None if /proc lists none."""
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+    except OSError:
+        return None
+    return int(stat.rsplit(")", 1)[1].split()[19])
+
+
+def pidfd_open(pid: int) -> int:
+    """A descriptor for the process that holds `pid` now. Linux only."""
+    if sys.platform != "linux":
+        raise OSError("pidfd_open needs Linux")
+    return os.pidfd_open(pid)
+
+
+def pidfd_kill(fd: int) -> None:
+    """Send SIGKILL to the process of the descriptor `fd`. Linux only."""
+    if sys.platform != "linux":
+        raise OSError("pidfd_send_signal needs Linux")
+    signal.pidfd_send_signal(fd, signal.SIGKILL)
+
+
 def kill_here(targets: list[tuple[int, int]]) -> list[dict[str, Any]]:
-    """Send SIGKILL to each target whose start ticks are still the given ones."""
-    current = {int(row["pid"]): row for row in proc_rows()}
+    """Send SIGKILL to each target that still holds its PID and its start ticks.
+
+    The pidfd fixes one process before the start ticks are read again. A live
+    process keeps its PID. So when the ticks match and the signal is delivered,
+    the pidfd names the target, and no later holder of the PID gets the signal.
+    When the pidfd process dies first, the kernel refuses the signal ("raced").
+    The limit is the identity itself: a PID reused within the same clock tick
+    as the target start has the same identity.
+    """
     results: list[dict[str, Any]] = []
     for pid, ticks in targets:
-        row = current.get(pid)
-        if row is None or row["start_ticks"] != ticks:
-            results.append({"pid": pid, "start_ticks": ticks, "killed": False, "why": "gone"})
+        result: dict[str, Any] = {"pid": pid, "start_ticks": ticks, "killed": False}
+        results.append(result)
+        try:
+            fd = pidfd_open(pid)
+        except ProcessLookupError:
+            result["why"] = "gone"
+            continue
+        except OSError as error:
+            result["why"] = f"refused: {error}"
             continue
         try:
-            os.kill(pid, signal.SIGKILL)
-            results.append({"pid": pid, "start_ticks": ticks, "killed": True})
+            if start_ticks_of(pid) != ticks:
+                result["why"] = "gone"
+            else:
+                pidfd_kill(fd)
+                result["killed"] = True
         except ProcessLookupError:
-            results.append({"pid": pid, "start_ticks": ticks, "killed": False, "why": "raced"})
+            result["why"] = "raced"
+        except OSError as error:
+            result["why"] = f"refused: {error}"
+        finally:
+            os.close(fd)
     return results
 
 

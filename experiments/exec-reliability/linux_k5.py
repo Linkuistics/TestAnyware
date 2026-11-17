@@ -26,6 +26,7 @@ script judges nothing beyond the controller verdict.
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import platform
@@ -171,31 +172,49 @@ def plan(python: str) -> Plan:
             HOST_BUDGET,
         ),
     )
-    subjects = (
-        Path(__file__),
-        SEAM,
-        HERE / "outcomes_k12_seam.py",
-        HERE / "controller.py",
-        HERE / "linux_k5_check.py",
-        AGENT_PACKAGE / "server.py",
-        AGENT_PACKAGE / "system_endpoints.py",
-        CLI,
-        APP,
-        *(path for path in LOCKFILES if path.exists()),
-    )
+    subjects = (*source_paths(), CLI, APP, *(path for path in LOCKFILES if path.exists()))
     return Plan(run_id, calls, subjects=subjects)
 
 
-def sources() -> dict[str, str]:
-    paths = [
-        Path(__file__).resolve(),
-        SEAM,
-        HERE / "outcomes_k12_seam.py",
-        HERE / "linux_k5_check.py",
+def local_modules(roots: tuple[Path, ...]) -> list[Path]:
+    """The modules of this directory that the roots import, directly or through each other."""
+    seen: set[Path] = set()
+    pending = list(roots)
+    while pending:
+        path = pending.pop()
+        if path in seen:
+            continue
+        seen.add(path)
+        for node in ast.walk(ast.parse(path.read_text())):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                names = [node.module]
+            else:
+                continue
+            for name in names:
+                candidate = HERE / f"{name.split('.')[0]}.py"
+                if candidate.is_file():
+                    pending.append(candidate)
+    return sorted(seen)
+
+
+def source_paths() -> list[Path]:
+    """Each source file that shapes the run: the experiment closure, the agent and the stubs.
+
+    The plan hashes these before and after the run, and the summary records them.
+    One list serves both, so the two records cannot drift apart.
+    """
+    roots = (Path(__file__).resolve(), SEAM, HERE / "linux_k5_check.py")
+    return [
+        *local_modules(roots),
         *sorted(AGENT_PACKAGE.glob("*.py")),
         *sorted(STUB.rglob("*.py")),
     ]
-    return {str(path.relative_to(REPO)): sha256(path) for path in paths}
+
+
+def sources() -> dict[str, str]:
+    return {str(path.relative_to(REPO)): sha256(path) for path in source_paths()}
 
 
 def image_record() -> dict[str, Any]:

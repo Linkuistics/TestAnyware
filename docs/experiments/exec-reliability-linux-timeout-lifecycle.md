@@ -85,6 +85,17 @@ cases it is 2 s after the return. After the bound, the seam sends SIGKILL to eac
 owned live process whose start time still matches. Then it lists the processes
 once more.
 
+In `run-03`, the cleanup read the start times once and then called `kill` by
+PID. If the kernel gave the PID to a new process between that read and the
+signal, the new process received the SIGKILL. The run shows no such reuse, but
+the rule did not exclude it.
+
+Leaf k206 replaced the cleanup. It opens a pidfd first and then reads the start
+time again. The kernel refuses the signal when the pidfd process is dead, so a
+later holder of the PID cannot receive it. The identity still has one limit. If a
+new process gets the PID within the clock tick of the target start, both
+processes have the same identity.
+
 ## Results
 
 Attempt `run-03` is the complete sample. Its run tag is `477956470135`. Every
@@ -129,8 +140,8 @@ line names all three.
 
 #### `deadline`
 
-- Reference: TERM at 2.004 s, reap 0.003 s later. Stdout `before deadline\n`,
-  stderr `deadline err\n`.
+- Reference: TERM at 2.001 s, reap 0.003 s later, end at 2.004 s.
+  Stdout `before deadline\n`, stderr `deadline err\n`.
 - Old path: exit -1 at about 2.01 s, empty stdout, stderr `Process timed out`,
   no timeout flag. The traced seam shows SIGKILL first and the reap 0.5 ms later.
   `TimeoutExpired` held stdout `6265666f726520646561646c696e650a` and stderr
@@ -146,14 +157,15 @@ line names all three.
 
 #### `issue-sleep`
 
-- Reference: TERM at 2.004 s, no survivor.
+- Reference: TERM at 2.001 s, end at 2.004 s, no survivor.
 - Old path: exit -1, `Process timed out`, no timeout flag. CLI JSON reports
   `timed_out: false`. CLI text exits 255. The shell `exec`s `sleep`, so the KILL
   reaches it, and no process survives.
 
 #### `issue-fork-wait`
 
-- Reference: TERM to the group at 2.004 s. The child dies with the shell. The
+- Reference: TERM to the group at 2.001 s, end at 2.004 s. The child dies
+  with the shell. The
   child PID file held `18`.
 - Old path: the same reply as `issue-sleep`. The background `sleep 120` survives
   in every seam, at the return and at the 6 s bound. Its parent is the
@@ -242,8 +254,8 @@ one run directory.
   version can time out in another way.
 - The host seams each start a fresh agent. A long-lived agent can hold earlier
   survivors in its group, which this leaf does not test.
-- The traced seam changes timing by microseconds only. It does not change
-  arguments or results.
+- The leaf did not measure the timing cost of the traced seam. The seam does
+  not change arguments or results.
 - The leaf ran one sample per case. It never replaced a failed sample.
 
 ## Owned-resource audit
@@ -283,6 +295,12 @@ Each refreeze is its own commit, made before the next attempt.
   `diagnosis-linux-01` copies.
 - `run-03/inventory.json` records the hashes of the sources, the executables and
   the lockfiles, and the frozen plan.
+- In `run-03`, the controller hashed only part of the sources before and after
+  the run. The agent modules other than `server.py` and `system_endpoints.py`
+  and the two stubs have a hash from before the run only. The checker import
+  `outcomes_k12_check.py` has no hash. These records cannot be completed after
+  the run. Leaf k206 made the plan hash the whole local import closure, the
+  agent package and the stubs, before and after the run.
 
 ## Evidence
 
@@ -300,3 +318,8 @@ task diagnostic:linux-timeout-lifecycle-tools
 ```
 
 The run needs Docker and the pinned image. It pulls nothing.
+
+The checker reads the run directory inside `OUT`, by the base name of the path
+in `summary.json`. The recorded absolute path stays as provenance only. So a
+copied bundle replays from its own bytes. In leaf k206, a replay of a copy of
+`run-03` wrote a `check.json` that is byte-identical to the retained one.

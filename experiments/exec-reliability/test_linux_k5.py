@@ -1,5 +1,7 @@
 """Controls for the runner, seams and checker of leaf `linux-timeout-lifecycle-k5`."""
 
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -83,14 +85,145 @@ def test_ownership_needs_a_new_pid_or_a_new_start_time() -> None:
     assert checker.owned_live(baseline, {"unknown": {}}) is None
 
 
-def test_the_kill_helper_spares_a_reused_pid(monkeypatch: pytest.MonkeyPatch) -> None:
-    # The host has no /proc, so the control supplies the rows. No signal is sent.
-    monkeypatch.setattr(seam_module, "proc_rows", lambda: [row(7, 99)])
+class FakeKernel:
+    """The pidfd and /proc seams of `kill_here`, for a host without either.
+
+    `holders` maps a PID to the processes that hold it in turn, each as an
+    identity and its start ticks. A pidfd fixes the identity at open time.
+    `step` passes the PID to the next holder between the open and the re-read,
+    which is the reuse window.
+    """
+
+    def __init__(self, holders: dict[int, list[tuple[str, int]]], step: bool = False) -> None:
+        self.holders = holders
+        self.step = step
+        self.fds: dict[int, tuple[int, str]] = {}
+        self.signalled: list[str] = []
+
+    def open(self, pid: int) -> int:
+        if not self.holders.get(pid):
+            raise ProcessLookupError(pid)
+        fd = os.open(os.devnull, os.O_RDONLY)
+        self.fds[fd] = (pid, self.holders[pid][0][0])
+        if self.step:
+            self.holders[pid].pop(0)
+        return fd
+
+    def ticks(self, pid: int) -> int | None:
+        holders = self.holders.get(pid)
+        return holders[0][1] if holders else None
+
+    def kill(self, fd: int) -> None:
+        pid, identity = self.fds[fd]
+        holders = self.holders.get(pid)
+        if not holders or holders[0][0] != identity:
+            raise ProcessLookupError(pid)
+        self.signalled.append(identity)
+
+    def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(seam_module, "pidfd_open", self.open)
+        monkeypatch.setattr(seam_module, "start_ticks_of", self.ticks)
+        monkeypatch.setattr(seam_module, "pidfd_kill", self.kill)
+
+    def all_closed(self) -> bool:
+        return all(not is_open(fd) for fd in self.fds)
+
+
+def is_open(fd: int) -> bool:
+    try:
+        os.fstat(fd)
+    except OSError:
+        return False
+    return True
+
+
+def outcomes(results: list[dict[str, Any]]) -> list[tuple[int, bool, str | None]]:
+    return [(r["pid"], r["killed"], r.get("why")) for r in results]
+
+
+def test_the_kill_helper_kills_a_matching_target(monkeypatch: pytest.MonkeyPatch) -> None:
+    kernel = FakeKernel({7: [("target", 20)]})
+    kernel.install(monkeypatch)
+    assert outcomes(seam_module.kill_here([(7, 20)])) == [(7, True, None)]
+    assert kernel.signalled == ["target"]
+    assert kernel.all_closed()
+
+
+def test_the_kill_helper_spares_a_pid_reused_before_the_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kernel = FakeKernel({7: [("other", 99)]})
+    kernel.install(monkeypatch)
     results = seam_module.kill_here([(7, 20), (9, 30)])
-    assert [(r["pid"], r["killed"], r["why"]) for r in results] == [
-        (7, False, "gone"),
-        (9, False, "gone"),
-    ]
+    assert outcomes(results) == [(7, False, "gone"), (9, False, "gone")]
+    assert kernel.signalled == []
+    assert kernel.all_closed()
+
+
+def test_the_kill_helper_spares_a_pid_reused_after_the_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The pidfd holds the target, which dies. A new process then takes the PID.
+    kernel = FakeKernel({7: [("target", 20), ("other", 99)]}, step=True)
+    kernel.install(monkeypatch)
+    assert outcomes(seam_module.kill_here([(7, 20)])) == [(7, False, "gone")]
+    assert kernel.signalled == []
+    assert kernel.all_closed()
+
+
+def test_the_kill_helper_refuses_to_signal_a_successor_with_the_same_ticks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The re-read matches a successor, but the pidfd process is dead. The kernel refuses.
+    kernel = FakeKernel({7: [("target", 20), ("other", 20)]}, step=True)
+    kernel.install(monkeypatch)
+    assert outcomes(seam_module.kill_here([(7, 20)])) == [(7, False, "raced")]
+    assert kernel.signalled == []
+    assert kernel.all_closed()
+
+
+def test_the_kill_helper_records_a_refused_pidfd(monkeypatch: pytest.MonkeyPatch) -> None:
+    def refuse(pid: int) -> int:
+        raise PermissionError(pid)
+
+    monkeypatch.setattr(seam_module, "pidfd_open", refuse)
+    [result] = seam_module.kill_here([(7, 20)])
+    assert result["killed"] is False
+    assert str(result["why"]).startswith("refused:")
+
+
+def test_the_plan_hashes_every_source_before_and_after() -> None:
+    subjects = set(linux_k5.plan("/usr/bin/python3").subjects)
+    recorded = {linux_k5.REPO / name for name in linux_k5.sources()}
+    assert recorded <= subjects
+    here = linux_k5.HERE
+    for needed in (
+        here / "outcomes_k12_check.py",
+        here / "controller.py",
+        here / "writer.py",
+        linux_k5.AGENT_PACKAGE / "tree_walker.py",
+        linux_k5.STUB / "pyatspi/__init__.py",
+        linux_k5.STUB / "gi/repository/__init__.py",
+    ):
+        assert needed in subjects, needed
+
+
+def test_a_copied_bundle_replays_from_its_own_bytes(tmp_path: Path) -> None:
+    run = tmp_path / "abc123"
+    run.mkdir()
+    (run / "reference.stdout").write_text('{"reference": []}')
+    elsewhere = "/no/such/worktree/run-03/abc123"
+    (tmp_path / "summary.json").write_text(json.dumps({"run": elsewhere}))
+    summary, seams = checker.load(tmp_path)
+    assert summary["run"] == elsewhere
+    assert seams["reference"] == {"reference": []}
+    assert seams["host"] is None
+
+
+def test_a_summary_without_a_run_loads_nothing(tmp_path: Path) -> None:
+    (tmp_path / "summary.json").write_text("{}")
+    _, seams = checker.load(tmp_path)
+    assert set(seams.values()) == {None}
 
 
 def test_the_stream_classes_are_distinct() -> None:
