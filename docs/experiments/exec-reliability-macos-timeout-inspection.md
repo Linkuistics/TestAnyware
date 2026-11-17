@@ -283,6 +283,114 @@ candidates. It does not show when `ps` or the shell exited, or when the agent sa
 exit. Leaf `macos-exit-observation-instrumented-k195` owns that question with one
 instrumented clone.
 
+## Exit observation with a traced agent (leaf macos-exit-observation-instrumented-k195)
+
+Leaf `macos-exit-observation-instrumented-k195` asks one question. After an
+intentional timeout, does a stalled guest command still run, or does the agent miss
+an exit that already happened? The leaf adds a trace seam to the macOS agent. It then
+runs the k4 run 02 workload once with that traced agent in one owned clone.
+
+### Trace seam
+
+The seam is `agents/macos/Sources/TestAnywareAgent/ExitTrace.swift`. It compiles only
+with the flag `EXIT_TRACE`. It records each wait phase of `runShell` and the agent's
+thread count. A kqueue thread records the kernel fork, exec and exit of the shell and
+of each child. Each record carries a monotonic time in nanoseconds. The default release
+agent holds no `ExitTrace` symbol, and its build is byte-identical to the build before
+the change.
+
+### Host controls
+
+Four host controls force each suspected ordering with the traced agent. They are in
+`experiments/exec-reliability/evidence/macos-exit-observation-k195/controls-01`. Each
+control passed in each of three runs.
+
+| Control | Ordering forced | Trace result |
+|---|---|---|
+| normal | none | exit at 2.3 ms, agent result at 2.4 ms |
+| starved | 80 busy global-queue blocks | exit at 2.3 ms, timeout at 2006 ms, inner wait started at 2006 ms |
+| late TERM | command runs past the deadline | timeout at 2006 ms, TERM succeeds, return at 2.12 s |
+| ignored TERM | command ignores TERM | TERM wait times out at 5052 ms, then SIGKILL |
+
+The starved control shows candidate 1 as a trace: the shell exits first, and the agent
+still reports a timeout. The ignored TERM control adds the 3 s TERM wait. That wait
+matches the difference between the 33 s and 30 s shapes. The controls show that the
+checker can tell these orderings apart. They do not show which ordering the guest had.
+
+### Route
+
+The run used the isolated route of the root brief. On 2026-11-17 the owner authorised
+one app handover. The leaf quit the installed app 2.8.0 and opened the checkout-built
+`TestAnyware Dev.app` with build 0.0.1. The checkout-built CLI drove the run.
+
+The runner built the traced agent from commit `9e096ac3cb82`. Its digest is
+`76e76a484edd…6bcf`, and it holds 44 `ExitTrace` symbols. The probe uploaded the agent
+into the clone and installed it with `sudo -n install`. It then restarted
+`com.linkuistics.testanyware.agent` with `launchctl kickstart`.
+
+The `verify-agent` call ran under agent PID 703. The agent before the install was PID
+412. The first trace record is `trace-open` by PID 703, with the installed digest. So
+the checker judged the route `traced`.
+
+The new binary has a new code-signing identity, so it loses the clone's accessibility
+grant. Both health calls after the install answered with `accessibility_status` denied
+and CLI exit 4. Exec needs no grant, and each exec call answered.
+
+### Result
+
+The run is `experiments/exec-reliability/evidence/macos-exit-observation-k195/run-01/1cb859c380f64c50bc67d9afa75b992b`.
+Its outer records are in `run-01-outer`. Checker `k195-1` reports route `traced`,
+evidence `complete` and stall `not-reproduced`, and it exits 0. The trace holds 253
+records. No record failed to parse, and the kqueue thread reported no error.
+
+| Call | Host time | Deadline phase | TERM phase |
+|---|---|---|---|
+| `issue-sleep` | 2.149 s | command alive, `/bin/sleep` | TERM succeeds, exit 70 ms after deadline |
+| `issue-child` | 2.270 s | command alive, shell and `/bin/sleep` | TERM succeeds, exit 127 ms after deadline |
+| `after-03-table` | 0.140 s | observed | none |
+| `after-09-table` | 0.146 s | observed | none |
+
+The agent observed the exit of each of the nine other exec calls before its deadline.
+No call other than the two intentional timeouts timed out. So the stall of k4 run 02
+did not recur. In run 02, `after-09-table` timed out at 30.148 s. Here the same
+command exited at 32.9 ms and the agent returned at 73.4 ms.
+
+In these nine calls, the agent saw the exit from 25 ms to 65 ms after the kernel exit.
+On the host, the same lag was less than 0.1 ms. The lag is far below the 30 s guest deadline.
+The agent had at most 12 threads at any record. Candidate 1 needs 63 of the 64
+constrained workers of the guest to be busy. So no starvation occurred in this run.
+
+### Children and cleanup
+
+In `issue-child`, the agent sent TERM to shell PID 735. The kernel recorded the exit
+of PID 735 and of its child `sleep` PID 737 with status 15, 0.3 ms later. The later
+SIGKILL to PID 737 returned errno 3, no such process. The trace shows the time of each
+exit and the action that came before it. It does not show why TERM to the shell also
+ended the child.
+
+The later observation `issue-observe` did not list PID 737. That absence agrees with
+the kernel exit record, which is the own observation that proves it. The owned cleanup
+printed `gone pid=737` and `cleanup confirmed`.
+
+### Accounting
+
+- The controller disposed of the clone `k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b`.
+  The ledger records `disposed` and the residual list is empty.
+- The clone is absent from the Tart list after the run.
+- The tool digests before the probe and after the check are equal. The recorded
+  uncommitted diff holds only the outer records that the runner wrote before it took
+  the diff.
+- The development app was PID 46272 before and after the run. After the disposal, the
+  leaf quit it and reopened the installed app 2.8.0 as PID 53925.
+
+### What this adds to the candidates
+
+One clean sample cannot exclude an intermittent cause. The cause of the run 02 stall
+stays unproved. The run removes no candidate, because the stall did not recur. It
+does show that the traced route works in a clone, and that the checker reads each
+ordering from a real guest trace. A later recurrence under this route would name the
+ordering directly.
+
 ## Regression candidates
 
 1. The k3 completed-then-timed-out mechanism. `waitForExit` waits on a second
@@ -294,6 +402,9 @@ instrumented clone.
 3. The `macos-03` shape of 33 s fits an agent that also missed the exit
    in its 3 s wait after TERM. Run 02 has the 30 s shape, which is consistent
    with a second wait that succeeded. No phase timestamp measures either wait.
+
+The k195 trace seam now measures each wait. Its single guest run did not reproduce the
+stall, so it does not yet separate these candidates.
 
 ## Relationship to ordinary completion
 
@@ -317,3 +428,12 @@ whether the intentional timeouts cause the later stall or only precede it.
   a retained r3-only run with checker revision 3.
 - `mise exec -- task diagnostic:macos-timeout-inspection-r3-tools` checks the r3-only
   tooling and runs its 13 controls with the 52 k4 controls, without a VM.
+- `mise exec -- task diagnostic:macos-exit-observation-controls OUT=<new dir>` runs the
+  four host controls with the traced agent, without a VM.
+- `mise exec -- task diagnostic:macos-exit-observation OUT=<new dir>` runs the k4 run 02
+  workload once with the traced agent on one owned clone. It needs the owner's app
+  handover first.
+- `mise exec -- task diagnostic:macos-exit-observation-check RUN=<run dir>` judges a
+  retained traced run with checker `k195-1`.
+- `mise exec -- task diagnostic:macos-exit-observation-tools` checks the k195 tooling and
+  runs its 8 controls without a VM.

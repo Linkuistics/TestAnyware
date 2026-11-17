@@ -76,3 +76,19 @@ available, the condition stays unavailable.
   leaf quits the installed 2.8.0 app and opens `TestAnyware Dev.app`. The
   owner grants Local Network. After the clone is disposed, the leaf reopens
   the installed app.
+- The guest probe installs the traced agent in the owned clone with
+  `sudo -n install` and restarts the launch agent. The checker accepts the
+  route only when a new agent PID answers and writes the first trace record.
+  The new binary loses the cdhash-bound accessibility grant. So each health
+  call after the install runs in a wrapper that accepts exit 0 or 4.
+- Run `run-01` from commit `9e096ac3cb82` gave route `traced`, evidence
+  `complete` and stall `not-reproduced`. Only the two intentional timeouts
+  timed out, and TERM ended each one. The agent saw each other exit 25 ms
+  to 65 ms after the kernel exit, with at most 12 threads. The cause of the
+  run 02 stall stays unproved.
+- The kernel trace records the exit of child PID 737 with status 15, 0.3 ms
+  after TERM to its shell. That record proves the later absence. The owned
+  cleanup confirmed it, and the controller disposed of the clone with no
+  residual. The leaf reopened the installed app 2.8.0 as PID 53925.
+- The seam and the guest tooling are material diagnostic code. Review leaf
+  `macos-exit-observation-trace-k198` sits before `macos-exec-outcomes-k12`.

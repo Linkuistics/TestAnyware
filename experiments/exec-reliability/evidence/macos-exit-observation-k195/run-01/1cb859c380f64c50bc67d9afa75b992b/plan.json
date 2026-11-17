@@ -1,0 +1,477 @@
+{
+  "run_id": "1cb859c380f64c50bc67d9afa75b992b",
+  "calls": [
+    {
+      "name": "health-before",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "upload-agent",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "upload",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/macos-exit-observation-k195/run-01-outer/testanyware-agent",
+        "/tmp/testanyware-agent-k195",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "install-agent",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "set -eu\necho old=$PPID\ntest \"$(shasum -a 256 /tmp/testanyware-agent-k195 | cut -d\" \" -f1)\" = 76e76a484edd59c80075ea40982412e4e1932dc926c433a40e9c3789a05c6bcf\nrm -f /tmp/testanyware-exit-trace.jsonl\nsudo -n install -m 0755 /tmp/testanyware-agent-k195 /usr/local/bin/testanyware-agent\ntest \"$(shasum -a 256 /usr/local/bin/testanyware-agent | cut -d\" \" -f1)\" = 76e76a484edd59c80075ea40982412e4e1932dc926c433a40e9c3789a05c6bcf\nold=$PPID\nexport old\nnohup sh -c 'sleep 2; launchctl kickstart -k gui/$(id -u)/com.linkuistics.testanyware.agent || kill $old' </dev/null >/dev/null 2>&1 &\necho restart-scheduled"
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "restart-pause",
+      "argv": [
+        "/bin/sleep",
+        "15"
+      ],
+      "budget": 20,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "verify-agent",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "echo agent=$PPID\necho sha=$(shasum -a 256 /usr/local/bin/testanyware-agent | cut -d\" \" -f1)\necho started=$(ps -o lstart= -p $PPID)\necho first=$(head -n 1 /tmp/testanyware-exit-trace.jsonl)"
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "issue-sleep",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "2",
+        "--json",
+        "sleep 120"
+      ],
+      "budget": 22.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "issue-child",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "2",
+        "--json",
+        "mkdir -p /tmp/taw-exec-reliability\nsleep 120 & child=$!\nprintf '%s\\n' \"$child\" > /tmp/taw-exec-reliability/child.pid\nprintf 'partial\\n' > /tmp/taw-exec-reliability/partial\nwait"
+      ],
+      "budget": 22.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "issue-observe",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "pid=$(cat /tmp/taw-exec-reliability/child.pid)\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,stat=,comm="
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-01-health",
+      "argv": [
+        "/bin/sh",
+        "-c",
+        "\"$0\" \"$@\"; c=$?; echo \"health-exit=$c\"; test \"$c\" = 0 || test \"$c\" = 4",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-02-observe",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "pid=$(cat /tmp/taw-exec-reliability/child.pid)\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,stat=,comm="
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-03-table",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "ps -axo pid,ppid,pgid,stat,lstart,etime,command"
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-04-threads",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "ps -axo pid=,ppid=,user=,comm= | grep -i anyware; agent=$(ps -axo pid=,comm= | awk '$2 ~ /testanyware-agent$/ {print $1}' | paste -sd, -); printf \"agent pids=%s\\n\" \"$agent\"; ps -M -p \"$agent\""
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-05-ordinary",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-06-ordinary",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "printf ordinary-ok"
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-07-identity",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "shasum -a 256 /usr/local/bin/testanyware-agent; sw_vers -productVersion; uname -m; sysctl hw.ncpu hw.activecpu kern.wq_max_threads kern.wq_max_constrained_threads"
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-08-observe",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "pid=$(cat /tmp/taw-exec-reliability/child.pid)\nprintf 'child pid=%s\\n' \"$pid\"\nps -p \"$pid\" -o pid=,ppid=,stat=,comm="
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-09-table",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "exec",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--timeout",
+        "30",
+        "--json",
+        "ps -axo pid,ppid,pgid,stat,lstart,etime,command"
+      ],
+      "budget": 50.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "after-10-health",
+      "argv": [
+        "/bin/sh",
+        "-c",
+        "\"$0\" \"$@\"; c=$?; echo \"health-exit=$c\"; test \"$c\" = 0 || test \"$c\" = 4",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "download-trace",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+        "file",
+        "download",
+        "--vm",
+        "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+        "/tmp/testanyware-exit-trace.jsonl",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/macos-exit-observation-k195/run-01/downloads/trace.jsonl",
+        "--json"
+      ],
+      "budget": 150.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    }
+  ],
+  "resources": [
+    {
+      "kind": "vm",
+      "identity": "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+      "acquire": {
+        "name": "acquire",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+          "vm",
+          "start",
+          "--platform",
+          "macos",
+          "--base",
+          "testanyware-golden-macos-27",
+          "--id",
+          "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+          "--json"
+        ],
+        "budget": 420.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      "cleanup": {
+        "name": "cleanup",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+          "file",
+          "exec",
+          "--vm",
+          "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+          "--timeout",
+          "9",
+          "--json",
+          "state() {\n  if err=$(kill -0 \"$1\" 2>&1); then echo alive\n  else case \"$err\" in *[Nn]o\\ such\\ process*) echo gone ;; *) echo unknown ;; esac; fi\n}\nwait_gone() {\n  i=0\n  while [ \"$(state \"$1\")\" = alive ] && [ \"$i\" -lt \"$2\" ]; do\n    sleep 0.1; i=$((i + 1))\n  done\n}\noutcome=confirmed\nfor f in /tmp/taw-exec-reliability/child.pid /tmp/vmfit-k15/timeout.pid /tmp/vmfit-k15/cancel.pid; do\n  [ -f \"$f\" ] || continue\n  pid=$(cat \"$f\")\n  cmd=$(ps -p \"$pid\" -o command= | sed 's/ *$//')\n  printf '%s pid=%s command=%s\\n' \"$f\" \"$pid\" \"$cmd\"\n  if [ \"$cmd\" != \"sleep 120\" ]; then\n    s=$(state \"$pid\")\n    if [ -z \"$cmd\" ] && [ \"$s\" = gone ]; then printf 'gone pid=%s\\n' \"$pid\"\n    elif [ -n \"$cmd\" ] && [ \"$s\" = alive ]; then printf 'other pid=%s\\n' \"$pid\"\n    else printf 'unknown pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\n    continue\n  fi\n  kill -TERM \"$pid\"\n  wait_gone \"$pid\" 20\n  action=terminated\n  if [ \"$(state \"$pid\")\" = alive ]; then\n    kill -KILL \"$pid\"; action=killed\n    wait_gone \"$pid\" 5\n  fi\n  s=$(state \"$pid\")\n  if [ \"$s\" = gone ]; then printf '%s pid=%s\\n' \"$action\" \"$pid\"\n  else printf 'survived pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\ndone\nprintf 'cleanup %s\\n' \"$outcome\"\n[ \"$outcome\" = confirmed ]"
+        ],
+        "budget": 26.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      "dispose": {
+        "name": "dispose",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+          "-I",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+          "dispose",
+          "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+          "--cli",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+          "--tart",
+          "/opt/homebrew/Cellar/tart/2.41.1/bin/tart",
+          "--timeout",
+          "5",
+          "--stop-timeout",
+          "30"
+        ],
+        "budget": 41.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      "inspect": {
+        "name": "inspect",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+          "-I",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+          "absent",
+          "k195-exit-macos-1cb859c380f64c50bc67d9afa75b992b",
+          "--cli",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+          "--tart",
+          "/opt/homebrew/Cellar/tart/2.41.1/bin/tart",
+          "--timeout",
+          "25"
+        ],
+        "budget": 55.0,
+        "expected_exit": 0,
+        "expected_stdout": "616273656e74206b3139352d657869742d6d61636f732d31636238353963333830663634633530626336376439616661373562393932620a",
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      }
+    }
+  ],
+  "subjects": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/exit_k195.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/exit_k195_check.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/exit_k195_run.sh",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/timeout_k4.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/timeout_k4_check.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/routes_k19.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/Taskfile.yml",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/cli-rs/target/debug/testanyware",
+    "/opt/homebrew/Cellar/tart/2.41.1/bin/tart",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/macos-exit-observation-k195/run-01-outer/testanyware-agent"
+  ],
+  "term_grace": 2,
+  "kill_wait": 2,
+  "bootstrap": {
+    "readiness": 1,
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "failure_bounds": {
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "close_bounds": {
+    "grace": 0.05,
+    "kill_reap": 2
+  },
+  "readiness_bound": 5.0,
+  "intent_gate": 2.0,
+  "publication_window": 10.0,
+  "outbox_cap": 67108864
+}

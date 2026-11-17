@@ -1,0 +1,219 @@
+{
+  "checker": "k195-1",
+  "route": "traced",
+  "agent_before": "412",
+  "agent_after": "703",
+  "agent_started": "Tue Nov 17 00:17:41 2026",
+  "failures": [],
+  "trace_records": 253,
+  "trace_unparsed": 0,
+  "trace_loop_errors": 0,
+  "calls": {
+    "issue-sleep": {
+      "intentional": true,
+      "timed_out": true,
+      "exit_code": -1,
+      "receipt_failures": [],
+      "trace_call": 2,
+      "shell": 731,
+      "result": "timed-out",
+      "deadline_ms": 2006.3,
+      "shell_exit_ms": 2076.0,
+      "threads_at_deadline": 11,
+      "missed_watches": 0,
+      "deadline": "command-alive",
+      "alive": [
+        {
+          "pid": 731,
+          "path": "/bin/sleep"
+        }
+      ],
+      "term": "term-success",
+      "term_ms": 2075.8,
+      "return_ms": 2076.3
+    },
+    "issue-child": {
+      "intentional": true,
+      "timed_out": true,
+      "exit_code": -1,
+      "receipt_failures": [],
+      "trace_call": 3,
+      "shell": 735,
+      "result": "timed-out",
+      "deadline_ms": 2004.3,
+      "shell_exit_ms": 2131.9,
+      "threads_at_deadline": 12,
+      "missed_watches": 0,
+      "deadline": "command-alive",
+      "alive": [
+        {
+          "pid": 735,
+          "path": null
+        },
+        {
+          "pid": 737,
+          "path": "/bin/sleep"
+        }
+      ],
+      "term": "term-success",
+      "term_ms": 2131.6,
+      "return_ms": 2195.7
+    },
+    "issue-observe": {
+      "intentional": false,
+      "timed_out": false,
+      "exit_code": 1,
+      "receipt_failures": [],
+      "trace_call": 4,
+      "shell": 746,
+      "result": "success",
+      "deadline_ms": 68.0,
+      "shell_exit_ms": 5.4,
+      "threads_at_deadline": 12,
+      "missed_watches": 0,
+      "deadline": "observed"
+    },
+    "after-02-observe": {
+      "intentional": false,
+      "timed_out": false,
+      "exit_code": 1,
+      "receipt_failures": [],
+      "trace_call": 5,
+      "shell": 749,
+      "result": "success",
+      "deadline_ms": 64.5,
+      "shell_exit_ms": 4.6,
+      "threads_at_deadline": 12,
+      "missed_watches": 0,
+      "deadline": "observed"
+    },
+    "after-03-table": {
+      "intentional": false,
+      "timed_out": false,
+      "exit_code": 0,
+      "receipt_failures": [],
+      "trace_call": 6,
+      "shell": 752,
+      "result": "success",
+      "deadline_ms": 64.2,
+      "shell_exit_ms": 15.6,
+      "threads_at_deadline": 12,
+      "missed_watches": 0,
+      "deadline": "observed"
+    },
+    "after-04-threads": {
+      "intentional": false,
+      "timed_out": false,
+      "exit_code": 0,
+      "receipt_failures": [],
+      "trace_call": 7,
+      "shell": 753,
+      "result": "success",
+      "deadline_ms": 68.6,
+      "shell_exit_ms": 43.7,
+      "threads_at_deadline": 12,
+      "missed_watches": 0,
+      "deadline": "observed"
+    },
+    "after-05-ordinary": {
+      "intentional": false,
+      "timed_out": false,
+      "exit_code": 0,
+      "receipt_failures": [],
+      "trace_call": 8,
+      "shell": 761,
+      "result": "success",
+      "deadline_ms": 66.4,
+      "shell_exit_ms": 1.5,
+      "threads_at_deadline": 12,
+      "missed_watches": 0,
+      "deadline": "observed"
+    },
+    "after-06-ordinary": {
+      "intentional": false,
+      "timed_out": false,
+      "exit_code": 0,
+      "receipt_failures": [],
+      "trace_call": 9,
+      "shell": 762,
+      "result": "success",
+      "deadline_ms": 64.1,
+      "shell_exit_ms": 1.6,
+      "threads_at_deadline": 12,
+      "missed_watches": 0,
+      "deadline": "observed"
+    },
+    "after-07-identity": {
+      "intentional": false,
+      "timed_out": false,
+      "exit_code": 0,
+      "receipt_failures": [],
+      "trace_call": 10,
+      "shell": 763,
+      "result": "success",
+      "deadline_ms": 130.7,
+      "shell_exit_ms": 67.6,
+      "threads_at_deadline": 12,
+      "missed_watches": 0,
+      "deadline": "observed"
+    },
+    "after-08-observe": {
+      "intentional": false,
+      "timed_out": false,
+      "exit_code": 1,
+      "receipt_failures": [],
+      "trace_call": 11,
+      "shell": 768,
+      "result": "success",
+      "deadline_ms": 66.4,
+      "shell_exit_ms": 4.3,
+      "threads_at_deadline": 12,
+      "missed_watches": 0,
+      "deadline": "observed"
+    },
+    "after-09-table": {
+      "intentional": false,
+      "timed_out": false,
+      "exit_code": 0,
+      "receipt_failures": [],
+      "trace_call": 12,
+      "shell": 771,
+      "result": "success",
+      "deadline_ms": 69.3,
+      "shell_exit_ms": 32.9,
+      "threads_at_deadline": 12,
+      "missed_watches": 0,
+      "deadline": "observed"
+    }
+  },
+  "evidence": "complete",
+  "stall": "not-reproduced",
+  "statement": "unproved: no unintended timeout recurred",
+  "term_shapes": {
+    "issue-sleep": "term-success",
+    "issue-child": "term-success"
+  },
+  "health": {
+    "after-01-health": {
+      "answered": true,
+      "cli_exit": "4",
+      "accessibility": "denied"
+    },
+    "after-10-health": {
+      "answered": true,
+      "cli_exit": "4",
+      "accessibility": "denied"
+    }
+  },
+  "cleanup": {
+    "state": "confirmed",
+    "lines": [
+      "/tmp/taw-exec-reliability/child.pid pid=737 command=",
+      "gone pid=737",
+      "cleanup confirmed"
+    ],
+    "failures": []
+  },
+  "owned_cleanup_command_matches": true,
+  "disposal_failures": []
+}
