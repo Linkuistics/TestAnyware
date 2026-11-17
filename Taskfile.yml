@@ -327,6 +327,40 @@ tasks:
       - shellcheck exit_k195_run.sh
       - uv run --locked python -m pytest -q -p no:cacheprovider test_exit_k195.py
 
+  diagnostic:macos-exec-outcomes:
+    desc: 'Run the k12 exec outcome matrix once on the host into a new OUT directory. Builds the unchanged and the traced runner probes and a loopback copy of the agent, then runs eight cases through the reference, process, traced, HTTP, CLI text and CLI JSON seams. Uses no clone and no default socket'
+    deps: [cli:build, app:build]
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked python outcomes_k12.py {{.OUT | shellQuote}}
+
+  diagnostic:macos-exec-outcomes-check:
+    desc: Judge one k12 OUT directory. Fails on unsound evidence, not on the defects of the old path
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked python outcomes_k12_check.py {{.OUT | shellQuote}}
+
+  diagnostic:macos-exec-outcomes-old-path:
+    desc: Detect the old exec path in one k12 OUT directory. Passes only when the sound evidence shows every frozen defect, so a fixed runner makes it fail
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked python outcomes_k12_check.py {{.OUT | shellQuote}} --expect-defects
+
+  diagnostic:macos-exec-outcomes-tools:
+    desc: Check the k12 exec outcome runner, seams, checker and probe
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check outcomes_k12.py outcomes_k12_seam.py outcomes_k12_check.py test_outcomes_k12.py
+      - uv run --locked python -m ruff format --check outcomes_k12.py outcomes_k12_seam.py outcomes_k12_check.py test_outcomes_k12.py
+      - uv run --locked python -m pyright outcomes_k12.py outcomes_k12_seam.py outcomes_k12_check.py test_outcomes_k12.py
+      - uv run --locked python -m pytest -q -p no:cacheprovider test_outcomes_k12.py
+
   diagnostic:deadline-stall-tools:
     desc: Check the k154 worker-deadline control tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
