@@ -393,6 +393,40 @@ tasks:
       - uv run --locked python -m pyright outcomes_k12.py outcomes_k12_seam.py outcomes_k12_check.py test_outcomes_k12.py
       - uv run --locked python -m pytest -q -p no:cacheprovider test_outcomes_k12.py
 
+  diagnostic:linux-timeout-lifecycle:
+    desc: 'Run the k5 Linux exec outcome and timeout lifecycle matrix once into a new OUT directory. Runs the unchanged Linux agent in fresh containers of one pinned image, through the reference, process, traced, HTTP, CLI text and CLI JSON seams. Uses no clone, no VM and no default socket'
+    deps: [cli:build, app:build]
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked python linux_k5.py {{.OUT | shellQuote}}
+
+  diagnostic:linux-timeout-lifecycle-check:
+    desc: Judge one k5 OUT directory. Fails on unsound evidence, not on the defects of the old path
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked python linux_k5_check.py {{.OUT | shellQuote}}
+
+  diagnostic:linux-timeout-lifecycle-old-path:
+    desc: Detect the old Linux exec path in one k5 OUT directory. Passes only when the sound evidence shows every frozen defect, so a fixed agent makes it fail
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked python linux_k5_check.py {{.OUT | shellQuote}} --expect-defects
+
+  diagnostic:linux-timeout-lifecycle-tools:
+    desc: Check the k5 Linux timeout lifecycle runner, seams, checker and stubs
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check linux_k5.py linux_k5_seam.py linux_k5_check.py test_linux_k5.py linux_k5_stub
+      - uv run --locked python -m ruff format --check linux_k5.py linux_k5_seam.py linux_k5_check.py test_linux_k5.py linux_k5_stub
+      - uv run --locked python -m pyright linux_k5.py linux_k5_seam.py linux_k5_check.py test_linux_k5.py
+      - uv run --locked python -m pytest -q -p no:cacheprovider test_linux_k5.py
+
   diagnostic:deadline-stall-tools:
     desc: Check the k154 worker-deadline control tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
