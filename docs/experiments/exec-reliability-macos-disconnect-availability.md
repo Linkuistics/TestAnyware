@@ -68,6 +68,12 @@ The checker judged every handler as `deadline` and every child as
 `ended-with-handler`. Every HTTP follow-up was `responsive`. In `cli-term`, the CLI
 exited with signal 15 at 2.020 s after one SIGTERM. The KILL step was not needed.
 
+The host seam polls the shell and the child only after each follow-up returns. So
+in host mode, oracle condition 2 cannot fail. A request held until the handler end
+would get its answer stamp before the end stamp. The latency condition carries the
+host verdict instead. Each HTTP follow-up answered in at most 0.073 s, and each
+handler ended after 20 s.
+
 The probe sent the `cli-concurrent` ordinary command at 2.063 s and answered at 12.128 s. Its
 reply held `stdout` `ordinary-ok`, `exit_code` -1 and `timed_out` true. That is a
 completed reported timeout. In the same case, the probe first saw the guest shell
@@ -136,6 +142,17 @@ handler bracket is (18.01 s, 20.23 s] for `concurrent`, because its original rep
 came at 20.229 s. For `term` the bracket is (18.01 s, 30.12 s]. The checker judged
 both as `deadline` and both children as `ended-with-handler`.
 
+These live labels are weaker than their names. The checker sets no upper limit on
+the bracket end for `deadline`. In live mode, `ended-with-handler` means only that
+the child was absent at the 30.0 s inspection. So the live receipts show that each
+child ended between 18.01 s and 30.12 s, not that it ended with its handler.
+
+The inspector checks a recorded PID with `kill -0` and `ps` and records only
+the PID. A reused PID could therefore read as present. Both late inspections read
+`absent`, and a reused PID cannot cause an absent reading. So these verdicts do not
+depend on PID identity. A later live run with a present late reading needs a
+process identity check before it counts as an overrun or a surviving child.
+
 In `control`, the inspections ran after the original reply. They found child 601
 absent and no shell record.
 
@@ -175,8 +192,9 @@ disconnect. The k3 report and the k12 report record the same intermittent shape.
 
 - A cancel-on-disconnect design builds on an agent that does not cancel. The
   handler runs to its deadline after a close, a reset or a half-close.
-- The deadline already ends the shell and its known child on macOS. Both live
-  children and all host children ended with the handler.
+- On the loopback agent, the deadline ends the shell and its known child. Each
+  host child ended within 0.07 s of its shell. The live receipts show only that
+  both live children ended between 18.01 s and 30.12 s.
 - A disconnect alone did not make the agent unavailable in these samples. Follow-ups
   during the orphaned handler answered as fast as in the control.
 - A client must not treat `timed_out` true as proof that the command did not finish.
@@ -206,6 +224,15 @@ the 45 s limit.
 There was one host run and one live run. Neither had a retry. Development trials
 and dry runs used scratch directories and are not evidence. The host check exits 1
 for the `unknown` above, and the live check exits 0.
+
+The host run cleaned up with a substring match. It killed any process of this user
+whose command held a run token or the build directory. Its sweeps and its audit were
+empty, so it killed no process. Integration `macos-disconnect-availability-k203`
+narrowed that match to the shapes that the run creates. These shapes are the payload
+`sleep`, the payload shell and a binary inside the build directory.
+
+The checker did
+not change. A new host run uses the changed tools, so it is a new condition.
 
 ## Commands
 

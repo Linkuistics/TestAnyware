@@ -13,6 +13,7 @@ import pytest
 import disconnect_k13
 import disconnect_k13_burst as burst
 import disconnect_k13_check as checker
+import disconnect_k13_seam as seam
 import timeout_k4
 
 TOOLS = {"python": "/usr/bin/python3", "cli": "/opt/homebrew/bin/testanyware", "tart": "/t"}
@@ -70,6 +71,19 @@ def test_cleanup_targets_only_the_k13_child_files() -> None:
         assert f"{burst.guest_dir(mode)}/child.pid" in script
     assert script.endswith('[ "$outcome" = confirmed ]')
     assert len(script.split("\n")) == len(timeout_k4.OWNED_CLEANUP.split("\n"))
+
+
+def test_host_cleanup_owns_only_the_shapes_the_run_starts() -> None:
+    tok = seam.token(seam.CASES[0], "4718293846")
+    shell = f"/bin/bash -c mkdir -p /tmp/k13x/c1\\012sleep {tok} & child=$!\\012wait"
+    work = "/var/folders/xy/T/k13-build-abc"
+    assert seam.owned(f"sleep {tok}", (tok,))
+    assert seam.owned(shell, (tok,))
+    assert seam.owned(f"{work}/copy/.build/debug/testanyware-agent --port 1", (), work)
+    assert not seam.owned(f"grep {tok}", (tok,))
+    assert not seam.owned(f"sleep {tok}0", (tok,))
+    assert not seam.owned(f"tail -f {work}/build.log", (tok,), work)
+    assert not seam.owned(f"/usr/bin/less {work}-other/log", (), work)
 
 
 @pytest.mark.parametrize("mode", burst.MODES)

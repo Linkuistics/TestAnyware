@@ -27,8 +27,9 @@ so the exit of the shell marks the end of the original handler.
 
 The sleep of each case is `120.<digit>` seconds followed by the run tag, for
 example `sleep 120.3004718293846`. The token is unique to one run, so it names
-a process of this run. After each case, the script kills each process whose
-command holds the token, after it checks the start time and the command again.
+a process of this run. After each case, the script kills the payload sleep and
+the payload shell of the token, after it checks the start time and the command
+again. A process that only mentions the token is not killed.
 """
 
 from __future__ import annotations
@@ -194,11 +195,27 @@ def find_identities(directory: Path, deadline_ns: int) -> dict[str, Any]:
     return {"error": "no child PID file within the bound"}
 
 
+def owned(command: str, tokens: tuple[str, ...], work: str | None = None) -> bool:
+    """Whether a command is a program that this run started.
+
+    The run starts three shapes: the payload `sleep TOKEN`, the agent's
+    `/bin/bash -c` payload shell and a binary inside the private build directory.
+    A command that only mentions a token or the directory is not owned, for
+    example `grep TOKEN` or `tail -f WORK/log`.
+    """
+    for value in tokens:
+        if command == f"sleep {value}":
+            return True
+        if command.startswith("/bin/bash -c ") and f"sleep {value} & child=$!" in command:
+            return True
+    return work is not None and command.startswith(f"{work}/")
+
+
 def sweep(needle: str) -> list[dict[str, Any]]:
-    """Record and kill each process whose command holds this run's token."""
+    """Record and kill each owned process of this run's token: its payload shell or sleep."""
     found: list[dict[str, Any]] = []
     for pid, start, command in processes():
-        if needle not in command or pid == os.getpid():
+        if pid == os.getpid() or not owned(command, (needle,)):
             continue
         seen = row(pid)
         if seen is None or (seen["start"], seen["command"]) != (start, command):

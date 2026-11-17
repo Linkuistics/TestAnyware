@@ -12,9 +12,10 @@ The script freezes the cases, the bounds, the subject digests and the plan in
 OUT/inventory.json before the first case runs. Then it runs one controller plan
 once. The plan has one call: `disconnect_k13_seam.py`. No call retries.
 
-After the plan, the script audits the host for owned leftovers: any process whose
-command names the build directory or holds a sleep token of this run. It checks
-the start time and command of each match again, then kills and records it. Then
+After the plan, the script audits the host for owned leftovers: a binary inside
+the build directory, or the payload sleep or payload shell of a token of this run.
+A process that only mentions the directory or a token is not owned. The script
+checks the start time and command of each match again, then kills and records it. Then
 it removes the build directory. `disconnect_k13_check.py` judges the evidence.
 This script judges nothing beyond the controller verdict.
 """
@@ -46,6 +47,7 @@ from disconnect_k13_seam import (
     ORDINARY_TIMEOUT,
     ORIGINAL_BOUND,
     TERM_GRACE,
+    owned,
     token,
 )
 from outcomes_k12 import LOOPBACK_MAIN, run_build, run_tag, sha256, tool_version
@@ -111,11 +113,11 @@ def build(work: Path, out: Path) -> tuple[Path, dict[str, Any]]:
 
 
 def audit(work: Path, tag: str | None) -> list[dict[str, Any]]:
-    """Record and kill each owned leftover: the build directory or a token of this run."""
-    needles = [str(work), *(token(case, tag) for case in CASES)] if tag else [str(work)]
+    """Record and kill each owned leftover: a build binary or a payload of this run."""
+    tokens = tuple(token(case, tag) for case in CASES) if tag else ()
     found: list[dict[str, Any]] = []
     for pid, start, command in processes():
-        if pid == os.getpid() or not any(needle in command for needle in needles):
+        if pid == os.getpid() or not owned(command, tokens, str(work)):
             continue
         if current(pid) != (start, command):
             found.append({"pid": pid, "start": start, "command": command, "killed": False})
