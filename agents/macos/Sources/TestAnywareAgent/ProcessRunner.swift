@@ -58,21 +58,67 @@ public enum ProcessRunner {
         process.standardOutput = outHandle
         process.standardError = errHandle
 
+#if EXIT_TRACE
+        let trace = ExitTrace.shared
+        let call = trace.begin(command: command, timeout: timeoutSeconds)
+        process.terminationHandler = { finished in
+            trace.mark(call, "foundation-termination", [
+                "status": "\(finished.terminationStatus)",
+                "reason": "\(finished.terminationReason.rawValue)",
+            ])
+        }
+#endif
         try process.run()
         let bashPid = process.processIdentifier
-
+#if EXIT_TRACE
+        trace.mark(call, "spawned", ["pid": "\(bashPid)"])
+        trace.watch(call, pid: bashPid)
+        let exited = await tracedWaitForExit(
+            process: process, seconds: timeoutSeconds, call: call, phase: "deadline")
+#else
         let exited = await waitForExit(process: process, seconds: timeoutSeconds)
+#endif
 
         if !exited {
+#if EXIT_TRACE
+            trace.mark(call, "descendants-start")
+#endif
             let descendants = collectDescendants(of: bashPid)
+#if EXIT_TRACE
+            trace.mark(call, "descendants-end", [
+                "pids": descendants.map(String.init).joined(separator: " "),
+            ])
+            trace.mark(call, "terminate-sent", ["pid": "\(bashPid)"])
+#endif
             process.terminate()
+#if EXIT_TRACE
+            let terminated = await tracedWaitForExit(
+                process: process, seconds: 3, call: call, phase: "terminate")
+#else
             let terminated = await waitForExit(process: process, seconds: 3)
+#endif
             if !terminated {
+#if EXIT_TRACE
+                let killed = kill(bashPid, SIGKILL)
+                trace.mark(call, "kill-sent", [
+                    "pid": "\(bashPid)", "result": "\(killed)", "errno": "\(killed < 0 ? errno : 0)",
+                ])
+                process.waitUntilExit()
+                trace.mark(call, "reap-return", ["pid": "\(bashPid)"])
+#else
                 kill(bashPid, SIGKILL)
                 process.waitUntilExit()
+#endif
             }
             for pid in descendants where pid > 1 {
+#if EXIT_TRACE
+                let killed = kill(pid, SIGKILL)
+                trace.mark(call, "descendant-kill", [
+                    "pid": "\(pid)", "result": "\(killed)", "errno": "\(killed < 0 ? errno : 0)",
+                ])
+#else
                 kill(pid, SIGKILL)
+#endif
             }
         }
 
@@ -84,6 +130,14 @@ public enum ProcessRunner {
         stderr = stderr.replacingOccurrences(of: "\\s+$", with: "", options: .regularExpression)
 
         let exitCode: Int32 = exited ? process.terminationStatus : -1
+#if EXIT_TRACE
+        trace.mark(call, "return", [
+            "exit": "\(exitCode)",
+            "timed_out": exited ? "false" : "true",
+            "stdout_bytes": "\(outData.count)",
+            "stderr_bytes": "\(errData.count)",
+        ])
+#endif
 
         if !exited {
             let note = "Process timed out after \(timeoutSeconds)s"
@@ -110,6 +164,34 @@ public enum ProcessRunner {
     }
 
     // MARK: - Helpers
+
+#if EXIT_TRACE
+    /// Mirrors `waitForExit` step for step and marks each step.
+    private static func tracedWaitForExit(
+        process: Process, seconds: Int, call: UInt64, phase: String
+    ) async -> Bool {
+        let trace = ExitTrace.shared
+        trace.mark(call, "wait-enter", ["phase": phase])
+        return await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                trace.mark(call, "outer-start", ["phase": phase])
+                let semaphore = DispatchSemaphore(value: 0)
+                DispatchQueue.global().async {
+                    trace.mark(call, "waiter-start", ["phase": phase])
+                    process.waitUntilExit()
+                    trace.mark(call, "waiter-return", ["phase": phase])
+                    semaphore.signal()
+                }
+                let result = semaphore.wait(timeout: .now() + .seconds(seconds))
+                trace.mark(call, "wait-result", [
+                    "phase": phase,
+                    "result": result == .success ? "success" : "timed-out",
+                ])
+                continuation.resume(returning: result == .success)
+            }
+        }
+    }
+#endif
 
     private static func waitForExit(process: Process, seconds: Int) async -> Bool {
         await withCheckedContinuation { continuation in

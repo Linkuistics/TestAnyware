@@ -293,6 +293,22 @@ tasks:
       - uv run --locked python -m ruff format --check evidence/macos-process-fixtures-k185/*.py
       - uv run --locked python -m pyright evidence/macos-process-fixtures-k185/*.py
 
+  diagnostic:macos-exit-observation-controls:
+    desc: 'Build the macOS agent with the k195 exit trace and run its four ordering controls RUNS times (default 3) into a new OUT directory. Also checks that the default release agent holds no trace symbol'
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked --isolated --python 3.12 python -I evidence/macos-exit-observation-k195/controls.py {{.OUT | shellQuote}} --runs {{.RUNS | default "3" | shellQuote}}
+
+  diagnostic:macos-exit-observation-tools:
+    desc: Check the k195 exit-observation control tooling
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check evidence/macos-exit-observation-k195/*.py
+      - uv run --locked python -m ruff format --check evidence/macos-exit-observation-k195/*.py
+      - uv run --locked python -m pyright evidence/macos-exit-observation-k195/*.py
+
   diagnostic:deadline-stall-tools:
     desc: Check the k154 worker-deadline control tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
