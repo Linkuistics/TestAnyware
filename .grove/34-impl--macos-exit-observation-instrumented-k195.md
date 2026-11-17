@@ -51,3 +51,24 @@ unchanged clone for the issue payloads, and the k193 clone is its unchanged
 clone for the r3 condition. Instrumented runs use checkout-built tools and
 owned disposable resources only. If the isolated build or route is not
 available, the condition stays unavailable.
+
+## Decisions (running log)
+
+- The seam is `agents/macos/Sources/TestAnywareAgent/ExitTrace.swift`
+  behind the `EXIT_TRACE` compile flag. It records each `runShell` wait
+  phase and the kernel fork, exec and exit of the shell and its children
+  through kqueue `EVFILT_PROC`. The default release agent holds no
+  `ExitTrace` symbol, so no production behaviour changes.
+- Host controls are frozen in
+  `experiments/exec-reliability/evidence/macos-exit-observation-k195/controls-01`
+  from commit `dbf23c70`. All four controls pass in each of three runs. Task
+  `diagnostic:macos-exit-observation-controls` reproduces them.
+- The controls show both candidate orderings on the host. In a starved
+  global queue, the shell exits at 2 ms and the agent reports a timeout at
+  the 2 s deadline. An ignored TERM adds the 3 s TERM wait before SIGKILL.
+  That wait matches the difference between the 33 s and 30 s shapes. The
+  host controls do not show which ordering happened in the guest.
+- The guest run needs the isolated route of the root brief: a
+  checkout-built app, CLI and traced agent in one owned clone. The app
+  handover needs the owner's interval and Local Network grant. No record
+  gives that authorisation, so the leaf asks the owner.
