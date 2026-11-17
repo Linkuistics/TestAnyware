@@ -1,0 +1,45 @@
+{
+  "revision": "r3",
+  "disposable": true,
+  "platforms": {
+    "macos": {
+      "base": "testanyware-golden-macos-27",
+      "url": "https://github.com/mikefarah/yq/releases/download/v4.47.2/yq_darwin_arm64",
+      "sha256": "4ccc7f2f5f6f37804d70ad211a287b1b589f67024ecb77586c77106030424b9f"
+    },
+    "linux": {
+      "base": "testanyware-golden-linux-24.04",
+      "url": "https://github.com/mikefarah/yq/releases/download/v4.47.2/yq_linux_arm64",
+      "sha256": "05df1f6aed334f223bb3e6a967db259f7185e33650c3b6447625e16fea0ed31f"
+    }
+  },
+  "cases": [
+    "baseline",
+    "install",
+    "intact",
+    "online",
+    "byte-transport",
+    "wrong-observation",
+    "nonzero",
+    "bad-install",
+    "timeout",
+    "cancel",
+    "evidence-loss",
+    "disposal",
+    "fresh-repeat"
+  ],
+  "expected": {
+    "stdout.bin": "4578706c61696e2074686973206368616e67652e",
+    "stderr.bin": "7365706172617465207374646572720a",
+    "artifact.bin": "00ff80410a",
+    "status.txt": "300a"
+  },
+  "online_version": "v4.47.2",
+  "guest_timeout_seconds": 2,
+  "cancel_after_seconds": 2,
+  "start_wait_seconds": 120,
+  "command_host_budget_seconds": 150,
+  "start_host_budget_seconds": 360,
+  "stop_host_budget_seconds": 45,
+  "change": "Correct explicit space delimiter for ps identity fields; r2 global IFS prevented agent discovery. Preserve r1/r2."
+}
