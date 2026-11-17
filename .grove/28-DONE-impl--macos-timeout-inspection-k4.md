@@ -42,6 +42,14 @@ of ordinary completion, and locate any cleanup/inspection failure.
   when observation, guest cleanup or transfer fails; retain residual identities
   and remedies under the common root contract.
 
+## Narrowed scope
+
+This leaf is the first slice. It delivers the old-failure accounting, the
+frozen issue #14 sequence on one unchanged clone, the phase record, the
+Taskfile diagnostic, the report and the clone accounting. The complete r3
+fixture condition and the instrumented reproducer move to
+`macos-timeout-inspection-k193`, after review `macos-timeout-inspection-k192`.
+
 ## Notes
 
 Select no production ownership/cancellation mechanism here. No broad process
@@ -65,9 +73,9 @@ another session; keep each old failure distinct in the design handoff.
 - The r3 fixture runs from a byte-exact copy under
   `evidence/macos-timeout-inspection-k4/fixture-r3/`. The plan refuses to run when a
   hash differs from the retained `frozen.json`.
-- The resource cleanup acts only on the known children: a PID from a pid file that
-  the plan wrote, and only while that PID runs exactly `sleep 120`. No name-based
-  cleanup.
+- The resource cleanup acts only on the known children. Each PID comes from a pid
+  file that the plan wrote. The cleanup signals it only while it runs exactly
+  `sleep 120`. No name-based cleanup.
 - The checker reports a stall as reproduced from the stalled call alone. It reports
   not-reproduced only from complete evidence. Every other case is unknown.
 - The checker runs without `python -I`, because it imports the k186 checks and the
@@ -78,3 +86,15 @@ another session; keep each old failure distinct in the design handoff.
   after, and the tart inventory differs only in key order. The attempt stays in
   evidence and does not count as the unchanged clone. The plan now replaces each dot
   with a hyphen, and a control runs the controller's own validation on the plan.
+- Run 02 reproduced a post-timeout guest timeout on `after-09-table`, a
+  process listing with complete output. The frozen checker revision 1 counted
+  only observation calls and judged the stall unknown. Revision 2 also counts
+  an ordinary guest timeout and judges it reproduced. The report keeps both.
+- The plan stopped at `r3-cancel`: it expected exit 0, but the interrupted CLI
+  exits -15. The plan now expects -15, so the r3 condition stays unfinished.
+- The leaf splits flat: the r3 condition and an instrumented clone need new
+  clones and another session. A review leaf k192 reads the diagnostic before
+  the remainder k193 consumes it. Both are siblings ahead of k12, because they
+  share this node's purpose and add no new shared context.
+- No `GROVE_PROVIDER_EVIDENCE` is set in this session, so the review carries
+  no Creator line.

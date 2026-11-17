@@ -205,3 +205,22 @@ def test_plan_freezes_the_issue_sequence_and_owned_cleanup(tmp_path: Path) -> No
     controller._validate(plan, tmp_path)  # pyright: ignore[reportPrivateUsage]
     (resource,) = plan.resources
     assert resource.cleanup.budget == 26.0 and '"sleep 120"' in resource.cleanup.argv[-1]
+
+
+def test_ordinary_guest_timeout_after_the_timeouts_reproduces(tmp_path: Path) -> None:
+    run = _run(tmp_path)
+    _write_receipt(run, "after-09-table", exit_code=-1, timed_out=True)
+    report = checker.check(run)
+    assert report["stalled"] == ["after-09-table"] and report["stall"] == "reproduced"
+    assert report["failed"] == ["after-09-table"]
+
+
+def test_interrupted_cancel_expects_the_term_exit() -> None:
+    (cancel,) = [
+        c for c in timeout_k4.r3_calls("/c", "vm", Path("/"), Path("/")) if c.interrupt_after
+    ]
+    assert (cancel.name, cancel.expected_exit, cancel.expected_reason) == (
+        "r3-cancel",
+        -15,
+        "interrupted",
+    )

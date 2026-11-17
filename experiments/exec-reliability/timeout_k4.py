@@ -170,6 +170,8 @@ def r3_calls(cli: str, vm: str, fixture: Path, downloads: Path) -> list[Call]:
         _exec(cli, vm, CANCEL_GUEST, f"bash {ROOT}/guest.sh cancel"),
         CANCEL_GUEST + HOST_MARGIN,
         interrupt_after=CANCEL_AFTER,
+        # The controller sends TERM to the CLI, which then exits by that signal.
+        expected_exit=-15,
         expected_reason="interrupted",
     )
     return [

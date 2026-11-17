@@ -1,0 +1,87 @@
+{
+  "kind": "vm",
+  "identity": "k4-macos-6de306c947a64319a961c2da30706979",
+  "acquire": {
+    "name": "acquire",
+    "argv": [
+      "/opt/homebrew/bin/testanyware",
+      "vm",
+      "start",
+      "--platform",
+      "macos",
+      "--base",
+      "testanyware-golden-macos-27",
+      "--id",
+      "k4-macos-6de306c947a64319a961c2da30706979",
+      "--json"
+    ],
+    "budget": 420.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "cleanup": {
+    "name": "cleanup",
+    "argv": [
+      "/opt/homebrew/bin/testanyware",
+      "file",
+      "exec",
+      "--vm",
+      "k4-macos-6de306c947a64319a961c2da30706979",
+      "--timeout",
+      "6",
+      "--json",
+      "for f in /tmp/taw-exec-reliability/child.pid /tmp/vmfit-k15/timeout.pid /tmp/vmfit-k15/cancel.pid; do\n  [ -f \"$f\" ] || continue\n  pid=$(cat \"$f\")\n  cmd=$(ps -p \"$pid\" -o command= | sed 's/ *$//')\n  printf '%s pid=%s command=%s\\n' \"$f\" \"$pid\" \"$cmd\"\n  [ \"$cmd\" = \"sleep 120\" ] || continue\n  kill -TERM \"$pid\"\n  i=0\n  while kill -0 \"$pid\" 2>/dev/null && [ \"$i\" -lt 20 ]; do sleep 0.1; i=$((i + 1)); done\n  if kill -0 \"$pid\" 2>/dev/null; then\n    kill -KILL \"$pid\"; printf \"killed pid=%s\\n\" \"$pid\"\n  else printf \"terminated pid=%s\\n\" \"$pid\"; fi\ndone\nprintf 'cleanup complete\\n'"
+    ],
+    "budget": 26.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "dispose": {
+    "name": "dispose",
+    "argv": [
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+      "-I",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+      "dispose",
+      "k4-macos-6de306c947a64319a961c2da30706979",
+      "--cli",
+      "/opt/homebrew/bin/testanyware",
+      "--tart",
+      "/opt/homebrew/bin/tart",
+      "--timeout",
+      "5",
+      "--stop-timeout",
+      "30"
+    ],
+    "budget": 41.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "inspect": {
+    "name": "inspect",
+    "argv": [
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+      "-I",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+      "absent",
+      "k4-macos-6de306c947a64319a961c2da30706979",
+      "--cli",
+      "/opt/homebrew/bin/testanyware",
+      "--tart",
+      "/opt/homebrew/bin/tart",
+      "--timeout",
+      "25"
+    ],
+    "budget": 55.0,
+    "expected_exit": 0,
+    "expected_stdout": "616273656e74206b342d6d61636f732d36646533303663393437613634333139613936316332646133303730363937390a",
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  }
+}

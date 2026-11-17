@@ -24,6 +24,10 @@ Each call of the frozen shape has a role. The role decides the judgement:
 - `r3`: the other r3 cases. The checker records the guest exit code beside the
   exit code of the original r3 run.
 
+Revision 2 also counts an `ordinary` guest command whose receipt shows `timed_out`
+true as a stall, because each one runs after an intentional timeout. Revision 1,
+frozen before run 02, counted observations only.
+
 The stall is reproduced when one observation stalls. That result needs only the
 evidence of the stalled call, so it stands when other evidence is incomplete. The
 stall is not reproduced when every observation completed and the evidence is
@@ -186,6 +190,9 @@ def judge(name: str, call: dict[str, Any], receipt: dict[str, Any] | None) -> di
                     child["state"] = "unknown"
     elif kind == "ordinary" and sample["timed_out"] is not False:
         failures.append(f"timed_out {sample['timed_out']!r}")
+        # Revision 2: every ordinary guest command runs after an intentional
+        # timeout, so a guest timeout here is also a post-timeout stall.
+        sample["stalled"] = sample["timed_out"] is True
     elif kind == "r3" and name in R3_ORIGINAL:
         sample["original_exit_code"] = R3_ORIGINAL[name]
     elif kind == "cancel":
@@ -235,7 +242,7 @@ def check(run: Path) -> dict[str, Any]:
     missing = [name for name in SHAPE if name not in samples]
     failed = [name for name, sample in samples.items() if sample["failures"]]
     observations = [samples[name] for name in OBSERVATIONS if name in samples]
-    stalled = [name for name in OBSERVATIONS if samples.get(name, {}).get("stalled") is True]
+    stalled = [name for name in SHAPE if samples.get(name, {}).get("stalled") is True]
     complete = not failures and not missing and not failed and not disposal
     if stalled:
         stall = "reproduced"
@@ -246,6 +253,7 @@ def check(run: Path) -> dict[str, Any]:
     evidence = "absent" if not result else "complete" if complete else "incomplete"
     return {
         "run": str(run),
+        "checker_revision": 2,
         "evidence": evidence,
         "stall": stall,
         "stalled": stalled,
