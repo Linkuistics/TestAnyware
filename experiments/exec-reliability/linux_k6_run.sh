@@ -8,8 +8,11 @@
 # the outcome. The first is taken before the probe, the second after the check.
 # The probe verdict is True only when every call ends as planned. A blocked channel or a
 # surviving child is a finding, so verdict True can still go with a reproduced failure.
+# A live run also records the app signature and the digests of the app executable, its
+# Info.plist and the installed Linux agent modules, before the probe and after the check
+# (integration k208). Live runs before k208 recorded only the installed agent before.
 # The script exits 0 only when the probe exits 0 with verdict True, the check exits 0
-# and the two tool digest lists are equal. Otherwise it exits 1.
+# and each before and after digest list pair is equal. Otherwise it exits 1.
 set -u
 MODE=$1
 OUT=$2
@@ -17,6 +20,8 @@ case "$MODE" in container|live) ;; *) echo "usage: linux_k6_run.sh container|liv
 test ! -e "$OUT" && test ! -e "$OUT-outer" || { echo "refusing an existing OUT: $OUT" >&2; exit 2; }
 HERE=experiments/exec-reliability
 BUNDLE=/opt/homebrew/opt/testanyware/share/testanyware/agents/linux/testanyware_agent
+APP=/Applications/TestAnyware.app
+APP_FILES="$APP/Contents/MacOS/testanyware-app $APP/Contents/Info.plist"
 TOOLS="$HERE/linux_k6_run.sh $HERE/linux_k6.py $HERE/linux_k6_seam.py $HERE/linux_k6_check.py
 $HERE/disconnect_k13_burst.py $HERE/disconnect_k13_check.py $HERE/disconnect_k13_seam.py
 $HERE/linux_k204.py $HERE/linux_k5.py $HERE/linux_k5_seam.py $HERE/outcomes_k12_seam.py
@@ -36,6 +41,9 @@ if test "$MODE" = live; then
   testanyware --version > "$OUT-outer/cli-version"
   tart --version > "$OUT-outer/tart-version"
   shasum -a 256 "$BUNDLE"/*.py > "$OUT-outer/bundle-agent.sha256"
+  codesign -dv --verbose=4 "$APP" > "$OUT-outer/app-codesign" 2>&1
+  # shellcheck disable=SC2086 # APP_FILES is a fixed list of paths without spaces.
+  shasum -a 256 $APP_FILES > "$OUT-outer/app-before.sha256"
   tart list --format json > "$OUT-outer/tart-before.json"
   testanyware vm list --json --all > "$OUT-outer/vm-before.json"
 else
@@ -58,6 +66,11 @@ else
 fi
 # shellcheck disable=SC2086 # TOOLS is a fixed list of paths without spaces.
 shasum -a 256 $TOOLS > "$OUT-outer/tooling-after.sha256"
+if test "$MODE" = live; then
+  shasum -a 256 "$BUNDLE"/*.py > "$OUT-outer/bundle-agent-after.sha256"
+  # shellcheck disable=SC2086 # APP_FILES is a fixed list of paths without spaces.
+  shasum -a 256 $APP_FILES > "$OUT-outer/app-after.sha256"
+fi
 cat "$OUT-outer/probe.stdout" "$OUT-outer/probe.exit"
 test -f "$OUT-outer/check.stdout" && cat "$OUT-outer/check.stdout"
 STATUS=0
@@ -65,5 +78,9 @@ test "$(cat "$OUT-outer/probe.exit")" = 0 || { echo "probe exit $(cat "$OUT-oute
 grep -q '^verdict True run ' "$OUT-outer/probe.stdout" || { echo "probe verdict is not True" >&2; STATUS=1; }
 test "$(cat "$OUT-outer/check.exit")" = 0 || { echo "check exit $(cat "$OUT-outer/check.exit")" >&2; STATUS=1; }
 cmp -s "$OUT-outer/tooling-before.sha256" "$OUT-outer/tooling-after.sha256" || { echo "tool digests changed during the run" >&2; STATUS=1; }
+if test "$MODE" = live; then
+  cmp -s "$OUT-outer/bundle-agent.sha256" "$OUT-outer/bundle-agent-after.sha256" || { echo "installed agent digests changed during the run" >&2; STATUS=1; }
+  cmp -s "$OUT-outer/app-before.sha256" "$OUT-outer/app-after.sha256" || { echo "app digests changed during the run" >&2; STATUS=1; }
+fi
 echo "$STATUS" > "$OUT-outer/run.exit"
 exit "$STATUS"

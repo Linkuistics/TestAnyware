@@ -1,11 +1,17 @@
 """Judge the k6 Linux disconnect evidence.
 
-    linux_k6_check.py container OUT
-    linux_k6_check.py live OUT
+    linux_k6_check.py container OUT [RESULT]
+    linux_k6_check.py live OUT [RESULT]
 
 `container` reads OUT/summary.json and the stdout of the `cases` call.
 `live` reads OUT/summary.json and the receipts of the live calls. Each mode
-writes OUT/check.json and prints one line per judged item.
+writes OUT/RESULT and prints one line per judged item. RESULT is a plain file
+name, and it defaults to `check.json`. A re-judgement of a retained OUT uses
+another name, so the retained result stays.
+
+The run directory is the directory inside OUT with the base name of the run
+path in OUT/summary.json. The recorded absolute path is provenance only. So a
+copied OUT is judged from its own bytes and never from the original tree.
 
 The exit status is 0 when the evidence is complete and sound. A finding, such as
 a blocked channel or a surviving child, is a measured outcome. A finding does
@@ -33,7 +39,8 @@ Handler outcomes, from the end of the payload shell after the original start:
 `deadline` inside the window from `GUEST_TIMEOUT - DEADLINE_EARLY` to
 `GUEST_TIMEOUT + DEADLINE_LATE`, `cancelled` before it, `overran` after it, and
 `unknown` without evidence. The container watch places the end between two
-samples 50 ms apart.
+samples 50 ms apart. On the clone a handler can also be `gone-by`: the shell
+was gone by the upper end, and no evidence bounds the end from below.
 
 The live mode uses the k13 follow-up rules unchanged. Correction r2, made
 after the failed check of `live-01` and before `live-02`, replaces two k13
@@ -52,11 +59,20 @@ rules that do not hold on Linux:
   present. For `control` and `concurrent`, the exit of the CLI also bounds the
   end.
 
-No inspection can see the shell alive while the serial handler runs. When the
-bracket has no lower end, the handler is classified by its upper end alone.
-That basis is `queue-release`. The container cases measure it: there the first
-queued request ends within `QUEUE_RELEASE` seconds of the shell end. Condition
-2 cannot be evaluated without a sighting alive, so condition 3 decides.
+No inspection can see the shell alive while the serial handler runs. So the
+live bracket usually has no lower end. Integration k208 corrected the handler
+rule for that case. An upper end alone proves only that the shell was gone by
+that time. It cannot place the end at the deadline, so the rule is:
+
+- With a sighting alive, the bracket decides. The basis is `bracket`.
+- Without one, outside `term`, the expected Linux deadline reply decides. The
+  agent writes that reply only after its `subprocess.run` deadline. The basis
+  is `deadline-reply`.
+- Otherwise an upper end before the deadline window is `cancelled`, and any
+  other upper end is `gone-by`. The basis is `upper-bound`.
+
+Condition 2 cannot be evaluated without a sighting alive, so condition 3
+decides the channel.
 
 Child outcomes: `survived-handler` when the child is alive after the handler
 ends, `ended-with-handler` when it ended within `CHILD_SLACK` of the shell, and
@@ -85,7 +101,6 @@ from disconnect_k13_check import (
 )
 
 GUEST_TIMEOUT = seam.GUEST_TIMEOUT
-QUEUE_RELEASE = 0.5  # the first queued answer ends this close to the shell end
 CONTROL = "serial-control"
 HEALTH_BODY = {"accessible": True, "platform": "linux"}
 DEADLINE_BODY = {"exitCode": -1, "stdout": "", "stderr": "Process timed out"}
@@ -396,10 +411,24 @@ def container_check(summary: dict[str, Any], run: Path) -> dict[str, Any]:
     return {"problems": problems, "bounds": result.get("bounds"), "cases": verdicts}
 
 
-def container_main(out: Path) -> int:
+def run_dir(out: Path, summary: dict[str, Any]) -> Path:
+    """The run directory inside `out`, found by the base name of the recorded path.
+
+    The recorded absolute path stays in the summary as provenance only. So a
+    copied bundle is judged from its own bytes and never reads the original tree.
+    A summary without a run path gives `out` itself, which holds no receipts.
+    """
+    return out / Path(str(summary.get("run", ""))).name
+
+
+def write_result(out: Path, result: str, report: dict[str, Any]) -> None:
+    (out / result).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+
+
+def container_main(out: Path, result: str) -> int:
     summary = json.loads((out / "summary.json").read_text())
-    report = container_check(summary, Path(str(summary.get("run", ""))))
-    (out / "check.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    report = container_check(summary, run_dir(out, summary))
+    write_result(out, result, report)
     for verdict in report["cases"]:
         follow = " ".join(
             f"{f['name']}={f['class']}({'?' if f['latency'] is None else f'{f["latency"]:.3f}'})"
@@ -457,11 +486,20 @@ def linux_bracket(result: dict[str, Any]) -> tuple[float | None, float | None]:
 
 
 def live_handler(result: dict[str, Any]) -> tuple[str, float | None, float | None, str]:
-    """The handler outcome, by the Linux bracket, with its basis."""
+    """The handler outcome, by the Linux bracket, with its basis.
+
+    An upper end alone cannot place the end at the deadline. Outside `term`, the
+    expected deadline reply can, because the agent writes it after the deadline.
+    """
     lo, hi = linux_bracket(result)
-    if lo is None:
-        return handler_class(None, hi), lo, hi, "queue-release"
-    return handler_class(lo, hi), lo, hi, "bracket"
+    if lo is not None:
+        return handler_class(lo, hi), lo, hi, "bracket"
+    if result.get("mode") != "term" and linux_original(result)["expected"]:
+        return handler_class(None, hi), lo, hi, "deadline-reply"
+    if hi is None:
+        return "unknown", lo, hi, "upper-bound"
+    early = hi < GUEST_TIMEOUT - DEADLINE_EARLY
+    return ("cancelled" if early else "gone-by"), lo, hi, "upper-bound"
 
 
 def linux_original(result: dict[str, Any]) -> dict[str, Any]:
@@ -559,10 +597,10 @@ def live_check(summary: dict[str, Any], run: Path) -> dict[str, Any]:
     return {"problems": problems, "modes": verdicts}
 
 
-def live_main(out: Path) -> int:
+def live_main(out: Path, result: str) -> int:
     summary = json.loads((out / "summary.json").read_text())
-    report = live_check(summary, Path(str(summary.get("run", ""))))
-    (out / "check.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
+    report = live_check(summary, run_dir(out, summary))
+    write_result(out, result, report)
     for verdict in report["modes"]:
         follow = " ".join(f"{f['name']}={f['class']}" for f in verdict["follow"]) or "-"
         hi = verdict["handler_gone_by"]
@@ -577,12 +615,16 @@ def live_main(out: Path) -> int:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 3 or argv[1] not in ("container", "live"):
+    if len(argv) not in (3, 4) or argv[1] not in ("container", "live"):
         print(__doc__, file=sys.stderr)
         return 64
+    result = argv[3] if len(argv) == 4 else "check.json"
+    if Path(result).name != result or result in ("", ".", "..", "summary.json"):
+        print(f"RESULT is not a plain file name: {result!r}", file=sys.stderr)
+        return 64
     if argv[1] == "container":
-        return container_main(Path(argv[2]))
-    return live_main(Path(argv[2]))
+        return container_main(Path(argv[2]), result)
+    return live_main(Path(argv[2]), result)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,802 @@
+{
+  "bounds": {
+    "act_after": 2.0,
+    "follow_bound": 30.0,
+    "guest_timeout": 20,
+    "host_deadline": 5.0,
+    "kill_wait": 2.0,
+    "observe_bound": 35.0,
+    "ordinary_timeout": 10,
+    "original_bound": 40.0,
+    "poll": 0.05,
+    "ready_bound": 10.0,
+    "stop_wait": 2.0,
+    "transfer_bound": 150.0
+  },
+  "cases": [
+    {
+      "agent_stop": [
+        {
+          "exited": true,
+          "signal": "SIGTERM"
+        },
+        {
+          "returncode": -15
+        }
+      ],
+      "case": "serial-control",
+      "child": {
+        "class": "survived-handler",
+        "ppid": 1
+      },
+      "cleanup": {
+        "kills": [
+          {
+            "killed": true,
+            "pid": 14,
+            "start_ticks": 187
+          }
+        ],
+        "left": []
+      },
+      "evidence": {
+        "child.pid": "31340a",
+        "partial": "7061727469616c0a"
+      },
+      "follow": [
+        {
+          "answered_at": 20.02578776,
+          "began_at": 20.024888593,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "baseline",
+          "error": null,
+          "latency": 0.000899167,
+          "name": "health",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.028955135,
+          "began_at": 20.02585601,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "baseline",
+          "error": null,
+          "latency": 0.003099125,
+          "name": "ordinary",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.029617468,
+          "began_at": 20.029002552,
+          "bound": 150.0,
+          "bound_exceeded": false,
+          "class": "baseline",
+          "error": null,
+          "latency": 0.000614916,
+          "name": "download",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "spans_handler_end": false,
+          "status": 200
+        }
+      ],
+      "handler": {
+        "alive_at": 19.978184843,
+        "class": "deadline",
+        "gone_by": 20.02891826
+      },
+      "listen_peak": 1,
+      "original": {
+        "agent_broken_pipes": 0,
+        "answered_at": 20.02461226,
+        "body": {
+          "exitCode": -1,
+          "stderr": "Process timed out",
+          "stdout": ""
+        },
+        "error": null,
+        "status": 200
+      },
+      "original_states": [
+        [
+          "01",
+          0
+        ]
+      ],
+      "queue_release": null,
+      "server": "serial"
+    },
+    {
+      "agent_stop": [
+        {
+          "exited": true,
+          "signal": "SIGTERM"
+        },
+        {
+          "returncode": -15
+        }
+      ],
+      "case": "serial-concurrent",
+      "child": {
+        "class": "survived-handler",
+        "ppid": 1
+      },
+      "cleanup": {
+        "kills": [
+          {
+            "killed": true,
+            "pid": 22,
+            "start_ticks": 2211
+          }
+        ],
+        "left": []
+      },
+      "evidence": {
+        "child.pid": "32320a",
+        "partial": "7061727469616c0a"
+      },
+      "follow": [
+        {
+          "answered_at": 20.022324217,
+          "began_at": 2.001687876,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "blocked",
+          "error": null,
+          "latency": 18.020636341,
+          "name": "health",
+          "queue": {
+            "read_by": 20.069552217,
+            "waited_from": 2.044899917
+          },
+          "reference_latency": 0.000899167,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.024617258,
+          "began_at": 20.022417467,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.002199791,
+          "name": "ordinary",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.003099125,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.025097425,
+          "began_at": 20.024650467,
+          "bound": 150.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.000446958,
+          "name": "download",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.000614916,
+          "spans_handler_end": false,
+          "status": 200
+        }
+      ],
+      "handler": {
+        "alive_at": 20.0176223,
+        "class": "deadline",
+        "gone_by": 20.068841675
+      },
+      "listen_peak": 1,
+      "original": {
+        "acted_at": 2.001574542,
+        "agent_broken_pipes": 0,
+        "answered_at": 20.021708967,
+        "body": {
+          "exitCode": -1,
+          "stderr": "Process timed out",
+          "stdout": ""
+        },
+        "error": null,
+        "status": 200
+      },
+      "original_states": [
+        [
+          "01",
+          0
+        ],
+        [
+          "05",
+          0
+        ]
+      ],
+      "queue_release": -0.047,
+      "server": "serial"
+    },
+    {
+      "agent_stop": [
+        {
+          "exited": true,
+          "signal": "SIGTERM"
+        },
+        {
+          "returncode": -15
+        }
+      ],
+      "case": "serial-close",
+      "child": {
+        "class": "survived-handler",
+        "ppid": 1
+      },
+      "cleanup": {
+        "kills": [
+          {
+            "killed": true,
+            "pid": 29,
+            "start_ticks": 4241
+          }
+        ],
+        "left": []
+      },
+      "evidence": {
+        "child.pid": "32390a",
+        "partial": "7061727469616c0a"
+      },
+      "follow": [
+        {
+          "answered_at": 20.038629633,
+          "began_at": 2.005707376,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "blocked",
+          "error": null,
+          "latency": 18.032922257,
+          "name": "health",
+          "queue": {
+            "read_by": 20.059179133,
+            "waited_from": 2.007241709
+          },
+          "reference_latency": 0.000899167,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.040368675,
+          "began_at": 20.038679883,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.001688792,
+          "name": "ordinary",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.003099125,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.040701383,
+          "began_at": 20.040393717,
+          "bound": 150.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.000307666,
+          "name": "download",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.000614916,
+          "spans_handler_end": false,
+          "status": 200
+        }
+      ],
+      "handler": {
+        "alive_at": 19.990943508,
+        "class": "deadline",
+        "gone_by": 20.04185505
+      },
+      "listen_peak": 1,
+      "original": {
+        "acted_at": 2.005497834,
+        "agent_broken_pipes": 2,
+        "answered_at": null,
+        "body": null,
+        "error": null,
+        "status": null
+      },
+      "original_states": [
+        [
+          "01",
+          0
+        ],
+        [
+          "08",
+          1
+        ]
+      ],
+      "queue_release": -0.003,
+      "server": "serial"
+    },
+    {
+      "agent_stop": [
+        {
+          "exited": true,
+          "signal": "SIGTERM"
+        },
+        {
+          "returncode": -15
+        }
+      ],
+      "case": "serial-reset",
+      "child": {
+        "class": "survived-handler",
+        "ppid": 1
+      },
+      "cleanup": {
+        "kills": [
+          {
+            "killed": true,
+            "pid": 36,
+            "start_ticks": 6273
+          }
+        ],
+        "left": []
+      },
+      "evidence": {
+        "child.pid": "33360a",
+        "partial": "7061727469616c0a"
+      },
+      "follow": [
+        {
+          "answered_at": 20.043409135,
+          "began_at": 2.002619501,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "blocked",
+          "error": null,
+          "latency": 18.040789634,
+          "name": "health",
+          "queue": {
+            "read_by": null,
+            "waited_from": 2.042469543
+          },
+          "reference_latency": 0.000899167,
+          "spans_handler_end": true,
+          "status": 200
+        },
+        {
+          "answered_at": 20.045075218,
+          "began_at": 20.043456635,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.001618583,
+          "name": "ordinary",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.003099125,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.045383593,
+          "began_at": 20.045100843,
+          "bound": 150.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.00028275,
+          "name": "download",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.000614916,
+          "spans_handler_end": false,
+          "status": 200
+        }
+      ],
+      "handler": {
+        "alive_at": 19.98861226,
+        "class": "deadline",
+        "gone_by": 20.039769051
+      },
+      "listen_peak": 1,
+      "original": {
+        "acted_at": 2.002343376,
+        "agent_broken_pipes": 1,
+        "answered_at": null,
+        "body": null,
+        "error": null,
+        "status": null
+      },
+      "original_states": [
+        [
+          "01",
+          0
+        ]
+      ],
+      "queue_release": 0.004,
+      "server": "serial"
+    },
+    {
+      "agent_stop": [
+        {
+          "exited": true,
+          "signal": "SIGTERM"
+        },
+        {
+          "returncode": -15
+        }
+      ],
+      "case": "serial-half-close",
+      "child": {
+        "class": "survived-handler",
+        "ppid": 1
+      },
+      "cleanup": {
+        "kills": [
+          {
+            "killed": true,
+            "pid": 44,
+            "start_ticks": 8300
+          }
+        ],
+        "left": []
+      },
+      "evidence": {
+        "child.pid": "34340a",
+        "partial": "7061727469616c0a"
+      },
+      "follow": [
+        {
+          "answered_at": 20.022197468,
+          "began_at": 2.006588085,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "blocked",
+          "error": null,
+          "latency": 18.015609383,
+          "name": "health",
+          "queue": {
+            "read_by": 20.047865218,
+            "waited_from": 2.009177918
+          },
+          "reference_latency": 0.000899167,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.023735551,
+          "began_at": 20.022227468,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.001508083,
+          "name": "ordinary",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.003099125,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.02411676,
+          "began_at": 20.023763385,
+          "bound": 150.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.000353375,
+          "name": "download",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.000614916,
+          "spans_handler_end": false,
+          "status": 200
+        }
+      ],
+      "handler": {
+        "alive_at": 20.000593968,
+        "class": "deadline",
+        "gone_by": 20.051965593
+      },
+      "listen_peak": 1,
+      "original": {
+        "acted_at": 2.006246043,
+        "agent_broken_pipes": 0,
+        "answered_at": 20.021919885,
+        "body": {
+          "exitCode": -1,
+          "stderr": "Process timed out",
+          "stdout": ""
+        },
+        "error": null,
+        "status": 200
+      },
+      "original_states": [
+        [
+          "01",
+          0
+        ],
+        [
+          "08",
+          1
+        ]
+      ],
+      "queue_release": -0.03,
+      "server": "serial"
+    },
+    {
+      "agent_stop": [
+        {
+          "exited": true,
+          "signal": "SIGTERM"
+        },
+        {
+          "returncode": -15
+        }
+      ],
+      "case": "host-deadline",
+      "child": {
+        "class": "survived-handler",
+        "ppid": 1
+      },
+      "cleanup": {
+        "kills": [
+          {
+            "killed": true,
+            "pid": 52,
+            "start_ticks": 10330
+          }
+        ],
+        "left": []
+      },
+      "evidence": {
+        "child.pid": "35320a",
+        "partial": "7061727469616c0a"
+      },
+      "follow": [
+        {
+          "answered_at": 7.016423295,
+          "began_at": 2.009944668,
+          "bound": 5.0,
+          "bound_exceeded": true,
+          "class": "failed",
+          "error": null,
+          "latency": 5.006478627,
+          "name": "health-deadline",
+          "queue": {
+            "read_by": 20.015244509,
+            "waited_from": 2.013798834
+          },
+          "spans_handler_end": false,
+          "status": null
+        },
+        {
+          "answered_at": 20.024212717,
+          "began_at": 7.016625253,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "blocked",
+          "error": null,
+          "latency": 13.007587464,
+          "name": "health",
+          "queue": {
+            "read_by": 20.069252717,
+            "waited_from": 7.071367962
+          },
+          "reference_latency": 0.000899167,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.025727675,
+          "began_at": 20.02425405,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.001473625,
+          "name": "ordinary",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.003099125,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 20.026055425,
+          "began_at": 20.025756634,
+          "bound": 150.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.000298791,
+          "name": "download",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.000614916,
+          "spans_handler_end": false,
+          "status": 200
+        }
+      ],
+      "handler": {
+        "alive_at": 19.993718925,
+        "class": "deadline",
+        "gone_by": 20.0453348
+      },
+      "listen_peak": 2,
+      "original": {
+        "acted_at": 2.009807293,
+        "agent_broken_pipes": 1,
+        "answered_at": 20.010660092,
+        "body": {
+          "exitCode": -1,
+          "stderr": "Process timed out",
+          "stdout": ""
+        },
+        "error": null,
+        "status": 200
+      },
+      "original_states": [
+        [
+          "01",
+          0
+        ],
+        [
+          "04",
+          0
+        ],
+        [
+          "05",
+          0
+        ]
+      ],
+      "queue_release": -0.021,
+      "server": "serial"
+    },
+    {
+      "agent_stop": [
+        {
+          "exited": true,
+          "signal": "SIGTERM"
+        },
+        {
+          "returncode": -15
+        }
+      ],
+      "case": "threaded-reset",
+      "child": {
+        "class": "survived-handler",
+        "ppid": 1
+      },
+      "cleanup": {
+        "kills": [
+          {
+            "killed": true,
+            "pid": 61,
+            "start_ticks": 12361
+          }
+        ],
+        "left": []
+      },
+      "evidence": {
+        "child.pid": "36310a",
+        "partial": "7061727469616c0a"
+      },
+      "follow": [
+        {
+          "answered_at": 2.002728417,
+          "began_at": 2.001009084,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.001719333,
+          "name": "health",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.000899167,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 2.006212126,
+          "began_at": 2.002801626,
+          "bound": 30.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.0034105,
+          "name": "ordinary",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.003099125,
+          "spans_handler_end": false,
+          "status": 200
+        },
+        {
+          "answered_at": 2.007057709,
+          "began_at": 2.006269876,
+          "bound": 150.0,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "error": null,
+          "latency": 0.000787833,
+          "name": "download",
+          "queue": {
+            "read_by": null,
+            "waited_from": null
+          },
+          "reference_latency": 0.000614916,
+          "spans_handler_end": false,
+          "status": 200
+        }
+      ],
+      "handler": {
+        "alive_at": 19.996827718,
+        "class": "deadline",
+        "gone_by": 20.052536509
+      },
+      "listen_peak": 0,
+      "original": {
+        "acted_at": 2.000777917,
+        "agent_broken_pipes": 1,
+        "answered_at": null,
+        "body": null,
+        "error": null,
+        "status": null
+      },
+      "original_states": [
+        [
+          "01",
+          0
+        ]
+      ],
+      "queue_release": null,
+      "server": "threading"
+    }
+  ],
+  "problems": []
+}

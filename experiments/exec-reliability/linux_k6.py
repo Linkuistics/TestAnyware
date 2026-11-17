@@ -26,6 +26,7 @@ from __future__ import annotations
 import shutil
 import sys
 import uuid
+from collections.abc import Sequence
 from dataclasses import asdict, replace
 from pathlib import Path
 
@@ -33,9 +34,10 @@ import disconnect_k13_burst as burst
 import linux_k6_seam as seam
 from controller import Call, Plan, Resource, execute_outcome, write_json
 from linux_k5 import IMAGE, STUB, docker_path, image_record, local_modules, run_tag, sha256
-from linux_k204 import CLEANUP_BOUND, CLEANUP_GUEST, GOLDEN, owned_cleanup
+from linux_k204 import CLEANUP_BOUND, CLEANUP_GUEST, GOLDEN
 from routes_k19 import (  # the k19 resource shape, reused unchanged
     AGENTS,
+    APP,
     BOOT,
     CHECKER,
     HEALTH,
@@ -78,7 +80,144 @@ BURST_BUDGET = (
     + 10.0
 )
 CHILD_FILES = tuple(f"{burst.guest_dir(mode)}/child.pid" for mode in burst.MODES)
-LIVE_CLEANUP = owned_cleanup(CHILD_FILES)
+CLEANUP_EARLY = 5.0  # the child can start this long before its PID file is written
+CLEANUP_LATE = 2.0  # /proc/stat gives the boot time in whole seconds
+CLEANUP_WAIT = 2.0  # one shared wait after TERM, and one after KILL
+
+# The guest program of `pidfd_cleanup`. It runs as `python3 -I -` under
+# `/bin/bash -c`. Its first line is replaced by the PID file list.
+PIDFD_PROGRAM = """FILES = []
+import os, select, signal, sys, time
+EARLY, LATE, WAIT = {early}, {late}, {wait}
+HZ = os.sysconf("SC_CLK_TCK")
+
+
+def boot_time():
+    for line in open("/proc/stat"):
+        if line.startswith("btime "):
+            return int(line.split()[1])
+    raise OSError("no btime in /proc/stat")
+
+
+def identity(pid):
+    stat = open(f"/proc/{{pid}}/stat", "rb").read()
+    ticks = int(stat[stat.rindex(b")") + 2 :].split()[19])
+    command = open(f"/proc/{{pid}}/cmdline", "rb").read().replace(b"\\0", b" ").strip()
+    return command.decode(errors="replace"), boot_time() + ticks / HZ
+
+
+def exited(fd, seconds):
+    poll = select.poll()
+    poll.register(fd, select.POLLIN)
+    return bool(poll.poll(max(0, int(seconds * 1000))))
+
+
+def signal_fd(fd, sig):
+    try:
+        signal.pidfd_send_signal(fd, sig)
+        return True
+    except ProcessLookupError:
+        return False
+
+
+uncertain = False
+held = []
+for path in FILES:
+    try:
+        text = open(path).read().strip()
+        written = os.stat(path).st_mtime
+    except FileNotFoundError:
+        continue
+    except OSError as error:
+        print(f"{{path}} unreadable: {{error}}")
+        uncertain = True
+        continue
+    try:
+        pid = int(text)
+        fd = os.pidfd_open(pid)
+    except ProcessLookupError:
+        print(f"{{path}} pid={{text}} result=gone")
+        continue
+    except (ValueError, OSError) as error:
+        print(f"{{path}} pid={{text!r}} result=unknown error={{error}}")
+        uncertain = True
+        continue
+    try:
+        command, started = identity(pid)
+    except (FileNotFoundError, ProcessLookupError):
+        command, started = None, None
+    except OSError as error:
+        print(f"{{path}} pid={{pid}} result=unknown error={{error}}")
+        uncertain = True
+        os.close(fd)
+        continue
+    if command is None or exited(fd, 0):
+        print(f"{{path}} pid={{pid}} result=gone")
+        os.close(fd)
+        continue
+    print(f"{{path}} pid={{pid}} command={{command}}", end=" ")
+    print(f"started={{started:.2f}} written={{written:.2f}}")
+    if command != "sleep 120" or not written - EARLY <= started <= written + LATE:
+        print(f"other pid={{pid}}")
+        os.close(fd)
+        continue
+    if signal_fd(fd, signal.SIGTERM):
+        held.append((pid, fd))
+    else:
+        print(f"gone pid={{pid}}")
+        os.close(fd)
+
+for sig, name in ((signal.SIGKILL, "terminated"), (None, "killed")):
+    deadline = time.monotonic() + WAIT
+    left = []
+    for pid, fd in held:
+        if exited(fd, deadline - time.monotonic()):
+            print(f"{{name}} pid={{pid}}")
+            os.close(fd)
+        elif sig is not None and not signal_fd(fd, sig):
+            print(f"{{name}} pid={{pid}}")
+            os.close(fd)
+        else:
+            left.append((pid, fd))
+    held = left
+for pid, fd in held:
+    print(f"survived pid={{pid}}")
+    os.close(fd)
+    uncertain = True
+print("cleanup uncertain" if uncertain else "cleanup confirmed")
+sys.exit(1 if uncertain else 0)
+"""
+
+
+def pidfd_cleanup(pid_files: Sequence[str]) -> str:
+    """Clean up only the known children, through a pidfd for each identified child.
+
+    Integration k208 replaced the k204 numeric-PID cleanup here. That cleanup
+    checks the command once and then signals the number twice, so a reused PID
+    can receive the signal. This cleanup opens a pidfd first. It accepts the
+    process only when it runs exactly `sleep 120` and started within
+    `CLEANUP_EARLY` before to `CLEANUP_LATE` after the mtime of its PID file. The
+    payload writes that file just after it starts the child. A read is trusted
+    only when the pidfd process is still alive after it, because a live process
+    keeps its PID. TERM and then KILL go through the pidfd, so no later holder of
+    the PID receives either signal.
+
+    The output keeps the k204 vocabulary: `gone`, `other`, `terminated`,
+    `killed`, `unknown` and `survived`. The last line is `cleanup confirmed`
+    unless a PID ended as `unknown` or `survived`. Then it is `cleanup
+    uncertain`, and the command exits 1. Disposal removes everything else.
+
+    The residual limit is the identity. A process that runs `sleep 120` and
+    starts inside the window under the recorded PID passes the check. A guest
+    clock step between the write and the cleanup can turn the true child into
+    `other`, which leaves it to disposal.
+    """
+    program = PIDFD_PROGRAM.format(early=CLEANUP_EARLY, late=CLEANUP_LATE, wait=CLEANUP_WAIT)
+    program = program.replace("FILES = []", f"FILES = {list(pid_files)!r}", 1)
+    return f"python3 -I - <<'K6_CLEANUP'\n{program}K6_CLEANUP"
+
+
+LIVE_CLEANUP = pidfd_cleanup(CHILD_FILES)
 
 
 def source_paths() -> list[Path]:
@@ -175,9 +314,16 @@ def live_plan(tools: dict[str, str], downloads: Path) -> Plan:
         Path(cli).resolve(),
         Path(tools["tart"]).resolve(),
         Path(python),
-        (AGENTS / "linux/testanyware_agent").resolve() / "server.py",
+        APP,
+        APP.parent.parent / "Info.plist",
+        *installed_agent(),
     )
     return Plan(run_id, tuple(calls), resources=(resource,), subjects=subjects)
+
+
+def installed_agent() -> list[Path]:
+    """Every installed Linux agent module. k6 hashed only `server.py`."""
+    return sorted((AGENTS / "linux/testanyware_agent").resolve().glob("*.py"))
 
 
 def bounds() -> dict[str, object]:

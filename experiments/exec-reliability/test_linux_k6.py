@@ -8,6 +8,7 @@ changes one property and expects the checker to classify it.
 
 import copy
 import json
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -142,6 +143,28 @@ def test_both_plans_pass_the_controller_rules(tmp_path: Path) -> None:
     controller._validate(linux_k6.live_plan(tools, tmp_path), None)  # pyright: ignore[reportPrivateUsage]
 
 
+def test_the_live_plan_hashes_the_app_and_every_installed_agent_module(tmp_path: Path) -> None:
+    tools = {"python": "/usr/bin/python3", "cli": "/bin/testanyware", "tart": "/bin/tart"}
+    subjects = set(linux_k6.live_plan(tools, tmp_path).subjects)
+    assert {linux_k6.APP, linux_k6.APP.parent.parent / "Info.plist"} <= subjects
+    assert set(linux_k6.installed_agent()) <= subjects
+
+
+def test_the_live_cleanup_signals_only_through_a_pidfd(tmp_path: Path) -> None:
+    head, rest = linux_k6.LIVE_CLEANUP.split("\n", 1)
+    assert head == "python3 -I - <<'K6_CLEANUP'"
+    program, tail = rest.rsplit("K6_CLEANUP", 1)
+    assert tail == ""
+    compile(program, "cleanup", "exec")
+    assert f"FILES = {list(linux_k6.CHILD_FILES)!r}" in program
+    assert "os.pidfd_open(pid)" in program
+    assert program.count("signal.pidfd_send_signal(fd, sig)") == 1
+    assert "os.kill" not in program and "kill -" not in program
+    tools = {"python": "/usr/bin/python3", "cli": "/bin/testanyware", "tart": "/bin/tart"}
+    (resource,) = linux_k6.live_plan(tools, tmp_path).resources
+    assert resource.cleanup.argv[-1] == linux_k6.LIVE_CLEANUP
+
+
 def test_the_sweep_owns_payloads_and_agents_but_not_the_container_init() -> None:
     tag = "000000000042"
     assert seam.owned_by_run(["sleep", f"120.3{tag}"], tag)
@@ -255,13 +278,13 @@ def test_the_queue_record_reads_unread_request_bytes(tmp_path: Path) -> None:
 # ---- live rule ----
 
 
-LIVE_01 = (
-    HERE / "evidence/linux-disconnect-availability-k6/live-01/f5158780256d4fad9def8d77a9554797"
-)
+EVIDENCE = HERE / "evidence/linux-disconnect-availability-k6"
+LIVE_01 = EVIDENCE / "live-01/f5158780256d4fad9def8d77a9554797"
+LIVE_02 = EVIDENCE / "live-02/bafa1b186d534d4cbe0893e48b5168b4"
 
 
-def live_result(mode: str) -> dict[str, Any]:
-    return json.loads((LIVE_01 / f"burst-{mode}.stdout").read_bytes())
+def live_result(mode: str, run: Path = LIVE_01) -> dict[str, Any]:
+    return json.loads((run / f"burst-{mode}.stdout").read_bytes())
 
 
 def test_the_linux_rules_judge_the_retained_live_01_records() -> None:
@@ -269,9 +292,10 @@ def test_the_linux_rules_judge_the_retained_live_01_records() -> None:
     assert checker.linux_original(control)["expected"] is True
     assert checker.linux_original(control)["timed_out"] is False
     assert checker.live_handler(control)[0] == "deadline"
+    assert checker.live_handler(control)[3] == "deadline-reply"
     term = live_result("term")
     handler, lo, hi, basis = checker.live_handler(term)
-    assert (handler, lo, basis) == ("deadline", None, "queue-release")
+    assert (handler, lo, basis) == ("gone-by", None, "upper-bound")
     assert hi == pytest.approx(20.069, abs=0.001)
     adopted = checker.adoption(term)
     assert adopted is not None
@@ -298,3 +322,55 @@ def test_a_reply_without_the_linux_deadline_text_is_unexpected() -> None:
     body["stderr"] = ""
     control["original"]["stdout_hex"] = json.dumps(body).encode().hex()
     assert checker.linux_original(control)["expected"] is False
+
+
+def test_a_queued_term_inspection_gives_only_an_upper_bound() -> None:
+    # k207 finding 1: the live-02 term inspection answers at 20.077 s with the adopter.
+    handler, lo, hi, basis = checker.live_handler(live_result("term", LIVE_02))
+    assert (handler, lo, basis) == ("gone-by", None, "upper-bound")
+    assert hi == pytest.approx(20.077, abs=0.001)
+
+
+def test_an_early_upper_bound_is_cancelled() -> None:
+    term = copy.deepcopy(live_result("term", LIVE_02))
+    first = term["follow"][0]
+    first["end_ns"] = term["start_ns"] + 5 * S
+    handler, _lo, hi, basis = checker.live_handler(term)
+    assert (handler, basis) == ("cancelled", "upper-bound")
+    assert hi == pytest.approx(5.0, abs=0.001)
+
+
+def test_without_the_deadline_reply_a_control_is_only_gone_by() -> None:
+    control = copy.deepcopy(live_result("control", LIVE_02))
+    body = json.loads(bytes.fromhex(control["original"]["stdout_hex"]))
+    body["stderr"] = ""
+    control["original"]["stdout_hex"] = json.dumps(body).encode().hex()
+    assert checker.live_handler(control)[0::3] == ("gone-by", "upper-bound")
+
+
+def test_a_copied_live_out_is_judged_from_its_own_run(tmp_path: Path) -> None:
+    out = tmp_path / "live-02"
+    shutil.copytree(EVIDENCE / "live-02", out)
+    summary = json.loads((out / "summary.json").read_text())
+    summary["run"] = f"/nonexistent/elsewhere/{LIVE_02.name}"
+    (out / "summary.json").write_text(json.dumps(summary))
+    retained = (out / "check.json").read_bytes()
+    assert checker.main(["check", "live", str(out), "check-copy.json"]) == 0
+    assert (out / "check.json").read_bytes() == retained
+    report = json.loads((out / "check-copy.json").read_text())
+    assert report["problems"] == []
+    assert [v["handler"] for v in report["modes"]] == ["deadline", "deadline", "gone-by"]
+
+
+def test_a_copied_container_out_is_judged_from_its_own_run(tmp_path: Path) -> None:
+    out = tmp_path / "container-01"
+    shutil.copytree(EVIDENCE / "container-01", out)
+    summary = json.loads((out / "summary.json").read_text())
+    summary["run"] = "/nonexistent/elsewhere/" + Path(str(summary["run"])).name
+    (out / "summary.json").write_text(json.dumps(summary))
+    assert checker.main(["check", "container", str(out), "check-copy.json"]) == 0
+
+
+@pytest.mark.parametrize("result", ["../check.json", "sub/check.json", "summary.json", ".."])
+def test_the_result_name_must_be_a_plain_new_file(tmp_path: Path, result: str) -> None:
+    assert checker.main(["check", "live", str(tmp_path), result]) == 64

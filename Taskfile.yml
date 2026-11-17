@@ -466,11 +466,11 @@ tasks:
       - experiments/exec-reliability/linux_k6_run.sh live {{.OUT | shellQuote}}
 
   diagnostic:linux-disconnect-check:
-    desc: 'Judge one retained k6 OUT directory, relative to the repository root. MODE is container or live. Classify each follow-up as baseline, responsive, blocked or failed, and the handler and the child separately. Exit 0 only when the evidence is complete'
+    desc: 'Judge one retained k6 OUT directory, relative to the repository root. MODE is container or live. Classify each follow-up as baseline, responsive, blocked or failed, and the handler and the child separately. The run directory is found inside OUT. The result goes to OUT/RESULT, by default check.json. Use another RESULT to re-judge a retained OUT. Exit 0 only when the evidence is complete'
     requires:
       vars: [MODE, OUT]
     cmds:
-      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/linux_k6_check.py {{.MODE | shellQuote}} {{.OUT | shellQuote}}
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/linux_k6_check.py {{.MODE | shellQuote}} {{.OUT | shellQuote}} {{.RESULT | default "check.json" | shellQuote}}
 
   diagnostic:linux-disconnect-tools:
     desc: Check the k6 Linux disconnect controller, seam, checker, runner and controls
