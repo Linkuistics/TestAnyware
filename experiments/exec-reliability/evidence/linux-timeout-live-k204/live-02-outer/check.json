@@ -1,0 +1,871 @@
+{
+  "run": "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/linux-timeout-live-k204/live-02/9ecaf72af04d4ffaa6ffbc79e1b882d8",
+  "checker_revision": 1,
+  "evidence": "complete",
+  "survival": "reproduced",
+  "fork_controls": {
+    "cli-fork": {
+      "timeout_valid": true,
+      "states": {
+        "shell": {
+          "first": "absent",
+          "late": "absent",
+          "after_cleanup": "absent"
+        },
+        "child": {
+          "first": "present",
+          "late": "present",
+          "after_cleanup": "absent"
+        }
+      },
+      "result": "reproduced",
+      "violations": [
+        "child present 5 s after the control returned"
+      ]
+    },
+    "raw-fork": {
+      "timeout_valid": true,
+      "states": {
+        "shell": {
+          "first": "absent",
+          "late": "absent",
+          "after_cleanup": "absent"
+        },
+        "child": {
+          "first": "present",
+          "late": "present",
+          "after_cleanup": "absent"
+        }
+      },
+      "result": "reproduced",
+      "violations": [
+        "child present 5 s after the control returned"
+      ]
+    }
+  },
+  "fixture_survival": {
+    "result": "listed",
+    "observations": {
+      "r5-observe-timeout": {
+        "timeout": "present"
+      },
+      "r5-observe-cancel": {
+        "timeout": "present",
+        "cancel": "present"
+      },
+      "r5-observe-after-cleanup": {
+        "timeout": "not-listed",
+        "cancel": "not-listed"
+      }
+    }
+  },
+  "stall": "not-reproduced",
+  "stalled": [],
+  "admitted": [],
+  "violations": {
+    "observe-forks-late": [
+      "cli-fork child present 5 s after the control returned",
+      "raw-fork child present 5 s after the control returned"
+    ]
+  },
+  "missing": [],
+  "failed": [],
+  "run_failures": [],
+  "provenance_failures": [],
+  "disposal_failures": [],
+  "control_cleanup": {
+    "state": "confirmed",
+    "lines": [
+      "/tmp/taw-k204/cli-fork/child.pid pid=2020 command=sleep 120",
+      "terminated pid=2020",
+      "/tmp/taw-k204/raw-fork/child.pid pid=2028 command=sleep 120",
+      "terminated pid=2028",
+      "cleanup confirmed"
+    ],
+    "failures": []
+  },
+  "cleanup": {
+    "state": "confirmed",
+    "lines": [
+      "/tmp/taw-k204/cli-fork/child.pid pid=2020 command=",
+      "gone pid=2020",
+      "/tmp/taw-k204/raw-fork/child.pid pid=2028 command=",
+      "gone pid=2028",
+      "/tmp/vmfit-k15/timeout.pid pid=2158 command=",
+      "gone pid=2158",
+      "/tmp/vmfit-k15/cancel.pid pid=2168 command=",
+      "gone pid=2168",
+      "cleanup confirmed"
+    ],
+    "failures": []
+  },
+  "unreached": [],
+  "samples": {
+    "health-before": {
+      "role": "health",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551482.863059291,
+      "elapsed": 0.07621095899958163,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "identity": {
+      "role": "ordinary",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551482.939719541,
+      "elapsed": 0.11475912504829466,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./testanyware_agent/__init__.py\nfcd96981474a28b844e798c05797c0b551d6a87115a236d3f162d757e57e5528  ./testanyware_agent/__main__.py\nc88a16330dd0f439033895c558700920fb916cda0b63b2e55c9d9b658beb2a92  ./testanyware_agent/accessibility.py\nef752d357be746472dfa6a4953a3bcc87b420e89f26dd9f729fad221f80352e1  ./testanyware_agent/models.py\n8adbada9ce000971bfa7fb9f59eae3a23add768786cad2335b73e4dd0e81a845  ./testanyware_agent/query_resolver.py\nc2a9c5e0cb7bdd50f4da629addab93a79b0c52901aa8772616f167ac05b36d81  ./testanyware_agent/role_mapper.py\nb62de750472930c628dd4ae8a5bd118928f4efefb373c8365568acb3d0102a95  ./testanyware_agent/server.py\n217770b9151037568b54683338c5cbcb2ad84e14170b357ba5f54cb2c35f81cd  ./testanyware_agent/system_endpoints.py\n867ea22c65bf7be0ae8b49b2af420572d4190f1d35b3000b520f3cc0a7dbf850  ./testanyware_agent/tree_walker.py\n24.04\naarch64\nPython 3.12.3\nuid=1000(admin) gid=109(admin) groups=109(admin)\n    PID    PPID    PGID     SID USER                      STARTED COMMAND\n   1142    1130    1142    1142 admin    Tue Nov 17 16:50:05 2026 python3 -m testanyware_agent",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false
+    },
+    "table-before": {
+      "role": "ordinary",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551483.054963208,
+      "elapsed": 0.08620079199317843,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "    PID    PPID    PGID     SID STAT                  STARTED     ELAPSED COMMAND\n      1       0       1       1 Ss   Tue Nov 17 16:49:49 2026       00:17 /sbin/init splash\n      2       0       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [kthreadd]\n      3       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [pool_workqueue_release]\n      4       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-rcu_gp]\n      5       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-sync_wq]\n      6       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-kvfree_rcu_reclaim]\n      7       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-slub_flushwq]\n      8       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-netns]\n      9       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/0:0-events]\n     10       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/0:0H-events_highpri]\n     11       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/0:1-events]\n     12       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/u16:0-flush-253:0]\n     13       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-mm_percpu_wq]\n     14       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [ksoftirqd/0]\n     15       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [rcu_preempt]\n     16       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [rcu_exp_par_gp_kthread_worker/0]\n     17       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [rcu_exp_gp_kthread_worker]\n     18       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [migration/0]\n     19       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [idle_inject/0]\n     20       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [cpuhp/0]\n     21       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [cpuhp/1]\n     22       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [idle_inject/1]\n     23       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [migration/1]\n     24       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [ksoftirqd/1]\n     25       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/1:0-cgroup_free]\n     26       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/1:0H-events_highpri]\n     27       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [cpuhp/2]\n     28       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [idle_inject/2]\n     29       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [migration/2]\n     30       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [ksoftirqd/2]\n     31       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/2:0-events]\n     32       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/2:0H-events_highpri]\n     33       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [cpuhp/3]\n     34       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [idle_inject/3]\n     35       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [migration/3]\n     36       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [ksoftirqd/3]\n     37       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/3:0-events]\n     38       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/3:0H-events_highpri]\n     39       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [kdevtmpfs]\n     40       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-inet_frag_wq]\n     41       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [rcu_tasks_kthread]\n     42       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [rcu_tasks_rude_kthread]\n     43       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [rcu_tasks_trace_kthread]\n     44       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [kauditd]\n     45       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [khungtaskd]\n     46       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/u16:1-writeback]\n     47       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [oom_reaper]\n     48       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-writeback]\n     49       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [kcompactd0]\n     50       2       0       0 SN   Tue Nov 17 16:49:49 2026       00:17 [ksmd]\n     51       2       0       0 SN   Tue Nov 17 16:49:49 2026       00:17 [khugepaged]\n     52       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-kblockd]\n     53       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-blkcg_punt_bio]\n     54       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-kintegrityd]\n     55       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/1:1-events]\n     56       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-tpm_dev_wq]\n     57       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-ata_sff]\n     58       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-md]\n     59       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-md_bitmap]\n     60       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-edac-poller]\n     61       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-devfreq_wq]\n     62       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [watchdogd]\n     63       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/2:1-events]\n     64       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-quota_events_unbound]\n     65       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/1:1H-kblockd]\n     66       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [kswapd0]\n     67       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [ecryptfs-kthread]\n     68       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-kthrotld]\n     69       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/u17:0]\n     70       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-acpi_thermal_pm]\n     71       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/u16:2-loop2]\n     72       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-mld]\n     73       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/2:1H-kblockd]\n     74       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-ipv6_addrconf]\n     75       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-kstrp]\n     76       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/3:1-cgroup_free]\n     79       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/u16:3-loop4]\n     81       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-charger_manager]\n     82       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [irq/13-ACPI:Event]\n     83       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/0:1H-kblockd]\n    111       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/3:1H-kblockd]\n    138       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [hwrng]\n    139       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/2:2-cgroup_free]\n    165       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/3:2-events]\n    176       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/3:3-events]\n    192       2       0       0 I    Tue Nov 17 16:49:49 2026       00:17 [kworker/0:2-events]\n    197       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-raid5wq]\n    212       1       0       0 Sl   Tue Nov 17 16:49:49 2026       00:17 /usr/sbin/plymouthd --mode=boot --attach-to-session --pid-file=/run/plymouth/pid\n    245       2       0       0 S    Tue Nov 17 16:49:49 2026       00:17 [jbd2/vda1-8]\n    246       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:17 [kworker/R-ext4-rsv-conversion]\n    321       1     321     321 S<s  Tue Nov 17 16:49:49 2026       00:16 /usr/lib/systemd/systemd-journald\n    341       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:16 [kworker/R-kmpathd]\n    344       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:16 [kworker/R-kmpath_handlerd]\n    345       2       0       0 I    Tue Nov 17 16:49:49 2026       00:16 [kworker/1:2]\n    370       1     370     370 SLsl Tue Nov 17 16:49:49 2026       00:16 /sbin/multipathd -d -s\n    377       1     377     377 Ss   Tue Nov 17 16:49:49 2026       00:16 /usr/lib/systemd/systemd-udevd\n    406       2       0       0 S    Tue Nov 17 16:49:50 2026       00:16 [psimon]\n    444       2       0       0 I    Tue Nov 17 16:49:50 2026       00:16 [kworker/u16:4-events_unbound]\n    447       2       0       0 I    Tue Nov 17 16:49:50 2026       00:16 [kworker/u16:5-events_unbound]\n    448       2       0       0 I    Tue Nov 17 16:49:50 2026       00:16 [kworker/u16:6-ext4-rsv-conversion]\n    451       2       0       0 I    Tue Nov 17 16:49:50 2026       00:16 [kworker/u16:7-events_unbound]\n    472       1     472     472 Ss   Tue Nov 17 16:49:50 2026       00:16 /usr/lib/systemd/systemd-fsckd\n    539       2       0       0 S    Tue Nov 17 16:49:50 2026       00:15 [jbd2/vda16-8]\n    540       2       0       0 I<   Tue Nov 17 16:49:50 2026       00:15 [kworker/R-ext4-rsv-conversion]\n    600       1     600     600 Ss   Tue Nov 17 16:49:51 2026       00:15 /usr/lib/systemd/systemd-resolved\n    614       1     614     614 Ssl  Tue Nov 17 16:49:51 2026       00:15 /usr/lib/systemd/systemd-timesyncd\n    752       1     752     752 Ss   Tue Nov 17 16:49:51 2026       00:15 @dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only\n    759       1     759     759 Ssl  Tue Nov 17 16:49:51 2026       00:15 /usr/lib/polkit-1/polkitd --no-debug\n    767       1     767     767 Ssl  Tue Nov 17 16:49:51 2026       00:15 /usr/lib/snapd/snapd\n    774       1     774     774 Ss   Tue Nov 17 16:49:51 2026       00:15 /usr/lib/systemd/systemd-logind\n    775       1     775     775 Ssl  Tue Nov 17 16:49:51 2026       00:15 tart-guest-agent --run-rpc\n    776       1     776     776 Ssl  Tue Nov 17 16:49:51 2026       00:15 /usr/libexec/udisks2/udisksd\n    829       1     829     829 Ssl  Tue Nov 17 16:49:51 2026       00:15 /usr/sbin/NetworkManager --no-daemon\n    839       1     839     839 Ssl  Tue Nov 17 16:49:51 2026       00:15 /usr/sbin/rsyslogd -n -iNONE\n    924       1     924     924 Ssl  Tue Nov 17 16:49:51 2026       00:15 /usr/sbin/ModemManager\n    948       1     948     948 Ss   Tue Nov 17 16:49:51 2026       00:14 /usr/lib/systemd/systemd-hostnamed\n    994       1     994     994 Ss   Tue Nov 17 16:49:51 2026       00:14 /usr/lib/systemd/systemd-timedated\n   1054       1    1054    1054 Ss   Tue Nov 17 16:49:54 2026       00:12 /usr/sbin/cron -f -P\n   1057       1    1057    1057 Ss   Tue Nov 17 16:49:54 2026       00:12 /usr/bin/plymouth --wait\n   1070       1    1070    1070 Ssl  Tue Nov 17 16:49:54 2026       00:12 /usr/sbin/gdm3\n   1111       1    1111    1111 Ssl  Tue Nov 17 16:50:05 2026       00:01 /usr/libexec/accounts-daemon\n   1121    1070    1070    1070 Sl   Tue Nov 17 16:50:05 2026       00:01 gdm-session-worker [pam/gdm-autologin]\n   1126       1    1126    1126 Ss   Tue Nov 17 16:50:05 2026       00:01 /usr/lib/systemd/systemd-oomd\n   1128       2       0       0 S    Tue Nov 17 16:50:05 2026       00:01 [psimon]\n   1130       1    1130    1130 Ss   Tue Nov 17 16:50:05 2026       00:01 /usr/lib/systemd/systemd --user\n   1131    1130    1130    1130 S    Tue Nov 17 16:50:05 2026       00:01 (sd-pam)\n   1142    1130    1142    1142 Ss   Tue Nov 17 16:50:05 2026       00:01 python3 -m testanyware_agent\n   1145       1    1144    1144 Sl   Tue Nov 17 16:50:05 2026       00:01 /usr/bin/gnome-keyring-daemon --daemonize --login\n   1151    1121    1151    1151 Ssl+ Tue Nov 17 16:50:05 2026       00:01 /usr/libexec/gdm-x-session --run-script env GNOME_SHELL_SESSION_MODE=ubuntu /usr/bin/gnome-session --session=ubuntu\n   1153    1151    1151    1151 Sl+  Tue Nov 17 16:50:05 2026       00:01 /usr/lib/xorg/Xorg vt2 -displayfd 3 -auth /run/user/1000/gdm/Xauthority -nolisten tcp -background none -noreset -keeptty -novtswitch -verbose 3\n   1167    1130    1167    1167 Ss   Tue Nov 17 16:50:05 2026       00:01 /usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only\n   1170    1151    1151    1151 Sl+  Tue Nov 17 16:50:05 2026       00:01 /usr/libexec/gnome-session-binary --session=ubuntu\n   1251    1130    1251    1251 Ssl  Tue Nov 17 16:50:05 2026       00:01 /usr/libexec/at-spi-bus-launcher\n   1258    1251    1251    1251 S    Tue Nov 17 16:50:05 2026       00:01 /usr/bin/dbus-daemon --config-file=/usr/share/defaults/at-spi2/accessibility.conf --nofork --print-address 11 --address=unix:path=/run/user/1000/at-spi/bus_0\n   1282    1130    1282    1282 Ssl  Tue Nov 17 16:50:05 2026       00:00 /usr/libexec/gnome-session-ctl --monitor\n   1314    1130    1314    1314 Ssl  Tue Nov 17 16:50:05 2026       00:00 /usr/libexec/gnome-session-binary --systemd-service --session=ubuntu\n   1354    1130    1354    1354 Rsl  Tue Nov 17 16:50:05 2026       00:00 /usr/bin/gnome-shell\n   1360    1130    1360    1360 Ssl  Tue Nov 17 16:50:05 2026       00:00 /usr/libexec/gvfsd\n   1366    1130    1360    1360 Sl   Tue Nov 17 16:50:05 2026       00:00 /usr/libexec/gvfsd-fuse /run/user/1000/gvfs -f\n   1379     377     377     377 S    Tue Nov 17 16:50:05 2026       00:00 (udev-worker)\n   1389    1354    1354    1354 Sl   Tue Nov 17 16:50:05 2026       00:00 /usr/libexec/mutter-x11-frames\n   1392    1130    1251    1251 Sl   Tue Nov 17 16:50:05 2026       00:00 /usr/libexec/at-spi2-registryd --use-gnome-session\n   1393       1    1393    1393 Ssl  Tue Nov 17 16:50:05 2026       00:00 /usr/libexec/colord\n   1425    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Screencast\n   1435    1130    1435    1435 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/xdg-permission-store\n   1437    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gnome-shell-calendar-server\n   1451    1130    1451    1451 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/evolution-source-registry\n   1459    1130    1459    1459 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/dconf-service\n   1463       1    1463    1463 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/packagekitd\n   1465    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Notifications\n   1474       1    1474    1474 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/upowerd\n   1483    1130    1483    1483 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/bin/ibus-daemon --panel disable --xim\n   1485    1130    1485    1485 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-a11y-settings\n   1486    1130    1486    1486 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-color\n   1487    1130    1487    1487 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-datetime\n   1491    1130    1491    1491 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-housekeeping\n   1492    1130    1492    1492 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-keyboard\n   1495    1130    1495    1495 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-media-keys\n   1496    1130    1496    1496 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-power\n   1501    1130    1501    1501 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-print-notifications\n   1503    1130    1503    1503 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-rfkill\n   1504    1130    1504    1504 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-screensaver-proxy\n   1505    1130    1505    1505 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-sharing\n   1506    1130    1506    1506 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-smartcard\n   1510    1130    1510    1510 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-sound\n   1511    1130    1511    1511 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-wacom\n   1512    1130    1512    1512 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-xsettings\n   1521    1130    1521    1521 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/bin/spice-vdagent\n   1563    1130    1501    1501 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-printer\n   1564    1130    1564    1564 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gvfs-udisks2-volume-monitor\n   1565       1    1565    1565 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/sbin/spice-vdagentd\n   1582       1    1582    1582 Ss   Tue Nov 17 16:50:06 2026       00:00 /usr/lib/systemd/systemd-localed\n   1601    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/goa-daemon\n   1626    1130    1626    1626 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gvfs-mtp-volume-monitor\n   1657    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/goa-identity-service\n   1658    1130    1658    1658 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gvfs-goa-volume-monitor\n   1671    1130    1671    1671 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gvfs-gphoto2-volume-monitor\n   1674    1130    1674    1674 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/evolution-calendar-factory\n   1679    1130    1679    1679 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gvfs-afc-volume-monitor\n   1688     377     377     377 S    Tue Nov 17 16:50:06 2026       00:00 (udev-worker)\n   1689     377     377     377 S    Tue Nov 17 16:50:06 2026       00:00 (udev-worker)\n   1691    1314    1314    1314 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gsd-disk-utility-notify\n   1699    1314    1314    1314 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/evolution-data-server/evolution-alarm-notify\n   1735    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.ScreenSaver\n   1759    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/ibus-memconf\n   1760    1483    1483    1483 Rl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/ibus-extension-gtk3\n   1768    1130    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/ibus-x11 --kill-daemon\n   1771    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/ibus-portal\n   1773    1130    1773    1773 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/gvfsd-metadata\n   1790    1130    1790    1790 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/evolution-addressbook-factory\n   1808       1    1808    1808 Ssl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/power-profiles-daemon\n   1844    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/ibus-engine-simple\n   1879       1    1879    1879 Rsl  Tue Nov 17 16:50:06 2026       00:00 /usr/libexec/geoclue\n   1881    1142    1142    1142 R    Tue Nov 17 16:50:06 2026       00:00 ps -eo pid,ppid,pgid,sid,stat,lstart,etime,args",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false
+    },
+    "cli-sleep": {
+      "role": "timeout",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551483.141526166,
+      "elapsed": 2.0743536669760942,
+      "exit_code": -1,
+      "timed_out": false,
+      "stdout": "",
+      "stderr": "Process timed out",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "overhead": 0.074
+    },
+    "table-after-cli-sleep": {
+      "role": "ordinary",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551485.216062,
+      "elapsed": 0.07893954101018608,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "    PID    PPID    PGID     SID STAT                  STARTED     ELAPSED COMMAND\n      1       0       1       1 Ss   Tue Nov 17 16:49:49 2026       00:19 /sbin/init splash\n      2       0       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [kthreadd]\n      3       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [pool_workqueue_release]\n      4       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-rcu_gp]\n      5       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-sync_wq]\n      6       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-kvfree_rcu_reclaim]\n      7       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-slub_flushwq]\n      8       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-netns]\n      9       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/0:0-events]\n     10       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/0:0H-events_highpri]\n     11       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/0:1-events]\n     12       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/u16:0-flush-253:0]\n     13       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-mm_percpu_wq]\n     14       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [ksoftirqd/0]\n     15       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [rcu_preempt]\n     16       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [rcu_exp_par_gp_kthread_worker/0]\n     17       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [rcu_exp_gp_kthread_worker]\n     18       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [migration/0]\n     19       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [idle_inject/0]\n     20       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [cpuhp/0]\n     21       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [cpuhp/1]\n     22       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [idle_inject/1]\n     23       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [migration/1]\n     24       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [ksoftirqd/1]\n     25       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/1:0-cgroup_free]\n     26       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/1:0H-events_highpri]\n     27       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [cpuhp/2]\n     28       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [idle_inject/2]\n     29       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [migration/2]\n     30       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [ksoftirqd/2]\n     31       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/2:0-events]\n     32       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/2:0H-events_highpri]\n     33       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [cpuhp/3]\n     34       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [idle_inject/3]\n     35       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [migration/3]\n     36       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [ksoftirqd/3]\n     37       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/3:0-events]\n     38       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/3:0H-events_highpri]\n     39       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [kdevtmpfs]\n     40       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-inet_frag_wq]\n     41       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [rcu_tasks_kthread]\n     42       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [rcu_tasks_rude_kthread]\n     43       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [rcu_tasks_trace_kthread]\n     44       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [kauditd]\n     45       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [khungtaskd]\n     46       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/u16:1-events_unbound]\n     47       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [oom_reaper]\n     48       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-writeback]\n     49       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [kcompactd0]\n     50       2       0       0 SN   Tue Nov 17 16:49:49 2026       00:19 [ksmd]\n     51       2       0       0 SN   Tue Nov 17 16:49:49 2026       00:19 [khugepaged]\n     52       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-kblockd]\n     53       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-blkcg_punt_bio]\n     54       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-kintegrityd]\n     55       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/1:1-events]\n     56       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-tpm_dev_wq]\n     57       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-ata_sff]\n     58       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-md]\n     59       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-md_bitmap]\n     60       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-edac-poller]\n     61       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-devfreq_wq]\n     62       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [watchdogd]\n     63       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/2:1-mm_percpu_wq]\n     64       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-quota_events_unbound]\n     65       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/1:1H-kblockd]\n     66       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [kswapd0]\n     67       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [ecryptfs-kthread]\n     68       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-kthrotld]\n     69       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/u17:0]\n     70       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-acpi_thermal_pm]\n     71       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/u16:2-loop2]\n     72       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-mld]\n     73       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/2:1H-kblockd]\n     74       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-ipv6_addrconf]\n     75       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-kstrp]\n     76       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/3:1-cgroup_free]\n     79       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/u16:3-loop4]\n     81       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-charger_manager]\n     82       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [irq/13-ACPI:Event]\n     83       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/0:1H-kblockd]\n    111       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/3:1H-kblockd]\n    138       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [hwrng]\n    139       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/2:2-cgroup_free]\n    165       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/3:2-mm_percpu_wq]\n    176       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/3:3-events]\n    192       2       0       0 I    Tue Nov 17 16:49:49 2026       00:19 [kworker/0:2-events]\n    197       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-raid5wq]\n    212       1       0       0 Sl   Tue Nov 17 16:49:49 2026       00:19 /usr/sbin/plymouthd --mode=boot --attach-to-session --pid-file=/run/plymouth/pid\n    245       2       0       0 S    Tue Nov 17 16:49:49 2026       00:19 [jbd2/vda1-8]\n    246       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:19 [kworker/R-ext4-rsv-conversion]\n    321       1     321     321 S<s  Tue Nov 17 16:49:49 2026       00:18 /usr/lib/systemd/systemd-journald\n    341       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:18 [kworker/R-kmpathd]\n    344       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:18 [kworker/R-kmpath_handlerd]\n    345       2       0       0 I    Tue Nov 17 16:49:49 2026       00:18 [kworker/1:2]\n    370       1     370     370 SLsl Tue Nov 17 16:49:49 2026       00:18 /sbin/multipathd -d -s\n    377       1     377     377 Ss   Tue Nov 17 16:49:49 2026       00:18 /usr/lib/systemd/systemd-udevd\n    406       2       0       0 S    Tue Nov 17 16:49:50 2026       00:18 [psimon]\n    444       2       0       0 I    Tue Nov 17 16:49:50 2026       00:18 [kworker/u16:4-events_unbound]\n    447       2       0       0 I    Tue Nov 17 16:49:50 2026       00:18 [kworker/u16:5-events_unbound]\n    448       2       0       0 I    Tue Nov 17 16:49:50 2026       00:18 [kworker/u16:6-ext4-rsv-conversion]\n    451       2       0       0 I    Tue Nov 17 16:49:50 2026       00:18 [kworker/u16:7-events_unbound]\n    472       1     472     472 Ss   Tue Nov 17 16:49:50 2026       00:18 /usr/lib/systemd/systemd-fsckd\n    539       2       0       0 S    Tue Nov 17 16:49:50 2026       00:17 [jbd2/vda16-8]\n    540       2       0       0 I<   Tue Nov 17 16:49:50 2026       00:17 [kworker/R-ext4-rsv-conversion]\n    600       1     600     600 Ss   Tue Nov 17 16:49:51 2026       00:17 /usr/lib/systemd/systemd-resolved\n    614       1     614     614 Ssl  Tue Nov 17 16:49:51 2026       00:17 /usr/lib/systemd/systemd-timesyncd\n    752       1     752     752 Ss   Tue Nov 17 16:49:51 2026       00:17 @dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only\n    759       1     759     759 Ssl  Tue Nov 17 16:49:51 2026       00:17 /usr/lib/polkit-1/polkitd --no-debug\n    767       1     767     767 Ssl  Tue Nov 17 16:49:51 2026       00:17 /usr/lib/snapd/snapd\n    774       1     774     774 Ss   Tue Nov 17 16:49:51 2026       00:17 /usr/lib/systemd/systemd-logind\n    775       1     775     775 Ssl  Tue Nov 17 16:49:51 2026       00:17 tart-guest-agent --run-rpc\n    776       1     776     776 Ssl  Tue Nov 17 16:49:51 2026       00:17 /usr/libexec/udisks2/udisksd\n    829       1     829     829 Ssl  Tue Nov 17 16:49:51 2026       00:17 /usr/sbin/NetworkManager --no-daemon\n    839       1     839     839 Ssl  Tue Nov 17 16:49:51 2026       00:17 /usr/sbin/rsyslogd -n -iNONE\n    924       1     924     924 Ssl  Tue Nov 17 16:49:51 2026       00:17 /usr/sbin/ModemManager\n    948       1     948     948 Ss   Tue Nov 17 16:49:51 2026       00:17 /usr/lib/systemd/systemd-hostnamed\n    994       1     994     994 Ss   Tue Nov 17 16:49:51 2026       00:16 /usr/lib/systemd/systemd-timedated\n   1054       1    1054    1054 Ss   Tue Nov 17 16:49:54 2026       00:14 /usr/sbin/cron -f -P\n   1057       1    1057    1057 Ss   Tue Nov 17 16:49:54 2026       00:14 /usr/bin/plymouth --wait\n   1070       1    1070    1070 Ssl  Tue Nov 17 16:49:54 2026       00:14 /usr/sbin/gdm3\n   1111       1    1111    1111 Ssl  Tue Nov 17 16:50:05 2026       00:03 /usr/libexec/accounts-daemon\n   1121    1070    1070    1070 Sl   Tue Nov 17 16:50:05 2026       00:03 gdm-session-worker [pam/gdm-autologin]\n   1126       1    1126    1126 Ss   Tue Nov 17 16:50:05 2026       00:03 /usr/lib/systemd/systemd-oomd\n   1128       2       0       0 S    Tue Nov 17 16:50:05 2026       00:03 [psimon]\n   1130       1    1130    1130 Ss   Tue Nov 17 16:50:05 2026       00:03 /usr/lib/systemd/systemd --user\n   1131    1130    1130    1130 S    Tue Nov 17 16:50:05 2026       00:03 (sd-pam)\n   1142    1130    1142    1142 Ss   Tue Nov 17 16:50:05 2026       00:03 python3 -m testanyware_agent\n   1145       1    1144    1144 Sl   Tue Nov 17 16:50:05 2026       00:03 /usr/bin/gnome-keyring-daemon --daemonize --login\n   1151    1121    1151    1151 Ssl+ Tue Nov 17 16:50:05 2026       00:03 /usr/libexec/gdm-x-session --run-script env GNOME_SHELL_SESSION_MODE=ubuntu /usr/bin/gnome-session --session=ubuntu\n   1153    1151    1151    1151 Sl+  Tue Nov 17 16:50:05 2026       00:03 /usr/lib/xorg/Xorg vt2 -displayfd 3 -auth /run/user/1000/gdm/Xauthority -nolisten tcp -background none -noreset -keeptty -novtswitch -verbose 3\n   1167    1130    1167    1167 Ss   Tue Nov 17 16:50:05 2026       00:03 /usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only\n   1170    1151    1151    1151 Sl+  Tue Nov 17 16:50:05 2026       00:03 /usr/libexec/gnome-session-binary --session=ubuntu\n   1251    1130    1251    1251 Ssl  Tue Nov 17 16:50:05 2026       00:03 /usr/libexec/at-spi-bus-launcher\n   1258    1251    1251    1251 S    Tue Nov 17 16:50:05 2026       00:03 /usr/bin/dbus-daemon --config-file=/usr/share/defaults/at-spi2/accessibility.conf --nofork --print-address 11 --address=unix:path=/run/user/1000/at-spi/bus_0\n   1282    1130    1282    1282 Ssl  Tue Nov 17 16:50:05 2026       00:03 /usr/libexec/gnome-session-ctl --monitor\n   1314    1130    1314    1314 Ssl  Tue Nov 17 16:50:05 2026       00:03 /usr/libexec/gnome-session-binary --systemd-service --session=ubuntu\n   1354    1130    1354    1354 Ssl  Tue Nov 17 16:50:05 2026       00:03 /usr/bin/gnome-shell\n   1360    1130    1360    1360 Ssl  Tue Nov 17 16:50:05 2026       00:02 /usr/libexec/gvfsd\n   1366    1130    1360    1360 Sl   Tue Nov 17 16:50:05 2026       00:02 /usr/libexec/gvfsd-fuse /run/user/1000/gvfs -f\n   1379     377     377     377 S    Tue Nov 17 16:50:05 2026       00:02 (udev-worker)\n   1389    1354    1354    1354 Sl   Tue Nov 17 16:50:05 2026       00:02 /usr/libexec/mutter-x11-frames\n   1392    1130    1251    1251 Sl   Tue Nov 17 16:50:05 2026       00:02 /usr/libexec/at-spi2-registryd --use-gnome-session\n   1393       1    1393    1393 Ssl  Tue Nov 17 16:50:05 2026       00:02 /usr/libexec/colord\n   1425    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Screencast\n   1435    1130    1435    1435 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/xdg-permission-store\n   1437    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gnome-shell-calendar-server\n   1451    1130    1451    1451 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/evolution-source-registry\n   1459    1130    1459    1459 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/dconf-service\n   1463       1    1463    1463 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/packagekitd\n   1465    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Notifications\n   1474       1    1474    1474 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/upowerd\n   1483    1130    1483    1483 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/bin/ibus-daemon --panel disable --xim\n   1485    1130    1485    1485 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-a11y-settings\n   1486    1130    1486    1486 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-color\n   1487    1130    1487    1487 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-datetime\n   1491    1130    1491    1491 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-housekeeping\n   1492    1130    1492    1492 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-keyboard\n   1495    1130    1495    1495 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-media-keys\n   1496    1130    1496    1496 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-power\n   1501    1130    1501    1501 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-print-notifications\n   1503    1130    1503    1503 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-rfkill\n   1504    1130    1504    1504 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-screensaver-proxy\n   1505    1130    1505    1505 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-sharing\n   1506    1130    1506    1506 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-smartcard\n   1510    1130    1510    1510 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-sound\n   1511    1130    1511    1511 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-wacom\n   1512    1130    1512    1512 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-xsettings\n   1521    1130    1521    1521 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/bin/spice-vdagent\n   1563    1130    1501    1501 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-printer\n   1564    1130    1564    1564 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gvfs-udisks2-volume-monitor\n   1565       1    1565    1565 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/sbin/spice-vdagentd\n   1582       1    1582    1582 Ss   Tue Nov 17 16:50:06 2026       00:02 /usr/lib/systemd/systemd-localed\n   1601    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/goa-daemon\n   1626    1130    1626    1626 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gvfs-mtp-volume-monitor\n   1657    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/goa-identity-service\n   1658    1130    1658    1658 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gvfs-goa-volume-monitor\n   1671    1130    1671    1671 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gvfs-gphoto2-volume-monitor\n   1674    1130    1674    1674 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/evolution-calendar-factory\n   1679    1130    1679    1679 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gvfs-afc-volume-monitor\n   1688     377     377     377 S    Tue Nov 17 16:50:06 2026       00:02 (udev-worker)\n   1689     377     377     377 S    Tue Nov 17 16:50:06 2026       00:02 (udev-worker)\n   1691    1314    1314    1314 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gsd-disk-utility-notify\n   1699    1314    1314    1314 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/evolution-data-server/evolution-alarm-notify\n   1735    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.ScreenSaver\n   1759    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/ibus-memconf\n   1760    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/ibus-extension-gtk3\n   1768    1130    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/ibus-x11 --kill-daemon\n   1771    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/ibus-portal\n   1773    1130    1773    1773 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gvfsd-metadata\n   1790    1130    1790    1790 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/evolution-addressbook-factory\n   1808       1    1808    1808 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/power-profiles-daemon\n   1844    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/ibus-engine-simple\n   1879       1    1879    1879 Ssl  Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/geoclue\n   1886       1    1886    1886 Ss   Tue Nov 17 16:50:06 2026       00:02 /usr/sbin/wpa_supplicant -u -s -O DIR=/run/wpa_supplicant GROUP=netdev\n   1892    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/bin/nautilus --gapplication-service\n   1893    1360    1360    1360 Sl   Tue Nov 17 16:50:06 2026       00:02 /usr/libexec/gvfsd-trash --spawner :1.26 /org/gtk/gvfs/exec_spaw/0\n   1924    1130    1924    1924 Ssl  Tue Nov 17 16:50:06 2026       00:01 /usr/libexec/xdg-desktop-portal\n   1929    1130    1929    1929 Ssl  Tue Nov 17 16:50:06 2026       00:01 /usr/libexec/xdg-document-portal\n   1935    1929    1935    1935 Ss   Tue Nov 17 16:50:06 2026       00:01 fusermount3 -o rw,nosuid,nodev,fsname=portal,auto_unmount,subtype=portal -- /run/user/1000/doc\n   1938    1130    1938    1938 Ssl  Tue Nov 17 16:50:06 2026       00:01 /usr/libexec/xdg-desktop-portal-gnome\n   1941    1354    1354    1354 Sl   Tue Nov 17 16:50:06 2026       00:01 gjs /usr/share/gnome-shell/extensions/ding@rastersoft.com/app/ding.js -E -P /usr/share/gnome-shell/extensions/ding@rastersoft.com/app\n   1985       1    1985    1985 SNsl Tue Nov 17 16:50:07 2026       00:01 /usr/libexec/rtkit-daemon\n   1988    1130    1988    1988 Ssl  Tue Nov 17 16:50:07 2026       00:01 /usr/libexec/xdg-desktop-portal-gtk\n   1998    1130    1998    1998 SNsl Tue Nov 17 16:50:07 2026       00:01 /usr/libexec/tracker-miner-fs-3\n   2012    1142    1142    1142 R    Tue Nov 17 16:50:08 2026       00:00 ps -eo pid,ppid,pgid,sid,stat,lstart,etime,args",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false
+    },
+    "raw-sleep": {
+      "role": "timeout",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551485.295191208,
+      "elapsed": 2.11075033294037,
+      "exit_code": -1,
+      "timed_out": null,
+      "stdout": "",
+      "stderr": "Process timed out",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "raw_seconds": 2.025247,
+      "overhead": 0.111,
+      "raw_overhead": 0.025
+    },
+    "table-after-raw-sleep": {
+      "role": "ordinary",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551487.406278708,
+      "elapsed": 0.09906058292835951,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "    PID    PPID    PGID     SID STAT                  STARTED     ELAPSED COMMAND\n      1       0       1       1 Ss   Tue Nov 17 16:49:49 2026       00:21 /sbin/init splash\n      2       0       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [kthreadd]\n      3       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [pool_workqueue_release]\n      4       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-rcu_gp]\n      5       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-sync_wq]\n      6       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-kvfree_rcu_reclaim]\n      7       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-slub_flushwq]\n      8       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-netns]\n      9       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/0:0-events]\n     10       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/0:0H-events_highpri]\n     11       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/0:1-events]\n     12       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/u16:0-flush-253:0]\n     13       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-mm_percpu_wq]\n     14       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [ksoftirqd/0]\n     15       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [rcu_preempt]\n     16       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [rcu_exp_par_gp_kthread_worker/0]\n     17       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [rcu_exp_gp_kthread_worker]\n     18       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [migration/0]\n     19       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [idle_inject/0]\n     20       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [cpuhp/0]\n     21       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [cpuhp/1]\n     22       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [idle_inject/1]\n     23       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [migration/1]\n     24       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [ksoftirqd/1]\n     25       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/1:0-cgroup_free]\n     26       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/1:0H-events_highpri]\n     27       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [cpuhp/2]\n     28       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [idle_inject/2]\n     29       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [migration/2]\n     30       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [ksoftirqd/2]\n     31       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/2:0-events]\n     32       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/2:0H-events_highpri]\n     33       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [cpuhp/3]\n     34       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [idle_inject/3]\n     35       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [migration/3]\n     36       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [ksoftirqd/3]\n     37       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/3:0-events]\n     38       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/3:0H-events_highpri]\n     39       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [kdevtmpfs]\n     40       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-inet_frag_wq]\n     41       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [rcu_tasks_kthread]\n     42       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [rcu_tasks_rude_kthread]\n     43       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [rcu_tasks_trace_kthread]\n     44       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [kauditd]\n     45       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [khungtaskd]\n     46       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/u16:1-flush-253:0]\n     47       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [oom_reaper]\n     48       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-writeback]\n     49       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [kcompactd0]\n     50       2       0       0 SN   Tue Nov 17 16:49:49 2026       00:21 [ksmd]\n     51       2       0       0 SN   Tue Nov 17 16:49:49 2026       00:21 [khugepaged]\n     52       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-kblockd]\n     53       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-blkcg_punt_bio]\n     54       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-kintegrityd]\n     55       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/1:1-events]\n     56       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-tpm_dev_wq]\n     57       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-ata_sff]\n     58       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-md]\n     59       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-md_bitmap]\n     60       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-edac-poller]\n     61       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-devfreq_wq]\n     62       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [watchdogd]\n     63       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/2:1-events]\n     64       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-quota_events_unbound]\n     65       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/1:1H-kblockd]\n     66       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [kswapd0]\n     67       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [ecryptfs-kthread]\n     68       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-kthrotld]\n     69       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/u17:0]\n     70       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-acpi_thermal_pm]\n     71       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/u16:2-loop2]\n     72       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-mld]\n     73       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/2:1H-kblockd]\n     74       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-ipv6_addrconf]\n     75       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-kstrp]\n     76       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/3:1-cgroup_free]\n     79       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/u16:3-loop4]\n     81       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-charger_manager]\n     82       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [irq/13-ACPI:Event]\n     83       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/0:1H-kblockd]\n    111       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/3:1H-kblockd]\n    138       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [hwrng]\n    139       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/2:2-cgroup_free]\n    165       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/3:2-events]\n    176       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/3:3-events]\n    192       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/0:2-events]\n    197       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-raid5wq]\n    212       1       0       0 Sl   Tue Nov 17 16:49:49 2026       00:21 /usr/sbin/plymouthd --mode=boot --attach-to-session --pid-file=/run/plymouth/pid\n    245       2       0       0 S    Tue Nov 17 16:49:49 2026       00:21 [jbd2/vda1-8]\n    246       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-ext4-rsv-conversion]\n    321       1     321     321 S<s  Tue Nov 17 16:49:49 2026       00:21 /usr/lib/systemd/systemd-journald\n    341       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-kmpathd]\n    344       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:21 [kworker/R-kmpath_handlerd]\n    345       2       0       0 I    Tue Nov 17 16:49:49 2026       00:21 [kworker/1:2]\n    370       1     370     370 SLsl Tue Nov 17 16:49:49 2026       00:21 /sbin/multipathd -d -s\n    377       1     377     377 Ss   Tue Nov 17 16:49:49 2026       00:21 /usr/lib/systemd/systemd-udevd\n    406       2       0       0 S    Tue Nov 17 16:49:50 2026       00:20 [psimon]\n    444       2       0       0 I    Tue Nov 17 16:49:50 2026       00:20 [kworker/u16:4-events_unbound]\n    447       2       0       0 I    Tue Nov 17 16:49:50 2026       00:20 [kworker/u16:5-events_unbound]\n    448       2       0       0 I    Tue Nov 17 16:49:50 2026       00:20 [kworker/u16:6-flush-253:0]\n    451       2       0       0 I    Tue Nov 17 16:49:50 2026       00:20 [kworker/u16:7-flush-253:0]\n    472       1     472     472 Ss   Tue Nov 17 16:49:50 2026       00:20 /usr/lib/systemd/systemd-fsckd\n    539       2       0       0 S    Tue Nov 17 16:49:50 2026       00:20 [jbd2/vda16-8]\n    540       2       0       0 I<   Tue Nov 17 16:49:50 2026       00:20 [kworker/R-ext4-rsv-conversion]\n    600       1     600     600 Ss   Tue Nov 17 16:49:51 2026       00:19 /usr/lib/systemd/systemd-resolved\n    614       1     614     614 Ssl  Tue Nov 17 16:49:51 2026       00:19 /usr/lib/systemd/systemd-timesyncd\n    752       1     752     752 Ss   Tue Nov 17 16:49:51 2026       00:19 @dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only\n    759       1     759     759 Ssl  Tue Nov 17 16:49:51 2026       00:19 /usr/lib/polkit-1/polkitd --no-debug\n    767       1     767     767 Ssl  Tue Nov 17 16:49:51 2026       00:19 /usr/lib/snapd/snapd\n    774       1     774     774 Ss   Tue Nov 17 16:49:51 2026       00:19 /usr/lib/systemd/systemd-logind\n    775       1     775     775 Ssl  Tue Nov 17 16:49:51 2026       00:19 tart-guest-agent --run-rpc\n    776       1     776     776 Ssl  Tue Nov 17 16:49:51 2026       00:19 /usr/libexec/udisks2/udisksd\n    829       1     829     829 Ssl  Tue Nov 17 16:49:51 2026       00:19 /usr/sbin/NetworkManager --no-daemon\n    839       1     839     839 Ssl  Tue Nov 17 16:49:51 2026       00:19 /usr/sbin/rsyslogd -n -iNONE\n    924       1     924     924 Ssl  Tue Nov 17 16:49:51 2026       00:19 /usr/sbin/ModemManager\n    948       1     948     948 Ss   Tue Nov 17 16:49:51 2026       00:19 /usr/lib/systemd/systemd-hostnamed\n    994       1     994     994 Ss   Tue Nov 17 16:49:51 2026       00:19 /usr/lib/systemd/systemd-timedated\n   1054       1    1054    1054 Ss   Tue Nov 17 16:49:54 2026       00:16 /usr/sbin/cron -f -P\n   1057       1    1057    1057 Ss   Tue Nov 17 16:49:54 2026       00:16 /usr/bin/plymouth --wait\n   1070       1    1070    1070 Ssl  Tue Nov 17 16:49:54 2026       00:16 /usr/sbin/gdm3\n   1111       1    1111    1111 Ssl  Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/accounts-daemon\n   1121    1070    1070    1070 Sl   Tue Nov 17 16:50:05 2026       00:05 gdm-session-worker [pam/gdm-autologin]\n   1126       1    1126    1126 Ss   Tue Nov 17 16:50:05 2026       00:05 /usr/lib/systemd/systemd-oomd\n   1128       2       0       0 S    Tue Nov 17 16:50:05 2026       00:05 [psimon]\n   1130       1    1130    1130 Ss   Tue Nov 17 16:50:05 2026       00:05 /usr/lib/systemd/systemd --user\n   1131    1130    1130    1130 S    Tue Nov 17 16:50:05 2026       00:05 (sd-pam)\n   1142    1130    1142    1142 Ss   Tue Nov 17 16:50:05 2026       00:05 python3 -m testanyware_agent\n   1145       1    1144    1144 Sl   Tue Nov 17 16:50:05 2026       00:05 /usr/bin/gnome-keyring-daemon --daemonize --login\n   1151    1121    1151    1151 Ssl+ Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/gdm-x-session --run-script env GNOME_SHELL_SESSION_MODE=ubuntu /usr/bin/gnome-session --session=ubuntu\n   1153    1151    1151    1151 Sl+  Tue Nov 17 16:50:05 2026       00:05 /usr/lib/xorg/Xorg vt2 -displayfd 3 -auth /run/user/1000/gdm/Xauthority -nolisten tcp -background none -noreset -keeptty -novtswitch -verbose 3\n   1167    1130    1167    1167 Ss   Tue Nov 17 16:50:05 2026       00:05 /usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only\n   1170    1151    1151    1151 Sl+  Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/gnome-session-binary --session=ubuntu\n   1251    1130    1251    1251 Ssl  Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/at-spi-bus-launcher\n   1258    1251    1251    1251 S    Tue Nov 17 16:50:05 2026       00:05 /usr/bin/dbus-daemon --config-file=/usr/share/defaults/at-spi2/accessibility.conf --nofork --print-address 11 --address=unix:path=/run/user/1000/at-spi/bus_0\n   1282    1130    1282    1282 Ssl  Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/gnome-session-ctl --monitor\n   1314    1130    1314    1314 Ssl  Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/gnome-session-binary --systemd-service --session=ubuntu\n   1354    1130    1354    1354 Ssl  Tue Nov 17 16:50:05 2026       00:05 /usr/bin/gnome-shell\n   1360    1130    1360    1360 Ssl  Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/gvfsd\n   1366    1130    1360    1360 Sl   Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/gvfsd-fuse /run/user/1000/gvfs -f\n   1389    1354    1354    1354 Sl   Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/mutter-x11-frames\n   1392    1130    1251    1251 Sl   Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/at-spi2-registryd --use-gnome-session\n   1393       1    1393    1393 Ssl  Tue Nov 17 16:50:05 2026       00:05 /usr/libexec/colord\n   1435    1130    1435    1435 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/xdg-permission-store\n   1437    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gnome-shell-calendar-server\n   1451    1130    1451    1451 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/evolution-source-registry\n   1459    1130    1459    1459 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/dconf-service\n   1463       1    1463    1463 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/packagekitd\n   1465    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Notifications\n   1474       1    1474    1474 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/upowerd\n   1483    1130    1483    1483 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/bin/ibus-daemon --panel disable --xim\n   1485    1130    1485    1485 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-a11y-settings\n   1486    1130    1486    1486 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-color\n   1487    1130    1487    1487 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-datetime\n   1491    1130    1491    1491 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-housekeeping\n   1492    1130    1492    1492 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-keyboard\n   1495    1130    1495    1495 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-media-keys\n   1496    1130    1496    1496 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-power\n   1501    1130    1501    1501 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-print-notifications\n   1503    1130    1503    1503 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-rfkill\n   1504    1130    1504    1504 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-screensaver-proxy\n   1505    1130    1505    1505 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-sharing\n   1506    1130    1506    1506 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-smartcard\n   1510    1130    1510    1510 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-sound\n   1511    1130    1511    1511 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-wacom\n   1512    1130    1512    1512 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-xsettings\n   1521    1130    1521    1521 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/bin/spice-vdagent\n   1563    1130    1501    1501 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-printer\n   1564    1130    1564    1564 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gvfs-udisks2-volume-monitor\n   1565       1    1565    1565 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/sbin/spice-vdagentd\n   1582       1    1582    1582 Ss   Tue Nov 17 16:50:06 2026       00:04 /usr/lib/systemd/systemd-localed\n   1601    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/goa-daemon\n   1626    1130    1626    1626 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gvfs-mtp-volume-monitor\n   1657    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/goa-identity-service\n   1658    1130    1658    1658 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gvfs-goa-volume-monitor\n   1671    1130    1671    1671 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gvfs-gphoto2-volume-monitor\n   1674    1130    1674    1674 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/evolution-calendar-factory\n   1679    1130    1679    1679 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gvfs-afc-volume-monitor\n   1691    1314    1314    1314 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gsd-disk-utility-notify\n   1699    1314    1314    1314 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/evolution-data-server/evolution-alarm-notify\n   1735    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.ScreenSaver\n   1759    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/ibus-memconf\n   1760    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/ibus-extension-gtk3\n   1768    1130    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/ibus-x11 --kill-daemon\n   1771    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/ibus-portal\n   1773    1130    1773    1773 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gvfsd-metadata\n   1790    1130    1790    1790 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/evolution-addressbook-factory\n   1808       1    1808    1808 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/power-profiles-daemon\n   1844    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/ibus-engine-simple\n   1879       1    1879    1879 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/geoclue\n   1886       1    1886    1886 Ss   Tue Nov 17 16:50:06 2026       00:04 /usr/sbin/wpa_supplicant -u -s -O DIR=/run/wpa_supplicant GROUP=netdev\n   1892    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/bin/nautilus --gapplication-service\n   1893    1360    1360    1360 Sl   Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/gvfsd-trash --spawner :1.26 /org/gtk/gvfs/exec_spaw/0\n   1924    1130    1924    1924 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/xdg-desktop-portal\n   1929    1130    1929    1929 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/xdg-document-portal\n   1935    1929    1935    1935 Ss   Tue Nov 17 16:50:06 2026       00:04 fusermount3 -o rw,nosuid,nodev,fsname=portal,auto_unmount,subtype=portal -- /run/user/1000/doc\n   1938    1130    1938    1938 Ssl  Tue Nov 17 16:50:06 2026       00:04 /usr/libexec/xdg-desktop-portal-gnome\n   1941    1354    1354    1354 Sl   Tue Nov 17 16:50:06 2026       00:04 gjs /usr/share/gnome-shell/extensions/ding@rastersoft.com/app/ding.js -E -P /usr/share/gnome-shell/extensions/ding@rastersoft.com/app\n   1985       1    1985    1985 SNsl Tue Nov 17 16:50:07 2026       00:03 /usr/libexec/rtkit-daemon\n   1988    1130    1988    1988 Ssl  Tue Nov 17 16:50:07 2026       00:03 /usr/libexec/xdg-desktop-portal-gtk\n   1998    1130    1998    1998 SNsl Tue Nov 17 16:50:07 2026       00:03 /usr/libexec/tracker-miner-fs-3\n   2017    1142    1142    1142 R    Tue Nov 17 16:50:10 2026       00:00 ps -eo pid,ppid,pgid,sid,stat,lstart,etime,args",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false
+    },
+    "cli-fork": {
+      "role": "timeout",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551487.505719458,
+      "elapsed": 2.0972965830005705,
+      "exit_code": -1,
+      "timed_out": false,
+      "stdout": "",
+      "stderr": "Process timed out",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "overhead": 0.097
+    },
+    "observe-cli-fork": {
+      "role": "observe",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551489.603640875,
+      "elapsed": 0.10632875002920628,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "cli-fork-shell pid=2018\ncli-fork-shell ps-exit=1\ncli-fork-child pid=2020\n   2020    1130    1142    1142 S    Tue Nov 17 16:50:11 2026 sleep 120\ncli-fork-child ps-exit=0",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false,
+      "processes": {
+        "cli-fork-shell": {
+          "pid": 2018,
+          "state": "absent",
+          "ps_exit": 1
+        },
+        "cli-fork-child": {
+          "pid": 2020,
+          "state": "present",
+          "ps_exit": 0,
+          "ppid": 1130,
+          "pgid": 1142,
+          "sid": 1142,
+          "stat": "S",
+          "lstart": "Tue Nov 17 16:50:11 2026",
+          "args": "sleep 120"
+        }
+      }
+    },
+    "download-cli-fork-partial": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551489.710316375,
+      "elapsed": 0.07415720797143877,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "raw-fork": {
+      "role": "timeout",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551489.784795666,
+      "elapsed": 2.114823958952911,
+      "exit_code": -1,
+      "timed_out": null,
+      "stdout": "",
+      "stderr": "Process timed out",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "raw_seconds": 2.02344225,
+      "overhead": 0.115,
+      "raw_overhead": 0.023
+    },
+    "observe-raw-fork": {
+      "role": "observe",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551491.899966166,
+      "elapsed": 0.09865525003988296,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "raw-fork-shell pid=2026\nraw-fork-shell ps-exit=1\nraw-fork-child pid=2028\n   2028    1130    1142    1142 S    Tue Nov 17 16:50:13 2026 sleep 120\nraw-fork-child ps-exit=0",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false,
+      "processes": {
+        "raw-fork-shell": {
+          "pid": 2026,
+          "state": "absent",
+          "ps_exit": 1
+        },
+        "raw-fork-child": {
+          "pid": 2028,
+          "state": "present",
+          "ps_exit": 0,
+          "ppid": 1130,
+          "pgid": 1142,
+          "sid": 1142,
+          "stat": "S",
+          "lstart": "Tue Nov 17 16:50:13 2026",
+          "args": "sleep 120"
+        }
+      }
+    },
+    "download-raw-fork-partial": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551491.998951708,
+      "elapsed": 0.06977287505287677,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "health-mid": {
+      "role": "health",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551492.068984125,
+      "elapsed": 0.06524862500373274,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "observe-forks-late": {
+      "role": "observe",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551492.134395166,
+      "elapsed": 5.1134572920855135,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "cli-fork-shell pid=2018\ncli-fork-shell ps-exit=1\ncli-fork-child pid=2020\n   2020    1130    1142    1142 S    Tue Nov 17 16:50:11 2026 sleep 120\ncli-fork-child ps-exit=0\nraw-fork-shell pid=2026\nraw-fork-shell ps-exit=1\nraw-fork-child pid=2028\n   2028    1130    1142    1142 S    Tue Nov 17 16:50:13 2026 sleep 120\nraw-fork-child ps-exit=0",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false,
+      "processes": {
+        "cli-fork-shell": {
+          "pid": 2018,
+          "state": "absent",
+          "ps_exit": 1
+        },
+        "cli-fork-child": {
+          "pid": 2020,
+          "state": "present",
+          "ps_exit": 0,
+          "ppid": 1130,
+          "pgid": 1142,
+          "sid": 1142,
+          "stat": "S",
+          "lstart": "Tue Nov 17 16:50:11 2026",
+          "args": "sleep 120"
+        },
+        "raw-fork-shell": {
+          "pid": 2026,
+          "state": "absent",
+          "ps_exit": 1
+        },
+        "raw-fork-child": {
+          "pid": 2028,
+          "state": "present",
+          "ps_exit": 0,
+          "ppid": 1130,
+          "pgid": 1142,
+          "sid": 1142,
+          "stat": "S",
+          "lstart": "Tue Nov 17 16:50:13 2026",
+          "args": "sleep 120"
+        }
+      }
+    },
+    "control-cleanup": {
+      "role": "cleanup",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551497.248057916,
+      "elapsed": 0.10020916711073369,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "/tmp/taw-k204/cli-fork/child.pid pid=2020 command=sleep 120\nterminated pid=2020\n/tmp/taw-k204/raw-fork/child.pid pid=2028 command=sleep 120\nterminated pid=2028\ncleanup confirmed",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false,
+      "cleanup": {
+        "state": "confirmed",
+        "lines": [
+          "/tmp/taw-k204/cli-fork/child.pid pid=2020 command=sleep 120",
+          "terminated pid=2020",
+          "/tmp/taw-k204/raw-fork/child.pid pid=2028 command=sleep 120",
+          "terminated pid=2028",
+          "cleanup confirmed"
+        ],
+        "failures": []
+      }
+    },
+    "observe-after-control-cleanup": {
+      "role": "observe",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551497.348632666,
+      "elapsed": 0.11227225000038743,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "cli-fork-shell pid=2018\ncli-fork-shell ps-exit=1\ncli-fork-child pid=2020\ncli-fork-child ps-exit=1\nraw-fork-shell pid=2026\nraw-fork-shell ps-exit=1\nraw-fork-child pid=2028\nraw-fork-child ps-exit=1",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false,
+      "processes": {
+        "cli-fork-shell": {
+          "pid": 2018,
+          "state": "absent",
+          "ps_exit": 1
+        },
+        "cli-fork-child": {
+          "pid": 2020,
+          "state": "absent",
+          "ps_exit": 1
+        },
+        "raw-fork-shell": {
+          "pid": 2026,
+          "state": "absent",
+          "ps_exit": 1
+        },
+        "raw-fork-child": {
+          "pid": 2028,
+          "state": "absent",
+          "ps_exit": 1
+        }
+      }
+    },
+    "table-before-r5": {
+      "role": "ordinary",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551497.461079708,
+      "elapsed": 0.08341512503102422,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "    PID    PPID    PGID     SID STAT                  STARTED     ELAPSED COMMAND\n      1       0       1       1 Ss   Tue Nov 17 16:49:49 2026       00:32 /sbin/init splash\n      2       0       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [kthreadd]\n      3       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [pool_workqueue_release]\n      4       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-rcu_gp]\n      5       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-sync_wq]\n      6       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-kvfree_rcu_reclaim]\n      7       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-slub_flushwq]\n      8       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-netns]\n      9       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [kworker/0:0-events]\n     10       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/0:0H-events_highpri]\n     11       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [kworker/0:1-events]\n     12       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [kworker/u16:0-events_power_efficient]\n     13       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-mm_percpu_wq]\n     14       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [ksoftirqd/0]\n     15       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [rcu_preempt]\n     16       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [rcu_exp_par_gp_kthread_worker/0]\n     17       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [rcu_exp_gp_kthread_worker]\n     18       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [migration/0]\n     19       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [idle_inject/0]\n     20       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [cpuhp/0]\n     21       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [cpuhp/1]\n     22       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [idle_inject/1]\n     23       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [migration/1]\n     24       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [ksoftirqd/1]\n     25       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [kworker/1:0-cgroup_free]\n     26       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/1:0H-events_highpri]\n     27       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [cpuhp/2]\n     28       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [idle_inject/2]\n     29       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [migration/2]\n     30       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [ksoftirqd/2]\n     31       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [kworker/2:0-events]\n     32       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/2:0H-events_highpri]\n     33       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [cpuhp/3]\n     34       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [idle_inject/3]\n     35       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [migration/3]\n     36       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [ksoftirqd/3]\n     37       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [kworker/3:0-events]\n     38       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/3:0H-events_highpri]\n     39       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [kdevtmpfs]\n     40       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-inet_frag_wq]\n     41       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [rcu_tasks_kthread]\n     42       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [rcu_tasks_rude_kthread]\n     43       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [rcu_tasks_trace_kthread]\n     44       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [kauditd]\n     45       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [khungtaskd]\n     46       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [kworker/u16:1-flush-253:0]\n     47       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [oom_reaper]\n     48       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-writeback]\n     49       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [kcompactd0]\n     50       2       0       0 SN   Tue Nov 17 16:49:49 2026       00:32 [ksmd]\n     51       2       0       0 SN   Tue Nov 17 16:49:49 2026       00:32 [khugepaged]\n     52       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-kblockd]\n     53       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-blkcg_punt_bio]\n     54       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-kintegrityd]\n     55       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [kworker/1:1-events]\n     56       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-tpm_dev_wq]\n     57       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-ata_sff]\n     58       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-md]\n     59       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-md_bitmap]\n     60       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-edac-poller]\n     61       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-devfreq_wq]\n     62       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [watchdogd]\n     63       2       0       0 I    Tue Nov 17 16:49:49 2026       00:32 [kworker/2:1-events]\n     64       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/R-quota_events_unbound]\n     65       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:32 [kworker/1:1H-kblockd]\n     66       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [kswapd0]\n     67       2       0       0 S    Tue Nov 17 16:49:49 2026       00:32 [ecryptfs-kthread]\n     68       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/R-kthrotld]\n     69       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/u17:0]\n     70       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/R-acpi_thermal_pm]\n     71       2       0       0 I    Tue Nov 17 16:49:49 2026       00:31 [kworker/u16:2-loop2]\n     72       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/R-mld]\n     73       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/2:1H-kblockd]\n     74       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/R-ipv6_addrconf]\n     75       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/R-kstrp]\n     76       2       0       0 I    Tue Nov 17 16:49:49 2026       00:31 [kworker/3:1-cgroup_free]\n     79       2       0       0 I    Tue Nov 17 16:49:49 2026       00:31 [kworker/u16:3-loop4]\n     81       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/R-charger_manager]\n     82       2       0       0 S    Tue Nov 17 16:49:49 2026       00:31 [irq/13-ACPI:Event]\n     83       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/0:1H-kblockd]\n    111       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/3:1H-kblockd]\n    138       2       0       0 S    Tue Nov 17 16:49:49 2026       00:31 [hwrng]\n    139       2       0       0 I    Tue Nov 17 16:49:49 2026       00:31 [kworker/2:2-cgroup_free]\n    165       2       0       0 I    Tue Nov 17 16:49:49 2026       00:31 [kworker/3:2-events]\n    176       2       0       0 I    Tue Nov 17 16:49:49 2026       00:31 [kworker/3:3-events]\n    192       2       0       0 I    Tue Nov 17 16:49:49 2026       00:31 [kworker/0:2-events]\n    197       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/R-raid5wq]\n    212       1       0       0 Sl   Tue Nov 17 16:49:49 2026       00:31 /usr/sbin/plymouthd --mode=boot --attach-to-session --pid-file=/run/plymouth/pid\n    245       2       0       0 S    Tue Nov 17 16:49:49 2026       00:31 [jbd2/vda1-8]\n    246       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/R-ext4-rsv-conversion]\n    321       1     321     321 S<s  Tue Nov 17 16:49:49 2026       00:31 /usr/lib/systemd/systemd-journald\n    341       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/R-kmpathd]\n    344       2       0       0 I<   Tue Nov 17 16:49:49 2026       00:31 [kworker/R-kmpath_handlerd]\n    345       2       0       0 I    Tue Nov 17 16:49:49 2026       00:31 [kworker/1:2]\n    370       1     370     370 SLsl Tue Nov 17 16:49:49 2026       00:31 /sbin/multipathd -d -s\n    377       1     377     377 Ss   Tue Nov 17 16:49:49 2026       00:31 /usr/lib/systemd/systemd-udevd\n    406       2       0       0 S    Tue Nov 17 16:49:50 2026       00:30 [psimon]\n    444       2       0       0 I    Tue Nov 17 16:49:50 2026       00:30 [kworker/u16:4-events_unbound]\n    447       2       0       0 I    Tue Nov 17 16:49:50 2026       00:30 [kworker/u16:5-events_unbound]\n    448       2       0       0 I    Tue Nov 17 16:49:50 2026       00:30 [kworker/u16:6-flush-253:0]\n    451       2       0       0 I    Tue Nov 17 16:49:50 2026       00:30 [kworker/u16:7-flush-253:0]\n    539       2       0       0 S    Tue Nov 17 16:49:50 2026       00:30 [jbd2/vda16-8]\n    540       2       0       0 I<   Tue Nov 17 16:49:50 2026       00:30 [kworker/R-ext4-rsv-conversion]\n    600       1     600     600 Ss   Tue Nov 17 16:49:51 2026       00:29 /usr/lib/systemd/systemd-resolved\n    614       1     614     614 Ssl  Tue Nov 17 16:49:51 2026       00:29 /usr/lib/systemd/systemd-timesyncd\n    752       1     752     752 Ss   Tue Nov 17 16:49:51 2026       00:29 @dbus-daemon --system --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only\n    759       1     759     759 Ssl  Tue Nov 17 16:49:51 2026       00:29 /usr/lib/polkit-1/polkitd --no-debug\n    767       1     767     767 Ssl  Tue Nov 17 16:49:51 2026       00:29 /usr/lib/snapd/snapd\n    774       1     774     774 Ss   Tue Nov 17 16:49:51 2026       00:29 /usr/lib/systemd/systemd-logind\n    775       1     775     775 Ssl  Tue Nov 17 16:49:51 2026       00:29 tart-guest-agent --run-rpc\n    776       1     776     776 Ssl  Tue Nov 17 16:49:51 2026       00:29 /usr/libexec/udisks2/udisksd\n    829       1     829     829 Ssl  Tue Nov 17 16:49:51 2026       00:29 /usr/sbin/NetworkManager --no-daemon\n    839       1     839     839 Ssl  Tue Nov 17 16:49:51 2026       00:29 /usr/sbin/rsyslogd -n -iNONE\n    924       1     924     924 Ssl  Tue Nov 17 16:49:51 2026       00:29 /usr/sbin/ModemManager\n    948       1     948     948 Ss   Tue Nov 17 16:49:51 2026       00:29 /usr/lib/systemd/systemd-hostnamed\n    994       1     994     994 Ss   Tue Nov 17 16:49:51 2026       00:29 /usr/lib/systemd/systemd-timedated\n   1054       1    1054    1054 Ss   Tue Nov 17 16:49:54 2026       00:26 /usr/sbin/cron -f -P\n   1057       1    1057    1057 Ss   Tue Nov 17 16:49:54 2026       00:26 /usr/bin/plymouth --wait\n   1070       1    1070    1070 Ssl  Tue Nov 17 16:49:54 2026       00:26 /usr/sbin/gdm3\n   1111       1    1111    1111 Ssl  Tue Nov 17 16:50:05 2026       00:16 /usr/libexec/accounts-daemon\n   1121    1070    1070    1070 Sl   Tue Nov 17 16:50:05 2026       00:15 gdm-session-worker [pam/gdm-autologin]\n   1126       1    1126    1126 Ss   Tue Nov 17 16:50:05 2026       00:15 /usr/lib/systemd/systemd-oomd\n   1128       2       0       0 S    Tue Nov 17 16:50:05 2026       00:15 [psimon]\n   1130       1    1130    1130 Ss   Tue Nov 17 16:50:05 2026       00:15 /usr/lib/systemd/systemd --user\n   1131    1130    1130    1130 S    Tue Nov 17 16:50:05 2026       00:15 (sd-pam)\n   1142    1130    1142    1142 Ss   Tue Nov 17 16:50:05 2026       00:15 python3 -m testanyware_agent\n   1145       1    1144    1144 Sl   Tue Nov 17 16:50:05 2026       00:15 /usr/bin/gnome-keyring-daemon --daemonize --login\n   1151    1121    1151    1151 Ssl+ Tue Nov 17 16:50:05 2026       00:15 /usr/libexec/gdm-x-session --run-script env GNOME_SHELL_SESSION_MODE=ubuntu /usr/bin/gnome-session --session=ubuntu\n   1153    1151    1151    1151 Sl+  Tue Nov 17 16:50:05 2026       00:15 /usr/lib/xorg/Xorg vt2 -displayfd 3 -auth /run/user/1000/gdm/Xauthority -nolisten tcp -background none -noreset -keeptty -novtswitch -verbose 3\n   1167    1130    1167    1167 Ss   Tue Nov 17 16:50:05 2026       00:15 /usr/bin/dbus-daemon --session --address=systemd: --nofork --nopidfile --systemd-activation --syslog-only\n   1170    1151    1151    1151 Sl+  Tue Nov 17 16:50:05 2026       00:15 /usr/libexec/gnome-session-binary --session=ubuntu\n   1251    1130    1251    1251 Ssl  Tue Nov 17 16:50:05 2026       00:15 /usr/libexec/at-spi-bus-launcher\n   1258    1251    1251    1251 S    Tue Nov 17 16:50:05 2026       00:15 /usr/bin/dbus-daemon --config-file=/usr/share/defaults/at-spi2/accessibility.conf --nofork --print-address 11 --address=unix:path=/run/user/1000/at-spi/bus_0\n   1282    1130    1282    1282 Ssl  Tue Nov 17 16:50:05 2026       00:15 /usr/libexec/gnome-session-ctl --monitor\n   1314    1130    1314    1314 Ssl  Tue Nov 17 16:50:05 2026       00:15 /usr/libexec/gnome-session-binary --systemd-service --session=ubuntu\n   1354    1130    1354    1354 Ssl  Tue Nov 17 16:50:05 2026       00:15 /usr/bin/gnome-shell\n   1360    1130    1360    1360 Ssl  Tue Nov 17 16:50:05 2026       00:15 /usr/libexec/gvfsd\n   1366    1130    1360    1360 Sl   Tue Nov 17 16:50:05 2026       00:15 /usr/libexec/gvfsd-fuse /run/user/1000/gvfs -f\n   1389    1354    1354    1354 Sl   Tue Nov 17 16:50:05 2026       00:15 /usr/libexec/mutter-x11-frames\n   1392    1130    1251    1251 Sl   Tue Nov 17 16:50:05 2026       00:15 /usr/libexec/at-spi2-registryd --use-gnome-session\n   1393       1    1393    1393 Ssl  Tue Nov 17 16:50:05 2026       00:15 /usr/libexec/colord\n   1435    1130    1435    1435 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/xdg-permission-store\n   1437    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gnome-shell-calendar-server\n   1451    1130    1451    1451 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/evolution-source-registry\n   1459    1130    1459    1459 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/dconf-service\n   1463       1    1463    1463 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/packagekitd\n   1465    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.Shell.Notifications\n   1474       1    1474    1474 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/upowerd\n   1483    1130    1483    1483 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/bin/ibus-daemon --panel disable --xim\n   1485    1130    1485    1485 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-a11y-settings\n   1486    1130    1486    1486 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-color\n   1487    1130    1487    1487 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-datetime\n   1491    1130    1491    1491 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-housekeeping\n   1492    1130    1492    1492 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-keyboard\n   1495    1130    1495    1495 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-media-keys\n   1496    1130    1496    1496 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-power\n   1501    1130    1501    1501 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-print-notifications\n   1503    1130    1503    1503 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-rfkill\n   1504    1130    1504    1504 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-screensaver-proxy\n   1505    1130    1505    1505 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-sharing\n   1506    1130    1506    1506 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-smartcard\n   1510    1130    1510    1510 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-sound\n   1511    1130    1511    1511 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-wacom\n   1512    1130    1512    1512 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-xsettings\n   1521    1130    1521    1521 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/bin/spice-vdagent\n   1563    1130    1501    1501 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-printer\n   1564    1130    1564    1564 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gvfs-udisks2-volume-monitor\n   1565       1    1565    1565 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/sbin/spice-vdagentd\n   1582       1    1582    1582 Ss   Tue Nov 17 16:50:06 2026       00:14 /usr/lib/systemd/systemd-localed\n   1601    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/goa-daemon\n   1626    1130    1626    1626 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gvfs-mtp-volume-monitor\n   1657    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/goa-identity-service\n   1658    1130    1658    1658 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gvfs-goa-volume-monitor\n   1671    1130    1671    1671 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gvfs-gphoto2-volume-monitor\n   1674    1130    1674    1674 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/evolution-calendar-factory\n   1679    1130    1679    1679 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gvfs-afc-volume-monitor\n   1691    1314    1314    1314 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gsd-disk-utility-notify\n   1699    1314    1314    1314 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/evolution-data-server/evolution-alarm-notify\n   1735    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/bin/gjs -m /usr/share/gnome-shell/org.gnome.ScreenSaver\n   1759    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/ibus-memconf\n   1760    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/ibus-extension-gtk3\n   1768    1130    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/ibus-x11 --kill-daemon\n   1771    1130    1167    1167 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/ibus-portal\n   1773    1130    1773    1773 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gvfsd-metadata\n   1790    1130    1790    1790 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/evolution-addressbook-factory\n   1808       1    1808    1808 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/power-profiles-daemon\n   1844    1483    1483    1483 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/ibus-engine-simple\n   1879       1    1879    1879 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/geoclue\n   1886       1    1886    1886 Ss   Tue Nov 17 16:50:06 2026       00:14 /usr/sbin/wpa_supplicant -u -s -O DIR=/run/wpa_supplicant GROUP=netdev\n   1893    1360    1360    1360 Sl   Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/gvfsd-trash --spawner :1.26 /org/gtk/gvfs/exec_spaw/0\n   1924    1130    1924    1924 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/xdg-desktop-portal\n   1929    1130    1929    1929 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/xdg-document-portal\n   1935    1929    1935    1935 Ss   Tue Nov 17 16:50:06 2026       00:14 fusermount3 -o rw,nosuid,nodev,fsname=portal,auto_unmount,subtype=portal -- /run/user/1000/doc\n   1938    1130    1938    1938 Ssl  Tue Nov 17 16:50:06 2026       00:14 /usr/libexec/xdg-desktop-portal-gnome\n   1941    1354    1354    1354 Sl   Tue Nov 17 16:50:06 2026       00:14 gjs /usr/share/gnome-shell/extensions/ding@rastersoft.com/app/ding.js -E -P /usr/share/gnome-shell/extensions/ding@rastersoft.com/app\n   1985       1    1985    1985 SNsl Tue Nov 17 16:50:07 2026       00:13 /usr/libexec/rtkit-daemon\n   1988    1130    1988    1988 Ssl  Tue Nov 17 16:50:07 2026       00:13 /usr/libexec/xdg-desktop-portal-gtk\n   1998    1130    1998    1998 SNsl Tue Nov 17 16:50:07 2026       00:13 /usr/libexec/tracker-miner-fs-3\n   2078    1142    1142    1142 R    Tue Nov 17 16:50:21 2026       00:00 ps -eo pid,ppid,pgid,sid,stat,lstart,etime,args",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false
+    },
+    "r5-health": {
+      "role": "health",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551497.544681833,
+      "elapsed": 0.0675892080180347,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "r5-bootstrap-dir": {
+      "role": "ordinary",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551497.612446041,
+      "elapsed": 0.07387012499384582,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false
+    },
+    "r5-upload-guest-sh": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551497.686501583,
+      "elapsed": 0.07164454204030335,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "r5-upload-lesson": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551497.758332583,
+      "elapsed": 0.0628936670254916,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "r5-inventory": {
+      "role": "r5",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551497.821406791,
+      "elapsed": 0.4740442920010537,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "AGENT_AND_BASELINE_DETAILS\nLINUX_AGENT_IDENTITY\nfcd96981474a28b844e798c05797c0b551d6a87115a236d3f162d757e57e5528  /opt/testanyware/testanyware_agent/__main__.py\nc2a9c5e0cb7bdd50f4da629addab93a79b0c52901aa8772616f167ac05b36d81  /opt/testanyware/testanyware_agent/role_mapper.py\n867ea22c65bf7be0ae8b49b2af420572d4190f1d35b3000b520f3cc0a7dbf850  /opt/testanyware/testanyware_agent/tree_walker.py\nef752d357be746472dfa6a4953a3bcc87b420e89f26dd9f729fad221f80352e1  /opt/testanyware/testanyware_agent/models.py\n8adbada9ce000971bfa7fb9f59eae3a23add768786cad2335b73e4dd0e81a845  /opt/testanyware/testanyware_agent/query_resolver.py\n217770b9151037568b54683338c5cbcb2ad84e14170b357ba5f54cb2c35f81cd  /opt/testanyware/testanyware_agent/system_endpoints.py\nc88a16330dd0f439033895c558700920fb916cda0b63b2e55c9d9b658beb2a92  /opt/testanyware/testanyware_agent/accessibility.py\nb62de750472930c628dd4ae8a5bd118928f4efefb373c8365568acb3d0102a95  /opt/testanyware/testanyware_agent/server.py\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  /opt/testanyware/testanyware_agent/__init__.py\nLINUX_AGENT_DISCOVERY\ntestanyware-agent.service                                         enabled   enabled\n/opt/testanyware\n/opt/testanyware/testanyware_agent\n/home/admin/.config/systemd/user/testanyware-agent.service\n/home/admin/.config/systemd/user/default.target.wants/testanyware-agent.service\nsysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)\nproc on /proc type proc (rw,nosuid,nodev,noexec,relatime)\nudev on /dev type devtmpfs (rw,nosuid,relatime,size=1931792k,nr_inodes=482948,mode=755,inode64)\ndevpts on /dev/pts type devpts (rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000)\ntmpfs on /run type tmpfs (rw,nosuid,nodev,noexec,relatime,size=399288k,mode=755,inode64)\nefivarfs on /sys/firmware/efi/efivars type efivarfs (rw,nosuid,nodev,noexec,relatime)\n/dev/vda1 on / type ext4 (rw,relatime,discard,errors=remount-ro,commit=30)\nsecurityfs on /sys/kernel/security type securityfs (rw,nosuid,nodev,noexec,relatime)\ntmpfs on /dev/shm type tmpfs (rw,nosuid,nodev,inode64)\ntmpfs on /run/lock type tmpfs (rw,nosuid,nodev,noexec,relatime,size=5120k,inode64)\ncgroup2 on /sys/fs/cgroup type cgroup2 (rw,nosuid,nodev,noexec,relatime,nsdelegate,memory_recursiveprot)\nnone on /sys/fs/pstore type pstore (rw,nosuid,nodev,noexec,relatime)\nbpf on /sys/fs/bpf type bpf (rw,nosuid,nodev,noexec,relatime,mode=700)\nsystemd-1 on /proc/sys/fs/binfmt_misc type autofs (rw,relatime,fd=32,pgrp=1,timeout=0,minproto=5,maxproto=5,direct,pipe_ino=6638)\ndebugfs on /sys/kernel/debug type debugfs (rw,nosuid,nodev,noexec,relatime)\nhugetlbfs on /dev/hugepages type hugetlbfs (rw,nosuid,nodev,relatime,pagesize=2M)\nmqueue on /dev/mqueue type mqueue (rw,nosuid,nodev,noexec,relatime)\ntracefs on /sys/kernel/tracing type tracefs (rw,nosuid,nodev,noexec,relatime)\nfusectl on /sys/fs/fuse/connections type fusectl (rw,nosuid,nodev,noexec,relatime)\nconfigfs on /sys/kernel/config type configfs (rw,nosuid,nodev,noexec,relatime)\n/var/lib/snapd/snaps/bare_5.snap on /snap/bare/5 type squashfs (ro,nodev,relatime,errors=continue,threads=single,x-gdu.hide,x-gvfs-hide)\n/var/lib/snapd/snaps/core24_1644.snap on /snap/core24/1644 type squashfs (ro,nodev,relatime,errors=continue,threads=single,x-gdu.hide,x-gvfs-hide)\n/var/lib/snapd/snaps/gnome-46-2404_154.snap on /snap/gnome-46-2404/154 type squashfs (ro,nodev,relatime,errors=continue,threads=single,x-gdu.hide,x-gvfs-hide)\n/var/lib/snapd/snaps/firefox_8416.snap on /snap/firefox/8416 type squashfs (ro,nodev,relatime,errors=continue,threads=single,x-gdu.hide,x-gvfs-hide)\n/var/lib/snapd/snaps/snapd_26869.snap on /snap/snapd/26869 type squashfs (ro,nodev,relatime,errors=continue,threads=single,x-gdu.hide,x-gvfs-hide)\n/var/lib/snapd/snaps/mesa-2404_1166.snap on /snap/mesa-2404/1166 type squashfs (ro,nodev,relatime,errors=continue,threads=single,x-gdu.hide,x-gvfs-hide)\n/var/lib/snapd/snaps/gtk-common-themes_1535.snap on /snap/gtk-common-themes/1535 type squashfs (ro,nodev,relatime,errors=continue,threads=single,x-gdu.hide,x-gvfs-hide)\n/dev/vda16 on /boot type ext4 (rw,relatime)\n/dev/vda15 on /boot/efi type vfat (rw,relatime,fmask=0077,dmask=0077,codepage=437,iocharset=iso8859-1,shortname=mixed,errors=remount-ro)\nbinfmt_misc on /proc/sys/fs/binfmt_misc type binfmt_misc (rw,nosuid,nodev,noexec,relatime)\ntmpfs on /run/user/1000 type tmpfs (rw,nosuid,nodev,relatime,size=399284k,nr_inodes=99821,mode=700,uid=1000,gid=109,inode64)\ngvfsd-fuse on /run/user/1000/gvfs type fuse.gvfsd-fuse (rw,nosuid,nodev,relatime,user_id=1000,group_id=109)\nportal on /run/user/1000/doc type fuse.portal (rw,nosuid,nodev,relatime,user_id=1000,group_id=109)\nOpenSSL 3.0.13 30 Jan 2024 (Library: OpenSSL 3.0.13 30 Jan 2024)\nGNU bash, version 5.2.21(1)-release (aarch64-unknown-linux-gnu)\nLinux ubuntu 6.17.0-19-generic #19~24.04.2-Ubuntu SMP PREEMPT_DYNAMIC Fri Mar  6 22:56:55 UTC 2 aarch64 aarch64 aarch64 GNU/Linux\nuid=1000(admin) gid=109(admin) groups=109(admin)\nPRETTY_NAME=\"Ubuntu 24.04.4 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"24.04\"\nVERSION=\"24.04.4 LTS (Noble Numbat)\"\nVERSION_CODENAME=noble\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=noble\nLOGO=ubuntu-logo\naccountsservice 23.13.9-2ubuntu6\nacl 2.3.2-1build1.1\nadduser 3.137ubuntu1\nadwaita-icon-theme 46.0-1\nalsa-base 1.0.25+dfsg-0ubuntu7\nalsa-topology-conf 1.2.5.1-2\nalsa-ucm-conf 1.2.10-1ubuntu5.10\nalsa-utils 1.2.9-1ubuntu5\nanacron 2.3-39ubuntu2\napg 2.2.3.dfsg.1-5build3\napparmor 4.0.1really4.0.1-0ubuntu0.24.04.7\napport 2.28.1-0ubuntu3.8\napport-core-dump-handler 2.28.1-0ubuntu3.8\napport-gtk 2.28.1-0ubuntu3.8\napport-symptoms 0.25\nappstream 1.0.2-1build6\napt 2.8.3\napt-config-icons 1.0.2-1build6\napt-config-icons-hidpi 1.0.2-1build6\napt-utils 2.8.3\naptdaemon 1.1.1+bzr982-0ubuntu44\naptdaemon-data 1.1.1+bzr982-0ubuntu44\naspell 0.60.8.1-1build1\naspell-en 2020.12.07-0-1\nat-spi2-common 2.52.0-1build1\nat-spi2-core 2.52.0-1build1\navahi-daemon 0.8-13ubuntu6.2\nbaobab 46.0-1build1\nbase-files 13ubuntu10.4\nbase-passwd 3.6.3build1\nbash 5.2.21-2ubuntu4\nbash-completion 1:2.11-8\nbc 1.07.1-3ubuntu4\nbcache-tools 1.0.8-5build1\nbind9-dnsutils 1:9.18.39-0ubuntu0.24.04.5\nbind9-host 1:9.18.39-0ubuntu0.24.04.5\nbind9-libs 1:9.18.39-0ubuntu0.24.04.5\nbluez 5.72-0ubuntu5.5\nbluez-cups 5.72-0ubuntu5.5\nbluez-obexd 5.72-0ubuntu5.5\nbolt 0.9.7-1\nbpfcc-tools 0.29.1+ds-1ubuntu7\nbpftrace 0.20.2-1ubuntu4.3\nbrltty 6.6-4ubuntu5\nbsdextrautils 2.39.3-9ubuntu6.5\nbsdutils 1:2.39.3-9ubuntu6.5\nbtrfs-progs 6.6.3-1.1build2\nbubblewrap 0.9.0-1ubuntu0.1\nbusybox-initramfs 1:1.36.1-6ubuntu3.1\nbusybox-static 1:1.36.1-6ubuntu3.1\nbyobu 6.11-0ubuntu1\nca-certificates 20240203\ncloud-guest-utils 0.33-1\ncloud-init 26.1-0ubuntu1~24.04.1\ncloud-initramfs-copymods 0.49~24.04.1\ncloud-initramfs-dyn-netconf 0.49~24.04.1\ncolord 1.4.7-1build2\ncolord-data 1.4.7-1build2\ncommand-not-found 23.04.0\nconsole-setup 1.226ubuntu1\nconsole-setup-linux 1.226ubuntu1\ncoreutils 9.4-3ubuntu6.2\ncpio 2.15+dfsg-1ubuntu2\ncpp 4:13.2.0-7ubuntu1\ncpp-13 13.3.0-6ubuntu2~24.04.1\ncpp-13-aarch64-linux-gnu 13.3.0-6ubuntu2~24.04.1\ncpp-aarch64-linux-gnu 4:13.2.0-7ubuntu1\ncracklib-runtime 2.9.6-5.1build2\ncron 3.0pl1-184ubuntu2\ncron-daemon-common 3.0pl1-184ubuntu2\ncryptsetup 2:2.7.0-1ubuntu4.2\ncryptsetup-bin 2:2.7.0-1ubuntu4.2\ncryptsetup-initramfs 2:2.7.0-1ubuntu4.2\ncups 2.4.7-1.2ubuntu7.9\ncups-browsed 2.0.0-0ubuntu10.3\ncups-bsd 2.4.7-1.2ubuntu7.9\ncups-client 2.4.7-1.2ubuntu7.9\ncups-common 2.4.7-1.2ubuntu7.9\ncups-core-drivers 2.4.7-1.2ubuntu7.9\ncups-daemon 2.4.7-1.2ubuntu7.9\ncups-filters 2.0.0-0ubuntu4.1\ncups-filters-core-drivers 2.0.0-0ubuntu4.1\ncups-ipp-utils 2.4.7-1.2ubuntu7.9\ncups-pk-helper 0.2.6-1ubuntu8\ncups-ppdc 2.4.7-1.2ubuntu7.9\ncups-server-common 2.4.7-1.2ubuntu7.9\ncurl 8.5.0-2ubuntu10.9\ndash 0.5.12-6ubuntu5\ndbus 1.14.10-4ubuntu4.1\ndbus-bin 1.14.10-4ubuntu4.1\ndbus-daemon 1.14.10-4ubuntu4.1\ndbus-session-bus-common 1.14.10-4ubuntu4.1\ndbus-system-bus-common 1.14.10-4ubuntu4.1\ndbus-user-session 1.14.10-4ubuntu4.1\ndc 1.07.1-3ubuntu4\ndconf-cli 0.40.0-4ubuntu0.1\ndconf-gsettings-backend 0.40.0-4ubuntu0.1\ndconf-service 0.40.0-4ubuntu0.1\ndebconf 1.5.86ubuntu1\ndebconf-i18n 1.5.86ubuntu1\ndebianutils 5.17build1\ndesktop-file-utils 0.27-2build1\ndevice-tree-compiler 1.7.0-2build1\ndevio 1.2-2build1\ndhcpcd-base 1:10.0.6-1ubuntu3.2\ndictionaries-common 1.29.7\ndiffutils 1:3.10-1build1\ndirmngr 2.4.4-2ubuntu17.4\ndistro-info 1.7build1\ndistro-info-data 0.60ubuntu0.6\ndmeventd 2:1.02.185-3ubuntu3.2\ndmidecode 3.5-3ubuntu0.1\ndmsetup 2:1.02.185-3ubuntu3.2\ndmz-cursor-theme 0.4.5ubuntu1\ndns-root-data 2024071801~ubuntu0.24.04.1\ndnsmasq-base 2.90-2ubuntu0.3\ndocbook-xml 4.5-12\ndosfstools 4.2-1.1build1\ndpkg 1.22.6ubuntu6.6\ndracut-install 060+5-1ubuntu3.3\ne2fsprogs 1.47.0-2.4~exp1ubuntu4.1\ne2fsprogs-l10n 1.47.0-2.4~exp1ubuntu4.1\neatmydata 131-1ubuntu1\ned 1.20.1-1\nefibootmgr 18-1build2\neject 2.39.3-9ubuntu6.5\nemacsen-common 3.0.5\nenchant-2 2.3.3-2build2\neog 45.3-1ubuntu2\nespeak-ng-data 1.51+dfsg-12build1\nethtool 1:6.7-1build1\nevince 46.3.1-0ubuntu1.1\nevince-common 46.3.1-0ubuntu1.1\nevolution-data-server 3.52.3-0ubuntu1.2\nevolution-data-server-common 3.52.3-0ubuntu1.2\nfdisk 2.39.3-9ubuntu6.5\nfile 1:5.45-3build1\nfinalrd 9build1\nfindutils 4.9.0-5build1\nfirefox 1:1snap1-0ubuntu5\nfirmware-sof-signed 2023.12.1-1ubuntu1.11\nflash-kernel 3.107ubuntu13~24.04.6\nfontconfig 2.15.0-1.1ubuntu2\nfontconfig-config 2.15.0-1.1ubuntu2\nfonts-dejavu-core 2.37-8\nfonts-dejavu-mono 2.37-8\nfonts-droid-fallback 1:6.0.1r16-1.1build1\nfonts-liberation 1:2.1.5-3\nfonts-liberation-sans-narrow 1:1.07.6-4\nfonts-noto-cjk 1:20230817+repack1-3\nfonts-noto-color-emoji 2.047-0ubuntu0.24.04.1\nfonts-noto-core 20201225-2\nfonts-noto-mono 20201225-2\nfonts-ubuntu 0.869+git20240321-0ubuntu1\nfonts-ubuntu-console 0.869+git20240321-0ubuntu1\nfonts-urw-base35 20200910-8\nfoomatic-db-compressed-ppds 20230202-1\nfprintd 1.94.3-1\nfriendly-recovery 0.2.42\nftp 20230507-2build3\nfuse3 3.14.0-5build1\nfwupd 1.9.34-0ubuntu1~24.04.1\nfwupd-signed 1.52+1.4-1\ngamemode 1.8.1-2build1\ngamemode-daemon 1.8.1-2build1\ngawk 1:5.2.1-2build3\ngcc-13-base 13.3.0-6ubuntu2~24.04.1\ngcc-14-base 14.2.0-4ubuntu2~24.04.1\ngcr 3.41.2-1build3\ngcr4 4.2.0-5\ngdb 15.1-1ubuntu1~24.04.1\ngdisk 1.0.10-1build1\ngdm3 46.2-1ubuntu1~24.04.7\ngeoclue-2.0 2.7.0-3ubuntu7\ngeocode-glib-common 3.26.3-6build3\ngettext-base 0.21-14ubuntu2\nghostscript 10.02.1~dfsg1-0ubuntu7.8\ngir1.2-accountsservice-1.0 23.13.9-2ubuntu6\ngir1.2-adw-1 1.5.0-1ubuntu2\ngir1.2-atk-1.0 2.52.0-1build1\ngir1.2-atspi-2.0 2.52.0-1build1\ngir1.2-freedesktop 1.80.1-1\ngir1.2-gck-2 4.2.0-5\ngir1.2-gcr-4 4.2.0-5\ngir1.2-gdesktopenums-3.0 46.1-0ubuntu1\ngir1.2-gdkpixbuf-2.0 2.42.10+dfsg-3ubuntu3.3\ngir1.2-gdm-1.0 46.2-1ubuntu1~24.04.7\ngir1.2-geoclue-2.0 2.7.0-3ubuntu7\ngir1.2-girepository-2.0 1.80.1-1\ngir1.2-glib-2.0 2.80.0-6ubuntu3.8\ngir1.2-gmenu-3.0 3.36.0-1.1ubuntu3\ngir1.2-gnomeautoar-0.1 0.4.4-2build4\ngir1.2-gnomebg-4.0 44.0-5build2\ngir1.2-gnomebluetooth-3.0 46.0-1ubuntu1\ngir1.2-gnomedesktop-3.0 44.0-5build2\ngir1.2-gnomedesktop-4.0 44.0-5build2\ngir1.2-graphene-1.0 1.10.8-3build2\ngir1.2-gstreamer-1.0 1.24.2-1ubuntu0.1\ngir1.2-gtk-3.0 3.24.41-4ubuntu1.3\ngir1.2-gtk-4.0 4.14.5+ds-0ubuntu0.10\ngir1.2-gweather-4.0 4.4.2-1build1\ngir1.2-handy-1 1.8.3-1build2\ngir1.2-harfbuzz-0.0 8.3.0-2build2\ngir1.2-ibus-1.0 1.5.29-2\ngir1.2-javascriptcoregtk-4.1 2.52.3-0ubuntu0.24.04.1\ngir1.2-javascriptcoregtk-6.0 2.52.3-0ubuntu0.24.04.1\ngir1.2-mutter-14 46.2-1ubuntu0.24.04.15\ngir1.2-nm-1.0 1.46.0-1ubuntu2.7\ngir1.2-nma4-1.0 1.10.6-3build2\ngir1.2-notify-0.7 0.8.3-1build2\ngir1.2-packagekitglib-1.0 1.2.8-2ubuntu1.5\ngir1.2-pango-1.0 1.52.1+ds-1build1\ngir1.2-peas-1.0 1.36.0-3build4\ngir1.2-polkit-1.0 124-2ubuntu1.24.04.3\ngir1.2-rsvg-2.0 2.58.0+dfsg-1build1\ngir1.2-secret-1 0.21.4-1build3\ngir1.2-snapd-2 1.64-0ubuntu5\ngir1.2-soup-3.0 3.4.4-5ubuntu0.7\ngir1.2-upowerglib-1.0 1.90.3-1\ngir1.2-vte-2.91 0.76.0-1ubuntu0.1\ngir1.2-webkit-6.0 2.52.3-0ubuntu0.24.04.1\ngir1.2-webkit2-4.1 2.52.3-0ubuntu0.24.04.1\ngir1.2-wnck-3.0 43.0-3build4\ngit 1:2.43.0-1ubuntu7.3\ngit-man 1:2.43.0-1ubuntu7.3\ngjs 1.80.2-1build2\ngkbd-capplet 3.28.1-1build3\nglib-networking 2.80.0-1build1\nglib-networking-common 2.80.0-1build1\nglib-networking-services 2.80.0-1build1\ngnome-accessibility-themes 3.28-2ubuntu5\ngnome-bluetooth-3-common 46.0-1ubuntu1\ngnome-bluetooth-sendto 46.0-1ubuntu1\ngnome-calculator 1:46.3-0ubuntu0.1\ngnome-characters 46.0-1build1\ngnome-clocks 46.0-1build1\ngnome-control-center 1:46.7-0ubuntu0.24.04.4\ngnome-control-center-data 1:46.7-0ubuntu0.24.04.4\ngnome-control-center-faces 1:46.7-0ubuntu0.24.04.4\ngnome-desktop3-data 44.0-5build2\ngnome-disk-utility 46.0-1ubuntu3\ngnome-font-viewer 46.0-1build1\ngnome-initial-setup 46.3-1ubuntu3~24.04.2\ngnome-keyring 46.1-2ubuntu0.2\ngnome-keyring-pkcs11 46.1-2ubuntu0.2\ngnome-logs 45.0-1build1\ngnome-menus 3.36.0-1.1ubuntu3\ngnome-online-accounts 3.50.4-0ubuntu2\ngnome-power-manager 43.0-2build2\ngnome-remote-desktop 46.3-0ubuntu1.2\ngnome-session-bin 46.0-1ubuntu4\ngnome-session-canberra 0.30-10ubuntu10\ngnome-session-common 46.0-1ubuntu4\ngnome-settings-daemon 46.0-1ubuntu1.24.04.1\ngnome-settings-daemon-common 46.0-1ubuntu1.24.04.1\ngnome-shell 46.0-0ubuntu6~24.04.14\ngnome-shell-common 46.0-0ubuntu6~24.04.14\ngnome-shell-extension-appindicator 58-1ubuntu24.04.1\ngnome-shell-extension-desktop-icons-ng 46+really47.0.9-1ubuntu5\ngnome-shell-extension-ubuntu-dock 90ubuntu3\ngnome-shell-extension-ubuntu-tiling-assistant 46-1ubuntu1.1\ngnome-startup-applications 46.0-1ubuntu4\ngnome-system-monitor 46.0-1build1\ngnome-terminal 3.52.0-1ubuntu2\ngnome-terminal-data 3.52.0-1ubuntu2\ngnome-text-editor 46.3-0ubuntu2\ngnome-themes-extra 3.28-2ubuntu5\ngnome-themes-extra-data 3.28-2ubuntu5\ngnome-user-docs 46.0-1ubuntu1\ngnupg 2.4.4-2ubuntu17.4\ngnupg-l10n 2.4.4-2ubuntu17.4\ngnupg-utils 2.4.4-2ubuntu17.4\ngpg 2.4.4-2ubuntu17.4\ngpg-agent 2.4.4-2ubuntu17.4\ngpg-wks-client 2.4.4-2ubuntu17.4\ngpgconf 2.4.4-2ubuntu17.4\ngpgsm 2.4.4-2ubuntu17.4\ngpgv 2.4.4-2ubuntu17.4\ngrep 3.11-4build1\ngroff-base 1.23.0-3build2\ngrub-common 2.12-1ubuntu7.3\ngrub-efi-arm64 2.12-1ubuntu7.3\ngrub-efi-arm64-bin 2.12-1ubuntu7.3\ngrub-efi-arm64-signed 1.202.5+2.12-1ubuntu7.3\ngrub2-common 2.12-1ubuntu7.3\ngsettings-desktop-schemas 46.1-0ubuntu1\ngsettings-ubuntu-schemas 0.0.7+21.10.20210712-0ubuntu3\ngstreamer1.0-alsa 1.24.2-1ubuntu0.4\ngstreamer1.0-gl 1.24.2-1ubuntu0.4\ngstreamer1.0-packagekit 1.2.8-2ubuntu1.5\ngstreamer1.0-pipewire 1.0.5-1ubuntu3.2\ngstreamer1.0-plugins-base 1.24.2-1ubuntu0.4\ngstreamer1.0-plugins-base-apps 1.24.2-1ubuntu0.4\ngstreamer1.0-plugins-good 1.24.2-1ubuntu1.4\ngstreamer1.0-tools 1.24.2-1ubuntu0.1\ngstreamer1.0-x 1.24.2-1ubuntu0.4\ngtk-update-icon-cache 3.24.41-4ubuntu1.3\ngtk2-engines-murrine 0.98.2-4\ngtk2-engines-pixbuf 2.24.33-4ubuntu1.1\ngvfs 1.54.4-0ubuntu1~24.04.2\ngvfs-backends 1.54.4-0ubuntu1~24.04.2\ngvfs-common 1.54.4-0ubuntu1~24.04.2\ngvfs-daemons 1.54.4-0ubuntu1~24.04.2\ngvfs-fuse 1.54.4-0ubuntu1~24.04.2\ngvfs-libs 1.54.4-0ubuntu1~24.04.2\ngzip 1.12-1ubuntu3.1\nhdparm 9.65+ds-1build1\nheif-gdk-pixbuf 1.17.6-1ubuntu4.3\nheif-thumbnailer 1.17.6-1ubuntu4.3\nhicolor-icon-theme 0.17-2\nhostname 3.23+nmu2ubuntu2\nhplip 3.23.12+dfsg0-0ubuntu5\nhplip-data 3.23.12+dfsg0-0ubuntu5\nhtop 3.3.0-4build1\nhumanity-icon-theme 0.6.16\nhunspell-en-us 1:2020.12.07-2\nhwdata 0.379-1\nibus 1.5.29-2\nibus-data 1.5.29-2\nibus-gtk 1.5.29-2\nibus-gtk3 1.5.29-2\nibus-gtk4 1.5.29-2\nibus-table 1.17.4-2\nibverbs-providers 50.0-2ubuntu0.2\nieee-data 20220827.1\niio-sensor-proxy 3.5-1build2\nim-config 0.57-2\ninetutils-telnet 2:2.5-3ubuntu4.1\ninfo 7.1-3build2\ninit 1.66ubuntu1\ninit-system-helpers 1.66ubuntu1\ninitramfs-tools 0.142ubuntu25.8\ninitramfs-tools-bin 0.142ubuntu25.8\ninitramfs-tools-core 0.142ubuntu25.8\ninputattach 1:1.8.1-2build1\ninstall-info 7.1-3build2\nipp-usb 0.9.24-0ubuntu3.3\niproute2 6.1.0-1ubuntu6.3\niptables 1.8.10-3ubuntu2\niputils-ping 3:20240117-1ubuntu0.1\niputils-tracepath 3:20240117-1ubuntu0.1\niso-codes 4.16.0-1\njq 1.7.1-3ubuntu0.24.04.2\nkbd 2.6.4-2ubuntu2\nkerneloops 0.12+git20140509-6ubuntu8\nkeyboard-configuration 1.226ubuntu1\nkeyboxd 2.4.4-2ubuntu17.4\nklibc-utils 2.0.13-4ubuntu0.2\nkmod 31+20240202-2ubuntu7.2\nkpartx 0.9.4-5ubuntu8.1\nkrb5-locales 1.20.1-6ubuntu2.6\nlandscape-common 24.02-0ubuntu5.7\nlanguage-selector-common 0.225\nlanguage-selector-gnome 0.225\nlaptop-detect 0.16\nldap-utils 2.6.10+dfsg-0ubuntu0.24.04.1\nless 590-2ubuntu2.1\nlibaa1 1.4p5-51.1\nlibabsl20220623t64 20220623.1-3.1ubuntu3.2\nlibaccountsservice0 23.13.9-2ubuntu6\nlibacl1 2.3.2-1build1.1\nlibadwaita-1-0 1.5.0-1ubuntu2\nlibaio1t64 0.3.113-6build1.1\nlibao-common 1.2.2+20180113-1.1ubuntu4\nlibao4 1.2.2+20180113-1.1ubuntu4\nlibaom3 3.8.2-2ubuntu0.1\nlibapparmor1 4.0.1really4.0.1-0ubuntu0.24.04.7\nlibappstream5 1.0.2-1build6\nlibapt-pkg6.0t64 2.8.3\nlibarchive13t64 3.7.2-2ubuntu0.7\nlibargon2-1 0~20190702+dfsg-4build1\nlibasound2-data 1.2.11-1ubuntu0.2\nlibasound2t64 1.2.11-1ubuntu0.2\nlibaspell15 0.60.8.1-1build1\nlibassuan0 2.5.6-1build1\nlibasyncns0 0.8-6build4\nlibatasmart4 0.19-5build3\nlibatk-adaptor 2.52.0-1build1\nlibatk-bridge2.0-0t64 2.52.0-1build1\nlibatk1.0-0t64 2.52.0-1build1\nlibatm1t64 1:2.5.1-5.1build1\nlibatopology2t64 1.2.11-1ubuntu0.2\nlibatspi2.0-0t64 2.52.0-1build1\nlibattr1 1:2.5.2-1build1.1\nlibaudit-common 1:3.1.2-2.1build1.1\nlibaudit1 1:3.1.2-2.1build1.1\nlibauthen-sasl-perl 2.1700-1\nlibavahi-client3 0.8-13ubuntu6.2\nlibavahi-common-data 0.8-13ubuntu6.2\nlibavahi-common3 0.8-13ubuntu6.2\nlibavahi-core7 0.8-13ubuntu6.2\nlibavahi-glib1 0.8-13ubuntu6.2\nlibavc1394-0 0.5.4-5build3\nlibayatana-appindicator3-1 0.5.93-1build3\nlibayatana-ido3-0.4-0 0.10.1-1build2\nlibayatana-indicator3-7 0.9.4-1build1\nlibbabeltrace1 1.5.11-3build3\nlibbasicobjects0t64 0.6.2-2.1build1\nlibblkid1 2.39.3-9ubuntu6.5\nlibblockdev-crypto3 3.1.1-1ubuntu0.1\nlibblockdev-fs3 3.1.1-1ubuntu0.1\nlibblockdev-loop3 3.1.1-1ubuntu0.1\nlibblockdev-mdraid3 3.1.1-1ubuntu0.1\nlibblockdev-nvme3 3.1.1-1ubuntu0.1\nlibblockdev-part3 3.1.1-1ubuntu0.1\nlibblockdev-swap3 3.1.1-1ubuntu0.1\nlibblockdev-utils3 3.1.1-1ubuntu0.1\nlibblockdev3 3.1.1-1ubuntu0.1\nlibbluetooth3 5.72-0ubuntu5.5\nlibbpf1 1:1.3.0-2build2\nlibbpfcc 0.29.1+ds-1ubuntu7\nlibbrlapi0.8 6.6-4ubuntu5\nlibbrotli1 1.1.0-2build2\nlibbsd0 0.12.1-1build1.1\nlibbytesize-common 2.10-1ubuntu2\nlibbytesize1 2.10-1ubuntu2\nlibbz2-1.0 1.0.8-5.1build0.1\nlibc-bin 2.39-0ubuntu8.7\nlibc-dev-bin 2.39-0ubuntu8.7\nlibc-devtools 2.39-0ubuntu8.7\nlibc6 2.39-0ubuntu8.7\nlibc6-dbg 2.39-0ubuntu8.7\nlibc6-dev 2.39-0ubuntu8.7\nlibcaca0 0.99.beta20-4ubuntu0.2\nlibcairo-gobject-perl 1.005-4build3\nlibcairo-gobject2 1.18.0-3build1\nlibcairo-perl 1.109-4build1\nlibcairo-script-interpreter2 1.18.0-3build1\nlibcairo2 1.18.0-3build1\nlibcairomm-1.16-1 1.18.0-1build1\nlibcamel-1.2-64t64 3.52.3-0ubuntu1.2\nlibcanberra-gtk3-0t64 0.30-10ubuntu10\nlibcanberra-gtk3-module 0.30-10ubuntu10\nlibcanberra-pulse 0.30-10ubuntu10\nlibcanberra0t64 0.30-10ubuntu10\nlibcap-ng0 0.8.4-2build2\nlibcap2 1:2.66-5ubuntu2.4\nlibcap2-bin 1:2.66-5ubuntu2.4\nlibcares2 1.27.0-1.0ubuntu1\nlibcbor0.10 0.10.2-1.2ubuntu2\nlibcdio-cdda2t64 10.2+2.0.1-1.1build2\nlibcdio-paranoia2t64 10.2+2.0.1-1.1build2\nlibcdio19t64 2.1.0-4.1ubuntu1.2\nlibcdparanoia0 3.10.2+debian-14build3\nlibclang-cpp18 1:18.1.3-1ubuntu1\nlibclang1-18 1:18.1.3-1ubuntu1\nlibclone-perl 0.46-1build3\nlibcollection4t64 0.6.2-2.1build1\nlibcolord-gtk4-1t64 0.3.1-1build2\nlibcolord2 1.4.7-1build2\nlibcolorhug2 1.4.7-1build2\nlibcom-err2 1.47.0-2.4~exp1ubuntu4.1\nlibcrack2 2.9.6-5.1build2\nlibcrypt-dev 1:4.4.36-4build1\nlibcrypt1 1:4.4.36-4build1\nlibcryptsetup12 2:2.7.0-1ubuntu4.2\nlibcue2 2.2.1-4.1build1\nlibcups2t64 2.4.7-1.2ubuntu7.9\nlibcupsfilters2-common 2.0.0-0ubuntu7.2\nlibcupsfilters2t64 2.0.0-0ubuntu7.2\nlibcupsimage2t64 2.4.7-1.2ubuntu7.9\nlibcurl3t64-gnutls 8.5.0-2ubuntu10.9\nlibcurl4t64 8.5.0-2ubuntu10.9\nlibdaemon0 0.14-7.1ubuntu4\nlibdata-dump-perl 1.25-1\nlibdatrie1 0.2.13-3build1\nlibdb5.3t64 5.3.28+dfsg2-7\nlibdbus-1-3 1.14.10-4ubuntu4.1\nlibdbus-glib-1-2 0.112-3build2\nlibdbusmenu-glib4 18.10.20180917~bzr492+repack1-3.1ubuntu5\nlibdbusmenu-gtk3-4 18.10.20180917~bzr492+repack1-3.1ubuntu5\nlibdconf1 0.40.0-4ubuntu0.1\nlibde265-0 1.0.15-1build3\nlibdebconfclient0 0.271ubuntu3\nlibdebuginfod-common 0.190-1.1ubuntu0.1\nlibdebuginfod1t64 0.190-1.1ubuntu0.1\nlibdecor-0-0 0.2.2-1build2\nlibdecor-0-plugin-1-gtk 0.2.2-1build2\nlibdee-1.0-4 1.2.7+17.10.20170616-7build5\nlibdeflate0 1.19-1build1.1\nlibdevmapper-event1.02.1 2:1.02.185-3ubuntu3.2\nlibdevmapper1.02.1 2:1.02.185-3ubuntu3.2\nlibdhash1t64 0.6.2-2.1build1\nlibdjvulibre-text 3.5.28-2ubuntu0.24.04.2\nlibdjvulibre21 3.5.28-2ubuntu0.24.04.2\nlibdotconf0 1.3-0.3fakesync1build3\nlibdrm-amdgpu1 2.4.125-1ubuntu0.1~24.04.1\nlibdrm-common 2.4.125-1ubuntu0.1~24.04.1\nlibdrm-nouveau2 2.4.125-1ubuntu0.1~24.04.1\nlibdrm-radeon1 2.4.125-1ubuntu0.1~24.04.1\nlibdrm2 2.4.125-1ubuntu0.1~24.04.1\nlibduktape207 2.7.0+tests-0ubuntu3\nlibdv4t64 1.0.0-17.1build1\nlibdw1t64 0.190-1.1ubuntu0.1\nlibeatmydata1 131-1ubuntu1\nlibebackend-1.2-11t64 3.52.3-0ubuntu1.2\nlibebook-1.2-21t64 3.52.3-0ubuntu1.2\nlibebook-contacts-1.2-4t64 3.52.3-0ubuntu1.2\nlibecal-2.0-3 3.52.3-0ubuntu1.2\nlibedata-book-1.2-27t64 3.52.3-0ubuntu1.2\nlibedata-cal-2.0-2t64 3.52.3-0ubuntu1.2\nlibedataserver-1.2-27t64 3.52.3-0ubuntu1.2\nlibedataserverui-1.2-4t64 3.52.3-0ubuntu1.2\nlibedit2 3.1-20230828-1build1\nlibeditorconfig0 0.12.7-0.1ubuntu0.1\nlibefiboot1t64 38-3.1build1\nlibefivar1t64 38-3.1build1\nlibegl-mesa0 25.2.8-0ubuntu0.24.04.1\nlibegl1 1.7.0-1build1\nlibei1 1.2.1-1\nlibeis1 1.2.1-1\nlibelf1t64 0.190-1.1ubuntu0.1\nlibenchant-2-2 2.3.3-2build2\nlibencode-locale-perl 1.05-3\nlibepoxy0 1.5.10-1build1\nliberror-perl 0.17029-2\nlibespeak-ng1 1.51+dfsg-12build1\nlibestr0 0.1.11-1build1\nlibevdev2 1.13.1+dfsg-1build1\nlibevdocument3-4t64 46.3.1-0ubuntu1.1\nlibevent-core-2.1-7t64 2.1.12-stable-9ubuntu2\nlibevview3-3t64 46.3.1-0ubuntu1.1\nlibexempi8 2.6.5-1build1\nlibexif12 0.6.24-1build2\nlibexiv2-27 0.27.6-1ubuntu0.3\nlibexpat1 2.6.1-2ubuntu0.4\nlibext2fs2t64 1.47.0-2.4~exp1ubuntu4.1\nlibextutils-depends-perl 0.8001-2\nlibfastjson4 1.2304.0-1build1\nlibfdisk1 2.39.3-9ubuntu6.5\nlibfdt1 1.7.0-2build1\nlibffi8 3.4.6-1build1\nlibfftw3-single3 3.3.10-1ubuntu3\nlibfido2-1 1.14.0-1build3\nlibfile-basedir-perl 0.09-2\nlibfile-desktopentry-perl 0.22-3\nlibfile-listing-perl 6.16-1\nlibfile-mimeinfo-perl 0.34-1\nlibflac12t64 1.4.3+ds-2.1ubuntu2\nlibflashrom1 1.3.0-2.1ubuntu2\nlibfont-afm-perl 1.20-4\nlibfontconfig1 2.15.0-1.1ubuntu2\nlibfontenc1 1:1.1.8-1build1\nlibfprint-2-2 1:1.94.7+tod1-0ubuntu5~24.04.6\nlibfprint-2-tod1 1:1.94.7+tod1-0ubuntu5~24.04.6\nlibfreeaptx0 0.1.1-2build1\nlibfreerdp-server3-3 3.5.1+dfsg1-0ubuntu1.5\nlibfreerdp3-3 3.5.1+dfsg1-0ubuntu1.5\nlibfreetype6 2.13.2+dfsg-1ubuntu0.1\nlibfribidi0 1.0.13-3build1\nlibftdi1-2 1.5-6build5\nlibfuse3-3 3.14.0-5build1\nlibfwupd2 1.9.34-0ubuntu1~24.04.1\nlibgail-common 2.24.33-4ubuntu1.1\nlibgail18t64 2.24.33-4ubuntu1.1\nlibgamemode0 1.8.1-2build1\nlibgamemodeauto0 1.8.1-2build1\nlibgbm1 25.2.8-0ubuntu0.24.04.1\nlibgcc-s1 14.2.0-4ubuntu2~24.04.1\nlibgck-1-0 3.41.2-1build3\nlibgck-2-2 4.2.0-5\nlibgcr-4-4 4.2.0-5\nlibgcr-base-3-1 3.41.2-1build3\nlibgcr-ui-3-1 3.41.2-1build3\nlibgcrypt20 1.10.3-2ubuntu0.1\nlibgd3 2.3.3-9ubuntu5\nlibgdata-common 0.18.1-6build2\nlibgdata22 0.18.1-6build2\nlibgdbm-compat4t64 1.23-5.1build1\nlibgdbm6t64 1.23-5.1build1\nlibgdk-pixbuf-2.0-0 2.42.10+dfsg-3ubuntu3.3\nlibgdk-pixbuf2.0-bin 2.42.10+dfsg-3ubuntu3.3\nlibgdk-pixbuf2.0-common 2.42.10+dfsg-3ubuntu3.3\nlibgdm1 46.2-1ubuntu1~24.04.7\nlibgee-0.8-2 0.20.6-1build2\nlibgeoclue-2-0 2.7.0-3ubuntu7\nlibgeocode-glib-2-0 3.26.3-6build3\nlibgexiv2-2 0.14.2-2build3\nlibgif7 5.2.2-1ubuntu1\nlibgirepository-1.0-1 1.80.1-1\nlibgjs0g 1.80.2-1build2\nlibgl1 1.7.0-1build1\nlibgl1-mesa-dri 25.2.8-0ubuntu0.24.04.1\nlibgles2 1.7.0-1build1\nlibglib-object-introspection-perl 0.051-1build3\nlibglib-perl 3:1.329.3-3build3\nlibglib2.0-0t64 2.80.0-6ubuntu3.8\nlibglib2.0-bin 2.80.0-6ubuntu3.8\nlibglib2.0-data 2.80.0-6ubuntu3.8\nlibglibmm-2.68-1t64 2.78.1-2.2build2\nlibglu1-mesa 9.0.2-1.1build1\nlibglvnd0 1.7.0-1build1\nlibglx-mesa0 25.2.8-0ubuntu0.24.04.1\nlibglx0 1.7.0-1build1\nlibgmp10 2:6.3.0+dfsg-2ubuntu6.1\nlibgnome-autoar-0-0 0.4.4-2build4\nlibgnome-bg-4-2t64 44.0-5build2\nlibgnome-bluetooth-3.0-13 46.0-1ubuntu1\nlibgnome-bluetooth-ui-3.0-13 46.0-1ubuntu1\nlibgnome-desktop-3-20t64 44.0-5build2\nlibgnome-desktop-4-2t64 44.0-5build2\nlibgnome-menu-3-0 3.36.0-1.1ubuntu3\nlibgnome-rr-4-2t64 44.0-5build2\nlibgnomekbd-common 3.28.1-1build3\nlibgnomekbd8 3.28.1-1build3\nlibgnutls30t64 3.8.3-1.1ubuntu3.6\nlibgoa-1.0-0b 3.50.4-0ubuntu2\nlibgoa-1.0-common 3.50.4-0ubuntu2\nlibgoa-backend-1.0-2 3.50.4-0ubuntu2\nlibgomp1 14.2.0-4ubuntu2~24.04.1\nlibgpg-error-l10n 1.47-3build2.1\nlibgpg-error0 1.47-3build2.1\nlibgpgme11t64 1.18.0-4.1ubuntu4\nlibgphoto2-6t64 2.5.31-2.1ubuntu1\nlibgphoto2-l10n 2.5.31-2.1ubuntu1\nlibgphoto2-port12t64 2.5.31-2.1ubuntu1\nlibgpm2 1.20.7-11\nlibgraphene-1.0-0 1.10.8-3build2\nlibgraphite2-3 1.3.14-2build1\nlibgs-common 10.02.1~dfsg1-0ubuntu7.8\nlibgs10 10.02.1~dfsg1-0ubuntu7.8\nlibgs10-common 10.02.1~dfsg1-0ubuntu7.8\nlibgsf-1-114 1.14.51-2ubuntu0.1\nlibgsf-1-common 1.14.51-2ubuntu0.1\nlibgsound0t64 1.0.3-3.2build2\nlibgspell-1-2 1.12.2-1build4\nlibgspell-1-common 1.12.2-1build4\nlibgssapi-krb5-2 1.20.1-6ubuntu2.6\nlibgssdp-1.6-0 1.6.3-1build3\nlibgstreamer-gl1.0-0 1.24.2-1ubuntu0.4\nlibgstreamer-plugins-base1.0-0 1.24.2-1ubuntu0.4\nlibgstreamer-plugins-good1.0-0 1.24.2-1ubuntu1.4\nlibgstreamer1.0-0 1.24.2-1ubuntu0.1\nlibgtk-3-0t64 3.24.41-4ubuntu1.3\nlibgtk-3-bin 3.24.41-4ubuntu1.3\nlibgtk-3-common 3.24.41-4ubuntu1.3\nlibgtk-4-1 4.14.5+ds-0ubuntu0.10\nlibgtk-4-bin 4.14.5+ds-0ubuntu0.10\nlibgtk-4-common 4.14.5+ds-0ubuntu0.10\nlibgtk-4-media-gstreamer 4.14.5+ds-0ubuntu0.10\nlibgtk2.0-0t64 2.24.33-4ubuntu1.1\nlibgtk2.0-bin 2.24.33-4ubuntu1.1\nlibgtk2.0-common 2.24.33-4ubuntu1.1\nlibgtk3-perl 0.038-3\nlibgtkmm-4.0-0 4.10.0-4build3\nlibgtksourceview-5-0 5.12.0-1build1\nlibgtksourceview-5-common 5.12.0-1build1\nlibgtop-2.0-11 2.41.3-1ubuntu0.24.04.1\nlibgtop2-common 2.41.3-1ubuntu0.24.04.1\nlibgudev-1.0-0 1:238-5ubuntu1\nlibgupnp-1.6-0 1.6.6-1build3\nlibgupnp-av-1.0-3 0.14.1-2build2\nlibgupnp-dlna-2.0-4 0.12.0-4build2\nlibgusb2 0.4.8-1build2\nlibgweather-4-0t64 4.4.2-1build1\nlibgweather-4-common 4.4.2-1build1\nlibgxps2t64 0.3.2-4build3\nlibhandy-1-0 1.8.3-1build2\nlibharfbuzz-gobject0 8.3.0-2build2\nlibharfbuzz-icu0 8.3.0-2build2\nlibharfbuzz0b 8.3.0-2build2\nlibheif-plugin-aomdec 1.17.6-1ubuntu4.3\nlibheif-plugin-aomenc 1.17.6-1ubuntu4.3\nlibheif-plugin-libde265 1.17.6-1ubuntu4.3\nlibheif1 1.17.6-1ubuntu4.3\nlibhogweed6t64 3.9.1-2.2build1.1\nlibhpmud0 3.23.12+dfsg0-0ubuntu5\nlibhtml-form-perl 6.11-1\nlibhtml-format-perl 2.16-2\nlibhtml-parser-perl 3.81-1build3\nlibhtml-tagset-perl 3.20-6\nlibhtml-tree-perl 5.07-3\nlibhttp-cookies-perl 6.11-1\nlibhttp-daemon-perl 6.16-1\nlibhttp-date-perl 6.06-1\nlibhttp-message-perl 6.45-1ubuntu1\nlibhttp-negotiate-perl 6.01-2\nlibhunspell-1.7-0 1.7.2+really1.7.2-10build3\nlibhyphen0 2.8.8-7build3\nlibibus-1.0-5 1.5.29-2\nlibibverbs1 50.0-2ubuntu0.2\nlibical3t64 3.0.17-1.1build3\nlibice6 2:1.0.10-1build3\nlibicu74 74.2-1ubuntu3.1\nlibidn12 1.42-1build1\nlibidn2-0 2.3.7-2build1.1\nlibiec61883-0 1.2.0-6build1\nlibieee1284-3t64 0.2.11-14.1build1\nlibijs-0.35 0.35-15.1build1\nlibimagequant0 2.18.0-1build1\nlibimobiledevice6 1.3.0-8.1build3\nlibini-config5t64 0.6.2-2.1build1\nlibinih1 55-1ubuntu2\nlibiniparser1 4.1-7ubuntu0.1\nlibinput-bin 1.25.0-1ubuntu3.4\nlibinput10 1.25.0-1ubuntu3.4\nlibintl-perl 1.33-1build3\nlibintl-xs-perl 1.33-1build3\nlibio-html-perl 1.004-3\nlibio-socket-ssl-perl 2.085-1\nlibio-stringy-perl 2.111-3\nlibip4tc2 1.8.10-3ubuntu2\nlibip6tc2 1.8.10-3ubuntu2\nlibipa-hbac0t64 2.9.4-1.1ubuntu6.5\nlibipc-system-simple-perl 1.30-2\nlibisl23 0.26-3build1.1\nlibisns0t64 0.101-0.3build3\nlibiw30t64 30~pre9-16.1ubuntu2\nlibjansson4 2.14-2build2\nlibjavascriptcoregtk-4.1-0 2.52.3-0ubuntu0.24.04.1\nlibjavascriptcoregtk-6.0-1 2.52.3-0ubuntu0.24.04.1\nlibjbig0 2.1-6.1ubuntu2\nlibjbig2dec0 0.20-1build3\nlibjcat1 0.2.0-2build3\nlibjpeg-turbo8 2.1.5-2ubuntu2\nlibjpeg8 8c-2ubuntu11\nlibjq1 1.7.1-3ubuntu0.24.04.2\nlibjson-c5 0.17-1build1\nlibjson-glib-1.0-0 1.8.0-2build2\nlibjson-glib-1.0-common 1.8.0-2build2\nlibk5crypto3 1.20.1-6ubuntu2.6\nlibkeyutils1 1.6.3-3build1\nlibklibc 2.0.13-4ubuntu0.2\nlibkmod2 31+20240202-2ubuntu7.2\nlibkpathsea6 2023.20230311.66589-9build3\nlibkrb5-3 1.20.1-6ubuntu2.6\nlibkrb5support0 1.20.1-6ubuntu2.6\nlibksba8 1.6.6-1build1\nliblc3-1 1.0.4-3build1\nliblcms2-2 2.14-2ubuntu0.1\nliblcms2-utils 2.14-2ubuntu0.1\nlibldacbt-abr2 2.0.2.3+git20200429+ed310a0-4ubuntu2\nlibldacbt-enc2 2.0.2.3+git20200429+ed310a0-4ubuntu2\nlibldap-common 2.6.10+dfsg-0ubuntu0.24.04.1\nlibldap2 2.6.10+dfsg-0ubuntu0.24.04.1\nlibldb2 2:2.8.0+samba4.19.5+dfsg-4ubuntu9.6\nliblerc4 4.0.0+ds-4ubuntu2\nlibllvm18 1:18.1.3-1ubuntu1\nlibllvm20 1:20.1.2-0ubuntu1~24.04.2\nliblmdb0 0.9.31-1build1\nliblocale-gettext-perl 1.07-6ubuntu5\nliblouis-data 3.29.0-1build1\nliblouis20 3.29.0-1build1\nliblouisutdml-bin 2.12.0-3.1build1\nliblouisutdml-data 2.12.0-3.1build1\nliblouisutdml9t64 2.12.0-3.1build1\nlibltdl7 2.4.7-7build1\nliblua5.4-0 5.4.6-3build2\nliblvm2cmd2.03 2.03.16-3ubuntu3.2\nliblwp-mediatypes-perl 6.04-2\nliblwp-protocol-https-perl 6.13-1\nliblz4-1 1.9.4-1build1.1\nliblzma5 5.6.1+really5.4.5-1ubuntu0.3\nliblzo2-2 2.10-2build4\nlibmagic-mgc 1:5.45-3build1\nlibmagic1t64 1:5.45-3build1\nlibmailtools-perl 2.21-2\nlibmalcontent-0-0 0.11.1-1ubuntu1.3\nlibmanette-0.2-0 0.2.7-1build2\nlibmaxminddb0 1.9.1-1build1\nlibmbim-glib4 1.31.2-0ubuntu3.1\nlibmbim-proxy 1.31.2-0ubuntu3.1\nlibmbim-utils 1.31.2-0ubuntu3.1\nlibmd0 1.1.0-2build1.1\nlibmediaart-2.0-0 1.9.6-1build2\nlibmm-glib0 1.23.4-0ubuntu2\nlibmnl0 1.0.5-2build1\nlibmodule-find-perl 0.16-2\nlibmodule-scandeps-perl 1.35-1ubuntu0.24.04.1\nlibmount1 2.39.3-9ubuntu6.5\nlibmozjs-115-0t64 115.10.0-1\nlibmp3lame0 3.100-6build1\nlibmpc3 1.3.1-1build1.1\nlibmpfr6 4.2.1-1build1.1\nlibmpg123-0t64 1.32.5-1ubuntu1.1\nlibmsgraph-0-1 0.2.1-0ubuntu3\nlibmspack0t64 0.11-1.1build1\nlibmtdev1t64 1.1.6-1.1build1\nlibmtp-common 1.1.21-3.1ubuntu1\nlibmtp-runtime 1.1.21-3.1ubuntu1\nlibmtp9t64 1.1.21-3.1ubuntu1\nlibmutter-14-0 46.2-1ubuntu0.24.04.15\nlibnautilus-extension4 1:46.4-0ubuntu0.2\nlibncurses6 6.4+20240113-1ubuntu2\nlibncursesw6 6.4+20240113-1ubuntu2\nlibndp0 1.8-1fakesync1ubuntu0.24.04.1\nlibnet-dbus-perl 1.2.0-2build3\nlibnet-http-perl 6.23-1\nlibnet-smtp-ssl-perl 1.04-2\nlibnet-ssleay-perl 1.94-1build4\nlibnetfilter-conntrack3 1.0.9-6build1\nlibnetplan1 1.1.2-8ubuntu1~24.04.2\nlibnettle8t64 3.9.1-2.2build1.1\nlibnewt0.52 0.52.24-2ubuntu2\nlibnfnetlink0 1.0.2-2build1\nlibnfs14 5.0.2-1build1\nlibnfsidmap1 1:2.6.4-3ubuntu5.1\nlibnftables1 1.0.9-1ubuntu0.1\nlibnftnl11 1.2.6-2build1\nlibnghttp2-14 1.59.0-1ubuntu0.3\nlibnl-3-200 3.7.0-0.3build1.1\nlibnl-genl-3-200 3.7.0-0.3build1.1\nlibnl-route-3-200 3.7.0-0.3build1.1\nlibnm0 1.46.0-1ubuntu2.7\nlibnma-common 1.10.6-3build2\nlibnma-gtk4-0 1.10.6-3build2\nlibnma0 1.10.6-3build2\nlibnotify-bin 0.8.3-1build2\nlibnotify4 0.8.3-1build2\nlibnpth0t64 1.6-3.1build1\nlibnspr4 2:4.35-1.1build1\nlibnss-mdns 0.15.1-4build1\nlibnss-sss 2.9.4-1.1ubuntu6.5\nlibnss-systemd 255.4-1ubuntu8.15\nlibnss3 2:3.98-1ubuntu0.1\nlibntfs-3g89t64 1:2022.10.3-1.2ubuntu3.1\nlibnuma1 2.0.18-1ubuntu0.24.04.1\nlibnvme1t64 1.8-3ubuntu1\nlibogg0 1.3.5-3build1\nlibonig5 6.9.9-1build1\nlibopengl0 1.7.0-1build1\nlibopeniscsiusr 2.1.9-3ubuntu5.4\nlibopenjp2-7 2.5.0-2ubuntu0.5\nlibopus0 1.4-1build1\nliborc-0.4-0t64 1:0.4.38-1ubuntu0.1\nlibp11-kit0 0.25.3-4ubuntu2.1\nlibpackagekit-glib2-18 1.2.8-2ubuntu1.5\nlibpam-cap 1:2.66-5ubuntu2.4\nlibpam-fprintd 1.94.3-1\nlibpam-gnome-keyring 46.1-2ubuntu0.2\nlibpam-modules 1.5.3-5ubuntu5.5\nlibpam-modules-bin 1.5.3-5ubuntu5.5\nlibpam-pwquality 1.4.5-3build1\nlibpam-runtime 1.5.3-5ubuntu5.5\nlibpam-sss 2.9.4-1.1ubuntu6.5\nlibpam-systemd 255.4-1ubuntu8.15\nlibpam0g 1.5.3-5ubuntu5.5\nlibpango-1.0-0 1.52.1+ds-1build1\nlibpangocairo-1.0-0 1.52.1+ds-1build1\nlibpangoft2-1.0-0 1.52.1+ds-1build1\nlibpangomm-2.48-1t64 2.52.0-1build1\nlibpangoxft-1.0-0 1.52.1+ds-1build1\nlibpaper-utils 1.1.29build1\nlibpaper1 1.1.29build1\nlibparted2t64 3.6-4build1\nlibpath-utils1t64 0.6.2-2.1build1\nlibpcap0.8t64 1.10.4-4.1ubuntu3\nlibpcaudio0 1.2-2build3\nlibpci3 1:3.10.0-2build1\nlibpciaccess0 0.17-3ubuntu0.24.04.2\nlibpcre2-32-0 10.42-4ubuntu2.1\nlibpcre2-8-0 10.42-4ubuntu2.1\nlibpcsclite1 2.0.3-1build1\nlibpeas-1.0-0 1.36.0-3build4\nlibpeas-common 1.36.0-3build4\nlibperl5.38t64 5.38.2-3.2ubuntu0.2\nlibphonenumber8 8.12.57+ds-4.2build3\nlibpipeline1 1.5.7-2\nlibpipewire-0.3-0t64 1.0.5-1ubuntu3.2\nlibpipewire-0.3-common 1.0.5-1ubuntu3.2\nlibpipewire-0.3-modules 1.0.5-1ubuntu3.2\nlibpixman-1-0 0.42.2-1build1\nlibpkcs11-helper1t64 1.29.0-2.1build2\nlibplist-2.0-4 2.3.0-1~exp2build2\nlibplymouth5 24.004.60-1ubuntu7.1\nlibpng16-16t64 1.6.43-5ubuntu0.6\nlibpolkit-agent-1-0 124-2ubuntu1.24.04.3\nlibpolkit-gobject-1-0 124-2ubuntu1.24.04.3\nlibpoppler-cpp0t64 24.02.0-1ubuntu9.8\nlibpoppler-glib8t64 24.02.0-1ubuntu9.8\nlibpoppler134 24.02.0-1ubuntu9.8\nlibpopt0 1.19+dfsg-1build1\nlibportal-gtk4-1 0.7.1-5build5\nlibportal1 0.7.1-5build5\nlibppd2 2:2.0.0-0ubuntu4.1\nlibppd2-common 2:2.0.0-0ubuntu4.1\nlibproc-processtable-perl 0.636-1build3\nlibproc2-0 2:4.0.4-4ubuntu3.2\nlibprotobuf-c1 1.4.1-1ubuntu4\nlibprotobuf32t64 3.21.12-8.2ubuntu0.3\nlibproxy1-plugin-gsettings 0.5.4-4build1\nlibproxy1-plugin-networkmanager 0.5.4-4build1\nlibproxy1v5 0.5.4-4build1\nlibpsl5t64 0.21.2-1.1build1\nlibpulse-mainloop-glib0 1:16.1+dfsg1-2ubuntu10.1\nlibpulse0 1:16.1+dfsg1-2ubuntu10.1\nlibpwquality-common 1.4.5-3build1\nlibpwquality1 1.4.5-3build1\nlibpython3-stdlib 3.12.3-0ubuntu2.1\nlibpython3.12-minimal 3.12.3-1ubuntu0.13\nlibpython3.12-stdlib 3.12.3-1ubuntu0.13\nlibpython3.12t64 3.12.3-1ubuntu0.13\nlibqmi-glib5 1.35.2-0ubuntu2\nlibqmi-proxy 1.35.2-0ubuntu2\nlibqmi-utils 1.35.2-0ubuntu2\nlibqpdf29t64 11.9.0-1.1ubuntu0.1\nlibqrtr-glib0 1.2.2-1ubuntu4\nlibraqm0 0.10.1-1build1\nlibraw1394-11 2.1.2-2build3\nlibreadline8t64 8.2-4build1\nlibref-array1t64 0.6.2-2.1build1\nlibreiserfscore0t64 1:3.6.27-7.1build1\nlibrest-1.0-0 0.9.1-6build3\nlibroc0.3 0.3.0+dfsg-7ubuntu2\nlibrsvg2-2 2.58.0+dfsg-1build1\nlibrsvg2-common 2.58.0+dfsg-1build1\nlibrtmp1 2.4+20151223.gitfa8646d.1-2build7\nlibrygel-core-2.8-0 0.42.5-1ubuntu3\nlibrygel-db-2.8-0 0.42.5-1ubuntu3\nlibrygel-renderer-2.8-0 0.42.5-1ubuntu3\nlibrygel-server-2.8-0 0.42.5-1ubuntu3\nlibsamplerate0 0.2.2-4build1\nlibsane-common 1.2.1-7build4\nlibsane-hpaio 3.23.12+dfsg0-0ubuntu5\nlibsane1 1.2.1-7build4\nlibsasl2-2 2.1.28+dfsg1-5ubuntu3.1\nlibsasl2-modules 2.1.28+dfsg1-5ubuntu3.1\nlibsasl2-modules-db 2.1.28+dfsg1-5ubuntu3.1\nlibsasl2-modules-gssapi-mit 2.1.28+dfsg1-5ubuntu3.1\nlibsbc1 2.0-1build1\nlibseccomp2 2.5.5-1ubuntu3.1\nlibsecret-1-0 0.21.4-1build3\nlibsecret-common 0.21.4-1build3\nlibselinux1 3.5-2ubuntu2.1\nlibsemanage-common 3.5-1build5\nlibsemanage2 3.5-1build5\nlibsensors-config 1:3.6.0-9build1\nlibsensors5 1:3.6.0-9build1\nlibsepol2 3.5-2build1\nlibsgutils2-1.46-2 1.46-3ubuntu4\nlibsharpyuv0 1.3.2-0.4build3\nlibshout3 2.4.6-1build2\nlibsigc++-3.0-0 3.6.0-2\nlibsigsegv2 2.14-1ubuntu2\nlibslang2 2.3.3-3build2\nlibsm6 2:1.2.3-1build3\nlibsmartcols1 2.39.3-9ubuntu6.5\nlibsmbclient0 2:4.19.5+dfsg-4ubuntu9.6\nlibsnapd-glib-2-1 1.64-0ubuntu5\nlibsndfile1 1.2.2-1ubuntu5.24.04.1\nlibsnmp-base 5.9.4+dfsg-1.1ubuntu3.2\nlibsnmp40t64 5.9.4+dfsg-1.1ubuntu3.2\nlibsodium23 1.0.18-1ubuntu0.24.04.1\nlibsonic0 0.2.0-13build1\nlibsort-naturally-perl 1.03-4\nlibsoup-2.4-1 2.74.3-6ubuntu1.6\nlibsoup-3.0-0 3.4.4-5ubuntu0.7\nlibsoup-3.0-common 3.4.4-5ubuntu0.7\nlibsoup2.4-common 2.74.3-6ubuntu1.6\nlibsource-highlight-common 3.1.9-4.3build1\nlibsource-highlight4t64 3.1.9-4.3build1\nlibspa-0.2-bluetooth 1.0.5-1ubuntu3.2\nlibspa-0.2-modules 1.0.5-1ubuntu3.2\nlibspectre1 0.2.12-1build2\nlibspeechd2 0.12.0~rc2-2build3\nlibspeex1 1.2.1-2ubuntu2.24.04.1\nlibspeexdsp1 1.2.1-1ubuntu3\nlibsqlite3-0 3.45.1-1ubuntu2.5\nlibss2 1.47.0-2.4~exp1ubuntu4.1\nlibssh-4 0.10.6-2ubuntu0.4\nlibssl3t64 3.0.13-0ubuntu3.9\nlibsss-certmap0 2.9.4-1.1ubuntu6.5\nlibsss-idmap0 2.9.4-1.1ubuntu6.5\nlibsss-nss-idmap0 2.9.4-1.1ubuntu6.5\nlibstartup-notification0 0.12-6build3\nlibstdc++6 14.2.0-4ubuntu2~24.04.1\nlibstemmer0d 2.2.0-4build1\nlibsynctex2 2023.20230311.66589-9build3\nlibsysmetrics1 1.7.3ubuntu0.24.04.3\nlibsystemd-shared 255.4-1ubuntu8.15\nlibsystemd0 255.4-1ubuntu8.15\nlibtag1v5 1.13.1-1build1\nlibtag1v5-vanilla 1.13.1-1build1\nlibtalloc2 2.4.2-1build2\nlibtasn1-6 4.19.0-3ubuntu0.24.04.2\nlibtcl8.6 8.6.14+dfsg-1build1\nlibtdb1 1.4.10-1build1\nlibteamdctl0 1.31-1build3\nlibterm-readkey-perl 2.38-2build4\nlibtevent0t64 0.16.1-2build1\nlibtext-charwidth-perl 0.04-11build3\nlibtext-iconv-perl 1.7-8build3\nlibtext-wrapi18n-perl 0.06-10\nlibthai-data 0.1.29-2build1\nlibthai0 0.1.29-2build1\nlibtheora0 1.1.1+dfsg.1-16.1build3\nlibtie-ixhash-perl 1.23-4\nlibtiff6 4.5.1+git230720-4ubuntu2.5\nlibtimedate-perl 2.3300-2\nlibtinfo6 6.4+20240113-1ubuntu2\nlibtirpc-common 1.3.4+ds-1.1build1\nlibtirpc3t64 1.3.4+ds-1.1build1\nlibtotem-plparser-common 3.26.6-1build5\nlibtotem-plparser18 3.26.6-1build5\nlibtraceevent1 1:1.8.2-1ubuntu2.1\nlibtraceevent1-plugin 1:1.8.2-1ubuntu2.1\nlibtracefs1 1.8.0-1ubuntu1\nlibtracker-sparql-3.0-0 3.7.1-1build1\nlibtry-tiny-perl 0.31-2\nlibtss2-esys-3.0.2-0t64 4.0.1-7.1ubuntu5.1\nlibtss2-mu-4.0.1-0t64 4.0.1-7.1ubuntu5.1\nlibtss2-rc0t64 4.0.1-7.1ubuntu5.1\nlibtss2-sys1t64 4.0.1-7.1ubuntu5.1\nlibtss2-tcti-cmd0t64 4.0.1-7.1ubuntu5.1\nlibtss2-tcti-device0t64 4.0.1-7.1ubuntu5.1\nlibtss2-tcti-libtpms0t64 4.0.1-7.1ubuntu5.1\nlibtss2-tcti-mssim0t64 4.0.1-7.1ubuntu5.1\nlibtss2-tcti-spi-helper0t64 4.0.1-7.1ubuntu5.1\nlibtss2-tcti-swtpm0t64 4.0.1-7.1ubuntu5.1\nlibtss2-tctildr0t64 4.0.1-7.1ubuntu5.1\nlibtwolame0 0.4.0-2build3\nlibu2f-udev 1.1.10-3build3\nlibubootenv-tool 0.3.5-0.1build1\nlibubootenv0.1 0.3.5-0.1build1\nlibuchardet0 0.0.8-1build1\nlibudev1 255.4-1ubuntu8.15\nlibudisks2-0 2.10.1-6ubuntu1.3\nlibunistring5 1.1-2build1.1\nlibunity-protocol-private0 7.1.4+19.04.20190319-6build4\nlibunity-scopes-json-def-desktop 7.1.4+19.04.20190319-6build4\nlibunity9 7.1.4+19.04.20190319-6build4\nlibunwind8 1.6.2-3build1.1\nlibupower-glib3 1.90.3-1\nliburcu8t64 0.14.0-3.1build1\nliburi-perl 5.27-1\nlibusb-1.0-0 2:1.0.27-1\nlibusbmuxd6 2.0.2-4build3\nlibutempter0 1.2.1-3build1\nlibuuid1 2.39.3-9ubuntu6.5\nlibuv1t64 1.48.0-1.1build1\nlibv4l-0t64 1.26.1-4build3\nlibv4lconvert0t64 1.26.1-4build3\nlibvisual-0.4-0 0.4.2-2build1\nlibvolume-key1 0.3.12-7build2\nlibvorbis0a 1.3.7-1build3\nlibvorbisenc2 1.3.7-1build3\nlibvorbisfile3 1.3.7-1build3\nlibvpx9 1.14.0-1ubuntu2.3\nlibvte-2.91-0 0.76.0-1ubuntu0.1\nlibvte-2.91-common 0.76.0-1ubuntu0.1\nlibvulkan1 1.3.275.0-1build1\nlibwacom-common 2.10.0-2\nlibwacom9 2.10.0-2\nlibwavpack1 5.6.0-1build1\nlibwayland-client0 1.22.0-2.1build1\nlibwayland-cursor0 1.22.0-2.1build1\nlibwayland-egl1 1.22.0-2.1build1\nlibwayland-server0 1.22.0-2.1build1\nlibwbclient0 2:4.19.5+dfsg-4ubuntu9.6\nlibwebkit2gtk-4.1-0 2.52.3-0ubuntu0.24.04.1\nlibwebkitgtk-6.0-4 2.52.3-0ubuntu0.24.04.1\nlibwebp7 1.3.2-0.4build3\nlibwebpdemux2 1.3.2-0.4build3\nlibwebpmux3 1.3.2-0.4build3\nlibwebrtc-audio-processing1 0.3.1-0ubuntu6\nlibwhoopsie-preferences0 23build3\nlibwhoopsie0 0.2.77ubuntu0.1\nlibwinpr3-3 3.5.1+dfsg1-0ubuntu1.5\nlibwireplumber-0.4-0 0.4.17-1ubuntu4.1\nlibwmf-0.2-7 0.2.13-1.1build3\nlibwmf-0.2-7-gtk 0.2.13-1.1build3\nlibwmf0.2-7-gtk 0.2.13-1.1build3\nlibwmflite-0.2-7 0.2.13-1.1build3\nlibwnck-3-0 43.0-3build4\nlibwnck-3-common 43.0-3build4\nlibwrap0 7.6.q-33\nlibwww-perl 6.76-1ubuntu0.1\nlibwww-robotrules-perl 6.02-1\nlibx11-6 2:1.8.7-1build1\nlibx11-data 2:1.8.7-1build1\nlibx11-protocol-perl 0.56-9\nlibx11-xcb1 2:1.8.7-1build1\nlibxau6 1:1.0.9-1build6\nlibxaw7 2:1.0.14-1build2\nlibxcb-damage0 1.15-1ubuntu2\nlibxcb-dri3-0 1.15-1ubuntu2\nlibxcb-glx0 1.15-1ubuntu2\nlibxcb-icccm4 0.4.1-1.1build3\nlibxcb-image0 0.4.0-2build1\nlibxcb-keysyms1 0.4.0-1build4\nlibxcb-present0 1.15-1ubuntu2\nlibxcb-randr0 1.15-1ubuntu2\nlibxcb-render-util0 0.3.9-1build4\nlibxcb-render0 1.15-1ubuntu2\nlibxcb-res0 1.15-1ubuntu2\nlibxcb-shape0 1.15-1ubuntu2\nlibxcb-shm0 1.15-1ubuntu2\nlibxcb-sync1 1.15-1ubuntu2\nlibxcb-util1 0.4.0-1build3\nlibxcb-xfixes0 1.15-1ubuntu2\nlibxcb-xkb1 1.15-1ubuntu2\nlibxcb-xv0 1.15-1ubuntu2\nlibxcb1 1.15-1ubuntu2\nlibxcomposite1 1:0.4.5-1build3\nlibxcursor1 1:1.2.1-1build1\nlibxcvt0 0.1.2-1build1\nlibxdamage1 1:1.1.6-1build1\nlibxdmcp6 1:1.1.3-0ubuntu6\nlibxdo3 1:3.20160805.1-5build1\nlibxext6 2:1.3.4-1build2\nlibxfixes3 1:6.0.0-2build1\nlibxfont2 1:2.0.6-1build1\nlibxft2 2.3.6-1build1\nlibxi6 2:1.8.1-1build1\nlibxinerama1 2:1.1.4-3build1\nlibxkbcommon-x11-0 1.6.0-1build1\nlibxkbcommon0 1.6.0-1build1\nlibxkbfile1 1:1.1.0-1build4\nlibxkbregistry0 1.6.0-1build1\nlibxklavier16 5.4-5build2\nlibxml-parser-perl 2.47-1ubuntu0.24.04.1\nlibxml-twig-perl 1:3.52-2\nlibxml-xpathengine-perl 0.14-2\nlibxml2 2.9.14+dfsg-1.3ubuntu3.7\nlibxmlb2 0.3.18-1\nlibxmlsec1t64 1.2.39-5build2\nlibxmlsec1t64-openssl 1.2.39-5build2\nlibxmu6 2:1.1.3-3build2\nlibxmuu1 2:1.1.3-3build2\nlibxpm4 1:3.5.17-1build2\nlibxrandr2 2:1.5.2-2build1\nlibxrender1 1:0.9.10-1.1build1\nlibxres1 2:1.2.1-1build1\nlibxshmfence1 1.3-1build5\nlibxslt1.1 1.1.39-0exp1ubuntu0.24.04.3\nlibxt6t64 1:1.2.1-1.2build1\nlibxtables12 1.8.10-3ubuntu2\nlibxtst6 2:1.2.3-1.1build1\nlibxv1 2:1.0.11-1.1build1\nlibxxf86dga1 2:1.1.5-1build1\nlibxxf86vm1 1:1.1.4-1build4\nlibxxhash0 0.8.2-2build1\nlibyaml-0-2 0.2.5-1build1\nlibyelp0 42.2-1ubuntu0.24.04.1\nlibzstd1 1.5.5+dfsg2-2build1.1\nlinux-base 4.5ubuntu9+24.04.2\nlinux-firmware 20240318.git3b128b60-0ubuntu2.27\nlinux-generic-hwe-24.04 6.17.0-19.19~24.04.2\nlinux-headers-6.17.0-19-generic 6.17.0-19.19~24.04.2\nlinux-headers-6.8.0-106 6.8.0-106.106\nlinux-headers-6.8.0-106-generic 6.8.0-106.106\nlinux-headers-generic 6.8.0-106.106\nlinux-headers-generic-hwe-24.04 6.17.0-19.19~24.04.2\nlinux-headers-virtual 6.8.0-106.106\nlinux-hwe-6.17-headers-6.17.0-19 6.17.0-19.19~24.04.2\nlinux-hwe-6.17-tools-6.17.0-19 6.17.0-19.19~24.04.2\nlinux-image-6.17.0-19-generic 6.17.0-19.19~24.04.2\nlinux-image-6.8.0-106-generic 6.8.0-106.106\nlinux-image-generic-hwe-24.04 6.17.0-19.19~24.04.2\nlinux-image-virtual 6.8.0-106.106\nlinux-libc-dev 6.8.0-124.124\nlinux-modules-6.17.0-19-generic 6.17.0-19.19~24.04.2\nlinux-modules-6.8.0-106-generic 6.8.0-106.106\nlinux-modules-extra-6.17.0-19-generic 6.17.0-19.19~24.04.2\nlinux-sound-base 1.0.25+dfsg-0ubuntu7\nlinux-tools-6.17.0-19-generic 6.17.0-19.19~24.04.2\nlinux-tools-6.8.0-106 6.8.0-106.106\nlinux-tools-6.8.0-106-generic 6.8.0-106.106\nlinux-tools-common 6.8.0-124.124\nlinux-virtual 6.8.0-106.106\nlocales 2.39-0ubuntu8.7\nlogin 1:4.13+dfsg1-4ubuntu3.2\nlogrotate 3.21.0-2build1\nlogsave 1.47.0-2.4~exp1ubuntu4.1\nlsb-release 12.0-2\nlshw 02.19.git.2021.06.19.996aaad9c7-2ubuntu0.24.04.1\nlsof 4.95.0-1build3\nlvm2 2.03.16-3ubuntu3.2\nlxd-agent-loader 0.7ubuntu0.1\nlxd-installer 4ubuntu0.1\nman-db 2.12.0-4build2\nmanpages 6.7-2\nmanpages-dev 6.7-2\nmawk 1.3.4.20240123-1build1\nmdadm 4.3-1ubuntu2.1\nmedia-types 10.1.0\nmesa-libgallium 25.2.8-0ubuntu0.24.04.1\nmesa-vulkan-drivers 25.2.8-0ubuntu0.24.04.1\nmobile-broadband-provider-info 20230416-1\nmodemmanager 1.23.4-0ubuntu2\nmokutil 0.6.0-2build3\nmotd-news-config 13ubuntu10.4\nmount 2.39.3-9ubuntu6.5\nmousetweaks 3.32.0-4build2\nmscompress 0.4-10build1\nmtd-utils 1:2.2.0-1ubuntu2\nmtr-tiny 0.95-1.1ubuntu0.1\nmultipath-tools 0.9.4-5ubuntu8.1\nmutter-common 46.2-1ubuntu0.24.04.15\nmutter-common-bin 46.2-1ubuntu0.24.04.15\nnano 7.2-2ubuntu0.2\nnautilus 1:46.4-0ubuntu0.2\nnautilus-data 1:46.4-0ubuntu0.2\nnautilus-extension-gnome-terminal 3.52.0-1ubuntu2\nnautilus-sendto 3.8.6-7build2\nncurses-base 6.4+20240113-1ubuntu2\nncurses-bin 6.4+20240113-1ubuntu2\nncurses-term 6.4+20240113-1ubuntu2\nneedrestart 3.6-7ubuntu4.5\nnetbase 6.4\nnetcat-openbsd 1.226-1ubuntu2\nnetplan-generator 1.1.2-8ubuntu1~24.04.2\nnetplan.io 1.1.2-8ubuntu1~24.04.2\nnetwork-manager 1.46.0-1ubuntu2.7\nnetwork-manager-config-connectivity-ubuntu 1.46.0-1ubuntu2.7\nnetwork-manager-gnome 1.34.0-1ubuntu3\nnetwork-manager-openvpn 1.10.2-4ubuntu0.2\nnetwork-manager-openvpn-gnome 1.10.2-4ubuntu0.2\nnetwork-manager-pptp 1.2.12-3build2\nnetwork-manager-pptp-gnome 1.2.12-3build2\nnetworkd-dispatcher 2.2.4-1\nnftables 1.0.9-1ubuntu0.1\nntfs-3g 1:2022.10.3-1.2ubuntu3.1\nnumactl 2.0.18-1ubuntu0.24.04.1\nopen-iscsi 2.1.9-3ubuntu5.4\nopen-vm-tools 2:13.0.0-2~ubuntu0.24.04.1\nopenprinting-ppds 20230202-1\nopenssh-client 1:9.6p1-3ubuntu13.16\nopenssh-server 1:9.6p1-3ubuntu13.16\nopenssh-sftp-server 1:9.6p1-3ubuntu13.16\nopenssl 3.0.13-0ubuntu3.9\nopenvpn 2.6.19-0ubuntu0.24.04.2\norca 46.1-1ubuntu1\nos-prober 1.81ubuntu4\noverlayroot 0.49~24.04.1\np11-kit 0.25.3-4ubuntu2.1\np11-kit-modules 0.25.3-4ubuntu2.1\npackagekit 1.2.8-2ubuntu1.5\npackagekit-tools 1.2.8-2ubuntu1.5\nparted 3.6-4build1\npasswd 1:4.13+dfsg1-4ubuntu3.2\npastebinit 1.6.2-1\npatch 2.7.6-7build3\npci.ids 0.0~2024.03.31-1ubuntu0.1\npciutils 1:3.10.0-2build1\npcmciautils 018-14build1\nperl 5.38.2-3.2ubuntu0.2\nperl-base 5.38.2-3.2ubuntu0.2\nperl-modules-5.38 5.38.2-3.2ubuntu0.2\nperl-openssl-defaults 7build3\npinentry-curses 1.2.1-3ubuntu5\npinentry-gnome3 1.2.1-3ubuntu5\npipewire 1.0.5-1ubuntu3.2\npipewire-alsa 1.0.5-1ubuntu3.2\npipewire-audio 1.0.5-1ubuntu3.2\npipewire-bin 1.0.5-1ubuntu3.2\npipewire-pulse 1.0.5-1ubuntu3.2\npkexec 124-2ubuntu1.24.04.3\nplymouth 24.004.60-1ubuntu7.1\nplymouth-label 24.004.60-1ubuntu7.1\nplymouth-theme-spinner 24.004.60-1ubuntu7.1\nplymouth-theme-ubuntu-text 24.004.60-1ubuntu7.1\npolicykit-1 124-2ubuntu1.24.04.3\npolicykit-desktop-privileges 0.22\npolkitd 124-2ubuntu1.24.04.3\npollinate 4.33-3.1ubuntu1.3\npoppler-data 0.4.12-1\npoppler-utils 24.02.0-1ubuntu9.8\npower-profiles-daemon 0.21-1ubuntu1\npowermgmt-base 1.37ubuntu0.1\nppp 2.4.9-1+1.1ubuntu4\npptp-linux 1.10.0-1build4\nprinter-driver-brlaser 6-3build2\nprinter-driver-c2esp 27-11ubuntu7\nprinter-driver-foo2zjs 20200505dfsg0-2ubuntu6\nprinter-driver-foo2zjs-common 20200505dfsg0-2ubuntu6\nprinter-driver-hpcups 3.23.12+dfsg0-0ubuntu5\nprinter-driver-m2300w 0.51-15build2\nprinter-driver-min12xxw 0.0.9-11build3\nprinter-driver-pnm2ppa 1.13+nondbs-0ubuntu10\nprinter-driver-postscript-hp 3.23.12+dfsg0-0ubuntu5\nprinter-driver-ptouch 1.7-1build2\nprinter-driver-pxljr 1.4+repack0-6build2\nprinter-driver-sag-gdi 0.1-8\nprinter-driver-splix 2.0.0+svn315-7fakesync1ubuntu1\nprocps 2:4.0.4-4ubuntu3.2\npsmisc 23.7-1build1\npublicsuffix 20231001.0357-0.1\npython-apt-common 2.7.7ubuntu5.2\npython-babel-localedata 2.10.3-3build1\npython3 3.12.3-0ubuntu2.1\npython3-apport 2.28.1-0ubuntu3.8\npython3-apt 2.7.7ubuntu5.2\npython3-aptdaemon 1.1.1+bzr982-0ubuntu44\npython3-aptdaemon.gtk3widgets 1.1.1+bzr982-0ubuntu44\npython3-attr 23.2.0-2\npython3-automat 22.10.0-2\npython3-babel 2.10.3-3build1\npython3-bcrypt 3.2.2-1build1\npython3-blinker 1.7.0-1\npython3-boto3 1.34.46+dfsg-1ubuntu1\npython3-botocore 1.34.46+repack-1ubuntu1\npython3-bpfcc 0.29.1+ds-1ubuntu7\npython3-brlapi 6.6-4ubuntu5\npython3-cairo 1.25.1-2build2\npython3-certifi 2023.11.17-1\npython3-cffi-backend 1.16.0-2build1\npython3-chardet 5.2.0+dfsg-1\npython3-click 8.1.6-2\npython3-colorama 0.4.6-4\npython3-commandnotfound 23.04.0\npython3-configobj 5.0.8-3\npython3-constantly 23.10.4-1\npython3-cryptography 41.0.7-4ubuntu0.4\npython3-cups 2.0.1-5build6\npython3-cupshelpers 1.5.18-1ubuntu9\npython3-dateutil 2.8.2-3ubuntu1\npython3-dbus 1.3.2-5build3\npython3-debconf 1.5.86ubuntu1\npython3-debian 0.1.49ubuntu2\npython3-defer 1.0.6-2.1ubuntu1\npython3-distro 1.9.0-1\npython3-distro-info 1.7build1\npython3-distupgrade 1:24.04.28\npython3-gdbm 3.12.3-0ubuntu1\npython3-gi 3.48.2-1\npython3-hamcrest 2.1.0-1\npython3-httplib2 0.20.4-3\npython3-hyperlink 21.0.0-5\npython3-ibus-1.0 1.5.29-2\npython3-idna 3.6-2ubuntu0.1\npython3-incremental 22.10.0-1\npython3-jinja2 3.1.2-1ubuntu1.3\npython3-jmespath 1.0.1-1\npython3-json-pointer 2.0-0ubuntu1\npython3-jsonpatch 1.32-3\npython3-jsonschema 4.10.3-2ubuntu1\npython3-jwt 2.7.0-1ubuntu0.1\npython3-launchpadlib 1.11.0-6\npython3-lazr.restfulclient 0.14.6-1\npython3-lazr.uri 1.0.6-3\npython3-louis 3.29.0-1build1\npython3-magic 2:0.4.27-3\npython3-markdown-it 3.0.0-2\npython3-markupsafe 2.1.5-1build2\npython3-mdurl 0.1.2-1\npython3-minimal 3.12.3-0ubuntu2.1\npython3-netaddr 0.8.0-2ubuntu1\npython3-netifaces 0.11.0-2build3\npython3-netplan 1.1.2-8ubuntu1~24.04.2\npython3-newt 0.52.24-2ubuntu2\npython3-oauthlib 3.2.2-1\npython3-olefile 0.46-3\npython3-openssl 23.2.0-1ubuntu0.1\npython3-packaging 24.0-1\npython3-pexpect 4.9-2\npython3-pil 10.2.0-1ubuntu1\npython3-pkg-resources 68.1.2-2ubuntu1.2\npython3-problem-report 2.28.1-0ubuntu3.8\npython3-ptyprocess 0.7.0-5\npython3-pyasn1 0.4.8-4ubuntu0.2\npython3-pyasn1-modules 0.2.8-1\npython3-pyatspi 2.46.1-1\npython3-pygments 2.17.2+dfsg-1\npython3-pyparsing 3.1.1-1\npython3-pyrsistent 0.20.0-1build2\npython3-requests 2.31.0+dfsg-1ubuntu1.1\npython3-rich 13.7.1-1\npython3-s3transfer 0.10.1-1ubuntu2\npython3-serial 3.5-2\npython3-service-identity 24.1.0-1\npython3-setuptools 68.1.2-2ubuntu1.2\npython3-six 1.16.0-4\npython3-software-properties 0.99.49.4\npython3-speechd 0.12.0~rc2-2build3\npython3-sss 2.9.4-1.1ubuntu6.5\npython3-systemd 235-1build4\npython3-twisted 24.3.0-1ubuntu0.2\npython3-typing-extensions 4.10.0-1\npython3-tz 2024.1-2\npython3-update-manager 1:24.04.12\npython3-urllib3 2.0.7-1ubuntu0.7\npython3-wadllib 1.3.6-5\npython3-xdg 0.28-2\npython3-xkit 0.5.0ubuntu6\npython3-yaml 6.0.1-2build2\npython3-zope.interface 6.1-1build1\npython3.12 3.12.3-1ubuntu0.13\npython3.12-minimal 3.12.3-1ubuntu0.13\nreadline-common 8.2-4build1\nrfkill 2.39.3-9ubuntu6.5\nrpcsvc-proto 1.4.2-0ubuntu7\nrsync 3.2.7-1ubuntu1.4\nrsyslog 8.2312.0-3ubuntu9.2\nrtkit 0.13-5build1\nrun-one 1.17-0ubuntu2\nrygel 0.42.5-1ubuntu3\nsamba-libs 2:4.19.5+dfsg-4ubuntu9.6\nsane-airscan 0.99.29-0ubuntu4\nsane-utils 1.2.1-7build4\nsbsigntool 0.9.4-3.1ubuntu7\nscreen 4.9.1-1ubuntu1\nseahorse 43.0-3build2\nsecureboot-db 1.9build1\nsed 4.9-2ubuntu0.24.04.1\nsensible-utils 0.0.22\nsession-migration 0.3.9build1\nsg3-utils 1.46-3ubuntu4\nsg3-utils-udev 1.46-3ubuntu4\nsgml-base 1.31\nsgml-data 2.0.11+nmu1\nshared-mime-info 2.4-4\nshim-signed 1.58+15.8-0ubuntu1\nsnapd 2.75.2+ubuntu24.04\nsoftware-properties-common 0.99.49.4\nsoftware-properties-gtk 0.99.49.4\nsosreport 4.10.2-0ubuntu0~24.04.1\nsound-icons 0.1-8\nsound-theme-freedesktop 0.8-2ubuntu1\nspeech-dispatcher 0.12.0~rc2-2build3\nspeech-dispatcher-audio-plugins 0.12.0~rc2-2build3\nspeech-dispatcher-espeak-ng 0.12.0~rc2-2build3\nspice-vdagent 0.22.1-4build3\nsquashfs-tools 1:4.6.1-1build1\nssh-import-id 5.11-0ubuntu2.24.04.1\nssl-cert 1.1.2ubuntu1\nsssd 2.9.4-1.1ubuntu6.5\nsssd-ad 2.9.4-1.1ubuntu6.5\nsssd-ad-common 2.9.4-1.1ubuntu6.5\nsssd-common 2.9.4-1.1ubuntu6.5\nsssd-ipa 2.9.4-1.1ubuntu6.5\nsssd-krb5 2.9.4-1.1ubuntu6.5\nsssd-krb5-common 2.9.4-1.1ubuntu6.5\nsssd-ldap 2.9.4-1.1ubuntu6.5\nsssd-proxy 2.9.4-1.1ubuntu6.5\nstrace 6.8-0ubuntu2\nsudo 1.9.15p5-3ubuntu5.24.04.2\nswitcheroo-control 2.6-2build2\nsysstat 12.6.1-2\nsystem-config-printer-common 1.5.18-1ubuntu9\nsystem-config-printer-udev 1.5.18-1ubuntu9\nsystemd 255.4-1ubuntu8.15\nsystemd-dev 255.4-1ubuntu8.15\nsystemd-hwe-hwdb 255.1.7\nsystemd-oomd 255.4-1ubuntu8.15\nsystemd-resolved 255.4-1ubuntu8.15\nsystemd-sysv 255.4-1ubuntu8.15\nsystemd-timesyncd 255.4-1ubuntu8.15\nsysvinit-utils 3.08-6ubuntu3\ntar 1.35+dfsg-3build1\ntart-guest-agent 0.9.0\ntcl 8.6.14build1\ntcl8.6 8.6.14+dfsg-1build1\ntcpdump 4.99.4-3ubuntu4.24.04.1\ntecla 46.0-1ubuntu0.1\ntelnet 0.17+2.5-3ubuntu4.1\nthin-provisioning-tools 0.9.0-2ubuntu5.1\ntime 1.9-0.2build1\ntmux 3.4-1ubuntu0.1\ntnftp 20230507-2build3\ntpm-udev 0.6ubuntu1\ntrace-cmd 3.2-1ubuntu2\ntracker 3.7.1-1build1\ntracker-extract 3.7.1-1ubuntu0.1\ntracker-miner-fs 3.7.1-1ubuntu0.1\ntzdata 2026a-0ubuntu0.24.04.1\nu-boot-tools 2025.10-0ubuntu0.24.04.2\nubuntu-advantage-desktop-daemon 1.11ubuntu0.1\nubuntu-docs 24.04.2\nubuntu-drivers-common 1:0.9.7.6ubuntu3.7\nubuntu-kernel-accessories 1.539.2\nubuntu-keyring 2023.11.28.1\nubuntu-minimal 1.539.2\nubuntu-mono 24.04-0ubuntu1\nubuntu-pro-client 37.2ubuntu~24.04\nubuntu-pro-client-l10n 37.2ubuntu~24.04\nubuntu-release-upgrader-core 1:24.04.28\nubuntu-report 1.7.3ubuntu0.24.04.3\nubuntu-server 1.539.2\nubuntu-session 46.0-1ubuntu4\nubuntu-settings 24.04.6\nubuntu-standard 1.539.2\nubuntu-wallpapers 24.04.2\nubuntu-wallpapers-noble 24.04.2\nucf 3.0043+nmu1\nudev 255.4-1ubuntu8.15\nudisks2 2.10.1-6ubuntu1.3\nufw 0.36.2-6\nunattended-upgrades 2.9.1+nmu4ubuntu1\nunzip 6.0-28ubuntu4.1\nupdate-inetd 4.53\nupdate-manager-core 1:24.04.12\nupdate-notifier 3.192.68.2\nupdate-notifier-common 3.192.68.2\nupower 1.90.3-1\nusb-modeswitch 2.6.1-3ubuntu3\nusb-modeswitch-data 20191128-6\nusb.ids 2024.03.18-1\nusbmuxd 1.1.1-5~exp3ubuntu2.1\nusbutils 1:017-3build1\nutil-linux 2.39.3-9ubuntu6.5\nuuid-runtime 2.39.3-9ubuntu6.5\nvim 2:9.1.0016-1ubuntu7.14\nvim-common 2:9.1.0016-1ubuntu7.14\nvim-runtime 2:9.1.0016-1ubuntu7.14\nvim-tiny 2:9.1.0016-1ubuntu7.14\nwamerican 2020.12.07-2\nwebp-pixbuf-loader 0.2.4-2build2\nwget 1.21.4-1ubuntu4.1\nwhiptail 0.52.24-2ubuntu2\nwhoopsie 0.2.77ubuntu0.1\nwhoopsie-preferences 23build3\nwireless-regdb 2025.10.07-0ubuntu1~24.04.1\nwireless-tools 30~pre9-16.1ubuntu2\nwireplumber 0.4.17-1ubuntu4.1\nwpasupplicant 2:2.10-21ubuntu0.4\nx11-apps 7.7+11build3\nx11-common 1:7.7+23ubuntu3\nx11-session-utils 7.7+6build2\nx11-utils 7.7+6build2\nx11-xkb-utils 7.7+8build2\nx11-xserver-utils 7.7+10build2\nxauth 1:1.1.2-1build1\nxbitmaps 1.1.1-2.2\nxbrlapi 6.6-4ubuntu5\nxcursor-themes 1.0.6-0ubuntu1\nxcvt 0.1.2-1build1\nxdg-dbus-proxy 0.1.5-1ubuntu0.2\nxdg-desktop-portal 1.18.4-1ubuntu2.24.04.2\nxdg-desktop-portal-gnome 46.2-0ubuntu1\nxdg-desktop-portal-gtk 1.15.1-1build2\nxdg-user-dirs 0.18-1build1\nxdg-user-dirs-gtk 0.11-1build2\nxdg-utils 1.1.3-4.1ubuntu3\nxdotool 1:3.20160805.1-5build1\nxfonts-base 1:1.0.5+nmu1\nxfonts-encodings 1:1.0.5-0ubuntu2\nxfonts-scalable 1:1.0.3-1.3\nxfonts-utils 1:7.7+6build3\nxfsprogs 6.6.0-1ubuntu2.1\nxinit 1.4.1-0ubuntu5\nxinput 1.6.4-1build1\nxkb-data 2.41-2ubuntu1.1\nxml-core 0.19\nxorg 1:7.7+23ubuntu3\nxorg-docs-core 1:1.7.1-1.2\nxserver-common 2:21.1.12-1ubuntu1.5\nxserver-xephyr 2:21.1.12-1ubuntu1.5\nxserver-xorg 1:7.7+23ubuntu3\nxserver-xorg-core 2:21.1.12-1ubuntu1.5\nxserver-xorg-input-all 1:7.7+23ubuntu3\nxserver-xorg-input-libinput 1.4.0-1ubuntu24.04.1\nxserver-xorg-input-wacom 1:1.2.0-1ubuntu2\nxserver-xorg-legacy 2:21.1.12-1ubuntu1.5\nxserver-xorg-video-all 1:7.7+23ubuntu3\nxserver-xorg-video-amdgpu 23.0.0-1ubuntu0.24.04.1\nxserver-xorg-video-ati 1:22.0.0-1build1\nxserver-xorg-video-fbdev 1:0.5.0-2build2\nxserver-xorg-video-nouveau 1:1.0.17-2ubuntu0.1\nxserver-xorg-video-radeon 1:22.0.0-1build1\nxserver-xorg-video-vesa 1:2.6.0-1ubuntu0.1\nxwayland 2:23.2.6-1ubuntu0.8\nxxd 2:9.1.0016-1ubuntu7.14\nxz-utils 5.6.1+really5.4.5-1ubuntu0.3\nyaru-theme-gnome-shell 24.04.2-0ubuntu1\nyaru-theme-gtk 24.04.2-0ubuntu1\nyaru-theme-icon 24.04.2-0ubuntu1\nyaru-theme-sound 24.04.2-0ubuntu1\nyelp 42.2-1ubuntu0.24.04.1\nyelp-xsl 42.1-2ubuntu0.24.04.1\nzenity 4.0.1-1build3\nzenity-common 4.0.1-1build3\nzerofree 1.1.1-1build5\nzip 3.0-13ubuntu0.2\nzlib1g 1:1.3.dfsg-3.1ubuntu2.1\nzstd 1.5.5+dfsg2-2build1.1\n/usr/bin/bash\n/usr/bin/curl\n/usr/bin/sudo\n/usr/bin/openssl\nBASELINE_ABSENT",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "original_exit_code": 0
+    },
+    "r5-install": {
+      "role": "r5",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551498.295637833,
+      "elapsed": 0.07512987509835511,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "-rwxr-xr-x 1 root root 215 Nov 17 16:50 /usr/local/bin/vmfit-lesson\nSHA2-256(/usr/local/bin/vmfit-lesson)= 0a649e33d19014a527aaf098dd8ad4c671d18bb02b842eaa4f1fa515f31ea23c",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "original_exit_code": 0
+    },
+    "r5-intact": {
+      "role": "r5",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551498.370931375,
+      "elapsed": 0.0665224160766229,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "SHA2-256(/tmp/vmfit-k15/stdout.bin)= 4890ab4ae1e44ed4aabc955ca70f45131d311e84adcc83cb360f20f4c5255996\nSHA2-256(/tmp/vmfit-k15/stderr.bin)= 24af84e5f56344e521d26d7d9020b0f578a8b8dc09ee79c14aabf63d1bba6e52\nSHA2-256(/tmp/vmfit-k15/artifact.bin)= cc7b06150158f0093f246c1d738661a1c08c845fb508e0464d665e0878426b72",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "original_exit_code": 0
+    },
+    "r5-download-stdout-bin": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551498.437642458,
+      "elapsed": 0.06292695796582848,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "r5-download-stderr-bin": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551498.500731541,
+      "elapsed": 0.06999941705726087,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "r5-download-artifact-bin": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551498.570926083,
+      "elapsed": 0.06805420794989914,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "r5-download-status-txt": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551498.639156375,
+      "elapsed": 0.0649018749827519,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "r5-online": {
+      "role": "r5",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551498.704262833,
+      "elapsed": 3.7809755420312285,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "curl 8.5.0 (aarch64-unknown-linux-gnu) libcurl/8.5.0 OpenSSL/3.0.13 zlib/1.3 brotli/1.1.0 zstd/1.5.5 libidn2/2.3.7 libpsl/0.21.2 (+libidn2/2.3.7) libssh/0.10.6/openssl/zlib nghttp2/1.59.0 librtmp/2.3 OpenLDAP/2.6.10\nRelease-Date: 2023-12-06, security patched: 8.5.0-2ubuntu10.9\nProtocols: dict file ftp ftps gopher gophers http https imap imaps ldap ldaps mqtt pop3 pop3s rtmp rtsp scp sftp smb smbs smtp smtps telnet tftp\nFeatures: alt-svc AsynchDNS brotli GSS-API HSTS HTTP2 HTTPS-proxy IDN IPv6 Kerberos Largefile libz NTLM PSL SPNEGO SSL threadsafe TLS-SRP UnixSockets zstd\nyq (https://github.com/mikefarah/yq/) version v4.47.2\nanswer: 42",
+      "stderr": "  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n\n  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\n  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0\n\n  0 10.3M    0  1369    0     0   1273      0  2:21:34  0:00:01  2:21:33  1273\n  4 10.3M    4  527k    0     0   307k      0  0:00:34  0:00:01  0:00:33  821k\n 96 10.3M   96 10.0M    0     0  3209k      0  0:00:03  0:00:03 --:--:-- 4840k\n100 10.3M  100 10.3M    0     0  2892k      0  0:00:03  0:00:03 --:--:-- 4100k",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "original_exit_code": 0
+    },
+    "r5-nonzero": {
+      "role": "r5",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551502.485504666,
+      "elapsed": 0.06586429197341204,
+      "exit_code": 23,
+      "timed_out": false,
+      "stdout": "",
+      "stderr": "intentional failure",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "original_exit_code": 23
+    },
+    "r5-bad-install": {
+      "role": "r5",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551502.551600916,
+      "elapsed": 0.07143020909279585,
+      "exit_code": 1,
+      "timed_out": false,
+      "stdout": "",
+      "stderr": "install: cannot stat '/tmp/vmfit-k15/intentionally-absent': No such file or directory",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "original_exit_code": 1
+    },
+    "r5-timeout": {
+      "role": "timeout",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551502.623346958,
+      "elapsed": 2.096917917020619,
+      "exit_code": -1,
+      "timed_out": false,
+      "stdout": "",
+      "stderr": "Process timed out",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "overhead": 0.097
+    },
+    "r5-observe-timeout": {
+      "role": "r5-observe",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551504.720460083,
+      "elapsed": 0.08594945806544274,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "timeout pid=2158\n   2158    1130 S    sleep",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false,
+      "children": {
+        "timeout": {
+          "pid": 2158,
+          "state": "present",
+          "ppid": 1130,
+          "stat": "S",
+          "comm": "sleep"
+        }
+      }
+    },
+    "r5-cancel": {
+      "role": "cancel",
+      "reason": "interrupted",
+      "returncode": -15,
+      "started_monotonic": 551504.806773958,
+      "elapsed": 2.107849041931331,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "signals": [
+        {
+          "signal": "TERM",
+          "scope": "pid",
+          "target": 25840,
+          "outcome": "sent",
+          "monotonic": 551506.849455875,
+          "finished_monotonic": 551506.84946825
+        }
+      ]
+    },
+    "r5-observe-cancel": {
+      "role": "r5-observe",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551506.91481825,
+      "elapsed": 18.096041416050866,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "timeout pid=2158\n   2158    1130 S    sleep\ncancel pid=2168\n   2168    1130 S    sleep",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false,
+      "children": {
+        "timeout": {
+          "pid": 2158,
+          "state": "present",
+          "ppid": 1130,
+          "stat": "S",
+          "comm": "sleep"
+        },
+        "cancel": {
+          "pid": 2168,
+          "state": "present",
+          "ppid": 1130,
+          "stat": "S",
+          "comm": "sleep"
+        }
+      }
+    },
+    "r5-download-timeout-partial": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551525.011022125,
+      "elapsed": 0.06330133299343288,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "r5-download-cancel-partial": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551525.074497041,
+      "elapsed": 0.0630649171071127,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "r5-missing-artifact": {
+      "role": "transfer",
+      "reason": "exit",
+      "returncode": 1,
+      "started_monotonic": 551525.137734583,
+      "elapsed": 0.06265141698531806,
+      "exit_code": null,
+      "timed_out": null,
+      "stdout": null,
+      "stderr": null,
+      "local": [],
+      "failures": [],
+      "violations": []
+    },
+    "r5-guest-cleanup": {
+      "role": "r5",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551525.200606458,
+      "elapsed": 0.09602054196875542,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "original_exit_code": 0
+    },
+    "r5-observe-after-cleanup": {
+      "role": "r5-observe",
+      "reason": "exit",
+      "returncode": 0,
+      "started_monotonic": 551525.2968915,
+      "elapsed": 0.10300216602627188,
+      "exit_code": 0,
+      "timed_out": false,
+      "stdout": "timeout pid=2158\ncancel pid=2168",
+      "stderr": "",
+      "local": [],
+      "failures": [],
+      "violations": [],
+      "stalled": false,
+      "local_stall": false,
+      "children": {
+        "timeout": {
+          "pid": 2158,
+          "state": "not-listed"
+        },
+        "cancel": {
+          "pid": 2168,
+          "state": "not-listed"
+        }
+      }
+    }
+  }
+}

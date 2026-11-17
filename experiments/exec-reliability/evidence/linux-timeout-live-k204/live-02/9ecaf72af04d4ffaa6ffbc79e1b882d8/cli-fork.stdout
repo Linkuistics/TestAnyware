@@ -1,0 +1,9 @@
+{
+  "command": "d=/tmp/taw-k204/cli-fork\nmkdir -p \"$d\"\nprintf '%s\\n' \"$$\" > \"$d/shell.pid\"\nsleep 120 & p=$!\nprintf '%s\\n' \"$p\" > \"$d/child.pid\"\nprintf 'partial-out\\n'\nprintf 'partial-err\\n' >&2\nprintf 'partial-file\\n' > \"$d/partial\"\nwait",
+  "exit_code": -1,
+  "ok": true,
+  "schema_version": "1.0",
+  "stderr": "Process timed out",
+  "stdout": "",
+  "timed_out": false
+}

@@ -323,3 +323,162 @@ The checker reads the run directory inside `OUT`, by the base name of the path
 in `summary.json`. The recorded absolute path stays as provenance only. So a
 copied bundle replays from its own bytes. In leaf k206, a replay of a copy of
 `run-03` wrote a `check.json` that is byte-identical to the retained one.
+
+## Live clone run (leaf k204)
+
+Leaf `linux-timeout-live-k204` ran the timeout controls on one unchanged clone of
+`testanyware-golden-linux-24.04`. Each control had a guest timeout of 2 s. Each
+control ran once through the Host CLI and once through the raw agent. The plan
+then ran the retained r5 VM-fit sequence as its own case. The leaf used no
+instrumented clone, because the receipts and the own observations settled each
+question. The leaf makes no repair.
+
+### Result
+
+- Failure B reproduces on the clone, through both paths. After each fork/wait
+  timeout, the shell was gone and its `sleep 120` child was still listed. The
+  child was still listed in a second observation, 5 s later.
+- Each surviving child moved to `/usr/lib/systemd/systemd --user` as its parent.
+  It stayed in the process group and the session of the agent. The handler kills
+  one PID, so the group of the agent keeps the survivor.
+- The exact issue command `sleep 120` left no process. `bash -c` runs a single
+  command in place of the shell, so the kill of the shell ends `sleep`. Only the
+  fork/wait control can show failure B.
+- The retained r5 case reproduces its own survivors. Its timeout child and its
+  cancel child were both listed after their calls returned.
+- Each timeout came back as exit status -1 with `Process timed out` in stderr.
+  The CLI JSON receipt reported `timed_out: false`. The raw reply has no
+  timeout flag.
+- The receipts dropped the partial output. Each fork/wait control printed a line
+  to stdout and to stderr before the timeout. Each receipt has an empty stdout.
+  The partial file of each control downloaded intact, 13 bytes.
+- No call after a timeout stalled. The checker found the stall not reproduced.
+
+### Per-case evidence of attempt 02
+
+The table gives the host time of each call. The overhead is the host time
+minus the 2 s guest timeout.
+
+| Call | Path | Receipt | Host time | Overhead |
+| --- | --- | --- | --- | --- |
+| `cli-sleep` | CLI | exit -1, `Process timed out`, `timed_out: false` | 2.074 s | 0.074 s |
+| `raw-sleep` | raw | HTTP 200, `exitCode` -1, `Process timed out` | 2.111 s | 0.111 s |
+| `cli-fork` | CLI | exit -1, `Process timed out`, `timed_out: false` | 2.097 s | 0.097 s |
+| `raw-fork` | raw | HTTP 200, `exitCode` -1, `Process timed out` | 2.115 s | 0.115 s |
+| `r5-timeout` | CLI | exit -1, `Process timed out`, `timed_out: false` | 2.097 s | 0.097 s |
+| `r5-cancel` | CLI | host interrupt at 2 s, TERM to the CLI, exit -15 | 2.108 s | none |
+
+The raw client measured 2.025 s for `raw-sleep` and 2.023 s for `raw-fork`.
+
+The agent was `python3 -m testanyware_agent`, PID 1142, with parent 1130. PID
+1130 is `systemd --user`. The agent led its own group and session, 1142.
+
+| Observation | Time after the control | Shell | Child |
+| --- | --- | --- | --- |
+| `observe-cli-fork` | 0 s | 2018 not listed | 2020 listed: parent 1130, group 1142, session 1142 |
+| `observe-raw-fork` | 0 s | 2026 not listed | 2028 listed: parent 1130, group 1142, session 1142 |
+| `observe-forks-late` | 5 s after the last control | both not listed | 2020 and 2028 listed, unchanged |
+| `observe-after-control-cleanup` | after the TERM | both not listed | both not listed |
+
+Each observation read the PIDs that the control wrote. Each row is a `ps -p`
+listing of that PID with its exit status. The checker counts a process as
+absent only from a valid observation where `ps` exited 1.
+
+The full process tables before and after `cli-sleep` and `raw-sleep` list no
+`sleep 120`.
+
+In the r5 case, `r5-observe-timeout` listed the timeout child 2158 under parent
+1130. `r5-observe-cancel` listed 2158 and the cancel child 2168. The r5 cleanup
+then removed both. `r5-observe-after-cleanup` listed neither. The other r5 calls
+ended as in the original run. `nonzero` exited 23, `bad-install` exited 1, the
+missing artifact failed with `DOWNLOAD_FAILED`, and the rest exited 0.
+
+### Bound violations
+
+| Bound | Outcome |
+| --- | --- |
+| host time at most the guest timeout plus 20 s | met, at most 2.115 s |
+| overhead at most 4 s | met, at most 0.115 s |
+| kill, drain and reap within 2 s | violated twice: both fork children listed 5 s after their controls |
+| each observation within 30 s | met, at most 18.096 s |
+| guest cleanup within 30 s | met, at most 0.117 s |
+| disposal within 45 s | met, 0.819 s |
+
+`r5-observe-cancel` took 18.096 s. The agent serves one request at a time. It
+held the observation until the 20 s guest timeout of the cancelled call ended.
+The original run showed the same delay, 18.2 s.
+
+### Causal limits
+
+- The fork children survived on a real guest kernel under systemd. The container
+  result of k5 therefore holds on the clone.
+- The leaf ran one sample of each control. A single absent child would not prove
+  that the handler cleans up.
+- The agent was fresh at the start of the plan. The leaf did not measure how the
+  survivors of many timeouts add up in a long-lived agent.
+- The CLI and the raw path end in the same handler. The survival is a property of
+  the handler, not of the Host CLI.
+- The leaf did not test a disconnect. Leaf `linux-disconnect-availability-k6`
+  owns that question.
+- The `timed_out` field cannot prove cleanup. The leaf judged cleanup only from
+  its own observations.
+
+### Owned-resource audit of attempt 02
+
+| Resource | Owner proof | Bound | Outcome |
+| --- | --- | --- | --- |
+| clone `k204-linux-9ecaf72af04d4ffaa6ffbc79e1b882d8` | name with the run ID, created by the controller | disposal 45 s | disposed in 0.819 s, absent from `tart list` and `vm list` after |
+| fork children 2020 and 2028 | PID file of the control, command exactly `sleep 120` | cleanup 30 s | ended by TERM in 0.100 s, then not listed |
+| r5 children 2158 and 2168 | PID file of the fixture | cleanup 30 s | removed by the r5 cleanup, then not listed |
+| final cleanup | the four PID files | cleanup 26 s | each process already gone, `cleanup confirmed` |
+| guest directories `/tmp/taw-k204` and `/tmp/vmfit-k15` | created by the plan | disposal | removed with the clone |
+
+The cleanup acted only on a PID whose command was exactly `sleep 120`. It sent
+TERM first and KILL only after 2 s. It sent no KILL.
+
+### Attempts
+
+- `live-01`: the CLI controls ran, and `cli-fork` already showed failure B. The
+  raw client could not reach the guest. Each raw call failed with
+  `No route to host` (errno 65). The partial file of `raw-fork` therefore did not
+  exist, and its download stopped the plan. The controller cleaned up child 2007
+  with TERM and disposed the clone. The 28 later calls did not run.
+- The cause of `live-01` is on the host. macOS Local Network privacy refuses a
+  connection to `192.168.64.x` from an executable that is not a platform binary.
+  The raw client ran in the virtual environment Python, which is not one.
+  `docs/research/macos-local-network-platform-binary-exemption.md` records the
+  rule. The refreeze sends each raw request through `/usr/bin/curl`, a platform
+  binary. The raw record schema moved to `k204-raw/2`.
+- `live-02`: complete and sound. The probe verdict is True, and the checker exits 0.
+
+The leaf did not commit the refreeze before `live-02`.
+`live-02-outer/source-dirty.diff` holds the uncommitted tools of that attempt,
+relative to commit `cb1fc475af57ccbfc6761555dfd7d787ff49975e`.
+
+### Provenance
+
+- Host CLI `testanyware 2.8.0`, tart 2.41.1.
+- The installed Linux agent bundle, the checkout `agents/linux` and the guest
+  agent have equal hashes for all 9 modules.
+- The tool digests before and after `live-02` are equal.
+- `live-02/inventory.json` records the fixture hashes, the bounds and the frozen
+  plan. The fixture is the retained r5 copy in `fixture-r5`.
+
+### Evidence
+
+`experiments/exec-reliability/evidence/linux-timeout-live-k204/` holds
+`fixture-r5`, `live-01`, `live-01-outer`, `live-02` and `live-02-outer`. Each
+outer directory holds the inventories, the identities, `check.json` and the exit
+status of each step.
+
+### Live invocation
+
+```sh
+task diagnostic:linux-timeout-live OUT=/path/to/new/out
+task diagnostic:linux-timeout-live-check RUN=/path/to/new/out/<run-id>
+task diagnostic:linux-timeout-live-tools
+```
+
+The run needs the golden image, tart and the Host CLI on `PATH`. It boots one
+clone and disposes it. The run exits 0 only when every call ends as planned and
+the checker exits 0. A reproduced failure B does not fail the run.

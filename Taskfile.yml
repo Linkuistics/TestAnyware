@@ -427,6 +427,30 @@ tasks:
       - uv run --locked python -m pyright linux_k5.py linux_k5_seam.py linux_k5_check.py test_linux_k5.py
       - uv run --locked python -m pytest -q -p no:cacheprovider test_linux_k5.py
 
+  diagnostic:linux-timeout-live:
+    desc: 'Boot one unchanged clone of testanyware-golden-linux-24.04 and run the frozen k204 plan into a new OUT directory: the exact issue #14 `sleep 120` and fork/wait controls with guest timeout 2 s, through the Host CLI and the raw agent, an own observation of each shell and child, a late observation 5 s later, then the complete retained r5 sequence. The controller cleans up only the identified owned children and disposes the clone. OUT-outer keeps the inventories, the identities and the receipt check'
+    requires:
+      vars: [OUT]
+    cmds:
+      - experiments/exec-reliability/linux_k204_run.sh {{.OUT | shellQuote}}
+
+  diagnostic:linux-timeout-live-check:
+    desc: 'Judge one retained k204 controller run directory RUN, relative to the repository root. Report the evidence, the child survival, the r5 fixture survival and the post-timeout stall. Exit 0 only when survival and stall are determined and the clone was disposed'
+    requires:
+      vars: [RUN]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/linux_k204_check.py {{.RUN | shellQuote}}
+
+  diagnostic:linux-timeout-live-tools:
+    desc: Check the k204 Linux timeout live runner, raw client, checker and controls
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check linux_k204.py linux_k204_raw.py linux_k204_check.py test_linux_k204.py
+      - uv run --locked python -m ruff format --check linux_k204.py linux_k204_raw.py linux_k204_check.py test_linux_k204.py
+      - uv run --locked python -m pyright linux_k204.py linux_k204_raw.py linux_k204_check.py test_linux_k204.py
+      - shellcheck linux_k204_run.sh
+      - uv run --locked python -m pytest -q -p no:cacheprovider test_linux_k204.py
+
   diagnostic:deadline-stall-tools:
     desc: Check the k154 worker-deadline control tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
