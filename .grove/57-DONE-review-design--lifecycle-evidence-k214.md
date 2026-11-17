@@ -62,3 +62,24 @@ Review their content, not that format choice.
 Do not implement any candidate. Do not repeat the requirements interview.
 Escalate only a material owner trade-off that the design exposes, with a
 recommendation and evidence.
+
+## Decisions (running log)
+
+- The review needs reconciliation before delivery planning. The specified
+  termination sequence does not bound leader reaping after SIGKILL, and its
+  record validator permits contradictory cleanup evidence. Record the findings
+  in a durable review document and let an `integrate-review-design` leaf
+  independently triage them; do not change the design in this review.
+- Graph and index-coverage verification are unavailable: the CBM CLI refuses
+  the active generation before serving a query. Use direct source inspection,
+  disclose this limit, and make no exhaustive graph claim.
+- Record six material findings in
+  `docs/experiments/exec-reliability-lifecycle-design-review-k214.md`. The
+  remaining findings concern capture finalisation, legacy compatibility, the
+  CLI lifecycle projection and the strength of a causal claim. Keep the four
+  ADR decisions and existing test seams; their count and height do not justify
+  another architecture task by themselves.
+- Insert reconciliation as the next flat sibling before
+  `lifecycle-delivery-k213`. It unblocks planning by independently settling the
+  review's contract findings. A substantial redesign, if triage establishes
+  one, must receive its own producer/review chain before planning.
