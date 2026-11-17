@@ -1,0 +1,24 @@
+sequenceDiagram
+  autonumber
+  participant W as Guest writer
+  participant A as In-VM agent
+  participant C as Host CLI (file download)
+  participant D as Destination directory
+  Note over W: Stable alternative - write each version once under a fresh name
+  C->>A: POST /download?path=NAME
+  A->>A: open NAME once, L = fstat(handle).size
+  A-->>C: 200, Content-Length L
+  loop constant-size buffer, from the same handle
+    A-->>C: next bytes, never past L
+    C->>D: append to .NAME.testanyware-PID.SEQ.tmp
+  end
+  alt handle ends before L bytes (truncation)
+    A--xC: close the connection
+    C->>D: remove temp, CONNECTION_DROPPED
+  else bytes follow the body on a closed connection (old Linux agent)
+    C->>D: remove temp, DOWNLOAD_FRAMING_INVALID
+  else exactly L bytes
+    C->>D: fsync temp, rename to destination
+    Note over C: receipt bytes = verified bytes
+  end
+  Note over W,A: In-place overwrite during the read is excluded and can give torn bytes.

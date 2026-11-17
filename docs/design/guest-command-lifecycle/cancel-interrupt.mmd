@@ -1,0 +1,24 @@
+sequenceDiagram
+  autonumber
+  actor P as Parent process
+  participant C as Host CLI (file exec)
+  participant R as Route (app relay or direct TCP)
+  participant A as In-VM agent
+  P->>C: start file exec, exec id chosen before any reply
+  C->>R: connection 1
+  R->>A: POST /exec {id, command, timeout}
+  Note over A: Running. The agent does not watch connection 1.
+  P->>C: SIGINT or SIGTERM
+  C->>R: connection 2 (new guest connection)
+  R->>A: POST /exec/cancel {id, waitMs 0}
+  A-->>C: 200 {state terminating} (or 404 from an old agent)
+  Note over C: waits 1.5 s at most for that reply
+  C->>C: restore the default action, raise the same signal
+  C-->>P: same signal death as today
+  Note over R,A: Connection 1 closes. A disconnect is not a cancellation.
+  Note over A: The owner ends the group as in seq-terminate and retains the record for 300 s.
+  opt fallback after SIGKILL of the Host CLI
+    P->>C: file cancel --vm ID --exec-id ID --wait 5
+    C->>A: POST /exec/cancel {id, waitMs 5000}
+    A-->>C: 200 {state terminal, record}
+  end

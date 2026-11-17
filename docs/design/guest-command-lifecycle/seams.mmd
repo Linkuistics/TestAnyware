@@ -1,0 +1,23 @@
+flowchart TB
+  subgraph HOST["Host"]
+    CLI["Start here: Host CLI<br/>A: record reader, JSON, text, schemas<br/>D: file cancel, --exec-id, signals, download checks<br/>tested at seam 2"]:::start
+    PROTO["Shared Rust protocol types<br/>optional record fields<br/>tested at seam 2"]
+    APP["TestAnyware app relay<br/>unchanged, ADR-0004<br/>tested at seam 3"]
+  end
+  subgraph GUEST["Guest: In-VM agent, B on Linux, C on macOS"]
+    HTTP["HTTP server<br/>concurrent requests<br/>tested at seam 2"]
+    OWN["Owner per guest command<br/>tested at seam 1"]
+    DL["Download handler<br/>one handle, exactly L bytes<br/>tested at seam 1"]
+    GRP["Owned group<br/>new session, held leader"]
+    CAP["Capture files<br/>stdout and stderr"]
+    REC["Retained records<br/>300 s, 64 at most"]
+  end
+  CLI --- PROTO
+  CLI -->|"one guest stream per command"| APP
+  APP --> HTTP
+  HTTP -->|"/exec, /exec/cancel"| OWN
+  HTTP -->|"/download"| DL
+  OWN -->|"spawn, signal, reap, probe"| GRP
+  GRP --> CAP
+  OWN -->|"finalise"| REC
+  classDef start fill:#17354b,color:#fff,stroke:#17354b,font-weight:bold

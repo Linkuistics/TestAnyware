@@ -1,0 +1,68 @@
+{
+  "title": "Guest command lifecycle",
+  "intro": "Target contract for issue #14. The spec is docs/specs/guest-command-lifecycle.md, and the decisions are ADR-0023 to ADR-0026. These views are proposals for review, not delivery evidence.",
+  "groups": [
+    {"id": "lifecycle", "title": "Lifecycle", "description": "One owner chooses one final outcome and ends the owned group within bounds."},
+    {"id": "control", "title": "Cancellation and interruption", "description": "Explicit cancellation by exec id, separate from a disconnect and from CLI signals."},
+    {"id": "evidence", "title": "Evidence", "description": "The Host CLI reads a typed record and transfers one open file version."},
+    {"id": "seams", "title": "Seams", "description": "Where the guarantees live and which test seam checks each one."}
+  ],
+  "diagrams": [
+    {
+      "id": "state-lifecycle",
+      "group": "lifecycle",
+      "title": "Choose one outcome, then make it final",
+      "source": "lifecycle.mmd",
+      "caption": "At a deadline or a cancellation, a non-blocking kernel wait on the leader comes first. An exited leader wins, so a finished command is never reported as timed out. A tombstone lets a cancellation overtake its own /exec."
+    },
+    {
+      "id": "seq-terminate",
+      "group": "lifecycle",
+      "title": "Signal the group while the leader is held",
+      "source": "terminate.mmd",
+      "caption": "SIGTERM at T0, a grace of 2 s at most, SIGKILL before the reap, then a signal-0 probe for 2 s at most. The unreaped leader keeps the group ID from reuse. A failed probe never proves absence."
+    },
+    {
+      "id": "seq-cancel-interrupt",
+      "group": "control",
+      "title": "Cancel on a new connection, then re-raise",
+      "source": "cancel-interrupt.mmd",
+      "caption": "A disconnect changes nothing. SIGINT or SIGTERM sends one cancellation on a new guest connection, waits 1.5 s at most and re-raises the signal. After SIGKILL, the caller runs file cancel with its own exec id."
+    },
+    {
+      "id": "flow-read-record",
+      "group": "evidence",
+      "title": "Read the record before any claim",
+      "source": "read-record.mmd",
+      "caption": "Transport status, legacy records and invalid records stay apart. A contradictory record is EXEC_RECORD_INVALID and is never success. A guest outcome never sets ok to false."
+    },
+    {
+      "id": "seq-download",
+      "group": "evidence",
+      "title": "Send exactly the length of the open handle",
+      "source": "download.mmd",
+      "caption": "One open, one length, bytes from the same handle. A short body and bytes past the body both fail and remove the temporary file. In-place overwrite is excluded, and fresh-name publication is the stable alternative."
+    },
+    {
+      "id": "component-seams",
+      "group": "seams",
+      "title": "Place each guarantee at its seam",
+      "source": "seams.mmd",
+      "caption": "Candidates A and D are Host CLI work, B is the Linux agent and C is the macOS agent. Seam 1 is the process and file seam, seam 2 the HTTP fixtures with the real Host CLI, and seam 3 the disposable VMs through the app. The app relay is unchanged. Seam 3 acceptance runs only after the reviewed fixes."
+    }
+  ],
+  "discussion": {
+    "title": "Proposed lifecycle and evidence contract",
+    "status": "Proposal for review-design",
+    "summary": "A typed exec record separates guest status from transport status and keeps the legacy fields. One owner per command arbitrates by kernel state and ends a new-session group with the leader held. Cancellation is explicit by a client-chosen exec id, and a disconnect is not a cancellation. A download sends exactly the length of one open handle, and in-place overwrite is excluded.",
+    "diagramIds": ["state-lifecycle", "seq-terminate", "seq-cancel-interrupt", "flow-read-record", "seq-download", "component-seams"],
+    "updatedDiagrams": [
+      {"id": "state-lifecycle", "summary": "New. States, arbitration and retention of one guest command."},
+      {"id": "seq-terminate", "summary": "New. Group termination steps with the leader held and the two 2 s bounds."},
+      {"id": "seq-cancel-interrupt", "summary": "New. Explicit cancellation, CLI interruption and the SIGKILL fallback."},
+      {"id": "flow-read-record", "summary": "New. How the Host CLI classifies an /exec reply before output."},
+      {"id": "seq-download", "summary": "New. Single-handle download and the Host CLI framing and temporary-file rules."},
+      {"id": "component-seams", "summary": "New. Implementation candidates and test seams on the existing boundaries."}
+    ]
+  }
+}

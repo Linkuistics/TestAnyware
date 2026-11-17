@@ -194,6 +194,57 @@ Windows hosts use it for every command. Golden creation uses it on every host,
 and it is the only traffic on a macOS host that does.
 _Avoid_: "fallback" (on a macOS host, no other command falls back to it).
 
+**Guest command**:
+The shell command that an *In-VM agent* runs for one `/exec` request, together
+with its *owned group*. A detached command (`detach: true`) is not a guest
+command, because no agent owns it.
+_Avoid_: "job" (issue #10 owns jobs), "task".
+
+**Exec id**:
+The client-chosen name of one *guest command*. *Cancellation* and record
+retention refer to the command by this name.
+_Avoid_: "request id", "job id".
+
+**Owned group**:
+The process group that the agent creates for one *guest command*. The shell of
+the command leads it. The agent signals the group only while the leader is
+unreaped.
+_Avoid_: "process tree", "children" (a descendant can leave the group).
+
+**Escaped descendant**:
+A descendant of a *guest command* that leaves the *owned group*, for example
+through `setsid`. The agent does not signal or report it.
+
+**Terminal outcome**:
+How a *guest command* ended. The five kinds are an exit with a code, death by a
+signal, a timeout, a cancellation and a spawn failure. Each guest command has
+exactly one, and it never changes.
+_Avoid_: "exit status" for the whole set (only an exit has a code), "result".
+
+**Exec record**:
+The agent's report of one *guest command*. It holds the *terminal outcome*, the
+exact stdout and stderr bytes with their lengths and digests, and the
+termination steps. Guest status lives in the record. Host transport status lives
+in the Host CLI envelope.
+_Avoid_: "receipt", which names the Host CLI's JSON envelope.
+
+**Cancellation**:
+A client's explicit request to end a running *guest command* by its *exec id*.
+A closed or reset connection is not a cancellation.
+_Avoid_: "abort", "interrupt" (see *CLI interruption*).
+
+**CLI interruption**:
+A signal that stops a running Host CLI process, such as SIGINT, SIGTERM or
+SIGKILL. It is separate from *cancellation*. The Host CLI answers SIGINT and
+SIGTERM by sending one cancellation for its own *guest command*.
+
+**Fresh-name publication**:
+A writer protocol for evidence that changes. The writer writes each version once
+under a new name and never changes that file afterwards. A reader downloads the
+version by its name.
+_Avoid_: "atomic write" (a rename replacement and an in-place write are
+different cases).
+
 **Adoption**:
 The *TestAnyware app* serving again a VM that it did not start in its current
 run. It first checks each recorded process by its pid, its start time and the

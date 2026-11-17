@@ -1,0 +1,19 @@
+stateDiagram-v2
+  direction TB
+  [*] --> Accepted: Start here - /exec with exec id
+  [*] --> Tombstone: cancel names unknown id
+  Tombstone --> Terminal: later /exec gives cancelled, no spawn
+  Accepted --> Terminal: spawn error gives spawn_failed
+  Accepted --> Running: spawn returns PID, deadline starts
+  Running --> Terminal: leader exit gives exited or signalled
+  Running --> Arbitrate: deadline or cancellation
+  state Arbitrate <<choice>>
+  Arbitrate --> Terminal: kernel wait finds leader exited
+  Arbitrate --> Terminating: leader runs, timed_out or cancelled
+  Terminating --> Terminal: group ended, record final
+  Terminal --> [*]: evicted after 300 s or as oldest of 64
+  note right of Terminal
+    The first chosen outcome is final.
+    A later event is recorded
+    and changes nothing.
+  end note
