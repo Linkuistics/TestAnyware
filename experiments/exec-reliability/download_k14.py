@@ -1,6 +1,9 @@
 """Linux download consistency cases for leaf linux-download-consistency-k14.
 
-Usage: download_k14.py OUT
+Usage: download_k14.py OUT [RUN_ID]
+
+RUN_ID is 12 lower-case hex digits. The wrapper passes its own, so that its cleanup sees
+only this run's container. Without RUN_ID, the controller makes one.
 
 The script owns one fresh container of the pinned k5 image. The container runs
 download_k14_seam.py as a supervisor with two agents from this checkout: an
@@ -399,74 +402,114 @@ def run_case(box: Container, case: Case, client: str, root: Path) -> Json:
     return record
 
 
-def stress(box: Container) -> Json:
+class Receipts:
+    """One JSON object a line, written as each item ends. Each body is kept once, by digest,
+    so that the checker can compare the received bytes again."""
+
+    def __init__(self, out: Path, name: str) -> None:
+        self.path = out / f"{name}.jsonl"
+        self.bodies = out / f"{name}-bodies"
+        self.bodies.mkdir()
+        self.handle = self.path.open("w")
+        self.count = 0
+
+    def add(self, item: Json, body: bytes | None = None) -> None:
+        if body is not None:
+            kept = self.bodies / f"{sha256(body)}.bin"
+            if not kept.exists():
+                kept.write_bytes(body)
+        self.handle.write(json.dumps(item, sort_keys=True) + "\n")
+        self.count += 1
+
+    def close(self) -> None:
+        self.handle.close()
+
+
+def timed_read(box: Container, path: Path) -> tuple[Json, bytes]:
+    """One raw read with its monotonic start and end."""
+    started = time.monotonic_ns()
+    result, body = raw_download(box.ports[PLAIN_PORT], path)
+    return result | {"started_ns": started, "ended_ns": time.monotonic_ns()}, body
+
+
+def stress(box: Container, out: Path) -> Json:
     """Natural timing on the unchanged agent: a writer swaps the pending and terminal
-    records by rename while the raw client reads the path again and again."""
+    records by rename while the raw client reads the path again and again. Each read
+    gets one receipt in stress-reads.jsonl. The controller does not group reads."""
     pending, terminal = PENDING.read_bytes(), terminal_record()
     started = box.control("stress-start", {"versions_hex": [pending.hex(), terminal.hex()]})
-    outcomes: dict[str, Json] = {}
-    reads = 0
+    receipts = Receipts(out, "stress-reads")
     error: str | None = None
+    began = time.monotonic_ns()
     deadline = time.monotonic() + STRESS_SECONDS
     try:
         while time.monotonic() < deadline:
-            result, body = raw_download(box.ports[PLAIN_PORT], Path(started["path"]))
-            reads += 1
-            key = f"{result['status']}:{result['content_length']}:{result['end']}:{sha256(body)}"
-            entry = outcomes.setdefault(key, {"count": 0, "body_hex": body.hex()[:400]} | result)
-            entry["count"] += 1
+            index = receipts.count
+            try:
+                result, body = timed_read(box, Path(started["path"]))
+            except OSError as failure:
+                receipts.add({"index": index, "error": repr(failure)})
+                raise
+            receipts.add({"index": index} | result, body)
     except OSError as failure:
         error = repr(failure)
+    finally:
+        receipts.close()
     stopped = box.control("stress-stop")
     return {
-        "seconds": STRESS_SECONDS,
-        "reads": reads,
-        "outcomes": outcomes,
+        "configured_seconds": STRESS_SECONDS,
+        "started_ns": began,
+        "ended_ns": time.monotonic_ns(),
+        "reads": receipts.count,
+        "receipts": receipts.path.name,
         "writer": stopped,
         "versions": {sha256(pending): "pending", sha256(terminal): "terminal"},
         "error": error,
     }
 
 
-def immutable(box: Container) -> Json:
+def immutable(box: Container, out: Path) -> Json:
     """The k7 control on the unchanged agent: each record is written to a temporary file
-    and renamed to a fresh name once. The raw client polls the name until it answers 200."""
-    outcomes: dict[str, int] = {}
-    mismatches: list[Json] = []
-    for index in range(PUBLICATIONS):
-        data = terminal_record() + f"{index}\n".encode()
-        name = f"record-{index:04}.json"
-        try:
+    and renamed to a fresh name once. The raw client polls the name until it answers 200.
+    publication-reads.jsonl holds one receipt for each publish and for each poll."""
+    receipts = Receipts(out, "publication-reads")
+    record: Json = {"publications": PUBLICATIONS, "receipts": receipts.path.name}
+    try:
+        for index in range(PUBLICATIONS):
+            data = terminal_record() + f"{index}\n".encode()
+            name = f"record-{index:04}.json"
+            asked = time.monotonic_ns()
             final = box.control(
                 "publish", {"name": name, "data_hex": data.hex(), "delay": 0.002 * (index % 5)}
             )["path"]
+            receipts.add({"kind": "publish", "publication": index, "path": final,
+                          "expected_sha256": sha256(data), "expected_bytes": len(data),
+                          "started_ns": asked, "ended_ns": time.monotonic_ns()})  # fmt: skip
             deadline = time.monotonic() + PUBLICATION_WAIT
-            answered = False
+            attempt = 0
             while time.monotonic() < deadline:
-                result, body = raw_download(box.ports[PLAIN_PORT], Path(final))
-                if result["status"] == 200:
-                    good = body == data and result["end"] == "complete"
-                    kind = "complete" if good else "mismatch"
-                    outcomes[kind] = outcomes.get(kind, 0) + 1
-                    if not good:
-                        mismatches.append(result | {"body_hex": body.hex()[:400]})
-                    answered = True
+                result, body = timed_read(box, Path(final))
+                answered = result["status"] == 200
+                item = {"kind": "read", "publication": index, "attempt": attempt} | result
+                receipts.add(item, body if answered else None)
+                attempt += 1
+                if answered:
                     break
-                outcomes[str(result["status"])] = outcomes.get(str(result["status"]), 0) + 1
-            if not answered:
-                outcomes["unanswered"] = outcomes.get("unanswered", 0) + 1
-        except (OSError, http.client.HTTPException, json.JSONDecodeError, KeyError) as failure:
-            return {"publications": PUBLICATIONS, "outcomes": outcomes, "mismatches": mismatches,
-                    "error": f"publication {index}: {failure!r}"}  # fmt: skip
-    return {"publications": PUBLICATIONS, "outcomes": outcomes, "mismatches": mismatches}
+    except (OSError, http.client.HTTPException, json.JSONDecodeError, KeyError) as failure:
+        record["error"] = repr(failure)
+    finally:
+        receipts.close()
+    return record
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) != 2:
+    if len(argv) not in (2, 3):
         raise SystemExit(__doc__)
+    run_id = argv[2] if len(argv) == 3 else uuid.uuid4().hex[:12]
+    if len(run_id) != 12 or any(ch not in "0123456789abcdef" for ch in run_id):
+        raise SystemExit(f"bad RUN_ID {run_id!r}")
     out = Path(argv[1])
     out.mkdir(parents=True)
-    run_id = uuid.uuid4().hex[:12]
     plan = cases()
     inventory: Json = {
         "leaf": "linux-download-consistency-k14",
@@ -516,8 +559,8 @@ def main(argv: list[str]) -> int:
             for client in case.clients:
                 record = run_case(box, case, client, root)
                 ran.append({"case": case.name, "client": client, "error": record.get("error")})
-        write_json(out / "stress.json", stress(box))
-        write_json(out / "immutable.json", immutable(box))
+        write_json(out / "stress.json", stress(box, out))
+        write_json(out / "immutable.json", immutable(box, out))
     except (OSError, RuntimeError, http.client.HTTPException, json.JSONDecodeError) as failure:
         summary["error"] = repr(failure)
     finally:

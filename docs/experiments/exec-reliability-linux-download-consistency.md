@@ -177,9 +177,9 @@ These points are for the design leaf. This leaf changes no production code.
 
 ## Accounting
 
-Source commit `950cf8829eebd0ac9b7c5208a75edfd4273da75d`, with the k14 files as the dirty diff in `local-01-outer/source-dirty.diff`. Host macOS 27.0.1. Docker 29.9.3. Host CLI 2.8.0. The tooling digests and the subject digests were the same before the probe and after the check.
+### Run local-02
 
-After the run, one change went into `download_k14_check.py`. A relative RESULT now goes into OUT, as the task text states. Before, it went into the working directory. The recorded check used the default path, so this change does not affect it. The corrected checker re-judged `local-01` into `local-01/rejudge-k14.json`, and it gave the same verdict as `local-01/check.json`.
+Source commit `25adb9716336ba5971d5eb881c94192df1a9e220`, with the k212 changes as the dirty diff in `local-02-outer/source-dirty.diff`. The run ID was `c85e5c2d9eb8`. The host had macOS 27.0.1, Docker 29.9.3 and Host CLI 2.8.0. The tooling digests and the subject digests were the same before the probe and after the check. The committed tooling has the same digests as the tooling of the run.
 
 | Item | SHA-256 |
 |---|---|
@@ -187,7 +187,40 @@ After the run, one change went into `download_k14_check.py`. A relative RESULT n
 | `agents/linux/testanyware_agent/system_endpoints.py`, checkout and installed | `217770b9151037568b54683338c5cbcb2ad84e14170b357ba5f54cb2c35f81cd` |
 | Host CLI `/opt/homebrew/Cellar/testanyware/2.8.0_1/bin/testanyware` | `44b08089cd01ebed55a786f9b86ca1bb80b53cd6b3778bd24a3e574c3030a340` |
 | GNU timeout `/opt/homebrew/Cellar/coreutils/9.12_1/bin/gtimeout` | `6a7b0620313d337d70366cd4d3b969b49854abfeb1db602bdf3328122e223c6d` |
+| `local-02/check.json` | `40b4791e20ef80baeed72c58be6a1bf5c4a6ebc81444d089bffc0d8b649fb5e2` |
+| `local-02/inventory.json` | `c1c7f11697ba0d8ec93b0793a2bb18df39b088698d10cf18205fa8130a83281c` |
+| `local-02/controls.json` | `8bd8c355484e6926f55d8e4eb39cc89f719e2f10ea64d5dfc9a69839feb88dae` |
+| `local-02/stress.json` | `6808e1ff07377cee98188668e85f0efe2e1af8ca205c02a126483e7be70dfaee` |
+| `local-02/stress-reads.jsonl` | `e6386f97719c7f090fa9c82dd9fb1010fac46978315eb3069e1b15f302c9a66d` |
+| `local-02/immutable.json` | `9c2534010afe2d0cf725a10daa82d7d7c8901efe01665d46a6d2d50e24608411` |
+| `local-02/publication-reads.jsonl` | `145966c4d7d30f94eff74715ee089607a24a33029ccefef47f6188732a5b6264` |
+| `local-02-outer/tooling-before.sha256` | `21718c7bb0be6e9ea70ced29e03dc46e8fbf174f1f25ee565c3c34efb43ede09` |
+| `local-02-outer/subjects-before.sha256` | `eaeda7f879b5f5eeeb5ede716aa02a0d9c94777e5d10ba7054aef28ce8a669ce` |
+
+### Changes after review k211
+
+Review k211 found five defects in the tooling. Leaf k212 corrected each one before `local-02`:
+
+1. The wrapper now makes the run ID and gives it to the controller. Cleanup and the final inventory select only `testanyware.k14.run=RUN_ID`. Before, cleanup removed every container with the k14 label, also the containers of another run.
+2. The checker now requires one hook line at the planned event and at the planned place in the trace. Before, any hook line passed.
+3. The checker now requires each trace boundary for each kind of case. A raw transfer passes only when the agent bytes equal the received bytes. Before, a trace without its finish passed.
+4. The controller now keeps one receipt for each stress read and for each publication step, with monotonic times. The checker classifies each receipt. Before, the controller kept only counts.
+5. The seam now resets the peak memory at the start of each request. A container control proves that the measurement works. Before, the checker compared the lifetime `ru_maxrss`, which cannot fall and showed no rise.
+
+### Run local-01
+
+`local-01` stays as the first run, and it is not changed. Source commit `950cf8829eebd0ac9b7c5208a75edfd4273da75d`, with the k14 files as the dirty diff in `local-01-outer/source-dirty.diff`. Host macOS 27.0.1. Docker 29.9.3. Host CLI 2.8.0.
+
+After the run, one change went into `download_k14_check.py`. A relative RESULT now goes into OUT, as the task text states. The corrected checker re-judged `local-01` into `local-01/rejudge-k14.json`, and it gave the same verdict as `local-01/check.json`.
+
+The k212 checker re-judged `local-01` into `local-01/check-k212.json`. Each case and client has the same class as in `local-02`. Each hook ran at its planned event and place, and each trace has its boundaries.
+
+The run is incomplete under the k212 checker for four gates. The stress and the publication have no receipts. The run has no memory control, and its agent did not reset the peak. These gates measure evidence that `local-01` did not collect. They do not show a new failure.
+
+| Item | SHA-256 |
+|---|---|
 | `local-01/check.json` | `6df0f9d75e544246d2ef1e315424f7c4b6b196b380efd5efb6d74fc14c65696f` |
+| `local-01/check-k212.json` | `383c2cc5dd2f562b029aec765cc02b899c568cc87f0d2b75ece10b719c7fc7c0` |
 | `local-01/inventory.json` | `61962c9a87824257a5650d519ed0a9ccbcd6e7c5d3ecac01cd7506a835c9f914` |
 | `local-01/controls.json` | `827b983ddebb79278d38d02f13b5c7e52716c0ffa578cb4816c7fb9601fcd3b1` |
 | `local-01/stress.json` | `8d9ede15a10440bf89c2820d7eccfcef35a3e1484b943108b51368c8d80410ca` |
@@ -195,14 +228,19 @@ After the run, one change went into `download_k14_check.py`. A relative RESULT n
 | `local-01-outer/tooling-before.sha256` | `01b7e18cbcde408d4c7d83265c2c375a0823bba8f3065155f07433a42e7d14a4` |
 | `local-01-outer/subjects-before.sha256` | `eaeda7f879b5f5eeeb5ede716aa02a0d9c94777e5d10ba7054aef28ce8a669ce` |
 
-The evidence is in `experiments/exec-reliability/evidence/linux-download-consistency-k14/`. `local-01` holds the controller output, each case record with its allowed, received and emitted bytes, and the agent trace. The container log and the four agent logs were empty, and the `*.log` rule in `.gitignore` keeps them out of the repository. Bodies up to 8 MiB are kept as files. The 64 MiB body is kept by digest only. `local-01-outer` holds the identities, the digests and the check output.
+### Evidence layout
+
+The evidence is in `experiments/exec-reliability/evidence/linux-download-consistency-k14/`. Each run folder holds the controller output, each case record with its allowed, received and emitted bytes, and the agent trace. `local-02` also holds the stress and publication receipts, with each distinct body once by digest. The container log and the four agent logs were empty, and the `*.log` rule in `.gitignore` keeps them out of the repository.
+
+Bodies up to 8 MiB are kept as files. The 64 MiB body is kept by digest only. Each `-outer` folder holds the identities, the digests and the check output.
 
 ## Commands
 
 ```sh
 mise exec -- task diagnostic:linux-download-consistency-tools
-mise exec -- task diagnostic:linux-download-consistency-container OUT=experiments/exec-reliability/evidence/linux-download-consistency-k14/local-02
-mise exec -- task diagnostic:linux-download-consistency-check OUT=experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01 RESULT=rejudge.json
+mise exec -- task diagnostic:linux-download-consistency-container OUT=experiments/exec-reliability/evidence/linux-download-consistency-k14/local-03
+mise exec -- task diagnostic:linux-download-consistency-check OUT=experiments/exec-reliability/evidence/linux-download-consistency-k14/local-02 RESULT=rejudge.json
+mise exec -- task diagnostic:linux-download-consistency-check OUT=experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01 RESULT=check-k212.json
 ```
 
-The container task refuses an OUT that exists. A new run needs a new OUT.
+The container task refuses an OUT that exists. A new run needs a new OUT. A re-judgement of `local-01` stops with a failure, because that run lacks the receipts and the memory control.

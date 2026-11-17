@@ -2,6 +2,7 @@
 
     download_k14_seam.py supervisor CONTROL_PORT CASE_PORT PLAIN_PORT
     download_k14_seam.py agent PORT KIND RUN_DIR
+    download_k14_seam.py memory-control
 
 The container mounts the Linux agent from this checkout at /agent, the k5 desktop stubs
 at /stub and this directory at /seam. Case files live under /tmp/k14/work, on the container
@@ -26,6 +27,13 @@ The `instrumented` agent runs the unchanged `AgentRequestHandler` and the unchan
 An armed hook runs at one event: `after-open`, `after-fstat` or `before-read-N`. It
 changes the file at that point inside the agent process, or it pauses until the
 host resumes it. The trace goes to RUN_DIR/trace.jsonl, one JSON object a line.
+
+At the start of each request the `instrumented` agent writes 5 to /proc/self/clear_refs.
+That resets VmHWM, the peak resident set, to the current resident set. The request line
+and the finish line record VmRSS and VmHWM, so the rise in VmHWM belongs to one request.
+`ru_maxrss` stays in the trace for comparison only, because it is a lifetime peak.
+`memory-control` runs in a fresh process. It shows that the reset hides an earlier peak
+and that a later 32 MiB allocation raises VmHWM.
 """
 
 from __future__ import annotations
@@ -58,6 +66,44 @@ Json = dict[str, Any]
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def memory_kib() -> Json:
+    """VmRSS and VmHWM of this process, in KiB, from /proc/self/status."""
+    values: Json = {}
+    for line in Path("/proc/self/status").read_text().splitlines():
+        name, _, rest = line.partition(":")
+        if name in ("VmRSS", "VmHWM"):
+            values[name] = int(rest.split()[0])
+    return values
+
+
+def reset_peak() -> str | None:
+    """Reset VmHWM to VmRSS. None means success, else the error."""
+    try:
+        Path("/proc/self/clear_refs").write_text("5")
+    except OSError as failure:
+        return repr(failure)
+    return None
+
+
+def memory_control() -> Json:
+    """An earlier 96 MiB peak, then the reset, then a 32 MiB allocation. Each step writes
+    every byte, so that the pages are resident."""
+    earlier = b"\x01" * (96 * 1024 * 1024)
+    del earlier
+    before = memory_kib()
+    error = reset_peak()
+    after = memory_kib()
+    later = b"\x01" * (32 * 1024 * 1024)
+    grown = memory_kib()
+    del later
+    return {
+        "before_reset": before,
+        "reset_error": error,
+        "after_reset": after,
+        "after_32mib": grown,
+    }
 
 
 def identity(stat: os.stat_result) -> Json:
@@ -273,7 +319,13 @@ def instrumented(port: int, run_dir: Path) -> None:
         def setup(self) -> None:
             super().setup()
             tracer.request += 1
-            tracer.emit("request", maxrss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
+            reset_error = reset_peak()
+            tracer.emit(
+                "request",
+                maxrss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                peak_reset_error=reset_error,
+                memory_kib=memory_kib(),
+            )
             keep = run_dir / f"emitted-{tracer.request}.bin"
             self.recorder = Recorder(self.wfile, tracer, keep)
             self.wfile = self.recorder  # type: ignore[assignment]
@@ -286,6 +338,7 @@ def instrumented(port: int, run_dir: Path) -> None:
                     "finish",
                     emitted=self.recorder.summary(),
                     maxrss_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
+                    memory_kib=memory_kib(),
                 )
 
     class Server(HTTPServer):
@@ -398,6 +451,12 @@ def controls() -> Json:
         apply(path, {"op": "overwrite", "data_hex": second.hex()})
         tail = handle.read(8)
     result["overwrite-between-reads"] = {"torn": head + tail == first + b"D" * 8}
+    argv = [sys.executable, "-E", "-s", "-B", __file__, "memory-control"]
+    done = subprocess.run(argv, capture_output=True, timeout=30, check=False)
+    try:
+        result["peak-memory"] = json.loads(done.stdout)
+    except json.JSONDecodeError:
+        result["peak-memory"] = {"exit": done.returncode, "stderr": done.stderr.decode()[-500:]}
     mounts = Path("/proc/mounts").read_text().splitlines()
     result["environment"] = {
         "uname": platform.uname()._asdict(),
@@ -593,6 +652,8 @@ def main(argv: list[str]) -> int:
         instrumented(int(argv[2]), Path(argv[4]))
     elif argv[1] == "agent" and argv[3] == "unchanged":
         unchanged(int(argv[2]))
+    elif argv[1] == "memory-control":
+        print(json.dumps(memory_control()))
     else:
         raise SystemExit(__doc__)
     return 0

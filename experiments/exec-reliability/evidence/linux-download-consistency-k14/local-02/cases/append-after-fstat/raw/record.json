@@ -1,0 +1,204 @@
+{
+  "action": {
+    "op": "append"
+  },
+  "agent": {
+    "arm_unused": false,
+    "directory": [
+      "file"
+    ],
+    "final": {
+      "identity": {
+        "dev": 49,
+        "ino": 2133154,
+        "nlink": 1,
+        "size": 148
+      },
+      "length": 148,
+      "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511"
+    },
+    "trace": [
+      {
+        "kind": "request",
+        "maxrss_kib": 32960,
+        "memory_kib": {
+          "VmHWM": 33024,
+          "VmRSS": 33024
+        },
+        "peak_reset_error": null,
+        "request": 16,
+        "t_ns": 26049753386
+      },
+      {
+        "descriptor": {
+          "dev": 49,
+          "ino": 2133154,
+          "nlink": 1,
+          "size": 25
+        },
+        "kind": "open",
+        "mode": "rb",
+        "path": "/tmp/k14/work/append-after-fstat-raw/file",
+        "request": 16,
+        "t_ns": 26049846344
+      },
+      {
+        "descriptor": {
+          "dev": 49,
+          "ino": 2133154,
+          "nlink": 1,
+          "size": 25
+        },
+        "kind": "fstat",
+        "request": 16,
+        "t_ns": 26049892719
+      },
+      {
+        "event": "after-fstat",
+        "kind": "action",
+        "request": 16,
+        "result": {
+          "after": {
+            "dev": 49,
+            "ino": 2133154,
+            "nlink": 1,
+            "size": 148
+          },
+          "op": "append"
+        },
+        "t_ns": 26049951719
+      },
+      {
+        "kind": "headers",
+        "request": 16,
+        "t_ns": 26049998677,
+        "text": "HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.15\r\nDate: Tue, 17 Nov 2026 20:33:19 GMT\r\nContent-Type: application/octet-stream\r\nContent-Length: 25\r\n\r\n"
+      },
+      {
+        "asked": 1048576,
+        "descriptor": {
+          "dev": 49,
+          "ino": 2133154,
+          "nlink": 1,
+          "size": 148
+        },
+        "kind": "read",
+        "length": 148,
+        "n": 1,
+        "offset": 0,
+        "path": {
+          "dev": 49,
+          "ino": 2133154,
+          "nlink": 1,
+          "size": 148
+        },
+        "request": 16,
+        "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511",
+        "t_ns": 26050040094
+      },
+      {
+        "kind": "write",
+        "length": 148,
+        "n": 2,
+        "request": 16,
+        "t_ns": 26050092594,
+        "total": 148,
+        "written": 148
+      },
+      {
+        "asked": 1048576,
+        "descriptor": {
+          "dev": 49,
+          "ino": 2133154,
+          "nlink": 1,
+          "size": 148
+        },
+        "kind": "read",
+        "length": 0,
+        "n": 2,
+        "offset": 148,
+        "path": {
+          "dev": 49,
+          "ino": 2133154,
+          "nlink": 1,
+          "size": 148
+        },
+        "request": 16,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "t_ns": 26050118052
+      },
+      {
+        "kind": "close",
+        "reads": 2,
+        "request": 16,
+        "t_ns": 26050134136
+      },
+      {
+        "emitted": {
+          "body_bytes": 148,
+          "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511",
+          "writes": 2
+        },
+        "kind": "finish",
+        "maxrss_kib": 32960,
+        "memory_kib": {
+          "VmHWM": 33024,
+          "VmRSS": 33024
+        },
+        "request": 16,
+        "t_ns": 26050173177
+      }
+    ]
+  },
+  "allowed": [
+    {
+      "bytes": 25,
+      "sha256": "b95c9261fb8ff0ca68a9d8b06ebdcb4102a72f60b670c2d748cdf4eca454e7a4"
+    },
+    {
+      "bytes": 148,
+      "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511"
+    }
+  ],
+  "case": "append-after-fstat",
+  "client": "raw",
+  "emitted": [
+    {
+      "bytes": 148,
+      "request": 16,
+      "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511"
+    }
+  ],
+  "event": "after-fstat",
+  "interrupt": null,
+  "prepared": {
+    "identity": {
+      "dev": 49,
+      "ino": 2133154,
+      "nlink": 1,
+      "size": 25
+    },
+    "mark": 31250,
+    "path": "/tmp/k14/work/append-after-fstat-raw/file",
+    "stale": []
+  },
+  "result": {
+    "body": {
+      "bytes": 148,
+      "kept": true,
+      "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511"
+    },
+    "content_length": 25,
+    "end": "complete-extra-bytes",
+    "headers": {
+      "content-length": "25",
+      "content-type": "application/octet-stream",
+      "date": "Tue, 17 Nov 2026 20:33:19 GMT",
+      "server": "BaseHTTP/0.6 Python/3.12.15"
+    },
+    "received": 148,
+    "seconds": 0.0009,
+    "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511",
+    "status": 200
+  }
+}
