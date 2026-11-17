@@ -1,0 +1,26 @@
+{
+  "argv": [
+    "testanyware",
+    "file",
+    "exec",
+    "--vm",
+    "vmrel-k16-macos-candidate-02",
+    "--detach",
+    "--json",
+    "/usr/bin/python3 /tmp/vmrel-k16-operation.py /tmp/vmrel-k16-op-after-abrupt-03.json '/usr/bin/python3 -c '\"'\"'import json,os; v=json.load(open(\"/tmp/vmrel-k16/abrupt/outcome.json\")); ps=[v[\"pid\"],v.get(\"child_pid\")]; print(json.dumps(v)); exec(\"for p in ps:\\n if p:\\n  try: os.kill(p,0)\\n  except ProcessLookupError: continue\\n  raise SystemExit(17)\")'\"'\"'' 30"
+  ],
+  "started_unix": 1793423840.1392431,
+  "monotonic_start": 1372333.833629666,
+  "seconds": 0.01809833408333361,
+  "host_exit": 0,
+  "termination": null,
+  "receipt": {
+    "command": "/usr/bin/python3 /tmp/vmrel-k16-operation.py /tmp/vmrel-k16-op-after-abrupt-03.json '/usr/bin/python3 -c '\"'\"'import json,os; v=json.load(open(\"/tmp/vmrel-k16/abrupt/outcome.json\")); ps=[v[\"pid\"],v.get(\"child_pid\")]; print(json.dumps(v)); exec(\"for p in ps:\\n if p:\\n  try: os.kill(p,0)\\n  except ProcessLookupError: continue\\n  raise SystemExit(17)\")'\"'\"'' 30",
+    "exit_code": 0,
+    "ok": true,
+    "schema_version": "1.0",
+    "stderr": "",
+    "stdout": "",
+    "timed_out": false
+  }
+}

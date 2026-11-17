@@ -482,6 +482,31 @@ tasks:
       - shellcheck linux_k6_run.sh
       - uv run --locked python -m pytest -q -p no:cacheprovider test_linux_k6.py
 
+  diagnostic:download-consistency-local:
+    desc: 'Run the k7 macOS download consistency cases on the host into a new OUT directory. The shipped macOS agent and an agent built from this checkout each serve loopback with the k7 shim, which traces and pauses file calls. Each case changes the file at the size lookup or before a read, then compares raw HTTP and Host CLI downloads with the versions the file held. No VM is used. OUT-outer keeps the identities and the check'
+    requires:
+      vars: [OUT]
+    cmds:
+      - experiments/exec-reliability/download_k7_run.sh {{.OUT | shellQuote}}
+
+  diagnostic:download-consistency-check:
+    desc: 'Judge one retained k7 OUT directory, relative to the repository root. Classify each download as allowed-complete, detected-failure, undetected-wrong or a leak, and recheck the oracle controls and the historical failure D digests. The result goes to OUT/RESULT, by default check.json. Use another RESULT to re-judge a retained OUT. Exit 0 only when the evidence is complete'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/download_k7_check.py {{.OUT | shellQuote}} {{.RESULT | default "check.json" | shellQuote}}
+
+  diagnostic:download-consistency-tools:
+    desc: Check the k7 download consistency controller, shim, checker, runner and controls
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check download_k7.py download_k7_check.py test_download_k7.py
+      - uv run --locked python -m ruff format --check download_k7.py download_k7_check.py test_download_k7.py
+      - uv run --locked python -m pyright download_k7.py download_k7_check.py test_download_k7.py
+      - clang -Wall -Wextra -Werror -fsyntax-only download_k7_shim.c
+      - shellcheck download_k7_run.sh
+      - uv run --locked python -m pytest -q -p no:cacheprovider test_download_k7.py
+
   diagnostic:deadline-stall-tools:
     desc: Check the k154 worker-deadline control tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'

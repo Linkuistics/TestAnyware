@@ -61,3 +61,16 @@ between evidenced options. Do not patch FileIO or host finalization as a
 presumed repair. Decompose a dependency/race inquiry that exceeds this session.
 This leaf's raw malformed JSON is historical evidence, not a future lifecycle
 schema to adopt. Keep the Linux comparison independently usable in k14.
+
+## Decisions (running log)
+
+- The host route replaced the guest route. The macOS agent binary takes a port argument, and the Host CLI takes `--agent HOST:PORT`. The shim rewrites the wildcard bind to loopback, and the controller refuses an agent that listens elsewhere. No clone was needed, because the host route reproduced the failure D digest exactly.
+- The seam is a `DYLD_INSERT_LIBRARIES` shim, not a patch of `FileIO`. It traces and pauses calls by path below the case directory only. The source of the agent and its dependencies stays unchanged.
+- A calibration download picks the paused lookup, because the shipped agent calls `lstat` and the checkout agent calls `stat` for the size. The dependency pins of the shipped agent are unknown, because `v2.8.0` has no `Package.resolved` for the macOS agent.
+- The responsible boundary is `FileIO.loadFile` and `FileIO.readFile` in Hummingbird 2.28.1. The size comes from a path lookup, and a later path open reads the file. Nothing checks that both found the same inode. The trace shows two inodes in one response.
+- The stress cases ran with no pause, to show that the shim does not create the race. Both agents returned the failure D digest with a complete frame, 1,887 and 2,794 times.
+- Stable publication to a new name once is tested as a control on the host only. It is not a selected repair. The guest and relay versions of that test are not run.
+- The Host CLI leaves its temporary file after SIGTERM during the body. The report records this for `lifecycle-evidence-k8`. This leaf does not repair it.
+- The checkout agent builds in a temporary directory outside the repository. A development run had its 854 MB build tree in its outer directory, so that run was removed. The recorded run is `local-01`, with no retry.
+- The review leaf `download-consistency-k209` comes before `linux-download-consistency-k14`. That order lets the review finish before k14 reuses the tooling.
+- Verification: `diagnostic:download-consistency-tools` passes, with 16 tests. `local-01` exited 0, its check is complete, and a replay of the check gave an equal result.
