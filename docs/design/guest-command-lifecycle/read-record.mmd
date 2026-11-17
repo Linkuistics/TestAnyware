@@ -4,11 +4,11 @@ flowchart TB
   X["Transport error<br/>existing codes, exit 1 or 7"]
   O{"outcome present?"}
   LG["Legacy record<br/>record: legacy, outcome kind unknown<br/>old macOS or Linux agent, every Windows agent"]
-  V{"Validity rules hold?<br/>id, exitCode, timedOut, bytes, sha256, termination, step order"}
+  V{"Validity rules hold?<br/>id, legacy projection, bytes, sha256,<br/>termination presence and time relations, derived withinBounds"}
   BAD["EXEC_RECORD_INVALID, exit 1<br/>never reported as success"]
   OK["Typed record<br/>record: agent, ok true"]
-  J["JSON: legacy fields plus exec_id, outcome,<br/>evidence, termination, remaining_group; exit 0"]
-  TX["Text: exact bytes, notice line for a non-exit outcome<br/>exit code, 128+N, 255, 255 or 1"]
+  J["JSON: legacy fields unchanged, plus exec_id, outcome,<br/>evidence, lifecycle, termination, remaining_group; exit 0"]
+  TX["Text: unchanged, legacy stdout and stderr<br/>exit with the legacy exitCode, as today"]
   S --> T
   T -->|no| X
   T -->|yes| O

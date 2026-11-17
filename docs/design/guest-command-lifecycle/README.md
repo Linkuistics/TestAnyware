@@ -17,9 +17,9 @@ no rendered exports are committed. The viewer is a copy of the one in
 `../diagnostic-process-inspection`.
 
 - [Lifecycle → Choose one outcome, then make it final](index.html#diagram-state-lifecycle): adds the states, the arbitration rule and the retention of one guest command.
-- [Lifecycle → Signal the group while the leader is held](index.html#diagram-seq-terminate): adds the termination steps and the two 2 s bounds.
+- [Lifecycle → Signal the group while the leader is held](index.html#diagram-seq-terminate): adds the termination steps, the bounded reap and the capture deadline.
 - [Cancellation and interruption → Cancel on a new connection, then re-raise](index.html#diagram-seq-cancel-interrupt): adds explicit cancellation, CLI interruption and the fallback after SIGKILL.
-- [Evidence → Read the record before any claim](index.html#diagram-flow-read-record): adds how the Host CLI classifies an `/exec` reply.
+- [Evidence → Read the record before any claim](index.html#diagram-flow-read-record): adds how the Host CLI classifies an `/exec` reply and keeps text mode unchanged.
 - [Evidence → Send exactly the length of the open handle](index.html#diagram-seq-download): adds the single-handle download and the Host CLI checks.
 - [Seams → Place each guarantee at its seam](index.html#diagram-component-seams): adds the implementation candidates and the test seams.
 

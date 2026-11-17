@@ -3,21 +3,29 @@ sequenceDiagram
   participant O as Owner of one guest command
   participant L as Leader (bash), held unreaped
   participant G as Rest of the owned group
-  participant F as Capture files
+  participant W as Capture worker
   Note over O: T0 - the owner chose timed_out or cancelled
   O->>L: SIGTERM to the group (killpg while L is unreaped)
   O->>G: same SIGTERM reaches every member
-  alt leader exits within 2 s
-    L-->>O: exit status (kept as termination.leaderStatus)
-  else no exit by T0 + 2 s
+  alt leader exits by T0 + 1.9 s
+    L-->>O: exit status event, no reap yet
+  else no exit by T0 + 1.9 s
     Note over O: grace ends
   end
-  O->>L: SIGKILL to the group, still before the reap
+  Note over O: K - SIGKILL, still before the reap
+  O->>L: SIGKILL to the group
   O->>G: same SIGKILL reaches every member
-  O->>L: reap the leader
-  loop signal-0 probe until ESRCH, at most 2 s after SIGKILL
-    O->>G: kill(-pgid, 0)
+  alt exit status arrives by K + 1.4 s
+    L-->>O: exit status (termination.leaderStatus)
+    O->>L: reap the leader
+    loop signal-0 probe until ESRCH or K + 1.4 s
+      O->>G: kill(-pgid, 0)
+    end
+    Note over O,G: ESRCH gives groupEmpty yes. Members at K + 1.4 s give no. EPERM gives unknown.
+  else no exit status by K + 1.4 s
+    Note over O,L: leaderStatus unavailable, groupEmpty no.<br/>The owner holds L, reaps it later<br/>and sends no further signal.
   end
-  Note over O,G: ESRCH gives groupEmpty yes. Members at the bound give no. EPERM gives unknown.
-  O->>F: read each file up to its size, base64, bytes, SHA-256
-  Note over O: record final, step times from T0, withinBounds true only for yes within bounds
+  O->>W: read each file from offset 0 up to fileBytes
+  W-->>O: complete streams by K + 1.9 s
+  Note over O,W: A stream not read by K + 1.9 s is an incomplete prefix with reason deadline.
+  Note over O: publish the record. withinBounds is derived: groupEmpty yes, K at most 2 s, record at most 2 s after K.

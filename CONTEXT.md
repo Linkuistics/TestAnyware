@@ -228,6 +228,13 @@ termination steps. Guest status lives in the record. Host transport status lives
 in the Host CLI envelope.
 _Avoid_: "receipt", which names the Host CLI's JSON envelope.
 
+**Legacy projection**:
+The values of the legacy fields `exitCode`, `stdout`, `stderr` and `timedOut`
+in an *exec record*. A new agent sets them as today's agent on the same
+platform does, so an old consumer sees no change. The record names the
+projection, `macos` or `linux`.
+_Avoid_: "compatibility mode", "old format".
+
 **Cancellation**:
 A client's explicit request to end a running *guest command* by its *exec id*.
 A closed or reset connection is not a cancellation.

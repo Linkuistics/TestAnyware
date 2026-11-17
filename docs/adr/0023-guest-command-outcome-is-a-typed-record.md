@@ -44,11 +44,20 @@ Guest status lives in the record. Host transport status lives in the Host CLI
 envelope. In JSON mode, `ok` reports transport and record validity only, and a
 guest outcome never sets it to false.
 
-Every change is additive. The legacy fields keep their meaning, so an old Host
-CLI works with a new agent. A new Host CLI reads an agent reply without
-`outcome` as a legacy record, with the outcome `unknown`. The Host CLI rejects a
-contradictory record with `EXEC_RECORD_INVALID`. No protocol version field is
-added.
+Every change is additive. A new agent sets the legacy fields to the values that
+today's agent on the same platform reports for the same outcome and bytes. The
+record names this legacy projection, `macos` or `linux`. An old Host CLI
+therefore sees today's values. The new Host CLI also keeps its existing JSON
+fields, its text output and its exit codes. Only the added fields carry the
+facts that the legacy values hide.
+
+The spec lists three departures from today's values. A command that finished
+is no longer reported as timed out. A macOS spawn error gives a record, not an
+HTTP error. A cancellation is a new outcome.
+
+A new Host CLI reads an agent reply without `outcome` as a legacy record, with
+the outcome `unknown`. It rejects a contradictory record with `EXEC_RECORD_INVALID`. No protocol version field is
+added, and `schema_version` stays `1.0`.
 
 ## Considered options
 
@@ -70,8 +79,13 @@ added.
 - A tutorial verifier can tell exit 23 from a timeout, a cancellation, a signal
   and a spawn error, and can compare exact bytes.
 - A reply roughly doubles in size, because it carries the legacy text and the
-  base64 bytes. Output size stays unbounded, as today.
+  base64 bytes. Output size stays unbounded, as today. Reading the capture has
+  a deadline, and a capture that misses it arrives as an incomplete prefix.
+- Each agent keeps code that reproduces its old legacy values, including the
+  signal number on macOS and the decoder error on Linux. The validity rules
+  check the legacy fields against that projection.
 - Windows keeps the legacy shape. A new Host CLI reports its records as legacy.
 - The macOS exec types move into the vendored protocol module, under the
   encoding drift test. The Linux agent gains a model.
-- Text-mode output and exit codes follow the record. The spec gives the rules.
+- Text mode cannot separate a timeout from exit 255, as today, and it gives no
+  exact bytes. A caller that needs the outcome or the bytes uses JSON mode.

@@ -18,10 +18,11 @@ guest command:
 - The macOS runner sends SIGTERM, waits 3 s, then sends SIGKILL to the shell
   only (k12).
 - The macOS host suite sometimes reports a command that finished as timed out,
-  7 of 20 runs (k3). A probe reproduced that receipt when the runner's second
-  wait block queued behind a busy dispatch pool. That cause is not proved for
-  the guest. Operation 08 and the post-timeout inspection stall did not recur
-  (k186, k193, k195).
+  7 of 20 runs (k3). A host probe gave that receipt from the old runner, 10 of
+  10, when the dispatch pool had no free worker. The probe does not show which
+  phase stalled. Its control changed both the second wait block and the
+  Foundation exit wait, so neither mechanism is proved. Operation 08 and the
+  post-timeout inspection stall did not recur (k186, k193, k195).
 - Pipes reach end-of-file only when every descendant closes them, so a
   background child can hold a capture open.
 
@@ -40,9 +41,18 @@ leader without a reap. If the leader has exited, the outcome is `exited` or
 
 The leader starts in a new session, so its group is the owned group. On a
 timeout or a cancellation, the owner sends SIGTERM to the group. It waits for
-the leader for 2 s at most, then sends SIGKILL to the group. It sends both signals
-while it still holds the unreaped leader. It then reaps the leader and probes
-the group with signal 0 for 2 s at most.
+the leader until T0 + 1.9 s, then sends SIGKILL to the group. It sends both
+signals while it still holds the unreaped leader.
+
+The owner waits for the exit status until 1.4 s after SIGKILL, and it never
+blocks in a reap. When the status arrives, the owner reaps the leader and
+probes the group with signal 0. It publishes the record by 1.9 s after SIGKILL.
+
+When the exit status does not arrive, the record reports `leaderStatus`
+`unavailable` and `groupEmpty: no`. The owner keeps holding the leader, reaps it
+later and sends no further signal. The capture read also ends by 1.9 s after
+SIGKILL. A stream that the agent cannot read by then gives an incomplete
+prefix.
 
 Output goes to capture files, not pipes. On macOS, the owner waits on kqueue
 sources and holds no dispatch pool worker. A normal leader exit does not signal
@@ -57,6 +67,9 @@ the rest of the group.
 - **Signal the group by ID after the leader is reaped, with a start-time check.**
   Rejected. A PID can return between the check and the signal. The k206
   controller has the same same-tick limit.
+- **Reap the leader with a blocking wait after SIGKILL.** Rejected. A leader in
+  uninterruptible sleep would then hold back the record and the agent shutdown
+  without a bound.
 - **Kill the group at every leader exit.** Rejected. Existing tutorials can
   start `server &` and depend on it. The record reports the remaining group
   instead.
@@ -73,5 +86,7 @@ the rest of the group.
   macOS symptom recurs, the record names it, and acceptance fails.
 - A descendant that calls `setsid` escapes the group. The agent does not signal
   or report it. This limit is stated.
+- A leader in uninterruptible sleep cannot delay the record. The record then
+  states `leaderStatus` `unavailable` and `withinBounds: false`.
 - An agent crash leaves its groups running.
 - Detached commands keep their behaviour.

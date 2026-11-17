@@ -20,7 +20,7 @@
       "group": "lifecycle",
       "title": "Signal the group while the leader is held",
       "source": "terminate.mmd",
-      "caption": "SIGTERM at T0, a grace of 2 s at most, SIGKILL before the reap, then a signal-0 probe for 2 s at most. The unreaped leader keeps the group ID from reuse. A failed probe never proves absence."
+      "caption": "SIGTERM at T0, SIGKILL at the leader exit or T0 + 1.9 s, still before the reap. The owner waits for the exit status and probes until K + 1.4 s, then publishes by K + 1.9 s. A status that never arrives gives leaderStatus unavailable, and a stalled capture gives an incomplete prefix. A failed probe never proves absence."
     },
     {
       "id": "seq-cancel-interrupt",
@@ -34,7 +34,7 @@
       "group": "evidence",
       "title": "Read the record before any claim",
       "source": "read-record.mmd",
-      "caption": "Transport status, legacy records and invalid records stay apart. A contradictory record is EXEC_RECORD_INVALID and is never success. A guest outcome never sets ok to false."
+      "caption": "Transport status, legacy records and invalid records stay apart. A contradictory record is EXEC_RECORD_INVALID and is never success. A guest outcome never sets ok to false. Text mode and the existing JSON fields keep today's values."
     },
     {
       "id": "seq-download",
@@ -54,13 +54,13 @@
   "discussion": {
     "title": "Proposed lifecycle and evidence contract",
     "status": "Proposal for review-design",
-    "summary": "A typed exec record separates guest status from transport status and keeps the legacy fields. One owner per command arbitrates by kernel state and ends a new-session group with the leader held. Cancellation is explicit by a client-chosen exec id, and a disconnect is not a cancellation. A download sends exactly the length of one open handle, and in-place overwrite is excluded.",
+    "summary": "A typed exec record separates guest status from transport status. Its legacy fields keep each platform's values. One owner per command arbitrates by kernel state and ends a new-session group with the leader held. Cancellation is explicit by a client-chosen exec id, and a disconnect is not a cancellation. A download sends exactly the length of one open handle, and in-place overwrite is excluded.",
     "diagramIds": ["state-lifecycle", "seq-terminate", "seq-cancel-interrupt", "flow-read-record", "seq-download", "component-seams"],
     "updatedDiagrams": [
       {"id": "state-lifecycle", "summary": "New. States, arbitration and retention of one guest command."},
-      {"id": "seq-terminate", "summary": "New. Group termination steps with the leader held and the two 2 s bounds."},
+      {"id": "seq-terminate", "summary": "New. Group termination steps with the leader held, a bounded reap and the capture deadline."},
       {"id": "seq-cancel-interrupt", "summary": "New. Explicit cancellation, CLI interruption and the SIGKILL fallback."},
-      {"id": "flow-read-record", "summary": "New. How the Host CLI classifies an /exec reply before output."},
+      {"id": "flow-read-record", "summary": "New. How the Host CLI classifies an /exec reply, with the legacy projection kept."},
       {"id": "seq-download", "summary": "New. Single-handle download and the Host CLI framing and temporary-file rules."},
       {"id": "component-seams", "summary": "New. Implementation candidates and test seams on the existing boundaries."}
     ]
