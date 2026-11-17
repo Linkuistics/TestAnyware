@@ -66,6 +66,8 @@ LOCKFILES = (REPO / "cli-rs/Cargo.lock", HERE / "uv.lock")
 INSIDE_BUDGET = 180.0  # eleven cases, four of them deadline cases of six seconds
 HOST_BUDGET = 900.0  # 33 agent containers, then 33 cases with observation and cleanup
 DOCKER_BOUND = 60.0  # one docker query or removal
+# -I would drop the script directory from sys.path, and the seam imports its siblings.
+HOST_FLAGS = ("-E", "-s", "-B")
 
 
 def run_tag(run_id: str) -> str:
@@ -165,7 +167,7 @@ def plan(python: str) -> Plan:
     ) + (
         Call(
             "host",
-            (python, "-I", str(SEAM), tag, "host", IMAGE, str(APP), str(CLI)),
+            (python, *HOST_FLAGS, str(SEAM), tag, "host", IMAGE, str(APP), str(CLI)),
             HOST_BUDGET,
         ),
     )

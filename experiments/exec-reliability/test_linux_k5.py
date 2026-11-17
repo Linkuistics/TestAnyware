@@ -1,5 +1,7 @@
 """Controls for the runner, seams and checker of leaf `linux-timeout-lifecycle-k5`."""
 
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -166,3 +168,13 @@ def test_the_controller_accepts_the_frozen_plan() -> None:
     assert all(Path(call.argv[0]).is_absolute() for call in frozen.calls)
     validate = getattr(controller, "_validate")  # noqa: B009 - the controller's own refusal rules
     validate(frozen)
+
+
+def test_the_host_call_imports_the_seam_with_its_frozen_flags() -> None:
+    host = linux_k5.plan("/usr/bin/python3").calls[-1]
+    flags = list(host.argv[1 : 1 + len(linux_k5.HOST_FLAGS)])
+    assert tuple(flags) == linux_k5.HOST_FLAGS
+    done = subprocess.run(
+        [sys.executable, *flags, str(linux_k5.SEAM)], capture_output=True, timeout=30, check=False
+    )
+    assert done.returncode == 64, done.stderr
