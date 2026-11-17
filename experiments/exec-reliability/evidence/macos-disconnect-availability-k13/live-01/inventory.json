@@ -1,0 +1,249 @@
+{
+  "leaf": "macos-disconnect-availability-k13",
+  "golden": "testanyware-golden-macos-27",
+  "rule": "one plan, run once; no retry; failed samples stay",
+  "bounds": {
+    "boot": 420.0,
+    "health": 30.0,
+    "burst_budget": 412.0,
+    "cleanup_guest": 9,
+    "cleanup_bound": 26.0,
+    "guest_timeout": 20,
+    "act_after": 2.0,
+    "term_grace": 2.0,
+    "kill_wait": 2.0,
+    "original_bound": 40.0,
+    "follow_bound": 30.0,
+    "transfer_bound": 150.0,
+    "inspect_timeout": 10,
+    "mid_at": 18.0,
+    "late_at": 30.0
+  },
+  "payloads": {
+    "control": "mkdir -p /tmp/taw-k13/control\nsleep 120 & child=$!\nprintf '%s\\n' \"$child\" > /tmp/taw-k13/control/child.pid\nprintf 'partial\\n' > /tmp/taw-k13/control/partial\nwait",
+    "concurrent": "mkdir -p /tmp/taw-k13/concurrent\nsleep 120 & child=$!\nprintf '%s\\n' \"$child\" > /tmp/taw-k13/concurrent/child.pid\nprintf 'partial\\n' > /tmp/taw-k13/concurrent/partial\nwait",
+    "term": "mkdir -p /tmp/taw-k13/term\nsleep 120 & child=$!\nprintf '%s\\n' \"$child\" > /tmp/taw-k13/term/child.pid\nprintf 'partial\\n' > /tmp/taw-k13/term/partial\nwait"
+  },
+  "inspection": {
+    "control": "cpid=$(cat /tmp/taw-k13/control/child.pid 2>/dev/null)\nif [ -n \"$cpid\" ] && [ ! -s /tmp/taw-k13/control/shell.of.\"$cpid\" ]; then\n  ppid=$(ps -o ppid= -p \"$cpid\" | tr -d ' ')\n  case \"$ppid\" in ''|1) ;; *)\n    printf '%s\\n' \"$ppid\" > /tmp/taw-k13/control/shell.of.\"$cpid\" ;;\n  esac\nfi\nfor role in shell child; do\n  if [ \"$role\" = shell ]; then\n    pid=$(cat /tmp/taw-k13/control/shell.of.\"$cpid\" 2>/dev/null)\n  else\n    pid=$cpid\n  fi\n  if [ -z \"$pid\" ]; then printf '%s pid=none\\n' \"$role\"; continue; fi\n  if err=$(kill -0 \"$pid\" 2>&1); then state=present\n  else case \"$err\" in\n    *[Nn]o\\ such\\ process*) state=absent ;;\n    *) state=unknown ;;\n  esac\n  fi\n  ppid=$(ps -p \"$pid\" -o ppid= | tr -d ' ')\n  cmd=$(ps -p \"$pid\" -o command= | sed 's/ *$//')\n  fmt='%s pid=%s %s ppid=%s command=%s\\n'\n  printf \"$fmt\" \"$role\" \"$pid\" \"$state\" \"$ppid\" \"$cmd\"\ndone",
+    "concurrent": "cpid=$(cat /tmp/taw-k13/concurrent/child.pid 2>/dev/null)\nif [ -n \"$cpid\" ] && [ ! -s /tmp/taw-k13/concurrent/shell.of.\"$cpid\" ]; then\n  ppid=$(ps -o ppid= -p \"$cpid\" | tr -d ' ')\n  case \"$ppid\" in ''|1) ;; *)\n    printf '%s\\n' \"$ppid\" > /tmp/taw-k13/concurrent/shell.of.\"$cpid\" ;;\n  esac\nfi\nfor role in shell child; do\n  if [ \"$role\" = shell ]; then\n    pid=$(cat /tmp/taw-k13/concurrent/shell.of.\"$cpid\" 2>/dev/null)\n  else\n    pid=$cpid\n  fi\n  if [ -z \"$pid\" ]; then printf '%s pid=none\\n' \"$role\"; continue; fi\n  if err=$(kill -0 \"$pid\" 2>&1); then state=present\n  else case \"$err\" in\n    *[Nn]o\\ such\\ process*) state=absent ;;\n    *) state=unknown ;;\n  esac\n  fi\n  ppid=$(ps -p \"$pid\" -o ppid= | tr -d ' ')\n  cmd=$(ps -p \"$pid\" -o command= | sed 's/ *$//')\n  fmt='%s pid=%s %s ppid=%s command=%s\\n'\n  printf \"$fmt\" \"$role\" \"$pid\" \"$state\" \"$ppid\" \"$cmd\"\ndone",
+    "term": "cpid=$(cat /tmp/taw-k13/term/child.pid 2>/dev/null)\nif [ -n \"$cpid\" ] && [ ! -s /tmp/taw-k13/term/shell.of.\"$cpid\" ]; then\n  ppid=$(ps -o ppid= -p \"$cpid\" | tr -d ' ')\n  case \"$ppid\" in ''|1) ;; *)\n    printf '%s\\n' \"$ppid\" > /tmp/taw-k13/term/shell.of.\"$cpid\" ;;\n  esac\nfi\nfor role in shell child; do\n  if [ \"$role\" = shell ]; then\n    pid=$(cat /tmp/taw-k13/term/shell.of.\"$cpid\" 2>/dev/null)\n  else\n    pid=$cpid\n  fi\n  if [ -z \"$pid\" ]; then printf '%s pid=none\\n' \"$role\"; continue; fi\n  if err=$(kill -0 \"$pid\" 2>&1); then state=present\n  else case \"$err\" in\n    *[Nn]o\\ such\\ process*) state=absent ;;\n    *) state=unknown ;;\n  esac\n  fi\n  ppid=$(ps -p \"$pid\" -o ppid= | tr -d ' ')\n  cmd=$(ps -p \"$pid\" -o command= | sed 's/ *$//')\n  fmt='%s pid=%s %s ppid=%s command=%s\\n'\n  printf \"$fmt\" \"$role\" \"$pid\" \"$state\" \"$ppid\" \"$cmd\"\ndone"
+  },
+  "cleanup": "state() {\n  if err=$(kill -0 \"$1\" 2>&1); then echo alive\n  else case \"$err\" in *[Nn]o\\ such\\ process*) echo gone ;; *) echo unknown ;; esac; fi\n}\nwait_gone() {\n  i=0\n  while [ \"$(state \"$1\")\" = alive ] && [ \"$i\" -lt \"$2\" ]; do\n    sleep 0.1; i=$((i + 1))\n  done\n}\noutcome=confirmed\nfor f in /tmp/taw-k13/control/child.pid /tmp/taw-k13/concurrent/child.pid /tmp/taw-k13/term/child.pid; do\n  [ -f \"$f\" ] || continue\n  pid=$(cat \"$f\")\n  cmd=$(ps -p \"$pid\" -o command= | sed 's/ *$//')\n  printf '%s pid=%s command=%s\\n' \"$f\" \"$pid\" \"$cmd\"\n  if [ \"$cmd\" != \"sleep 120\" ]; then\n    s=$(state \"$pid\")\n    if [ -z \"$cmd\" ] && [ \"$s\" = gone ]; then printf 'gone pid=%s\\n' \"$pid\"\n    elif [ -n \"$cmd\" ] && [ \"$s\" = alive ]; then printf 'other pid=%s\\n' \"$pid\"\n    else printf 'unknown pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\n    continue\n  fi\n  kill -TERM \"$pid\"\n  wait_gone \"$pid\" 20\n  action=terminated\n  if [ \"$(state \"$pid\")\" = alive ]; then\n    kill -KILL \"$pid\"; action=killed\n    wait_gone \"$pid\" 5\n  fi\n  s=$(state \"$pid\")\n  if [ \"$s\" = gone ]; then printf '%s pid=%s\\n' \"$action\" \"$pid\"\n  else printf 'survived pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\ndone\nprintf 'cleanup %s\\n' \"$outcome\"\n[ \"$outcome\" = confirmed ]",
+  "plan": {
+    "run_id": "36ef8bfdc75142acba5bcc0f5aa48558",
+    "calls": [
+      {
+        "name": "health-before",
+        "argv": [
+          "/opt/homebrew/bin/testanyware",
+          "agent",
+          "health",
+          "--vm",
+          "k13-macos-36ef8bfdc75142acba5bcc0f5aa48558",
+          "--json"
+        ],
+        "budget": 30.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      {
+        "name": "burst-control",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+          "-E",
+          "-s",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_burst.py",
+          "/opt/homebrew/bin/testanyware",
+          "k13-macos-36ef8bfdc75142acba5bcc0f5aa48558",
+          "control",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/macos-disconnect-availability-k13/live-01/downloads"
+        ],
+        "budget": 412.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      {
+        "name": "burst-concurrent",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+          "-E",
+          "-s",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_burst.py",
+          "/opt/homebrew/bin/testanyware",
+          "k13-macos-36ef8bfdc75142acba5bcc0f5aa48558",
+          "concurrent",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/macos-disconnect-availability-k13/live-01/downloads"
+        ],
+        "budget": 412.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      {
+        "name": "burst-term",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+          "-E",
+          "-s",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_burst.py",
+          "/opt/homebrew/bin/testanyware",
+          "k13-macos-36ef8bfdc75142acba5bcc0f5aa48558",
+          "term",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/macos-disconnect-availability-k13/live-01/downloads"
+        ],
+        "budget": 412.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      {
+        "name": "health-after",
+        "argv": [
+          "/opt/homebrew/bin/testanyware",
+          "agent",
+          "health",
+          "--vm",
+          "k13-macos-36ef8bfdc75142acba5bcc0f5aa48558",
+          "--json"
+        ],
+        "budget": 30.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      }
+    ],
+    "resources": [
+      {
+        "kind": "vm",
+        "identity": "k13-macos-36ef8bfdc75142acba5bcc0f5aa48558",
+        "acquire": {
+          "name": "acquire",
+          "argv": [
+            "/opt/homebrew/bin/testanyware",
+            "vm",
+            "start",
+            "--platform",
+            "macos",
+            "--base",
+            "testanyware-golden-macos-27",
+            "--id",
+            "k13-macos-36ef8bfdc75142acba5bcc0f5aa48558",
+            "--json"
+          ],
+          "budget": 420.0,
+          "expected_exit": 0,
+          "expected_stdout": null,
+          "interrupt_after": null,
+          "expected_reason": "exit"
+        },
+        "cleanup": {
+          "name": "cleanup",
+          "argv": [
+            "/opt/homebrew/bin/testanyware",
+            "file",
+            "exec",
+            "--vm",
+            "k13-macos-36ef8bfdc75142acba5bcc0f5aa48558",
+            "--timeout",
+            "9",
+            "--json",
+            "state() {\n  if err=$(kill -0 \"$1\" 2>&1); then echo alive\n  else case \"$err\" in *[Nn]o\\ such\\ process*) echo gone ;; *) echo unknown ;; esac; fi\n}\nwait_gone() {\n  i=0\n  while [ \"$(state \"$1\")\" = alive ] && [ \"$i\" -lt \"$2\" ]; do\n    sleep 0.1; i=$((i + 1))\n  done\n}\noutcome=confirmed\nfor f in /tmp/taw-k13/control/child.pid /tmp/taw-k13/concurrent/child.pid /tmp/taw-k13/term/child.pid; do\n  [ -f \"$f\" ] || continue\n  pid=$(cat \"$f\")\n  cmd=$(ps -p \"$pid\" -o command= | sed 's/ *$//')\n  printf '%s pid=%s command=%s\\n' \"$f\" \"$pid\" \"$cmd\"\n  if [ \"$cmd\" != \"sleep 120\" ]; then\n    s=$(state \"$pid\")\n    if [ -z \"$cmd\" ] && [ \"$s\" = gone ]; then printf 'gone pid=%s\\n' \"$pid\"\n    elif [ -n \"$cmd\" ] && [ \"$s\" = alive ]; then printf 'other pid=%s\\n' \"$pid\"\n    else printf 'unknown pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\n    continue\n  fi\n  kill -TERM \"$pid\"\n  wait_gone \"$pid\" 20\n  action=terminated\n  if [ \"$(state \"$pid\")\" = alive ]; then\n    kill -KILL \"$pid\"; action=killed\n    wait_gone \"$pid\" 5\n  fi\n  s=$(state \"$pid\")\n  if [ \"$s\" = gone ]; then printf '%s pid=%s\\n' \"$action\" \"$pid\"\n  else printf 'survived pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\ndone\nprintf 'cleanup %s\\n' \"$outcome\"\n[ \"$outcome\" = confirmed ]"
+          ],
+          "budget": 26.0,
+          "expected_exit": 0,
+          "expected_stdout": null,
+          "interrupt_after": null,
+          "expected_reason": "exit"
+        },
+        "dispose": {
+          "name": "dispose",
+          "argv": [
+            "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+            "-I",
+            "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+            "dispose",
+            "k13-macos-36ef8bfdc75142acba5bcc0f5aa48558",
+            "--cli",
+            "/opt/homebrew/bin/testanyware",
+            "--tart",
+            "/opt/homebrew/bin/tart",
+            "--timeout",
+            "5",
+            "--stop-timeout",
+            "30"
+          ],
+          "budget": 41.0,
+          "expected_exit": 0,
+          "expected_stdout": null,
+          "interrupt_after": null,
+          "expected_reason": "exit"
+        },
+        "inspect": {
+          "name": "inspect",
+          "argv": [
+            "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+            "-I",
+            "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+            "absent",
+            "k13-macos-36ef8bfdc75142acba5bcc0f5aa48558",
+            "--cli",
+            "/opt/homebrew/bin/testanyware",
+            "--tart",
+            "/opt/homebrew/bin/tart",
+            "--timeout",
+            "25"
+          ],
+          "budget": 55.0,
+          "expected_exit": 0,
+          "expected_stdout": "616273656e74206b31332d6d61636f732d33366566386266646337353134326163626135626363306635616134383535380a",
+          "interrupt_after": null,
+          "expected_reason": "exit"
+        }
+      }
+    ],
+    "subjects": [
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13.py",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_burst.py",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_check.py",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_run.sh",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/routes_k19.py",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/timeout_k4.py",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/Taskfile.yml",
+      "/opt/homebrew/Cellar/testanyware/2.8.0_1/bin/testanyware",
+      "/opt/homebrew/Cellar/tart/2.41.1/bin/tart",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+      "/Applications/TestAnyware.app/Contents/MacOS/testanyware-app",
+      "/Applications/TestAnyware.app/Contents/Info.plist",
+      "/opt/homebrew/Cellar/testanyware/2.8.0_1/share/testanyware/agents/macos/testanyware-agent"
+    ],
+    "term_grace": 2,
+    "kill_wait": 2,
+    "bootstrap": {
+      "readiness": 1,
+      "term_grace": 2,
+      "kill_reap": 2
+    },
+    "failure_bounds": {
+      "term_grace": 2,
+      "kill_reap": 2
+    },
+    "close_bounds": {
+      "grace": 0.05,
+      "kill_reap": 2
+    },
+    "readiness_bound": 5.0,
+    "intent_gate": 2.0,
+    "publication_window": 10.0,
+    "outbox_cap": 67108864
+  }
+}

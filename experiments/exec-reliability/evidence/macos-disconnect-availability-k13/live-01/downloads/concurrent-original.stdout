@@ -1,0 +1,9 @@
+{
+  "command": "mkdir -p /tmp/taw-k13/concurrent\nsleep 120 & child=$!\nprintf '%s\\n' \"$child\" > /tmp/taw-k13/concurrent/child.pid\nprintf 'partial\\n' > /tmp/taw-k13/concurrent/partial\nwait",
+  "exit_code": -1,
+  "ok": true,
+  "schema_version": "1.0",
+  "stderr": "Process timed out after 20s",
+  "stdout": "",
+  "timed_out": true
+}

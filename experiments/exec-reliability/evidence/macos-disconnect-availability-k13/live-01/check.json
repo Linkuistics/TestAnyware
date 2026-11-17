@@ -1,0 +1,297 @@
+{
+  "modes": [
+    {
+      "child": "ended-with-handler",
+      "follow": [
+        {
+          "answered_at": 20.306644917,
+          "bound_exceeded": false,
+          "child": "absent",
+          "class": "baseline",
+          "latency": 0.090540417,
+          "name": "inspect",
+          "returncode": 0,
+          "shell": "none",
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 20.320022417,
+          "bound_exceeded": false,
+          "class": "baseline",
+          "latency": 0.013359208,
+          "name": "health",
+          "returncode": 0,
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 20.405647834,
+          "bound_exceeded": false,
+          "class": "baseline",
+          "latency": 0.08559625,
+          "name": "ordinary",
+          "returncode": 0,
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 20.43746675,
+          "bound_exceeded": false,
+          "class": "baseline",
+          "content_matches": true,
+          "latency": 0.03172125,
+          "name": "download",
+          "returncode": 0,
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 20.517722459,
+          "bound_exceeded": false,
+          "child": "absent",
+          "class": "baseline",
+          "latency": 0.080201417,
+          "name": "inspect-after",
+          "returncode": 0,
+          "shell": "none",
+          "spans_handler_end": false
+        }
+      ],
+      "handler": "deadline",
+      "handler_alive_at": null,
+      "handler_gone_by": 20.21601175,
+      "late": {
+        "child": {
+          "command": "",
+          "pid": "601",
+          "ppid": "",
+          "state": "absent"
+        },
+        "shell": {
+          "command": "",
+          "pid": "none",
+          "state": "none"
+        }
+      },
+      "mid": {
+        "child": {
+          "command": "",
+          "pid": "601",
+          "ppid": "",
+          "state": "absent"
+        },
+        "shell": {
+          "command": "",
+          "pid": "none",
+          "state": "none"
+        }
+      },
+      "mode": "control",
+      "original": {
+        "exit_code": -1,
+        "expected": true,
+        "returncode": 0,
+        "seconds": 20.21601175,
+        "timed_out": true
+      }
+    },
+    {
+      "child": "ended-with-handler",
+      "follow": [
+        {
+          "answered_at": 2.079965292,
+          "bound_exceeded": false,
+          "child": "present",
+          "class": "responsive",
+          "latency": 0.073710834,
+          "name": "inspect",
+          "reference_latency": 0.090540417,
+          "returncode": 0,
+          "shell": "present",
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 2.093001083,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "latency": 0.013013791,
+          "name": "health",
+          "reference_latency": 0.013359208,
+          "returncode": 0,
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 2.170185833,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "latency": 0.077167208,
+          "name": "ordinary",
+          "reference_latency": 0.08559625,
+          "returncode": 0,
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 2.185708167,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "content_matches": true,
+          "latency": 0.015412167,
+          "name": "download",
+          "reference_latency": 0.03172125,
+          "returncode": 0,
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 2.263081792,
+          "bound_exceeded": false,
+          "child": "present",
+          "class": "responsive",
+          "latency": 0.077342875,
+          "name": "inspect-after",
+          "reference_latency": 0.080201417,
+          "returncode": 0,
+          "shell": "present",
+          "spans_handler_end": false
+        }
+      ],
+      "handler": "deadline",
+      "handler_alive_at": 18.007219042,
+      "handler_gone_by": 20.228820625,
+      "late": {
+        "child": {
+          "command": "",
+          "pid": "762",
+          "ppid": "",
+          "state": "absent"
+        },
+        "shell": {
+          "command": "",
+          "pid": "760",
+          "ppid": "",
+          "state": "absent"
+        }
+      },
+      "mid": {
+        "child": {
+          "command": "sleep 120",
+          "pid": "762",
+          "ppid": "760",
+          "state": "present"
+        },
+        "shell": {
+          "command": "/bin/bash -c mkdir -p /tmp/taw-k13/concurrent\\012sleep 120 & child=$!\\012printf '%s\\n' \"$child\" > /tmp/taw-k13/concurrent/child.pid\\012printf 'partial\\n' > /tmp/taw-k13/concurrent/partial\\012wait",
+          "pid": "760",
+          "ppid": "426",
+          "state": "present"
+        }
+      },
+      "mode": "concurrent",
+      "original": {
+        "exit_code": -1,
+        "expected": true,
+        "returncode": 0,
+        "seconds": 20.228820625,
+        "timed_out": true
+      }
+    },
+    {
+      "child": "ended-with-handler",
+      "follow": [
+        {
+          "answered_at": 2.1013595,
+          "bound_exceeded": false,
+          "child": "present",
+          "class": "responsive",
+          "latency": 0.091124833,
+          "name": "inspect",
+          "reference_latency": 0.073710834,
+          "returncode": 0,
+          "shell": "present",
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 2.112076292,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "latency": 0.010699584,
+          "name": "health",
+          "reference_latency": 0.013013791,
+          "returncode": 0,
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 2.186999167,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "latency": 0.074899084,
+          "name": "ordinary",
+          "reference_latency": 0.077167208,
+          "returncode": 0,
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 2.199607625,
+          "bound_exceeded": false,
+          "class": "responsive",
+          "content_matches": true,
+          "latency": 0.012529833,
+          "name": "download",
+          "reference_latency": 0.015412167,
+          "returncode": 0,
+          "spans_handler_end": false
+        },
+        {
+          "answered_at": 2.281190625,
+          "bound_exceeded": false,
+          "child": "present",
+          "class": "responsive",
+          "latency": 0.081550167,
+          "name": "inspect-after",
+          "reference_latency": 0.077342875,
+          "returncode": 0,
+          "shell": "present",
+          "spans_handler_end": false
+        }
+      ],
+      "handler": "deadline",
+      "handler_alive_at": 18.005582833,
+      "handler_gone_by": 30.122540167,
+      "late": {
+        "child": {
+          "command": "",
+          "pid": "920",
+          "ppid": "",
+          "state": "absent"
+        },
+        "shell": {
+          "command": "",
+          "pid": "918",
+          "ppid": "",
+          "state": "absent"
+        }
+      },
+      "mid": {
+        "child": {
+          "command": "sleep 120",
+          "pid": "920",
+          "ppid": "918",
+          "state": "present"
+        },
+        "shell": {
+          "command": "/bin/bash -c mkdir -p /tmp/taw-k13/term\\012sleep 120 & child=$!\\012printf '%s\\n' \"$child\" > /tmp/taw-k13/term/child.pid\\012printf 'partial\\n' > /tmp/taw-k13/term/partial\\012wait",
+          "pid": "918",
+          "ppid": "426",
+          "state": "present"
+        }
+      },
+      "mode": "term",
+      "original": {
+        "exit_after_signal": 0.001049416,
+        "expected": true,
+        "returncode": -15,
+        "seconds": 2.010088833,
+        "signals": [
+          "SIGTERM"
+        ]
+      }
+    }
+  ],
+  "problems": []
+}
