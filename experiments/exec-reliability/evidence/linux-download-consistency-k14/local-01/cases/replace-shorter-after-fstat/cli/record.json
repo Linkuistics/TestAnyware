@@ -1,0 +1,197 @@
+{
+  "action": {
+    "op": "replace"
+  },
+  "agent": {
+    "arm_unused": false,
+    "directory": [
+      "file"
+    ],
+    "final": {
+      "identity": {
+        "dev": 47,
+        "ino": 2133100,
+        "nlink": 1,
+        "size": 25
+      },
+      "length": 25,
+      "sha256": "b95c9261fb8ff0ca68a9d8b06ebdcb4102a72f60b670c2d748cdf4eca454e7a4"
+    },
+    "trace": [
+      {
+        "kind": "request",
+        "maxrss_kib": 31516,
+        "request": 7,
+        "t_ns": 2694756083
+      },
+      {
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133098,
+          "nlink": 1,
+          "size": 123
+        },
+        "kind": "open",
+        "mode": "rb",
+        "path": "/tmp/k14/work/replace-shorter-after-fstat-cli/file",
+        "request": 7,
+        "t_ns": 2694949833
+      },
+      {
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133098,
+          "nlink": 1,
+          "size": 123
+        },
+        "kind": "fstat",
+        "request": 7,
+        "t_ns": 2695011583
+      },
+      {
+        "event": "after-fstat",
+        "kind": "action",
+        "request": 7,
+        "result": {
+          "after": {
+            "dev": 47,
+            "ino": 2133100,
+            "nlink": 1,
+            "size": 25
+          },
+          "op": "replace"
+        },
+        "t_ns": 2695092500
+      },
+      {
+        "kind": "headers",
+        "request": 7,
+        "t_ns": 2695144458,
+        "text": "HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.15\r\nDate: Tue, 17 Nov 2026 19:57:22 GMT\r\nContent-Type: application/octet-stream\r\nContent-Length: 123\r\n\r\n"
+      },
+      {
+        "asked": 1048576,
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133098,
+          "nlink": 0,
+          "size": 123
+        },
+        "kind": "read",
+        "length": 123,
+        "n": 1,
+        "offset": 0,
+        "path": {
+          "dev": 47,
+          "ino": 2133100,
+          "nlink": 1,
+          "size": 25
+        },
+        "request": 7,
+        "sha256": "49f8dfdea711a920a1cd16962739807c4f34fbaeaf9c9f4d65201b2ff5ffa1e3",
+        "t_ns": 2695198167
+      },
+      {
+        "kind": "write",
+        "length": 123,
+        "n": 2,
+        "request": 7,
+        "t_ns": 2695258000,
+        "total": 123,
+        "written": 123
+      },
+      {
+        "asked": 1048576,
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133098,
+          "nlink": 0,
+          "size": 123
+        },
+        "kind": "read",
+        "length": 0,
+        "n": 2,
+        "offset": 123,
+        "path": {
+          "dev": 47,
+          "ino": 2133100,
+          "nlink": 1,
+          "size": 25
+        },
+        "request": 7,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "t_ns": 2695282458
+      },
+      {
+        "kind": "close",
+        "reads": 2,
+        "request": 7,
+        "t_ns": 2695306417
+      },
+      {
+        "emitted": {
+          "body_bytes": 123,
+          "sha256": "49f8dfdea711a920a1cd16962739807c4f34fbaeaf9c9f4d65201b2ff5ffa1e3",
+          "writes": 2
+        },
+        "kind": "finish",
+        "maxrss_kib": 31516,
+        "request": 7,
+        "t_ns": 2695325542
+      }
+    ]
+  },
+  "allowed": [
+    {
+      "bytes": 123,
+      "sha256": "49f8dfdea711a920a1cd16962739807c4f34fbaeaf9c9f4d65201b2ff5ffa1e3"
+    },
+    {
+      "bytes": 25,
+      "sha256": "b95c9261fb8ff0ca68a9d8b06ebdcb4102a72f60b670c2d748cdf4eca454e7a4"
+    }
+  ],
+  "case": "replace-shorter-after-fstat",
+  "client": "cli",
+  "emitted": [
+    {
+      "bytes": 123,
+      "request": 7,
+      "sha256": "49f8dfdea711a920a1cd16962739807c4f34fbaeaf9c9f4d65201b2ff5ffa1e3"
+    }
+  ],
+  "event": "after-fstat",
+  "interrupt": null,
+  "prepared": {
+    "identity": {
+      "dev": 47,
+      "ino": 2133098,
+      "nlink": 1,
+      "size": 123
+    },
+    "mark": 9456,
+    "path": "/tmp/k14/work/replace-shorter-after-fstat-cli/file",
+    "stale": []
+  },
+  "result": {
+    "argv": [
+      "/opt/homebrew/Cellar/testanyware/2.8.0_1/bin/testanyware",
+      "file",
+      "download",
+      "--agent",
+      "127.0.0.1:57346",
+      "/tmp/k14/work/replace-shorter-after-fstat-cli/file",
+      "experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01/cases/replace-shorter-after-fstat/cli/destination/file",
+      "--json"
+    ],
+    "destination_bytes": 123,
+    "destination_exists": true,
+    "destination_sha256": "49f8dfdea711a920a1cd16962739807c4f34fbaeaf9c9f4d65201b2ff5ffa1e3",
+    "exit": 0,
+    "killed_at_bound": false,
+    "seconds": 0.0081,
+    "stderr": "",
+    "stdout": "{\n  \"bytes\": 123,\n  \"local\": \"experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01/cases/replace-shorter-after-fstat/cli/destination/file\",\n  \"ok\": true,\n  \"remote\": \"/tmp/k14/work/replace-shorter-after-fstat-cli/file\",\n  \"schema_version\": \"1.0\"\n}\n",
+    "temporaries": []
+  }
+}

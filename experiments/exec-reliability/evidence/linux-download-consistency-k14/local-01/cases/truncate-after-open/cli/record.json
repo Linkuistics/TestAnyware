@@ -1,0 +1,198 @@
+{
+  "action": {
+    "op": "truncate",
+    "size": 25
+  },
+  "agent": {
+    "arm_unused": false,
+    "directory": [
+      "file"
+    ],
+    "final": {
+      "identity": {
+        "dev": 47,
+        "ino": 2133114,
+        "nlink": 1,
+        "size": 25
+      },
+      "length": 25,
+      "sha256": "ca41852314b967a327b0a4faf0240cac2f2e304387439e5518cf380da4b9a56e"
+    },
+    "trace": [
+      {
+        "kind": "request",
+        "maxrss_kib": 45212,
+        "request": 11,
+        "t_ns": 2985420125
+      },
+      {
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133114,
+          "nlink": 1,
+          "size": 123
+        },
+        "kind": "open",
+        "mode": "rb",
+        "path": "/tmp/k14/work/truncate-after-open-cli/file",
+        "request": 11,
+        "t_ns": 2985568958
+      },
+      {
+        "event": "after-open",
+        "kind": "action",
+        "request": 11,
+        "result": {
+          "after": {
+            "dev": 47,
+            "ino": 2133114,
+            "nlink": 1,
+            "size": 25
+          },
+          "op": "truncate"
+        },
+        "t_ns": 2985645792
+      },
+      {
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133114,
+          "nlink": 1,
+          "size": 25
+        },
+        "kind": "fstat",
+        "request": 11,
+        "t_ns": 2985666250
+      },
+      {
+        "kind": "headers",
+        "request": 11,
+        "t_ns": 2985722250,
+        "text": "HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.15\r\nDate: Tue, 17 Nov 2026 19:57:22 GMT\r\nContent-Type: application/octet-stream\r\nContent-Length: 25\r\n\r\n"
+      },
+      {
+        "asked": 1048576,
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133114,
+          "nlink": 1,
+          "size": 25
+        },
+        "kind": "read",
+        "length": 25,
+        "n": 1,
+        "offset": 0,
+        "path": {
+          "dev": 47,
+          "ino": 2133114,
+          "nlink": 1,
+          "size": 25
+        },
+        "request": 11,
+        "sha256": "ca41852314b967a327b0a4faf0240cac2f2e304387439e5518cf380da4b9a56e",
+        "t_ns": 2985769875
+      },
+      {
+        "kind": "write",
+        "length": 25,
+        "n": 2,
+        "request": 11,
+        "t_ns": 2985838250,
+        "total": 25,
+        "written": 25
+      },
+      {
+        "asked": 1048576,
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133114,
+          "nlink": 1,
+          "size": 25
+        },
+        "kind": "read",
+        "length": 0,
+        "n": 2,
+        "offset": 25,
+        "path": {
+          "dev": 47,
+          "ino": 2133114,
+          "nlink": 1,
+          "size": 25
+        },
+        "request": 11,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "t_ns": 2985864542
+      },
+      {
+        "kind": "close",
+        "reads": 2,
+        "request": 11,
+        "t_ns": 2985880458
+      },
+      {
+        "emitted": {
+          "body_bytes": 25,
+          "sha256": "ca41852314b967a327b0a4faf0240cac2f2e304387439e5518cf380da4b9a56e",
+          "writes": 2
+        },
+        "kind": "finish",
+        "maxrss_kib": 45212,
+        "request": 11,
+        "t_ns": 2985897208
+      }
+    ]
+  },
+  "allowed": [
+    {
+      "bytes": 123,
+      "sha256": "49f8dfdea711a920a1cd16962739807c4f34fbaeaf9c9f4d65201b2ff5ffa1e3"
+    },
+    {
+      "bytes": 25,
+      "sha256": "ca41852314b967a327b0a4faf0240cac2f2e304387439e5518cf380da4b9a56e"
+    }
+  ],
+  "case": "truncate-after-open",
+  "client": "cli",
+  "emitted": [
+    {
+      "bytes": 25,
+      "request": 11,
+      "sha256": "ca41852314b967a327b0a4faf0240cac2f2e304387439e5518cf380da4b9a56e"
+    }
+  ],
+  "event": "after-open",
+  "interrupt": null,
+  "prepared": {
+    "identity": {
+      "dev": 47,
+      "ino": 2133114,
+      "nlink": 1,
+      "size": 123
+    },
+    "mark": 19348,
+    "path": "/tmp/k14/work/truncate-after-open-cli/file",
+    "stale": []
+  },
+  "result": {
+    "argv": [
+      "/opt/homebrew/Cellar/testanyware/2.8.0_1/bin/testanyware",
+      "file",
+      "download",
+      "--agent",
+      "127.0.0.1:57346",
+      "/tmp/k14/work/truncate-after-open-cli/file",
+      "experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01/cases/truncate-after-open/cli/destination/file",
+      "--json"
+    ],
+    "destination_bytes": 25,
+    "destination_exists": true,
+    "destination_sha256": "ca41852314b967a327b0a4faf0240cac2f2e304387439e5518cf380da4b9a56e",
+    "exit": 0,
+    "killed_at_bound": false,
+    "seconds": 0.0084,
+    "stderr": "",
+    "stdout": "{\n  \"bytes\": 25,\n  \"local\": \"experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01/cases/truncate-after-open/cli/destination/file\",\n  \"ok\": true,\n  \"remote\": \"/tmp/k14/work/truncate-after-open-cli/file\",\n  \"schema_version\": \"1.0\"\n}\n",
+    "temporaries": []
+  }
+}

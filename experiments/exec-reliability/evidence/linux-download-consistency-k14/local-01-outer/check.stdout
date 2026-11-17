@@ -1,0 +1,6 @@
+complete True
+undetected-wrong: overwrite-longer-after-fstat/cli, overwrite-between-reads/raw, overwrite-between-reads/cli
+framing-violation: append-after-fstat/raw, overwrite-longer-after-fstat/raw
+detected-failure-leak: none
+interrupt-leak: client-abandons-mid-body/cli
+gates: pending_record_unchanged=True, semantics_controls=True, oracle_controls=True, every_case_complete=True, stress_complete=True, publication_complete=True, large_streaming=True, loopback_only=True, container_removed=True, controller_error=True

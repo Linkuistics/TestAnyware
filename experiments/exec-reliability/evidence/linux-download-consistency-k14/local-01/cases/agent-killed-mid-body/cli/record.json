@@ -1,0 +1,211 @@
+{
+  "action": {
+    "op": "pause"
+  },
+  "agent": {
+    "arm_unused": false,
+    "directory": [
+      "file"
+    ],
+    "final": {
+      "identity": {
+        "dev": 47,
+        "ino": 2133176,
+        "nlink": 1,
+        "size": 3146728
+      },
+      "length": 3146728,
+      "sha256": "1d404629c55723afcaf8130014a06287c86734f91d1a55c6157bb5c905b21272"
+    },
+    "trace": [
+      {
+        "kind": "request",
+        "maxrss_kib": 38664,
+        "request": 29,
+        "t_ns": 3836062334
+      },
+      {
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133176,
+          "nlink": 1,
+          "size": 3146728
+        },
+        "kind": "open",
+        "mode": "rb",
+        "path": "/tmp/k14/work/agent-killed-mid-body-cli/file",
+        "request": 29,
+        "t_ns": 3836311709
+      },
+      {
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133176,
+          "nlink": 1,
+          "size": 3146728
+        },
+        "kind": "fstat",
+        "request": 29,
+        "t_ns": 3836367334
+      },
+      {
+        "kind": "headers",
+        "request": 29,
+        "t_ns": 3836429834,
+        "text": "HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.15\r\nDate: Tue, 17 Nov 2026 19:57:23 GMT\r\nContent-Type: application/octet-stream\r\nContent-Length: 3146728\r\n\r\n"
+      },
+      {
+        "asked": 1048576,
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133176,
+          "nlink": 1,
+          "size": 3146728
+        },
+        "kind": "read",
+        "length": 1048576,
+        "n": 1,
+        "offset": 0,
+        "path": {
+          "dev": 47,
+          "ino": 2133176,
+          "nlink": 1,
+          "size": 3146728
+        },
+        "request": 29,
+        "sha256": "f8bc949911dce018f594e7cc65ee52335770315942f1404a6eba4b777af3c6f9",
+        "t_ns": 3837084084
+      },
+      {
+        "kind": "write",
+        "length": 1048576,
+        "n": 2,
+        "request": 29,
+        "t_ns": 3837950959,
+        "total": 1048576,
+        "written": 1048576
+      },
+      {
+        "event": "before-read-2",
+        "kind": "paused",
+        "request": 29,
+        "t_ns": 3838272376
+      },
+      {
+        "kind": "request",
+        "maxrss_kib": 38664,
+        "request": 30,
+        "t_ns": 4051501501
+      },
+      {
+        "kind": "headers",
+        "request": 30,
+        "t_ns": 4051726501,
+        "text": "HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.15\r\nDate: Tue, 17 Nov 2026 19:57:23 GMT\r\nContent-Type: application/json\r\nContent-Length: 41\r\n\r\n"
+      },
+      {
+        "kind": "write",
+        "length": 41,
+        "n": 2,
+        "request": 30,
+        "t_ns": 4051818542,
+        "total": 41,
+        "written": 41
+      },
+      {
+        "emitted": {
+          "body_bytes": 41,
+          "sha256": "e333e4e12f54ba2b7a63c75b7e2b2f56038b9bdab30e9e51a312359ee6e628da",
+          "writes": 2
+        },
+        "kind": "finish",
+        "maxrss_kib": 38664,
+        "request": 30,
+        "t_ns": 4051851376
+      }
+    ]
+  },
+  "allowed": [
+    {
+      "bytes": 3146728,
+      "sha256": "1d404629c55723afcaf8130014a06287c86734f91d1a55c6157bb5c905b21272"
+    }
+  ],
+  "argv": [
+    "/opt/homebrew/Cellar/testanyware/2.8.0_1/bin/testanyware",
+    "file",
+    "download",
+    "--agent",
+    "127.0.0.1:57346",
+    "/tmp/k14/work/agent-killed-mid-body-cli/file",
+    "experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01/cases/agent-killed-mid-body/cli/destination/file",
+    "--json"
+  ],
+  "case": "agent-killed-mid-body",
+  "client": "cli",
+  "emitted": [
+    {
+      "bytes": 1048576,
+      "request": 29,
+      "sha256": "f8bc949911dce018f594e7cc65ee52335770315942f1404a6eba4b777af3c6f9"
+    },
+    {
+      "bytes": 41,
+      "request": 30,
+      "sha256": "e333e4e12f54ba2b7a63c75b7e2b2f56038b9bdab30e9e51a312359ee6e628da"
+    }
+  ],
+  "event": "before-read-2",
+  "health_after": {
+    "instrumented": {
+      "seconds": 0.0003,
+      "status": 200
+    },
+    "unchanged": {
+      "seconds": 0.0003,
+      "status": 200
+    }
+  },
+  "interrupt": "kill-agent",
+  "kill": {
+    "kind": "instrumented",
+    "pid": 89,
+    "returncode": -9
+  },
+  "paused": {
+    "paused": "before-read-2"
+  },
+  "prepared": {
+    "identity": {
+      "dev": 47,
+      "ino": 2133176,
+      "nlink": 1,
+      "size": 3146728
+    },
+    "mark": 49542,
+    "path": "/tmp/k14/work/agent-killed-mid-body-cli/file",
+    "stale": [
+      "paused"
+    ]
+  },
+  "restart": {
+    "kind": "instrumented",
+    "pid": 98,
+    "ready": {
+      "seconds": 0.2082,
+      "status": 200
+    }
+  },
+  "result": {
+    "destination_exists": false,
+    "ended_by": "exit",
+    "exit": 1,
+    "seconds": 0.2237,
+    "stderr": "",
+    "stdout": "{\n  \"code\": \"CONNECTION_DROPPED\",\n  \"message\": \"connection dropped: error reading a body from connection: end of file before message length reached\",\n  \"ok\": false,\n  \"schema_version\": \"1.0\"\n}\n",
+    "temporaries": []
+  },
+  "temporaries_while_paused": [
+    ".file.testanyware-42946.0.tmp"
+  ]
+}

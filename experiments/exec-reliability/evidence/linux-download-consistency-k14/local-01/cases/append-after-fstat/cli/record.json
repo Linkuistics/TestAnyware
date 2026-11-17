@@ -1,0 +1,197 @@
+{
+  "action": {
+    "op": "append"
+  },
+  "agent": {
+    "arm_unused": false,
+    "directory": [
+      "file"
+    ],
+    "final": {
+      "identity": {
+        "dev": 47,
+        "ino": 2133138,
+        "nlink": 1,
+        "size": 148
+      },
+      "length": 148,
+      "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511"
+    },
+    "trace": [
+      {
+        "kind": "request",
+        "maxrss_kib": 45212,
+        "request": 17,
+        "t_ns": 3174564334
+      },
+      {
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133138,
+          "nlink": 1,
+          "size": 25
+        },
+        "kind": "open",
+        "mode": "rb",
+        "path": "/tmp/k14/work/append-after-fstat-cli/file",
+        "request": 17,
+        "t_ns": 3174761042
+      },
+      {
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133138,
+          "nlink": 1,
+          "size": 25
+        },
+        "kind": "fstat",
+        "request": 17,
+        "t_ns": 3174816584
+      },
+      {
+        "event": "after-fstat",
+        "kind": "action",
+        "request": 17,
+        "result": {
+          "after": {
+            "dev": 47,
+            "ino": 2133138,
+            "nlink": 1,
+            "size": 148
+          },
+          "op": "append"
+        },
+        "t_ns": 3174877834
+      },
+      {
+        "kind": "headers",
+        "request": 17,
+        "t_ns": 3174924334,
+        "text": "HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.15\r\nDate: Tue, 17 Nov 2026 19:57:22 GMT\r\nContent-Type: application/octet-stream\r\nContent-Length: 25\r\n\r\n"
+      },
+      {
+        "asked": 1048576,
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133138,
+          "nlink": 1,
+          "size": 148
+        },
+        "kind": "read",
+        "length": 148,
+        "n": 1,
+        "offset": 0,
+        "path": {
+          "dev": 47,
+          "ino": 2133138,
+          "nlink": 1,
+          "size": 148
+        },
+        "request": 17,
+        "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511",
+        "t_ns": 3174977209
+      },
+      {
+        "kind": "write",
+        "length": 148,
+        "n": 2,
+        "request": 17,
+        "t_ns": 3175051917,
+        "total": 148,
+        "written": 148
+      },
+      {
+        "asked": 1048576,
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133138,
+          "nlink": 1,
+          "size": 148
+        },
+        "kind": "read",
+        "length": 0,
+        "n": 2,
+        "offset": 148,
+        "path": {
+          "dev": 47,
+          "ino": 2133138,
+          "nlink": 1,
+          "size": 148
+        },
+        "request": 17,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "t_ns": 3175077292
+      },
+      {
+        "kind": "close",
+        "reads": 2,
+        "request": 17,
+        "t_ns": 3175091125
+      },
+      {
+        "emitted": {
+          "body_bytes": 148,
+          "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511",
+          "writes": 2
+        },
+        "kind": "finish",
+        "maxrss_kib": 45212,
+        "request": 17,
+        "t_ns": 3175108584
+      }
+    ]
+  },
+  "allowed": [
+    {
+      "bytes": 25,
+      "sha256": "b95c9261fb8ff0ca68a9d8b06ebdcb4102a72f60b670c2d748cdf4eca454e7a4"
+    },
+    {
+      "bytes": 148,
+      "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511"
+    }
+  ],
+  "case": "append-after-fstat",
+  "client": "cli",
+  "emitted": [
+    {
+      "bytes": 148,
+      "request": 17,
+      "sha256": "6015eca031cb572a267cd35aefc82eb8f64e18f9bf08fa5a196e483233444511"
+    }
+  ],
+  "event": "after-fstat",
+  "interrupt": null,
+  "prepared": {
+    "identity": {
+      "dev": 47,
+      "ino": 2133138,
+      "nlink": 1,
+      "size": 25
+    },
+    "mark": 31040,
+    "path": "/tmp/k14/work/append-after-fstat-cli/file",
+    "stale": []
+  },
+  "result": {
+    "argv": [
+      "/opt/homebrew/Cellar/testanyware/2.8.0_1/bin/testanyware",
+      "file",
+      "download",
+      "--agent",
+      "127.0.0.1:57346",
+      "/tmp/k14/work/append-after-fstat-cli/file",
+      "experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01/cases/append-after-fstat/cli/destination/file",
+      "--json"
+    ],
+    "destination_bytes": 25,
+    "destination_exists": true,
+    "destination_sha256": "b95c9261fb8ff0ca68a9d8b06ebdcb4102a72f60b670c2d748cdf4eca454e7a4",
+    "exit": 0,
+    "killed_at_bound": false,
+    "seconds": 0.0086,
+    "stderr": "",
+    "stdout": "{\n  \"bytes\": 25,\n  \"local\": \"experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01/cases/append-after-fstat/cli/destination/file\",\n  \"ok\": true,\n  \"remote\": \"/tmp/k14/work/append-after-fstat-cli/file\",\n  \"schema_version\": \"1.0\"\n}\n",
+    "temporaries": []
+  }
+}

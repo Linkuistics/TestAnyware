@@ -507,6 +507,30 @@ tasks:
       - shellcheck download_k7_run.sh
       - uv run --locked python -m pytest -q -p no:cacheprovider test_download_k7.py
 
+  diagnostic:linux-download-consistency-container:
+    desc: 'Run the k14 Linux download consistency cases in one container into a new OUT directory. The container runs the Linux agent from this checkout twice: once with the k14 seam, which traces and changes the file at open, at fstat or before a read, and once unchanged for the stress and publication controls. Raw HTTP and Host CLI downloads are compared with the versions the file held. No VM is used. OUT-outer keeps the identities and the check'
+    requires:
+      vars: [OUT]
+    cmds:
+      - experiments/exec-reliability/download_k14_run.sh {{.OUT | shellQuote}}
+
+  diagnostic:linux-download-consistency-check:
+    desc: 'Judge one retained k14 OUT directory. Classify every raw and Host CLI download, compare the agent bytes with the received bytes, and recheck the file semantics, oracle, stress, publication, streaming, loopback and disposal controls. The result goes to OUT/RESULT, by default check.json. Use another RESULT to re-judge a retained OUT. Exit 0 only when the evidence is complete'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/download_k14_check.py {{.OUT | shellQuote}} {{.RESULT | default "check.json" | shellQuote}}
+
+  diagnostic:linux-download-consistency-tools:
+    desc: Check the k14 Linux download consistency controller, seam, checker, runner and controls
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check download_k14.py download_k14_seam.py download_k14_check.py test_download_k14.py
+      - uv run --locked python -m ruff format --check download_k14.py download_k14_seam.py download_k14_check.py test_download_k14.py
+      - uv run --locked python -m pyright download_k14.py download_k14_seam.py download_k14_check.py test_download_k14.py
+      - shellcheck download_k14_run.sh
+      - uv run --locked python -m pytest -q -p no:cacheprovider test_download_k14.py
+
   diagnostic:deadline-stall-tools:
     desc: Check the k154 worker-deadline control tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'

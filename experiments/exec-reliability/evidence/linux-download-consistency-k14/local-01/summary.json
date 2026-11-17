@@ -1,0 +1,328 @@
+{
+  "cases": [
+    {
+      "case": "replace-longer-after-open",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "replace-longer-after-open",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "replace-longer-after-fstat",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "replace-longer-after-fstat",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "replace-shorter-after-fstat",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "replace-shorter-after-fstat",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "replace-between-reads",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "replace-between-reads",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "truncate-after-open",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "truncate-after-open",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "truncate-after-fstat",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "truncate-after-fstat",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "truncate-between-reads",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "truncate-between-reads",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "append-after-fstat",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "append-after-fstat",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "overwrite-longer-after-fstat",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "overwrite-longer-after-fstat",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "overwrite-between-reads",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "overwrite-between-reads",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "immutable-binary",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "immutable-binary",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "missing-file",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "missing-file",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "agent-killed-mid-body",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "agent-killed-mid-body",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "client-abandons-mid-body",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "client-abandons-mid-body",
+      "client": "cli",
+      "error": null
+    },
+    {
+      "case": "large-immutable",
+      "client": "raw",
+      "error": null
+    },
+    {
+      "case": "large-immutable",
+      "client": "cli",
+      "error": null
+    }
+  ],
+  "container": {
+    "port-8648": {
+      "argv": [
+        "docker",
+        "port",
+        "k14-3281f19af0bf",
+        "8648/tcp"
+      ],
+      "returncode": 0,
+      "seconds": 0.0145,
+      "stderr": "",
+      "stdout": "127.0.0.1:57346\n"
+    },
+    "port-8649": {
+      "argv": [
+        "docker",
+        "port",
+        "k14-3281f19af0bf",
+        "8649/tcp"
+      ],
+      "returncode": 0,
+      "seconds": 0.0143,
+      "stderr": "",
+      "stdout": "127.0.0.1:57344\n"
+    },
+    "port-8650": {
+      "argv": [
+        "docker",
+        "port",
+        "k14-3281f19af0bf",
+        "8650/tcp"
+      ],
+      "returncode": 0,
+      "seconds": 0.013,
+      "stderr": "",
+      "stdout": "127.0.0.1:57345\n"
+    },
+    "run": {
+      "argv": [
+        "docker",
+        "run",
+        "-d",
+        "--init",
+        "--name",
+        "k14-3281f19af0bf",
+        "--label",
+        "testanyware.k14.run=3281f19af0bf",
+        "-u",
+        "1000:1000",
+        "--memory",
+        "512m",
+        "--pids-limit",
+        "128",
+        "-p",
+        "127.0.0.1::8648",
+        "-p",
+        "127.0.0.1::8649",
+        "-p",
+        "127.0.0.1::8650",
+        "-v",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux:/agent:ro",
+        "-v",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k5_stub:/stub:ro",
+        "-v",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/download_k14_seam.py:/seam/download_k14_seam.py:ro",
+        "python@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016",
+        "python3",
+        "-E",
+        "-s",
+        "-B",
+        "/seam/download_k14_seam.py",
+        "supervisor",
+        "8649",
+        "8648",
+        "8650"
+      ],
+      "returncode": 0,
+      "seconds": 0.1038,
+      "stderr": "",
+      "stdout": "2195a8a4a5b37836403fd7b087201853c04ddac26a15d5833bd707d24d4e2128\n"
+    }
+  },
+  "disposal": {
+    "cleanup": {
+      "argv": [
+        "docker",
+        "stop",
+        "-t",
+        "2",
+        "k14-3281f19af0bf"
+      ],
+      "returncode": 0,
+      "seconds": 0.2228,
+      "stderr": "",
+      "stdout": "k14-3281f19af0bf\n"
+    },
+    "copy-run": {
+      "argv": [
+        "docker",
+        "cp",
+        "k14-3281f19af0bf:/tmp/k14/run",
+        "experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01/agent-run"
+      ],
+      "returncode": 0,
+      "seconds": 0.1515,
+      "stderr": "",
+      "stdout": ""
+    },
+    "dispose": {
+      "argv": [
+        "docker",
+        "rm",
+        "-f",
+        "k14-3281f19af0bf"
+      ],
+      "returncode": 0,
+      "seconds": 0.0229,
+      "stderr": "",
+      "stdout": "k14-3281f19af0bf\n"
+    },
+    "remaining": {
+      "argv": [
+        "docker",
+        "ps",
+        "-a",
+        "-q",
+        "--filter",
+        "label=testanyware.k14.run=3281f19af0bf"
+      ],
+      "returncode": 0,
+      "seconds": 0.0157,
+      "stderr": "",
+      "stdout": ""
+    },
+    "removed": true,
+    "stop-agents": {
+      "ended": [
+        {
+          "kind": "instrumented",
+          "pid": 98,
+          "returncode": -15
+        },
+        {
+          "kind": "unchanged",
+          "pid": 9,
+          "returncode": -15
+        }
+      ]
+    }
+  },
+  "ended_ns": 562736858541541,
+  "ready": {
+    "agents": [
+      {
+        "kind": "instrumented",
+        "pid": 8,
+        "ready": {
+          "seconds": 0.21,
+          "status": 200
+        }
+      },
+      {
+        "kind": "unchanged",
+        "pid": 9,
+        "ready": {
+          "seconds": 0.2063,
+          "status": 200
+        }
+      }
+    ],
+    "seconds": 0.6514
+  },
+  "run_id": "3281f19af0bf",
+  "started_ns": 562717369272125
+}

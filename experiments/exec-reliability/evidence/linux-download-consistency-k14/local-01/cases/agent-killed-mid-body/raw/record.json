@@ -1,0 +1,206 @@
+{
+  "action": {
+    "op": "pause"
+  },
+  "agent": {
+    "arm_unused": false,
+    "directory": [
+      "file"
+    ],
+    "final": {
+      "identity": {
+        "dev": 47,
+        "ino": 2133168,
+        "nlink": 1,
+        "size": 3146728
+      },
+      "length": 3146728,
+      "sha256": "1d404629c55723afcaf8130014a06287c86734f91d1a55c6157bb5c905b21272"
+    },
+    "trace": [
+      {
+        "kind": "request",
+        "maxrss_kib": 45212,
+        "request": 26,
+        "t_ns": 3537520209
+      },
+      {
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133168,
+          "nlink": 1,
+          "size": 3146728
+        },
+        "kind": "open",
+        "mode": "rb",
+        "path": "/tmp/k14/work/agent-killed-mid-body-raw/file",
+        "request": 26,
+        "t_ns": 3537693417
+      },
+      {
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133168,
+          "nlink": 1,
+          "size": 3146728
+        },
+        "kind": "fstat",
+        "request": 26,
+        "t_ns": 3537761792
+      },
+      {
+        "kind": "headers",
+        "request": 26,
+        "t_ns": 3537831000,
+        "text": "HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.15\r\nDate: Tue, 17 Nov 2026 19:57:23 GMT\r\nContent-Type: application/octet-stream\r\nContent-Length: 3146728\r\n\r\n"
+      },
+      {
+        "asked": 1048576,
+        "descriptor": {
+          "dev": 47,
+          "ino": 2133168,
+          "nlink": 1,
+          "size": 3146728
+        },
+        "kind": "read",
+        "length": 1048576,
+        "n": 1,
+        "offset": 0,
+        "path": {
+          "dev": 47,
+          "ino": 2133168,
+          "nlink": 1,
+          "size": 3146728
+        },
+        "request": 26,
+        "sha256": "f8bc949911dce018f594e7cc65ee52335770315942f1404a6eba4b777af3c6f9",
+        "t_ns": 3538323209
+      },
+      {
+        "kind": "write",
+        "length": 1048576,
+        "n": 2,
+        "request": 26,
+        "t_ns": 3538997209,
+        "total": 1048576,
+        "written": 1048576
+      },
+      {
+        "event": "before-read-2",
+        "kind": "paused",
+        "request": 26,
+        "t_ns": 3539075042
+      },
+      {
+        "kind": "request",
+        "maxrss_kib": 38664,
+        "request": 27,
+        "t_ns": 3752620667
+      },
+      {
+        "kind": "headers",
+        "request": 27,
+        "t_ns": 3752861042,
+        "text": "HTTP/1.0 200 OK\r\nServer: BaseHTTP/0.6 Python/3.12.15\r\nDate: Tue, 17 Nov 2026 19:57:23 GMT\r\nContent-Type: application/json\r\nContent-Length: 41\r\n\r\n"
+      },
+      {
+        "kind": "write",
+        "length": 41,
+        "n": 2,
+        "request": 27,
+        "t_ns": 3752958876,
+        "total": 41,
+        "written": 41
+      },
+      {
+        "emitted": {
+          "body_bytes": 41,
+          "sha256": "e333e4e12f54ba2b7a63c75b7e2b2f56038b9bdab30e9e51a312359ee6e628da",
+          "writes": 2
+        },
+        "kind": "finish",
+        "maxrss_kib": 38664,
+        "request": 27,
+        "t_ns": 3752991334
+      }
+    ]
+  },
+  "allowed": [
+    {
+      "bytes": 3146728,
+      "sha256": "1d404629c55723afcaf8130014a06287c86734f91d1a55c6157bb5c905b21272"
+    }
+  ],
+  "case": "agent-killed-mid-body",
+  "client": "raw",
+  "emitted": [
+    {
+      "bytes": 1048576,
+      "request": 26,
+      "sha256": "f8bc949911dce018f594e7cc65ee52335770315942f1404a6eba4b777af3c6f9"
+    },
+    {
+      "bytes": 41,
+      "request": 27,
+      "sha256": "e333e4e12f54ba2b7a63c75b7e2b2f56038b9bdab30e9e51a312359ee6e628da"
+    }
+  ],
+  "event": "before-read-2",
+  "health_after": {
+    "instrumented": {
+      "seconds": 0.0003,
+      "status": 200
+    },
+    "unchanged": {
+      "seconds": 0.0003,
+      "status": 200
+    }
+  },
+  "interrupt": "kill-agent",
+  "kill": {
+    "kind": "instrumented",
+    "pid": 8,
+    "returncode": -9
+  },
+  "paused": {
+    "paused": "before-read-2"
+  },
+  "prepared": {
+    "identity": {
+      "dev": 47,
+      "ino": 2133168,
+      "nlink": 1,
+      "size": 3146728
+    },
+    "mark": 47186,
+    "path": "/tmp/k14/work/agent-killed-mid-body-raw/file",
+    "stale": []
+  },
+  "restart": {
+    "kind": "instrumented",
+    "pid": 89,
+    "ready": {
+      "seconds": 0.2095,
+      "status": 200
+    }
+  },
+  "result": {
+    "body": {
+      "bytes": 1048576,
+      "kept": true,
+      "sha256": "f8bc949911dce018f594e7cc65ee52335770315942f1404a6eba4b777af3c6f9"
+    },
+    "content_length": 3146728,
+    "end": "eof-before-length",
+    "headers": {
+      "content-length": "3146728",
+      "content-type": "application/octet-stream",
+      "date": "Tue, 17 Nov 2026 19:57:23 GMT",
+      "server": "BaseHTTP/0.6 Python/3.12.15"
+    },
+    "received": 1048576,
+    "seconds": 0.0053,
+    "sha256": "f8bc949911dce018f594e7cc65ee52335770315942f1404a6eba4b777af3c6f9",
+    "status": 200
+  }
+}
