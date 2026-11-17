@@ -1,0 +1,239 @@
+{
+  "run_id": "f5158780256d4fad9def8d77a9554797",
+  "calls": [
+    {
+      "name": "health-before",
+      "argv": [
+        "/opt/homebrew/bin/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k6-linux-f5158780256d4fad9def8d77a9554797",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "burst-control",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+        "-E",
+        "-s",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_burst.py",
+        "/opt/homebrew/bin/testanyware",
+        "k6-linux-f5158780256d4fad9def8d77a9554797",
+        "control",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/live-01/downloads"
+      ],
+      "budget": 412.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "burst-concurrent",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+        "-E",
+        "-s",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_burst.py",
+        "/opt/homebrew/bin/testanyware",
+        "k6-linux-f5158780256d4fad9def8d77a9554797",
+        "concurrent",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/live-01/downloads"
+      ],
+      "budget": 412.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "burst-term",
+      "argv": [
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+        "-E",
+        "-s",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_burst.py",
+        "/opt/homebrew/bin/testanyware",
+        "k6-linux-f5158780256d4fad9def8d77a9554797",
+        "term",
+        "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/live-01/downloads"
+      ],
+      "budget": 412.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    },
+    {
+      "name": "health-after",
+      "argv": [
+        "/opt/homebrew/bin/testanyware",
+        "agent",
+        "health",
+        "--vm",
+        "k6-linux-f5158780256d4fad9def8d77a9554797",
+        "--json"
+      ],
+      "budget": 30.0,
+      "expected_exit": 0,
+      "expected_stdout": null,
+      "interrupt_after": null,
+      "expected_reason": "exit"
+    }
+  ],
+  "resources": [
+    {
+      "kind": "vm",
+      "identity": "k6-linux-f5158780256d4fad9def8d77a9554797",
+      "acquire": {
+        "name": "acquire",
+        "argv": [
+          "/opt/homebrew/bin/testanyware",
+          "vm",
+          "start",
+          "--platform",
+          "linux",
+          "--base",
+          "testanyware-golden-linux-24.04",
+          "--id",
+          "k6-linux-f5158780256d4fad9def8d77a9554797",
+          "--json"
+        ],
+        "budget": 420.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      "cleanup": {
+        "name": "cleanup",
+        "argv": [
+          "/opt/homebrew/bin/testanyware",
+          "file",
+          "exec",
+          "--vm",
+          "k6-linux-f5158780256d4fad9def8d77a9554797",
+          "--timeout",
+          "10",
+          "--json",
+          "state() {\n  if err=$(kill -0 \"$1\" 2>&1); then echo alive\n  else case \"$err\" in\n    *[Nn]o\\ such\\ process*) echo gone ;;\n    *) echo unknown ;;\n  esac; fi\n}\nwait_gone() {\n  i=0\n  while [ \"$(state \"$1\")\" = alive ] && [ \"$i\" -lt \"$2\" ]; do\n    sleep 0.1; i=$((i + 1))\n  done\n}\noutcome=confirmed\nfor f in /tmp/taw-k13/control/child.pid /tmp/taw-k13/concurrent/child.pid /tmp/taw-k13/term/child.pid; do\n  [ -f \"$f\" ] || continue\n  pid=$(cat \"$f\")\n  cmd=$(ps -p \"$pid\" -o args= | sed 's/ *$//')\n  printf '%s pid=%s command=%s\\n' \"$f\" \"$pid\" \"$cmd\"\n  if [ \"$cmd\" != \"sleep 120\" ]; then\n    s=$(state \"$pid\")\n    if [ -z \"$cmd\" ] && [ \"$s\" = gone ]; then printf 'gone pid=%s\\n' \"$pid\"\n    elif [ -n \"$cmd\" ] && [ \"$s\" = alive ]; then printf 'other pid=%s\\n' \"$pid\"\n    else printf 'unknown pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\n    continue\n  fi\n  kill -TERM \"$pid\"\n  wait_gone \"$pid\" 20\n  action=terminated\n  if [ \"$(state \"$pid\")\" = alive ]; then\n    kill -KILL \"$pid\"; action=killed\n    wait_gone \"$pid\" 5\n  fi\n  s=$(state \"$pid\")\n  if [ \"$s\" = gone ]; then printf '%s pid=%s\\n' \"$action\" \"$pid\"\n  else printf 'survived pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\ndone\nprintf 'cleanup %s\\n' \"$outcome\"\n[ \"$outcome\" = confirmed ]"
+        ],
+        "budget": 26.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      "dispose": {
+        "name": "dispose",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+          "-I",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+          "dispose",
+          "k6-linux-f5158780256d4fad9def8d77a9554797",
+          "--cli",
+          "/opt/homebrew/bin/testanyware",
+          "--tart",
+          "/opt/homebrew/bin/tart",
+          "--timeout",
+          "5",
+          "--stop-timeout",
+          "30"
+        ],
+        "budget": 41.0,
+        "expected_exit": 0,
+        "expected_stdout": null,
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      },
+      "inspect": {
+        "name": "inspect",
+        "argv": [
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+          "-I",
+          "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+          "absent",
+          "k6-linux-f5158780256d4fad9def8d77a9554797",
+          "--cli",
+          "/opt/homebrew/bin/testanyware",
+          "--tart",
+          "/opt/homebrew/bin/tart",
+          "--timeout",
+          "25"
+        ],
+        "budget": 55.0,
+        "expected_exit": 0,
+        "expected_stdout": "616273656e74206b362d6c696e75782d66353135383738303235366434666164396465663864373761393535343739370a",
+        "interrupt_after": null,
+        "expected_reason": "exit"
+      }
+    }
+  ],
+  "subjects": [
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/controller.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_burst.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_check.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_seam.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/inspection.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k204.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k5.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k5_seam.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k6.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k6_check.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k6_seam.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/outcomes_k12_seam.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/retention.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/routes_k19.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/storage_client.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/turns.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/worker_capture.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/writer.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k6_run.sh",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/scripts/vm_inventory.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/Taskfile.yml",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux/testanyware_agent/__init__.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux/testanyware_agent/__main__.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux/testanyware_agent/accessibility.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux/testanyware_agent/models.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux/testanyware_agent/query_resolver.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux/testanyware_agent/role_mapper.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux/testanyware_agent/server.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux/testanyware_agent/system_endpoints.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux/testanyware_agent/tree_walker.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k5_stub/gi/__init__.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k5_stub/gi/repository/__init__.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k5_stub/pyatspi/__init__.py",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/disconnect_k13_burst.py",
+    "/opt/homebrew/Cellar/testanyware/2.8.0_1/bin/testanyware",
+    "/opt/homebrew/Cellar/tart/2.41.1/bin/tart",
+    "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+    "/opt/homebrew/Cellar/testanyware/2.8.0_1/share/testanyware/agents/linux/testanyware_agent/server.py"
+  ],
+  "term_grace": 2,
+  "kill_wait": 2,
+  "bootstrap": {
+    "readiness": 1,
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "failure_bounds": {
+    "term_grace": 2,
+    "kill_reap": 2
+  },
+  "close_bounds": {
+    "grace": 0.05,
+    "kill_reap": 2
+  },
+  "readiness_bound": 5.0,
+  "intent_gate": 2.0,
+  "publication_window": 10.0,
+  "outbox_cap": 67108864
+}

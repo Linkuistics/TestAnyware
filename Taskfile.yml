@@ -451,6 +451,37 @@ tasks:
       - shellcheck linux_k204_run.sh
       - uv run --locked python -m pytest -q -p no:cacheprovider test_linux_k204.py
 
+  diagnostic:linux-disconnect-container:
+    desc: 'Run the seven k6 HTTP and client controls in one fresh container of the pinned k5 image, into a new OUT directory. Each case serves the unchanged Linux agent and starts a fork/wait payload with guest timeout 20 s. After 2 s it keeps, closes, resets or half-closes the original connection, or gives health a 5 s host deadline. Then it sends health, an ordinary exec and a partial-file download. The threaded case is an experimental control. OUT-outer keeps the identities and the check'
+    requires:
+      vars: [OUT]
+    cmds:
+      - experiments/exec-reliability/linux_k6_run.sh container {{.OUT | shellQuote}}
+
+  diagnostic:linux-disconnect-live:
+    desc: 'Boot one fresh unchanged clone of testanyware-golden-linux-24.04 and run the unchanged k13 burst into a new OUT directory: a no-interruption control, a request during execution and SIGTERM of the CLI at 2 s, each followed by inspection, health, an ordinary exec and a partial-file download. The controller cleans up only the identified owned children and disposes the clone. OUT-outer keeps the identities and the check'
+    requires:
+      vars: [OUT]
+    cmds:
+      - experiments/exec-reliability/linux_k6_run.sh live {{.OUT | shellQuote}}
+
+  diagnostic:linux-disconnect-check:
+    desc: 'Judge one retained k6 OUT directory, relative to the repository root. MODE is container or live. Classify each follow-up as baseline, responsive, blocked or failed, and the handler and the child separately. Exit 0 only when the evidence is complete'
+    requires:
+      vars: [MODE, OUT]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/linux_k6_check.py {{.MODE | shellQuote}} {{.OUT | shellQuote}}
+
+  diagnostic:linux-disconnect-tools:
+    desc: Check the k6 Linux disconnect controller, seam, checker, runner and controls
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    cmds:
+      - uv run --locked python -m ruff check linux_k6.py linux_k6_seam.py linux_k6_check.py test_linux_k6.py
+      - uv run --locked python -m ruff format --check linux_k6.py linux_k6_seam.py linux_k6_check.py test_linux_k6.py
+      - uv run --locked python -m pyright linux_k6.py linux_k6_seam.py linux_k6_check.py test_linux_k6.py
+      - shellcheck linux_k6_run.sh
+      - uv run --locked python -m pytest -q -p no:cacheprovider test_linux_k6.py
+
   diagnostic:deadline-stall-tools:
     desc: Check the k154 worker-deadline control tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'

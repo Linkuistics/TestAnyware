@@ -1,0 +1,175 @@
+{
+  "name": "cleanup",
+  "argv": [
+    "/opt/homebrew/bin/testanyware",
+    "file",
+    "exec",
+    "--vm",
+    "k6-linux-bafa1b186d534d4cbe0893e48b5168b4",
+    "--timeout",
+    "10",
+    "--json",
+    "state() {\n  if err=$(kill -0 \"$1\" 2>&1); then echo alive\n  else case \"$err\" in\n    *[Nn]o\\ such\\ process*) echo gone ;;\n    *) echo unknown ;;\n  esac; fi\n}\nwait_gone() {\n  i=0\n  while [ \"$(state \"$1\")\" = alive ] && [ \"$i\" -lt \"$2\" ]; do\n    sleep 0.1; i=$((i + 1))\n  done\n}\noutcome=confirmed\nfor f in /tmp/taw-k13/control/child.pid /tmp/taw-k13/concurrent/child.pid /tmp/taw-k13/term/child.pid; do\n  [ -f \"$f\" ] || continue\n  pid=$(cat \"$f\")\n  cmd=$(ps -p \"$pid\" -o args= | sed 's/ *$//')\n  printf '%s pid=%s command=%s\\n' \"$f\" \"$pid\" \"$cmd\"\n  if [ \"$cmd\" != \"sleep 120\" ]; then\n    s=$(state \"$pid\")\n    if [ -z \"$cmd\" ] && [ \"$s\" = gone ]; then printf 'gone pid=%s\\n' \"$pid\"\n    elif [ -n \"$cmd\" ] && [ \"$s\" = alive ]; then printf 'other pid=%s\\n' \"$pid\"\n    else printf 'unknown pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\n    continue\n  fi\n  kill -TERM \"$pid\"\n  wait_gone \"$pid\" 20\n  action=terminated\n  if [ \"$(state \"$pid\")\" = alive ]; then\n    kill -KILL \"$pid\"; action=killed\n    wait_gone \"$pid\" 5\n  fi\n  s=$(state \"$pid\")\n  if [ \"$s\" = gone ]; then printf '%s pid=%s\\n' \"$action\" \"$pid\"\n  else printf 'survived pid=%s state=%s\\n' \"$pid\" \"$s\"; outcome=uncertain; fi\ndone\nprintf 'cleanup %s\\n' \"$outcome\"\n[ \"$outcome\" = confirmed ]"
+  ],
+  "budget": 26.0,
+  "started_monotonic": 554707.776390208,
+  "wall_start_ns": 1794937431651251000,
+  "reason": "exit",
+  "returncode": 0,
+  "reaped": true,
+  "ok": true,
+  "signals": [],
+  "pid": 21754,
+  "pgid": 21754,
+  "signal_scope": "group",
+  "leader_exit_monotonic": 554707.837292583,
+  "inspection_deadline_monotonic": 554709.737292583,
+  "group_observations": [
+    {
+      "started_monotonic": 554707.837309166,
+      "finished_monotonic": 554707.844078666,
+      "query_attempted": true,
+      "helper": {
+        "stdout": "3231373534203231373534205a2020200a",
+        "stderr": "",
+        "returncode": 0,
+        "pid": 21755,
+        "argv": [
+          "/bin/ps",
+          "-g",
+          "21754",
+          "-o",
+          "pid=,pgid=,stat="
+        ],
+        "admission": {
+          "ok": true,
+          "reason": "ready",
+          "python_threads": 1,
+          "native_threads": 1,
+          "sigchld": "SIG_DFL",
+          "native_sigchld": "SIG_DFL",
+          "error": null,
+          "errno": null
+        },
+        "started_monotonic": 554707.837735833,
+        "created_monotonic": 554707.838806333,
+        "capture_deadline_monotonic": 554709.6372925829,
+        "deadline_monotonic": 554709.737292583,
+        "finished_monotonic": 554707.84399025,
+        "kill_monotonic": null,
+        "kill_errno": null,
+        "reaped": true,
+        "reaped_monotonic": 554707.843603,
+        "reap_errno": null,
+        "ownership_lost": false,
+        "close_errors": [],
+        "error": null,
+        "error_errno": null,
+        "residual_remedy": null,
+        "worker": {
+          "pid": 18731,
+          "shutdown_deadline_monotonic": 554709.737292583,
+          "ready": true,
+          "reaped": false,
+          "ownership_lost": false,
+          "returncode": null,
+          "signals": [],
+          "reap_errno": null,
+          "reap_attempts": 60,
+          "intent": true,
+          "unknown_helper_creation": false,
+          "fork_failure": null,
+          "creation_conflict": false,
+          "helper_identity": {
+            "pid": 21755,
+            "ppid": 18731,
+            "pgid": 18731,
+            "created_monotonic": 554707.838806333,
+            "token": "e0e6e7616bca4789b50acfd31f9ab885",
+            "deadline_monotonic": 554709.6872925829
+          },
+          "helper_identities": [
+            {
+              "pid": 21755,
+              "ppid": 18731,
+              "pgid": 18731,
+              "created_monotonic": 554707.838806333,
+              "token": "e0e6e7616bca4789b50acfd31f9ab885",
+              "deadline_monotonic": 554709.6872925829
+            }
+          ],
+          "helper_obligation_retained": false,
+          "signal_scope": "group",
+          "dispatch_monotonic": 554707.837465916,
+          "receipt_monotonic": 554707.843865291,
+          "published_times": {
+            "started_monotonic": 554707.837735833,
+            "created_monotonic": 554707.838806333,
+            "capture_deadline_monotonic": 554709.6372925829,
+            "deadline_monotonic": 554709.6872925829,
+            "finished_monotonic": 554707.843636708,
+            "kill_monotonic": null,
+            "reaped_monotonic": 554707.843603
+          },
+          "query_deadline_monotonic": 554709.6872925829,
+          "reserve_seconds": 0.05,
+          "request_token": "e0e6e7616bca4789b50acfd31f9ab885",
+          "request_identity": {
+            "run_id": "bafa1b186d534d4cbe0893e48b5168b4",
+            "worker_token": "cc5c3cc565e04f39b2ec19839bd3652c",
+            "worker_pid": 18731,
+            "request_token": "e0e6e7616bca4789b50acfd31f9ab885",
+            "workload_pid": 21754,
+            "workload_pgid": 21754,
+            "signal_epoch": 0,
+            "phase": "final",
+            "deadline_monotonic": 554709.6872925829
+          },
+          "session_token": "cc5c3cc565e04f39b2ec19839bd3652c"
+        }
+      },
+      "state": "zombie_only",
+      "members": [
+        {
+          "pid": 21754,
+          "pgid": 21754,
+          "stat": "Z"
+        }
+      ],
+      "stdout": "3231373534203231373534205a2020200a",
+      "stderr": "",
+      "returncode": 0,
+      "probe_started_monotonic": 554707.844067833,
+      "probe_finished_monotonic": 554707.844074541,
+      "probe_errno": 1,
+      "probe_outcome": "zombie_only_eperm",
+      "error": null
+    }
+  ],
+  "termination_ok": true,
+  "authority_closed_monotonic": 554707.844085916,
+  "reap_deadline_monotonic": 554709.837292583,
+  "within_process_bounds": true,
+  "reap_attempts": 1,
+  "reap_last_result": "reaped",
+  "reaped_monotonic": 554707.844106291,
+  "streams": {
+    "stdout": {
+      "record": "cleanup.stdout",
+      "length": 1760,
+      "sha256": "a2979f52053ce0d538c9928cbe865c1f6288a86e047650949af7c91b3a4ae9e5",
+      "completeness": "eof",
+      "reads": 10,
+      "final_reads": 1
+    },
+    "stderr": {
+      "record": "cleanup.stderr",
+      "length": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "completeness": "eof",
+      "reads": 10,
+      "final_reads": 1
+    }
+  },
+  "elapsed": 0.06777604192029685
+}

@@ -1,0 +1,82 @@
+{
+  "kind": "container",
+  "identity": "k6-152e89f879cf43389f6d371c56e6e72a",
+  "acquire": {
+    "name": "acquire",
+    "argv": [
+      "/usr/local/bin/docker",
+      "create",
+      "--init",
+      "--network",
+      "none",
+      "-u",
+      "1000:1000",
+      "--name",
+      "k6-152e89f879cf43389f6d371c56e6e72a",
+      "--label",
+      "testanyware.k6.run=152e89f879cf43389f6d371c56e6e72a",
+      "-v",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/agents/linux:/agent:ro",
+      "-v",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/linux_k5_stub:/stub:ro",
+      "-v",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability:/seam:ro",
+      "python@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016",
+      "python3",
+      "-E",
+      "-s",
+      "-B",
+      "/seam/linux_k6_seam.py",
+      "837532710698",
+      "cases"
+    ],
+    "budget": 60.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "cleanup": {
+    "name": "cleanup",
+    "argv": [
+      "/usr/local/bin/docker",
+      "stop",
+      "-t",
+      "2",
+      "k6-152e89f879cf43389f6d371c56e6e72a"
+    ],
+    "budget": 20.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "dispose": {
+    "name": "dispose",
+    "argv": [
+      "/usr/local/bin/docker",
+      "rm",
+      "-f",
+      "k6-152e89f879cf43389f6d371c56e6e72a"
+    ],
+    "budget": 40.0,
+    "expected_exit": 0,
+    "expected_stdout": null,
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  },
+  "inspect": {
+    "name": "inspect",
+    "argv": [
+      "/usr/local/bin/docker",
+      "container",
+      "inspect",
+      "k6-152e89f879cf43389f6d371c56e6e72a"
+    ],
+    "budget": 60.0,
+    "expected_exit": 1,
+    "expected_stdout": "5b5d0a",
+    "interrupt_after": null,
+    "expected_reason": "exit"
+  }
+}

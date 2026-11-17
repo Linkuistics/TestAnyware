@@ -1,0 +1,1812 @@
+diff --git a/.grove/47-impl--linux-disconnect-availability-k6.md b/.grove/47-impl--linux-disconnect-availability-k6.md
+index 817ad90751..47920ebf96 100644
+--- a/.grove/47-impl--linux-disconnect-availability-k6.md
++++ b/.grove/47-impl--linux-disconnect-availability-k6.md
+@@ -47,3 +47,53 @@ ## Notes
+ Do not choose cancel-on-disconnect, continued execution, a server replacement or
+ durable jobs here. Design must settle them from evidence. This Linux inquiry
+ makes no Windows reliability claim.
++
++## Decisions (running log)
++
++- **Boundary hypothesis, from source.** `agents/linux/testanyware_agent/server.py:123`
++  serves with a plain `HTTPServer`, so one thread handles one request at a time.
++  `handle_exec` blocks in `subprocess.run` until the guest timeout. The app relay
++  (`cli-rs/crates/testanyware-app/src/streams.rs:253`) sends the end of the CLI
++  bytes as a half-close, then resets the guest connection when the CLI is gone.
++  The agent reads nothing during `subprocess.run`, so it cannot see the reset.
++  The measurement tests this hypothesis. It does not assume it.
++- **Two seams.** The deterministic controls run inside one fresh Linux container
++  (the pinned k5 image, `--network none`, uid 1000). Client, agent and process
++  table share one Linux kernel and one loopback, with no port proxy. Each case
++  starts a fresh unchanged agent. The live run uses one fresh unchanged clone
++  of `testanyware-golden-linux-24.04` through the installed CLI and app. No clone
++  is instrumented.
++- **Container cases.** `serial-control`, `serial-concurrent`, `serial-close`,
++  `serial-reset`, `serial-half-close`, `host-deadline` (a 5 s client deadline on
++  health during occupancy), and `threaded-reset`. `threaded-reset` serves the
++  unchanged `AgentRequestHandler` from `ThreadingHTTPServer`. It is the
++  identified experimental control `experimental: threading-server`. It is never
++  evidence of cancellation.
++- **Acceptance without instrumentation.** For a listening socket, the Linux
++  `/proc/net/tcp` `rx_queue` field holds the accept-queue length. The container
++  seam samples it every 50 ms. A queued follow-up raises it, and the accept of
++  the agent lowers it. The exit of the payload shell marks the end of the
++  original handler, because the handler kills the shell at the deadline.
++- **Live burst reuse.** The live plan runs `disconnect_k13_burst.py` unchanged,
++  with its `/tmp/taw-k13/MODE` guest paths. The payload is therefore the same as
++  in the macOS run, byte for byte. The owned cleanup is
++  `linux_k204.owned_cleanup` over the three child PID files.
++- **Live handler end.** A serial agent answers no inspection while the handler
++  runs, so the shell identity of k13 is not available. The handler-end
++  reference is the exit of the original CLI in `concurrent`. In `term` it is
++  the start plus the handler duration in `control`, labelled as an estimate.
++- **Responsiveness oracle, frozen before measurement.** A follow-up request is
++  *responsive* only when all three conditions hold:
++  1. It ends with its expected outcome: exit 0, the expected JSON or bytes.
++  2. Its latency is at most the latency of the same request in the control, plus 5 s.
++  3. It does not start before the handler-end reference and end after it.
++  A request with the expected outcome that fails condition 2 or 3 is a
++  *blocked channel*, even inside its bound. A request with no answer inside its
++  bound, or with another outcome, is a *failure*. Child survival, owned cleanup
++  and disposal are three separate outcomes. A blocked channel does not decide
++  them, and they do not decide the channel outcome.
++- Freeze before measurement. The runner is `linux_k6_run.sh container|live OUT`, and the checker is `linux_k6_check.py container|live OUT`. The Taskfile entries are `diagnostic:linux-disconnect-{container,live,check,tools}`. The tools task passes ruff, pyright, shellcheck and 17 controls. Every measured run uses these files unchanged. The outer records compare the tool digests before and after each run.
++- The container disposal bound is 40 s. The controller refuses a disposal budget above 41 s, because it adds a 4 s reserve to reach the 45 s ceiling.
++- The development trials ran in the scratchpad and are not evidence. They gave the same shape as the expected finding. Serial occupancy blocks health for about 18 s in each serial case. The threading control answers in 2 ms. In every case the handler runs to the 20 s deadline, and the child survives it.
++- The checker reads the agent-side socket rows from `/proc/net/tcp`. Unread request bytes on an accepted row place the wait in the accept queue. A follow-up row is reported with `waited_from` and `read_by`.
++- Evidence goes under `experiments/exec-reliability/evidence/linux-disconnect-availability-k6/`, as `container-01` and `live-01`, with their `-outer` records.
+diff --git a/Taskfile.yml b/Taskfile.yml
+index 75f2b3eca9..5b153231f9 100644
+--- a/Taskfile.yml
++++ b/Taskfile.yml
+@@ -451,6 +451,37 @@ tasks:
+       - shellcheck linux_k204_run.sh
+       - uv run --locked python -m pytest -q -p no:cacheprovider test_linux_k204.py
+ 
++  diagnostic:linux-disconnect-container:
++    desc: 'Run the seven k6 HTTP and client controls in one fresh container of the pinned k5 image, into a new OUT directory. Each case serves the unchanged Linux agent and starts a fork/wait payload with guest timeout 20 s. After 2 s it keeps, closes, resets or half-closes the original connection, or gives health a 5 s host deadline. Then it sends health, an ordinary exec and a partial-file download. The threaded case is an experimental control. OUT-outer keeps the identities and the check'
++    requires:
++      vars: [OUT]
++    cmds:
++      - experiments/exec-reliability/linux_k6_run.sh container {{.OUT | shellQuote}}
++
++  diagnostic:linux-disconnect-live:
++    desc: 'Boot one fresh unchanged clone of testanyware-golden-linux-24.04 and run the unchanged k13 burst into a new OUT directory: a no-interruption control, a request during execution and SIGTERM of the CLI at 2 s, each followed by inspection, health, an ordinary exec and a partial-file download. The controller cleans up only the identified owned children and disposes the clone. OUT-outer keeps the identities and the check'
++    requires:
++      vars: [OUT]
++    cmds:
++      - experiments/exec-reliability/linux_k6_run.sh live {{.OUT | shellQuote}}
++
++  diagnostic:linux-disconnect-check:
++    desc: 'Judge one retained k6 OUT directory, relative to the repository root. MODE is container or live. Classify each follow-up as baseline, responsive, blocked or failed, and the handler and the child separately. Exit 0 only when the evidence is complete'
++    requires:
++      vars: [MODE, OUT]
++    cmds:
++      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/linux_k6_check.py {{.MODE | shellQuote}} {{.OUT | shellQuote}}
++
++  diagnostic:linux-disconnect-tools:
++    desc: Check the k6 Linux disconnect controller, seam, checker, runner and controls
++    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
++    cmds:
++      - uv run --locked python -m ruff check linux_k6.py linux_k6_seam.py linux_k6_check.py test_linux_k6.py
++      - uv run --locked python -m ruff format --check linux_k6.py linux_k6_seam.py linux_k6_check.py test_linux_k6.py
++      - uv run --locked python -m pyright linux_k6.py linux_k6_seam.py linux_k6_check.py test_linux_k6.py
++      - shellcheck linux_k6_run.sh
++      - uv run --locked python -m pytest -q -p no:cacheprovider test_linux_k6.py
++
+   diagnostic:deadline-stall-tools:
+     desc: Check the k154 worker-deadline control tooling
+     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+diff --git a/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/container-01-outer/source-commit b/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/container-01-outer/source-commit
+new file mode 100644
+index 0000000000..f5b2ed6d66
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/container-01-outer/source-commit
+@@ -0,0 +1,1 @@ b414a4f7f46eb5516b1f5e457225f13df0435aac
++b414a4f7f46eb5516b1f5e457225f13df0435aac
+diff --git a/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/container-01-outer/source-dirty.diff b/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/container-01-outer/source-dirty.diff
+new file mode 100644
+index 0000000000..e69de29bb2
+diff --git a/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/container-01-outer/tooling-before.sha256 b/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/container-01-outer/tooling-before.sha256
+new file mode 100644
+index 0000000000..b572490ddb
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/linux-disconnect-availability-k6/container-01-outer/tooling-before.sha256
+@@ -0,0 +1,35 @@ bd580c4ffa6abeeb60d040a88e8f5d8a4d57ef733a16b7ccc63229b0293cd23c  experiments/ex
++bd580c4ffa6abeeb60d040a88e8f5d8a4d57ef733a16b7ccc63229b0293cd23c  experiments/exec-reliability/linux_k6_run.sh
++cd9bb47d3cfa0f9714a34d44bc4b17a139e4be9b6b5c8ebe5954fb2df309c579  experiments/exec-reliability/linux_k6.py
++48879c7b6b169936e50b034febf1264f85a31f2ffbe191b2eed942f2a3b43d03  experiments/exec-reliability/linux_k6_seam.py
++6405b7d5c0052a69182504134700eeff1d7530b2de32dc3da96ba44773dd2146  experiments/exec-reliability/linux_k6_check.py
++27fc7c7ce059a572b8514885b0bdacdc27e61a08e488c3a32aa2954638666be9  experiments/exec-reliability/disconnect_k13_burst.py
++44c7be509769030690bef7532fcaa30025bff9f92dc6beab516e35ac72940023  experiments/exec-reliability/disconnect_k13_check.py
++04e98dad5d1e3ec103f5e926a03e5f0bc374c0c7e660fb8de083b9101aafb9e7  experiments/exec-reliability/disconnect_k13_seam.py
++940a977a5aa70ed7ddd4128a0869a3b28a23f285a869255ccfa6875b7d1ca4dc  experiments/exec-reliability/linux_k204.py
++ecd86b87810f051930da78908268453d67476efc9adc4953fca611c5e9e75f19  experiments/exec-reliability/linux_k5.py
++93330584b49952cdff67e51d527b0fa8a56a81c58032395eda020c37a4b2726d  experiments/exec-reliability/linux_k5_seam.py
++d10ec67e3a814982b87dadc56945cfe8104869248c215e8c3120fb6214b0cfd9  experiments/exec-reliability/outcomes_k12_seam.py
++a8a9de4f95dd7f92b59dfa0a9dc77b455d81347d72287f12438db473c9b76c4c  experiments/exec-reliability/routes_k19.py
++e95d4c29ace7089a52637759122f3ec7c5488050026ec1ff7c6919f79b3df817  experiments/exec-reliability/controller.py
++a7c21f5e1650a85738f01b88b8615758950f3abe13fd55356556b3177dc342d1  experiments/exec-reliability/inspection.py
++fda17cbd33cfbc6661892d45d7e4145e246387ecfa74507284ed90eac26f1375  experiments/exec-reliability/retention.py
++8e6a383f26619195bebafafc2ee0031c1242e6ff04d78a00433e8d91abc53510  experiments/exec-reliability/storage_client.py
++dde3f9a7ddb2406bc6e1e9f94e4a562e5ab7cb5e883899ec65a7b0645215b96f  experiments/exec-reliability/turns.py
++05dc982b0f4c27a381a092e83099fce87fec632e8f6fbbbcbbb6ca70275e1191  experiments/exec-reliability/worker_capture.py
++66611f99b604e86ce54fdb1b6b0a81873478a493eb21d2ca1073ab9f17a2c28f  experiments/exec-reliability/writer.py
++10c3350bcb38ecea0bb5fe68c9d2269d56b1b3ec08fefbee9e1f15a3253a3bc4  experiments/exec-reliability/linux_k5_stub/gi/__init__.py
++aae1d664ea1867ec20a421b3b79bffcb63c21b50a4271e32554361ad9f19cacb  experiments/exec-reliability/linux_k5_stub/gi/repository/__init__.py
++6971f2eebc463df570a01f6f8a12b74bea336f27a7acb143408dca5e7552a9ac  experiments/exec-reliability/linux_k5_stub/pyatspi/__init__.py
++e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  agents/linux/testanyware_agent/__init__.py
++fcd96981474a28b844e798c05797c0b551d6a87115a236d3f162d757e57e5528  agents/linux/testanyware_agent/__main__.py
++c88a16330dd0f439033895c558700920fb916cda0b63b2e55c9d9b658beb2a92  agents/linux/testanyware_agent/accessibility.py
++ef752d357be746472dfa6a4953a3bcc87b420e89f26dd9f729fad221f80352e1  agents/linux/testanyware_agent/models.py
++8adbada9ce000971bfa7fb9f59eae3a23add768786cad2335b73e4dd0e81a845  agents/linux/testanyware_agent/query_resolver.py
++c2a9c5e0cb7bdd50f4da629addab93a79b0c52901aa8772616f167ac05b36d81  agents/linux/testanyware_agent/role_mapper.py
++b62de750472930c628dd4ae8a5bd118928f4efefb373c8365568acb3d0102a95  agents/linux/testanyware_agent/server.py
++217770b9151037568b54683338c5cbcb2ad84e14170b357ba5f54cb2c35f81cd  agents/linux/testanyware_agent/system_endpoints.py
++867ea22c65bf7be0ae8b49b2af420572d4190f1d35b3000b520f3cc0a7dbf850  agents/linux/testanyware_agent/tree_walker.py
++383272ed79cbb1353a7a9b38a282095b8e42422087d55107c39ca11cfca35a3e  experiments/exec-reliability/pyproject.toml
++1c3ab314b597770f6568fa159164b8ac72af7d9c3c9fc74ef3d9cf47b73cfd89  experiments/exec-reliability/uv.lock
++2214616a6007f02e3031ac08424ad4dbbd23683c6c3a5d08df1989f0f60f975c  scripts/vm_inventory.py
++fa80be1f97b2606fe38fb367e9bb09c26602ead484a669797b12935ed6e8b378  Taskfile.yml
+diff --git a/experiments/exec-reliability/linux_k6.py b/experiments/exec-reliability/linux_k6.py
+new file mode 100644
+index 0000000000..d3f91e1f3a
+--- /dev/null
++++ b/experiments/exec-reliability/linux_k6.py
+@@ -0,0 +1,262 @@ def source_paths() -> list[Path]:
++"""Linux disconnect availability (leaf linux-disconnect-availability-k6).
++
++    linux_k6.py container OUT
++    linux_k6.py live OUT
++
++Each mode freezes one plan, then runs it once with no retry.
++
++`container` owns one fresh container of the pinned k5 image. The container runs
++`linux_k6_seam.py RUN cases` against the unchanged agent from this checkout. The
++seam docstring lists the seven cases. The controller disposes the container in
++its `finally` path.
++
++`live` owns one fresh clone of the unchanged golden `testanyware-golden-linux-24.04`.
++Between health checks, it runs `disconnect_k13_burst.py` unchanged three times:
++`control`, `concurrent` and `term`. The burst docstring holds what each mode does.
++The owned cleanup is the k204 cleanup over the three child PID files. The
++controller disposes the clone in its `finally` path.
++
++The script writes OUT/inventory.json before the first call, then OUT/summary.json.
++It prints `verdict VERDICT run RUN`. It exits with status 1 when the controller
++verdict is not true. `linux_k6_check.py` judges the receipts.
++"""
++
++from __future__ import annotations
++
++import shutil
++import sys
++import uuid
++from dataclasses import asdict, replace
++from pathlib import Path
++
++import disconnect_k13_burst as burst
++import linux_k6_seam as seam
++from controller import Call, Plan, Resource, execute_outcome, write_json
++from linux_k5 import IMAGE, STUB, docker_path, image_record, local_modules, run_tag, sha256
++from linux_k204 import CLEANUP_BOUND, CLEANUP_GUEST, GOLDEN, owned_cleanup
++from routes_k19 import (  # the k19 resource shape, reused unchanged
++    AGENTS,
++    BOOT,
++    CHECKER,
++    HEALTH,
++    HERE,
++    REPO,
++    _owned,  # pyright: ignore[reportPrivateUsage]
++)
++
++LEAF = "linux-disconnect-availability-k6"
++SEAM = HERE / "linux_k6_seam.py"
++BURST = HERE / "disconnect_k13_burst.py"
++AGENT_PACKAGE = REPO / "agents/linux/testanyware_agent"
++LABEL = "testanyware.k6.run"
++DOCKER_BOUND = 60.0  # one docker create or inspect, inside the 60 s inventory ceiling
++DISPOSE_BOUND = 40.0  # `docker rm -f` plus the 4 s reserve, inside the 45 s disposal ceiling
++STOP_BOUND = 20.0  # `docker stop -t 2` plus margin, inside the 30 s cleanup ceiling
++# Each case can take the ready bound, the observation bound, the host deadline,
++# the owned kill wait and two agent stop waits. The last 30 s cover the start of
++# the container and the interpreter.
++CASES_BUDGET = (
++    len(seam.CASES)
++    * (
++        seam.READY_BOUND
++        + seam.OBSERVE_BOUND
++        + seam.HOST_DEADLINE
++        + seam.KILL_WAIT
++        + 2 * seam.STOP_WAIT
++    )
++    + 30.0
++)
++# As in k13: the longest burst mode is `control`. It waits up to the original
++# bound, then runs six bounded requests and one transfer. Each of the seven
++# requests and the original can need a TERM wait and a KILL wait. The last 10 s
++# cover interpreter start and the JSON output.
++BURST_BUDGET = (
++    burst.ORIGINAL_BOUND
++    + burst.TRANSFER_BOUND
++    + 6 * burst.FOLLOW_BOUND
++    + 8 * 2 * burst.STOP_WAIT
++    + 10.0
++)
++CHILD_FILES = tuple(f"{burst.guest_dir(mode)}/child.pid" for mode in burst.MODES)
++LIVE_CLEANUP = owned_cleanup(CHILD_FILES)
++
++
++def source_paths() -> list[Path]:
++    """The experiment closure, the agent and the stubs. Hashed before and after the run."""
++    roots = (Path(__file__).resolve(), SEAM, HERE / "linux_k6_check.py")
++    return [
++        *local_modules(roots),
++        HERE / "linux_k6_run.sh",
++        CHECKER,
++        REPO / "Taskfile.yml",
++        *sorted(AGENT_PACKAGE.glob("*.py")),
++        *sorted(STUB.rglob("*.py")),
++    ]
++
++
++def container_resource(run_id: str, docker: str) -> Resource:
++    name = f"k6-{run_id}"
++    create = (
++        docker,
++        "create",
++        "--init",
++        "--network",
++        "none",
++        "-u",
++        "1000:1000",
++        "--name",
++        name,
++        "--label",
++        f"{LABEL}={run_id}",
++        "-v",
++        f"{REPO / 'agents/linux'}:/agent:ro",
++        "-v",
++        f"{STUB}:/stub:ro",
++        "-v",
++        f"{HERE}:/seam:ro",
++        IMAGE,
++        "python3",
++        "-E",
++        "-s",
++        "-B",
++        "/seam/linux_k6_seam.py",
++        run_tag(run_id),
++        "cases",
++    )
++    return Resource(
++        "container",
++        name,
++        Call("acquire", create, DOCKER_BOUND),
++        Call("cleanup", (docker, "stop", "-t", "2", name), STOP_BOUND),
++        Call("dispose", (docker, "rm", "-f", name), DISPOSE_BOUND),
++        Call(
++            "inspect",
++            (docker, "container", "inspect", name),
++            DOCKER_BOUND,
++            expected_exit=1,
++            expected_stdout=b"[]\n",
++        ),
++    )
++
++
++def container_plan(python: str) -> Plan:
++    run_id = uuid.uuid4().hex
++    docker = docker_path()
++    resource = container_resource(run_id, docker)
++    calls = (Call("cases", (docker, "start", "-a", resource.identity), CASES_BUDGET),)
++    subjects = (*source_paths(), Path(python))
++    return Plan(run_id, calls, resources=(resource,), subjects=subjects)
++
++
++def _health(cli: str, vm: str, name: str) -> Call:
++    return Call(name, (cli, "agent", "health", "--vm", vm, "--json"), HEALTH)
++
++
++def live_plan(tools: dict[str, str], downloads: Path) -> Plan:
++    cli, python = tools["cli"], tools["python"]
++    run_id = uuid.uuid4().hex
++    vm = f"k6-linux-{run_id}"
++    bursts = [
++        Call(
++            f"burst-{mode}",
++            (python, "-E", "-s", str(BURST), cli, vm, mode, str(downloads)),
++            BURST_BUDGET,
++        )
++        for mode in burst.MODES
++    ]
++    calls = [_health(cli, vm, "health-before"), *bursts, _health(cli, vm, "health-after")]
++    start = (cli, "vm", "start", "--platform", "linux", "--base", GOLDEN, "--id", vm, "--json")
++    owned = _owned(run_id, "linux", start, 0, tools)
++    cleanup_argv = tuple(burst.exec_argv(cli, vm, CLEANUP_GUEST, LIVE_CLEANUP))
++    resource = replace(owned, cleanup=Call("cleanup", cleanup_argv, CLEANUP_BOUND))
++    subjects = (
++        *source_paths(),
++        BURST,
++        Path(cli).resolve(),
++        Path(tools["tart"]).resolve(),
++        Path(python),
++        (AGENTS / "linux/testanyware_agent").resolve() / "server.py",
++    )
++    return Plan(run_id, tuple(calls), resources=(resource,), subjects=subjects)
++
++
++def bounds() -> dict[str, object]:
++    return {
++        "boot": BOOT,
++        "health": HEALTH,
++        "docker": DOCKER_BOUND,
++        "dispose": DISPOSE_BOUND,
++        "stop": STOP_BOUND,
++        "cases_budget": CASES_BUDGET,
++        "burst_budget": BURST_BUDGET,
++        "cleanup_guest": CLEANUP_GUEST,
++        "cleanup_bound": CLEANUP_BOUND,
++        "seam": seam.bounds(),
++        "burst": burst.bounds(),
++    }
++
++
++def finish(output: Path, frozen: Plan) -> None:
++    outcome = execute_outcome(frozen, output)
++    write_json(
++        output / "summary.json",
++        {
++            "verdict": outcome.verdict,
++            "run": str(outcome.run_dir),
++            "ledger": outcome.ledger,
++            "residuals": outcome.residuals,
++        },
++    )
++    print(f"verdict {outcome.verdict} run {outcome.run_dir}", flush=True)
++    if outcome.verdict is not True:
++        raise SystemExit(1)
++
++
++def main() -> None:
++    if len(sys.argv) != 3 or sys.argv[1] not in ("container", "live"):
++        raise SystemExit("usage: linux_k6.py container|live OUT")
++    mode, output = sys.argv[1], Path(sys.argv[2]).resolve()
++    rule = "one plan, run once; no retry; failed samples stay"
++    sources = {str(path.relative_to(REPO)): sha256(path) for path in source_paths()}
++    if mode == "container":
++        frozen = container_plan(sys.executable)
++        output.mkdir(parents=True, exist_ok=False)
++        inventory = {
++            "leaf": LEAF,
++            "mode": mode,
++            "rule": rule,
++            "image": image_record(),
++            "cases": [asdict(case) for case in seam.CASES],
++            "bounds": bounds(),
++            "sources": sources,
++            "plan": asdict(frozen),
++        }
++        write_json(output / "inventory.json", inventory)
++        finish(output, frozen)
++        return
++    cli, tart = shutil.which("testanyware"), shutil.which("tart")
++    if cli is None or tart is None:
++        raise SystemExit("unavailable prerequisite: testanyware and tart must be on PATH")
++    tools = {"python": sys.executable, "cli": cli, "tart": tart}
++    output.mkdir(parents=True, exist_ok=False)
++    downloads = output / "downloads"
++    downloads.mkdir()
++    frozen = live_plan(tools, downloads)
++    inventory = {
++        "leaf": LEAF,
++        "mode": mode,
++        "rule": rule,
++        "golden": GOLDEN,
++        "bounds": bounds(),
++        "payloads": {m: burst.payload(m) for m in burst.MODES},
++        "inspection": {m: burst.inspection(m) for m in burst.MODES},
++        "cleanup": LIVE_CLEANUP,
++        "sources": sources,
++        "plan": asdict(frozen),
++    }
++    write_json(output / "inventory.json", inventory)
++    finish(output, frozen)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/experiments/exec-reliability/linux_k6_check.py b/experiments/exec-reliability/linux_k6_check.py
+new file mode 100644
+index 0000000000..9d6c24d501
+--- /dev/null
++++ b/experiments/exec-reliability/linux_k6_check.py
+@@ -0,0 +1,502 @@ def reply(record: dict[str, Any]) -> tuple[int | None, bytes]:
++"""Judge the k6 Linux disconnect evidence.
++
++    linux_k6_check.py container OUT
++    linux_k6_check.py live OUT
++
++`container` reads OUT/summary.json and the stdout of the `cases` call.
++`live` reads OUT/summary.json and the receipts of the live calls. Each mode
++writes OUT/check.json and prints one line per judged item.
++
++The exit status is 0 when the evidence is complete and sound. A finding, such as
++a blocked channel or a surviving child, is a measured outcome. A finding does
++not change the exit status. An unknown outcome is incomplete evidence, so it is
++a problem.
++
++Responsiveness oracle, declared before any measured run. A follow-up request is
++`responsive` when three conditions hold:
++
++1. It ends with its expected outcome inside its bound.
++2. It does not span the end of the original handler. A request spans the end
++   when it began before the shell was last seen alive and answered after the
++   shell was first seen gone.
++3. Its latency is at most the latency of the same request in the control, plus
++   `LATENCY_ALLOWANCE` seconds. The control is `serial-control` in the
++   container and the `control` mode on the clone. Its follow-ups run after the
++   handler ends, so they are the `baseline`.
++
++A request with the expected outcome that fails condition 2 or 3 is `blocked`.
++A blocked request is a defect even when it ends inside its bound. A request
++that ends with another outcome, or exceeds its bound, is `failed`. A request
++with no sound reference latency is `unknown`.
++
++Handler outcomes, from the end of the payload shell after the original start:
++`deadline` inside the window from `GUEST_TIMEOUT - DEADLINE_EARLY` to
++`GUEST_TIMEOUT + DEADLINE_LATE`, `cancelled` before it, `overran` after it, and
++`unknown` without evidence. The container watch places the end between two
++samples 50 ms apart.
++
++The live mode uses the k13 checker unchanged, with one Linux rule. The serial
++agent cannot answer an inspection while the handler runs. No inspection can see
++the shell alive, so the k13 bracket has no lower end. The Linux rule then
++classifies the handler by the first sighting of the shell gone. The basis is
++`queue-release`. The container cases measure it. There the first queued
++request ends within `QUEUE_RELEASE` seconds of the shell end. Condition 2
++cannot be evaluated without a sighting alive, so condition 3 decides.
++
++Child outcomes: `survived-handler` when the child is alive after the handler
++ends, `ended-with-handler` when it ended within `CHILD_SLACK` of the shell, and
++`unknown` otherwise.
++"""
++
++from __future__ import annotations
++
++import json
++import sys
++from pathlib import Path
++from typing import Any, cast
++
++import disconnect_k13_check as k13
++import linux_k6_seam as seam
++from disconnect_k13_burst import MODES
++from disconnect_k13_check import (
++    CHILD_SLACK,
++    DEADLINE_EARLY,
++    DEADLINE_LATE,
++    LATENCY_ALLOWANCE,
++    ORDINARY_STDOUT,
++    items,
++    mapping,
++    seconds,
++)
++
++GUEST_TIMEOUT = seam.GUEST_TIMEOUT
++QUEUE_RELEASE = 0.5  # the first queued answer ends this close to the shell end
++CONTROL = "serial-control"
++HEALTH_BODY = {"accessible": True, "platform": "linux"}
++DEADLINE_BODY = {"exitCode": -1, "stdout": "", "stderr": "Process timed out"}
++LISTEN = "0A"
++
++
++# ---- container: parsing ----
++
++
++def reply(record: dict[str, Any]) -> tuple[int | None, bytes]:
++    """The status and the body of one raw HTTP response."""
++    raw = bytes.fromhex(str(record.get("response_hex", "")))
++    head, sep, body = raw.partition(b"\r\n\r\n")
++    if not sep:
++        return None, b""
++    words = head.split(b"\r\n", 1)[0].split()
++    try:
++        return int(words[1]), body
++    except (IndexError, ValueError):
++        return None, body
++
++
++def body_json(body: bytes) -> object:
++    try:
++        return json.loads(body)
++    except ValueError:
++        return None
++
++
++def expected(record: dict[str, Any]) -> bool:
++    """The follow-up ended with its expected outcome inside its bound."""
++    if record.get("bound_exceeded") or record.get("error"):
++        return False
++    status, body = reply(record)
++    if status != 200:
++        return False
++    name = str(record.get("name"))
++    if name.startswith("health"):
++        return body_json(body) == HEALTH_BODY
++    if name == "ordinary":
++        value = mapping(body_json(body))
++        return value.get("exitCode") == 0 and value.get("stdout") == ORDINARY_STDOUT
++    return body == seam.PARTIAL
++
++
++def bracket(changes: list[dict[str, Any]], role: str) -> tuple[int, int] | None:
++    """The interval in which `role` disappeared, after it was first seen."""
++    seen = False
++    for change in changes:
++        present = any(mapping(row).get("role") == role for row in items(change.get("value")))
++        if present:
++            seen = True
++        elif seen and change.get("prev_ns") is not None:
++            return int(change["prev_ns"]), int(change["ns"])
++    return None
++
++
++def handler_class(lo: float | None, hi: float | None) -> str:
++    if hi is None:
++        return "unknown"
++    if hi < GUEST_TIMEOUT - DEADLINE_EARLY:
++        return "cancelled"
++    if lo is not None and lo > GUEST_TIMEOUT + DEADLINE_LATE:
++        return "overran"
++    if hi > GUEST_TIMEOUT + DEADLINE_LATE + seam.POLL * 2:
++        return "overran"
++    return "deadline"
++
++
++def container_handler(case: dict[str, Any]) -> dict[str, Any]:
++    start = case.get("start_ns")
++    shell = bracket(items(case.get("processes")), "shell")
++    if shell is None:
++        seen = any(
++            mapping(row).get("role") == "shell"
++            for change in items(case.get("processes"))
++            for row in items(change.get("value"))
++        )
++        return {"class": "overran" if seen else "unknown", "alive_at": None, "gone_by": None}
++    lo, hi = seconds(start, shell[0]), seconds(start, shell[1])
++    return {"class": handler_class(lo, hi), "alive_at": lo, "gone_by": hi}
++
++
++def container_child(case: dict[str, Any]) -> dict[str, Any]:
++    after = [mapping(row) for row in items(mapping(case.get("after_handler")).get("rows"))]
++    child = [row for row in after if row.get("role") == "child"]
++    if child:
++        return {"class": "survived-handler", "ppid": child[0].get("ppid")}
++    shell = bracket(items(case.get("processes")), "shell")
++    gone = bracket(items(case.get("processes")), "child")
++    if shell is None or gone is None:
++        return {"class": "unknown"}
++    late = (gone[1] - shell[1]) / 1e9
++    return {"class": "ended-with-handler" if late <= CHILD_SLACK else "unknown"}
++
++
++def original_record(case: dict[str, Any]) -> dict[str, Any]:
++    record = mapping(case.get("original"))
++    start = case.get("start_ns")
++    status, body = reply(record)
++    outcome: dict[str, Any] = {
++        "status": status,
++        "body": body_json(body),
++        "answered_at": seconds(start, record.get("end_ns")) if body else None,
++        "error": record.get("error"),
++    }
++    act = mapping(case.get("act"))
++    if act:
++        outcome["acted_at"] = seconds(start, act.get("ns"))
++    log = bytes.fromhex(str(case.get("agent_log_hex", ""))).decode(errors="replace")
++    outcome["agent_broken_pipes"] = log.count("BrokenPipeError")
++    return outcome
++
++
++def socket_rows(change: dict[str, Any]) -> list[list[Any]]:
++    """The /proc/net/tcp rows of one socket sample."""
++    value = change.get("value")
++    if not isinstance(value, list):
++        return []
++    return [cast(list[Any], row) for row in cast(list[Any], value) if isinstance(row, list)]
++
++
++def server_rows(case: dict[str, Any], port: object) -> list[tuple[int, int | None, list[Any]]]:
++    """Each socket sample as (ns, prev_ns, server rows whose remote end is `port`)."""
++    agent = f":{int(case['port']):04X}"
++    remote = f":{int(str(port)):04X}"
++    samples: list[tuple[int, int | None, list[Any]]] = []
++    for change in items(case.get("sockets")):
++        rows = [
++            row
++            for row in socket_rows(change)
++            if str(row[0]).endswith(agent) and str(row[1]).endswith(remote)
++        ]
++        samples.append((int(change["ns"]), change.get("prev_ns"), rows))
++    return samples
++
++
++def queue_record(case: dict[str, Any], record: dict[str, Any]) -> dict[str, Any]:
++    """When the agent read the request of one follow-up, from its unread byte count.
++
++    `waited_from` is the first sample with unread request bytes. `read_by` is the
++    first later sample in which the row has no unread bytes or no longer exists.
++    A request read within one sample interval has no `waited_from`.
++    """
++    start = case.get("start_ns")
++    waited: int | None = None
++    read: int | None = None
++    for ns, _prev, rows in server_rows(case, record.get("local_port")):
++        unread = any(int(row[4]) > 0 for row in rows)
++        if waited is None and unread:
++            waited = ns
++        elif waited is not None and not unread:
++            read = ns
++            break
++    return {"waited_from": seconds(start, waited), "read_by": seconds(start, read)}
++
++
++def listen_peak(case: dict[str, Any]) -> int:
++    agent = f":{int(case['port']):04X}"
++    peak = 0
++    for change in items(case.get("sockets")):
++        for row in socket_rows(change):
++            if str(row[0]).endswith(agent) and row[2] == LISTEN:
++                peak = max(peak, int(row[4]))
++    return peak
++
++
++def original_states(case: dict[str, Any]) -> list[list[Any]]:
++    """The distinct (state, unread bytes) of the agent end of the original connection."""
++    seen: list[list[Any]] = []
++    port = mapping(case.get("original")).get("local_port")
++    if port is None:
++        return seen
++    for _ns, _prev, rows in server_rows(case, port):
++        for row in rows:
++            pair = [row[2], int(row[4])]
++            if pair not in seen:
++                seen.append(pair)
++    return seen
++
++
++# ---- container: verdicts ----
++
++
++def follow_verdicts(
++    case: dict[str, Any], handler: dict[str, Any], reference: dict[str, float] | None
++) -> list[dict[str, Any]]:
++    start = case.get("start_ns")
++    lo, hi = handler["alive_at"], handler["gone_by"]
++    verdicts: list[dict[str, Any]] = []
++    for record in items(case.get("follow")):
++        name = str(record.get("name"))
++        status, _body = reply(record)
++        began = seconds(start, record.get("start_ns"))
++        answered = seconds(start, record.get("end_ns"))
++        latency = seconds(record.get("start_ns"), record.get("end_ns"))
++        spanned = (
++            None not in (began, answered, lo, hi)
++            and float(began) <= float(lo)  # type: ignore[arg-type]
++            and float(answered) >= float(hi)  # type: ignore[arg-type]
++        )
++        verdict: dict[str, Any] = {
++            "name": name,
++            "status": status,
++            "began_at": began,
++            "answered_at": answered,
++            "latency": latency,
++            "bound": record.get("bound"),
++            "bound_exceeded": bool(record.get("bound_exceeded")),
++            "error": record.get("error"),
++            "spans_handler_end": spanned,
++            "queue": queue_record(case, record),
++        }
++        key = "health" if name == "health-deadline" else name
++        if not expected(record):
++            verdict["class"] = "failed"
++        elif reference is None:
++            verdict["class"] = "baseline"
++        elif key not in reference or latency is None:
++            verdict["class"] = "unknown"
++        else:
++            verdict["reference_latency"] = reference[key]
++            fast = latency <= reference[key] + LATENCY_ALLOWANCE
++            verdict["class"] = "blocked" if spanned or not fast else "responsive"
++        verdicts.append(verdict)
++    return verdicts
++
++
++def queue_release(case: dict[str, Any], handler: dict[str, Any]) -> float | None:
++    """Seconds from the shell end to the end of the first answered follow-up.
++
++    Only a follow-up that began before the shell was last seen alive counts.
++    Only the serial server queues, so the threading control has no release.
++    """
++    lo, hi = handler["alive_at"], handler["gone_by"]
++    if case.get("server") != "serial" or lo is None or hi is None:
++        return None
++    start = case.get("start_ns")
++    ends = [
++        seconds(start, record.get("end_ns"))
++        for record in items(case.get("follow"))
++        if expected(record) and (seconds(start, record.get("start_ns")) or hi) <= lo
++    ]
++    known = [end for end in ends if end is not None]
++    return round(min(known) - hi, 3) if known else None
++
++
++def container_check(summary: dict[str, Any], run: Path) -> dict[str, Any]:
++    problems: list[str] = []
++    if summary.get("verdict") is not True:
++        problems.append(f"controller verdict is {summary.get('verdict')!r}")
++    if not k13.receipt_ok(run, "cases"):
++        problems.append("the cases receipt is not ok")
++    try:
++        result = mapping(json.loads((run / "cases.stdout").read_bytes()))
++    except (OSError, ValueError):
++        return {"problems": [*problems, "the cases call printed no JSON"], "cases": []}
++    cases = {str(case.get("case")): case for case in items(result.get("cases"))}
++    if list(cases) != [case.name for case in seam.CASES]:
++        problems.append(f"the cases are {list(cases)}")
++    reference: dict[str, float] | None = None
++    verdicts: list[dict[str, Any]] = []
++    for name, case in cases.items():
++        if mapping(case.get("ready")).get("ready") is not True:
++            problems.append(f"{name}: the agent did not become ready")
++            continue
++        handler = container_handler(case)
++        child = container_child(case)
++        follow = follow_verdicts(case, handler, None if name == CONTROL else reference)
++        cleanup = mapping(case.get("cleanup"))
++        original = original_record(case)
++        verdict: dict[str, Any] = {
++            "case": name,
++            "server": case.get("server"),
++            "handler": handler,
++            "child": child,
++            "original": original,
++            "original_states": original_states(case),
++            "listen_peak": listen_peak(case),
++            "queue_release": queue_release(case, handler),
++            "follow": follow,
++            "evidence": case.get("evidence"),
++            "cleanup": {"kills": cleanup.get("kills"), "left": cleanup.get("left")},
++            "agent_stop": case.get("agent_stop"),
++        }
++        if name == CONTROL:
++            reference = {
++                str(f["name"]): float(f["latency"])
++                for f in follow
++                if f["class"] == "baseline" and f["latency"] is not None
++            }
++            if original["body"] != DEADLINE_BODY:
++                problems.append(f"{name}: the control has no deadline reply")
++            if any(f["class"] != "baseline" for f in follow):
++                problems.append(f"{name}: a control follow-up is not as expected")
++        if handler["class"] == "unknown" or child["class"] == "unknown":
++            problems.append(f"{name}: handler {handler['class']}, child {child['class']}")
++        if name == CONTROL and handler["class"] != "deadline":
++            problems.append(f"{name}: the control did not end at the deadline")
++        if any(f["class"] == "unknown" for f in follow):
++            problems.append(f"{name}: a follow-up outcome is unknown")
++        if cleanup.get("left"):
++            problems.append(f"{name}: owned processes remain after the cleanup")
++        verdicts.append(verdict)
++    sweep = mapping(result.get("final_sweep"))
++    if items(sweep.get("rows")):
++        problems.append("the final sweep found owned processes")
++    return {"problems": problems, "bounds": result.get("bounds"), "cases": verdicts}
++
++
++def container_main(out: Path) -> int:
++    summary = json.loads((out / "summary.json").read_text())
++    report = container_check(summary, Path(str(summary.get("run", ""))))
++    (out / "check.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
++    for verdict in report["cases"]:
++        follow = " ".join(
++            f"{f['name']}={f['class']}({'?' if f['latency'] is None else f'{f["latency"]:.3f}'})"
++            for f in verdict["follow"]
++        )
++        handler = verdict["handler"]
++        gone = handler["gone_by"]
++        print(
++            f"{verdict['case']:<18} handler {handler['class']:<9} "
++            f"{'?' if gone is None else f'{gone:.2f}':>6} child {verdict['child']['class']:<18} "
++            f"{follow}"
++        )
++    for problem in report["problems"]:
++        print(f"PROBLEM {problem}")
++    return 0 if not report["problems"] else 1
++
++
++# ---- live ----
++
++
++def live_handler(result: dict[str, Any]) -> tuple[str, float | None, float | None, str]:
++    """The k13 handler outcome, with the Linux queue-release rule when it has no lower end."""
++    handler, lo, hi = k13.live_handler(result)
++    if handler != "unknown" or lo is not None or hi is None:
++        return handler, lo, hi, "bracket"
++    return handler_class(None, hi), lo, hi, "queue-release"
++
++
++def live_check(summary: dict[str, Any], run: Path) -> dict[str, Any]:
++    problems: list[str] = []
++    if summary.get("verdict") is not True:
++        problems.append(f"controller verdict is {summary.get('verdict')!r}")
++    for name in ("health-before", "health-after"):
++        if not k13.receipt_ok(run, name):
++            problems.append(f"{name} did not succeed")
++    results: dict[str, dict[str, Any]] = {}
++    for mode in MODES:
++        try:
++            results[mode] = mapping(json.loads((run / f"burst-{mode}.stdout").read_bytes()))
++        except (OSError, ValueError):
++            problems.append(f"burst-{mode} printed no JSON")
++            continue
++        if not k13.receipt_ok(run, f"burst-{mode}"):
++            problems.append(f"the burst-{mode} receipt is not ok")
++    reference: dict[str, float] | None = None
++    verdicts: list[dict[str, Any]] = []
++    for mode in MODES:
++        result = results.get(mode)
++        if result is None:
++            continue
++        handler, lo, hi, basis = live_handler(result)
++        child = k13.live_child(result)
++        original = k13.original_live(result)
++        follow = k13.live_follow(result, lo, hi, None if mode == "control" else reference)
++        if mode == "control":
++            reference = {
++                str(f["name"]): float(f["latency"])
++                for f in follow
++                if f["class"] == "baseline" and f["latency"] is not None
++            }
++            if any(f["class"] != "baseline" for f in follow):
++                problems.append("control: a control follow-up is not as expected")
++        verdicts.append(
++            {
++                "mode": mode,
++                "handler": handler,
++                "handler_basis": basis,
++                "handler_alive_at": lo,
++                "handler_gone_by": hi,
++                "child": child,
++                "original": original,
++                "follow": follow,
++                "mid": k13.parse_inspection(mapping(result.get("mid"))),
++                "late": k13.parse_inspection(mapping(result.get("late"))),
++            }
++        )
++        if handler == "unknown" or child == "unknown":
++            problems.append(f"{mode}: handler {handler}, child {child}")
++        if original["expected"] is not True:
++            problems.append(f"{mode}: the original request has an unexpected outcome")
++        if any(f["class"] == "unknown" for f in follow):
++            problems.append(f"{mode}: a follow-up outcome is unknown")
++        if mode != "term" and handler != "deadline":
++            problems.append(f"{mode}: the control did not end at the deadline")
++    return {"problems": problems, "modes": verdicts}
++
++
++def live_main(out: Path) -> int:
++    summary = json.loads((out / "summary.json").read_text())
++    report = live_check(summary, Path(str(summary.get("run", ""))))
++    (out / "check.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
++    for verdict in report["modes"]:
++        follow = " ".join(f"{f['name']}={f['class']}" for f in verdict["follow"]) or "-"
++        hi = verdict["handler_gone_by"]
++        print(
++            f"{verdict['mode']:<10} handler {verdict['handler']:<9} "
++            f"({verdict['handler_basis']}, {'?' if hi is None else f'{hi:.2f}'}) "
++            f"child {verdict['child']:<18} {follow}"
++        )
++    for problem in report["problems"]:
++        print(f"PROBLEM {problem}")
++    return 0 if not report["problems"] else 1
++
++
++def main(argv: list[str]) -> int:
++    if len(argv) != 3 or argv[1] not in ("container", "live"):
++        print(__doc__, file=sys.stderr)
++        return 64
++    if argv[1] == "container":
++        return container_main(Path(argv[2]))
++    return live_main(Path(argv[2]))
++
++
++if __name__ == "__main__":
++    raise SystemExit(main(sys.argv))
+diff --git a/experiments/exec-reliability/linux_k6_run.sh b/experiments/exec-reliability/linux_k6_run.sh
+new file mode 100755
+index 0000000000..b2d8e7ffa0
+--- /dev/null
++++ b/experiments/exec-reliability/linux_k6_run.sh
+@@ -0,0 +1,69 @@
++#!/bin/sh
++# One Linux disconnect availability run (leaf linux-disconnect-availability-k6).
++# Usage: linux_k6_run.sh container|live OUT
++# `container` runs the seven HTTP and client controls in one fresh container of the
++# pinned k5 image. `live` runs the k13 burst on one fresh unchanged Linux clone.
++# The outer records read only: inventories, source identity, host identity and agent bundle.
++# tooling-before.sha256 and tooling-after.sha256 hold the digests of the tools that decide
++# the outcome. The first is taken before the probe, the second after the check.
++# The probe verdict is True only when every call ends as planned. A blocked channel or a
++# surviving child is a finding, so verdict True can still go with a reproduced failure.
++# The script exits 0 only when the probe exits 0 with verdict True, the check exits 0
++# and the two tool digest lists are equal. Otherwise it exits 1.
++set -u
++MODE=$1
++OUT=$2
++case "$MODE" in container|live) ;; *) echo "usage: linux_k6_run.sh container|live OUT" >&2; exit 64 ;; esac
++test ! -e "$OUT" && test ! -e "$OUT-outer" || { echo "refusing an existing OUT: $OUT" >&2; exit 2; }
++HERE=experiments/exec-reliability
++BUNDLE=/opt/homebrew/opt/testanyware/share/testanyware/agents/linux/testanyware_agent
++TOOLS="$HERE/linux_k6_run.sh $HERE/linux_k6.py $HERE/linux_k6_seam.py $HERE/linux_k6_check.py
++$HERE/disconnect_k13_burst.py $HERE/disconnect_k13_check.py $HERE/disconnect_k13_seam.py
++$HERE/linux_k204.py $HERE/linux_k5.py $HERE/linux_k5_seam.py $HERE/outcomes_k12_seam.py
++$HERE/routes_k19.py $HERE/controller.py $HERE/inspection.py $HERE/retention.py
++$HERE/storage_client.py $HERE/turns.py $HERE/worker_capture.py $HERE/writer.py
++$HERE/linux_k5_stub/gi/__init__.py $HERE/linux_k5_stub/gi/repository/__init__.py
++$HERE/linux_k5_stub/pyatspi/__init__.py agents/linux/testanyware_agent/*.py
++$HERE/pyproject.toml $HERE/uv.lock scripts/vm_inventory.py Taskfile.yml"
++mkdir -p "$OUT-outer"
++# shellcheck disable=SC2086 # TOOLS is a fixed list of paths without spaces.
++shasum -a 256 $TOOLS > "$OUT-outer/tooling-before.sha256"
++jj log -r @- --no-graph -T 'commit_id ++ "\n"' > "$OUT-outer/source-commit"
++jj diff --git > "$OUT-outer/source-dirty.diff"
++sysctl hw.ncpu hw.activecpu hw.memsize > "$OUT-outer/host-sysctl"
++shasum -a 256 agents/linux/testanyware_agent/*.py > "$OUT-outer/checkout-agent.sha256"
++if test "$MODE" = live; then
++  testanyware --version > "$OUT-outer/cli-version"
++  tart --version > "$OUT-outer/tart-version"
++  shasum -a 256 "$BUNDLE"/*.py > "$OUT-outer/bundle-agent.sha256"
++  tart list --format json > "$OUT-outer/tart-before.json"
++  testanyware vm list --json --all > "$OUT-outer/vm-before.json"
++else
++  docker version --format '{{json .}}' > "$OUT-outer/docker-version.json"
++  docker ps -a --format '{{json .}}' > "$OUT-outer/containers-before.jsonl"
++fi
++uv run --project "$HERE" --locked python "$HERE/linux_k6.py" "$MODE" "$OUT" > "$OUT-outer/probe.stdout" 2> "$OUT-outer/probe.stderr"
++echo $? > "$OUT-outer/probe.exit"
++if test "$MODE" = live; then
++  tart list --format json > "$OUT-outer/tart-after.json"
++  testanyware vm list --json --all > "$OUT-outer/vm-after.json"
++else
++  docker ps -a --format '{{json .}}' > "$OUT-outer/containers-after.jsonl"
++fi
++if test -f "$OUT/summary.json"; then
++  uv run --project "$HERE" --locked python "$HERE/linux_k6_check.py" "$MODE" "$OUT" > "$OUT-outer/check.stdout"
++  echo $? > "$OUT-outer/check.exit"
++else
++  echo "no summary in OUT" > "$OUT-outer/check.exit"
++fi
++# shellcheck disable=SC2086 # TOOLS is a fixed list of paths without spaces.
++shasum -a 256 $TOOLS > "$OUT-outer/tooling-after.sha256"
++cat "$OUT-outer/probe.stdout" "$OUT-outer/probe.exit"
++test -f "$OUT-outer/check.stdout" && cat "$OUT-outer/check.stdout"
++STATUS=0
++test "$(cat "$OUT-outer/probe.exit")" = 0 || { echo "probe exit $(cat "$OUT-outer/probe.exit")" >&2; STATUS=1; }
++grep -q '^verdict True run ' "$OUT-outer/probe.stdout" || { echo "probe verdict is not True" >&2; STATUS=1; }
++test "$(cat "$OUT-outer/check.exit")" = 0 || { echo "check exit $(cat "$OUT-outer/check.exit")" >&2; STATUS=1; }
++cmp -s "$OUT-outer/tooling-before.sha256" "$OUT-outer/tooling-after.sha256" || { echo "tool digests changed during the run" >&2; STATUS=1; }
++echo "$STATUS" > "$OUT-outer/run.exit"
++exit "$STATUS"
+diff --git a/experiments/exec-reliability/linux_k6_seam.py b/experiments/exec-reliability/linux_k6_seam.py
+new file mode 100644
+index 0000000000..b6b35790ca
+--- /dev/null
++++ b/experiments/exec-reliability/linux_k6_seam.py
+@@ -0,0 +1,525 @@ class Case:
++"""Run the k6 Linux disconnect cases in one container and print the raw evidence.
++
++Usage:
++  linux_k6_seam.py RUN cases
++  linux_k6_seam.py RUN agent PORT serial|threading
++
++RUN is the run tag: 12 decimal digits that the runner derives from its run ID.
++`cases` runs every case and prints one JSON object on stdout. Bytes are hex.
++The script judges nothing. `linux_k6_check.py` judges the object. `agent` is
++the agent launcher that `cases` starts once for each case.
++
++The script runs inside one fresh container. The container mounts the unchanged
++agent at /agent, the k5 desktop stubs at /stub and this directory at /seam.
++Client, agent and process table share one Linux kernel and one loopback.
++
++Each case starts a fresh agent. The client sends the issue #14 fork/wait shape
++with a guest timeout of 20 s on a raw socket. At 2 s the case acts on the
++original connection. Then it sends health, an ordinary exec and a download of
++the partial file, one after the other, each on its own connection.
++
++- `serial-control` reads the original response, then sends the follow-ups.
++- `serial-concurrent` keeps the original connection open and reading.
++- `serial-close` closes the original connection.
++- `serial-reset` resets the original connection.
++- `serial-half-close` shuts down the write half and keeps reading.
++- `host-deadline` keeps reading, and first sends a health request with a 5 s
++  client deadline. When the deadline passes, it closes that connection.
++- `threaded-reset` resets the original connection. Its agent serves the
++  unchanged `AgentRequestHandler` from `ThreadingHTTPServer`. It is the
++  identified experimental control `experimental: threading-server`.
++
++Two watchers sample every 50 ms. Each recorded change keeps the times of its
++sample and of the sample before it. The process watcher records the payload shell
++and its `sleep` child. The handler kills the shell at the deadline, so the exit
++of the shell marks the end of the original handler. The socket watcher records
++each row of /proc/net/tcp that has the agent port. On the listening row,
++`rx_queue` is the accept-queue length. On an agent connection row, `rx_queue` is
++the count of request bytes that the agent has not read.
++
++The sleep of each case is `120.<digit>` seconds followed by the run tag. After
++each case the script kills the shell and the sleep of the token with a pidfd,
++after it reads the start ticks again. It then stops the agent.
++"""
++
++from __future__ import annotations
++
++import importlib
++import json
++import os
++import platform
++import re
++import signal
++import socket
++import struct
++import subprocess
++import sys
++import tempfile
++import threading
++import time
++from dataclasses import dataclass
++from pathlib import Path
++from typing import Any
++
++from linux_k5_seam import kill_here, proc_rows
++
++GUEST_TIMEOUT = 20  # the issue #14 guest timeout
++ACT_AFTER = 2.0  # the case acts on the original connection at this time
++FOLLOW_BOUND = 30.0  # the ordinary bound of one follow-up request
++TRANSFER_BOUND = 150.0  # the bound of the partial-file download
++HOST_DEADLINE = 5.0  # the client deadline of the `host-deadline` health request
++ORDINARY_TIMEOUT = 10  # the guest timeout of the ordinary follow-up exec
++ORIGINAL_BOUND = GUEST_TIMEOUT + 20.0  # the raw host exec ceiling
++OBSERVE_BOUND = 35.0  # deadline 20 s + terminate wait 3 s + 12 s of margin
++READY_BOUND = 10.0  # a fresh agent must accept a connection within this
++STOP_WAIT = 2.0  # the TERM wait, and then the KILL wait, of one agent
++KILL_WAIT = 2.0  # owned processes must be gone within this after SIGKILL
++POLL = 0.05
++FIRST_PORT = 18648
++ORDINARY = "printf ordinary-ok"
++PARTIAL = b"partial\n"
++RUN_TAG = re.compile(r"^[0-9]{12}$")
++LISTEN = "0A"
++
++
++@dataclass(frozen=True)
++class Case:
++    name: str
++    server: str  # "serial" or "threading"
++    action: str  # "none", "keep", "close", "reset", "half-close" or "deadline"
++
++
++CASES = (
++    Case("serial-control", "serial", "none"),
++    Case("serial-concurrent", "serial", "keep"),
++    Case("serial-close", "serial", "close"),
++    Case("serial-reset", "serial", "reset"),
++    Case("serial-half-close", "serial", "half-close"),
++    Case("host-deadline", "serial", "deadline"),
++    Case("threaded-reset", "threading", "reset"),
++)
++
++
++def now_ns() -> int:
++    return time.monotonic_ns()
++
++
++def token(index: int, tag: str) -> str:
++    return f"120.{index + 1}{tag}"
++
++
++def payload(sleep: str, directory: str) -> str:
++    """The fork/wait shape of issue #14, as in `disconnect_k13_burst.payload`."""
++    return "\n".join(
++        (
++            f"mkdir -p {directory}",
++            f"sleep {sleep} &",
++            "child=$!",
++            f"printf '%s\\n' \"$child\" > {directory}/child.pid",
++            f"printf 'partial\\n' > {directory}/partial",
++            "wait",
++        )
++    )
++
++
++def http_request(method: str, target: str, port: int, body: bytes = b"") -> bytes:
++    head = f"{method} {target} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\n"
++    if method == "POST":
++        head += f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n"
++    return head.encode() + b"\r\n" + body
++
++
++def exec_request(port: int, command: str, timeout: int) -> bytes:
++    body = json.dumps({"command": command, "timeout": timeout}).encode()
++    return http_request("POST", "/exec", port, body)
++
++
++# ---- watchers ----
++
++
++def tcp_rows(port: int) -> list[tuple[str, str, str, int, int]]:
++    """The /proc/net/tcp rows with `port` at either end: local, remote, state, tx, rx."""
++    wanted = f"{port:04X}"
++    rows: list[tuple[str, str, str, int, int]] = []
++    for line in Path("/proc/net/tcp").read_text().splitlines()[1:]:
++        fields = line.split()
++        local, remote, state, queues = fields[1], fields[2], fields[3], fields[4]
++        if local.endswith(":" + wanted) or remote.endswith(":" + wanted):
++            tx, rx = queues.split(":")
++            rows.append((local, remote, state, int(tx, 16), int(rx, 16)))
++    return sorted(rows)
++
++
++class Watch:
++    """Sample one source every POLL seconds and keep each change with its time."""
++
++    def __init__(self, sample: Any) -> None:
++        self.sample = sample
++        self.changes: list[dict[str, Any]] = []
++        self.stopped = threading.Event()
++        self.thread = threading.Thread(target=self._run, daemon=True)
++        self.thread.start()
++
++    def _run(self) -> None:
++        """Each change keeps `prev_ns`, the time of the last sample before it.
++
++        The change happened in the interval from `prev_ns` to `ns`.
++        """
++        last: Any = None
++        prev_ns: int | None = None
++        while not self.stopped.is_set():
++            try:
++                value = self.sample()
++            except OSError as error:
++                value = {"error": str(error)}
++            ns = now_ns()
++            if value != last:
++                self.changes.append({"ns": ns, "prev_ns": prev_ns, "value": value})
++                last = value
++            prev_ns = ns
++            self.stopped.wait(POLL)
++
++    def stop(self) -> list[dict[str, Any]]:
++        self.stopped.set()
++        self.thread.join(timeout=2 * POLL + 1.0)
++        return self.changes
++
++
++def payload_rows(sleep: str) -> list[dict[str, Any]]:
++    """The payload shell and its sleep child: role, pid, state, ppid and start ticks."""
++    found: list[dict[str, Any]] = []
++    for row in proc_rows():
++        argv = row["argv"]
++        if argv == ["sleep", sleep]:
++            role = "child"
++        elif argv[:2] == ["/bin/bash", "-c"] and f"sleep {sleep} &" in " ".join(argv):
++            role = "shell"
++        else:
++            continue
++        found.append(
++            {
++                "role": role,
++                "pid": row["pid"],
++                "state": row["state"],
++                "ppid": row["ppid"],
++                "pgid": row["pgid"],
++                "start_ticks": row["start_ticks"],
++            }
++        )
++    return found
++
++
++# ---- one connection ----
++
++
++class Exchange:
++    """One request on its own socket, read to EOF or to its deadline."""
++
++    def __init__(self, name: str, port: int, request: bytes, bound: float) -> None:
++        self.name = name
++        self.port = port
++        self.request = request
++        self.bound = bound
++        self.record: dict[str, Any] = {"name": name, "bound": bound}
++        self.sock: socket.socket | None = None
++        self.done = threading.Event()
++
++    def open(self) -> None:
++        self.record["start_ns"] = now_ns()
++        sock = socket.create_connection(("127.0.0.1", self.port), timeout=self.bound)
++        self.sock = sock
++        self.record["connected_ns"] = now_ns()
++        self.record["local_port"] = sock.getsockname()[1]
++        sock.sendall(self.request)
++        self.record["sent_ns"] = now_ns()
++
++    def read(self) -> None:
++        """Read until EOF, an error or the deadline. The record keeps every outcome."""
++        assert self.sock is not None
++        received = bytearray()
++        deadline = self.record["start_ns"] + int(self.bound * 1e9)
++        try:
++            while True:
++                left = (deadline - now_ns()) / 1e9
++                if left <= 0:
++                    self.record["bound_exceeded"] = True
++                    break
++                self.sock.settimeout(left)
++                try:
++                    chunk = self.sock.recv(65536)
++                except TimeoutError:
++                    self.record["bound_exceeded"] = True
++                    break
++                if not chunk:
++                    break
++                if not received:
++                    self.record["first_byte_ns"] = now_ns()
++                received.extend(chunk)
++        except OSError as error:
++            self.record["error"] = f"{type(error).__name__}: {error}"
++        finally:
++            self.record["end_ns"] = now_ns()
++            self.record["response_hex"] = bytes(received).hex()
++            self.done.set()
++
++    def run(self) -> dict[str, Any]:
++        try:
++            self.open()
++        except OSError as error:
++            self.record["error"] = f"{type(error).__name__}: {error}"
++            self.record["end_ns"] = now_ns()
++            self.done.set()
++            return self.record
++        self.read()
++        self.close()
++        return self.record
++
++    def close(self) -> None:
++        if self.sock is not None:
++            self.sock.close()
++
++
++def act(original: Exchange, action: str) -> dict[str, Any]:
++    """Apply the case action to the original connection, and record its time."""
++    assert original.sock is not None
++    record: dict[str, Any] = {"action": action, "ns": now_ns()}
++    if action == "close":
++        original.sock.close()
++    elif action == "reset":
++        original.sock.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0))
++        original.sock.close()
++    elif action == "half-close":
++        original.sock.shutdown(socket.SHUT_WR)
++    record["done_ns"] = now_ns()
++    return record
++
++
++# ---- agents ----
++
++
++def agent(port: int, kind: str) -> None:
++    """Serve the unchanged agent handler. `threading` is the experimental control."""
++    sys.path[:0] = ["/stub", "/agent"]
++    server: Any = importlib.import_module("testanyware_agent.server")
++
++    if kind == "serial":
++        server.run_server(port)  # the unchanged entry: a plain HTTPServer
++        return
++    from http.server import ThreadingHTTPServer
++
++    ThreadingHTTPServer(("0.0.0.0", port), server.AgentRequestHandler).serve_forever()
++
++
++def start_agent(tag: str, port: int, kind: str, logs: Path) -> tuple[subprocess.Popen[bytes], Any]:
++    argv = [sys.executable, "-E", "-s", "-B", __file__, tag, "agent", str(port), kind]
++    out = (logs / f"agent-{port}.out").open("wb")
++    child = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=out)
++    return child, out
++
++
++def wait_ready(port: int) -> dict[str, Any]:
++    start = now_ns()
++    deadline = start + int(READY_BOUND * 1e9)
++    while now_ns() < deadline:
++        try:
++            socket.create_connection(("127.0.0.1", port), timeout=1.0).close()
++            return {"ready": True, "seconds": (now_ns() - start) / 1e9}
++        except OSError:
++            time.sleep(POLL)
++    return {"ready": False, "seconds": (now_ns() - start) / 1e9}
++
++
++def stop_agent(child: subprocess.Popen[bytes]) -> list[dict[str, Any]]:
++    steps: list[dict[str, Any]] = []
++    for sig in (signal.SIGTERM, signal.SIGKILL):
++        if child.poll() is not None:
++            break
++        child.send_signal(sig)
++        try:
++            child.wait(timeout=STOP_WAIT)
++        except subprocess.TimeoutExpired:
++            steps.append({"signal": sig.name, "exited": False})
++            continue
++        steps.append({"signal": sig.name, "exited": True})
++    steps.append({"returncode": child.poll()})
++    return steps
++
++
++# ---- one case ----
++
++
++def wait_until(mark_ns: int) -> None:
++    left = (mark_ns - now_ns()) / 1e9
++    if left > 0:
++        time.sleep(left)
++
++
++def follow_ups(case: Case, port: int, directory: str) -> list[dict[str, Any]]:
++    steps: list[tuple[str, bytes, float]] = []
++    if case.action == "deadline":
++        steps.append(("health-deadline", http_request("GET", "/health", port), HOST_DEADLINE))
++    steps += [
++        ("health", http_request("GET", "/health", port), FOLLOW_BOUND),
++        ("ordinary", exec_request(port, ORDINARY, ORDINARY_TIMEOUT), FOLLOW_BOUND),
++        (
++            "download",
++            http_request("POST", f"/download?path={directory}/partial", port),
++            TRANSFER_BOUND,
++        ),
++    ]
++    return [Exchange(name, port, request, bound).run() for name, request, bound in steps]
++
++
++def handler_gone(watch: Watch) -> bool:
++    """True once the shell was seen and the latest sample no longer holds it."""
++    seen = any(
++        any(row.get("role") == "shell" for row in change["value"]) for change in watch.changes
++    )
++    latest: list[Any] = watch.changes[-1]["value"] if watch.changes else []
++    return seen and not any(row.get("role") == "shell" for row in latest)
++
++
++def cleanup(sleep: str) -> dict[str, Any]:
++    """Kill the shell and the sleep of this token, then confirm that both are gone."""
++    targets = [(row["pid"], row["start_ticks"]) for row in payload_rows(sleep)]
++    kills = kill_here(targets)
++    deadline = now_ns() + int(KILL_WAIT * 1e9)
++    left = payload_rows(sleep)
++    while left and now_ns() < deadline:
++        time.sleep(POLL)
++        left = payload_rows(sleep)
++    return {"kills": kills, "left": left}
++
++
++def run_case(index: int, case: Case, tag: str, root: Path) -> dict[str, Any]:
++    port = FIRST_PORT + index
++    sleep = token(index, tag)
++    directory = str(root / case.name)
++    record: dict[str, Any] = {"case": case.name, "server": case.server, "port": port}
++    record["token"] = sleep
++    child, log = start_agent(tag, port, case.server, root)
++    try:
++        record["ready"] = wait_ready(port)
++        if not record["ready"]["ready"]:
++            return record
++        processes = Watch(lambda: payload_rows(sleep))
++        sockets = Watch(lambda: tcp_rows(port))
++        request = exec_request(port, payload(sleep, directory), GUEST_TIMEOUT)
++        original = Exchange("original", port, request, ORIGINAL_BOUND)
++        original.open()
++        start = original.record["start_ns"]
++        record["start_ns"] = start
++        reader: threading.Thread | None = None
++        if case.action not in ("close", "reset"):
++            reader = threading.Thread(target=original.read, daemon=True)
++            reader.start()
++        wait_until(start + int(ACT_AFTER * 1e9))
++        if case.action == "none":
++            original.done.wait(ORIGINAL_BOUND + 1.0)
++        else:
++            record["act"] = act(original, case.action)
++        record["follow"] = follow_ups(case, port, directory)
++        deadline = start + int(OBSERVE_BOUND * 1e9)
++        while not handler_gone(processes) and now_ns() < deadline:
++            time.sleep(POLL)
++        if reader is not None:
++            reader.join(timeout=max(0.0, (deadline - now_ns()) / 1e9))
++        original.close()
++        record["original"] = original.record
++        record["after_handler"] = {"ns": now_ns(), "rows": payload_rows(sleep)}
++        record["evidence"] = evidence(directory)
++        record["cleanup"] = cleanup(sleep)
++        record["processes"] = processes.stop()
++        record["sockets"] = sockets.stop()
++    finally:
++        record["agent_stop"] = stop_agent(child)
++        log.close()
++        record["agent_log_hex"] = (root / f"agent-{port}.out").read_bytes().hex()
++    return record
++
++
++def evidence(directory: str) -> dict[str, Any]:
++    """The partial file and the child PID file, read on this kernel."""
++    found: dict[str, Any] = {}
++    for name in ("partial", "child.pid"):
++        try:
++            found[name] = Path(directory, name).read_bytes().hex()
++        except OSError as error:
++            found[name] = f"unreadable: {error}"
++    return found
++
++
++def owned_by_run(argv: list[str], tag: str) -> bool:
++    """True for a payload sleep, a payload shell or an agent launcher of this run.
++
++    The container init and this script also name the tag, but only as their
++    own arguments. Neither is a payload or an agent, so neither matches.
++    """
++    if (
++        len(argv) == 2
++        and argv[0] == "sleep"
++        and argv[1].startswith("120.")
++        and argv[1].endswith(tag)
++    ):
++        return True
++    if argv[:2] == ["/bin/bash", "-c"] and len(argv) >= 3 and f"{tag} &" in argv[2]:
++        return True
++    return tag in argv and argv[argv.index(tag) + 1 :][:1] == ["agent"]
++
++
++def final_sweep(tag: str) -> dict[str, Any]:
++    """Every process that still names the run tag, and the kill of each."""
++    rows = [row for row in proc_rows() if owned_by_run(row["argv"], tag)]
++    kills = kill_here([(row["pid"], row["start_ticks"]) for row in rows])
++    return {"rows": rows, "kills": kills}
++
++
++def bounds() -> dict[str, Any]:
++    return {
++        "guest_timeout": GUEST_TIMEOUT,
++        "act_after": ACT_AFTER,
++        "follow_bound": FOLLOW_BOUND,
++        "transfer_bound": TRANSFER_BOUND,
++        "host_deadline": HOST_DEADLINE,
++        "ordinary_timeout": ORDINARY_TIMEOUT,
++        "original_bound": ORIGINAL_BOUND,
++        "observe_bound": OBSERVE_BOUND,
++        "ready_bound": READY_BOUND,
++        "stop_wait": STOP_WAIT,
++        "kill_wait": KILL_WAIT,
++        "poll": POLL,
++    }
++
++
++def cases(tag: str) -> dict[str, Any]:
++    result: dict[str, Any] = {
++        "tag": tag,
++        "python": sys.version,
++        "kernel": platform.release(),
++        "uid": os.getuid(),
++        "pid": os.getpid(),
++        "bounds": bounds(),
++        "cases": [],
++    }
++    root = Path(tempfile.mkdtemp(prefix="k6-"))
++    try:
++        for index, case in enumerate(CASES):
++            result["cases"].append(run_case(index, case, tag, root))
++    finally:
++        result["final_sweep"] = final_sweep(tag)
++    return result
++
++
++def main(argv: list[str]) -> int:
++    if len(argv) >= 3 and RUN_TAG.fullmatch(argv[1]) and argv[2] == "agent" and len(argv) == 5:
++        agent(int(argv[3]), argv[4])
++        return 0
++    if len(argv) == 3 and RUN_TAG.fullmatch(argv[1]) and argv[2] == "cases":
++        print(json.dumps(cases(argv[1])), flush=True)
++        return 0
++    print(__doc__, file=sys.stderr)
++    return 64
++
++
++if __name__ == "__main__":
++    sys.exit(main(sys.argv))
+diff --git a/experiments/exec-reliability/test_linux_k6.py b/experiments/exec-reliability/test_linux_k6.py
+new file mode 100644
+index 0000000000..dc4aedf391
+--- /dev/null
++++ b/experiments/exec-reliability/test_linux_k6.py
+@@ -0,0 +1,273 @@ def http(status: int, body: bytes) -> str:
++"""Controls for the k6 Linux disconnect tooling (leaf linux-disconnect-availability-k6).
++
++Each container control builds a run directory without Docker. The cases are
++synthetic records in the shape that `linux_k6_seam.py cases` prints. The
++control case answers its follow-ups after the handler. A test case then
++changes one property and expects the checker to classify it.
++"""
++
++import json
++from pathlib import Path
++from typing import Any
++
++import pytest
++
++import controller
++import linux_k6
++import linux_k6_check as checker
++import linux_k6_seam as seam
++
++S = 1_000_000_000
++START = 100 * S
++PORT = 18648
++SHELL = {"role": "shell", "pid": 10, "ppid": 5}
++CHILD = {"role": "child", "pid": 11, "ppid": 10}
++ORPHAN = {"role": "child", "pid": 11, "ppid": 1}
++
++
++def http(status: int, body: bytes) -> str:
++    head = f"HTTP/1.0 {status} OK\r\nContent-Type: application/json\r\n\r\n".encode()
++    return (head + body).hex()
++
++
++HEALTH = http(200, json.dumps(checker.HEALTH_BODY).encode())
++ORDINARY = http(200, json.dumps({"exitCode": 0, "stdout": "ordinary-ok", "stderr": ""}).encode())
++DOWNLOAD = http(200, seam.PARTIAL)
++DEADLINE = http(200, json.dumps(checker.DEADLINE_BODY).encode())
++REPLIES = {"health": HEALTH, "health-deadline": HEALTH, "ordinary": ORDINARY, "download": DOWNLOAD}
++
++
++def at(seconds: float) -> int:
++    return START + int(seconds * S)
++
++
++def follow(name: str, began: float, latency: float, port: int) -> dict[str, Any]:
++    return {
++        "name": name,
++        "start_ns": at(began),
++        "end_ns": at(began + latency),
++        "response_hex": REPLIES[name],
++        "bound": seam.FOLLOW_BOUND,
++        "bound_exceeded": False,
++        "error": None,
++        "local_port": port,
++    }
++
++
++def case(name: str, server: str = "serial", gone: float = 20.05) -> dict[str, Any]:
++    """One case whose shell ends at `gone` and whose child survives."""
++    processes = [
++        {"ns": at(0.05), "prev_ns": at(0.0), "value": [SHELL, CHILD]},
++        {"ns": at(gone), "prev_ns": at(gone - seam.POLL), "value": [ORPHAN]},
++    ]
++    if name == checker.CONTROL:
++        records = [
++            follow("health", 20.06, 0.001, 50001),
++            follow("ordinary", 20.07, 0.002, 50002),
++            follow("download", 20.08, 0.001, 50003),
++        ]
++    else:
++        records = [
++            follow("health", 2.0, gone + 0.01 - 2.0, 50001),
++            follow("ordinary", gone + 0.02, 0.002, 50002),
++            follow("download", gone + 0.03, 0.001, 50003),
++        ]
++    return {
++        "case": name,
++        "server": server,
++        "port": PORT,
++        "ready": {"ready": True},
++        "start_ns": START,
++        "processes": processes,
++        "after_handler": {"rows": [ORPHAN]},
++        "original": {"response_hex": DEADLINE, "end_ns": at(20.01), "local_port": 50000},
++        "act": {},
++        "follow": records,
++        "sockets": [],
++        "evidence": {},
++        "cleanup": {"kills": [{"pid": 11, "why": "killed"}], "left": []},
++        "agent_stop": {},
++        "agent_log_hex": "",
++    }
++
++
++def cases() -> list[dict[str, Any]]:
++    result = [case(c.name, c.server) for c in seam.CASES]
++    threaded = result[-1]
++    threaded["follow"] = [
++        follow("health", 2.0, 0.002, 50001),
++        follow("ordinary", 2.01, 0.002, 50002),
++        follow("download", 2.02, 0.001, 50003),
++    ]
++    return result
++
++
++def run_dir(tmp_path: Path, items: list[dict[str, Any]], ok: bool = True) -> Path:
++    run = tmp_path / "run"
++    run.mkdir()
++    (run / "cases.json").write_text(json.dumps({"ok": ok}))
++    output: dict[str, Any] = {"cases": items, "final_sweep": {"rows": []}, "bounds": seam.bounds()}
++    (run / "cases.stdout").write_text(json.dumps(output))
++    return run
++
++
++def judge(tmp_path: Path, items: list[dict[str, Any]]) -> dict[str, Any]:
++    return checker.container_check({"verdict": True}, run_dir(tmp_path, items))
++
++
++def classes(report: dict[str, Any], name: str) -> dict[str, str]:
++    verdict = next(v for v in report["cases"] if v["case"] == name)
++    return {f["name"]: f["class"] for f in verdict["follow"]}
++
++
++# ---- shape ----
++
++
++def test_cases_and_bounds_are_frozen() -> None:
++    names = [c.name for c in seam.CASES]
++    assert names[0] == checker.CONTROL
++    assert [c.server for c in seam.CASES].count("threading") == 1
++    assert seam.GUEST_TIMEOUT == 20
++    assert seam.ACT_AFTER == 2.0
++    assert seam.FOLLOW_BOUND == 30
++    assert seam.TRANSFER_BOUND == 150
++    assert checker.LATENCY_ALLOWANCE == 5.0
++
++
++def test_both_plans_pass_the_controller_rules(tmp_path: Path) -> None:
++    controller._validate(linux_k6.container_plan("/usr/bin/python3"), None)  # pyright: ignore[reportPrivateUsage]
++    tools = {"python": "/usr/bin/python3", "cli": "/bin/testanyware", "tart": "/bin/tart"}
++    controller._validate(linux_k6.live_plan(tools, tmp_path), None)  # pyright: ignore[reportPrivateUsage]
++
++
++def test_the_sweep_owns_payloads_and_agents_but_not_the_container_init() -> None:
++    tag = "000000000042"
++    assert seam.owned_by_run(["sleep", f"120.3{tag}"], tag)
++    assert seam.owned_by_run(["/bin/bash", "-c", f"sleep 120.3{tag} & wait"], tag)
++    assert seam.owned_by_run(["python3", "/seam/linux_k6_seam.py", tag, "agent", "18649"], tag)
++    assert not seam.owned_by_run(["/sbin/docker-init", "--", "python3", "x.py", tag, "cases"], tag)
++    assert not seam.owned_by_run(["python3", "/seam/linux_k6_seam.py", tag, "cases"], tag)
++
++
++# ---- container oracle ----
++
++
++def test_clean_cases_are_complete_and_queued_health_is_blocked(tmp_path: Path) -> None:
++    report = judge(tmp_path, cases())
++    assert report["problems"] == []
++    assert set(classes(report, checker.CONTROL).values()) == {"baseline"}
++    assert classes(report, "serial-reset") == {
++        "health": "blocked",
++        "ordinary": "responsive",
++        "download": "responsive",
++    }
++    assert set(classes(report, "threaded-reset").values()) == {"responsive"}
++    for verdict in report["cases"]:
++        assert verdict["handler"]["class"] == "deadline"
++        assert verdict["child"]["class"] == "survived-handler"
++
++
++def test_a_fast_answer_that_spans_the_handler_end_is_blocked(tmp_path: Path) -> None:
++    items = cases()
++    items[3]["follow"][0] = follow("health", 19.9, 0.2, 50001)
++    report = judge(tmp_path, items)
++    assert classes(report, "serial-reset")["health"] == "blocked"
++
++
++def test_an_exceeded_bound_or_wrong_body_is_failed(tmp_path: Path) -> None:
++    items = cases()
++    items[5]["follow"][0]["bound_exceeded"] = True
++    items[5]["follow"][0]["response_hex"] = ""
++    items[4]["follow"][2]["response_hex"] = http(200, b"other\n")
++    report = judge(tmp_path, items)
++    assert classes(report, "host-deadline")["health"] == "failed"
++    assert classes(report, "serial-half-close")["download"] == "failed"
++    assert report["problems"] == []
++
++
++@pytest.mark.parametrize(
++    ("gone", "expected"), [(10.0, "cancelled"), (20.05, "deadline"), (30.0, "overran")]
++)
++def test_the_handler_class_follows_the_shell_end(
++    tmp_path: Path, gone: float, expected: str
++) -> None:
++    items = cases()
++    items[3] = case("serial-reset", gone=gone)
++    report = judge(tmp_path, items)
++    verdict = next(v for v in report["cases"] if v["case"] == "serial-reset")
++    assert verdict["handler"]["class"] == expected
++
++
++def test_a_child_that_ends_with_the_shell_did_not_survive(tmp_path: Path) -> None:
++    items = cases()
++    items[2]["after_handler"] = {"rows": []}
++    items[2]["processes"][1]["value"] = []
++    report = judge(tmp_path, items)
++    verdict = next(v for v in report["cases"] if v["case"] == "serial-close")
++    assert verdict["child"]["class"] == "ended-with-handler"
++
++
++@pytest.mark.parametrize(
++    "edit",
++    ["no-shell", "left", "control-late", "receipt", "missing-case"],
++)
++def test_incomplete_evidence_is_a_problem(tmp_path: Path, edit: str) -> None:
++    items = cases()
++    ok = True
++    if edit == "no-shell":
++        items[1]["processes"] = []
++        items[1]["after_handler"] = {"rows": []}
++    elif edit == "left":
++        items[1]["cleanup"]["left"] = [ORPHAN]
++    elif edit == "control-late":
++        items[0] = case(checker.CONTROL, gone=30.0)
++    elif edit == "receipt":
++        ok = False
++    else:
++        del items[2]
++    report = checker.container_check({"verdict": True}, run_dir(tmp_path, items, ok))
++    assert report["problems"]
++
++
++def test_the_queue_record_reads_unread_request_bytes(tmp_path: Path) -> None:
++    items = cases()
++    agent = f"0100007F:{PORT:04X}"
++    remote = "0100007F:C351"  # 50001, the health follow-up
++    items[3]["sockets"] = [
++        {"ns": at(0.0), "prev_ns": None, "value": [[f"00000000:{PORT:04X}", "x", "0A", 0, 0]]},
++        {
++            "ns": at(2.05),
++            "prev_ns": at(2.0),
++            "value": [[f"00000000:{PORT:04X}", "x", "0A", 0, 1], [agent, remote, "01", 0, 66]],
++        },
++        {"ns": at(20.06), "prev_ns": at(20.01), "value": [[agent, remote, "01", 0, 0]]},
++    ]
++    report = judge(tmp_path, items)
++    verdict = next(v for v in report["cases"] if v["case"] == "serial-reset")
++    assert verdict["listen_peak"] == 1
++    queue = verdict["follow"][0]["queue"]
++    assert queue == {"waited_from": pytest.approx(2.05), "read_by": pytest.approx(20.06)}
++    assert verdict["queue_release"] == pytest.approx(0.01)
++
++
++# ---- live rule ----
++
++
++def k13_result(lo: float | None, hi: float | None, handler: str = "unknown") -> Any:
++    def stand_in(_result: dict[str, Any]) -> tuple[str, float | None, float | None]:
++        return handler, lo, hi
++
++    return stand_in
++
++
++def test_live_handler_uses_the_queue_release_without_an_alive_sighting(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    monkeypatch.setattr(checker.k13, "live_handler", k13_result(None, 20.1))
++    assert checker.live_handler({}) == ("deadline", None, 20.1, "queue-release")
++    monkeypatch.setattr(checker.k13, "live_handler", k13_result(None, 3.0))
++    assert checker.live_handler({})[0] == "cancelled"
++    monkeypatch.setattr(checker.k13, "live_handler", k13_result(18.0, 20.1, "deadline"))
++    assert checker.live_handler({}) == ("deadline", 18.0, 20.1, "bracket")
++    monkeypatch.setattr(checker.k13, "live_handler", k13_result(None, None))
++    assert checker.live_handler({})[0] == "unknown"
