@@ -389,8 +389,13 @@ def _disposal(run: Path) -> list[str]:
     return failures
 
 
-def check(run: Path) -> dict[str, Any]:
-    """Judge one run directory and return the checker's JSON object."""
+def check(
+    run: Path, shape: tuple[str, ...] = SHAPE, observations: tuple[str, ...] = OBSERVATIONS
+) -> dict[str, Any]:
+    """Judge one run directory and return the checker's JSON object.
+
+    The defaults give the k4 shape. timeout_k193_check.py passes the r3 calls alone.
+    """
     failures: list[str] = []
     result = _read_json(run / "result.json")
     if not isinstance(result, dict):
@@ -404,32 +409,32 @@ def check(run: Path) -> dict[str, Any]:
     names: list[object] = [record.get("name") for record in records]
     if result:
         failures.extend(_run_failures(run, result, names))
-    unexpected = sorted({str(name) for name in names} - set(SHAPE) - set(RESOURCE))
+    unexpected = sorted({str(name) for name in names} - set(shape) - set(RESOURCE))
     if unexpected:
         failures.append(f"calls outside the shape {unexpected}")
     disposal = _disposal(run)
     by_name = {str(record.get("name")): record for record in records}
     samples: dict[str, Any] = {}
-    for name in SHAPE:
+    for name in shape:
         call = by_name.get(name)
         if call is not None:
             samples[name] = judge(name, call, _receipt(run, name), run)
-    missing = [name for name in SHAPE if name not in samples]
+    missing = [name for name in shape if name not in samples]
     failed = [name for name, sample in samples.items() if sample["failures"]]
-    observations = [samples[name] for name in OBSERVATIONS if name in samples]
-    stalled = [name for name in SHAPE if samples.get(name, {}).get("stalled") is True]
+    seen = [samples[name] for name in observations if name in samples]
+    stalled = [name for name in shape if samples.get(name, {}).get("stalled") is True]
     provenance = [f for f in failures if not f.startswith(_INCOMPLETENESS)]
     admitted: list[str] = []
-    for index, name in enumerate(SHAPE):
+    for index, name in enumerate(shape):
         sample = samples.get(name, {})
-        earlier = [samples.get(prior) for prior in SHAPE[:index] if prior in TIMEOUTS]
+        earlier = [samples.get(prior) for prior in shape[:index] if prior in TIMEOUTS]
         timeout = any(prior is not None and not prior["failures"] for prior in earlier)
         if sample.get("local_stall") is True and timeout and not provenance:
             admitted.append(name)
     complete = not failures and not missing and not failed and not disposal
     if admitted:
         stall = "reproduced"
-    elif complete and not stalled and len(observations) == len(OBSERVATIONS):
+    elif complete and not stalled and len(seen) == len(observations):
         stall = "not-reproduced"
     else:
         stall = "unknown"

@@ -85,20 +85,22 @@ def _call(template: dict[str, Any], name: str) -> dict[str, Any]:
     return call
 
 
-def _run(tmp_path: Path, summary: dict[str, Any] | None = None) -> Path:
-    """Build one complete clean run in the frozen k4 shape."""
+def _run(
+    tmp_path: Path, summary: dict[str, Any] | None = None, names: tuple[str, ...] = checker.SHAPE
+) -> Path:
+    """Build one complete clean run in the frozen k4 shape, or in the shape `names`."""
     run = tmp_path / "out" / "run"
     run.mkdir(parents=True)
     result = json.loads((RETAINED / "result.json").read_bytes())
     calls = {call["name"]: call for call in result["calls"]}
     template = calls["serial-01"]
-    shape = [_call(template, name) for name in checker.SHAPE]
+    shape = [_call(template, name) for name in names]
     resource = [calls[name] for name in checker.RESOURCE]
     result["calls"] = [resource[0], *shape, *resource[1:]]
     result["unreached"] = []
     (run / "result.json").write_text(json.dumps(result))
     shutil.copy(RETAINED / "storage-close.json", run / "storage-close.json")
-    for name in checker.SHAPE:
+    for name in names:
         (run / f"{name}.stdout").write_text(json.dumps(_receipt(name)))
     downloads = run.parent / "r3-downloads"
     downloads.mkdir()

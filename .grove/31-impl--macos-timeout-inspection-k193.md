@@ -3,9 +3,10 @@
 
 ## Goal
 
-Finish the k4 accounting of the macOS post-timeout inspection stall. Run the
-complete original r3 fixture condition. Separate a blocked guest `ps` from an
-exit that the agent did not observe.
+Run the complete original r3 fixture condition of the k4 accounting as its
+own condition. This leaf is the first slice of the k4 remainder.
+`macos-exit-observation-instrumented-k195` owns the instrumented clone and
+the cause statement.
 
 ## Context
 
@@ -33,19 +34,20 @@ exit that the agent did not observe.
 - The complete original r3 fixture sequence runs as its own condition on one
   fresh unchanged clone, with no issue payloads before it. Each original
   failed inspection stays distinct from the new samples.
-- One instrumented clone records, for each post-timeout guest command, when
-  the shell and its children exit and when the agent observes the exit.
-  Deterministic process controls force the suspected orderings. The observer
-  and its teardown are bounded.
-- The report states which candidate the evidence establishes, or states that
-  the cause stays unproved. A failed or timed-out inspection never proves
-  absence.
-- Owned children and clones are accounted for and disposed even on failure,
-  with residual identities and remedies under the common root contract.
+- The report gives the r3 result and states what it adds to the k4
+  candidates. A failed or timed-out inspection never proves absence.
+- Owned children and the clone are accounted for and disposed even on
+  failure, with residual identities and remedies under the common root
+  contract.
 
 ## Notes
 
 Select no production ownership or cancellation mechanism. No broad process
 name cleanup. The k4 run 02 is the unchanged clone of this inquiry for the
-issue payloads. State how the r3 clone and the instrumented clone fit the
-clone limit of the root brief.
+issue payloads. The r3 clone is the unchanged clone for the r3 condition,
+a stated new condition under the root brief. The instrumented clone
+belongs to k195.
+
+Placement: the r3 run needs only the frozen k4 tooling and the installed
+tools. The instrumented clone needs a checkout-built agent and its own
+controls. So each one is a separate session, and k195 follows this leaf.
