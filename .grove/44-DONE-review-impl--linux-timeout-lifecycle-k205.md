@@ -35,3 +35,9 @@ report claims, before `lifecycle-evidence-k8` relies on them.
 - Each finding has a severity, a file-and-line anchor and a concrete failure.
 
 ## Notes
+
+Findings and evidence reconciliation are recorded in
+`docs/experiments/exec-reliability-linux-timeout-lifecycle-review-k205.md`.
+The review inspected committed source and retained records only; it ran no
+tests, build, lint, formatting, checker or measurement commands. Three material
+findings and a minor report-precision note are passed to integration for triage.
