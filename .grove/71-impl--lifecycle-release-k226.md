@@ -10,11 +10,11 @@ changes of leaves 61 to 66.
 - Taskfile tasks `release:*` and the scripts `scripts/release-*.sh`.
 - Earlier release leaves: release-k5 (commit 5fc9602280) and
   queue-release-k26 (commit b0d72942f3).
-- The trial result of leaf 69.
+- The trial result of leaf k225.
 
 ## Done when
 
-- Start only after leaf 69 records a passing trial.
+- Start only after leaf k225 records a passing trial.
 - Run `release:doctor`, `release:candidate` and `release:candidate-verify`.
 - Run `release:linux-harness` on the candidate.
 - Run `release:upgrade-check`, `release:app-verify` and

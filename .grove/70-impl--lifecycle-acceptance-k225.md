@@ -4,7 +4,7 @@
 
 Five fresh macOS clones, then five fresh Linux clones, pass the root
 acceptance inventory in sequence through the app. They run under the freeze
-manifest of leaf 68.
+manifest of leaf k224.
 
 ## Context
 

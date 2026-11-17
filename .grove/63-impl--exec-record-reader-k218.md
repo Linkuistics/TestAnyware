@@ -13,7 +13,7 @@ candidate A.
 - ADR-0023.
 - Crates: `cli-rs/crates/testanyware-protocol`, `testanyware-cli` and
   `testanyware-agent-client`.
-- Fixtures: the new Linux replies from leaf 61. Legacy macOS, legacy Linux and
+- Fixtures: the new Linux replies from leaf k217. Legacy macOS, legacy Linux and
   Windows replies come from the retired diagnostic evidence.
 
 ## Done when
@@ -36,6 +36,6 @@ candidate A.
 
 ## Notes
 
-The cancel types belong to leaf 66, because `file cancel` is their only
+The cancel types belong to leaf k222, because `file cancel` is their only
 reader. Leaf 63 adds the new macOS replies to these tests. Many consumers use
 only the Host CLI, so its surface must stay compatible.

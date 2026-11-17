@@ -8,7 +8,7 @@ A resource audit shows that the grove left no owned resource behind.
 ## Context
 
 - Root brief: section "Done when".
-- The trial evidence of leaf 69 and the release of leaf 70.
+- The trial evidence of leaf k225 and the release of leaf k226.
 - Spec: sections "Out of scope" and "Bounds".
 
 ## Done when

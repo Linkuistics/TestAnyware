@@ -22,14 +22,26 @@ This leaf is candidate D.
 - The protocol crate holds the cancel types.
 - `file cancel` with `--exec-id` cancels a running command. An old agent
   replies 404, and the Host CLI reports that the agent cannot cancel.
-- On SIGTERM, the Host CLI sends a cancel before it exits. Its own exit
-  follows within the spec's bounds of 2 s, then SIGKILL after 2 s more.
+- At SIGINT or SIGTERM, `file exec` follows the spec's "CLI interruption"
+  steps. It opens a new guest connection and sends one cancel with
+  `waitMs: 0`. It waits 1.5 s at most for the reply.
+- Then the Host CLI restores the default action and raises the same signal.
+  The parent sees the same signal death as today, within the spec's 2 s
+  bound.
+- When an old agent replies 404 to that cancel, the Host CLI raises the
+  signal without a cancellation.
+- The 2 s, then 2 s, SIGTERM-and-SIGKILL bound belongs to the outer
+  controller. It does not prove these steps.
 - The download framing check rejects an extra or a short body. Tests in
   `testanyware-agent-client` send raw HTTP that includes the recorded old
   Linux reply.
-- The Host CLI removes its temporary download file on SIGTERM.
+- At SIGINT or SIGTERM, the Host CLI removes its temporary download file and
+  raises the signal again.
 - `app:routing-test` covers the app route for `file cancel`.
-- Host CLI tests run each case against a loopback agent.
+- Host CLI tests run each case against a loopback agent. The interruption
+  and cleanup cases cover both signals and check the signal death.
+- The CLI SIGTERM case of retired leaf 40 and the interrupt case of retired
+  leaf 50 fail on the old path. Each new case passes.
 - Text mode does not change for an existing command.
 - `cli:test`, `app:routing-test`, `cli:clippy` and `cli:fmt` pass.
 - When the change exists, insert a `review-impl` leaf directly after this

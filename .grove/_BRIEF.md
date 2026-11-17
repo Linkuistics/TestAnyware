@@ -474,8 +474,9 @@ The order follows the readers of each change:
 2. k218 is the Host CLI reader of that record. It lands directly after its
    first writer.
 3. k219 gives the macOS agent the same owner and record.
-4. k220 and k221 add cancellation, record retention and exact downloads to
-   each agent.
+4. k220 and k221 add cancellation, record retention, exact downloads and
+   bounded agent shutdown to each agent. k220 also adds the Linux
+   accessibility lock.
 5. k222 adds `file cancel`, CLI interruption and the download framing check.
    The cancel types land here with their only reader.
 6. k223 and k224 prepare the trial and freeze it. k225 runs the ten clones.
@@ -484,4 +485,7 @@ The order follows the readers of each change:
 
 Each change leaves every existing test green and the text output unchanged.
 Each implementation leaf inserts its own `review-impl` leaf once its change
-exists. Guest acceptance stays **0/10, unavailable** until k225 reports.
+exists. Integration k228 labels each control as old-fail, new behaviour or
+compatibility, after the rows of the spec's control table. Leaves name their
+siblings by handle, because an insertion shifts positions. Guest acceptance
+stays **0/10, unavailable** until k225 reports.

@@ -10,7 +10,7 @@ is frozen before any measurement.
 
 - Spec: section "Validation route", steps 2 to 5.
 - Root brief: sections "Constraints" and "Acceptance inventory and bounds".
-- The trial plan and checker of leaf 67.
+- The trial plan and checker of leaf k223.
 - Golden tasks: `vm:create-golden-macos` and `vm:create-golden-linux`.
 
 ## Done when
