@@ -72,3 +72,7 @@ available, the condition stays unavailable.
   checkout-built app, CLI and traced agent in one owned clone. The app
   handover needs the owner's interval and Local Network grant. No record
   gives that authorisation, so the leaf asks the owner.
+- 2026-11-17: the owner authorised the app handover for one interval. The
+  leaf quits the installed 2.8.0 app and opens `TestAnyware Dev.app`. The
+  owner grants Local Network. After the clone is disposed, the leaf reopens
+  the installed app.

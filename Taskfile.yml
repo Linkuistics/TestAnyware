@@ -301,13 +301,31 @@ tasks:
     cmds:
       - uv run --locked --isolated --python 3.12 python -I evidence/macos-exit-observation-k195/controls.py {{.OUT | shellQuote}} --runs {{.RUNS | default "3" | shellQuote}}
 
+  diagnostic:macos-exit-observation:
+    desc: 'Run the k195 traced workload once on one owned macOS clone into a new OUT directory. Needs the owner''s app handover first: the development app answers and the installed app does not run. Builds the traced agent, installs it in the clone, runs the k4 run 02 workload, downloads the guest exit trace and disposes the clone'
+    deps: [cli:build]
+    requires:
+      vars: [OUT]
+    cmds:
+      - sh experiments/exec-reliability/exit_k195_run.sh {{.OUT | shellQuote}}
+
+  diagnostic:macos-exit-observation-check:
+    desc: Judge one k195 traced run directory RUN (OUT/<run_id>) and print the result
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [RUN]
+    cmds:
+      - uv run --locked python exit_k195_check.py {{.RUN | shellQuote}}
+
   diagnostic:macos-exit-observation-tools:
-    desc: Check the k195 exit-observation control tooling
+    desc: Check the k195 exit-observation control and guest tooling
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
     cmds:
-      - uv run --locked python -m ruff check evidence/macos-exit-observation-k195/*.py
-      - uv run --locked python -m ruff format --check evidence/macos-exit-observation-k195/*.py
-      - uv run --locked python -m pyright evidence/macos-exit-observation-k195/*.py
+      - uv run --locked python -m ruff check evidence/macos-exit-observation-k195/*.py exit_k195.py exit_k195_check.py test_exit_k195.py
+      - uv run --locked python -m ruff format --check evidence/macos-exit-observation-k195/*.py exit_k195.py exit_k195_check.py test_exit_k195.py
+      - uv run --locked python -m pyright evidence/macos-exit-observation-k195/*.py exit_k195.py exit_k195_check.py test_exit_k195.py
+      - shellcheck exit_k195_run.sh
+      - uv run --locked python -m pytest -q -p no:cacheprovider test_exit_k195.py
 
   diagnostic:deadline-stall-tools:
     desc: Check the k154 worker-deadline control tooling
