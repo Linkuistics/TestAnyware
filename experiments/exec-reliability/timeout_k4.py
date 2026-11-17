@@ -117,6 +117,11 @@ OWNED_CLEANUP = "\n".join(
 )
 
 
+def _safe(name: str) -> str:
+    """Return a call name that the controller accepts: it allows no dot."""
+    return name.replace(".", "-")
+
+
 def _exec(cli: str, vm: str, guest_timeout: int, command: str) -> tuple[str, ...]:
     return (cli, "file", "exec", "--vm", vm, "--timeout", str(guest_timeout), "--json", command)
 
@@ -153,12 +158,12 @@ def r3_calls(cli: str, vm: str, fixture: Path, downloads: Path) -> list[Call]:
 
     def upload(name: str) -> Call:
         argv = (cli, "file", "upload", "--vm", vm, str(fixture / name), f"{ROOT}/{name}", "--json")
-        return Call(f"r3-upload-{name}", argv, TRANSFER)
+        return Call(f"r3-upload-{_safe(name)}", argv, TRANSFER)
 
     def download(name: str, expected_exit: int = 0, label: str | None = None) -> Call:
         local = str(downloads / name if label is None else downloads / f"{label}.bin")
         argv = (cli, "file", "download", "--vm", vm, f"{ROOT}/{name}", local, "--json")
-        return Call(f"r3-{label or 'download-' + name}", argv, TRANSFER, expected_exit)
+        return Call(f"r3-{label or 'download-' + _safe(name)}", argv, TRANSFER, expected_exit)
 
     cancel = Call(
         "r3-cancel",

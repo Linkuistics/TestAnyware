@@ -72,3 +72,9 @@ another session; keep each old failure distinct in the design handoff.
   not-reproduced only from complete evidence. Every other case is unknown.
 - The checker runs without `python -I`, because it imports the k186 checks and the
   frozen shape from the plan module.
+- Attempt `k4-timeout-macos-01` stopped before acquisition. The controller refused
+  the call names `r3-upload-guest.sh` and the other dotted names, because a call name
+  must match `[a-zA-Z0-9_-]+`. No clone started: the VM inventory is equal before and
+  after, and the tart inventory differs only in key order. The attempt stays in
+  evidence and does not count as the unchanged clone. The plan now replaces each dot
+  with a hyphen, and a control runs the controller's own validation on the plan.

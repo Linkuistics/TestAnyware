@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 
+import controller
 import timeout_k4
 import timeout_k4_check as checker
 
@@ -201,5 +202,6 @@ def test_plan_freezes_the_issue_sequence_and_owned_cleanup(tmp_path: Path) -> No
     assert by_name["issue-sleep"].argv[-3:] == ("2", "--json", "sleep 120")
     assert by_name["issue-observe"].budget == 50.0
     assert by_name["r3-cancel"].interrupt_after == 2.0
+    controller._validate(plan, tmp_path)  # pyright: ignore[reportPrivateUsage]
     (resource,) = plan.resources
     assert resource.cleanup.budget == 26.0 and '"sleep 120"' in resource.cleanup.argv[-1]
