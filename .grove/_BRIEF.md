@@ -460,3 +460,28 @@ unreaped inspection worker and a residual writer.
 The foundation report
 subsection "Delivered behaviour (k162)" records the behaviour and its limits.
 Guest acceptance stays **0/10, unavailable**.
+
+## k213 delivery plan
+
+On 2026-11-18 `lifecycle-delivery-k213` cut the delivery of the lifecycle
+design as flat siblings of the root. They share the root goal and its
+acceptance, so no new node earns a level. Review k216 checks the plan first.
+
+The order follows the readers of each change:
+
+1. k217 gives the Linux agent its lifecycle owner, the typed record and the
+   task `agent:linux:test`.
+2. k218 is the Host CLI reader of that record. It lands directly after its
+   first writer.
+3. k219 gives the macOS agent the same owner and record.
+4. k220 and k221 add cancellation, record retention and exact downloads to
+   each agent.
+5. k222 adds `file cancel`, CLI interruption and the download framing check.
+   The cancel types land here with their only reader.
+6. k223 and k224 prepare the trial and freeze it. k225 runs the ten clones.
+7. k226 publishes the release, and k227 writes the handoff and the resource
+   audit.
+
+Each change leaves every existing test green and the text output unchanged.
+Each implementation leaf inserts its own `review-impl` leaf once its change
+exists. Guest acceptance stays **0/10, unavailable** until k225 reports.
