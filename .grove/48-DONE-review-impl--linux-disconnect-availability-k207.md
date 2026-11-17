@@ -25,3 +25,12 @@ Review the k6 Linux disconnect tooling, checker and report adversarially. Do thi
 - Each finding has a severity, a `file:line` and a concrete failure. The review writes its findings to `docs/experiments/exec-reliability-linux-disconnect-availability-review-k207.md`.
 
 ## Notes
+
+## Decisions (running log)
+
+- The review is inspection-only. Source reads and read-only JSON arithmetic supply the evidence; no tests, checker runs or new measurements are performed. The CBM CLI refused to start because a pre-coordination or unverified generation was active, so direct source inspection replaces graph evidence.
+- The Linux deadline reply and the exclusion of the `systemd --user` adopter are source-backed corrections. The missing lower handler bound remains material: a queued inspection supplies an upper bound, not a measured handler end.
+- Numeric-PID signalling in the imported live cleanup does not meet the run-ownership guarantee. The retained cleanup succeeded, but it cannot exclude killing a replacement process after PID reuse. The container's isolated scope and pidfd-backed signalling do not show the same defect.
+- The live provenance omits the app identity and post-run hashes of most installed agent modules. This fails the brief's explicit measurement contract; equality of the recorded subjects cannot cover omitted subjects.
+- Both checker entry points follow the original absolute run path. A copied bundle can read another checkout's evidence or fail without it. This is a material replay defect, independently of the observed classifications.
+- Record these four P2 findings in the durable review and insert integration immediately before the first later live sibling. The integration triages the review by handle; it owns fixes, verification and any decision about further measurement.
