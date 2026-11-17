@@ -212,12 +212,68 @@ run: `r3-observe-cancel`, the two partial downloads, `r3-missing-artifact`,
 `r3-guest-cleanup` and `r3-observe-after-cleanup`. The plan now expects exit -15, and
 a control checks that value.
 
-These conditions of the leaf remain open:
+These conditions of the leaf remained open after run 02:
 
 - The complete original r3 fixture condition, as a separate condition. The run 02 r3
-  samples are not that condition, because two of its invocations differ.
+  samples are not that condition, because two of its invocations differ. Leaf k193
+  ran it later. See the section on the complete r3 condition alone.
 - An instrumented clone that records when the shell and `ps` exit and when the agent
   observes the exit. Only such a run can separate a blocked `ps` from a lost exit.
+
+## Complete r3 condition alone (leaf macos-timeout-inspection-k193)
+
+Leaf `macos-timeout-inspection-k193` ran the complete original r3 fixture condition
+once, alone, on one fresh unchanged clone of `testanyware-golden-macos-27`. No issue
+payload and no `after-*` call ran before it. The plan is `timeout_k4.r3_calls`
+unchanged. A control checks that it equals that sequence, with the pinned online
+argument, the guest timeout of 120 s and the expected cancel exit -15.
+
+The tooling was frozen in commit `ce913129c137` before the run. The run is
+`experiments/exec-reliability/evidence/k193-r3-macos-01/d8bca6a5a87547899d23140a124e2ceb`.
+Its outer records are in `k193-r3-macos-01-outer`. The tool digests before the probe
+and after the check are equal. The recorded uncommitted diff holds only the outer
+records that the runner wrote before it took the diff.
+
+### Result
+
+The checker `timeout_k193_check.py` applies checker revision 3 to the r3 calls alone.
+It reports evidence `complete` and stall `not-reproduced`, and it exits 0. All 23 r3
+calls ran, and none failed or stayed unreached.
+
+| Call | Duration | Outcome |
+|---|---|---|
+| `r3-timeout` | 2.172 s | exit -1, timed out |
+| `r3-observe-timeout` | 0.142 s | exit 0, timeout child PID 682 not listed |
+| `r3-cancel` | 2.101 s | CLI interrupted, exit -15 |
+| `r3-observe-cancel` | 0.139 s | exit 0, PID 682 not listed, cancel child PID 700 present |
+| `r3-guest-cleanup` | 0.127 s | exit 0 |
+| `r3-observe-after-cleanup` | 0.087 s | exit 0, PIDs 682 and 700 not listed |
+
+Each absence comes from a valid own observation that completed with exit 0. The cancel
+child PID 700 was `sleep` in state `S` with parent PID 699 after the CLI interruption.
+This is the third sample of that survival, after `macos-01` and k4 run 02 PID 812.
+The fixture's own guest cleanup then ended it.
+
+### Accounting
+
+- The owned cleanup printed `gone pid=682`, `gone pid=700` and `cleanup confirmed`.
+- The controller disposed of the clone `k193-r3-macos-d8bca6a5a87547899d23140a124e2ceb`.
+  The ledger records `disposed` and the residual list is empty.
+- The clone is absent from the Tart list and from the TestAnyware VM list after the
+  run. The app PID was 1488 before and after the run, so the installed app was not
+  stopped.
+
+### What this adds to the candidates
+
+One clean sample cannot exclude an intermittent cause. It shows that the complete r3
+condition on a fresh clone does not reliably give the `macos-03` stall of 33 s. In k4
+run 02, `r3-observe-timeout` also completed in 0.140 s, after the issue payloads.
+So neither recent clone reproduced the original known-child stall.
+
+The run gives no phase timestamps, so it does not separate the three regression
+candidates. It does not show when `ps` or the shell exited, or when the agent saw the
+exit. Leaf `macos-exit-observation-instrumented-k195` owns that question with one
+instrumented clone.
 
 ## Regression candidates
 
@@ -247,3 +303,9 @@ whether the intentional timeouts cause the later stall or only precede it.
   disposed. On run 02 revision 3 exits 0 and reports `reproduced`.
 - `mise exec -- task diagnostic:macos-timeout-inspection-tools` checks the tooling and
   runs 52 controls without a VM. A damaged input makes it exit non-zero.
+- `mise exec -- task diagnostic:macos-timeout-inspection-r3 OUT=<new dir>` runs the
+  complete original r3 condition alone on one owned clone.
+- `mise exec -- task diagnostic:macos-timeout-inspection-r3-check RUN=<run dir>` judges
+  a retained r3-only run with checker revision 3.
+- `mise exec -- task diagnostic:macos-timeout-inspection-r3-tools` checks the r3-only
+  tooling and runs its 13 controls with the 52 k4 controls, without a VM.

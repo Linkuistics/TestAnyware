@@ -51,3 +51,17 @@ belongs to k195.
 Placement: the r3 run needs only the frozen k4 tooling and the installed
 tools. The instrumented clone needs a checkout-built agent and its own
 controls. So each one is a separate session, and k195 follows this leaf.
+
+## Decisions (running log)
+
+- The r3-only checker reuses `timeout_k4_check.check` with the r3 shape and
+  the r3 observations. A copy could drift from revision 3. The k4 defaults
+  stay unchanged, and the 52 k4 controls still pass.
+- The tooling was frozen in commit `ce913129c137` before the one live run.
+  The run is `evidence/k193-r3-macos-01`. It ran once and needed no retry.
+- Result: evidence `complete`, stall `not-reproduced`, no failed call. The
+  owned cleanup reported `cleanup confirmed`, and the clone was disposed with
+  no residuals. The cancel child PID 700 survived the CLI interruption again,
+  and the fixture's guest cleanup ended it.
+- One clean sample does not exclude an intermittent cause. The cause stays
+  with k195.
