@@ -131,29 +131,124 @@ def test_absent_trace_never_proves_a_cause(tmp_path: Path) -> None:
 
 
 def _entry(
-    deadline: str, timed_out: bool, intentional: bool = False, **extra: Any
+    deadline: str, timed_out: bool | None, intentional: bool = False, **extra: Any
 ) -> dict[str, Any]:
-    return {"deadline": deadline, "timed_out": timed_out, "intentional": intentional, **extra}
+    return {
+        "deadline": deadline,
+        "timed_out": timed_out,
+        "intentional": intentional,
+        "receipt": True,
+        "receipt_failures": [],
+        **extra,
+    }
 
 
 def test_cause_names_candidate_one_only_for_starved_exits() -> None:
     base = {"issue-sleep": _entry("command-alive", True, True, term="term-success", alive=[])}
-    none = checker.cause({**base, "after-09-table": _entry("observed", False)})
+    none = checker.cause({**base, "after-09-table": _entry("observed", False)}, [])
     assert none["stall"] == "not-reproduced" and none["statement"].startswith("unproved")
     starved = checker.cause(
-        {**base, "after-09-table": _entry("exited-unobserved", True, starved=True)}
+        {**base, "after-09-table": _entry("exited-unobserved", True, starved=True)}, []
     )
     assert starved["statement"].startswith("candidate 1")
     unstarved = checker.cause(
-        {**base, "after-09-table": _entry("exited-unobserved", True, starved=False)}
+        {**base, "after-09-table": _entry("exited-unobserved", True, starved=False)}, []
     )
     assert unstarved["statement"].startswith("unproved")
     alive = checker.cause(
         {
             **base,
             "after-09-table": _entry("command-alive", True, alive=[{"pid": 5, "path": "/bin/ps"}]),
-        }
+        },
+        [],
     )
     assert "/bin/ps" in alive["statement"]
-    unknown = checker.cause({**base, "after-09-table": _entry("unknown", False)})
+    unknown = checker.cause({**base, "after-09-table": _entry("unknown", False)}, [])
     assert unknown["evidence"] == "incomplete" and unknown["stall"] == "unknown"
+
+
+def test_damaged_evidence_is_never_complete() -> None:
+    base = {"issue-sleep": _entry("command-alive", True, True, term="term-success", alive=[])}
+    quiet = {**base, "after-09-table": _entry("observed", False)}
+    assert checker.cause(quiet, [])["evidence"] == "complete"
+    damaged = {
+        "missing receipt": {**base, "after-09-table": _entry("observed", None, receipt=False)},
+        "receipt failure": {
+            **base,
+            "after-09-table": _entry("observed", False, receipt_failures=["exit 1"]),
+        },
+        "intentional ran": {
+            "issue-sleep": _entry("observed", False, True),
+            "after-09-table": _entry("observed", False),
+        },
+    }
+    for label, found in damaged.items():
+        verdict = checker.cause(found, [])
+        assert verdict["evidence"] == "incomplete", label
+        assert verdict["stall"] == "unknown", label
+    trace = checker.cause(quiet, ["seq is not contiguous"])
+    assert trace["evidence"] == "incomplete" and trace["stall"] == "unknown"
+    stalled = checker.cause(
+        {**base, "after-09-table": _entry("exited-unobserved", True, starved=True)},
+        ["1 trace line(s) did not parse"],
+    )
+    assert stalled["stall"] == "reproduced"
+    assert stalled["statement"] == "unproved: the evidence is incomplete"
+
+
+def _record(seq: int, t: int, event: str, call: int = 1, agent: int = 7, **fields: Any) -> Any:
+    return {"seq": seq, "t_ns": t, "agent": agent, "call": call, "event": event, **fields}
+
+
+def test_integrity_rejects_damaged_traces() -> None:
+    good = [_record(1, 10, "trace-open", 0), _record(2, 20, "begin")]
+    assert checker.integrity(good, 0, "7") == []
+    assert checker.integrity(good, 1, "7")
+    assert checker.integrity(good, 0, "8")
+    assert checker.integrity([good[0], _record(3, 20, "begin")], 0, "7")
+    assert checker.integrity([good[0], _record(2, 20, "trace-loop-error")], 0, "7")
+    assert checker.integrity([*good, _record(3, 30, "trace-open", 0)], 0, "7")
+
+
+def _timed_out(exit_t: int, status: int | None) -> list[Any]:
+    """One timed-out call: 2 s budget, wait from 1 s, the agent signal at 3.1 s."""
+    ms = 1_000_000
+    records = [
+        _record(1, 0, "begin", timeout=2),
+        _record(2, 1 * ms, "spawned", pid=40),
+        _record(3, 1 * ms, "watch", pid=40, parent=0),
+        _record(4, 1 * ms, "wait-enter", phase="deadline"),
+        _record(5, 1 * ms, "waiter-start", phase="deadline"),
+        _record(6, 3_005 * ms, "wait-result", phase="deadline", result="timed-out"),
+        _record(7, 3_100 * ms, "terminate-sent", pid=40, result=0),
+    ]
+    if status is not None:
+        records.append(_record(8, exit_t * ms, "kernel-exit", pid=40, status=status))
+    return records
+
+
+def test_command_alive_needs_a_signal_death_after_the_agent_signal() -> None:
+    assert checker.classify(_timed_out(3_101, 15))["deadline"] == "command-alive"
+    assert checker.classify(_timed_out(3_101, 9))["deadline"] == "command-alive"
+    assert checker.classify(_timed_out(3_099, 15))["deadline"] == "uncertain"
+    for label, records in {
+        "clean exit after the deadline": _timed_out(3_101, 0),
+        "no exit recorded": _timed_out(0, None),
+        "exit between due time and wait result": _timed_out(3_002, 0),
+    }.items():
+        verdict = checker.classify(records)
+        assert verdict["deadline"] == "uncertain", label
+        assert verdict["alive"] == [], label
+    early = checker.classify(_timed_out(2_000, 0))
+    assert early["deadline"] == "exited-unobserved" and early["starved"] is False
+
+
+def test_starved_needs_sequence_and_clock_to_agree() -> None:
+    ms = 1_000_000
+    records = _timed_out(2_000, 0)
+    late = [r for r in records if r["event"] != "waiter-start"]
+    late.append(_record(9, 3_006 * ms, "waiter-start", phase="deadline"))
+    assert checker.classify(late)["starved"] is True
+    clash = [r for r in records if r["event"] != "waiter-start"]
+    clash.append(_record(9, 3_000 * ms, "waiter-start", phase="deadline"))
+    assert checker.classify(clash)["starved"] is None

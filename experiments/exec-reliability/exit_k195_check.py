@@ -9,21 +9,32 @@ The route is `traced` only when the verify exec shows that its own parent, a PID
 other than the agent before the install, opened the trace. Otherwise the route is
 `unavailable` and nothing about the guest ordering is judged.
 
-For each exec call the checker finds its trace call by order and command. It then
-classifies the deadline phase from the kernel clock:
+For each exec call the checker finds its trace call by order and command. A kernel
+record time is when the trace thread received the event, so it is an upper bound on
+the exit. The deadline is due at the wait-enter mark plus the requested timeout.
+The checker classifies the deadline phase as follows:
 
 - `observed`: the agent saw the exit before the deadline.
-- `exited-unobserved`: the shell exited before the agent's deadline result. This
-  is the k3 candidate. `starved` is true when the inner wait block started only
-  after the deadline result.
-- `command-alive`: the shell had not exited at the deadline. `alive` names the
-  children with no exit before the deadline, by their exec path.
+- `exited-unobserved`: the shell exit is stamped before the deadline was due. This
+  is the k3 candidate. `starved` is true when the inner wait block started after
+  the deadline result in both the sequence and the clock. It is null when the two
+  orders disagree.
+- `command-alive`: the shell died from SIGTERM or SIGKILL after the agent sent TERM.
+  `alive` names each watched process with the same proof, by its exec path.
+- `uncertain`: the shell exit is absent, or its stamp falls after the due time
+  without that proof. `unresolved` lists the processes in that state.
+
+`coverage` lists each sign that the watched descendants are only a lower bound.
 
 A timed-out call also gets the shape of its TERM phase: `term-success` (the 30 s
 shape) or `term-timeout-kill` (the 33 s shape).
 
 A missing or unparsable record never proves an absence. Such a call is `unknown`.
-The checker exits 0 when the route is judged and disposal left no residual.
+The evidence is complete only when every receipt is present and valid, each
+intentional call timed out, every trace record comes from the verified agent in an
+unbroken sequence, and every trace call matches the workload. The checker exits 0
+only for a traced route with complete evidence, confirmed cleanup and no disposal
+residual.
 """
 
 from __future__ import annotations
@@ -142,15 +153,91 @@ def _first(group: list[dict[str, Any]], event: str, phase: str | None = None) ->
     return {}
 
 
+def integrity(records: list[dict[str, Any]], bad: int, agent: str | None) -> list[str]:
+    """List the defects that stop the trace from counting as complete evidence."""
+    failures: list[str] = []
+    if bad:
+        failures.append(f"{bad} trace lines did not parse")
+    errors = sum(r.get("event") == "trace-loop-error" for r in records)
+    if errors:
+        failures.append(f"{errors} trace loop errors")
+    opens = sum(r.get("event") == "trace-open" for r in records)
+    if opens != 1:
+        failures.append(f"{opens} trace-open records, not 1")
+    foreign = sorted({str(r.get("agent")) for r in records} - {str(agent)})
+    if foreign:
+        failures.append(f"records from agent PIDs {foreign}, not the verified agent {agent!r}")
+    seqs = [r.get("seq") for r in records]
+    ints = [s for s in seqs if isinstance(s, int)]
+    if len(ints) != len(seqs) or sorted(ints) != list(range(1, len(seqs) + 1)):
+        failures.append("trace sequence is not unique and contiguous from 1")
+    if any(not isinstance(r.get("t_ns"), int) for r in records):
+        failures.append("trace record without an integer t_ns")
+    return failures
+
+
+def _signal(status: object) -> int | None:
+    """Return the signal that ended a process, from its wait status."""
+    if not isinstance(status, int) or isinstance(status, bool):
+        return None
+    number = status & 0x7F
+    return number if number not in (0, 0x7F) else None
+
+
+def _follows(record: dict[str, Any], mark: dict[str, Any]) -> bool:
+    """True when the record comes after the mark in both the sequence and the clock."""
+    keys = ("seq", "t_ns")
+    if not mark or any(not isinstance(r.get(k), int) for r in (record, mark) for k in keys):
+        return False
+    return record["seq"] > mark["seq"] and record["t_ns"] > mark["t_ns"]
+
+
+def _coverage(group: list[dict[str, Any]]) -> list[str]:
+    """Name each sign that the watched descendant set is only a lower bound."""
+    notes = [
+        str(r.get("event"))
+        for r in group
+        if r.get("event") in ("watch-missed", "adopt-truncated", "fork-unadopted")
+    ]
+    forks: dict[object, int] = {}
+    adopted: dict[object, int] = {}
+    for record in group:
+        if record.get("event") == "kernel-fork":
+            forks[record.get("pid")] = forks.get(record.get("pid"), 0) + 1
+        elif record.get("event") == "watch" and record.get("parent"):
+            adopted[record.get("parent")] = adopted.get(record.get("parent"), 0) + 1
+    notes += [
+        f"pid {pid} forked {count} times, {adopted.get(pid, 0)} children watched"
+        for pid, count in forks.items()
+        if count > adopted.get(pid, 0)
+    ]
+    return notes
+
+
 def classify(group: list[dict[str, Any]]) -> dict[str, Any]:
-    """Classify the deadline and TERM phases of one traced exec call."""
+    """Classify the deadline and TERM phases of one traced exec call.
+
+    A kernel record time is when the trace thread received the event, so it only
+    bounds the exit from above. The deadline is due at the wait-enter mark plus the
+    requested timeout. An exit stamped before that time proves the exit. A process
+    proves it was alive at the deadline only by dying from SIGTERM or SIGKILL after
+    the agent sent TERM. This assumes the agent is the only sender of those signals.
+    """
     spawned = _first(group, "spawned")
     shell = spawned.get("pid")
-    deadline = _first(group, "wait-result", "deadline")
     begin = _first(group, "begin")
-    if not isinstance(shell, int) or not deadline or not begin:
-        return {"deadline": "unknown", "reason": "spawned, begin or deadline record absent"}
+    enter = _first(group, "wait-enter", "deadline")
+    deadline = _first(group, "wait-result", "deadline")
+    timeout = begin.get("timeout")
+    if (
+        not isinstance(shell, int)
+        or not deadline
+        or not enter
+        or not isinstance(timeout, (int, float))
+    ):
+        return {"deadline": "unknown", "reason": "spawned, begin, wait-enter or deadline absent"}
     t0 = int(begin["t_ns"])
+    due = int(enter["t_ns"]) + int(timeout * 1_000_000_000)
 
     def ms(record: dict[str, Any]) -> float | None:
         return round((int(record["t_ns"]) - t0) / 1e6, 1) if record else None
@@ -162,27 +249,46 @@ def classify(group: list[dict[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {
         "shell": shell,
         "result": deadline.get("result"),
+        "deadline_due_ms": round((due - t0) / 1e6, 1),
         "deadline_ms": ms(deadline),
         "shell_exit_ms": ms(shell_exit),
         "threads_at_deadline": deadline.get("threads"),
-        "missed_watches": sum(r.get("event") == "watch-missed" for r in group),
+        "coverage": _coverage(group),
     }
     if deadline.get("result") == "success":
         result["deadline"] = "observed"
-    elif shell_exit and int(shell_exit["t_ns"]) < int(deadline["t_ns"]):
+    elif deadline.get("result") != "timed-out":
+        result["deadline"] = "unknown"
+    elif shell_exit and int(shell_exit["t_ns"]) < due:
         waiter = _first(group, "waiter-start", "deadline")
         result["deadline"] = "exited-unobserved"
         result["waiter_start_ms"] = ms(waiter)
-        result["starved"] = not waiter or int(waiter["seq"]) > int(deadline["seq"])
-    elif deadline.get("result") == "timed-out":
-        result["deadline"] = "command-alive"
-        result["alive"] = [
-            {"pid": pid, "path": execs.get(pid)}
-            for pid in watched
-            if pid not in exits or int(exits[pid]["t_ns"]) > int(deadline["t_ns"])
-        ]
+        if not waiter or _follows(waiter, deadline):
+            result["starved"] = True
+        elif _follows(deadline, waiter):
+            result["starved"] = False
+        else:
+            result["starved"] = None
     else:
-        result["deadline"] = "unknown"
+        term = _first(group, "terminate-sent")
+
+        def proven(pid: object) -> bool:
+            record = exits.get(pid)
+            return (
+                bool(record) and _signal(record.get("status")) in (9, 15) and _follows(record, term)
+            )
+
+        result["alive"] = [{"pid": p, "path": execs.get(p)} for p in watched if proven(p)]
+        result["unresolved"] = [
+            {"pid": p, "path": execs.get(p), "exit_ms": ms(exits.get(p, {}))}
+            for p in watched
+            if not proven(p) and (p not in exits or int(exits[p]["t_ns"]) >= due)
+        ]
+        if proven(shell):
+            result["deadline"] = "command-alive"
+        else:
+            result["deadline"] = "uncertain"
+            result["reason"] = "the shell exit is absent or not proved later than the deadline"
     if deadline.get("result") == "timed-out":
         term = _first(group, "wait-result", "terminate")
         killed = _first(group, "kill-sent")
@@ -197,48 +303,75 @@ def classify(group: list[dict[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def orderings(run: Path, records: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
-    """Match each workload exec to its trace call by order and command."""
+def orderings(
+    run: Path, records: list[dict[str, Any]]
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
+    """Match each workload exec to its trace call by order and command.
+
+    Return the matches and the trace calls that match neither a workload exec nor the
+    verify exec that opens the run. An unmatched call means the workload and the trace
+    disagree, so it makes the evidence incomplete.
+    """
     calls = _calls(records)
     begins = sorted(
         (number, str(_first(group, "begin").get("command", ""))) for number, group in calls.items()
     )
     found: dict[str, dict[str, Any]] = {}
+    matched: set[int] = set()
     cursor = 0
     for name in WORKLOAD:
         if name not in COMMANDS:
             continue
         want = COMMANDS[name][:COMMAND_PREFIX]
         match = next((i for i in range(cursor, len(begins)) if begins[i][1] == want), None)
-        receipt = _receipt(run, name) or {}
+        receipt = _receipt(run, name)
         entry: dict[str, Any] = {
             "intentional": name in INTENTIONAL,
-            "timed_out": receipt.get("timed_out"),
-            "exit_code": receipt.get("exit_code"),
-            "receipt_failures": receipt_failures(receipt or None, COMMANDS[name]),
+            "receipt": receipt is not None,
+            "timed_out": (receipt or {}).get("timed_out"),
+            "exit_code": (receipt or {}).get("exit_code"),
+            "receipt_failures": receipt_failures(receipt, COMMANDS[name]),
         }
         if match is None:
             entry["deadline"] = "unknown"
             entry["reason"] = "no trace call with this command"
         else:
+            matched.add(match)
             cursor = match + 1
             entry["trace_call"] = begins[match][0]
             entry.update(classify(calls[begins[match][0]]))
         found[name] = entry
-    return found
+    verify = VERIFY[:COMMAND_PREFIX]
+    extra = [
+        f"trace call {number} matches no workload exec"
+        for i, (number, command) in enumerate(begins)
+        if i not in matched and not (i == 0 and command == verify)
+    ]
+    return found, extra
 
 
-def cause(found: dict[str, dict[str, Any]]) -> dict[str, Any]:
+def cause(found: dict[str, dict[str, Any]], failures: list[str]) -> dict[str, Any]:
     """State which candidate the unintended timeouts establish, if any."""
+    failures = list(failures)
+    for name, entry in found.items():
+        if not entry.get("receipt"):
+            failures.append(f"{name}: receipt absent")
+        failures += [f"{name}: {f}" for f in entry["receipt_failures"]]
+        if not isinstance(entry.get("timed_out"), bool):
+            failures.append(f"{name}: timeout outcome unknown")
+        elif entry["intentional"] and not entry["timed_out"]:
+            failures.append(f"{name}: the intentional timeout did not time out")
+        if entry.get("deadline") == "unknown":
+            failures.append(f"{name}: deadline ordering unknown")
+    evidence = "complete" if not failures else "incomplete"
     unintended = {n: e for n, e in found.items() if not e["intentional"] and e["timed_out"]}
     kinds = {e.get("deadline") for e in unintended.values()}
-    if any(e.get("deadline") == "unknown" for e in found.values()):
-        evidence = "incomplete"
-    else:
-        evidence = "complete"
     if not unintended:
         stall = "not-reproduced" if evidence == "complete" else "unknown"
         statement = "unproved: no unintended timeout recurred"
+    elif evidence != "complete":
+        stall = "reproduced"
+        statement = "unproved: the evidence is incomplete"
     elif kinds == {"exited-unobserved"} and all(e.get("starved") for e in unintended.values()):
         stall = "reproduced"
         statement = "candidate 1: the shell exited and the starved inner wait block missed it"
@@ -248,9 +381,17 @@ def cause(found: dict[str, dict[str, Any]]) -> dict[str, Any]:
         statement = f"the guest command was still running at the deadline: {paths}"
     else:
         stall = "reproduced"
-        statement = f"unproved: mixed or unknown orderings {sorted(map(str, kinds))}"
+        statement = f"unproved: mixed, uncertain or unknown orderings {sorted(map(str, kinds))}"
     shapes = {n: e.get("term") for n, e in found.items() if e["timed_out"]}
-    return {"evidence": evidence, "stall": stall, "statement": statement, "term_shapes": shapes}
+    lower = sorted(n for n, e in found.items() if e.get("coverage"))
+    return {
+        "evidence": evidence,
+        "evidence_failures": failures,
+        "stall": stall,
+        "statement": statement,
+        "term_shapes": shapes,
+        "coverage_lower_bound": lower,
+    }
 
 
 def health(run: Path, name: str) -> dict[str, Any]:
@@ -286,16 +427,16 @@ def check(run: Path) -> dict[str, Any]:
     judged = route(run, digest if isinstance(digest, str) else None)
     records, bad = load_trace(run.parent / "downloads" / "trace.jsonl")
     result: dict[str, Any] = {
-        "checker": "k195-1",
+        "checker": "k199-1",
         **judged,
         "trace_records": len(records),
         "trace_unparsed": bad,
         "trace_loop_errors": sum(r.get("event") == "trace-loop-error" for r in records),
     }
     if judged["route"] == "traced" and records:
-        found = orderings(run, records)
+        found, extra = orderings(run, records)
         result["calls"] = found
-        result.update(cause(found))
+        result.update(cause(found, integrity(records, bad, judged["agent_after"]) + extra))
     else:
         result.update(evidence="absent", stall="unknown", statement="condition unavailable")
     result["health"] = {name: health(run, name) for name in HEALTH_CALLS}
@@ -313,9 +454,14 @@ def main() -> int:
         raise SystemExit("usage: exit_k195_check.py RUN")
     result = check(Path(sys.argv[1]))
     print(json.dumps(result, indent=2))
-    return (
-        0 if result["route"] in {"traced", "unavailable"} and not result["disposal_failures"] else 1
+    accepted = (
+        result["route"] == "traced"
+        and result.get("evidence") == "complete"
+        and result["cleanup"].get("state") == "confirmed"
+        and result["owned_cleanup_command_matches"]
+        and not result["disposal_failures"]
     )
+    return 0 if accepted else 1
 
 
 if __name__ == "__main__":

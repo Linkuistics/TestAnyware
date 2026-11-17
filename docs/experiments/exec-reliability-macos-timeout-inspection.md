@@ -295,9 +295,11 @@ runs the k4 run 02 workload once with that traced agent in one owned clone.
 The seam is `agents/macos/Sources/TestAnywareAgent/ExitTrace.swift`. It compiles only
 with the flag `EXIT_TRACE`. It records each wait phase of `runShell` and the agent's
 thread count. A kqueue thread records the kernel fork, exec and exit of the shell and
-of each child. Each record carries a monotonic time in nanoseconds. The default release
-agent holds no `ExitTrace` symbol, and its build is byte-identical to the build before
-the change.
+of each child. Each record carries a monotonic time in nanoseconds.
+
+The default release agent of this change holds no `ExitTrace` symbol. The controls
+recorded one default build digest and found no seam symbol in it. They did not compare
+that build with a build from before the change.
 
 ### Host controls
 
@@ -307,10 +309,12 @@ control passed in each of three runs.
 
 | Control | Ordering forced | Trace result |
 |---|---|---|
-| normal | none | exit at 2.3 ms, agent result at 2.4 ms |
-| starved | 80 busy global-queue blocks | exit at 2.3 ms, timeout at 2006 ms, inner wait started at 2006 ms |
-| late TERM | command runs past the deadline | timeout at 2006 ms, TERM succeeds, return at 2.12 s |
-| ignored TERM | command ignores TERM | TERM wait times out at 5052 ms, then SIGKILL |
+| normal | none | exit at 1.7 ms to 1.8 ms, agent result at 64.0 ms to 65.6 ms |
+| starved | 80 busy global-queue blocks | exit at 1.9 ms to 2.0 ms, timeout and inner wait start at 2001 ms to 2005 ms |
+| late TERM | command runs past the deadline | timeout at 2003 ms to 2005 ms, TERM succeeds, return at 2.11 s to 2.14 s |
+| ignored TERM | command ignores TERM | TERM wait times out at 5050 ms to 5087 ms, then SIGKILL |
+
+Each range covers the three runs. Times count from the `begin` record of the call.
 
 The starved control shows candidate 1 as a trace: the shell exits first, and the agent
 still reports a timeout. The ignored TERM control adds the 3 s TERM wait. That wait
@@ -356,7 +360,7 @@ did not recur. In run 02, `after-09-table` timed out at 30.148 s. Here the same
 command exited at 32.9 ms and the agent returned at 73.4 ms.
 
 In these nine calls, the agent saw the exit from 25 ms to 65 ms after the kernel exit.
-On the host, the same lag was less than 0.1 ms. The lag is far below the 30 s guest deadline.
+In the normal host control, the same lag was 62 ms to 64 ms. The lag is far below the 30 s guest deadline.
 The agent had at most 12 threads at any record. Candidate 1 needs 63 of the 64
 constrained workers of the guest to be busy. So no starvation occurred in this run.
 
@@ -390,6 +394,37 @@ stays unproved. The run removes no candidate, because the stall did not recur. I
 does show that the traced route works in a clone, and that the checker reads each
 ordering from a real guest trace. A later recurrence under this route would name the
 ordering directly.
+
+### Review repairs (k199)
+
+A review of the k195 change found four faults. The leaf k199 repaired each of them.
+The retained runs `controls-01` and `run-01` stay unchanged. The results below are
+new verification.
+
+- A kernel record time is the time the trace thread received the event batch. So it
+  bounds the exit only from above. Checker `k199-1` puts the deadline at the
+  `wait-enter` mark plus the requested timeout. It reports `command-alive` only when
+  the shell died by SIGTERM or SIGKILL after the agent sent TERM. Any other late or
+  absent exit is `uncertain`. The verdict `starved` needs the sequence and the time to
+  agree, and the seam now takes both under one lock.
+- Each kqueue registration carries a token and a process start time. A failed
+  registration is undone. A full child snapshot writes `adopt-truncated`, and the
+  checker then treats the descendant list as a lower bound. A reused PID whose old
+  exit the thread has not read is still not traced.
+- Evidence is complete only when each receipt is present and clean and each intentional
+  timeout timed out. The trace must hold one `trace-open` from the verified agent, a
+  contiguous sequence, no unparsed line, no loop error and no unmatched `begin`. The
+  checker exits 0 only for a traced, complete run with proved cleanup.
+- The host control table above now gives the measured ranges of `controls-01`.
+
+Checker `k199-1` judged the frozen `run-01` again. It reports route `traced`, evidence
+`complete` and stall `not-reproduced`, and it exits 0. The two intentional timeouts
+are still `command-alive`, with the same processes. So the k195 result stands.
+
+The repaired seam ran the host controls into `controls-02`. Each control passed in
+each of three runs, with no missed watch and no loop error. Checker `k199-1` classified
+each control trace as its forced ordering. The normal lag from kernel exit to agent
+result was 62 ms to 65 ms. The default build `7d282603f534` holds no seam symbol.
 
 ## Regression candidates
 

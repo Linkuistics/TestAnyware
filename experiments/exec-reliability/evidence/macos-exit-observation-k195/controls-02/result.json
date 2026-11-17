@@ -1,0 +1,177 @@
+{
+  "runs": [
+    {
+      "argv": [
+        "swift",
+        "test",
+        "--skip-build",
+        "--scratch-path",
+        "/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/k195-controls-95clvuht/trace",
+        "-Xswiftc",
+        "-DEXIT_TRACE",
+        "--filter",
+        "ExitTraceControlTests"
+      ],
+      "exit": 0,
+      "hit_bound": false,
+      "seconds": 21.14,
+      "log": "run-01.log",
+      "log_sha256": "fb83615d1d36adf6dbb84b544e668d21b500465bc740edc1b4d1eb44dd12b64c",
+      "cases": {
+        "testIgnoredTermWaitsThreeSecondsThenKills": "passed",
+        "testLateExitEndsOnTerm": "passed",
+        "testNormalExitIsObservedAfterKernelExit": "passed",
+        "testStarvedPoolMissesAnExitedShell": "passed"
+      },
+      "orderings": [
+        "ignored-term: begin@0.0 spawned@0.3 watch@0.3 wait-enter/deadline@0.5 outer-start/deadline@0.5 waiter-start/deadline@0.5 kernel-fork@2.0 watch@2.1 kernel-exec@3.3 wait-result/deadline@2004.3 descendants-start@2004.5 descendants-end@2068.1 terminate-sent@2068.1 wait-enter/terminate@2068.1 outer-start/terminate@2068.1 waiter-start/terminate@2068.2 wait-result/terminate@5073.2 kill-sent@5073.5 kernel-exit@5074.4 foundation-termination@5074.6 reap-return@5074.7 descendant-kill@5074.9 kernel-exit@5077.4 return@5077.6",
+        "late-term: begin@0.0 spawned@0.6 watch@0.6 wait-enter/deadline@0.8 outer-start/deadline@0.8 waiter-start/deadline@0.8 kernel-fork@4.1 watch@4.2 kernel-exec@5.5 wait-result/deadline@2001.4 descendants-start@2001.5 descendants-end@2134.9 terminate-sent@2134.9 wait-enter/terminate@2134.9 outer-start/terminate@2135.0 waiter-start/terminate@2135.0 foundation-termination@2135.2 kernel-exit@2135.2 waiter-return/terminate@2135.2 kernel-exit@2135.2 wait-result/terminate@2135.3 descendant-kill@2135.3 return@2135.4",
+        "normal: begin@0.0 spawned@0.3 watch@0.3 wait-enter/deadline@0.4 outer-start/deadline@0.4 waiter-start/deadline@0.4 kernel-exit@2.1 foundation-termination@2.1 waiter-return/deadline@63.9 wait-result/deadline@63.9 return@64.0",
+        "starved running=80: begin@0.0 spawned@0.3 watch@0.4 wait-enter/deadline@0.5 outer-start/deadline@0.5 kernel-exit@2.1 foundation-termination@2.1 wait-result/deadline@2001.0 waiter-start/deadline@2001.1 descendants-start@2001.1 waiter-return/deadline@2001.1 descendants-end@2022.7 terminate-sent@2022.8 wait-enter/terminate@2022.8 outer-start/terminate@2022.8 waiter-start/terminate@5003.5 waiter-return/terminate@5003.6 wait-result/terminate@5004.3 return@5004.5"
+      ],
+      "trace": {
+        "present": true,
+        "sha256": "5a295f78ac97fd370ff60fc3a5ad48da343ec757b431980d36a1f50eabcb7ace",
+        "records": 81,
+        "begins": 4,
+        "marked_begins": 4,
+        "loop_errors": 0,
+        "missed_watches": 0
+      },
+      "problems": [],
+      "verdict": "pass"
+    },
+    {
+      "argv": [
+        "swift",
+        "test",
+        "--skip-build",
+        "--scratch-path",
+        "/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/k195-controls-95clvuht/trace",
+        "-Xswiftc",
+        "-DEXIT_TRACE",
+        "--filter",
+        "ExitTraceControlTests"
+      ],
+      "exit": 0,
+      "hit_bound": false,
+      "seconds": 21.099,
+      "log": "run-02.log",
+      "log_sha256": "35241b51bcc73b71f9001840d219f7589df7528f9ff3f5009bbe62a34f14f6ae",
+      "cases": {
+        "testIgnoredTermWaitsThreeSecondsThenKills": "passed",
+        "testLateExitEndsOnTerm": "passed",
+        "testNormalExitIsObservedAfterKernelExit": "passed",
+        "testStarvedPoolMissesAnExitedShell": "passed"
+      },
+      "orderings": [
+        "ignored-term: begin@0.0 spawned@0.3 watch@0.3 wait-enter/deadline@0.4 outer-start/deadline@0.5 waiter-start/deadline@0.5 kernel-fork@1.9 watch@2.0 kernel-exec@3.1 wait-result/deadline@2005.9 descendants-start@2006.0 descendants-end@2096.9 terminate-sent@2097.0 wait-enter/terminate@2097.1 outer-start/terminate@2097.1 waiter-start/terminate@2097.5 wait-result/terminate@5101.1 kill-sent@5101.2 kernel-exit@5101.5 foundation-termination@5101.5 waiter-return/deadline@5101.5 waiter-return/terminate@5104.6 reap-return@5169.2 descendant-kill@5169.2 return@5170.6 kernel-exit@5171.5",
+        "late-term: begin@0.0 spawned@4.8 watch@4.9 wait-enter/deadline@5.0 outer-start/deadline@5.1 waiter-start/deadline@5.4 kernel-fork@9.3 watch@9.4 kernel-exec@10.9 wait-result/deadline@2007.0 descendants-start@2007.1 descendants-end@2140.3 terminate-sent@2140.4 wait-enter/terminate@2140.4 outer-start/terminate@2140.4 waiter-start/terminate@2140.5 kernel-exit@2140.7 foundation-termination@2140.7 waiter-return/terminate@2140.7 wait-result/terminate@2140.7 kernel-exit@2140.7 descendant-kill@2140.8 return@2140.9",
+        "normal: begin@0.0 spawned@0.3 watch@0.3 wait-enter/deadline@0.4 outer-start/deadline@0.4 waiter-start/deadline@0.4 kernel-exit@2.1 foundation-termination@2.2 waiter-return/deadline@67.5 wait-result/deadline@67.5 return@67.6",
+        "starved running=80: begin@0.0 spawned@1.1 watch@1.3 wait-enter/deadline@1.6 outer-start/deadline@1.7 kernel-exit@6.6 foundation-termination@6.7 wait-result/deadline@2004.5 waiter-start/deadline@2004.7 descendants-start@2004.7 waiter-return/deadline@2004.8 descendants-end@2044.3 terminate-sent@2044.3 wait-enter/terminate@2044.3 outer-start/terminate@2044.4 waiter-start/terminate@5000.7 waiter-return/terminate@5000.8 wait-result/terminate@5000.8 return@5001.0"
+      ],
+      "trace": {
+        "present": true,
+        "sha256": "c4fb229c4109bc9500b352893c3e8a31a65f9eb663ac62039f936aa0dab69361",
+        "records": 81,
+        "begins": 4,
+        "marked_begins": 4,
+        "loop_errors": 0,
+        "missed_watches": 0
+      },
+      "problems": [],
+      "verdict": "pass"
+    },
+    {
+      "argv": [
+        "swift",
+        "test",
+        "--skip-build",
+        "--scratch-path",
+        "/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/k195-controls-95clvuht/trace",
+        "-Xswiftc",
+        "-DEXIT_TRACE",
+        "--filter",
+        "ExitTraceControlTests"
+      ],
+      "exit": 0,
+      "hit_bound": false,
+      "seconds": 21.291,
+      "log": "run-03.log",
+      "log_sha256": "28622afe6f8ef3ccaa33152b8c168959713ad2a96e64527bea12c809c2d84964",
+      "cases": {
+        "testIgnoredTermWaitsThreeSecondsThenKills": "passed",
+        "testLateExitEndsOnTerm": "passed",
+        "testNormalExitIsObservedAfterKernelExit": "passed",
+        "testStarvedPoolMissesAnExitedShell": "passed"
+      },
+      "orderings": [
+        "ignored-term: begin@0.0 spawned@0.3 watch@0.3 wait-enter/deadline@0.5 outer-start/deadline@0.5 waiter-start/deadline@0.5 kernel-fork@2.2 watch@2.3 kernel-exec@4.0 wait-result/deadline@2004.3 descendants-start@2004.3 descendants-end@2074.1 terminate-sent@2074.1 wait-enter/terminate@2074.1 outer-start/terminate@2074.1 waiter-start/terminate@2074.2 wait-result/terminate@5077.6 kill-sent@5077.7 kernel-exit@5078.2 foundation-termination@5078.2 reap-return@5078.2 descendant-kill@5078.2 kernel-exit@5078.6 return@5079.5",
+        "late-term: begin@0.0 spawned@0.4 watch@0.5 wait-enter/deadline@0.7 outer-start/deadline@0.7 waiter-start/deadline@0.7 kernel-fork@2.8 watch@3.0 kernel-exec@4.0 wait-result/deadline@2003.5 descendants-start@2003.6 descendants-end@2134.6 terminate-sent@2134.7 wait-enter/terminate@2134.8 outer-start/terminate@2134.8 waiter-start/terminate@2135.3 kernel-exit@2136.0 foundation-termination@2136.1 kernel-exit@2136.0 waiter-return/terminate@2202.1 waiter-return/deadline@2202.1 wait-result/terminate@2202.6 descendant-kill@2202.7 return@2203.0",
+        "normal: begin@0.0 spawned@0.6 watch@0.6 wait-enter/deadline@0.7 outer-start/deadline@0.7 waiter-start/deadline@0.9 kernel-exit@6.6 foundation-termination@6.6 waiter-return/deadline@69.4 wait-result/deadline@69.8 return@70.0",
+        "starved running=80: begin@0.0 spawned@0.3 watch@0.3 wait-enter/deadline@0.5 outer-start/deadline@0.5 kernel-exit@22.2 foundation-termination@22.3 wait-result/deadline@2004.6 waiter-start/deadline@2004.8 descendants-start@2004.8 waiter-return/deadline@2004.8 descendants-end@2041.5 terminate-sent@2041.6 wait-enter/terminate@2041.6 outer-start/terminate@2041.7 waiter-start/terminate@5003.9 waiter-return/terminate@5004.0 wait-result/terminate@5004.0 return@5004.2"
+      ],
+      "trace": {
+        "present": true,
+        "sha256": "e5c978c94caa62e32d7b6fbbffffff788d305932d66ae335215fc4613734a979",
+        "records": 81,
+        "begins": 4,
+        "marked_begins": 4,
+        "loop_errors": 0,
+        "missed_watches": 0
+      },
+      "problems": [],
+      "verdict": "pass"
+    }
+  ],
+  "trace_build": {
+    "argv": [
+      "swift",
+      "build",
+      "--build-tests",
+      "--scratch-path",
+      "/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/k195-controls-95clvuht/trace",
+      "-Xswiftc",
+      "-DEXIT_TRACE"
+    ],
+    "exit": 0,
+    "hit_bound": false,
+    "seconds": 27.187,
+    "log": "build-trace.log",
+    "log_sha256": "d2a668b85ae43d202ad7ee02da7c7d7fe144b868ecb1a39dc790373bfa232f4b"
+  },
+  "default_build": {
+    "argv": [
+      "swift",
+      "build",
+      "-c",
+      "release",
+      "--product",
+      "testanyware-agent",
+      "--scratch-path",
+      "/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/k195-controls-95clvuht/default"
+    ],
+    "exit": 0,
+    "hit_bound": false,
+    "seconds": 42.099,
+    "log": "build-default.log",
+    "log_sha256": "28eebed8761af744559df6558ccb0d321d2e88d1f05a22956df0888dee94d831"
+  },
+  "default_seam": {
+    "binary_sha256": "7d282603f534fbfde105cd5ab9a5484bed845403c7018ee4c153336807e6d1c6",
+    "nm_exit": 0,
+    "seam_symbols": 0,
+    "verdict": "pass"
+  },
+  "scratch_removed": true,
+  "inputs_after": {
+    "agents/macos/Package.swift": "a2fd3d5c7c0010f73d8ce8c5ebc40c06460a6fbadcf758f39726d75ac64ab395",
+    "agents/macos/Package.resolved": "9e4ea3550f73160ddd02d93296814252b86901ef24e1fed023cd5317c1785267",
+    "agents/macos/Sources/TestAnywareAgent/ExitTrace.swift": "079f0ad4620d7a1559c7ba5bcfee625b953850a70c4102780a47b5c5beba3676",
+    "agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift": "6a3c3846eb88ca939c54941da18ed6443632759279fd1b614d71c1af109d1d37",
+    "agents/macos/Tests/TestAnywareAgentTests/ExitTraceControlTests.swift": "bb6af1301cac345c1a57806674f0afbbf444b8b67b9fa6ca57dae2d4cc8b7677",
+    "agents/macos/Tests/TestAnywareAgentTests/OwnedProcessFixture.swift": "87837fea6d54310d138a05b4560b7f54a3ac61e0afac8a8c72db2f29c45b151a",
+    "experiments/exec-reliability/evidence/macos-exit-observation-k195/controls.py": "64b883023223c842cc36fba636e62987bfb7097f3415c8c319dee01f80ceabe7"
+  },
+  "verdict": "pass"
+}
