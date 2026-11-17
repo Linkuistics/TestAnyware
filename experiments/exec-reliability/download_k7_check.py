@@ -62,6 +62,10 @@ CASES = [
     "agent-killed-mid-body",
 ]
 CLI_ONLY = ["cli-killed-mid-body"]
+# Independent copy of the immutable publication count planned by download_k7.py.
+STRESS_PUBLICATIONS = 200
+# The checker judges this case against its own oracle, not the files the controller wrote.
+ORACLE_CASE = "immutable-binary"
 
 
 def sha256(data: bytes) -> str:
@@ -96,7 +100,9 @@ def oracle_controls(out: Path) -> Json:
     return result
 
 
-def allowed_versions(case_dir: Path) -> list[bytes]:
+def allowed_versions(case_dir: Path, case: str) -> list[bytes]:
+    if case == ORACLE_CASE:
+        return [bytes.fromhex(ORACLE_HEX)]
     return [p.read_bytes() for p in sorted(case_dir.glob("allowed-*.bin"))]
 
 
@@ -130,6 +136,8 @@ def classify_raw(case_dir: Path, record: Json, allowed: list[bytes]) -> Json:
 def classify_cli(case_dir: Path, record: Json, allowed: list[bytes]) -> Json:
     if "cli_killed" in record:
         killed: Json = record["cli_killed"]
+        if "error" in record or killed.get("ended_by") == "unreaped":
+            return {"class": "unclassified", "reason": record.get("error") or "CLI not reaped"}
         clean = not killed.get("destination_exists") and not killed.get("temporaries_after")
         return {
             "class": "clean-interrupt" if clean else "interrupt-leak",
@@ -177,18 +185,25 @@ def agent_ok(record: Json) -> bool:
 
 
 def stress_summary(record: Json) -> Json:
-    if "outcomes" not in record:
-        return {"complete": False}
+    """Summarise one stress record. It is complete only when every planned read is
+    present and classified. A classified wrong body is a finding, not incompleteness."""
+    if "outcomes" not in record or "error" in record:
+        return {"complete": False, "reason": record.get("error") or "no outcomes"}
     if "publications" in record:
         outcomes: Json = record["outcomes"]
+        complete_reads = outcomes.get("complete", 0)
+        mismatches = len(record.get("mismatches", []))
+        observed = complete_reads + mismatches
         return {
-            "complete": True,
+            "complete": record["publications"] == STRESS_PUBLICATIONS
+            and outcomes.get("mismatch", 0) == mismatches
+            and observed == STRESS_PUBLICATIONS,
             "publications": record["publications"],
-            "complete_reads": outcomes.get("complete", 0),
-            "mismatches": len(record.get("mismatches", [])),
+            "complete_reads": complete_reads,
+            "mismatches": mismatches,
         }
     if "versions" not in record:
-        return {"complete": False}
+        return {"complete": False, "reason": "no versions"}
     versions: Json = record["versions"]
     classes: dict[str, int] = {}
     wrong: dict[str, int] = {}
@@ -205,14 +220,35 @@ def stress_summary(record: Json) -> Json:
         else:
             key = "unclassified"
         classes[key] = classes.get(key, 0) + entry["count"]
+    counted = sum(classes.values())
+    # The k7 controller joined its writer without a bound, so a k7 record without the
+    # field proves the writer ended. A later controller records writer_alive.
+    writer_ended = record.get("writer_alive", False) is False
     return {
-        "complete": True,
+        "complete": record["reads"] > 0
+        and counted == record["reads"]
+        and "unclassified" not in classes
+        and writer_ended,
         "reads": record["reads"],
         "swaps": record["swaps"],
         "classes": classes,
         "undetected_wrong_sha256": wrong,
         "failure_d_bytes": wrong.get(FAILURE_D_SHA256, 0),
     }
+
+
+def executables_unchanged(meta: Json) -> bool | None:
+    """Compare the Host CLI, compiled shim and agent digests that the controller took
+    before and after its cases. A k7 meta has no after digests, so the answer is None."""
+    after: Json | None = meta.get("after")
+    if after is None:
+        return None
+    before = {
+        "cli_sha256": meta["cli"]["sha256"],
+        "shim_sha256": meta["shim"]["sha256"],
+        "agents_sha256": {k: v["sha256"] for k, v in meta["agents"].items()},
+    }
+    return after == before
 
 
 def check(out: Path) -> Json:
@@ -228,6 +264,9 @@ def check(out: Path) -> Json:
     )
     oracle = oracle_controls(out)
     problems: list[str] = []
+    executables = executables_unchanged(meta)
+    if executables is False:
+        problems.append("an executable digest changed during the probe")
     if not historical_ok:
         problems.append("historical failure D digests changed or are missing")
     if not oracle["behaves"]:
@@ -249,7 +288,7 @@ def check(out: Path) -> Json:
                     problems.append(f"{label}: {case}/{client} missing")
                     continue
                 record: Json = json.loads(path.read_text())
-                allowed = allowed_versions(case_dir)
+                allowed = allowed_versions(case_dir, case)
                 if client == "raw":
                     row = classify_raw(case_dir, record, allowed)
                 else:
@@ -276,6 +315,7 @@ def check(out: Path) -> Json:
         "problems": problems,
         "historical": {"now": historical_now, "unchanged": historical_ok},
         "oracle_controls": oracle,
+        "executables_unchanged": executables,
         "agents": agents,
     }
 

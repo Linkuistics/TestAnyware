@@ -15,18 +15,24 @@ the digest of the historical file `after-abrupt-03-state-002.json`. The raw HTTP
 client received `Content-Length: 25` and 25 bytes. The Host CLI exited 0 and wrote a
 receipt for 25 bytes.
 
-The responsible boundary is the download handler of the macOS agent, through the
-`FileIO` type of Hummingbird. The handler finds the file by path three times. The
+The run shows a defect in the download handler of the macOS agent, through the
+`FileIO` type of Hummingbird. The defect can produce the failure D bytes. The run does
+not show that this defect produced failure D in the guest (see *Integration k210*).
+
+The handler finds the file by path three times. The
 second lookup supplies the length. The third lookup opens the file. Nothing checks
 that the second and the third lookup found the same file.
 
 The writer of failure D replaces a 25-byte pending record with a longer terminal
 record. When the replacement falls between the second and the third lookup, the
 agent sends 25 bytes of the new file. The framing is then valid, so no client can
-detect the error. The relay of the TestAnyware app and the Host CLI copy the bytes
-that the agent sends. This run did not test the relay.
+detect the error. This run did not test the relay of the TestAnyware app. ADR-0004
+describes how the relay forwards bytes, but no measurement shows what the relay
+received or sent in failure D. A 25-byte prefix of the terminal record also fits a
+truncation at another point on that route.
 
-Natural timing gave the same result without a pause. A writer replaced the record
+The stress cases gave the same result without a pause. The shim stayed loaded and
+can change the timing, so these cases are not an uninstrumented control. A writer replaced the record
 about 74,000 times in 10 s while the raw client read it. On the shipped agent, 1,887
 of 53,031 reads returned the failure D bytes with a complete frame. On the checkout
 agent, 2,794 of 48,535 reads did the same.
@@ -187,6 +193,72 @@ The run tested 200 records on each agent with exact equality. There were 10,264 
 10,266 responses of 404 before publication, and no mismatch. This test ran on the
 host file system, not in a guest. The relay was not used.
 
+## Integration k210
+
+The review `download-consistency-k209` reported five findings in
+`docs/experiments/exec-reliability-download-consistency-review-k209.md`.
+Integration k210 found each finding valid against the source.
+
+| finding | change in k210 | limit that stays |
+|---|---|---|
+| R1. The checker accepted a stress record with missing, empty or unclassified reads. | The immutable summary needs 200 publications and 200 classified reads. The mutable summary needs at least one read, a class for each read, a total equal to `reads` and a stopped writer. A stress record with an error is incomplete. | The retained run keeps the aggregates of the immutable reads, not each body. |
+| R2. No step had an independent deadline, and a failure could leave a writer, the Host CLI or an agent running. | `download_k7_run.sh` runs each step under GNU `timeout`. The build has 600 s, the probe 300 s, the check 60 s and each inspection 30 s. An exit trap ends each listed agent whose command still names its binary, then removes the build tree. The raw client bounds the whole download. The CLI and agents get 2 s of grace, then SIGKILL and 2 s to reap. A failed `ps` or `pgrep` reads as unknown, not as absence. A failed stress read stops its writer and is kept as an error. | A process that does not end after SIGKILL stays. The record names it as `unreaped`, and the run fails. |
+| R3. The checker judged `immutable-binary` by the allowed file that the controller wrote. | The checker compares that case with its own copy of the oracle. | None found. |
+| R4. *Result* named the agent handler as the boundary that caused failure D, and called the unpaused stress natural timing. | *Result* and *Limits* now state a host agent defect that can produce failure D. The guest route and the relay stay unproved. The stress cases are instrumented. | A stronger attribution needs evidence from the guest and relay route. No such run is planned in this grove. |
+| R5. The digests before and after omitted the agent sources, the executables and the compiled shim. | The runner hashes every file under `agents/macos`, the shipped agent, the Host CLI and `timeout` before the build and after the check. The controller hashes the Host CLI, the shim and both agents again after the cases. The checker fails when one changes. | The `local-01` freeze stays incomplete. A digest taken now cannot stand for its after-state. |
+
+### Run `local-02`
+
+The k210 tooling ran once as `local-02`, from source commit
+`6cdfefc4e058de9efdb188124d0ac1fcb7168ff9`, with no retry. The workloads and counts
+are those of `local-01`. The runner exited 0.
+
+The build, probe and check exited 0, and
+both digest pairs were equal before and after. The outer directory holds 31 subject
+digests. The cleanup ended no agent, `survivors.txt` is empty, and the build tree was
+removed. The probe took 32 s.
+
+Every forced case gave the class it gave in `local-01`, on both agents. The SIGTERM
+of the CLI ended it within the grace on both agents.
+
+| Agent | Wrong complete frame (failure D bytes) | Premature EOF | Total reads | Replacements | Immutable complete |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Shipped | 1,775 | 1,700 | 52,922 | 71,867 | 200 of 200 |
+| Checkout | 2,249 | 2,168 | 48,532 | 70,319 | 200 of 200 |
+
+The shipped agent and the Host CLI had the digests of `local-01`. The checkout agent
+had SHA-256 `6d33935a978cdd97988538235a488d20801dd966cec7e0fbbaea4e0e5e7b5d0c`. The
+`local-01` digest was `02cb30175b43f04f60bbd80b65e9a0545c5fb71bf3888cbf2c55a1500a20dd4d`.
+The agent sources did not change between the two source commits. The cause of the
+different digest was not examined.
+
+### Re-judgement of `local-01`
+
+The k210 checker re-judged `local-01`. The result is `check-k210.json` beside
+the retained `check.json`. It exited 0 and gave the same rows as the first check.
+`executables_unchanged` is null, because `local-01` has no digests after the cases.
+The record is in `rejudge-k210/`, with the source commit, the dirty diff, the tool
+digests and the digests of the 703 retained files. The two digest lists were equal.
+
+### What consumers may rely on
+
+- On macOS, the agent handler takes the length and the bytes from two different path
+  lookups. A replacement between them gives a complete frame with wrong bytes. The
+  shipped agent and the checkout agent both show this.
+- Replacement with a shorter file, truncation and agent termination give a premature
+  EOF. The Host CLI exits 1 for each.
+- Publication to a new name once gave 200 complete reads of 200 on each agent, in
+  both runs.
+
+### What remains unproved
+
+- That this defect produced failure D in the guest, and what the relay did then.
+- The rate of the race without the shim.
+- The freeze of the executables and sources during `local-01`.
+
+The leaf `linux-download-consistency-k14` uses the k210 tooling. The design leaf
+`lifecycle-evidence-k8` consumes this report and must treat these items as open.
+
 ## Limits
 
 - All cases ran on the host, with the agent on loopback. No VM, guest, relay or
@@ -194,6 +266,10 @@ host file system, not in a guest. The relay was not used.
   reproduced the exact bytes.
 - The Host CLI used the direct route with `--agent`. Failure D used `--vm`, which
   goes through the relay of the TestAnyware app on macOS hosts.
+- The stress cases ran with the shim loaded and no pause. They do not measure the
+  rate of an agent without the shim.
+- The historical guest route is not measured. Which interleaving occurred in failure
+  D, and what the relay received and sent, stay unproved.
 - The forced cases ran once each. The stress cases ran 10 s and 200 records on each
   agent. The rates are samples, not bounds.
 - The run did not test a handler that takes the length from the open handle. Such a
@@ -216,16 +292,17 @@ These are inputs for the design leaf `lifecycle-evidence-k8`. They are not decis
 
 | Resource | Result |
 | --- | --- |
-| agent processes | 36, each on a new loopback port, each stopped. `agents-after.txt` is empty. |
+| agent processes | 36, each on a new loopback port, each stopped. `agents-after.txt` is empty. In `local-01`, a failed `ps` would also have read as stopped (see *Integration k210*). |
 | listeners | each agent listened on `127.0.0.1` only. The controller checked this with `lsof`. |
 | agent build tree | built in a temporary directory outside the repository, then removed. `build-dir-after` says `removed`. |
 | Host CLI temporary files | one in each cli-killed-mid-body case, kept as evidence in the case directory |
-| tooling digests | equal before and after |
+| tooling digests | equal before and after. `local-01` did not hash the agent sources or the executables after the run (see *Integration k210*). |
 | historical files | digests unchanged before, after and at check time |
 
 ## Accounting
 
-There was one recorded run, `local-01`. It had no retry. Development trials ran in
+Leaf k7 had one recorded run, `local-01`. It had no retry. Integration k210 added one
+run with the k210 tooling, `local-02`, with no retry. Development trials ran in
 the scratchpad and are not evidence. One development run reached the evidence
 directory with its build tree in the outer directory. That run is not
 kept.
@@ -248,8 +325,8 @@ Run each command from the repository root.
 
 ```sh
 task diagnostic:download-consistency-tools
-task diagnostic:download-consistency-local OUT=experiments/exec-reliability/evidence/download-consistency-k7/local-02
-task diagnostic:download-consistency-check OUT=experiments/exec-reliability/evidence/download-consistency-k7/local-01 RESULT=recheck.json
+task diagnostic:download-consistency-local OUT=experiments/exec-reliability/evidence/download-consistency-k7/local-03
+task diagnostic:download-consistency-check OUT=experiments/exec-reliability/evidence/download-consistency-k7/local-02 RESULT=recheck.json
 ```
 
 The evidence is in

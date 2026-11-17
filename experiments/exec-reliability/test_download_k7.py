@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import socket
+import subprocess
+import sys
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +70,7 @@ def test_oracle_controls_behave(tmp_path: Path) -> None:
 
 def test_oracle_constants_agree() -> None:
     assert download_k7.ORACLE.hex() == check.ORACLE_HEX
+    assert download_k7.STRESS_PUBLICATIONS == check.STRESS_PUBLICATIONS
     assert download_k7.HISTORICAL_SHA256 == check.HISTORICAL_SHA256
 
 
@@ -81,7 +85,7 @@ def raw_case(tmp_path: Path, body: bytes, end: str, allowed: list[bytes]) -> dic
         (tmp_path / f"allowed-{index}.bin").write_bytes(version)
     (tmp_path / "received.bin").write_bytes(body)
     record = {"result": {"status": 200, "end": end, "sha256": check.sha256(body)}}
-    return check.classify_raw(tmp_path, record, check.allowed_versions(tmp_path))
+    return check.classify_raw(tmp_path, record, check.allowed_versions(tmp_path, "c"))
 
 
 def test_raw_wrong_complete_body_is_undetected_wrong(tmp_path: Path) -> None:
@@ -147,3 +151,118 @@ def test_stress_summary_counts_unknown_complete_bodies() -> None:
         "detected-failure": 1,
     }
     assert summary["failure_d_bytes"] == 1
+
+
+def test_raw_client_bounds_a_trickling_peer() -> None:
+    """A peer that sends one byte before each receive timeout cannot extend the download."""
+    server = socket.socket()
+    server.bind(("127.0.0.1", 0))
+    server.listen(1)
+    port = int(server.getsockname()[1])
+    done = threading.Event()
+
+    def run() -> None:
+        conn, _ = server.accept()
+        with conn:
+            conn.recv(65536)
+            conn.sendall(head(1000))
+            while not done.wait(0.05):
+                try:
+                    conn.sendall(b"x")
+                except OSError:
+                    break
+        server.close()
+
+    threading.Thread(target=run, daemon=True).start()
+    started = time.monotonic()
+    result, _ = download_k7.raw_download(port, Path("/x"), timeout=0.5)
+    done.set()
+    assert result["end"] == "timeout-before-length"
+    assert time.monotonic() - started < 2
+
+
+def test_end_process_kills_a_child_that_ignores_term() -> None:
+    child = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import signal, time; signal.signal(signal.SIGTERM, "
+            "signal.SIG_IGN); print('ready', flush=True); time.sleep(60)",
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    assert child.stdout is not None
+    child.stdout.readline()
+    ended, _, _ = download_k7.end_process(child)
+    assert (ended, child.returncode) == ("SIGKILL", -9)
+    assert download_k7.pid_alive(child.pid) is False
+
+
+def test_mutable_stress_stops_its_writer_when_a_read_fails(tmp_path: Path) -> None:
+    """A refused connection ends the loop. The writer stops and the record keeps the error."""
+    closed = socket.socket()
+    closed.bind(("127.0.0.1", 0))
+    port = int(closed.getsockname()[1])
+    closed.close()
+    agent = download_k7.Agent("t", Path("/x"), Path("/x"), tmp_path, tmp_path / "pids")
+    agent.target.mkdir()
+    agent.port = port
+    record = download_k7.stress_mutable(agent, 5)
+    assert "error" in record and record["writer_alive"] is False
+    assert not check.stress_summary(record)["complete"]
+
+
+def immutable(publications: int, complete: int, mismatches: int = 0) -> dict[str, Any]:
+    outcomes = {"complete": complete} | ({"mismatch": mismatches} if mismatches else {})
+    return {"publications": publications, "outcomes": outcomes, "mismatches": [{}] * mismatches}
+
+
+def test_immutable_stress_needs_every_planned_read() -> None:
+    assert check.stress_summary(immutable(200, 200))["complete"]
+    assert check.stress_summary(immutable(200, 199, 1))["complete"]
+    assert not check.stress_summary(immutable(200, 0))["complete"]
+    assert not check.stress_summary(immutable(0, 0))["complete"]
+    assert not check.stress_summary(immutable(200, 150) | {"error": "x"})["complete"]
+
+
+def mutable(reads: int, outcomes: dict[str, Any]) -> dict[str, Any]:
+    return {"reads": reads, "swaps": 1, "versions": {"aa": "pending"}, "outcomes": outcomes}
+
+
+def test_mutable_stress_needs_classified_reads_that_reconcile() -> None:
+    good = {"1": {"count": 2, "status": 200, "end": "complete", "sha256": "aa"}}
+    odd = {"1": {"count": 2, "status": 200, "end": "eof", "sha256": "aa"}}
+    assert check.stress_summary(mutable(2, good))["complete"]
+    assert not check.stress_summary(mutable(0, {}))["complete"]
+    assert not check.stress_summary(mutable(3, good))["complete"]
+    assert not check.stress_summary(mutable(2, odd))["complete"]
+    assert not check.stress_summary(mutable(2, good) | {"writer_alive": True})["complete"]
+
+
+def test_immutable_binary_is_judged_by_the_checker_oracle(tmp_path: Path) -> None:
+    """A wrong allowed file from the controller cannot make wrong bytes look allowed."""
+    (tmp_path / "allowed-0.bin").write_bytes(b"wrong")
+    (tmp_path / "received.bin").write_bytes(b"wrong")
+    record = {"result": {"status": 200, "end": "complete", "sha256": check.sha256(b"wrong")}}
+    allowed = check.allowed_versions(tmp_path, "immutable-binary")
+    assert check.classify_raw(tmp_path, record, allowed)["class"] == "undetected-wrong"
+
+
+def test_unreaped_cli_interrupt_is_unclassified(tmp_path: Path) -> None:
+    killed: dict[str, Any] = {"ended_by": "unreaped", "temporaries_after": []}
+    record: dict[str, Any] = {"case": "c", "cli_killed": killed}
+    assert check.classify_cli(tmp_path, record, [])["class"] == "unclassified"
+
+
+def test_executable_digests_must_match_after_the_probe() -> None:
+    meta: dict[str, Any] = {
+        "cli": {"sha256": "c"},
+        "shim": {"sha256": "s"},
+        "agents": {"a": {"sha256": "x"}},
+    }
+    assert check.executables_unchanged(meta) is None
+    after = {"cli_sha256": "c", "shim_sha256": "s", "agents_sha256": {"a": "x"}}
+    assert check.executables_unchanged(meta | {"after": after}) is True
+    changed = after | {"agents_sha256": {"a": "y"}}
+    assert check.executables_unchanged(meta | {"after": changed}) is False

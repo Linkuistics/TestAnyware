@@ -62,6 +62,11 @@ RAW_TIMEOUT = 20.0
 CLI_TIMEOUT = 150.0
 PAUSE_TIMEOUT = 20.0
 STRESS_SECONDS = 10.0
+STRESS_PUBLICATIONS = 200
+# Root brief: termination grace at most 2 s, then kill, drain and reap at most 2 s.
+GRACE = 2.0
+REAP = 2.0
+INSPECT_TIMEOUT = 30.0  # ordinary observation ceiling for lsof and ps
 
 Json = dict[str, Any]
 
@@ -125,6 +130,7 @@ class Agent:
     binary: Path
     shim: Path
     root: Path
+    registry: Path
     trace: bool = True
     port: int = 0
     process: subprocess.Popen[bytes] | None = None
@@ -161,6 +167,9 @@ class Agent:
             start_new_session=True,
         )
         log.close()
+        # The wrapper reads this registry to find and end a surviving agent by identity.
+        with self.registry.open("a") as handle:
+            handle.write(f"{self.process.pid} {self.binary}\n")
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
             if self.process.poll() is not None:
@@ -170,11 +179,9 @@ class Agent:
                     break
             except OSError:
                 time.sleep(0.05)
-        listen = subprocess.run(
-            ["lsof", "-nP", "-a", "-p", str(self.process.pid), "-iTCP", "-sTCP:LISTEN"],
-            capture_output=True,
-            text=True,
-        ).stdout
+        listen = inspect(
+            ["lsof", "-nP", "-a", "-p", str(self.process.pid), "-iTCP", "-sTCP:LISTEN"]
+        )[1]
         self.record = {
             "label": self.label,
             "pid": self.process.pid,
@@ -191,17 +198,12 @@ class Agent:
     def stop(self, sig: int = signal.SIGTERM) -> None:
         if self.process is None:
             return
+        # The first stop names the signal. A later stop of an ended agent keeps it.
+        self.record.setdefault("stopped_by", signal.Signals(sig).name)
         if self.process.poll() is None:
-            self.process.send_signal(sig)
-            try:
-                self.process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.process.kill()
-                self.process.wait(timeout=10)
+            self.record["reaped"] = end_process(self.process, sig)[0]
         self.record["returncode"] = self.process.returncode
-        self.record["stopped_by"] = signal.Signals(sig).name
-        alive = subprocess.run(["ps", "-p", str(self.process.pid)], capture_output=True)
-        self.record["alive_after_stop"] = alive.returncode == 0
+        self.record["alive_after_stop"] = pid_alive(self.process.pid)
 
     def arm(self, event: str, nth: int, generation: str) -> None:
         (self.gate / "arm").write_text(f"{event} {nth} {generation}\n")
@@ -219,9 +221,49 @@ class Agent:
         (self.gate / "resume").write_text("go\n")
 
 
+def inspect(argv: list[str]) -> tuple[int | None, str]:
+    """Run one read-only inspection command under the observation ceiling. A timeout or
+    a start failure gives the exit None, so the caller cannot read it as absence."""
+    try:
+        done = subprocess.run(argv, capture_output=True, text=True, timeout=INSPECT_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
+        return None, ""
+    return done.returncode, done.stdout
+
+
+def pid_alive(pid: int) -> bool | None:
+    """True or False only when ps answers plainly. Any other answer is unknown (None)."""
+    code, out = inspect(["ps", "-p", str(pid), "-o", "pid="])
+    if code == 0 and out.strip() == str(pid):
+        return True
+    if code == 1 and not out.strip():
+        return False
+    return None
+
+
+def end_process(
+    process: subprocess.Popen[bytes], sig: int = signal.SIGTERM
+) -> tuple[str, bytes, bytes]:
+    """Send sig, allow GRACE, then SIGKILL and allow REAP. Return how the process ended
+    (by the first signal, by SIGKILL, or unreaped inside the bounds) and its streams."""
+    process.send_signal(sig)
+    try:
+        out, err = process.communicate(timeout=GRACE)
+        return signal.Signals(sig).name, out or b"", err or b""
+    except subprocess.TimeoutExpired:
+        pass
+    process.kill()
+    try:
+        out, err = process.communicate(timeout=REAP)
+        return "SIGKILL", out or b"", err or b""
+    except subprocess.TimeoutExpired:
+        return "unreaped", b"", b""
+
+
 def raw_download(port: int, path: Path, timeout: float = RAW_TIMEOUT) -> tuple[Json, bytes]:
     """POST /download with one connection. Read the body to Content-Length, then wait
-    briefly for extra bytes or the close. Nothing is retried."""
+    briefly for extra bytes or the close. Nothing is retried. The timeout bounds the
+    whole download, not each receive, so a peer that trickles bytes cannot extend it."""
     query = "path=" + "".join(
         ch if ch.isalnum() or ch in "/-_." else f"%{ord(ch):02X}" for ch in str(path)
     )
@@ -230,13 +272,21 @@ def raw_download(port: int, path: Path, timeout: float = RAW_TIMEOUT) -> tuple[J
         "Content-Length: 0\r\nConnection: close\r\n\r\n"
     ).encode()
     started = time.monotonic()
+    deadline = started + timeout
     data = b""
     end = "complete"
     with socket.create_connection(("127.0.0.1", port), timeout=timeout) as conn:
+
+        def receive() -> bytes:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise TimeoutError("download deadline")
+            conn.settimeout(left)
+            return conn.recv(65536)
+
         conn.sendall(request)
-        conn.settimeout(timeout)
         while b"\r\n\r\n" not in data:
-            piece = conn.recv(65536)
+            piece = receive()
             if not piece:
                 break
             data += piece
@@ -249,7 +299,7 @@ def raw_download(port: int, path: Path, timeout: float = RAW_TIMEOUT) -> tuple[J
         length = int(headers["content-length"]) if "content-length" in headers else None
         try:
             while length is None or len(body) < length:
-                piece = conn.recv(65536)
+                piece = receive()
                 if not piece:
                     end = "eof-before-length" if length is not None else "eof"
                     break
@@ -257,7 +307,7 @@ def raw_download(port: int, path: Path, timeout: float = RAW_TIMEOUT) -> tuple[J
         except TimeoutError:
             end = "timeout-before-length"
         if end == "complete":
-            conn.settimeout(0.5)
+            conn.settimeout(min(0.5, max(deadline - time.monotonic(), 0.001)))
             try:
                 extra = conn.recv(65536)
                 end = "complete-extra-bytes" if extra else "complete"
@@ -401,10 +451,12 @@ def run_case(agent: Agent, case: Case, client: str, calibration: Json) -> Json:
 
     cli_process: subprocess.Popen[bytes] | None = None
     if client == "raw":
-        worker = threading.Thread(target=raw_client)
+        worker = threading.Thread(target=raw_client, daemon=True)
         worker.start()
     else:
-        worker = threading.Thread(target=lambda: results.put(cli_download(agent.port, path, local)))
+        worker = threading.Thread(
+            target=lambda: results.put(cli_download(agent.port, path, local)), daemon=True
+        )
         if case.kill_cli:
             env = {k: v for k, v in os.environ.items() if k != "TESTANYWARE_APP_SOCKET"}
             argv = [str(CLI), "file", "download", "--agent", f"127.0.0.1:{agent.port}"]
@@ -416,31 +468,39 @@ def run_case(agent: Agent, case: Case, client: str, calibration: Json) -> Json:
             )
         else:
             worker.start()
-    if case.pause != "none":
-        record["paused"] = agent.wait_paused()
-        if case.change is not None:
-            case.change(path)
-            record["changed_sha256"] = sha256(path.read_bytes())
-        if case.kill_agent:
-            agent.stop(signal.SIGKILL)
-        if cli_process is not None:
-            temporaries = leftover_temporaries(local.parent)
-            cli_process.send_signal(signal.SIGTERM)
-            out, err = cli_process.communicate(timeout=30)
-            record["cli_killed"] = {
-                "signal": "SIGTERM",
-                "temporaries_while_paused": temporaries,
-                "exit": cli_process.returncode,
-                "stdout": out.decode(errors="replace"),
-                "stderr": err.decode(errors="replace"),
-                "destination_exists": local.exists(),
-                "temporaries_after": leftover_temporaries(local.parent),
-            }
-        if not case.kill_agent:
-            agent.resume()
+    try:
+        if case.pause != "none":
+            record["paused"] = agent.wait_paused()
+            if case.change is not None:
+                case.change(path)
+                record["changed_sha256"] = sha256(path.read_bytes())
+            if case.kill_agent:
+                agent.stop(signal.SIGKILL)
+            if cli_process is not None:
+                temporaries = leftover_temporaries(local.parent)
+                ended, out, err = end_process(cli_process)
+                record["cli_killed"] = {
+                    "signal": "SIGTERM",
+                    "ended_by": ended,
+                    "temporaries_while_paused": temporaries,
+                    "exit": cli_process.returncode,
+                    "stdout": out.decode(errors="replace"),
+                    "stderr": err.decode(errors="replace"),
+                    "destination_exists": local.exists(),
+                    "temporaries_after": leftover_temporaries(local.parent),
+                }
+            if not case.kill_agent:
+                agent.resume()
+    finally:
+        # A failure before the planned interruption must not leave the CLI running.
+        if cli_process is not None and cli_process.poll() is None:
+            record["cli_cleanup"] = end_process(cli_process, signal.SIGKILL)[0]
     if cli_process is None:
         worker.join(timeout=CLI_TIMEOUT + 30)
-        record["result"] = results.get(timeout=1)
+        try:
+            record["result"] = results.get_nowait()
+        except queue.Empty:
+            record["result"] = {"error": "worker alive at the bound"}
     record["file_after_sha256"] = sha256(path.read_bytes()) if path.exists() else None
     return record
 
@@ -461,25 +521,34 @@ def stress_mutable(agent: Agent, seconds: float) -> Json:
             replace(path, terminal if swaps % 2 == 0 else pending)
             swaps += 1
 
-    thread = threading.Thread(target=writer)
+    thread = threading.Thread(target=writer, daemon=True)
     thread.start()
     outcomes: dict[str, Json] = {}
     deadline = time.monotonic() + seconds
     reads = 0
-    while time.monotonic() < deadline:
-        result, body = raw_download(agent.port, path)
-        reads += 1
-        key = f"{result['status']}:{result['content_length']}:{result['end']}:{sha256(body)}"
-        entry = outcomes.setdefault(key, {"count": 0, "body_hex": body.hex()[:400]} | result)
-        entry["count"] += 1
-    stop.set()
-    thread.join()
-    return {
+    error: str | None = None
+    try:
+        while time.monotonic() < deadline:
+            result, body = raw_download(agent.port, path)
+            reads += 1
+            key = f"{result['status']}:{result['content_length']}:{result['end']}:{sha256(body)}"
+            entry = outcomes.setdefault(key, {"count": 0, "body_hex": body.hex()[:400]} | result)
+            entry["count"] += 1
+    except OSError as failure:
+        error = repr(failure)
+    finally:
+        stop.set()
+        thread.join(timeout=GRACE)
+    record: Json = {
         "reads": reads,
         "swaps": swaps,
         "versions": {sha256(pending): "pending", sha256(terminal): "terminal"},
         "outcomes": outcomes,
+        "writer_alive": thread.is_alive(),
     }
+    if error is not None:
+        record["error"] = error
+    return record
 
 
 def stress_immutable(agent: Agent, publications: int) -> Json:
@@ -494,18 +563,29 @@ def stress_immutable(agent: Agent, publications: int) -> Json:
         data = terminal_record() + f"{index}\n".encode()
         final = names / f"record-{index:04}.json"
         timer = threading.Timer(0.002 * (index % 5), replace, args=(final, data))
+        timer.daemon = True
         timer.start()
         deadline = time.monotonic() + 5
-        while time.monotonic() < deadline:
-            result, body = raw_download(agent.port, final)
-            if result["status"] == 200:
-                kind = "complete" if body == data and result["end"] == "complete" else "mismatch"
-                outcomes[kind] = outcomes.get(kind, 0) + 1
-                if kind == "mismatch":
-                    mismatches.append(result | {"body_hex": body.hex()[:400]})
-                break
-            outcomes[str(result["status"])] = outcomes.get(str(result["status"]), 0) + 1
-        timer.join()
+        try:
+            while time.monotonic() < deadline:
+                result, body = raw_download(agent.port, final)
+                if result["status"] == 200:
+                    good = body == data and result["end"] == "complete"
+                    kind = "complete" if good else "mismatch"
+                    outcomes[kind] = outcomes.get(kind, 0) + 1
+                    if kind == "mismatch":
+                        mismatches.append(result | {"body_hex": body.hex()[:400]})
+                    break
+                outcomes[str(result["status"])] = outcomes.get(str(result["status"]), 0) + 1
+        except OSError as failure:
+            timer.join(timeout=GRACE)
+            return {
+                "publications": publications,
+                "outcomes": outcomes,
+                "mismatches": mismatches,
+                "error": f"publication {index}: {failure!r}",
+            }
+        timer.join(timeout=GRACE)
     return {"publications": publications, "outcomes": outcomes, "mismatches": mismatches}
 
 
@@ -523,6 +603,8 @@ def main(argv: list[str]) -> int:
     out = Path(argv[1])
     out.mkdir(parents=True)
     agents = {label: Path(path) for label, _, path in (a.partition("=") for a in argv[2:])}
+    registry = out / "agents.pids"
+    registry.touch()
     shim = out / "shim.dylib"
     subprocess.run(
         ["clang", "-Wall", "-Wextra", "-O1", "-dynamiclib", "-o", str(shim), str(SHIM_SOURCE)],
@@ -539,13 +621,20 @@ def main(argv: list[str]) -> int:
             k: {"path": str(v), "sha256": sha256(v.read_bytes())} for k, v in agents.items()
         },
         "historical_before": historical_digests(),
-        "bounds": {"raw_s": RAW_TIMEOUT, "cli_s": CLI_TIMEOUT, "pause_s": PAUSE_TIMEOUT},
+        "bounds": {
+            "raw_s": RAW_TIMEOUT,
+            "cli_s": CLI_TIMEOUT,
+            "pause_s": PAUSE_TIMEOUT,
+            "grace_s": GRACE,
+            "reap_s": REAP,
+            "inspect_s": INSPECT_TIMEOUT,
+        },
     }
     (out / "meta.json").write_text(json.dumps(meta, indent=2))
     records: list[Json] = []
     for label, binary in agents.items():
         root = out / label
-        probe = Agent(label, binary, shim, root / "calibration")
+        probe = Agent(label, binary, shim, root / "calibration", registry)
         probe.start()
         try:
             calibration = calibrate(probe)
@@ -557,7 +646,7 @@ def main(argv: list[str]) -> int:
             for client in ("raw", "cli"):
                 if case.kill_cli and client == "raw":
                     continue
-                agent = Agent(label, binary, shim, root / f"{case.name}-{client}")
+                agent = Agent(label, binary, shim, root / f"{case.name}-{client}", registry)
                 agent.start()
                 record: Json
                 try:
@@ -572,19 +661,28 @@ def main(argv: list[str]) -> int:
                 print(label, case.name, client, json.dumps(record.get("result", record))[:300])
         stress: list[tuple[str, Callable[[Agent], Json]]] = [
             ("stress-mutable", lambda a: stress_mutable(a, STRESS_SECONDS)),
-            ("stress-immutable", lambda a: stress_immutable(a, 200)),
+            ("stress-immutable", lambda a: stress_immutable(a, STRESS_PUBLICATIONS)),
         ]
         for name, run in stress:
-            agent = Agent(label, binary, shim, root / name, trace=False)
+            agent = Agent(label, binary, shim, root / name, registry, trace=False)
             agent.start()
             try:
                 record = {"case": name} | run(agent)
+            except Exception as error:  # retained as evidence, never retried
+                record = {"case": name, "error": repr(error)}
             finally:
                 agent.stop()
             record["agent"] = agent.record
             (agent.root / "record.json").write_text(json.dumps(record, indent=2))
             print(label, name, json.dumps(record)[:300])
     meta["historical_after"] = historical_digests()
+    # The controller compiled the shim and read these executables. Hash them again, so
+    # the checker can compare each with its first digest.
+    meta["after"] = {
+        "cli_sha256": sha256(CLI.read_bytes()),
+        "shim_sha256": sha256(shim.read_bytes()),
+        "agents_sha256": {k: sha256(v.read_bytes()) for k, v in agents.items()},
+    }
     meta["finished_unix"] = time.time()
     (out / "meta.json").write_text(json.dumps(meta, indent=2))
     return 0
