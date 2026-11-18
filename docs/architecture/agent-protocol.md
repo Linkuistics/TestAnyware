@@ -129,11 +129,15 @@ Extends `ElementQuery` with a required `value`:
 { "command": "uname -a", "timeout": 60, "detach": false, "id": "run-7.step-2" }
 ```
 
-The Linux agent reads the optional `id`. It has 1 to 64 characters from
-`A-Z`, `a-z`, `0-9`, `.`, `_` and `-`. Without an `id`, the agent makes
-one. An attached request returns 400 with `exec_failed` in three cases.
-The command is not a string, the timeout is not a number, or the `id`
-is not valid.
+The Linux and macOS agents read the optional `id`. It has 1 to 64
+characters from `A-Z`, `a-z`, `0-9`, `.`, `_` and `-`. Without an `id`, the
+agent makes one.
+
+On the Linux agent, an attached request returns 400 with
+`exec_failed` in three cases. The command is not a string, the timeout is
+not a number, or the `id` is not valid. On the macOS agent, an `id` that is
+not valid returns 400 with `exec_failed`. A macOS request body that does not
+decode keeps the old macOS error reply.
 
 The Host CLI sends a random UUID as the `id` of each attached request. An
 agent without the typed record ignores it. A detached request carries no
@@ -213,16 +217,21 @@ Every agent sends the legacy fields:
 { "exitCode": 0, "stdout": "...", "stderr": "..." }
 ```
 
-The Linux agent also sends the typed exec record beside them. The record
+The Linux and macOS agents also send the typed exec record beside them. The record
 holds the command `id`, the `outcome`, the exact `evidence` of each
 stream, the `lifecycle` times, `remainingGroup`, `termination` and
 `legacyProjection`. A key that does not apply holds `null`.
 
 The legacy fields are a projection of the record. They keep the values of the old
-Linux agent, so an old Host CLI reads the same reply. The record is
-defined in `docs/specs/guest-command-lifecycle.md`, section "Exec
-record". The Linux model is `ExecRecord` in
-`agents/linux/testanyware_agent/models.py`.
+agent on the same platform, so an old Host CLI reads the same reply. The
+spec lists three departures. One of them is the macOS spawn error, which is
+now an HTTP 200 record instead of an HTTP error.
+
+The spec `docs/specs/guest-command-lifecycle.md` defines the record in its
+section "Exec record". The Linux
+model is `ExecRecord` in `agents/linux/testanyware_agent/models.py`. The
+macOS types are `ExecRecord` and `ExecReply` in
+`agents/macos/Sources/TestAnywareAgentProtocol/ExecRecord.swift`.
 
 Detached commands return only the legacy fields.
 
@@ -301,11 +310,13 @@ menus (`menu`, `menu-item`, ...), containers (`window`, `dialog`,
 
 ## Why this contract exists as code on both sides
 
-The macOS agent vendors a copy of `TestAnywareAgentProtocol` (the host
-CLI has the same sources). We keep them as separate copies so the
-agent builds standalone. The trade-off: each protocol change must go
-into both copies. A test (`cli/Tests/TestAnywareAgentProtocolTests/`)
-exists to catch drift at the encoding level.
+The macOS agent vendors its own `TestAnywareAgentProtocol` module. The
+host CLI has a Rust copy in `cli-rs/crates/testanyware-protocol/`. We keep
+them as separate copies so the agent builds standalone. The trade-off: each
+protocol change must go into both copies. For the exec types, the recorded
+macOS replies in `agents/macos/Tests/fixtures/exec-records` catch drift at
+the encoding level. `ExecReplyFixtureTests.swift` decodes and encodes each
+reply again, and the Rust reader tests read the same files.
 
 Linux and Windows agents implement the same JSON shape in their
 own languages. They are not Swift. The "contract" is the JSON,

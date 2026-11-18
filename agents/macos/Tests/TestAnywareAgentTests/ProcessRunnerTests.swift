@@ -60,14 +60,22 @@ final class ProcessRunnerTests: XCTestCase {
         // the parent shell exits immediately while sleep hangs around
         // holding the inherited stdout FD. The shell writes the sleep's
         // PID to a fixture file, so cleanup stops that process only.
+        //
+        // The owner starts the command in a new session, so the sleep runs
+        // in the session of the exec leader. The test adopts that session
+        // from the owner's result.
         let fixture = try OwnedProcessFixture.make(for: self)
         let pidFile = fixture.pidFile("lingering-sleep.pid")
         let start = Date()
-        let result = try await ProcessRunner.runShell(
+        let owned = await ProcessRunner.runOwned(
             command: "echo parent-done; sleep 30 & echo $! > '\(pidFile)'",
             timeoutSeconds: 5
         )
         let elapsed = Date().timeIntervalSince(start)
+        let leaderPid = try XCTUnwrap(owned.leaderPid)
+        await fixture.adopt(session: leaderPid)
+        XCTAssertEqual(owned.remainingGroup, "present")
+        let result = owned.legacy
         XCTAssertEqual(result.stdout, "parent-done")
         XCTAssertEqual(result.exitCode, 0)
         XCTAssertFalse(result.timedOut)

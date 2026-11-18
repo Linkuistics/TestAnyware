@@ -1,6 +1,6 @@
 """Judge the k12 exec outcome evidence.
 
-    outcomes_k12_check.py OUT [--expect-defects]
+    outcomes_k12_check.py OUT [--expect-defects | --expect-record]
 
 The checker reads OUT/summary.json and the stdout of each seam call in the run
 directory. It compares each observation with the faithful outcome of its case and
@@ -20,6 +20,14 @@ The defects of the old path are findings, so they do not fail this mode.
 With `--expect-defects`, the checker is the controlled old-path detector. The
 exit status is 0 only when the sound evidence also shows every defect in
 `REQUIRED`. A fixed runner makes this mode fail, which is the purpose.
+
+The record seams `http-record` and `cli-json-record` judge the typed exec record
+(spec `docs/specs/guest-command-lifecycle.md`, leaf k219) in the same raw HTTP
+bodies and Host CLI JSON output. They read `outcome`, the evidence bytes and the
+termination block, not the legacy fields. A reply without a record gives
+`record-missing`. With `--expect-record`, the exit status is 0 only when the
+evidence is sound and every case at both record seams is faithful. An old agent
+makes this mode fail.
 
 Defect classes:
 
@@ -43,10 +51,14 @@ Defect classes:
   and reap marks. A case that ignores TERM also needs the grace-expired and KILL
   marks. Without this class, absent marks would read as zero-length phases.
 - `residual-process`: a case left a process that carries its sleep token.
+- `record-missing`: a reply at a record seam has no exec record.
+- `capture-incomplete`: a record stream is not a complete capture.
+- `termination-out-of-bounds`: a record termination block has `withinBounds` false.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import sys
 from pathlib import Path
@@ -158,6 +170,124 @@ def status_defects(case: Case, obs: dict[str, Any]) -> list[str]:
 
 def utf8(text: object) -> bytes:
     return str(text).encode("utf-8") if text is not None else b""
+
+
+RECORD_SEAMS = {"http-record": "http", "cli-json-record": "cli-json"}
+
+
+def pick(value: dict[str, Any], camel: str, snake: str) -> Any:
+    """A record field under its agent name (camelCase) or its Host CLI name (snake_case)."""
+    return value[camel] if camel in value else value.get(snake)
+
+
+def record_reply(seam: str, record: dict[str, Any]) -> dict[str, Any] | None:
+    """The reply that holds the exec record, or None when the transport failed."""
+    if seam == "http-record":
+        if record.get("status") != 200:
+            return None
+        return mapping(json.loads(bytes.fromhex(record.get("body_hex", ""))))
+    reply = mapping(json.loads(bytes.fromhex(record.get("stdout_hex", ""))))
+    return reply if reply.get("ok") is True else None
+
+
+def normalise_record(seam: str, record: dict[str, Any]) -> dict[str, Any]:
+    """One observation from the typed exec record of a reply.
+
+    A timed-out command reports the end `deadline-signal` with the signal that
+    ended its leader, as the reference seam does.
+    """
+    empty: dict[str, Any] = {"stdout": b"", "stderr": b"", "complete": False, "phases": {}}
+    reply = record_reply(seam, record)
+    if reply is None:
+        return {**empty, "end": "transport-error", "code": None}
+    outcome = mapping(reply.get("outcome"))
+    if not outcome:
+        return {**empty, "end": "record-missing", "code": None}
+    evidence = mapping(reply.get("evidence"))
+    streams = {name: mapping(evidence.get(name)) for name in ("stdout", "stderr")}
+    observed: dict[str, Any] = {
+        name: base64.b64decode(str(stream.get("base64", ""))) for name, stream in streams.items()
+    }
+    observed["complete"] = all(stream.get("capture") == "complete" for stream in streams.values())
+    observed["phases"] = {}
+    observed["within_bounds"] = True
+    kind = outcome.get("kind")
+    if kind == "exited":
+        return {
+            **observed,
+            "end": "exit",
+            "code": pick(outcome, "exitCode", "exit_code"),
+            "timed_out": False,
+        }
+    if kind == "signalled":
+        return {**observed, "end": "signal", "code": outcome.get("signal"), "timed_out": False}
+    if kind == "spawn_failed":
+        return {**observed, "end": "spawn-error", "code": outcome.get("errno")}
+    if kind == "timed_out":
+        termination = mapping(reply.get("termination"))
+        lifecycle = mapping(reply.get("lifecycle"))
+        status = mapping(pick(termination, "leaderStatus", "leader_status"))
+        kill = pick(termination, "killSentAfterMs", "kill_sent_after_ms")
+        term = pick(termination, "termSentAfterMs", "term_sent_after_ms")
+        final = pick(lifecycle, "finalisedAfterMs", "finalised_after_ms")
+        if isinstance(kill, int) and isinstance(term, int) and isinstance(final, int):
+            observed["phases"] = {"grace": (kill - term) / 1000, "kill_reap": (final - kill) / 1000}
+        observed["within_bounds"] = pick(termination, "withinBounds", "within_bounds") is True
+        code = status.get("signal") if status.get("kind") == "signalled" else None
+        return {**observed, "end": "deadline-signal", "code": code, "timed_out": True}
+    return {**observed, "end": f"record-{kind}", "code": None}
+
+
+def judge_record(seam: str, records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Judge the typed exec records of one base seam."""
+    by_name = {case.name: case for case in cases(RECORD_SEAMS[seam])}
+    verdicts: list[dict[str, Any]] = []
+    for record in records:
+        case = by_name[record["case"]]
+        obs = normalise_record(seam, record)
+        if obs["end"] == "record-missing":
+            defects = ["record-missing"]
+        else:
+            defects = status_defects(case, obs)
+            if obs["end"] != "spawn-error":
+                defects += stream_defects(case.stdout, obs["stdout"], "stdout")
+                defects += stream_defects(case.stderr, obs["stderr"], "stderr")
+                if not obs["complete"]:
+                    defects.append("capture-incomplete")
+            defects += phase_defects(obs["phases"])
+            if not obs.get("within_bounds", True):
+                defects.append("termination-out-of-bounds")
+        verdicts.append(
+            {
+                "seam": seam,
+                "case": case.name,
+                "defects": sorted(set(defects)),
+                "end": obs["end"],
+                "code": obs["code"],
+                "timed_out": obs.get("timed_out"),
+                "stdout_hex": obs["stdout"].hex(),
+                "stderr_hex": obs["stderr"].hex(),
+                "seconds": (record["end_ns"] - record["start_ns"]) / 1e9,
+                "ceiling_seconds": case.timeout + HOST_MARGIN,
+                "phases": obs["phases"],
+                "bound_exceeded": bool(record.get("bound_exceeded")) or "transport_error" in record,
+            }
+        )
+    return verdicts
+
+
+def record_failures(verdicts: list[dict[str, Any]]) -> list[str]:
+    """Each case that is missing or unfaithful at a record seam."""
+    index = {(v["seam"], v["case"]): v["defects"] for v in verdicts}
+    failures: list[str] = []
+    for seam, base in RECORD_SEAMS.items():
+        for case in cases(base):
+            defects = index.get((seam, case.name))
+            if defects is None:
+                failures.append(f"{seam}/{case.name}: no verdict")
+            elif defects:
+                failures.append(f"{seam}/{case.name}: {defects}")
+    return failures
 
 
 def normalise(seam: str, record: dict[str, Any]) -> dict[str, Any]:
@@ -354,7 +484,7 @@ def soundness(
         for seam in ("reference", "process", "traced", "http", "cli-text", "cli-json")
         for case in cases(seam)
     }
-    seen = {(v["seam"], v["case"]) for v in verdicts}
+    seen = {(v["seam"], v["case"]) for v in verdicts if v["seam"] not in RECORD_SEAMS}
     if seen != expected:
         problems.append(f"missing cases: {sorted(expected - seen)}")
     for verdict in verdicts:
@@ -395,7 +525,8 @@ def load(out: Path) -> tuple[dict[str, Any], dict[str, Any]]:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) not in (2, 3) or (len(argv) == 3 and argv[2] != "--expect-defects"):
+    modes = ("--expect-defects", "--expect-record")
+    if len(argv) not in (2, 3) or (len(argv) == 3 and argv[2] not in modes):
         print(__doc__, file=sys.stderr)
         return 64
     out = Path(argv[1])
@@ -409,15 +540,27 @@ def main(argv: list[str]) -> int:
     if http_cli:
         for name in ("http", "cli-text", "cli-json"):
             verdicts += judge(name, http_cli.get(name, []))
+        for name, base in RECORD_SEAMS.items():
+            verdicts += judge_record(name, http_cli.get(base, []))
     problems = soundness(summary, seams, verdicts)
     missing = missing_required(verdicts)
-    report = {"problems": problems, "missing_required": missing, "verdicts": verdicts}
+    unfaithful = record_failures(verdicts)
+    report = {
+        "problems": problems,
+        "missing_required": missing,
+        "record_failures": unfaithful,
+        "verdicts": verdicts,
+    }
     (out / "check.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     for verdict in verdicts:
         found = ",".join(verdict["defects"]) or "faithful"
-        print(f"{verdict['seam']:>9} {verdict['case']:<22} {verdict['seconds']:7.3f}s {found}")
+        print(f"{verdict['seam']:>15} {verdict['case']:<22} {verdict['seconds']:7.3f}s {found}")
     for problem in problems:
         print(f"PROBLEM {problem}")
+    if len(argv) == 3 and argv[2] == "--expect-record":
+        for item in unfaithful:
+            print(f"UNFAITHFUL {item}")
+        return 0 if not problems and not unfaithful else 1
     if len(argv) == 3:
         for item in missing:
             print(f"MISSING {item}")

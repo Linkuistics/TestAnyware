@@ -1,0 +1,207 @@
+a562fc628a6b2013911db799f3dd84502dfe052967716345cc7f588442c98a21  agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift
+4d9a925ac796951f34f33e4ca59114e430f220e075c3cbcfcc30709b06b7ebfe  experiments/exec-reliability/outcomes_k12_check.py
+== run outcomes-02 exit 0
+== task diagnostic:macos-exec-outcomes-check OUT=evidence/macos-agent-lifecycle-k219/outcomes-02
+task: [diagnostic:macos-exec-outcomes-check] uv run --locked python outcomes_k12_check.py evidence/macos-agent-lifecycle-k219/outcomes-02
+      reference oracle-text              0.004s faithful
+      reference binary                   0.004s faithful
+      reference exit-23-partial          0.004s faithful
+      reference signal-kill              0.004s faithful
+      reference exit-9                   0.004s faithful
+      reference deadline                 2.004s faithful
+      reference deadline-term-ignored    4.003s faithful
+      reference spawn-failure            0.002s faithful
+        process oracle-text              0.264s trailing-lf-trimmed
+        process binary                   0.010s non-utf8-dropped
+        process exit-23-partial          0.010s trailing-lf-trimmed
+        process signal-kill              0.010s signal-reported-as-exit,trailing-lf-trimmed
+        process exit-9                   0.010s trailing-lf-trimmed
+        process deadline                 2.010s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+        process deadline-term-ignored    3.913s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+        process spawn-failure            0.012s spawn-failure-unmapped,stream-mismatch
+         traced oracle-text              0.250s trailing-lf-trimmed
+         traced binary                   0.013s non-utf8-dropped
+         traced exit-23-partial          0.013s trailing-lf-trimmed
+         traced signal-kill              0.013s signal-reported-as-exit,trailing-lf-trimmed
+         traced exit-9                   0.012s trailing-lf-trimmed
+         traced deadline                 2.011s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+         traced deadline-term-ignored    3.913s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+         traced spawn-failure            0.013s spawn-failure-unmapped,stream-mismatch
+           http oracle-text              0.006s trailing-lf-trimmed
+           http binary                   0.004s non-utf8-dropped
+           http exit-23-partial          0.004s trailing-lf-trimmed
+           http signal-kill              0.004s signal-reported-as-exit,trailing-lf-trimmed
+           http exit-9                   0.004s trailing-lf-trimmed
+           http deadline                 2.004s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+           http deadline-term-ignored    3.906s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+           http spawn-failure            0.003s spawn-failure-unmapped,stream-mismatch
+       cli-text oracle-text              0.867s faithful
+       cli-text binary                   0.017s non-utf8-dropped
+       cli-text exit-23-partial          0.015s trailing-lf-trimmed
+       cli-text signal-kill              0.014s signal-reported-as-exit,trailing-lf-trimmed
+       cli-text exit-9                   0.013s trailing-lf-trimmed
+       cli-text deadline                 2.013s deadline-not-flagged,synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-text deadline-term-ignored    3.915s deadline-not-flagged,synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-text spawn-failure            0.013s spawn-failure-unmapped,stream-mismatch
+       cli-json oracle-text              0.015s trailing-lf-trimmed
+       cli-json binary                   0.014s non-utf8-dropped
+       cli-json exit-23-partial          0.013s trailing-lf-trimmed
+       cli-json signal-kill              0.013s signal-reported-as-exit,trailing-lf-trimmed
+       cli-json exit-9                   0.013s trailing-lf-trimmed
+       cli-json deadline                 2.013s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-json deadline-term-ignored    3.915s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-json spawn-failure            0.012s spawn-failure-unmapped,stream-mismatch
+    http-record oracle-text              0.006s faithful
+    http-record binary                   0.004s faithful
+    http-record exit-23-partial          0.004s faithful
+    http-record signal-kill              0.004s faithful
+    http-record exit-9                   0.004s faithful
+    http-record deadline                 2.004s faithful
+    http-record deadline-term-ignored    3.906s faithful
+    http-record spawn-failure            0.003s faithful
+cli-json-record oracle-text              0.015s faithful
+cli-json-record binary                   0.014s faithful
+cli-json-record exit-23-partial          0.013s faithful
+cli-json-record signal-kill              0.013s faithful
+cli-json-record exit-9                   0.013s faithful
+cli-json-record deadline                 2.013s faithful
+cli-json-record deadline-term-ignored    3.915s faithful
+cli-json-record spawn-failure            0.012s faithful
+exit 0
+== task diagnostic:macos-exec-outcomes-old-path OUT=evidence/macos-agent-lifecycle-k219/outcomes-02
+task: [diagnostic:macos-exec-outcomes-old-path] uv run --locked python outcomes_k12_check.py evidence/macos-agent-lifecycle-k219/outcomes-02 --expect-defects
+      reference oracle-text              0.004s faithful
+      reference binary                   0.004s faithful
+      reference exit-23-partial          0.004s faithful
+      reference signal-kill              0.004s faithful
+      reference exit-9                   0.004s faithful
+      reference deadline                 2.004s faithful
+      reference deadline-term-ignored    4.003s faithful
+      reference spawn-failure            0.002s faithful
+        process oracle-text              0.264s trailing-lf-trimmed
+        process binary                   0.010s non-utf8-dropped
+        process exit-23-partial          0.010s trailing-lf-trimmed
+        process signal-kill              0.010s signal-reported-as-exit,trailing-lf-trimmed
+        process exit-9                   0.010s trailing-lf-trimmed
+        process deadline                 2.010s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+        process deadline-term-ignored    3.913s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+        process spawn-failure            0.012s spawn-failure-unmapped,stream-mismatch
+         traced oracle-text              0.250s trailing-lf-trimmed
+         traced binary                   0.013s non-utf8-dropped
+         traced exit-23-partial          0.013s trailing-lf-trimmed
+         traced signal-kill              0.013s signal-reported-as-exit,trailing-lf-trimmed
+         traced exit-9                   0.012s trailing-lf-trimmed
+         traced deadline                 2.011s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+         traced deadline-term-ignored    3.913s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+         traced spawn-failure            0.013s spawn-failure-unmapped,stream-mismatch
+           http oracle-text              0.006s trailing-lf-trimmed
+           http binary                   0.004s non-utf8-dropped
+           http exit-23-partial          0.004s trailing-lf-trimmed
+           http signal-kill              0.004s signal-reported-as-exit,trailing-lf-trimmed
+           http exit-9                   0.004s trailing-lf-trimmed
+           http deadline                 2.004s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+           http deadline-term-ignored    3.906s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+           http spawn-failure            0.003s spawn-failure-unmapped,stream-mismatch
+       cli-text oracle-text              0.867s faithful
+       cli-text binary                   0.017s non-utf8-dropped
+       cli-text exit-23-partial          0.015s trailing-lf-trimmed
+       cli-text signal-kill              0.014s signal-reported-as-exit,trailing-lf-trimmed
+       cli-text exit-9                   0.013s trailing-lf-trimmed
+       cli-text deadline                 2.013s deadline-not-flagged,synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-text deadline-term-ignored    3.915s deadline-not-flagged,synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-text spawn-failure            0.013s spawn-failure-unmapped,stream-mismatch
+       cli-json oracle-text              0.015s trailing-lf-trimmed
+       cli-json binary                   0.014s non-utf8-dropped
+       cli-json exit-23-partial          0.013s trailing-lf-trimmed
+       cli-json signal-kill              0.013s signal-reported-as-exit,trailing-lf-trimmed
+       cli-json exit-9                   0.013s trailing-lf-trimmed
+       cli-json deadline                 2.013s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-json deadline-term-ignored    3.915s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-json spawn-failure            0.012s spawn-failure-unmapped,stream-mismatch
+    http-record oracle-text              0.006s faithful
+    http-record binary                   0.004s faithful
+    http-record exit-23-partial          0.004s faithful
+    http-record signal-kill              0.004s faithful
+    http-record exit-9                   0.004s faithful
+    http-record deadline                 2.004s faithful
+    http-record deadline-term-ignored    3.906s faithful
+    http-record spawn-failure            0.003s faithful
+cli-json-record oracle-text              0.015s faithful
+cli-json-record binary                   0.014s faithful
+cli-json-record exit-23-partial          0.013s faithful
+cli-json-record signal-kill              0.013s faithful
+cli-json-record exit-9                   0.013s faithful
+cli-json-record deadline                 2.013s faithful
+cli-json-record deadline-term-ignored    3.915s faithful
+cli-json-record spawn-failure            0.012s faithful
+MISSING traced/deadline-term-ignored: ['grace-exceeded']
+task: Failed to run task "diagnostic:macos-exec-outcomes-old-path": exit status 1
+exit 201
+== task diagnostic:macos-exec-outcomes-record OUT=evidence/macos-agent-lifecycle-k219/outcomes-02
+task: [diagnostic:macos-exec-outcomes-record] uv run --locked python outcomes_k12_check.py evidence/macos-agent-lifecycle-k219/outcomes-02 --expect-record
+      reference oracle-text              0.004s faithful
+      reference binary                   0.004s faithful
+      reference exit-23-partial          0.004s faithful
+      reference signal-kill              0.004s faithful
+      reference exit-9                   0.004s faithful
+      reference deadline                 2.004s faithful
+      reference deadline-term-ignored    4.003s faithful
+      reference spawn-failure            0.002s faithful
+        process oracle-text              0.264s trailing-lf-trimmed
+        process binary                   0.010s non-utf8-dropped
+        process exit-23-partial          0.010s trailing-lf-trimmed
+        process signal-kill              0.010s signal-reported-as-exit,trailing-lf-trimmed
+        process exit-9                   0.010s trailing-lf-trimmed
+        process deadline                 2.010s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+        process deadline-term-ignored    3.913s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+        process spawn-failure            0.012s spawn-failure-unmapped,stream-mismatch
+         traced oracle-text              0.250s trailing-lf-trimmed
+         traced binary                   0.013s non-utf8-dropped
+         traced exit-23-partial          0.013s trailing-lf-trimmed
+         traced signal-kill              0.013s signal-reported-as-exit,trailing-lf-trimmed
+         traced exit-9                   0.012s trailing-lf-trimmed
+         traced deadline                 2.011s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+         traced deadline-term-ignored    3.913s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+         traced spawn-failure            0.013s spawn-failure-unmapped,stream-mismatch
+           http oracle-text              0.006s trailing-lf-trimmed
+           http binary                   0.004s non-utf8-dropped
+           http exit-23-partial          0.004s trailing-lf-trimmed
+           http signal-kill              0.004s signal-reported-as-exit,trailing-lf-trimmed
+           http exit-9                   0.004s trailing-lf-trimmed
+           http deadline                 2.004s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+           http deadline-term-ignored    3.906s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+           http spawn-failure            0.003s spawn-failure-unmapped,stream-mismatch
+       cli-text oracle-text              0.867s faithful
+       cli-text binary                   0.017s non-utf8-dropped
+       cli-text exit-23-partial          0.015s trailing-lf-trimmed
+       cli-text signal-kill              0.014s signal-reported-as-exit,trailing-lf-trimmed
+       cli-text exit-9                   0.013s trailing-lf-trimmed
+       cli-text deadline                 2.013s deadline-not-flagged,synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-text deadline-term-ignored    3.915s deadline-not-flagged,synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-text spawn-failure            0.013s spawn-failure-unmapped,stream-mismatch
+       cli-json oracle-text              0.015s trailing-lf-trimmed
+       cli-json binary                   0.014s non-utf8-dropped
+       cli-json exit-23-partial          0.013s trailing-lf-trimmed
+       cli-json signal-kill              0.013s signal-reported-as-exit,trailing-lf-trimmed
+       cli-json exit-9                   0.013s trailing-lf-trimmed
+       cli-json deadline                 2.013s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-json deadline-term-ignored    3.915s synthetic-exit-code,timeout-text-in-stderr,trailing-lf-trimmed
+       cli-json spawn-failure            0.012s spawn-failure-unmapped,stream-mismatch
+    http-record oracle-text              0.006s faithful
+    http-record binary                   0.004s faithful
+    http-record exit-23-partial          0.004s faithful
+    http-record signal-kill              0.004s faithful
+    http-record exit-9                   0.004s faithful
+    http-record deadline                 2.004s faithful
+    http-record deadline-term-ignored    3.906s faithful
+    http-record spawn-failure            0.003s faithful
+cli-json-record oracle-text              0.015s faithful
+cli-json-record binary                   0.014s faithful
+cli-json-record exit-23-partial          0.013s faithful
+cli-json-record signal-kill              0.013s faithful
+cli-json-record exit-9                   0.013s faithful
+cli-json-record deadline                 2.013s faithful
+cli-json-record deadline-term-ignored    3.915s faithful
+cli-json-record spawn-failure            0.012s faithful
+exit 0
+== k3 completion-new-clean-02 exit 0

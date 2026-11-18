@@ -64,7 +64,8 @@ struct ProcessIdentity: Equatable, Sendable, CustomStringConvertible {
 /// binds the process to this test only when all three conditions hold:
 ///
 /// - the process started after the fixture was created,
-/// - the process runs in the session of the test process,
+/// - the process runs in the session of the test process, or in a session
+///   that the test adopted with `adopt(session:)`,
 /// - the process is neither the test process nor one of its ancestors, and
 /// - its PID and start time stay the same across the check.
 ///
@@ -81,6 +82,13 @@ struct ProcessIdentity: Equatable, Sendable, CustomStringConvertible {
 /// binding. That needs the child to exit and its PID to come back inside one
 /// test. Foundation gives each child its own process group, so the group
 /// cannot narrow the binding further.
+///
+/// The exec owner starts each command in a new session, so a child that the
+/// command leaves runs in that session, not in the test session. The test
+/// adopts that session through the leader PID in the owner's result. The
+/// session ID outlives the reaped leader while members remain. A new session
+/// that reuses the ID inside one test also passes the session check, but its
+/// processes must still start after the fixture and appear in a PID file.
 actor OwnedProcessFixture {
     enum FixtureError: Error, CustomStringConvertible {
         case noPidFile(String)
@@ -123,6 +131,8 @@ actor OwnedProcessFixture {
     private let session: pid_t
     /// Names that `pidFile` handed out. It is nonisolated, so a lock guards it.
     private let registered = OSAllocatedUnfairLock(initialState: Set<String>())
+    /// Exec sessions that the test adopted from the owner's result.
+    private var adoptedSessions: Set<pid_t> = []
     private var tracked: [ProcessIdentity] = []
     private var trackedNames: Set<String> = []
 
@@ -160,6 +170,12 @@ actor OwnedProcessFixture {
     nonisolated func pidFile(_ name: String) -> String {
         registered.withLock { _ = $0.insert(name) }
         return directory.appendingPathComponent(name).path
+    }
+
+    /// Accepts children in the session that `leaderPid` leads. The value comes
+    /// from the exec owner's result for a command that this test ran.
+    func adopt(session leaderPid: pid_t) {
+        adoptedSessions.insert(leaderPid)
     }
 
     /// Reads the PID that the child wrote to `pidFile(name)`, binds the child
@@ -262,7 +278,7 @@ actor OwnedProcessFixture {
         // process. A changed identity means the first process exited.
         guard let after = ProcessIdentity.observe(pid: pid), !after.zombie,
               after.identity == before.identity else { return .gone }
-        guard processSession == session else {
+        guard processSession == session || adoptedSessions.contains(processSession) else {
             return .foreign("pid \(pid) runs in session \(processSession), not test session \(session)")
         }
         return .owned(after)

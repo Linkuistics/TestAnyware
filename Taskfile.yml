@@ -384,6 +384,14 @@ tasks:
     cmds:
       - uv run --locked python outcomes_k12_check.py {{.OUT | shellQuote}} --expect-defects
 
+  diagnostic:macos-exec-outcomes-record:
+    desc: Judge the typed exec records of one k12 OUT directory at the HTTP and Host CLI JSON seams. Passes only when the evidence is sound and every case is faithful, so an agent without the record makes it fail
+    dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
+    requires:
+      vars: [OUT]
+    cmds:
+      - uv run --locked python outcomes_k12_check.py {{.OUT | shellQuote}} --expect-record
+
   diagnostic:macos-exec-outcomes-tools:
     desc: Check the k12 exec outcome runner, seams, checker and probe
     dir: '{{.ROOT_DIR}}/experiments/exec-reliability'
@@ -1402,6 +1410,13 @@ tasks:
         -e PYTHONPATH=/agent -e PYTHONDONTWRITEBYTECODE=1
         -w /agent {{.LINUX_TEST_IMAGE}}
         python3 -m tests.record_exec_replies /out
+
+  agent:macos:record-exec-replies:
+    desc: Record the macOS agent's exec replies on this host as Host CLI fixtures (agents/macos/Tests/fixtures/exec-records; no guest)
+    dir: '{{.ROOT_DIR}}/agents/macos'
+    cmds:
+      - mkdir -p Tests/fixtures/exec-records
+      - TESTANYWARE_RECORD_EXEC_REPLIES="$PWD/Tests/fixtures/exec-records" swift test --filter 'ExecReplyFixtureTests/testRecordExecReplies'
 
   agent:macos:build:
     desc: Build the release macOS In-VM agent at agents/macos/.build/release/testanyware-agent (what a golden build installs when TESTANYWARE_AGENT_BIN_OVERRIDE names it)

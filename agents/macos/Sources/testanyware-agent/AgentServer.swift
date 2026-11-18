@@ -56,11 +56,7 @@ struct WaitRequest: Decodable {
     let timeout: Int?
 }
 
-struct ExecRequest: Decodable {
-    let command: String
-    let timeout: Int?
-    let detach: Bool?
-}
+// `ExecRequest` lives in TestAnywareAgentProtocol with the exec record types.
 
 // File transfer (`/upload`, `/download`) carries no JSON body: the path rides
 // in the `path` query parameter and the file bytes stream raw over
@@ -429,30 +425,31 @@ private func handleWait(_ request: Request) async throws -> Response {
 // MARK: - System: exec
 
 private func handleExec(_ request: Request) async throws -> Response {
-    struct ExecResult: Encodable {
-        let exitCode: Int32
-        let stdout: String
-        let stderr: String
-        let timedOut: Bool
-    }
     let req: ExecRequest = try await decode(request)
     let timeout = req.timeout ?? 30
     let detach = req.detach ?? false
 
     if detach {
         try ProcessRunner.runShellDetached(command: req.command)
-        return jsonOK(ExecResult(exitCode: 0, stdout: "", stderr: "", timedOut: false))
+        return jsonOK(ExecDetachedReply())
     }
 
-    let result = try await ProcessRunner.runShell(
-        command: req.command, timeoutSeconds: timeout
-    )
-    return jsonOK(ExecResult(
-        exitCode: result.exitCode,
-        stdout: result.stdout,
-        stderr: result.stderr,
-        timedOut: result.timedOut
-    ))
+    // An attached command carries a valid caller id or gets an agent id.
+    // The id registry and its 409 conflict belong to a later leaf (k221).
+    let id: String
+    if let given = req.id {
+        guard ExecRequest.isValidID(given) else {
+            return jsonError(
+                "exec_failed",
+                details: "id must have 1 to 64 characters from A-Z, a-z, 0-9, '.', '_' and '-'")
+        }
+        id = given
+    } else {
+        id = UUID().uuidString.lowercased()
+    }
+
+    let result = await ProcessRunner.runOwned(command: req.command, timeoutSeconds: timeout)
+    return jsonOK(result.reply(id: id))
 }
 
 // MARK: - System: upload/download

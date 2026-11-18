@@ -529,3 +529,38 @@ These items of k3 remain for later leaves:
   during a failing request. The k186 pool read missed the agent process.
 - The intermittent timeouts of `agent:macos:test` on the host (see Owned
   process fixtures). That 16-CPU host has a limit of 80 constrained workers.
+
+## Lifecycle owner result (k219)
+
+Leaf `macos-agent-lifecycle-k219` replaced the old runner with a lifecycle
+owner. The owner runs each command on its own thread and waits on a kqueue
+source, so no dispatch pool worker waits for the command. The section
+"Design implications" above names the repair condition. The evidence is in
+`experiments/exec-reliability/evidence/macos-agent-lifecycle-k219`.
+
+| Run | Runner source sha256 | `EXPECT` | Verdict | `free-1` trials |
+| --- | --- | --- | --- | --- |
+| `completion-base-defect-01` | `6a3c3846…`, the base commit | `defect` | `defect` | 5 of 5 completed, then timed out after 6.8 s |
+| `completion-new-clean-02` | `a562fc62…`, the owner | `clean` | `clean` | 5 of 5 prompt, near 0.73 s |
+
+The base runner differs from the source of the retained runs `old-path-01`
+to `old-path-03`, `f9401669…`. A temporary jj workspace at the base commit
+therefore built it again. The earlier owner `d4d7d783…` also gave `clean`, in
+`completion-new-clean-01`.
+
+As the section "Design implications" states, this result shows that the owner
+does not produce this receipt under this occupation. It does not prove the
+cause of the retained op 08 failure, which stays open.
+
+`agent:macos:test` passed 20 of 20 runs on the owner. The intermittent
+timeouts of the old `runShell` therefore did not recur in the host suite.
+An earlier loop on `d4d7d783…` failed 3 of 20 runs for a different reason.
+Its group probe stopped at a transient EPERM after SIGKILL. The owner now
+probes until ESRCH or its bound.
+
+The fixture self-test gave one more observation. At the base commit,
+`OwnedProcessFixtureTests` hung in 5 of 12 runs. `Process.waitUntilExit()`
+blocked after Foundation had reaped the Perl control process, and no process
+remained. This shows that the Foundation wait can block after an exit in a
+test process. It does not show that the old agent missed an exit, so the
+candidate "`waitUntilExit` missed the exit in the second block" stays open.

@@ -1,5 +1,7 @@
 """Controls for the runner, seams and checker of leaf `macos-exec-outcomes-k12`."""
 
+import base64
+import json
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -207,3 +209,83 @@ def test_soundness_rejects_an_unfaithful_reference() -> None:
     summary: dict[str, Any] = {"verdict": True, "leftovers": [], "build_dir_removed": True}
     problems = checker.soundness(summary, {"reference": {"work_removed": True}}, [verdict])
     assert any("reference/binary is not faithful" in problem for problem in problems)
+
+
+def http_record(case: str, body: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "case": case,
+        "status": 200,
+        "body_hex": json.dumps(body).encode().hex(),
+        "start_ns": 0,
+        "end_ns": 1_000_000,
+    }
+
+
+def stream(data: bytes, capture: str = "complete") -> dict[str, Any]:
+    return {"base64": base64.b64encode(data).decode(), "capture": capture}
+
+
+def exited(stdout: bytes, stderr: bytes, code: int) -> dict[str, Any]:
+    return {
+        "outcome": {"kind": "exited", "exitCode": code},
+        "evidence": {"stdout": stream(stdout), "stderr": stream(stderr)},
+    }
+
+
+def record_defects(case: str, body: dict[str, Any]) -> list[str]:
+    return checker.judge_record("http-record", [http_record(case, body)])[0]["defects"]
+
+
+def test_the_record_judge_reads_outcome_and_exact_bytes() -> None:
+    assert record_defects("exit-23-partial", exited(b"partial out\n", b"partial err\n", 23)) == []
+    flipped = exited(b"partial out\n", b"partial err\n", 23)
+    flipped["evidence"]["stdout"] = stream(b"partial oux\n")
+    assert record_defects("exit-23-partial", flipped) == ["stream-mismatch"]
+    partial = exited(b"partial out\n", b"partial err\n", 23)
+    partial["evidence"]["stderr"] = stream(b"partial err\n", "incomplete")
+    assert record_defects("exit-23-partial", partial) == ["capture-incomplete"]
+    legacy = {"exitCode": 23, "stdout": "partial out", "stderr": "partial err", "timedOut": False}
+    assert record_defects("exit-23-partial", legacy) == ["record-missing"]
+
+
+def test_the_record_judge_reads_signal_and_spawn_errno() -> None:
+    signal = exited(b"before signal\n", b"", 0)
+    signal["outcome"] = {"kind": "signalled", "signal": 9, "signalName": "SIGKILL"}
+    assert record_defects("signal-kill", signal) == []
+    spawn = {"outcome": {"kind": "spawn_failed", "errno": 35}, "evidence": {}}
+    assert record_defects("spawn-failure", spawn) == []
+    spawn["outcome"]["errno"] = 12
+    assert record_defects("spawn-failure", spawn) == ["spawn-failure-unmapped"]
+
+
+def deadline(signal: int, kill_ms: int, final_ms: int, within: bool) -> dict[str, Any]:
+    body = exited(b"before deadline\n", b"", 0)
+    body["outcome"] = {"kind": "timed_out", "timeoutSeconds": 2}
+    body["termination"] = {
+        "termSentAfterMs": 0,
+        "killSentAfterMs": kill_ms,
+        "leaderStatus": {"kind": "signalled", "signal": signal},
+        "withinBounds": within,
+    }
+    body["lifecycle"] = {"finalisedAfterMs": final_ms}
+    return body
+
+
+def test_the_record_judge_checks_the_termination_block() -> None:
+    assert record_defects("deadline", deadline(15, 3, 4, True)) == []
+    assert record_defects("deadline", deadline(9, 3, 4, True)) == ["status-mismatch"]
+    assert record_defects("deadline", deadline(15, 3, 4, False)) == ["termination-out-of-bounds"]
+    late = record_defects("deadline", deadline(15, 3000, 6000, True))
+    assert late == ["grace-exceeded", "kill-reap-exceeded"]
+
+
+def test_the_record_mode_needs_every_case_faithful() -> None:
+    faithful: list[dict[str, Any]] = [
+        {"seam": seam, "case": case.name, "defects": []}
+        for seam, base in checker.RECORD_SEAMS.items()
+        for case in cases(base)
+    ]
+    assert checker.record_failures(faithful) == []
+    faithful[0]["defects"] = ["record-missing"]
+    assert checker.record_failures(faithful[1:]) == ["http-record/oracle-text: no verdict"]
+    assert checker.record_failures(faithful) == ["http-record/oracle-text: ['record-missing']"]

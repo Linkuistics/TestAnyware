@@ -3,6 +3,7 @@
 //! "Compatibility and version skew").
 //!
 //! - New Linux replies: `agents/linux/tests/fixtures/exec-records` (leaf k217).
+//! - New macOS replies: `agents/macos/Tests/fixtures/exec-records` (leaf k219).
 //! - Legacy Linux replies: `agents/linux/tests/fixtures/legacy_linux_replies.json`.
 //! - Legacy macOS replies: `cli-rs/tests/fixtures/exec-replies/legacy-macos.json`.
 //! - Windows replies: `cli-rs/tests/fixtures/exec-replies/windows.json`. No
@@ -27,7 +28,17 @@ fn load(path: PathBuf) -> Value {
 
 /// Every new Linux fixture as (case, sent id, body).
 fn new_linux() -> Vec<(String, Option<String>, Value)> {
-    let dir = repo().join("agents/linux/tests/fixtures/exec-records");
+    recorded("agents/linux/tests/fixtures/exec-records", 14, "k217")
+}
+
+/// Every new macOS fixture as (case, sent id, body).
+fn new_macos() -> Vec<(String, Option<String>, Value)> {
+    recorded("agents/macos/Tests/fixtures/exec-records", 12, "k219")
+}
+
+/// The fixtures in `dir` as (case, sent id, body). At least `least` exist.
+fn recorded(dir: &str, least: usize, leaf: &str) -> Vec<(String, Option<String>, Value)> {
+    let dir = repo().join(dir);
     let mut names: Vec<_> = std::fs::read_dir(&dir)
         .unwrap()
         .map(|e| e.unwrap().path())
@@ -35,8 +46,8 @@ fn new_linux() -> Vec<(String, Option<String>, Value)> {
         .collect();
     names.sort();
     assert!(
-        names.len() >= 14,
-        "the k217 fixtures are missing from {}",
+        names.len() >= least,
+        "the {leaf} fixtures are missing from {}",
         dir.display()
     );
     names
@@ -104,6 +115,47 @@ fn every_new_linux_reply_is_valid() {
             "{case}"
         );
         assert!(result.lifecycle.is_some(), "{case}");
+    }
+}
+
+#[test]
+fn every_new_macos_reply_is_valid() {
+    let replies = new_macos();
+    for (case, sent, body) in &replies {
+        let sent = sent
+            .clone()
+            .or_else(|| body["id"].as_str().map(str::to_string));
+        let result = read_exec_reply(body.to_string().as_bytes(), sent.as_deref())
+            .unwrap_or_else(|e| panic!("{case}: {e:?}"));
+        assert!(result.outcome.is_some(), "{case}");
+        assert_eq!(
+            result.legacy_projection,
+            Some(LegacyProjection::Macos),
+            "{case}"
+        );
+        assert!(result.lifecycle.is_some(), "{case}");
+    }
+    let cases: Vec<_> = replies.iter().map(|(c, _, _)| c.as_str()).collect();
+    for needed in [
+        "spawn-failure",
+        "deadline-term-ignored",
+        "trim-unicode",
+        "requested-id",
+    ] {
+        assert!(cases.contains(&needed), "no macOS fixture {needed}");
+    }
+}
+
+#[test]
+fn a_new_macos_reply_with_another_id_than_the_sent_one_is_invalid() {
+    let (_, _, body) = new_macos()
+        .into_iter()
+        .find(|(c, _, _)| c == "requested-id")
+        .expect("requested-id");
+    let err = read_exec_reply(body.to_string().as_bytes(), Some("k218.other")).unwrap_err();
+    match err {
+        ExecReplyError::Invalid(p) => assert!(p[0].contains("is not the sent id"), "{p:?}"),
+        other => panic!("{other:?}"),
     }
 }
 

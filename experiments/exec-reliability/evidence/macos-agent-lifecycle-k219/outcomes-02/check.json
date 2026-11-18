@@ -1,0 +1,1038 @@
+{
+  "missing_required": [
+    "traced/deadline-term-ignored: ['grace-exceeded']"
+  ],
+  "problems": [],
+  "record_failures": [],
+  "verdicts": [
+    {
+      "bound_exceeded": false,
+      "case": "oracle-text",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "reference",
+      "seconds": 0.003958333,
+      "stderr_hex": "7365706172617465207374646572720a",
+      "stdout_hex": "4578706c61696e2074686973206368616e67652e",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "binary",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "reference",
+      "seconds": 0.003766375,
+      "stderr_hex": "",
+      "stdout_hex": "00ff80410a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-23-partial",
+      "ceiling_seconds": 30,
+      "code": 23,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "reference",
+      "seconds": 0.004045917,
+      "stderr_hex": "7061727469616c206572720a",
+      "stdout_hex": "7061727469616c206f75740a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "signal-kill",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [],
+      "end": "signal",
+      "phases": {},
+      "seam": "reference",
+      "seconds": 0.003741125,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f7265207369676e616c0a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-9",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "reference",
+      "seconds": 0.003802125,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f726520657869740a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline",
+      "ceiling_seconds": 22,
+      "code": 15,
+      "defects": [],
+      "end": "deadline-signal",
+      "phases": {
+        "grace": 0.002516333
+      },
+      "seam": "reference",
+      "seconds": 2.004414667,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f726520646561646c696e650a",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline-term-ignored",
+      "ceiling_seconds": 22,
+      "code": 9,
+      "defects": [],
+      "end": "deadline-signal",
+      "phases": {
+        "grace": 2.00054725,
+        "kill_reap": 0.000266292
+      },
+      "seam": "reference",
+      "seconds": 4.002920083,
+      "stderr_hex": "",
+      "stdout_hex": "69676e6f72696e67207465726d0a",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "spawn-failure",
+      "ceiling_seconds": 30,
+      "code": 35,
+      "defects": [],
+      "end": "spawn-error",
+      "phases": {},
+      "seam": "reference",
+      "seconds": 0.00186575,
+      "stderr_hex": "",
+      "stdout_hex": "",
+      "timed_out": null
+    },
+    {
+      "bound_exceeded": false,
+      "case": "oracle-text",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "process",
+      "seconds": 0.264481709,
+      "stderr_hex": "736570617261746520737464657272",
+      "stdout_hex": "4578706c61696e2074686973206368616e67652e",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "binary",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [
+        "non-utf8-dropped"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "process",
+      "seconds": 0.01009425,
+      "stderr_hex": "",
+      "stdout_hex": "",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-23-partial",
+      "ceiling_seconds": 30,
+      "code": 23,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "process",
+      "seconds": 0.010317958,
+      "stderr_hex": "7061727469616c20657272",
+      "stdout_hex": "7061727469616c206f7574",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "signal-kill",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [
+        "signal-reported-as-exit",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "process",
+      "seconds": 0.009686375,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f7265207369676e616c",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-9",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "process",
+      "seconds": 0.009617666,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f72652065786974",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline",
+      "ceiling_seconds": 22,
+      "code": -1,
+      "defects": [
+        "synthetic-exit-code",
+        "timeout-text-in-stderr",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "process",
+      "seconds": 2.009604875,
+      "stderr_hex": "50726f636573732074696d6564206f7574206166746572203273",
+      "stdout_hex": "6265666f726520646561646c696e65",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline-term-ignored",
+      "ceiling_seconds": 22,
+      "code": -1,
+      "defects": [
+        "synthetic-exit-code",
+        "timeout-text-in-stderr",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "process",
+      "seconds": 3.912627375,
+      "stderr_hex": "50726f636573732074696d6564206f7574206166746572203273",
+      "stdout_hex": "69676e6f72696e67207465726d",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "spawn-failure",
+      "ceiling_seconds": 30,
+      "code": -1,
+      "defects": [
+        "spawn-failure-unmapped",
+        "stream-mismatch"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "process",
+      "seconds": 0.012488542,
+      "stderr_hex": "5265736f757263652074656d706f726172696c7920756e617661696c61626c65",
+      "stdout_hex": "",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "oracle-text",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "traced",
+      "seconds": 0.249594292,
+      "stderr_hex": "736570617261746520737464657272",
+      "stdout_hex": "4578706c61696e2074686973206368616e67652e",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "binary",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [
+        "non-utf8-dropped"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "traced",
+      "seconds": 0.01278475,
+      "stderr_hex": "",
+      "stdout_hex": "",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-23-partial",
+      "ceiling_seconds": 30,
+      "code": 23,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "traced",
+      "seconds": 0.013153584,
+      "stderr_hex": "7061727469616c20657272",
+      "stdout_hex": "7061727469616c206f7574",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "signal-kill",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [
+        "signal-reported-as-exit",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "traced",
+      "seconds": 0.012655459,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f7265207369676e616c",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-9",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "traced",
+      "seconds": 0.012393292,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f72652065786974",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline",
+      "ceiling_seconds": 22,
+      "code": -1,
+      "defects": [
+        "synthetic-exit-code",
+        "timeout-text-in-stderr",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {
+        "grace": 0.000336958,
+        "kill_reap": 2.1666e-05
+      },
+      "seam": "traced",
+      "seconds": 2.01115625,
+      "stderr_hex": "50726f636573732074696d6564206f7574206166746572203273",
+      "stdout_hex": "6265666f726520646561646c696e65",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline-term-ignored",
+      "ceiling_seconds": 22,
+      "code": -1,
+      "defects": [
+        "synthetic-exit-code",
+        "timeout-text-in-stderr",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {
+        "grace": 1.9008125,
+        "kill_reap": 0.000515458
+      },
+      "seam": "traced",
+      "seconds": 3.913381583,
+      "stderr_hex": "50726f636573732074696d6564206f7574206166746572203273",
+      "stdout_hex": "69676e6f72696e67207465726d",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "spawn-failure",
+      "ceiling_seconds": 30,
+      "code": -1,
+      "defects": [
+        "spawn-failure-unmapped",
+        "stream-mismatch"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "traced",
+      "seconds": 0.013404042,
+      "stderr_hex": "5265736f757263652074656d706f726172696c7920756e617661696c61626c65",
+      "stdout_hex": "",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "oracle-text",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "http",
+      "seconds": 0.006469417,
+      "stderr_hex": "736570617261746520737464657272",
+      "stdout_hex": "4578706c61696e2074686973206368616e67652e",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "binary",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [
+        "non-utf8-dropped"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "http",
+      "seconds": 0.003958208,
+      "stderr_hex": "",
+      "stdout_hex": "",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-23-partial",
+      "ceiling_seconds": 30,
+      "code": 23,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "http",
+      "seconds": 0.003738458,
+      "stderr_hex": "7061727469616c20657272",
+      "stdout_hex": "7061727469616c206f7574",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "signal-kill",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [
+        "signal-reported-as-exit",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "http",
+      "seconds": 0.003612958,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f7265207369676e616c",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-9",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "http",
+      "seconds": 0.0035405,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f72652065786974",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline",
+      "ceiling_seconds": 22,
+      "code": -1,
+      "defects": [
+        "synthetic-exit-code",
+        "timeout-text-in-stderr",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "http",
+      "seconds": 2.004234875,
+      "stderr_hex": "50726f636573732074696d6564206f7574206166746572203273",
+      "stdout_hex": "6265666f726520646561646c696e65",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline-term-ignored",
+      "ceiling_seconds": 22,
+      "code": -1,
+      "defects": [
+        "synthetic-exit-code",
+        "timeout-text-in-stderr",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "http",
+      "seconds": 3.9057045,
+      "stderr_hex": "50726f636573732074696d6564206f7574206166746572203273",
+      "stdout_hex": "69676e6f72696e67207465726d",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "spawn-failure",
+      "ceiling_seconds": 30,
+      "code": -1,
+      "defects": [
+        "spawn-failure-unmapped",
+        "stream-mismatch"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "http",
+      "seconds": 0.003463375,
+      "stderr_hex": "5265736f757263652074656d706f726172696c7920756e617661696c61626c65",
+      "stdout_hex": "",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "oracle-text",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-text",
+      "seconds": 0.8669975,
+      "stderr_hex": "7365706172617465207374646572720a",
+      "stdout_hex": "4578706c61696e2074686973206368616e67652e",
+      "timed_out": null
+    },
+    {
+      "bound_exceeded": false,
+      "case": "binary",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [
+        "non-utf8-dropped"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-text",
+      "seconds": 0.017352083,
+      "stderr_hex": "",
+      "stdout_hex": "",
+      "timed_out": null
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-23-partial",
+      "ceiling_seconds": 30,
+      "code": 23,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-text",
+      "seconds": 0.015374834,
+      "stderr_hex": "7061727469616c206572720a",
+      "stdout_hex": "7061727469616c206f7574",
+      "timed_out": null
+    },
+    {
+      "bound_exceeded": false,
+      "case": "signal-kill",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [
+        "signal-reported-as-exit",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-text",
+      "seconds": 0.01389,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f7265207369676e616c",
+      "timed_out": null
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-9",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-text",
+      "seconds": 0.012586375,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f72652065786974",
+      "timed_out": null
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline",
+      "ceiling_seconds": 22,
+      "code": 255,
+      "defects": [
+        "deadline-not-flagged",
+        "synthetic-exit-code",
+        "timeout-text-in-stderr",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-text",
+      "seconds": 2.01328975,
+      "stderr_hex": "50726f636573732074696d6564206f75742061667465722032730a",
+      "stdout_hex": "6265666f726520646561646c696e65",
+      "timed_out": null
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline-term-ignored",
+      "ceiling_seconds": 22,
+      "code": 255,
+      "defects": [
+        "deadline-not-flagged",
+        "synthetic-exit-code",
+        "timeout-text-in-stderr",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-text",
+      "seconds": 3.915478375,
+      "stderr_hex": "50726f636573732074696d6564206f75742061667465722032730a",
+      "stdout_hex": "69676e6f72696e67207465726d",
+      "timed_out": null
+    },
+    {
+      "bound_exceeded": false,
+      "case": "spawn-failure",
+      "ceiling_seconds": 30,
+      "code": 255,
+      "defects": [
+        "spawn-failure-unmapped",
+        "stream-mismatch"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-text",
+      "seconds": 0.012551292,
+      "stderr_hex": "5265736f757263652074656d706f726172696c7920756e617661696c61626c650a",
+      "stdout_hex": "",
+      "timed_out": null
+    },
+    {
+      "bound_exceeded": false,
+      "case": "oracle-text",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json",
+      "seconds": 0.01453475,
+      "stderr_hex": "736570617261746520737464657272",
+      "stdout_hex": "4578706c61696e2074686973206368616e67652e",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "binary",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [
+        "non-utf8-dropped"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json",
+      "seconds": 0.014000292,
+      "stderr_hex": "",
+      "stdout_hex": "",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-23-partial",
+      "ceiling_seconds": 30,
+      "code": 23,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json",
+      "seconds": 0.013138125,
+      "stderr_hex": "7061727469616c20657272",
+      "stdout_hex": "7061727469616c206f7574",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "signal-kill",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [
+        "signal-reported-as-exit",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json",
+      "seconds": 0.01306525,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f7265207369676e616c",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-9",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json",
+      "seconds": 0.013186792,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f72652065786974",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline",
+      "ceiling_seconds": 22,
+      "code": -1,
+      "defects": [
+        "synthetic-exit-code",
+        "timeout-text-in-stderr",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json",
+      "seconds": 2.013112458,
+      "stderr_hex": "50726f636573732074696d6564206f7574206166746572203273",
+      "stdout_hex": "6265666f726520646561646c696e65",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline-term-ignored",
+      "ceiling_seconds": 22,
+      "code": -1,
+      "defects": [
+        "synthetic-exit-code",
+        "timeout-text-in-stderr",
+        "trailing-lf-trimmed"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json",
+      "seconds": 3.915336958,
+      "stderr_hex": "50726f636573732074696d6564206f7574206166746572203273",
+      "stdout_hex": "69676e6f72696e67207465726d",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "spawn-failure",
+      "ceiling_seconds": 30,
+      "code": -1,
+      "defects": [
+        "spawn-failure-unmapped",
+        "stream-mismatch"
+      ],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json",
+      "seconds": 0.011712917,
+      "stderr_hex": "5265736f757263652074656d706f726172696c7920756e617661696c61626c65",
+      "stdout_hex": "",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "oracle-text",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "http-record",
+      "seconds": 0.006469417,
+      "stderr_hex": "7365706172617465207374646572720a",
+      "stdout_hex": "4578706c61696e2074686973206368616e67652e",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "binary",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "http-record",
+      "seconds": 0.003958208,
+      "stderr_hex": "",
+      "stdout_hex": "00ff80410a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-23-partial",
+      "ceiling_seconds": 30,
+      "code": 23,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "http-record",
+      "seconds": 0.003738458,
+      "stderr_hex": "7061727469616c206572720a",
+      "stdout_hex": "7061727469616c206f75740a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "signal-kill",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [],
+      "end": "signal",
+      "phases": {},
+      "seam": "http-record",
+      "seconds": 0.003612958,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f7265207369676e616c0a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-9",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "http-record",
+      "seconds": 0.0035405,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f726520657869740a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline",
+      "ceiling_seconds": 22,
+      "code": 15,
+      "defects": [],
+      "end": "deadline-signal",
+      "phases": {
+        "grace": 0.0,
+        "kill_reap": 0.001
+      },
+      "seam": "http-record",
+      "seconds": 2.004234875,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f726520646561646c696e650a",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline-term-ignored",
+      "ceiling_seconds": 22,
+      "code": 9,
+      "defects": [],
+      "end": "deadline-signal",
+      "phases": {
+        "grace": 1.901,
+        "kill_reap": 0.001
+      },
+      "seam": "http-record",
+      "seconds": 3.9057045,
+      "stderr_hex": "",
+      "stdout_hex": "69676e6f72696e67207465726d0a",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "spawn-failure",
+      "ceiling_seconds": 30,
+      "code": 35,
+      "defects": [],
+      "end": "spawn-error",
+      "phases": {},
+      "seam": "http-record",
+      "seconds": 0.003463375,
+      "stderr_hex": "",
+      "stdout_hex": "",
+      "timed_out": null
+    },
+    {
+      "bound_exceeded": false,
+      "case": "oracle-text",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json-record",
+      "seconds": 0.01453475,
+      "stderr_hex": "7365706172617465207374646572720a",
+      "stdout_hex": "4578706c61696e2074686973206368616e67652e",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "binary",
+      "ceiling_seconds": 30,
+      "code": 0,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json-record",
+      "seconds": 0.014000292,
+      "stderr_hex": "",
+      "stdout_hex": "00ff80410a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-23-partial",
+      "ceiling_seconds": 30,
+      "code": 23,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json-record",
+      "seconds": 0.013138125,
+      "stderr_hex": "7061727469616c206572720a",
+      "stdout_hex": "7061727469616c206f75740a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "signal-kill",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [],
+      "end": "signal",
+      "phases": {},
+      "seam": "cli-json-record",
+      "seconds": 0.01306525,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f7265207369676e616c0a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "exit-9",
+      "ceiling_seconds": 30,
+      "code": 9,
+      "defects": [],
+      "end": "exit",
+      "phases": {},
+      "seam": "cli-json-record",
+      "seconds": 0.013186792,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f726520657869740a",
+      "timed_out": false
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline",
+      "ceiling_seconds": 22,
+      "code": 15,
+      "defects": [],
+      "end": "deadline-signal",
+      "phases": {
+        "grace": 0.0,
+        "kill_reap": 0.0
+      },
+      "seam": "cli-json-record",
+      "seconds": 2.013112458,
+      "stderr_hex": "",
+      "stdout_hex": "6265666f726520646561646c696e650a",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "deadline-term-ignored",
+      "ceiling_seconds": 22,
+      "code": 9,
+      "defects": [],
+      "end": "deadline-signal",
+      "phases": {
+        "grace": 1.901,
+        "kill_reap": 0.0
+      },
+      "seam": "cli-json-record",
+      "seconds": 3.915336958,
+      "stderr_hex": "",
+      "stdout_hex": "69676e6f72696e67207465726d0a",
+      "timed_out": true
+    },
+    {
+      "bound_exceeded": false,
+      "case": "spawn-failure",
+      "ceiling_seconds": 30,
+      "code": 35,
+      "defects": [],
+      "end": "spawn-error",
+      "phases": {},
+      "seam": "cli-json-record",
+      "seconds": 0.011712917,
+      "stderr_hex": "",
+      "stdout_hex": "",
+      "timed_out": null
+    }
+  ]
+}
