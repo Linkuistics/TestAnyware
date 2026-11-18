@@ -8,9 +8,10 @@
 
 use serde_json::json;
 use testanyware_agent_client::{AgentClient, AgentConfig, AgentError};
+use testanyware_protocol::exec_record::CancelState;
 use testanyware_protocol::{
-    ElementQuery, ExecRequest, SetValueRequest, SnapshotRequest, WaitRequest, WindowMoveRequest,
-    WindowResizeRequest, WindowTarget,
+    ElementQuery, ExecCancelRequest, ExecRequest, SetValueRequest, SnapshotRequest, WaitRequest,
+    WindowMoveRequest, WindowResizeRequest, WindowTarget,
 };
 use wiremock::matchers::{body_bytes, body_json, header, method, path, query_param};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
@@ -611,4 +612,163 @@ async fn window_action_error_envelope_maps_to_window_not_found() {
         .await
         .expect_err("window-focus should surface the wire error");
     assert_eq!(err.code(), "WINDOW_NOT_FOUND");
+}
+
+// ---- /exec/cancel and the duplicate exec id (ADR-0025) ----
+
+/// A valid typed record of the recorded Linux reply `exit-23-partial`.
+fn linux_record() -> serde_json::Value {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../agents/linux/tests/fixtures/exec-records/exit-23-partial.json");
+    let fixture: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    fixture["body"].clone()
+}
+
+fn cancel(id: &str, wait_ms: u64) -> ExecCancelRequest {
+    ExecCancelRequest {
+        id: id.to_string(),
+        wait_ms,
+    }
+}
+
+const CANCEL_LIMIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[tokio::test]
+async fn cancel_exec_posts_the_id_and_reads_each_plain_state() {
+    for state in ["terminating", "unknown_id"] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/exec/cancel"))
+            .and(body_json(json!({"id": "run-7", "waitMs": 250})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"state": state})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = client_for(&server).await;
+        let got = client
+            .cancel_exec(&cancel("run-7", 250), CANCEL_LIMIT)
+            .await
+            .expect("the cancellation succeeds");
+        assert_eq!(got.as_str(), state);
+    }
+}
+
+#[tokio::test]
+async fn cancel_exec_reads_the_terminal_record_of_the_cancelled_id() {
+    let record = linux_record();
+    let id = record["id"].as_str().unwrap().to_string();
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/exec/cancel"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"state": "terminal", "record": record})),
+        )
+        .mount(&server)
+        .await;
+    let client = client_for(&server).await;
+    let got = client
+        .cancel_exec(&cancel(&id, 0), CANCEL_LIMIT)
+        .await
+        .unwrap();
+    let CancelState::Terminal(result) = got else {
+        panic!("expected terminal, got {got:?}");
+    };
+    assert_eq!(result.id.as_deref(), Some(id.as_str()));
+
+    // The same record answers a cancellation of another id: contradictory.
+    let err = client
+        .cancel_exec(&cancel("another-id", 0), CANCEL_LIMIT)
+        .await
+        .expect_err("a record of another id is contradictory");
+    assert_eq!(err.code(), "EXEC_RECORD_INVALID", "got {err:?}");
+}
+
+#[tokio::test]
+async fn an_old_agent_404_on_cancel_is_endpoint_unsupported() {
+    // An old Linux agent answers an unknown path with an error body. The
+    // status alone decides, so `not_found` never becomes ELEMENT_NOT_FOUND.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/exec/cancel"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(json!({"error": "not_found"})))
+        .mount(&server)
+        .await;
+    let client = client_for(&server).await;
+    let err = client
+        .cancel_exec(&cancel("run-7", 0), CANCEL_LIMIT)
+        .await
+        .expect_err("an old agent cannot cancel");
+    assert_eq!(err.code(), "AGENT_ENDPOINT_UNSUPPORTED", "got {err:?}");
+    assert!(
+        matches!(err, AgentError::EndpointUnsupported { ref endpoint } if endpoint == "/exec/cancel")
+    );
+}
+
+#[tokio::test]
+async fn cancel_exec_ends_within_its_limit() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/exec/cancel"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(json!({"state": "terminating"}))
+                .set_delay(std::time::Duration::from_secs(10)),
+        )
+        .mount(&server)
+        .await;
+    let client = client_for(&server).await;
+    let started = std::time::Instant::now();
+    let err = client
+        .cancel_exec(&cancel("run-7", 0), std::time::Duration::from_millis(300))
+        .await
+        .expect_err("the agent does not answer in time");
+    assert_eq!(err.code(), "CONNECTION_TIMEOUT", "got {err:?}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(2));
+}
+
+#[tokio::test]
+async fn a_duplicate_exec_id_maps_to_exec_id_in_use() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/exec"))
+        .respond_with(ResponseTemplate::new(409).set_body_json(json!({
+            "error": "exec_id_in_use",
+            "details": "exec id run-7 names a running or retained command",
+        })))
+        .mount(&server)
+        .await;
+    let client = client_for(&server).await;
+    let err = client
+        .exec(&ExecRequest {
+            command: "true".into(),
+            timeout: 5,
+            detach: false,
+            id: Some("run-7".into()),
+        })
+        .await
+        .expect_err("the id is in use");
+    assert_eq!(err.code(), "EXEC_ID_IN_USE", "got {err:?}");
+}
+
+#[tokio::test]
+async fn another_exec_failure_status_keeps_its_old_code() {
+    // Only 409 reads the error body. A 500 stays AGENT_ERROR_UNKNOWN.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/exec"))
+        .respond_with(ResponseTemplate::new(500).set_body_json(json!({"error": "exec_failed"})))
+        .mount(&server)
+        .await;
+    let client = client_for(&server).await;
+    let err = client
+        .exec(&ExecRequest {
+            command: "true".into(),
+            timeout: 5,
+            detach: false,
+            id: None,
+        })
+        .await
+        .expect_err("the agent failed");
+    assert_eq!(err.code(), "AGENT_ERROR_UNKNOWN", "got {err:?}");
 }

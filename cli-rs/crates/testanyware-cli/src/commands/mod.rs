@@ -14,6 +14,7 @@ pub mod doctor;
 pub mod doctor_app;
 pub mod file;
 pub mod input;
+pub(crate) mod interrupt;
 pub mod menu_bar;
 pub mod record;
 pub mod screen;
@@ -236,6 +237,7 @@ pub fn exit_agent_error(err: AgentError, mode: OutputMode) -> ! {
         }),
         AgentError::LocalIo { path, .. } => serde_json::json!({ "path": path }),
         AgentError::ExecRecordInvalid(problems) => serde_json::json!({ "problems": problems }),
+        AgentError::EndpointUnsupported { endpoint } => serde_json::json!({ "endpoint": endpoint }),
         _ => serde_json::Value::Null,
     };
     print_error(
@@ -314,6 +316,9 @@ pub fn friendly_message_for(code: &str, err: &AgentError) -> Option<String> {
         "DOWNLOAD_FAILED" => Some(with_detail(
             "Download failed on the target VM",
         )),
+        "EXEC_ID_IN_USE" => Some(with_detail(
+            "The exec id names a running or retained command on the target VM",
+        )),
         "AGENT_INVALID_JSON" => Some(with_detail(
             "Agent rejected the request body as malformed JSON \
              (this indicates a CLI bug — please report it)",
@@ -360,6 +365,17 @@ fn remediation_for(code: &str) -> Option<&'static str> {
             "Run `testanyware agent windows` to see available windows.",
         ),
         "IO_ERROR" => Some("Check the local path and permissions."),
+        "EXEC_ID_IN_USE" => {
+            Some("Give another --exec-id, or leave it out so that the Host CLI sends a random id.")
+        }
+        "AGENT_ENDPOINT_UNSUPPORTED" => Some(
+            "The agent in the guest is older than the Host CLI. Use a golden with a newer \
+             agent. Until then, a command ends at its own --timeout.",
+        ),
+        "DOWNLOAD_FRAMING_INVALID" => Some(
+            "The destination is unchanged. If a guest process changes the file in place, \
+             publish each version under a new name and download that name (ADR-0026).",
+        ),
         _ => None,
     }
 }
@@ -397,6 +413,11 @@ mod tests {
             ("exec_failed", "EXEC_FAILED", "Process failed to spawn on the target VM"),
             ("upload_failed", "UPLOAD_FAILED", "Upload failed on the target VM"),
             ("download_failed", "DOWNLOAD_FAILED", "Download failed on the target VM"),
+            (
+                "exec_id_in_use",
+                "EXEC_ID_IN_USE",
+                "The exec id names a running or retained command on the target VM",
+            ),
             (
                 "invalid_json",
                 "AGENT_INVALID_JSON",

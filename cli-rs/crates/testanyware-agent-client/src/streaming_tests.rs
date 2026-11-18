@@ -215,9 +215,16 @@ async fn a_download_streams_and_nothing_holds_the_whole_file() {
     let mut sink = CountingSink {
         gauge: gauge.clone(),
     };
-    let written = stream_to_writer(&deadline, exchange, &mut sink, Path::new("big.bin.tmp"))
+    let Exchange {
+        response,
+        mut connection,
+    } = exchange;
+    let written = stream_to_writer(&deadline, response, &mut sink, Path::new("big.bin.tmp"))
         .await
         .expect("download streams");
+    check_after_body(&deadline, &mut connection)
+        .await
+        .expect("nothing follows the body, and the server closes the stream");
     server
         .await
         .unwrap()

@@ -140,12 +140,13 @@ not a number, or the `id` is not valid. On the macOS agent, an `id` that is
 not valid returns 400 with `exec_failed`. A macOS request body that does not
 decode keeps the old macOS error reply.
 
-The Host CLI sends a random UUID as the `id` of each attached request. An
-agent without the typed record ignores it. A detached request carries no
-`id`.
+The Host CLI sends the `--exec-id` value, or a random UUID, as the `id` of
+each attached request. An agent without the typed record ignores it. A
+detached request carries no `id`.
 
 The Linux and macOS agents register each `id`. An `id` of a running or retained
-command returns 409 with `exec_id_in_use`. An `id` that a cancellation
+command returns 409 with `exec_id_in_use`, which the Host CLI reports as
+`EXEC_ID_IN_USE`. An `id` that a cancellation
 tombstoned returns a `cancelled` record with `beforeStart: true`, and no
 process starts. During agent shutdown, a new request returns 503 with
 `exec_failed`.
@@ -172,6 +173,10 @@ and a new command takes the id.
 
 A disconnect is not a cancellation (ADR-0025). A client can end a command
 before its deadline only with this request.
+
+`testanyware file cancel` sends one such request. At SIGINT or SIGTERM,
+`testanyware file exec` sends one with `waitMs: 0` on a new connection. It
+waits for the reply for 1.5 s at most, and then it dies of the same signal.
 
 ### File transfer — `/upload`, `/download`
 
@@ -208,6 +213,13 @@ connection. The body is then short, and the client detects it.
 
 An in-place overwrite during the read is outside the contract. Publish each
 version under a fresh name instead.
+
+The Host CLI checks the framing before it replaces the destination. A body
+shorter than its `Content-Length` gives `CONNECTION_DROPPED`. A byte after
+the body, before the agent closes the connection, gives
+`DOWNLOAD_FRAMING_INVALID`. This check also catches an old Linux agent, which
+can send appended bytes. Each failure, and SIGINT or SIGTERM, removes the
+temporary file of the Host CLI.
 
 The macOS agent answers 404 with `download_failed` for a path that is not a
 regular file, such as a directory or a FIFO. It opens the path without
@@ -298,7 +310,8 @@ The reply is 200 with a `state`:
 A repeat returns the current state and never changes a final outcome.
 The agent retains each record and each tombstone for 300 s, 64 at most.
 An agent restart loses them. `unknown_id` does not prove that no command
-ran. An agent without the endpoint returns 404.
+ran. An agent without the endpoint returns 404, and the Host CLI reports
+`AGENT_ENDPOINT_UNSUPPORTED`.
 
 The Host CLI reads a reply without `outcome` as a legacy reply. It checks
 every validity rule of the spec on a reply with `outcome`. A record that
@@ -314,8 +327,8 @@ reports it as a success. The Rust reader is
 
 Common `error` keys: `not_found`, `element_not_found`, `ambiguous`,
 `multiple_matches`, `window_not_found`, `action_unsupported`,
-`accessibility_unavailable`, `exec_failed`, `upload_failed`,
-`download_failed`. Clients must tolerate unknown strings. See
+`accessibility_unavailable`, `exec_failed`, `exec_id_in_use`,
+`upload_failed`, `download_failed`. Clients must tolerate unknown strings. See
 `docs/reference/error-codes.md`.
 
 ## Nested types

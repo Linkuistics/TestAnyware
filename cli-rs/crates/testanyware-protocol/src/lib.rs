@@ -29,8 +29,9 @@ pub mod window_info;
 
 pub use agent_formatter::AgentFormatter;
 pub use agent_requests::{
-    ElementQuery, ExecRequest, ExecResult, HealthResponse, SetValueRequest, SnapshotRequest,
-    WaitRequest, WindowMoveRequest, WindowResizeRequest, WindowTarget,
+    is_valid_exec_id, ElementQuery, ExecCancelRequest, ExecRequest, ExecResult, HealthResponse,
+    SetValueRequest, SnapshotRequest, WaitRequest, WindowMoveRequest, WindowResizeRequest,
+    WindowTarget, CANCEL_WAIT_MAX_MS, EXEC_ID_MAX_LEN,
 };
 pub use agent_responses::{ActionResponse, ErrorResponse, InspectResponse, SnapshotResponse};
 pub use element_info::ElementInfo;

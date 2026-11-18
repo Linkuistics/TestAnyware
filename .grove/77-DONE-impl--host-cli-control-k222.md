@@ -62,3 +62,39 @@ remove it from `KNOWN_NON_CANONICAL_EXCEPTIONS` in
 The recorded Linux exec fixtures
 hold no cancelled record yet. The recorder `agents/linux/tests/record_exec_replies.py`
 can add such cases, and the Rust tests count 14 Linux fixtures today.
+
+## Decisions (running log)
+
+- `file cancel` also takes `--dry-run`. Contract §9.3 requires the flag on
+  each mutating command, and the contract test checks it.
+- The Host CLI maps `exec_id_in_use` to `EXEC_ID_IN_USE` with exit 5. Exit 5
+  is the conflict class of §5. Only HTTP 409 on `/exec` reads the error body,
+  so every other exec failure keeps its code.
+- The framing check uses hyper 1.9.0 `Connection::without_shutdown`. After a
+  `Connection: close` exchange it returns the unread `read_buf` and the stream.
+  A byte in either before end-of-file is `DOWNLOAD_FRAMING_INVALID`. The wait
+  for end-of-file runs under the request deadline.
+- A drop guard owns the temporary download file. A signal drops the download
+  future, and the guard removes the file before the Host CLI raises the signal.
+- The handler is installed only for `file exec` and `file download`, and only
+  on Unix. A signal that the parent set to ignore stays ignored, so a
+  background job keeps today's behaviour.
+- The old-path control builds the Host CLI of revision `251bf072e3` from
+  `git archive` in a temporary directory. It runs the new interruption and
+  cleanup cases against that binary, and each case must fail.
+- The download flushes the temp file with `sync_all` before the rename. The
+  spec's step 4 says "flush to disk", and a user-space flush does not reach
+  the disk.
+- A reset or a connection error after a complete body fails the download
+  with `CONNECTION_DROPPED`. The client cannot prove that nothing followed
+  the body, so it never reports such a transfer as a success.
+- The website copy `website/docs/reference/error-codes.md` stays unchanged.
+  It already differs from the source copy by 64 diff lines, and it has 9 hard
+  prose findings. The source copy and `LLM_INSTRUCTIONS.md` carry the codes.
+- The old-path build archives `cli-rs`, `docs`, `provisioner` and
+  `LLM_INSTRUCTIONS.md`. These are every path outside `cli-rs` that the
+  crates embed. The harness reads `TESTANYWARE_CONTROL_CLI` only in that
+  control, for both `cli` and `spawn_cli`.
+- The control run of `task cli:control-old-path` passed: each of the three
+  cases failed on the binary of `251bf072e3` with its known defect, and
+  passed on this checkout.

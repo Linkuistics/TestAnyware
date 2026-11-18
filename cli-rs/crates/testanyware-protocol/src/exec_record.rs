@@ -264,6 +264,75 @@ pub fn read_exec_reply(body: &[u8], sent_id: Option<&str>) -> Result<ExecResult,
     }
 }
 
+/// The state of a cancellation reply. Spec, section "Cancel endpoint".
+#[derive(Debug, Clone, PartialEq)]
+pub enum CancelState {
+    /// The command is ending, and the wait ended first. No record.
+    Terminating,
+    /// The command has a final record, which passed every validity rule.
+    Terminal(Box<ExecResult>),
+    /// The agent held no such id, and it now holds a tombstone. This never
+    /// proves that no command ran.
+    UnknownId,
+}
+
+impl CancelState {
+    /// The wire token of the state.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CancelState::Terminating => "terminating",
+            CancelState::Terminal(_) => "terminal",
+            CancelState::UnknownId => "unknown_id",
+        }
+    }
+}
+
+/// Read a `POST /exec/cancel` reply body. `sent_id` is the exec id that the
+/// cancellation named.
+///
+/// Only the state `terminal` carries a record, and that record must be a
+/// typed record of `sent_id` that passes every validity rule. A record beside
+/// another state, a missing record or a legacy record is contradictory
+/// evidence. A body that is not a known state is a decode failure.
+pub fn read_cancel_reply(body: &[u8], sent_id: &str) -> Result<CancelState, ExecReplyError> {
+    let value: Value =
+        serde_json::from_slice(body).map_err(|e| ExecReplyError::Decode(e.to_string()))?;
+    let state = value
+        .get("state")
+        .and_then(Value::as_str)
+        .ok_or_else(|| ExecReplyError::Decode("the reply has no string state".to_string()))?;
+    let record = value.get("record").filter(|r| !r.is_null());
+    let plain = |state: CancelState| match record {
+        None => Ok(state),
+        Some(_) => Err(ExecReplyError::Invalid(vec![format!(
+            "the state {} carries a record",
+            state.as_str()
+        )])),
+    };
+    match state {
+        "terminating" => plain(CancelState::Terminating),
+        "unknown_id" => plain(CancelState::UnknownId),
+        "terminal" => {
+            let Some(record) = record else {
+                return Err(ExecReplyError::Invalid(vec![
+                    "the state terminal has no record".to_string(),
+                ]));
+            };
+            if record.get("outcome").map_or(true, Value::is_null) {
+                return Err(ExecReplyError::Invalid(vec![
+                    "the terminal record has no outcome".to_string(),
+                ]));
+            }
+            let text =
+                serde_json::to_vec(record).map_err(|e| ExecReplyError::Decode(e.to_string()))?;
+            read_exec_reply(&text, Some(sent_id)).map(|r| CancelState::Terminal(Box::new(r)))
+        }
+        other => Err(ExecReplyError::Decode(format!(
+            "the state {other:?} is not terminating, terminal or unknown_id"
+        ))),
+    }
+}
+
 #[derive(Deserialize)]
 struct LegacyFields {
     #[serde(rename = "exitCode")]
@@ -671,6 +740,85 @@ mod tests {
         assert_eq!(linux_decode(b"a\r\nb\rc\n").as_deref(), Some("a\nb\nc"));
         assert_eq!(linux_decode(b"a\x1c\x1f\x0b ").as_deref(), Some("a"));
         assert_eq!(linux_decode(b"\xff"), None);
+    }
+
+    /// The body of a recorded Linux reply, a valid typed record.
+    fn linux_record() -> Value {
+        let fixture: Value = serde_json::from_str(include_str!(
+            "../../../../agents/linux/tests/fixtures/exec-records/exit-23-partial.json"
+        ))
+        .unwrap();
+        fixture["body"].clone()
+    }
+
+    fn cancel_reply(state: &str, record: Option<Value>) -> Vec<u8> {
+        let mut reply = serde_json::json!({ "state": state });
+        if let Some(record) = record {
+            reply["record"] = record;
+        }
+        serde_json::to_vec(&reply).unwrap()
+    }
+
+    #[test]
+    fn a_cancel_reply_without_a_record_gives_its_state() {
+        assert_eq!(
+            read_cancel_reply(&cancel_reply("terminating", None), "a"),
+            Ok(CancelState::Terminating)
+        );
+        assert_eq!(
+            read_cancel_reply(&cancel_reply("unknown_id", None), "a"),
+            Ok(CancelState::UnknownId)
+        );
+        assert_eq!(CancelState::UnknownId.as_str(), "unknown_id");
+    }
+
+    #[test]
+    fn a_terminal_cancel_reply_gives_the_valid_record_of_the_sent_id() {
+        let record = linux_record();
+        let id = record["id"].as_str().unwrap().to_string();
+        let state = read_cancel_reply(&cancel_reply("terminal", Some(record)), &id).unwrap();
+        let CancelState::Terminal(result) = state else {
+            panic!("expected terminal, got {state:?}");
+        };
+        assert_eq!(result.id.as_deref(), Some(id.as_str()));
+        assert_eq!(result.outcome, Some(Outcome::Exited { exit_code: 23 }));
+    }
+
+    #[test]
+    fn a_contradictory_cancel_reply_is_invalid() {
+        let record = linux_record();
+        let id = record["id"].as_str().unwrap().to_string();
+        let invalid = |body: Vec<u8>, sent: &str| match read_cancel_reply(&body, sent) {
+            Err(ExecReplyError::Invalid(problems)) => problems,
+            other => panic!("expected Invalid, got {other:?}"),
+        };
+        // A record of another command.
+        let problems = invalid(cancel_reply("terminal", Some(record.clone())), "other-id");
+        assert!(problems[0].contains("is not the sent id"), "{problems:?}");
+        // No record, a legacy record, and a record beside a plain state.
+        invalid(cancel_reply("terminal", None), &id);
+        let legacy = serde_json::json!({"exitCode": 0, "stdout": "", "stderr": ""});
+        invalid(cancel_reply("terminal", Some(legacy)), &id);
+        invalid(cancel_reply("terminating", Some(record.clone())), &id);
+        invalid(cancel_reply("unknown_id", Some(record)), &id);
+    }
+
+    #[test]
+    fn a_cancel_reply_with_an_unknown_state_does_not_decode() {
+        for body in [
+            cancel_reply("finished", None),
+            br#"{"record": null}"#.to_vec(),
+            b"not json".to_vec(),
+        ] {
+            assert!(
+                matches!(
+                    read_cancel_reply(&body, "a"),
+                    Err(ExecReplyError::Decode(_))
+                ),
+                "{}",
+                String::from_utf8_lossy(&body)
+            );
+        }
     }
 
     #[test]

@@ -399,3 +399,208 @@ async fn a_connector_failure_keeps_its_code_remedy_and_details() {
         other => panic!("expected AgentError::Connector, got {other:?}"),
     }
 }
+
+// ---- download framing (spec "Host CLI download") ----
+
+/// One piece of a raw reply: wait `after`, then write `bytes`.
+struct Piece {
+    after: Duration,
+    bytes: Vec<u8>,
+}
+
+fn piece(bytes: impl Into<Vec<u8>>) -> Piece {
+    Piece {
+        after: Duration::ZERO,
+        bytes: bytes.into(),
+    }
+}
+
+/// What the raw agent does after its last piece.
+#[derive(Clone, Copy)]
+enum End {
+    /// Close the stream, as an agent does after a `Connection: close` reply.
+    Close,
+    /// Keep the stream open until the client goes away.
+    Hold,
+}
+
+/// An agent that reads the request head and then writes `pieces` byte for
+/// byte, so a test can serve a recorded reply to the real client.
+fn raw_agent(pieces: Vec<Piece>, end: End) -> Arc<DuplexConnector> {
+    let pieces = Arc::new(pieces);
+    let (connector, _) = DuplexConnector::new(move |mut stream| {
+        let pieces = pieces.clone();
+        tokio::spawn(async move {
+            read_request_head(&mut stream).await;
+            for piece in pieces.iter() {
+                tokio::time::sleep(piece.after).await;
+                if stream.write_all(&piece.bytes).await.is_err() {
+                    return;
+                }
+            }
+            if let End::Hold = end {
+                let mut sink = [0u8; 64];
+                while stream.read(&mut sink).await.unwrap_or(0) > 0 {}
+            }
+        });
+    });
+    connector
+}
+
+/// A raw reply of `content_length` with `body`, as HTTP/1.1.
+fn reply(content_length: usize, body: &[u8]) -> Vec<u8> {
+    let mut bytes = format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\ncontent-length: {content_length}\r\n\r\n"
+    )
+    .into_bytes();
+    bytes.extend_from_slice(body);
+    bytes
+}
+
+/// The head and the received body of one case of the retained k14 run. The
+/// old Linux agent wrote exactly these bytes
+/// (docs/experiments/exec-reliability-linux-download-consistency.md).
+fn recorded_linux_reply(case: &str) -> (Vec<u8>, Vec<u8>) {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!(
+        "../../../experiments/exec-reliability/evidence/linux-download-consistency-k14/local-01/cases/{case}/raw"
+    ));
+    let record: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(dir.join("record.json")).unwrap()).unwrap();
+    let head = record["agent"]["trace"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|event| event["kind"] == "headers")
+        .expect("the record holds the reply head")["text"]
+        .as_str()
+        .unwrap()
+        .as_bytes()
+        .to_vec();
+    let body = std::fs::read(dir.join("received.bin")).unwrap();
+    (head, body)
+}
+
+/// The names in `dir`, sorted.
+fn names_in(dir: &std::path::Path) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// Download through `connector` into a directory that already holds the
+/// destination with the bytes `old`. Returns the result, the directory and
+/// the destination path.
+async fn download_over(
+    connector: Arc<DuplexConnector>,
+) -> (
+    Result<u64, AgentError>,
+    tempfile::TempDir,
+    std::path::PathBuf,
+) {
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("evidence.json");
+    std::fs::write(&dest, b"old").unwrap();
+    let client = client_over(connector, Duration::from_secs(5));
+    let result = client.download("/tmp/evidence.json", &dest).await;
+    (result, dir, dest)
+}
+
+/// The destination still holds `old`, and no temp file remains.
+fn assert_unchanged(dir: &tempfile::TempDir, dest: &std::path::Path) {
+    assert_eq!(
+        std::fs::read(dest).unwrap(),
+        b"old",
+        "the destination changed"
+    );
+    assert_eq!(names_in(dir.path()), vec!["evidence.json".to_string()]);
+}
+
+#[tokio::test]
+async fn the_recorded_old_linux_reply_with_extra_bytes_is_a_framing_failure() {
+    // Old path: Host CLI 2.8.0 kept the first 25 bytes of this reply and
+    // exited 0 (k14, case append-after-fstat).
+    let (head, body) = recorded_linux_reply("append-after-fstat");
+    assert_eq!(body.len(), 148, "the retained body");
+    let mut bytes = head;
+    bytes.extend_from_slice(&body);
+    let (result, dir, dest) = download_over(raw_agent(vec![piece(bytes)], End::Close)).await;
+    let err = result.expect_err("bytes past Content-Length must fail");
+    assert_eq!(err.code(), "DOWNLOAD_FRAMING_INVALID", "got {err:?}");
+    assert_unchanged(&dir, &dest);
+}
+
+#[tokio::test]
+async fn extra_bytes_in_a_later_write_are_a_framing_failure() {
+    let pieces = vec![
+        piece(reply(5, &[0x00, 0xff, 0x80, 0x41, 0x0a])),
+        Piece {
+            after: Duration::from_millis(100),
+            bytes: b"late".to_vec(),
+        },
+    ];
+    let (result, dir, dest) = download_over(raw_agent(pieces, End::Close)).await;
+    let err = result.expect_err("a late byte past Content-Length must fail");
+    assert_eq!(err.code(), "DOWNLOAD_FRAMING_INVALID", "got {err:?}");
+    assert_unchanged(&dir, &dest);
+}
+
+#[tokio::test]
+async fn the_recorded_old_linux_reply_with_a_short_body_is_dropped() {
+    // k14, case truncate-after-fstat: Content-Length 123 and 25 bytes.
+    let (head, body) = recorded_linux_reply("truncate-after-fstat");
+    assert_eq!(body.len(), 25, "the retained body");
+    let mut bytes = head;
+    bytes.extend_from_slice(&body);
+    let (result, dir, dest) = download_over(raw_agent(vec![piece(bytes)], End::Close)).await;
+    let err = result.expect_err("a short body must fail");
+    assert_eq!(err.code(), "CONNECTION_DROPPED", "got {err:?}");
+    assert_unchanged(&dir, &dest);
+}
+
+#[tokio::test]
+async fn an_exact_body_replaces_the_destination() {
+    // The control: the same raw agent with an exact body passes.
+    let oracle = [0x00, 0xff, 0x80, 0x41, 0x0a];
+    let (result, dir, dest) =
+        download_over(raw_agent(vec![piece(reply(5, &oracle))], End::Close)).await;
+    assert_eq!(result.expect("an exact body succeeds"), 5);
+    assert_eq!(std::fs::read(&dest).unwrap(), oracle);
+    assert_eq!(names_in(dir.path()), vec!["evidence.json".to_string()]);
+}
+
+#[tokio::test]
+async fn a_dropped_download_removes_its_temp_file() {
+    // A signal makes the Host CLI drop the download future. The guard of the
+    // temp file must remove it with no further await.
+    let connector = raw_agent(vec![piece(reply(1000, b"partial"))], End::Hold);
+    let dir = tempfile::tempdir().unwrap();
+    let dest = dir.path().join("evidence.json");
+    let client = client_over(connector, Duration::from_secs(30));
+    let task = {
+        let dest = dest.clone();
+        tokio::spawn(async move { client.download("/tmp/evidence.json", &dest).await })
+    };
+    let mut seen = Vec::new();
+    for _ in 0..200 {
+        seen = names_in(dir.path());
+        if !seen.is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        seen.len(),
+        1,
+        "one temp file while the body is open: {seen:?}"
+    );
+    assert!(
+        seen[0].starts_with(".evidence.json.testanyware-"),
+        "{seen:?}"
+    );
+    task.abort();
+    assert!(task.await.unwrap_err().is_cancelled());
+    assert_eq!(names_in(dir.path()), Vec::<String>::new());
+}

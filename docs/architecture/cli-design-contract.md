@@ -29,7 +29,7 @@ Most subcommands put the noun first (`<noun> <verb>`):
 | `agent` | `health`, `snapshot`, `inspect`, `press`, `set-value`, `focus`, `show-menu`, `windows`, `window-focus`, `window-resize`, `window-move`, `window-close`, `window-minimize`, `wait` |
 | `input` | `key`, `key-down`, `key-up`, `type`, `click`, `mouse-down`, `mouse-up`, `move`, `scroll`, `drag` |
 | `screen` | `capture`, `record`, `size`, `find-text` |
-| `file` | `upload`, `download` |
+| `file` | `upload`, `download`, `exec`, `cancel` |
 
 **The top-level shortcuts that put the verb first stay**, for muscle memory and
 discoverability. Each one is an alias of the canonical form, which puts the noun
@@ -138,6 +138,7 @@ The current list of the Rust port:
 | `agent window-*` | data (action receipt) | `agent-window-action` |
 | `input *` | data (action receipt) | `input-action` |
 | `file exec` | data | `file-exec` |
+| `file cancel` | data (state and record) | `file-cancel` |
 | `file upload` | data (mutation receipt) | `file-upload` |
 | `file download` | data (mutation receipt) | `file-download` |
 | `doctor` | data | `doctor` |
@@ -480,6 +481,7 @@ the Host CLI maps each string to one `code`.
 | `upload_failed` | `UPLOAD_FAILED` | A file operation on the VM failed during an upload. |
 | `download_failed` | `DOWNLOAD_FAILED` | A file operation on the VM failed during a download. |
 | `invalid_json` | `AGENT_INVALID_JSON` | The agent could not parse the request body as JSON. This shows a defect in the Host CLI, because valid client traffic never causes it. |
+| `exec_id_in_use` | `EXEC_ID_IN_USE` | The agent answered HTTP 409, because the `id` of `/exec` names a running or retained command. Only a caller-chosen `--exec-id` can repeat an id. The command exits 5. |
 
 The Linux and Windows agents MUST use the strings of the table above. The
 work of each agent platform makes that change. The Host CLI MUST NOT carry a
@@ -489,11 +491,17 @@ The Swift `AgentTCPClient` copied the wire `error` string into its message. A
 strict mapping replaces that copy. The Host CLI reports an unknown wire string
 as `code: AGENT_ERROR_UNKNOWN`, with the string in `details.wire_error`.
 
-The Host CLI makes one agent code itself. No wire `error` string maps to it.
+The Host CLI makes three agent codes itself. No wire `error` string maps to
+them. Each exits 1.
 
 | Code | When |
 |---|---|
-| `EXEC_RECORD_INVALID` | The typed exec record of an agent breaks a validity rule of `docs/specs/guest-command-lifecycle.md`. `details.problems` names each broken rule. The command exits 1 and never reports the record as a success. |
+| `EXEC_RECORD_INVALID` | The typed exec record of an agent breaks a validity rule of `docs/specs/guest-command-lifecycle.md`. `details.problems` names each broken rule. The command never reports the record as a success. |
+| `AGENT_ENDPOINT_UNSUPPORTED` | The agent answered HTTP 404 for an endpoint that only a newer agent has, for example `/exec/cancel` on an old agent. The status decides, whatever the body says. `details.endpoint` names the endpoint. |
+| `DOWNLOAD_FRAMING_INVALID` | The download body had bytes past its declared `Content-Length`. The destination is unchanged, and no temporary file remains. |
+
+A download body that ends before its declared length keeps the code
+`CONNECTION_DROPPED`.
 
 <!-- tc: pending because the conversion has not reached sections 4.6 and 4.7 -->
 
@@ -582,6 +590,13 @@ semantics" of `docs/specs/guest-command-lifecycle.md`:
   exits with it, and the process exit status takes it modulo 256.
 - A record that breaks a validity rule fails with `EXEC_RECORD_INVALID` and
   exit 1 in both modes.
+- At SIGINT or SIGTERM, `file exec` sends one cancellation for its exec id
+  and waits for 1.5 s at most. Then it dies of the same signal, as before
+  (ADR-0025). `file download` removes its temporary file and dies of the same
+  signal.
+
+`file cancel` exits 0 for each state that the agent reports. An old agent
+gives `AGENT_ENDPOINT_UNSUPPORTED` and exit 1.
 
 **Documented in help.** Every subcommand's `--help` lists the exit
 codes it can produce (see §7).
@@ -817,6 +832,7 @@ Every mutating command's `--help` documents:
 | `agent window-*` | Yes (idempotent in target state). | Yes. |
 | `input *` | **No.** Pressing a key twice is two presses. | **No.** |
 | `file exec` | Application-defined. | Application-defined. |
+| `file cancel` | Yes. A repeat reports the current state and never changes a terminal outcome. | Yes. |
 | `file upload` / `download` | Yes (full overwrite). | Yes. |
 
 Idempotency keys are reserved (`--idempotency-key <uuid>`) but not
@@ -828,7 +844,7 @@ Required on every mutating command:
 
 `vm start`, `vm stop`, `vm delete`, `screen record`, `agent press`,
 `agent set-value`, `agent focus`, `agent show-menu`, `agent window-*`,
-`input *`, `file exec`, `file upload`, `file download`.
+`input *`, `file exec`, `file cancel`, `file upload`, `file download`.
 
 Read-only commands (`vm list`, `screen capture`, `screen size`,
 `screen find-text`, `agent health`, `agent snapshot`, `agent inspect`,

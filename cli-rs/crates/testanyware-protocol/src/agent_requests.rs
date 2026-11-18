@@ -64,6 +64,32 @@ pub struct ExecRequest {
     pub id: Option<String>,
 }
 
+/// The longest exec id, in characters. Spec, section "Exec id".
+pub const EXEC_ID_MAX_LEN: usize = 64;
+
+/// Whether `id` is a valid exec id: 1 to 64 characters from `A-Z`, `a-z`,
+/// `0-9`, `.`, `_` and `-`. Spec, section "Exec id".
+pub fn is_valid_exec_id(id: &str) -> bool {
+    (1..=EXEC_ID_MAX_LEN).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+}
+
+/// The largest `waitMs` of a cancellation, in milliseconds. Spec, section
+/// "Cancel endpoint".
+pub const CANCEL_WAIT_MAX_MS: u64 = 10_000;
+
+/// `POST /exec/cancel` request body (ADR-0025). The agent cancels the command
+/// with exec id `id`, or holds a tombstone for that id. It waits up to
+/// `wait_ms` milliseconds, 0 to 10000, for the final record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecCancelRequest {
+    pub id: String,
+    #[serde(rename = "waitMs", default)]
+    pub wait_ms: u64,
+}
+
 /// `POST /exec` response. The `timed_out` field is optional for
 /// compatibility with agents built before it was added (mirrors Swift's
 /// `timedOut: Bool?`).
@@ -174,6 +200,33 @@ pub struct WindowMoveRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exec_cancel_request_uses_the_wire_names() {
+        let request = crate::ExecCancelRequest {
+            id: "run-7.step-2".into(),
+            wait_ms: 0,
+        };
+        assert_eq!(
+            serde_json::to_value(&request).unwrap(),
+            serde_json::json!({"id": "run-7.step-2", "waitMs": 0})
+        );
+        let read: crate::ExecCancelRequest = serde_json::from_str(r#"{"id": "x"}"#).unwrap();
+        assert_eq!(read.wait_ms, 0, "waitMs defaults to 0");
+    }
+
+    #[test]
+    fn exec_id_rule_follows_the_spec() {
+        use crate::is_valid_exec_id;
+        assert!(is_valid_exec_id("a"));
+        assert!(is_valid_exec_id("run-7.step_2"));
+        assert!(is_valid_exec_id(&"x".repeat(64)));
+        assert!(!is_valid_exec_id(""));
+        assert!(!is_valid_exec_id(&"x".repeat(65)));
+        assert!(!is_valid_exec_id("has space"));
+        assert!(!is_valid_exec_id("slash/no"));
+        assert!(!is_valid_exec_id("é"));
+    }
 
     #[test]
     fn snapshot_request_omits_unset_fields() {

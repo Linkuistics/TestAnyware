@@ -29,19 +29,16 @@ CANONICAL_TOKENS: frozenset[str] = frozenset({
     "upload_failed",
     "download_failed",
     "invalid_json",
+    # HTTP 409 for a duplicate exec id (docs/specs/guest-command-lifecycle.md,
+    # section "Start", step 2). The Host CLI maps it to EXEC_ID_IN_USE.
+    "exec_id_in_use",
 })
 
 # Tokens emitted by Linux agent source today that are NOT in §4.5.
 # Each entry must be justified — typically a transitional human-readable
 # string predating the §4.5 effort. Adding to this set is a deliberate
 # design decision; do not extend casually.
-KNOWN_NON_CANONICAL_EXCEPTIONS: frozenset[str] = frozenset({
-    # HTTP 409 for a duplicate exec id: docs/specs/guest-command-lifecycle.md,
-    # section "Start", step 2. Only a caller-chosen `--exec-id` can repeat an
-    # id. Leaf host-cli-control-k222 adds that flag and the Host CLI mapping
-    # of this token, and then moves it into the §4.5 table.
-    "exec_id_in_use",
-})
+KNOWN_NON_CANONICAL_EXCEPTIONS: frozenset[str] = frozenset()
 
 # Subset of §4.5 that the realignment work has actually wired up in
 # the Linux agent. These tokens MUST be present in source — losing
@@ -53,6 +50,7 @@ REALIGNED_TOKENS: frozenset[str] = frozenset({
     "upload_failed",
     "download_failed",
     "invalid_json",
+    "exec_id_in_use",
 })
 
 AGENT_ROOT = Path(__file__).resolve().parent.parent / "testanyware_agent"

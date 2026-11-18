@@ -37,6 +37,13 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 /// The Host CLI under test.
 pub const CLI: &str = env!("CARGO_BIN_EXE_testanyware");
 
+/// The binary that [`TestApp`] runs: [`CLI`], or the binary that `TESTANYWARE_CONTROL_CLI`
+/// names. Only the old-path control (`task cli:control-old-path`) sets the variable, to run
+/// chosen cases against the Host CLI before a change.
+pub fn cli_binary() -> String {
+    std::env::var("TESTANYWARE_CONTROL_CLI").unwrap_or_else(|_| CLI.to_string())
+}
+
 static SERIAL: Mutex<()> = Mutex::new(());
 
 /// Hold this for the whole body of a test.
@@ -550,8 +557,31 @@ impl TestApp {
         self.cli_in(args, extra, false)
     }
 
+    /// Spawn the CLI as [`Self::cli`] runs it, so a test can signal it during a request.
+    /// stdout is discarded and stderr is piped. The binary is [`cli_binary`].
+    pub fn spawn_cli(&self, args: &[&str], prepare: impl FnOnce(&mut Command)) -> Child {
+        let binary = cli_binary();
+        let mut command = Command::new(&binary);
+        command
+            .args(args)
+            .env_clear()
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .env("HOME", self.root())
+            .env("TMPDIR", self.tmp_dir())
+            .env("XDG_STATE_HOME", self.xdg_state_home())
+            .env("XDG_DATA_HOME", self.xdg_data_home())
+            .env("TESTANYWARE_APP_SOCKET", self.socket())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::piped());
+        prepare(&mut command);
+        command
+            .spawn()
+            .unwrap_or_else(|e| panic!("spawn `{binary} {}`: {e}", args.join(" ")))
+    }
+
     fn cli_in(&self, args: &[&str], extra: &[(&str, &str)], xdg: bool) -> Output {
-        let mut command = Command::new(CLI);
+        let mut command = Command::new(cli_binary());
         command
             .args(args)
             .env_clear()

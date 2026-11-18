@@ -110,11 +110,18 @@ permission. A missing grant surfaces as exit code `4` (`AUTH_REQUIRED`).
 
 ```bash
 testanyware file exec "command"                # run a shell command in the guest
+testanyware file exec --exec-id ID "command"   # name it, so that it can be cancelled
+testanyware file cancel --exec-id ID [--wait 5] # cancel it from another process
 testanyware file upload   localpath remotepath
 testanyware file download remotepath localpath
 ```
 
 Prefer `file exec` over SSH — it is the supported in-guest exec channel.
+
+A disconnect never ends a guest command. At SIGINT or SIGTERM, `file exec`
+sends one cancellation and then dies of the same signal. After a SIGKILL, run
+`file cancel` with the id that you gave to `--exec-id`. `file download`
+replaces the destination only with a body of exactly its declared length.
 
 ## Input commands (VNC channel)
 

@@ -32,12 +32,18 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 # The random exec id that `file exec` sends (spec "Exec id").
 getrandom = { workspace = true }
+# The first of SIGINT and SIGTERM in `file exec` and `file download` (spec "CLI interruption").
+futures-util = { workspace = true }
 image = { version = "0.25", default-features = false, features = ["png"] }
 # Embedded viewer (ADR-0005): eframe with the wgpu backend. wgpu over glow
 # for HiDPI/Retina and a future-proof Metal/DX12/Vulkan backend set; the
 # binary-size / cross-compile cost is revisited in the distribution leaves.
 # x11 + wayland keep the Linux build green (verification rides a later leaf).
 eframe = { version = "0.34", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+
+[target.'cfg(unix)'.dependencies]
+# Read the current action of a signal, restore its default and raise it again (spec "CLI interruption").
+libc = "0.2"
 
 [target.'cfg(unix)'.dev-dependencies]
 # The start tests signal the fake `tart run` and read the session of the detached children.

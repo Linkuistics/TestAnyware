@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://testanyware.dev/schemas/file-cancel.json",
+  "title": "file-cancel",
+  "description": "Output of `testanyware file cancel --json` (ADR-0025, docs/specs/guest-command-lifecycle.md, section \"Cancel endpoint\"). The command sends one cancellation for an exec id and exits 0 for each state. A repeat reports the current state and never changes a terminal outcome. An old agent answers HTTP 404, which gives the error `AGENT_ENDPOINT_UNSUPPORTED`. A `--dry-run` envelope has `exec_id`, `wait` and `dry_run` only.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "ok"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string"
+    },
+    "ok": {
+      "type": "boolean"
+    },
+    "exec_id": {
+      "type": "string",
+      "description": "The exec id that the cancellation named."
+    },
+    "state": {
+      "enum": [
+        "terminating",
+        "terminal",
+        "unknown_id"
+      ],
+      "description": "`terminating`: the command is ending, and the wait ended first. `terminal`: the command has a final record. `unknown_id`: the agent held no such id, and it now holds a tombstone. `unknown_id` never proves that no command ran."
+    },
+    "record": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "The final record of the cancelled command when `state` is `terminal`, otherwise null. The legacy fields keep their `file exec` names, and the typed fields are in snake_case.",
+      "properties": {
+        "exit_code": {
+          "type": "integer"
+        },
+        "stdout": {
+          "type": "string"
+        },
+        "stderr": {
+          "type": "string"
+        },
+        "timed_out": {
+          "type": "boolean"
+        },
+        "exec_id": {
+          "type": "string",
+          "description": "The exec id of the record. It equals the top-level `exec_id`."
+        },
+        "legacy_projection": {
+          "enum": [
+            "macos",
+            "linux",
+            null
+          ]
+        },
+        "outcome": {
+          "type": "object",
+          "required": [
+            "kind"
+          ],
+          "description": "How the guest command ended, in snake_case.",
+          "properties": {
+            "kind": {
+              "enum": [
+                "exited",
+                "signalled",
+                "timed_out",
+                "cancelled",
+                "spawn_failed",
+                "unknown"
+              ]
+            },
+            "exit_code": {
+              "type": "integer"
+            },
+            "signal": {
+              "type": "integer"
+            },
+            "signal_name": {
+              "type": "string"
+            },
+            "timeout_seconds": {
+              "type": "number"
+            },
+            "before_start": {
+              "type": "boolean"
+            },
+            "errno": {
+              "type": "integer"
+            },
+            "error_name": {
+              "type": "string"
+            },
+            "message": {
+              "type": "string"
+            },
+            "reason": {
+              "const": "legacy_agent"
+            }
+          }
+        },
+        "evidence": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The exact bytes of each stream.",
+          "properties": {
+            "stdout": {
+              "$ref": "#/$defs/stream"
+            },
+            "stderr": {
+              "$ref": "#/$defs/stream"
+            }
+          }
+        },
+        "lifecycle": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "The owned group and its timings in milliseconds from the agent clock.",
+          "properties": {
+            "leader_pid": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "group_id": {
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "leader_start_time": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "spawn_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "duration_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "owner_lateness_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "finalised_after_ms": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "termination": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "How the agent ended the group of a timed-out or cancelled command. Times are milliseconds from the outcome.",
+          "properties": {
+            "term_sent_after_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "kill_sent_after_ms": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "leader_status": {
+              "type": "object",
+              "required": [
+                "kind"
+              ],
+              "properties": {
+                "kind": {
+                  "enum": [
+                    "exited",
+                    "signalled",
+                    "unavailable"
+                  ]
+                },
+                "exit_code": {
+                  "type": "integer"
+                },
+                "signal": {
+                  "type": "integer"
+                }
+              }
+            },
+            "leader_exit_after_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "group_empty": {
+              "enum": [
+                "yes",
+                "no",
+                "unknown"
+              ]
+            },
+            "group_empty_after_ms": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "within_bounds": {
+              "type": "boolean"
+            }
+          }
+        },
+        "remaining_group": {
+          "enum": [
+            "none",
+            "present",
+            "unknown",
+            null
+          ]
+        }
+      }
+    },
+    "dry_run": {
+      "type": "boolean"
+    },
+    "wait": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10
+    }
+  },
+  "$defs": {
+    "stream": {
+      "type": "object",
+      "properties": {
+        "base64": {
+          "type": "string"
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "file_bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sha256": {
+          "type": "string"
+        },
+        "capture": {
+          "enum": [
+            "complete",
+            "incomplete"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "deadline",
+            "read_error",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

@@ -78,7 +78,10 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | `ACTION_UNSUPPORTED` | Element matched but does not support the requested action. |
 | `EXEC_FAILED` | Process failed to spawn (exec itself). |
 | `EXEC_RECORD_INVALID` | The agent exec record breaks a validity rule of the guest command lifecycle spec. `details.problems` names each broken rule. The command exits 1. |
+| `EXEC_ID_IN_USE` | The `--exec-id` of `file exec` names a running or retained command. The agent sends `exec_id_in_use` with HTTP 409. The command exits 5. |
+| `AGENT_ENDPOINT_UNSUPPORTED` | The agent answered HTTP 404 for an endpoint that only a newer agent has, for example `file cancel` on an old agent. `details.endpoint` names the endpoint. The command exits 1. |
 | `UPLOAD_FAILED` / `DOWNLOAD_FAILED` | File I/O error on the VM. |
+| `DOWNLOAD_FRAMING_INVALID` | The download body had bytes past its declared length. The destination is unchanged. A body shorter than its length gives `CONNECTION_DROPPED`. The command exits 1. |
 | `AGENT_ERROR_UNKNOWN` | Agent returned an error string the host doesn't map. |
 | `AGENT_INVALID_JSON` | The agent could not parse the request body as JSON. This is a CLI bug. Report it. |
 
@@ -139,6 +142,7 @@ contract's §4.5 mapping table is authoritative for the translation.
 | `action_unsupported` | `/press`, `/set-value`, etc. | Element matched but does not support the requested action. |
 | `accessibility_unavailable` | `/health`, `/snapshot`, `/wait` | OS-level accessibility disabled or not yet granted. |
 | `exec_failed` | `/exec` | Process failed to spawn (exit codes are returned inside the response, not as an error). |
+| `exec_id_in_use` | `/exec` | HTTP 409. The `id` names a running or retained command. |
 | `upload_failed` / `download_failed` | `/upload`, `/download` | File I/O error on the VM. |
 
 The agents do not share one canonical set of error strings. The host-side

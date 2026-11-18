@@ -74,6 +74,7 @@ pub const CANONICAL_COMMANDS: &[CommandSpec] = &[
     CommandSpec { path: &["file", "upload"],   mutating: true, data_producing: true, schema_id: Some("file-upload") },
     CommandSpec { path: &["file", "download"], mutating: true, data_producing: true, schema_id: Some("file-download") },
     CommandSpec { path: &["file", "exec"],     mutating: true, data_producing: true, schema_id: Some("file-exec") },
+    CommandSpec { path: &["file", "cancel"],   mutating: true, data_producing: true, schema_id: Some("file-cancel") },
 
     // viewer (ADR-0005): long-lived + interactive embedded viewer. Neither
     // mutating nor data-producing — exempt from --json/--dry-run, no schema.
@@ -170,8 +171,11 @@ pub const ERROR_CODES: &[&str] = &[
     "ACTION_UNSUPPORTED",
     "EXEC_FAILED",
     "EXEC_RECORD_INVALID",
+    "EXEC_ID_IN_USE",
+    "AGENT_ENDPOINT_UNSUPPORTED",
     "UPLOAD_FAILED",
     "DOWNLOAD_FAILED",
+    "DOWNLOAD_FRAMING_INVALID",
     "AGENT_ERROR_UNKNOWN",
     "AGENT_INVALID_JSON",
     // §4.6

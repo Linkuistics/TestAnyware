@@ -420,7 +420,21 @@ EXIT CODES (text mode):
     1  EXEC_FAILED, EXEC_RECORD_INVALID, generic agent failure
     2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
     3  VM_NOT_FOUND
+    5  EXEC_ID_IN_USE (the --exec-id names a running or retained command)
     7  CONNECTION_TIMEOUT
+
+EXEC ID:
+    An attached command sends an exec id: the --exec-id value, or a random
+    UUID. --exec-id takes 1 to 64 characters from A-Z, a-z, 0-9, '.', '_'
+    and '-'. Give your own id when you may need `testanyware file cancel`
+    later, for example after a SIGKILL of the Host CLI.
+
+INTERRUPTION:
+    At SIGINT or SIGTERM, the Host CLI sends one cancellation for its exec
+    id on a new guest connection and waits up to 1.5 s for the reply. Then
+    it dies of the same signal. An old agent cannot cancel, and the Host
+    CLI then dies of the signal without a cancellation. A disconnect alone
+    never cancels a guest command.
 
 IDEMPOTENCY:
     Application-defined.
@@ -429,6 +443,9 @@ EXAMPLES:
     # Run a quick command in the guest
     testanyware file exec --vm \"$TESTANYWARE_VM_ID\" \"uname -a\"
 
+    # Name the command, so that another process can cancel it
+    testanyware file exec --vm \"$TESTANYWARE_VM_ID\" --exec-id run-7.step-2 --json \"make test\"
+
     # Capture exit code as JSON
     testanyware file exec --vm \"$TESTANYWARE_VM_ID\" --json \"true\"
 
@@ -436,7 +453,42 @@ EXAMPLES:
     testanyware file exec --vm \"$TESTANYWARE_VM_ID\" --dry-run --timeout 120 \"sleep 60\"
 
 SEE ALSO:
-    testanyware file upload, testanyware file download, testanyware doctor
+    testanyware file cancel, testanyware file upload, testanyware file download,
+    testanyware doctor
+";
+
+const FILE_CANCEL_AFTER_HELP: &str = "\
+OUTPUT:
+    Stable formats: text (the state, and the outcome when the state is
+    terminal), --json (schema: file-cancel). The states are:
+      terminating  the command is ending, and --wait ended first
+      terminal     the command has a final record, in `record`
+      unknown_id   the agent held no such id, and it now holds a tombstone,
+                   so a later `file exec` with that id ends as cancelled
+                   without a spawn. This never proves that no command ran.
+
+EXIT CODES:
+    0  success, whatever the state
+    1  AGENT_ENDPOINT_UNSUPPORTED (an old agent cannot cancel),
+       EXEC_RECORD_INVALID, generic agent failure
+    2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
+    3  VM_NOT_FOUND
+    7  CONNECTION_TIMEOUT
+
+IDEMPOTENCY:
+    Idempotent — a repeat reports the current state and never changes a
+    terminal outcome. Retry-safe. The agent keeps a record or a tombstone
+    for 300 s, and 64 of them at most.
+
+EXAMPLES:
+    # Cancel a command that `file exec --exec-id run-7.step-2` started
+    testanyware file cancel --vm \"$TESTANYWARE_VM_ID\" --exec-id run-7.step-2
+
+    # Wait up to 5 s for the final record, as JSON
+    testanyware file cancel --vm \"$TESTANYWARE_VM_ID\" --exec-id run-7.step-2 --wait 5 --json
+
+SEE ALSO:
+    testanyware file exec
 ";
 
 const FILE_UPLOAD_AFTER_HELP: &str = "\
@@ -472,10 +524,20 @@ OUTPUT:
 
 EXIT CODES:
     0  success
-    1  DOWNLOAD_FAILED, generic agent failure
+    1  DOWNLOAD_FAILED, DOWNLOAD_FRAMING_INVALID (bytes past the declared
+       length), CONNECTION_DROPPED (a body shorter than its length),
+       IO_ERROR, generic agent failure
     2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
     3  VM_NOT_FOUND
     7  CONNECTION_TIMEOUT
+
+TRANSFER:
+    The body goes to a temporary file beside the destination. Only a body
+    of exactly its declared length is flushed to disk and renamed to the
+    destination. Each failure, and SIGINT or SIGTERM, removes the temporary
+    file and leaves the destination unchanged. A guest file that a process
+    changes in place can arrive torn. Publish each version under a new name
+    and download that name.
 
 IDEMPOTENCY:
     Idempotent — overwrites the local file completely. Retry-safe.
@@ -1566,10 +1628,41 @@ struct FileExecArgs {
     /// Spawn detached and return immediately without waiting.
     #[arg(long)]
     detach: bool,
+    /// The exec id to send, so that `file cancel` can name the command.
+    /// Default: a random UUID.
+    #[arg(long, value_name = "ID", value_parser = parse_exec_id, conflicts_with = "detach")]
+    exec_id: Option<String>,
     #[arg(long, help = "Emit JSON envelope on stdout (no stdout/stderr passthrough)")]
     json: bool,
     #[arg(long, help = "Plan the exec but do not run it")]
     dry_run: bool,
+}
+
+#[derive(Args, Debug, Clone)]
+struct FileCancelArgs {
+    #[command(flatten)]
+    conn: ConnectionOptions,
+    /// The exec id of the command to cancel
+    #[arg(long, value_name = "ID", value_parser = parse_exec_id)]
+    exec_id: String,
+    /// Seconds to wait for the final record, 0 to 10
+    #[arg(long, value_name = "SECONDS", default_value_t = 0,
+          value_parser = clap::value_parser!(u64).range(0..=10))]
+    wait: u64,
+    #[arg(long, help = "Emit JSON envelope on stdout")]
+    json: bool,
+    #[arg(long, help = "Plan the cancellation but do not send it")]
+    dry_run: bool,
+}
+
+/// Check an exec id: 1 to 64 characters from `A-Z`, `a-z`, `0-9`, `.`, `_`
+/// and `-` (docs/specs/guest-command-lifecycle.md, section "Exec id").
+fn parse_exec_id(value: &str) -> Result<String, String> {
+    if testanyware_protocol::is_valid_exec_id(value) {
+        Ok(value.to_string())
+    } else {
+        Err("an exec id has 1 to 64 characters from A-Z, a-z, 0-9, '.', '_' and '-'".to_string())
+    }
 }
 
 // ---- Subcommand groups --------------------------------------------------
@@ -1601,6 +1694,9 @@ enum FileAction {
     /// Run a command in the guest, capture stdout/stderr/exit
     #[command(after_long_help = FILE_EXEC_AFTER_HELP)]
     Exec(FileExecArgs),
+    /// Cancel a guest command by its exec id
+    #[command(after_long_help = FILE_CANCEL_AFTER_HELP)]
+    Cancel(FileCancelArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -2114,6 +2210,7 @@ async fn main() {
             FileAction::Upload(args) => run_upload(args).await,
             FileAction::Download(args) => run_download(args).await,
             FileAction::Exec(args) => run_exec(args).await,
+            FileAction::Cancel(args) => run_cancel(args).await,
         },
         Command::Input { action } => match action {
             InputAction::Key {
@@ -2570,6 +2667,21 @@ async fn run_exec(args: FileExecArgs) {
             command: args.command,
             timeout: args.timeout,
             detach: args.detach,
+            exec_id: args.exec_id,
+        },
+        mode,
+        args.dry_run,
+    )
+    .await
+}
+
+async fn run_cancel(args: FileCancelArgs) {
+    let mode = OutputMode::from_flags(args.json);
+    file_cmds::run_cancel(
+        args.conn.into(),
+        file_cmds::CancelArgs {
+            exec_id: args.exec_id,
+            wait: args.wait,
         },
         mode,
         args.dry_run,

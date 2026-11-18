@@ -2,14 +2,17 @@
 
 use std::io::Write;
 use std::path::Path;
+use std::time::Duration;
 
 use serde_json::{json, Value};
 
+use testanyware_agent_client::AgentClient;
 use testanyware_protocol::exec_record::{
-    Capture, LeaderStatus, Lifecycle, Outcome, StreamEvidence, Termination,
+    CancelState, Capture, LeaderStatus, Lifecycle, Outcome, StreamEvidence, Termination,
 };
-use testanyware_protocol::{ExecRequest, ExecResult};
+use testanyware_protocol::{ExecCancelRequest, ExecRequest, ExecResult};
 
+use crate::commands::interrupt::{raise_again, Interrupts};
 use crate::commands::{build_agent_client, exit_agent_error};
 use crate::output::{print_success, OutputMode};
 use crate::resolve::ConnectionOptions;
@@ -18,6 +21,32 @@ pub struct ExecArgs {
     pub command: String,
     pub timeout: i64,
     pub detach: bool,
+    /// The exec id that `--exec-id` gave, already checked. `None` sends a
+    /// random UUID.
+    pub exec_id: Option<String>,
+}
+
+/// How long CLI interruption waits for the reply to its cancellation, from
+/// the dial to the last byte (spec, section "CLI interruption", step 3).
+pub const INTERRUPT_CANCEL_LIMIT: Duration = Duration::from_millis(1500);
+
+/// What ended a command that listens for SIGINT and SIGTERM.
+enum Ended<T> {
+    Done(T),
+    Interrupted(i32),
+}
+
+/// Run `work` until it ends or a signal arrives. `work` is dropped before
+/// this returns, so its guards have run when a signal ends it.
+async fn until_interrupted<T>(
+    work: impl std::future::Future<Output = T>,
+    interrupts: &mut Interrupts,
+) -> Ended<T> {
+    tokio::pin!(work);
+    tokio::select! {
+        done = &mut work => Ended::Done(done),
+        number = interrupts.recv() => Ended::Interrupted(number),
+    }
 }
 
 /// `testanyware file exec` and its `exec` alias.
@@ -30,9 +59,16 @@ pub struct ExecArgs {
 /// sets `ok` to false. The added fields carry the typed exec record
 /// (`docs/specs/guest-command-lifecycle.md`, section "Host CLI semantics").
 ///
-/// An attached command sends a random exec id. A record that breaks a validity
-/// rule fails with `EXEC_RECORD_INVALID` in both modes. A detached command has
-/// no record, so it sends no id and its output does not change.
+/// An attached command sends the `--exec-id` or a random exec id. A record
+/// that breaks a validity rule fails with `EXEC_RECORD_INVALID` in both modes.
+/// A detached command has no record, so it sends no id and its output does not
+/// change.
+///
+/// At SIGINT or SIGTERM, an attached command follows the spec's "CLI
+/// interruption" steps. It sends one cancellation for its exec id on a new
+/// guest connection, waits for the reply for 1.5 s at most, and raises the
+/// same signal again. An old agent answers 404, and the signal is raised
+/// again without a cancellation.
 pub async fn run_exec(opts: ConnectionOptions, args: ExecArgs, mode: OutputMode, dry_run: bool) {
     let request = ExecRequest {
         command: args.command,
@@ -45,12 +81,28 @@ pub async fn run_exec(opts: ConnectionOptions, args: ExecArgs, mode: OutputMode,
         return;
     }
 
+    let exec_id = args.exec_id;
     let request = ExecRequest {
-        id: (!request.detach).then(new_exec_id),
+        id: (!request.detach).then(|| exec_id.unwrap_or_else(new_exec_id)),
         ..request
     };
     let client = build_agent_client(&opts, mode);
-    match client.exec(&request).await {
+    let outcome = match &request.id {
+        // A detached command has no id to cancel, so it keeps the default
+        // actions, as today.
+        None => client.exec(&request).await,
+        Some(id) => {
+            let mut interrupts = Interrupts::install();
+            match until_interrupted(client.exec(&request), &mut interrupts).await {
+                Ended::Done(outcome) => outcome,
+                Ended::Interrupted(number) => {
+                    cancel_after_interrupt(&client, id).await;
+                    raise_again(number)
+                }
+            }
+        }
+    };
+    match outcome {
         Ok(result) => match mode {
             OutputMode::Json => print_success(exec_envelope(&request, &result)),
             OutputMode::Text => {
@@ -73,6 +125,126 @@ pub async fn run_exec(opts: ConnectionOptions, args: ExecArgs, mode: OutputMode,
     }
 }
 
+/// Steps 1 to 3 of the spec's "CLI interruption": one cancellation with
+/// `waitMs` 0 on a new guest connection of the normal route, within 1.5 s.
+/// The client opens a new connection for each request. Every outcome,
+/// including HTTP 404 from an old agent and no reply, leads to the same next
+/// step, so the result is not read.
+async fn cancel_after_interrupt(client: &AgentClient, id: &str) {
+    let request = ExecCancelRequest {
+        id: id.to_string(),
+        wait_ms: 0,
+    };
+    let _ = client.cancel_exec(&request, INTERRUPT_CANCEL_LIMIT).await;
+}
+
+/// The arguments of `file cancel`.
+pub struct CancelArgs {
+    /// The exec id, already checked.
+    pub exec_id: String,
+    /// Seconds to wait for the final record, 0 to 10.
+    pub wait: u64,
+}
+
+/// `testanyware file cancel` (ADR-0025). Sends one cancellation for an exec
+/// id and reports the state, and the record when the state is `terminal`.
+/// The command is idempotent: a repeat reports the current state and never
+/// changes a terminal outcome. An old agent answers 404, which gives
+/// `AGENT_ENDPOINT_UNSUPPORTED`.
+pub async fn run_cancel(
+    opts: ConnectionOptions,
+    args: CancelArgs,
+    mode: OutputMode,
+    dry_run: bool,
+) {
+    if dry_run {
+        match mode {
+            OutputMode::Json => print_success(json!({
+                "exec_id": args.exec_id,
+                "wait": args.wait,
+                "dry_run": true,
+            })),
+            OutputMode::Text => println!("DRY-RUN: would cancel exec id {}", args.exec_id),
+        }
+        return;
+    }
+    let request = ExecCancelRequest {
+        id: args.exec_id,
+        wait_ms: args.wait * 1000,
+    };
+    // As `file exec`, the transport gets 10 s past the wait of the agent.
+    let limit = Duration::from_secs(args.wait + 10);
+    let client = build_agent_client(&opts, mode);
+    match client.cancel_exec(&request, limit).await {
+        Ok(state) => match mode {
+            OutputMode::Json => print_success(json!({
+                "exec_id": request.id,
+                "state": state.as_str(),
+                "record": match &state {
+                    CancelState::Terminal(result) => record_json(result),
+                    _ => Value::Null,
+                },
+            })),
+            OutputMode::Text => {
+                println!("{}", state.as_str());
+                if let CancelState::Terminal(result) = &state {
+                    if let Some(outcome) = &result.outcome {
+                        println!("outcome: {}", outcome_text(outcome));
+                    }
+                }
+            }
+        },
+        Err(err) => exit_agent_error(err, mode),
+    }
+}
+
+/// One line that names an outcome, for text mode.
+fn outcome_text(outcome: &Outcome) -> String {
+    match outcome {
+        Outcome::Exited { exit_code } => format!("exited with code {exit_code}"),
+        Outcome::Signalled { signal_name, .. } => format!("ended by signal {signal_name}"),
+        Outcome::TimedOut { timeout_seconds } => {
+            format!("timed out after {timeout_seconds} s")
+        }
+        Outcome::Cancelled { before_start: true } => "cancelled before it started".to_string(),
+        Outcome::Cancelled {
+            before_start: false,
+        } => "cancelled".to_string(),
+        Outcome::SpawnFailed { error_name, .. } => format!("spawn failed ({error_name})"),
+    }
+}
+
+/// The JSON of a typed record that a cancellation returned. The legacy fields
+/// keep their names in `file exec`, and the typed fields are in snake_case.
+fn record_json(result: &ExecResult) -> Value {
+    let mut fields = json!({
+        "exit_code": result.exit_code,
+        "stdout": result.stdout,
+        "stderr": result.stderr,
+        "timed_out": result.timed_out.unwrap_or(false),
+    });
+    if let (Value::Object(base), Value::Object(extra)) = (&mut fields, typed_json(result)) {
+        base.extend(extra);
+    }
+    fields
+}
+
+/// The typed fields of a record that has an outcome.
+fn typed_json(result: &ExecResult) -> Value {
+    json!({
+        "exec_id": result.id,
+        "legacy_projection": result.legacy_projection.map(|p| p.as_str()),
+        "outcome": result.outcome.as_ref().map(outcome_json),
+        "evidence": result.evidence.as_ref().map(|e| json!({
+            "stdout": stream_json(&e.stdout),
+            "stderr": stream_json(&e.stderr),
+        })),
+        "lifecycle": result.lifecycle.as_ref().map(lifecycle_json),
+        "termination": result.termination.as_ref().map(termination_json),
+        "remaining_group": result.remaining_group.map(|g| g.as_str()),
+    })
+}
+
 /// The `file exec` JSON fields. The legacy fields copy the agent record
 /// unchanged, as today. An attached command adds the record fields. A legacy
 /// reply gives the outcome `unknown`, which a caller never counts as a
@@ -89,19 +261,11 @@ pub(crate) fn exec_envelope(request: &ExecRequest, result: &ExecResult) -> Value
         return fields;
     }
     let added = match &result.outcome {
-        Some(outcome) => json!({
-            "exec_id": result.id,
-            "record": "agent",
-            "legacy_projection": result.legacy_projection.map(|p| p.as_str()),
-            "outcome": outcome_json(outcome),
-            "evidence": result.evidence.as_ref().map(|e| json!({
-                "stdout": stream_json(&e.stdout),
-                "stderr": stream_json(&e.stderr),
-            })),
-            "lifecycle": result.lifecycle.as_ref().map(lifecycle_json),
-            "termination": result.termination.as_ref().map(termination_json),
-            "remaining_group": result.remaining_group.map(|g| g.as_str()),
-        }),
+        Some(_) => {
+            let mut typed = typed_json(result);
+            typed["record"] = json!("agent");
+            typed
+        }
         None => json!({
             "exec_id": request.id,
             "record": "legacy",
@@ -280,9 +444,21 @@ pub async fn run_download(
     }
     // The client streams the agent's response body into a sibling temp file
     // and atomically renames it into place — bounded memory, and `local` is
-    // never left truncated on a failed transfer (ADR-0001).
+    // never left truncated on a failed transfer (ADR-0001). It rejects a
+    // short body and bytes past the body (ADR-0026).
+    //
+    // At SIGINT or SIGTERM the download future is dropped. Its guard removes
+    // the temp file, and then the same signal is raised again (spec, section
+    // "Host CLI download").
     let client = build_agent_client(&opts, mode);
-    match client.download(&remote, Path::new(&local)).await {
+    let mut interrupts = Interrupts::install();
+    let outcome =
+        match until_interrupted(client.download(&remote, Path::new(&local)), &mut interrupts).await
+        {
+            Ended::Done(outcome) => outcome,
+            Ended::Interrupted(number) => raise_again(number),
+        };
+    match outcome {
         Ok(bytes) => match mode {
             OutputMode::Json => print_success(json!({
                 "remote": remote,

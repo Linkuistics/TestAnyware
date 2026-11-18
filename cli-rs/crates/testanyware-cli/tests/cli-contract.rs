@@ -493,6 +493,7 @@ fn each_mutating_command_supports_dry_run() {
             ["file", "upload"] => vec!["/tmp/testanyware-a", "/tmp/testanyware-b"],
             ["file", "download"] => vec!["/tmp/testanyware-a", "/tmp/testanyware-b"],
             ["file", "exec"] => vec!["true"],
+            ["file", "cancel"] => vec!["--exec-id", "run-7"],
             _ => return None,
         })
     }

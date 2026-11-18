@@ -122,10 +122,11 @@ impl Deadline {
 }
 
 /// Aborts the task that drives a connection when the request that owns it
-/// ends, whether it finished, failed or timed out.
-pub(crate) struct AbortOnDrop(pub(crate) JoinHandle<()>);
+/// ends, whether it finished, failed or timed out. A request that needs the
+/// end of the connection awaits the handle first.
+pub(crate) struct AbortOnDrop<T>(pub(crate) JoinHandle<T>);
 
-impl Drop for AbortOnDrop {
+impl<T> Drop for AbortOnDrop<T> {
     fn drop(&mut self) {
         self.0.abort();
     }

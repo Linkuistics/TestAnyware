@@ -27,11 +27,12 @@ use http::{Method, Request, Response};
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Full, StreamBody};
 use hyper::body::{Frame, Incoming};
+use hyper::client::conn::http1::Parts;
 use hyper_util::rt::TokioIo;
 use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use serde::Serialize;
 use thiserror::Error;
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio_util::io::ReaderStream;
 
 pub use http::StatusCode;
@@ -40,11 +41,13 @@ pub use transport::{
     AgentConnector, AgentStream, BoxedStream, ConnectFuture, ConnectorFailure, TcpConnector,
 };
 
-use testanyware_protocol::exec_record::{read_exec_reply, ExecReplyError};
+use testanyware_protocol::exec_record::{
+    read_cancel_reply, read_exec_reply, CancelState, ExecReplyError,
+};
 use testanyware_protocol::{
-    ActionResponse, ElementQuery, ErrorResponse, ExecRequest, ExecResult, HealthResponse,
-    InspectResponse, SetValueRequest, SnapshotRequest, SnapshotResponse, WaitRequest,
-    WindowMoveRequest, WindowResizeRequest, WindowTarget,
+    ActionResponse, ElementQuery, ErrorResponse, ExecCancelRequest, ExecRequest, ExecResult,
+    HealthResponse, InspectResponse, SetValueRequest, SnapshotRequest, SnapshotResponse,
+    WaitRequest, WindowMoveRequest, WindowResizeRequest, WindowTarget,
 };
 
 /// Connection parameters for the in-VM agent.
@@ -136,6 +139,18 @@ pub enum AgentError {
     #[error("the agent exec record is contradictory: {}", .0.join("; "))]
     ExecRecordInvalid(Vec<String>),
 
+    /// The agent answered HTTP 404 for an endpoint that only a newer agent
+    /// has, for example `/exec/cancel` on an old agent. The request did
+    /// nothing in the guest.
+    #[error("the agent does not have the endpoint {endpoint}; it is older than the Host CLI")]
+    EndpointUnsupported { endpoint: String },
+
+    /// The download body had bytes past its declared `Content-Length`. The
+    /// destination is unchanged, because the bytes cannot be trusted
+    /// (docs/specs/guest-command-lifecycle.md, section "Host CLI download").
+    #[error("the download body has bytes past its declared length: {0}")]
+    DownloadFramingInvalid(String),
+
     #[error("internal client error: {0}")]
     Internal(String),
 }
@@ -163,6 +178,8 @@ impl AgentError {
             AgentError::LocalIo { .. } => "IO_ERROR",
             AgentError::Wire { wire_error, .. } => map_wire_error(wire_error),
             AgentError::ExecRecordInvalid(_) => "EXEC_RECORD_INVALID",
+            AgentError::EndpointUnsupported { .. } => "AGENT_ENDPOINT_UNSUPPORTED",
+            AgentError::DownloadFramingInvalid(_) => "DOWNLOAD_FRAMING_INVALID",
             AgentError::Internal(_) => "INTERNAL",
         }
     }
@@ -182,6 +199,7 @@ fn map_wire_error(wire: &str) -> &'static str {
         "upload_failed" => "UPLOAD_FAILED",
         "download_failed" => "DOWNLOAD_FAILED",
         "invalid_json" => "AGENT_INVALID_JSON",
+        "exec_id_in_use" => "EXEC_ID_IN_USE",
         _ => "AGENT_ERROR_UNKNOWN",
     }
 }
@@ -248,11 +266,28 @@ pub struct AgentClient {
     connector: Arc<dyn AgentConnector>,
 }
 
+/// The stream under hyper's client connection.
+type Io = TokioIo<BoxedStream>;
+
+/// How the task that drives a connection ended. A framed exchange keeps the
+/// stream and the bytes that hyper read but did not parse.
+type ConnectionEnd = Result<Option<Parts<Io>>, hyper::Error>;
+
 /// A response whose headers have arrived, with the guard that keeps its
 /// connection alive until the body is read.
 struct Exchange {
     response: Response<Incoming>,
-    _connection: AbortOnDrop,
+    connection: AbortOnDrop<ConnectionEnd>,
+}
+
+/// Whether a request needs the stream back after its response, to check
+/// what follows the body.
+#[derive(Clone, Copy, PartialEq)]
+enum Framing {
+    /// Drop the stream with the connection, as every request did before.
+    Plain,
+    /// Keep the stream, so the client can check for bytes past the body.
+    Checked,
 }
 
 impl AgentClient {
@@ -304,6 +339,7 @@ impl AgentClient {
                 &self.url("/health"),
                 None,
                 empty_body(),
+                Framing::Plain,
             )
             .await?;
         check_status(&exchange.response)?;
@@ -398,15 +434,52 @@ impl AgentClient {
         // aborted client-side. This replaces the client's timeout for the
         // one request.
         let timeout = Duration::from_secs(request.timeout.max(0) as u64 + 10);
-        let bytes = self
-            .post_json_bytes_within("/exec", request, timeout)
-            .await?;
+        let deadline = Deadline::after(timeout);
+        let exchange = self.send_json(&deadline, "/exec", request).await?;
+        // A new agent answers a duplicate exec id with 409 and the token
+        // `exec_id_in_use`. Every other status keeps today's error.
+        if exchange.response.status() == StatusCode::CONFLICT {
+            return Err(error_from_response(&deadline, exchange).await);
+        }
+        check_status(&exchange.response)?;
+        let bytes = read_body(&deadline, exchange).await?;
         // A typed record must pass the validity rules of the spec, section
         // "Validity rules". A legacy reply returns as today.
         match read_exec_reply(&bytes, request.id.as_deref()) {
             Ok(result) => Ok(result),
             Err(ExecReplyError::Invalid(problems)) => Err(AgentError::ExecRecordInvalid(problems)),
             Err(ExecReplyError::Decode(_)) => decode_body(&bytes),
+        }
+    }
+
+    /// Cancel the guest command with the exec id of `request` (ADR-0025). The
+    /// whole request, from the dial to the last byte, runs within `timeout`.
+    ///
+    /// An agent without `/exec/cancel` answers HTTP 404, which gives
+    /// [`AgentError::EndpointUnsupported`] whatever the body says. A terminal
+    /// record must be a valid typed record of the cancelled id.
+    pub async fn cancel_exec(
+        &self,
+        request: &ExecCancelRequest,
+        timeout: Duration,
+    ) -> Result<CancelState, AgentError> {
+        const ENDPOINT: &str = "/exec/cancel";
+        let deadline = Deadline::after(timeout);
+        let exchange = self.send_json(&deadline, ENDPOINT, request).await?;
+        let status = exchange.response.status();
+        if status == StatusCode::NOT_FOUND {
+            return Err(AgentError::EndpointUnsupported {
+                endpoint: ENDPOINT.to_string(),
+            });
+        }
+        if !status.is_success() {
+            return Err(error_from_response(&deadline, exchange).await);
+        }
+        let bytes = read_body(&deadline, exchange).await?;
+        match read_cancel_reply(&bytes, &request.id) {
+            Ok(state) => Ok(state),
+            Err(ExecReplyError::Invalid(problems)) => Err(AgentError::ExecRecordInvalid(problems)),
+            Err(ExecReplyError::Decode(message)) => Err(AgentError::Decode(message)),
         }
     }
 
@@ -452,6 +525,7 @@ impl AgentClient {
                     length: Some(len),
                 }),
                 body,
+                Framing::Plain,
             )
             .await?;
         if !exchange.response.status().is_success() {
@@ -470,34 +544,46 @@ impl AgentClient {
     }
 
     /// Stream the agent's `remote` path into `local` (ADR-0001). The response
-    /// body is consumed chunk-by-chunk into a sibling temp file, which is
-    /// atomically renamed into place only on a complete transfer; any error
-    /// unlinks the temp file, so `local` is never left truncated. Returns the
-    /// number of bytes written.
+    /// body is consumed chunk-by-chunk into a sibling temp file, so memory
+    /// stays bounded. Returns the number of bytes written.
+    ///
+    /// The steps follow docs/specs/guest-command-lifecycle.md, section "Host
+    /// CLI download". A body shorter than its `Content-Length` fails with
+    /// `CONNECTION_DROPPED`. A byte after the body, before the agent closes
+    /// the connection, fails with `DOWNLOAD_FRAMING_INVALID`. Only then does
+    /// the client flush the temp file to disk and rename it to `local`.
+    ///
+    /// Every failure removes the temp file and leaves `local` unchanged. A
+    /// guard owns the temp file, so a caller that drops this future, for
+    /// example at a signal, also removes it.
     pub async fn download(&self, remote: &str, local: &Path) -> Result<u64, AgentError> {
         let deadline = Deadline::after(self.config.timeout);
         let exchange = self.open_download(&deadline, remote).await?;
 
-        let (temp_path, mut temp_file) = create_temp_sibling(local).await?;
-        let outcome = stream_to_writer(&deadline, exchange, &mut temp_file, &temp_path).await;
-        // Drop the handle before rename/unlink so all bytes are flushed and,
-        // on Windows, the file is not still open during the rename.
+        let (temp, mut temp_file) = create_temp_sibling(local)?;
+        let Exchange {
+            response,
+            mut connection,
+        } = exchange;
+        let written = stream_to_writer(&deadline, response, &mut temp_file, temp.path()).await?;
+        check_after_body(&deadline, &mut connection).await?;
+        temp_file.sync_all().await.map_err(|e| {
+            local_io(
+                temp.path(),
+                format!("failed to flush {} to disk: {e}", temp.path().display()),
+            )
+        })?;
+        // Drop the handle before the rename, so that on Windows the file is
+        // not still open during the rename.
         drop(temp_file);
-        match outcome {
-            Ok(written) => {
-                tokio::fs::rename(&temp_path, local).await.map_err(|e| {
-                    local_io(
-                        local,
-                        format!("failed to finalize {}: {e}", local.display()),
-                    )
-                })?;
-                Ok(written)
-            }
-            Err(err) => {
-                let _ = tokio::fs::remove_file(&temp_path).await;
-                Err(err)
-            }
-        }
+        tokio::fs::rename(temp.path(), local).await.map_err(|e| {
+            local_io(
+                local,
+                format!("failed to finalize {}: {e}", local.display()),
+            )
+        })?;
+        temp.keep();
+        Ok(written)
     }
 
     /// Send the download request and return the exchange once the agent
@@ -514,6 +600,7 @@ impl AgentClient {
                 &self.file_url("/download", remote),
                 None,
                 empty_body(),
+                Framing::Checked,
             )
             .await?;
         if !exchange.response.status().is_success() {
@@ -559,30 +646,45 @@ impl AgentClient {
     where
         B: Serialize + ?Sized,
     {
-        let json = serde_json::to_vec(body)
-            .map_err(|e| AgentError::Internal(format!("failed to encode request: {e}")))?;
         let deadline = Deadline::after(timeout);
-        let exchange = self
-            .open(
-                &deadline,
-                Method::POST,
-                &self.url(path),
-                Some(Payload {
-                    content_type: "application/json",
-                    length: None,
-                }),
-                buffered_body(json),
-            )
-            .await?;
+        let exchange = self.send_json(&deadline, path, body).await?;
         check_status(&exchange.response)?;
         let bytes = read_body(&deadline, exchange).await?;
         Ok(bytes.to_vec())
     }
 
+    /// POST `body` as JSON within `deadline` and return the exchange once the
+    /// response headers arrive, whatever the status.
+    async fn send_json<B>(
+        &self,
+        deadline: &Deadline,
+        path: &str,
+        body: &B,
+    ) -> Result<Exchange, AgentError>
+    where
+        B: Serialize + ?Sized,
+    {
+        let json = serde_json::to_vec(body)
+            .map_err(|e| AgentError::Internal(format!("failed to encode request: {e}")))?;
+        self.open(
+            deadline,
+            Method::POST,
+            &self.url(path),
+            Some(Payload {
+                content_type: "application/json",
+                length: None,
+            }),
+            buffered_body(json),
+            Framing::Plain,
+        )
+        .await
+    }
+
     /// Dial, send one request and wait for the response headers. The request
     /// asks the agent to close the connection, so no connection serves a
     /// second request. A task drives the connection until the returned
-    /// `Exchange` is dropped.
+    /// `Exchange` is dropped. With [`Framing::Checked`], the task returns the
+    /// stream when the connection ends.
     async fn open(
         &self,
         deadline: &Deadline,
@@ -590,6 +692,7 @@ impl AgentClient {
         url: &str,
         payload: Option<Payload>,
         body: RequestBody,
+        framing: Framing,
     ) -> Result<Exchange, AgentError> {
         let request = self.request(method, url, payload, body)?;
         deadline
@@ -604,8 +707,15 @@ impl AgentClient {
                         .await
                         .map_err(|e| dropped(&e))?;
                 let driver = AbortOnDrop(tokio::spawn(async move {
-                    // The request sees a failed connection as its own error.
-                    let _ = connection.await;
+                    // A plain request sees a failed connection as its own
+                    // error. A checked one reads the end after the body.
+                    // `without_shutdown` returns the stream and its unparsed
+                    // bytes once the closed exchange is done:
+                    // https://docs.rs/hyper/1.9.0/hyper/client/conn/http1/struct.Connection.html#method.without_shutdown
+                    match framing {
+                        Framing::Plain => connection.await.map(|()| None),
+                        Framing::Checked => connection.without_shutdown().await.map(Some),
+                    }
                 }));
                 let response = sender
                     .send_request(request)
@@ -613,7 +723,7 @@ impl AgentClient {
                     .map_err(|e| dropped(&e))?;
                 Ok(Exchange {
                     response,
-                    _connection: driver,
+                    connection: driver,
                 })
             })
             .await
@@ -675,7 +785,7 @@ fn buffered_body(bytes: Vec<u8>) -> RequestBody {
 async fn read_body(deadline: &Deadline, exchange: Exchange) -> Result<Bytes, AgentError> {
     let Exchange {
         response,
-        _connection,
+        connection: _connection,
     } = exchange;
     deadline
         .run("reading the response", async {
@@ -732,11 +842,42 @@ fn local_io(path: &Path, reason: String) -> AgentError {
     }
 }
 
+/// The temp file of one download. Dropping it removes the file, unless
+/// [`TempFile::keep`] ran after the rename.
+struct TempFile {
+    path: PathBuf,
+    keep: bool,
+}
+
+impl TempFile {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// The rename moved the file to its destination, so leave it.
+    fn keep(mut self) {
+        self.keep = true;
+    }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        if !self.keep {
+            // Synchronous, because a dropped future runs no further await.
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+}
+
 /// Create a uniquely-named temp file in the destination's own directory, so
 /// the later rename stays on one filesystem and is atomic. The leading dot
 /// keeps it out of casual `ls`; pid + a process-local counter avoid
 /// collisions between concurrent downloads.
-async fn create_temp_sibling(dest: &Path) -> Result<(PathBuf, tokio::fs::File), AgentError> {
+///
+/// The file is created synchronously, so the guard exists before any await.
+/// A creation on the blocking pool could finish after a dropped future, and
+/// then no guard would remove its file.
+fn create_temp_sibling(dest: &Path) -> Result<(TempFile, tokio::fs::File), AgentError> {
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let dir = dest.parent().filter(|p| !p.as_os_str().is_empty());
     let name = dest
@@ -749,13 +890,58 @@ async fn create_temp_sibling(dest: &Path) -> Result<(PathBuf, tokio::fs::File), 
         Some(d) => d.join(temp_name),
         None => PathBuf::from(temp_name),
     };
-    let file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
+    let file = std::fs::File::create(&temp_path).map_err(|e| {
         local_io(
             &temp_path,
             format!("failed to create temp file {}: {e}", temp_path.display()),
         )
     })?;
-    Ok((temp_path, file))
+    let temp = TempFile {
+        path: temp_path,
+        keep: false,
+    };
+    Ok((temp, tokio::fs::File::from_std(file)))
+}
+
+/// Check what follows a complete download body. The task that drove the
+/// connection returns the bytes that hyper read past the body and the
+/// stream. Any byte in either, before the agent closes the stream, means
+/// that the agent sent more than its `Content-Length`.
+async fn check_after_body(
+    deadline: &Deadline,
+    connection: &mut AbortOnDrop<ConnectionEnd>,
+) -> Result<(), AgentError> {
+    deadline
+        .run("reading the end of the response", async {
+            let end = (&mut connection.0)
+                .await
+                .map_err(|e| AgentError::Internal(format!("the connection task failed: {e}")))?;
+            let parts = match end {
+                Ok(Some(parts)) => parts,
+                Ok(None) => {
+                    return Err(AgentError::Internal(
+                        "a checked download lost its stream".to_string(),
+                    ))
+                }
+                Err(e) => return Err(dropped(&e)),
+            };
+            if !parts.read_buf.is_empty() {
+                return Err(AgentError::DownloadFramingInvalid(format!(
+                    "{} bytes followed the body",
+                    parts.read_buf.len()
+                )));
+            }
+            let mut stream = parts.io.into_inner();
+            let mut probe = [0u8; 512];
+            match stream.read(&mut probe).await {
+                Ok(0) => Ok(()),
+                Ok(n) => Err(AgentError::DownloadFramingInvalid(format!(
+                    "at least {n} bytes followed the body"
+                ))),
+                Err(e) => Err(dropped(&e)),
+            }
+        })
+        .await
 }
 
 /// Drain the response body into `writer`, returning the byte count. Stream
@@ -764,17 +950,13 @@ async fn create_temp_sibling(dest: &Path) -> Result<(PathBuf, tokio::fs::File), 
 /// is read, so the body is never held whole.
 async fn stream_to_writer<W>(
     deadline: &Deadline,
-    exchange: Exchange,
+    response: Response<Incoming>,
     writer: &mut W,
     temp_path: &Path,
 ) -> Result<u64, AgentError>
 where
     W: AsyncWrite + Unpin,
 {
-    let Exchange {
-        response,
-        _connection,
-    } = exchange;
     let mut body = response.into_body();
     let mut written: u64 = 0;
     loop {
@@ -884,6 +1066,7 @@ mod tests {
         assert_eq!(map_wire_error("upload_failed"), "UPLOAD_FAILED");
         assert_eq!(map_wire_error("download_failed"), "DOWNLOAD_FAILED");
         assert_eq!(map_wire_error("invalid_json"), "AGENT_INVALID_JSON");
+        assert_eq!(map_wire_error("exec_id_in_use"), "EXEC_ID_IN_USE");
         assert_eq!(map_wire_error("anything-else"), "AGENT_ERROR_UNKNOWN");
     }
 

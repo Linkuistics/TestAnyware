@@ -27,6 +27,7 @@ const EMBEDDED_SCHEMAS: &[(&str, &str)] = &[
     ("agent-windows",       include_str!("../../../../docs/reference/cli-schemas/agent-windows.json")),
     ("capabilities",        include_str!("../../../../docs/reference/cli-schemas/capabilities.json")),
     ("doctor",              include_str!("../../../../docs/reference/cli-schemas/doctor.json")),
+    ("file-cancel",         include_str!("../../../../docs/reference/cli-schemas/file-cancel.json")),
     ("file-download",       include_str!("../../../../docs/reference/cli-schemas/file-download.json")),
     ("file-exec",           include_str!("../../../../docs/reference/cli-schemas/file-exec.json")),
     ("file-upload",         include_str!("../../../../docs/reference/cli-schemas/file-upload.json")),

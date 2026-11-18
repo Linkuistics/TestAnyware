@@ -71,6 +71,11 @@ impl Fixture {
             "/upload",
             ResponseTemplate::new(200).set_body_json(json!({ "success": true })),
         );
+        agent.mount(
+            "POST",
+            "/exec/cancel",
+            ResponseTemplate::new(200).set_body_json(json!({ "state": "terminating" })),
+        );
         let app = TestApp::start();
         app.add_vm(VM, agent.addr());
         Fixture { agent, app }
@@ -244,6 +249,48 @@ fn agent_exec_through_the_app_prints_the_direct_output() {
             })
         );
     }
+}
+
+#[test]
+fn file_cancel_through_the_app_prints_the_direct_output() {
+    // The app relays `/exec/cancel` as it relays every other agent request (ADR-0004).
+    let _lock = serial();
+    let fixture = Fixture::new();
+    routed_prints(
+        &fixture,
+        &["file", "cancel", "--vm", VM, "--exec-id", "run-7"],
+        "terminating\n",
+    );
+    routed_prints(
+        &fixture,
+        &[
+            "file",
+            "cancel",
+            "--vm",
+            VM,
+            "--exec-id",
+            "run-7",
+            "--wait",
+            "1",
+            "--json",
+        ],
+        &pretty(json!({
+            "exec_id": "run-7",
+            "ok": true,
+            "record": null,
+            "schema_version": "1.0",
+            "state": "terminating"
+        })),
+    );
+    let sent: Vec<Value> = fixture
+        .agent
+        .received()
+        .into_iter()
+        .filter(|r| r.path == "/exec/cancel")
+        .map(|r| serde_json::from_slice(&r.body).unwrap())
+        .collect();
+    assert_eq!(sent.first(), Some(&json!({ "id": "run-7", "waitMs": 0 })));
+    assert_eq!(sent.last(), Some(&json!({ "id": "run-7", "waitMs": 1000 })));
 }
 
 #[test]

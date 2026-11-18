@@ -136,7 +136,8 @@ pub fn exit_code_for(code: &str) -> i32 {
         "GOLDEN_IN_USE"
         | "RECORD_ALREADY_ACTIVE"
         | "ELEMENT_AMBIGUOUS"
-        | "ACTION_UNSUPPORTED" => 5,
+        | "ACTION_UNSUPPORTED"
+        | "EXEC_ID_IN_USE" => 5,
 
         // §5: rate limited / try again later.
         "VM_LIMIT_REACHED" => 6,
