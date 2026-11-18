@@ -438,7 +438,7 @@ version bump.
 > - No command, flag, environment variable, exit code or `--json` field changes
 >   its meaning, and the catalogue gains no code.
 
-<!-- tc: pending because the conversion has not reached sections 4.3 to 4.7 -->
+<!-- tc: pending because the conversion has not reached sections 4.3 and 4.4 -->
 
 ### 4.3 VNC capture
 
@@ -460,38 +460,42 @@ version bump.
 | `RECORD_BUFFER_UNAVAILABLE` | AVAssetWriter pixel-buffer pool not ready. |
 | `RECORD_BUFFER_CREATE_FAILED` | `CVPixelBufferCreate` (or libav equivalent) returned non-success. |
 
+<!-- tc: on -->
+
 ### 4.5 Agent
 
-The three agent implementations historically use different error
-strings (per `docs/reference/error-codes.md`). The contract closes this:
-**agents must emit `error` strings drawn from the table below**, and
-the host CLI maps them 1:1 to a `code`.
+The three agents used different error strings in the past, and
+`docs/reference/error-codes.md` records them. This contract ends that
+difference. **Each agent sends an `error` string from the table below**, and
+the Host CLI maps each string to one `code`.
 
 | Wire `error` (agent → host) | CLI `code` | Meaning |
 |---|---|---|
-| `not_found` | `ELEMENT_NOT_FOUND` | Element query matched zero elements. |
-| `ambiguous` | `ELEMENT_AMBIGUOUS` | Multiple matches; supply `--index N` or narrow filter. |
+| `not_found` | `ELEMENT_NOT_FOUND` | The element query matched no element. |
+| `ambiguous` | `ELEMENT_AMBIGUOUS` | More than one element matched. Give `--index N` or a narrower filter. |
 | `window_not_found` | `WINDOW_NOT_FOUND` | No window matched the `--window` filter. |
-| `action_unsupported` | `ACTION_UNSUPPORTED` | Element matched but does not support the requested action. |
-| `accessibility_unavailable` | `AUTH_REQUIRED` | OS-level accessibility disabled or not yet granted. |
-| `exec_failed` | `EXEC_FAILED` | Process failed to spawn (exit codes are returned in the receipt, not via this error). |
-| `upload_failed` | `UPLOAD_FAILED` | File I/O error on the VM during upload. |
-| `download_failed` | `DOWNLOAD_FAILED` | File I/O error on the VM during download. |
-| `invalid_json` | `AGENT_INVALID_JSON` | Agent could not parse the request body as JSON. Indicates a CLI bug — agents do not generate this for valid client traffic. |
+| `action_unsupported` | `ACTION_UNSUPPORTED` | An element matched, but it does not support the action. |
+| `accessibility_unavailable` | `AUTH_REQUIRED` | Accessibility is off in the operating system, or the grant is missing. |
+| `exec_failed` | `EXEC_FAILED` | The process did not spawn. The receipt carries the exit code of a process, and this error never carries one. |
+| `upload_failed` | `UPLOAD_FAILED` | A file operation on the VM failed during an upload. |
+| `download_failed` | `DOWNLOAD_FAILED` | A file operation on the VM failed during a download. |
+| `invalid_json` | `AGENT_INVALID_JSON` | The agent could not parse the request body as JSON. This shows a defect in the Host CLI, because valid client traffic never causes it. |
 
-The Linux and Windows agent ports MUST be brought into line with the
-table above as part of the per-platform agent backlog work; the host
-CLI MUST NOT carry a translation map. Today's wrapper logic in
-`AgentTCPClient` (which carries the wire `error` string verbatim into
-the displayed message) is replaced by a strict mapping; unknown wire
-strings surface as `code: AGENT_ERROR_UNKNOWN` with the wire string in
-`details.wire_error`.
+The Linux and Windows agents MUST use the strings of the table above. The
+work of each agent platform makes that change. The Host CLI MUST NOT carry a
+translation map.
+
+The Swift `AgentTCPClient` copied the wire `error` string into its message. A
+strict mapping replaces that copy. The Host CLI reports an unknown wire string
+as `code: AGENT_ERROR_UNKNOWN`, with the string in `details.wire_error`.
 
 The Host CLI makes one agent code itself. No wire `error` string maps to it.
 
 | Code | When |
 |---|---|
 | `EXEC_RECORD_INVALID` | The typed exec record of an agent breaks a validity rule of `docs/specs/guest-command-lifecycle.md`. `details.problems` names each broken rule. The command exits 1 and never reports the record as a success. |
+
+<!-- tc: pending because the conversion has not reached sections 4.6 and 4.7 -->
 
 ### 4.6 Generic / fall-through
 
