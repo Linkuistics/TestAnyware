@@ -73,3 +73,22 @@ and a false failure both count.
 Review the producer commit of acceptance-plan-k223 against the current
 source. Leave each code change to the integration step. Boot no guest, and
 do not patch the global CLI or app.
+
+## Decisions (running log)
+
+- The reviewed producer is commit `b62275b4`, immediately before this session's
+  empty change. This review changes findings and task notes only. It runs no
+  test, build, lint or format command and boots no guest.
+- Both graph `index_status` and the coverage check for the inspected paths
+  failed because an unverified CBM generation is active. Direct source reads
+  supply the evidence; no graph freshness or completeness claim is made.
+- The timing counterexamples identify false failures within the agreed
+  production bounds. The identity, freeze, phase-bound and record checks also
+  have acceptance-relevant gaps. Findings belong in the durable report
+  `docs/experiments/exec-reliability-acceptance-plan-review.md`; the integration
+  step will independently triage them before k224 freezes the trial.
+- Inserted acceptance-plan-k242 with kind integrate-review-impl immediately
+  before acceptance-preparation-k224. Its body points to this review's commit
+  and leaves each finding open to independent classification. The root still
+  has live preparation, acceptance, release and handoff work, so no parent
+  closure is claimed.
