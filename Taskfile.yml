@@ -1017,6 +1017,22 @@ tasks:
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/self_check.py {{.OUT | default "" | shellQuote}} --controls-only
 
+  diagnostic:acceptance-trial:
+    desc: 'Run the frozen k223 acceptance trial: five fresh macOS clones, then five fresh Linux clones, one at a time, through the private Host CLI and app that the k224 freeze manifest names. The trial stops after the first failed clone. Each clone keeps its inventory, raw receipts, downloads and check. OUT/trial.json gives the count out of 10. Requires OUT=<new evidence directory> and MANIFEST=<k224 freeze manifest>'
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [OUT, MANIFEST]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k223.py {{.OUT | shellQuote}} {{.MANIFEST | shellQuote}}
+
+  diagnostic:acceptance-check:
+    desc: 'Judge one retained k223 clone directory CLONE again: the record validity rules, every root and spec bound, the exact bytes and the four corruption controls. Exit 0 only when the clone passes'
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [CLONE]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k223_check.py {{.CLONE | shellQuote}}
+
   diagnostic:verify:
     desc: Compare one retained run directory with its result identity and stream pins. Requires RUN=<run directory> and OUT=<new verdict file>
     dir: '{{.ROOT_DIR}}'

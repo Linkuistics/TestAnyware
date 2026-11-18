@@ -10,6 +10,7 @@ import time
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+PYTEST_BUDGET = 300
 
 
 def hashes(paths: list[Path]) -> dict[str, str]:
@@ -43,7 +44,10 @@ def main() -> None:
                 f"--junitxml={output / 'pytest.xml'}",
                 *(("-k", "review_") if controls else ()),
             ),
-            120,
+            # The suite took 124 s and 127 s in k19 and 126 s in k223 on the
+            # owner's host, so the earlier 120 s budget could not pass. This
+            # bound only keeps the runner finite. Each test keeps its own bounds.
+            PYTEST_BUDGET,
         )
     )
     subjects = [
