@@ -564,3 +564,48 @@ blocked after Foundation had reaped the Perl control process, and no process
 remained. This shows that the Foundation wait can block after an exit in a
 test process. It does not show that the old agent missed an exit, so the
 candidate "`waitUntilExit` missed the exit in the second block" stays open.
+
+### Review k233 and repairs in k234
+
+Review `macos-agent-lifecycle-k233` inspected the k219 owner and reported four
+findings from source. Integration `macos-agent-lifecycle-k234` checked each
+finding against the source and the spec. The evidence is in
+`experiments/exec-reliability/evidence/macos-agent-lifecycle-k234`.
+
+| Finding | Disposition | Control |
+| --- | --- | --- |
+| R1, an exit event before a waitable status leads to a blocking reap | Repaired | `testExitEventWithoutStatusIsNotAnExit` |
+| R2, a large accepted timeout traps after the spawn | Repaired | `testHugeTimeoutDoesNotOverflowTheDeadline` |
+| R3, finalisation work after its deadline grows with the output | Control repaired, rest accepted as a limit | `testStalledCaptureEndsAtTheFinaliseDeadline` |
+| R4, a failed exit registration waits out the whole budget | Repaired | `testFailedRegistrationStillSeesThePromptExit` |
+
+The waiter now decides an exit only from a `waitid` status check with
+`WNOWAIT`. Three cases make the waiter poll the status until the deadline:
+an exit event before the status, a failed registration and a queue error. A narrow registration seam in `KqueueLeaderWaiter` drives the R1 and
+R4 controls. The R1 control adds a timer that fires at once in place of the
+process source. The R4 control reports `ENOMEM` and adds no source.
+
+The deadline arithmetic now saturates at `UInt64.max`, and each `kevent` wait
+lasts at most 60 s. The request keeps its accepted range, so an old Host CLI
+sees no new error. The unchanged owner `a562fc62…`, built alone with a probe,
+exited with status 133 (SIGTRAP) at a timeout of 20000000000 s
+(`r2-old-path`).
+
+Each R1 and R4 control failed under a mutation that restored the old
+behaviour (`mutation-controls`). With the exit event taken as an exit, the
+owner blocked in the reap and reported `exited` for a command that had to
+time out. With the registration error ignored, a 0.1 s command took 30000 ms.
+
+R3 is partly a limit of the contract. Publishing an output of N bytes takes
+time in proportion to N, so no read deadline bounds an unbounded output. The
+owner already counts the base64 and legacy work in `finalisedAfterMs`. The
+spec section "Limits" now states this limit. The stalled-read control accepted
+a time of 2300 ms against the 2000 ms bound of the spec. It now asserts that
+bound.
+
+The script `measure.sh` measured the repaired owner `304b9bc4…` in sequence,
+with equal subject digests before and after. The k3 detector gave verdict
+`clean` with five prompt `free-1` trials near 0.74 s. The k12 run gave exit 0
+for the run, the check and the record judge. `agent:macos:test` passed 20 of
+20 runs of 35 tests. These are lower-level controls. The ten-clone guest
+acceptance stays **0/10, unavailable**.

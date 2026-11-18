@@ -63,3 +63,14 @@ This leaf is the second part of candidate B. Leaf k217 owns the first part.
 
 The cancel types in the Rust protocol crate belong to leaf k222. Test the
 endpoint here through raw HTTP in the agent tests. Do not replace a golden.
+
+Review integration macos-agent-lifecycle-k234 found a Linux form of the macOS
+finding R2. The request accepts any number as `timeout`. In
+`LeaderWaiter.wait_exit`, `select.poll` raises `OverflowError` for a wait of
+about 2147484 s or more. The host Python 3.12 showed this error. The source
+shows the rest: the error comes after the spawn, the server replies HTTP 500,
+and no owner ends the group.
+
+The macOS owner now saturates its deadline and
+waits at most 60 s in each kernel call. Bound each Linux poll the same way,
+and add a control with a timeout of 20000000000 s.

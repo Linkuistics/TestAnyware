@@ -237,6 +237,12 @@ checks.
   member is the leader, the record also reports `leaderStatus` `unavailable`.
 - A capture that the worker cannot read by the deadline arrives as an
   incomplete prefix. A stalled read holds one agent thread until it returns.
+- The finalisation deadline bounds the capture read only. The agent encodes and
+  publishes the prefix after that deadline, in a time that grows with the
+  prefix size. This spec sets no output limit. A large prefix can therefore make
+  `finalisedAfterMs` exceed its bound, and the record reports that time. The
+  record cannot measure its own serialisation, so the controller measurement
+  stays the authority for each phase.
 - An agent crash leaves its owned groups running. The agent removes old capture
   directories when it starts.
 - A detached command (`detach: true`) has no owner, no record and no

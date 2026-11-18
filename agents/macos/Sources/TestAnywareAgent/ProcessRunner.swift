@@ -86,6 +86,7 @@ public struct OwnedExecResult: Sendable {
 /// Waits for the leader. Only the owner calls it, and only `reap` reaps.
 public protocol LeaderWaiter: AnyObject, Sendable {
     /// Waits until the leader exits or the uptime deadline passes. Never reaps.
+    /// Returns true only when the exit status is waitable, so `reap` returns at once.
     func waitExit(until deadline: UInt64) -> Bool
     /// Reports whether the leader exited, without blocking or reaping.
     func hasExited() -> Bool
@@ -118,23 +119,47 @@ public struct OwnerSeams: Sendable {
 
 /// Waits on a kqueue `EVFILT_PROC` `NOTE_EXIT` source. The `kevent` timeout
 /// is the timer source. The waiter never blocks a shared dispatch worker.
+///
+/// Only a `waitid` status check decides an exit. XNU posts `NOTE_EXIT` before
+/// the leader becomes a zombie, so the event alone does not make the status
+/// waitable. After an unconfirmed event, a failed registration or a queue
+/// error, the waiter polls the status until the deadline.
 public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
-    private let pid: pid_t
-    private let queue: Int32
-    private var exited = false
+    /// Registers the exit source of `pid` on `queue`. Returns 0 or an errno.
+    /// A test can replace it to make the source fail or fire early.
+    typealias Registration = @Sendable (_ queue: Int32, _ pid: pid_t) -> Int32
 
-    public init(pid: pid_t) {
-        self.pid = pid
-        queue = kqueue()
+    static let registerExit: Registration = { queue, pid in
         var change = kevent(
             ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_ONESHOT),
             fflags: NOTE_EXIT, data: 0, udata: nil
         )
-        // A leader that is already a zombie can refuse the registration.
-        // `hasExited` covers that case before every wait.
-        if kevent(queue, &change, 1, nil, 0, nil) < 0, errno == ESRCH {
-            exited = true
-        }
+        return kevent(queue, &change, 1, nil, 0, nil) < 0 ? errno : 0
+    }
+
+    /// The status poll interval after an event that the status did not confirm.
+    static let confirmPollUs: useconds_t = 1_000
+    /// The status poll interval without a working source.
+    static let fallbackPollUs: useconds_t = 10_000
+    /// The longest single `kevent` wait, so a huge deadline never reaches the kernel.
+    static let longestWaitNs: UInt64 = 60_000_000_000
+
+    private let pid: pid_t
+    private let queue: Int32
+    private var exited = false
+    /// True while the queue can still deliver the exit event.
+    private var sourceLive: Bool
+
+    public convenience init(pid: pid_t) {
+        self.init(pid: pid, register: Self.registerExit)
+    }
+
+    init(pid: pid_t, register: Registration) {
+        self.pid = pid
+        queue = kqueue()
+        // A leader that is already exiting refuses the registration with
+        // ESRCH. That case and every other failure use the status poll.
+        sourceLive = queue >= 0 && register(queue, pid) == 0
     }
 
     deinit {
@@ -142,28 +167,29 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
     }
 
     public func waitExit(until deadline: UInt64) -> Bool {
-        if exited || hasExited() {
-            exited = true
-            return true
-        }
         while true {
-            let now = ProcessRunner.uptime()
-            if now >= deadline { return hasExited() }
-            let left = deadline - now
-            var timeout = timespec(tv_sec: Int(left / 1_000_000_000), tv_nsec: Int(left % 1_000_000_000))
-            var event = kevent()
-            let count = kevent(queue, nil, 0, &event, 1, &timeout)
-            if count > 0 {
+            if exited || hasExited() {
                 exited = true
                 return true
             }
-            if count < 0, errno != EINTR {
-                // Without a working queue, poll the status until the deadline.
-                usleep(10_000)
-                if hasExited() {
-                    exited = true
-                    return true
-                }
+            let now = ProcessRunner.uptime()
+            if now >= deadline { return false }
+            let left = deadline - now
+            guard sourceLive else {
+                usleep(useconds_t(min(left / 1_000, UInt64(Self.fallbackPollUs))))
+                continue
+            }
+            let wait = min(left, Self.longestWaitNs)
+            var timeout = timespec(tv_sec: Int(wait / 1_000_000_000), tv_nsec: Int(wait % 1_000_000_000))
+            var event = kevent()
+            let count = kevent(queue, nil, 0, &event, 1, &timeout)
+            if count > 0 {
+                // The one-shot source is spent. The status check at the top
+                // decides, and the poll covers the gap before the zombie state.
+                sourceLive = false
+                if !hasExited() { usleep(useconds_t(min(left / 1_000, UInt64(Self.confirmPollUs)))) }
+            } else if count < 0, errno != EINTR {
+                sourceLive = false
             }
         }
     }
@@ -423,7 +449,7 @@ private final class ExecOwner: @unchecked Sendable {
         trace.watch(call, pid: pid)
 #endif
         let waiter = seams.leaderWaiter(pid)
-        let deadline = spawnedAt + UInt64(max(timeoutSeconds, 0)) * 1_000_000_000
+        let deadline = Self.deadline(after: spawnedAt, seconds: timeoutSeconds)
 
         let outcome: OwnedOutcome
         let outcomeAt: UInt64
@@ -473,6 +499,15 @@ private final class ExecOwner: @unchecked Sendable {
         ])
 #endif
         return result
+    }
+
+    /// The uptime deadline of a timeout. The request accepts any Int, so the
+    /// arithmetic saturates at `UInt64.max` instead of trapping after the spawn.
+    static func deadline(after start: UInt64, seconds: Int) -> UInt64 {
+        let (budget, overflow) = UInt64(max(seconds, 0)).multipliedReportingOverflow(by: 1_000_000_000)
+        if overflow { return .max }
+        let (sum, late) = start.addingReportingOverflow(budget)
+        return late ? .max : sum
     }
 
     // MARK: Spawn

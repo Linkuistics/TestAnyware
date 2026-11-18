@@ -1,0 +1,451 @@
+diff --git a/.grove/70-integrate-review-impl--macos-agent-lifecycle-k234.md b/.grove/70-integrate-review-impl--macos-agent-lifecycle-k234.md
+index 57e1406f7e..0e0dfe9105 100644
+--- a/.grove/70-integrate-review-impl--macos-agent-lifecycle-k234.md
++++ b/.grove/70-integrate-review-impl--macos-agent-lifecycle-k234.md
+@@ -38,3 +38,30 @@ ## Notes
+ 
+ Cancellation, retention, downloads and shutdown still belong to k221. Read
+ the review's evidence limits before relying on its source-derived findings.
++
++## Decisions (running log)
++
++- D1. R1 is a real issue. A `NOTE_EXIT` event makes `waitExit` return true
++  without a status check, and the owner then calls a blocking `waitpid`. The
++  spec forbids a blocking reap in the owner. The repair: `waitExit` returns
++  true only when `waitid` with `WNOWAIT` reports the exit. After an event that
++  the status does not yet show, the waiter polls the status until the
++  deadline. An `ESRCH` registration also falls back to that poll. A narrow
++  registration seam inside `KqueueLeaderWaiter` gives a deterministic control:
++  it adds an immediate timer event in place of the process source.
++- D2. R4 is a real issue with the same repair. Any failed registration makes
++  the waiter poll the status every 10 ms until the deadline. The registration
++  seam also gives this control, with an `ENOMEM` result and no source.
++- D3. R2 is a real issue. The deadline arithmetic saturates at `UInt64.max`,
++  and each `kevent` wait is at most 60 s. The request keeps today's accepted
++  range, so an old Host CLI sees no new error. The control runs the owner with
++  a timeout of 20000000000 s and with `Int.max`.
++- D4. R3 is partly real. The stalled-read control accepted a time of 2300 ms
++  against a spec bound of 2000 ms. It now asserts the bound of the spec. The rest of
++  R3 is a trade-off of the contract, not a repairable defect. An output of N
++  bytes costs O(N) to encode and to publish, so no read deadline bounds the
++  publication of an unbounded output. The owner already measures the base64
++  and legacy work inside `finalisedAfterMs`. A record cannot measure its own
++  serialisation, and the spec makes the controller the authority for each
++  phase. The spec "Limits" section now states this limit. The acceptance
++  outputs are at most 20 bytes.
+diff --git a/agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift b/agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift
+index ab7050f69f..7f37bd353f 100644
+--- a/agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift
++++ b/agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift
+@@ -86,6 +86,7 @@ public struct OwnedExecResult: Sendable {
+ /// Waits for the leader. Only the owner calls it, and only `reap` reaps.
+ public protocol LeaderWaiter: AnyObject, Sendable {
+     /// Waits until the leader exits or the uptime deadline passes. Never reaps.
++    /// Returns true only when the exit status is waitable, so `reap` returns at once.
+     func waitExit(until deadline: UInt64) -> Bool
+     /// Reports whether the leader exited, without blocking or reaping.
+     func hasExited() -> Bool
+@@ -118,23 +119,47 @@ public struct OwnerSeams: Sendable {
+ 
+ /// Waits on a kqueue `EVFILT_PROC` `NOTE_EXIT` source. The `kevent` timeout
+ /// is the timer source. The waiter never blocks a shared dispatch worker.
++///
++/// Only a `waitid` status check decides an exit. XNU posts `NOTE_EXIT` before
++/// the leader becomes a zombie, so the event alone does not make the status
++/// waitable. After an unconfirmed event, a failed registration or a queue
++/// error, the waiter polls the status until the deadline.
+ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
++    /// Registers the exit source of `pid` on `queue`. Returns 0 or an errno.
++    /// A test can replace it to make the source fail or fire early.
++    typealias Registration = @Sendable (_ queue: Int32, _ pid: pid_t) -> Int32
++
++    static let registerExit: Registration = { queue, pid in
++        var change = kevent(
++            ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_ONESHOT),
++            fflags: NOTE_EXIT, data: 0, udata: nil
++        )
++        return kevent(queue, &change, 1, nil, 0, nil) < 0 ? errno : 0
++    }
++
++    /// The status poll interval after an event that the status did not confirm.
++    static let confirmPollUs: useconds_t = 1_000
++    /// The status poll interval without a working source.
++    static let fallbackPollUs: useconds_t = 10_000
++    /// The longest single `kevent` wait, so a huge deadline never reaches the kernel.
++    static let longestWaitNs: UInt64 = 60_000_000_000
++
+     private let pid: pid_t
+     private let queue: Int32
+     private var exited = false
+-
+-    public init(pid: pid_t) {
++    /// True while the queue can still deliver the exit event.
++    private var sourceLive: Bool
++
++    public convenience init(pid: pid_t) {
++        self.init(pid: pid, register: Self.registerExit)
++    }
++
++    init(pid: pid_t, register: Registration) {
+         self.pid = pid
+         queue = kqueue()
+-        var change = kevent(
+-            ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_ONESHOT),
+-            fflags: NOTE_EXIT, data: 0, udata: nil
+-        )
+-        // A leader that is already a zombie can refuse the registration.
+-        // `hasExited` covers that case before every wait.
+-        if kevent(queue, &change, 1, nil, 0, nil) < 0, errno == ESRCH {
+-            exited = true
+-        }
++        // A leader that is already exiting refuses the registration with
++        // ESRCH. That case and every other failure use the status poll.
++        sourceLive = queue >= 0 && register(queue, pid) == 0
+     }
+ 
+     deinit {
+@@ -142,28 +167,29 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
+     }
+ 
+     public func waitExit(until deadline: UInt64) -> Bool {
+-        if exited || hasExited() {
+-            exited = true
+-            return true
+-        }
+         while true {
++            if exited || hasExited() {
++                exited = true
++                return true
++            }
+             let now = ProcessRunner.uptime()
+-            if now >= deadline { return hasExited() }
++            if now >= deadline { return false }
+             let left = deadline - now
+-            var timeout = timespec(tv_sec: Int(left / 1_000_000_000), tv_nsec: Int(left % 1_000_000_000))
++            guard sourceLive else {
++                usleep(useconds_t(min(left / 1_000, UInt64(Self.fallbackPollUs))))
++                continue
++            }
++            let wait = min(left, Self.longestWaitNs)
++            var timeout = timespec(tv_sec: Int(wait / 1_000_000_000), tv_nsec: Int(wait % 1_000_000_000))
+             var event = kevent()
+             let count = kevent(queue, nil, 0, &event, 1, &timeout)
+             if count > 0 {
+-                exited = true
+-                return true
+-            }
+-            if count < 0, errno != EINTR {
+-                // Without a working queue, poll the status until the deadline.
+-                usleep(10_000)
+-                if hasExited() {
+-                    exited = true
+-                    return true
+-                }
++                // The one-shot source is spent. The status check at the top
++                // decides, and the poll covers the gap before the zombie state.
++                sourceLive = false
++                if !hasExited() { usleep(useconds_t(min(left / 1_000, UInt64(Self.confirmPollUs)))) }
++            } else if count < 0, errno != EINTR {
++                sourceLive = false
+             }
+         }
+     }
+@@ -423,7 +449,7 @@ private final class ExecOwner: @unchecked Sendable {
+         trace.watch(call, pid: pid)
+ #endif
+         let waiter = seams.leaderWaiter(pid)
+-        let deadline = spawnedAt + UInt64(max(timeoutSeconds, 0)) * 1_000_000_000
++        let deadline = Self.deadline(after: spawnedAt, seconds: timeoutSeconds)
+ 
+         let outcome: OwnedOutcome
+         let outcomeAt: UInt64
+@@ -475,6 +501,15 @@ private final class ExecOwner: @unchecked Sendable {
+         return result
+     }
+ 
++    /// The uptime deadline of a timeout. The request accepts any Int, so the
++    /// arithmetic saturates at `UInt64.max` instead of trapping after the spawn.
++    static func deadline(after start: UInt64, seconds: Int) -> UInt64 {
++        let (budget, overflow) = UInt64(max(seconds, 0)).multipliedReportingOverflow(by: 1_000_000_000)
++        if overflow { return .max }
++        let (sum, late) = start.addingReportingOverflow(budget)
++        return late ? .max : sum
++    }
++
+     // MARK: Spawn
+ 
+     /// Spawns `/bin/bash -c COMMAND` as the leader of a new session and group.
+diff --git a/agents/macos/Tests/TestAnywareAgentTests/ExecOwnerTests.swift b/agents/macos/Tests/TestAnywareAgentTests/ExecOwnerTests.swift
+index 3dd9e313f2..23333f9eb0 100644
+--- a/agents/macos/Tests/TestAnywareAgentTests/ExecOwnerTests.swift
++++ b/agents/macos/Tests/TestAnywareAgentTests/ExecOwnerTests.swift
+@@ -130,6 +130,56 @@ final class ExecOwnerTests: XCTestCase {
+         XCTAssertEqual(waitpid(pid, &status, WNOHANG), -1, "the owner did not reap the held leader")
+     }
+ 
++    // MARK: - Leader wait source (review k233, findings R1, R2 and R4)
++
++    /// R2: a timeout that the request accepts must not overflow the
++    /// deadline arithmetic after the spawn. The old owner trapped here.
++    func testHugeTimeoutDoesNotOverflowTheDeadline() async throws {
++        for timeout in [20_000_000_000, Int.max] {
++            let run = try await exec("printf 'huge timeout\\n'", timeout: timeout)
++            XCTAssertEqual(run.record.outcome, .exited(exitCode: 0))
++            XCTAssertEqual(run.reply.stdout, "huge timeout")
++        }
++    }
++
++    /// R1: an exit event can arrive before the exit status is waitable. The
++    /// seam stands in an immediate timer event for the process source, so the
++    /// event arrives while the leader still runs. The owner must not take the
++    /// event as an exit and block in a reap.
++    func testExitEventWithoutStatusIsNotAnExit() async throws {
++        let seams = OwnerSeams(
++            leaderWaiter: { KqueueLeaderWaiter(pid: $0, register: Self.registerEarlyEvent) },
++            captureRead: OwnerSeams.live.captureRead)
++        let run = try await exec("sleep 5", timeout: 1, seams: seams)
++        XCTAssertEqual(run.record.outcome, .timedOut(timeoutSeconds: 1))
++        let term = try XCTUnwrap(run.record.termination)
++        XCTAssertEqual(term.leaderStatus, .signalled(signal: Int(SIGTERM)))
++        XCTAssertEqual(term.groupEmpty, .yes)
++        XCTAssertTrue(term.withinBounds)
++        XCTAssertLessThan(try XCTUnwrap(run.record.lifecycle.durationMs), 1500)
++    }
++
++    /// R4: a failed registration leaves a valid queue with no source. The
++    /// waiter must poll the status, not wait out the whole command budget.
++    func testFailedRegistrationStillSeesThePromptExit() async throws {
++        let seams = OwnerSeams(
++            leaderWaiter: { KqueueLeaderWaiter(pid: $0, register: { _, _ in ENOMEM }) },
++            captureRead: OwnerSeams.live.captureRead)
++        let run = try await exec("sleep 0.1; printf 'prompt exit\\n'", timeout: 30, seams: seams)
++        XCTAssertEqual(run.record.outcome, .exited(exitCode: 0))
++        XCTAssertEqual(run.reply.stdout, "prompt exit")
++        XCTAssertLessThan(try XCTUnwrap(run.record.lifecycle.durationMs), 1000)
++    }
++
++    /// Adds a timer that fires at once, in place of the `NOTE_EXIT` source.
++    static let registerEarlyEvent: KqueueLeaderWaiter.Registration = { queue, _ in
++        var change = kevent(
++            ident: 1, filter: Int16(EVFILT_TIMER), flags: UInt16(EV_ADD | EV_ONESHOT),
++            fflags: 0, data: 0, udata: nil
++        )
++        return kevent(queue, &change, 1, nil, 0, nil) < 0 ? errno : 0
++    }
++
+     // MARK: - Capture
+ 
+     func testStalledCaptureEndsAtTheFinaliseDeadline() async throws {
+@@ -146,7 +196,8 @@ final class ExecOwnerTests: XCTestCase {
+         XCTAssertEqual(stdout.fileBytes, 5)
+         XCTAssertEqual(run.record.evidence.stderr.capture, .complete)
+         XCTAssertGreaterThanOrEqual(run.record.lifecycle.finalisedAfterMs, 1850)
+-        XCTAssertLessThanOrEqual(run.record.lifecycle.finalisedAfterMs, 2300)
++        // The spec bound from the outcome to the published record (review k233, R3).
++        XCTAssertLessThanOrEqual(run.record.lifecycle.finalisedAfterMs, 2000)
+     }
+ 
+     func testReadErrorMarksTheStreamIncomplete() async throws {
+diff --git a/docs/specs/guest-command-lifecycle.md b/docs/specs/guest-command-lifecycle.md
+index c710ef485c..b0a993b628 100644
+--- a/docs/specs/guest-command-lifecycle.md
++++ b/docs/specs/guest-command-lifecycle.md
+@@ -237,6 +237,12 @@ ### Limits
+   member is the leader, the record also reports `leaderStatus` `unavailable`.
+ - A capture that the worker cannot read by the deadline arrives as an
+   incomplete prefix. A stalled read holds one agent thread until it returns.
++- The finalisation deadline bounds the capture read only. The agent encodes and
++  publishes the prefix after that deadline, in a time that grows with the
++  prefix size. This spec sets no output limit. A large prefix can therefore make
++  `finalisedAfterMs` exceed its bound, and the record reports that time. The
++  record cannot measure its own serialisation, so the controller measurement
++  stays the authority for each phase.
+ - An agent crash leaves its owned groups running. The agent removes old capture
+   directories when it starts.
+ - A detached command (`detach: true`) has no owner, no record and no
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/measure.sh b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/measure.sh
+new file mode 100755
+index 0000000000..15a675fa83
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/measure.sh
+@@ -0,0 +1,49 @@ subjects() {
++#!/bin/bash
++# Review integration k234: the final measurement of the repaired macOS owner.
++# One writer, in sequence. Subjects are hashed before and after the run.
++set -u
++ROOT=$(cd "$(dirname "$0")/../../../.." && pwd)
++E="$ROOT/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234"
++cd "$ROOT"
++subjects() {
++  shasum -a 256 \
++    agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift \
++    agents/macos/Sources/TestAnywareAgent/ExecRecordMapping.swift \
++    agents/macos/Sources/TestAnywareAgentProtocol/ExecRecord.swift \
++    agents/macos/Sources/testanyware-agent/AgentServer.swift \
++    agents/macos/Tests/TestAnywareAgentTests/*.swift \
++    agents/macos/Package.resolved Taskfile.yml \
++    experiments/exec-reliability/outcomes_k12*.py \
++    experiments/exec-reliability/evidence/macos-completion-k3/old_path.py
++}
++subjects > "$E/subjects-before.txt"
++echo "source $(jj log -r @- --no-graph -T 'commit_id') plus working-copy diff" > "$E/source.txt"
++jj diff --git > "$E/working-copy.diff"
++
++mise exec -- task diagnostic:macos-completion-old-path \
++  OUT="$E/completion-new-clean" EXPECT=clean > "$E/completion-new-clean.log" 2>&1
++echo "completion EXPECT=clean exit $?" > "$E/results.txt"
++
++mise exec -- task diagnostic:macos-exec-outcomes OUT="$E/outcomes" > "$E/outcomes.log" 2>&1
++echo "outcomes run exit $?" >> "$E/results.txt"
++mise exec -- task diagnostic:macos-exec-outcomes-check OUT="$E/outcomes" > "$E/outcomes-check.log" 2>&1
++echo "outcomes check exit $?" >> "$E/results.txt"
++mise exec -- task diagnostic:macos-exec-outcomes-record OUT="$E/outcomes" > "$E/outcomes-record.log" 2>&1
++echo "outcomes record exit $?" >> "$E/results.txt"
++
++mkdir -p "$E/agent-test-20"
++for n in $(seq -w 1 20); do
++  start=$(date +%s)
++  mise exec -- task agent:macos:test > "$E/agent-test-20/run-$n.log" 2>&1
++  rc=$?
++  line=$(grep -E 'Executed [0-9]+ tests' "$E/agent-test-20/run-$n.log" | tail -1 | sed 's/^[[:space:]]*//')
++  echo "run $n exit $rc seconds $(( $(date +%s) - start )) $line" >> "$E/agent-test-20/results.txt"
++done
++
++subjects > "$E/subjects-after.txt"
++if cmp -s "$E/subjects-before.txt" "$E/subjects-after.txt"; then
++  echo "subjects unchanged" >> "$E/results.txt"
++else
++  echo "subjects CHANGED" >> "$E/results.txt"
++fi
++echo done >> "$E/results.txt"
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/r1-event-is-exit.diff b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/r1-event-is-exit.diff
+new file mode 100644
+index 0000000000..05099c4d68
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/r1-event-is-exit.diff
+@@ -0,0 +1,12 @@
++--- /private/tmp/claude-501/-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14/80b0ca70-7a77-4d08-badc-08666197f0c4/scratchpad/ProcessRunner.repaired.swift	2026-11-18 15:20:05.249622527 +1100
+++++ Sources/TestAnywareAgent/ProcessRunner.swift	2026-11-18 15:20:05.283294205 +1100
++@@ -186,8 +186,7 @@
++             if count > 0 {
++                 // The one-shot source is spent. The status check at the top
++                 // decides, and the poll covers the gap before the zombie state.
++-                sourceLive = false
++-                if !hasExited() { usleep(useconds_t(min(left / 1_000, UInt64(Self.confirmPollUs)))) }
+++                exited = true; return true
++             } else if count < 0, errno != EINTR {
++                 sourceLive = false
++             }
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/r4-ignore-registration-error.diff b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/r4-ignore-registration-error.diff
+new file mode 100644
+index 0000000000..801539ea80
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/r4-ignore-registration-error.diff
+@@ -0,0 +1,11 @@
++--- /private/tmp/claude-501/-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14/80b0ca70-7a77-4d08-badc-08666197f0c4/scratchpad/ProcessRunner.repaired.swift	2026-11-18 15:20:05.249622527 +1100
+++++ Sources/TestAnywareAgent/ProcessRunner.swift	2026-11-18 15:20:20.961415168 +1100
++@@ -159,7 +159,7 @@
++         queue = kqueue()
++         // A leader that is already exiting refuses the registration with
++         // ESRCH. That case and every other failure use the status poll.
++-        sourceLive = queue >= 0 && register(queue, pid) == 0
+++        _ = register(queue, pid); sourceLive = queue >= 0
++     }
++ 
++     deinit {
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/results.txt b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/results.txt
+new file mode 100644
+index 0000000000..7d71e18f52
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/results.txt
+@@ -0,0 +1,2 @@ r1-event-is-exit test testExitEventWithoutStatusIsNotAnExit exit 1
++r1-event-is-exit test testExitEventWithoutStatusIsNotAnExit exit 1 
++r4-ignore-registration-error test testFailedRegistrationStillSeesThePromptExit exit 1 
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/subjects.txt b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/subjects.txt
+new file mode 100644
+index 0000000000..d07c705c20
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/mutation-controls/subjects.txt
+@@ -0,0 +1,4 @@ repaired 304b9bc488c81dd17771bdfc8dbb403cc855f87d962bef19762f313ec00f95c5
++repaired 304b9bc488c81dd17771bdfc8dbb403cc855f87d962bef19762f313ec00f95c5
++r1-event-is-exit mutated d820794d6451bb8b0cb4872a413f40749b6843236fb91d5da566a03fa2426350
++r4-ignore-registration-error mutated 3937d1f949121f622b2101210b88199ca8ec0f36815df8009f181846ef42b274
++restored 304b9bc488c81dd17771bdfc8dbb403cc855f87d962bef19762f313ec00f95c5
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/r2-old-path/probe.swift b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/r2-old-path/probe.swift
+new file mode 100644
+index 0000000000..e36d1e0cb7
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/r2-old-path/probe.swift
+@@ -0,0 +1,11 @@ import Foundation
++// Review k233 R2 old-path probe: an accepted timeout overflows after spawn.
++import Foundation
++
++let timeout = Int(CommandLine.arguments[1])!
++let done = DispatchSemaphore(value: 0)
++Task {
++    let result = await ProcessRunner.runOwned(command: "printf ok", timeoutSeconds: timeout)
++    print("outcome \(result.outcome) stdout \(result.legacy.stdout)")
++    done.signal()
++}
++done.wait()
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/r2-old-path/result.txt b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/r2-old-path/result.txt
+new file mode 100644
+index 0000000000..5184d7f16f
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/r2-old-path/result.txt
+@@ -0,0 +1,5 @@ outcome exited(code: 0) stdout ok
++== timeout 10
++outcome exited(code: 0) stdout ok
++exit 0
++== timeout 20000000000
++exit 133
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/r2-old-path/subjects.txt b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/r2-old-path/subjects.txt
+new file mode 100644
+index 0000000000..00e81ddadc
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/r2-old-path/subjects.txt
+@@ -0,0 +1,6 @@ source commit 6e6b12a73e309cd5029502d957dfaf3dbed59013
++source commit 6e6b12a73e309cd5029502d957dfaf3dbed59013
++a562fc628a6b2013911db799f3dd84502dfe052967716345cc7f588442c98a21  /private/tmp/claude-501/-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14/80b0ca70-7a77-4d08-badc-08666197f0c4/scratchpad/r2/ProcessRunner.swift
++f1985bd6341b167c5d764f70e570e4c8babc3373a4210337d0381658e96bab91  /private/tmp/claude-501/-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14/80b0ca70-7a77-4d08-badc-08666197f0c4/scratchpad/r2/main.swift
++swift-driver version: 1.168.6 Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)
++a562fc628a6b2013911db799f3dd84502dfe052967716345cc7f588442c98a21  /private/tmp/claude-501/-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14/80b0ca70-7a77-4d08-badc-08666197f0c4/scratchpad/r2/ProcessRunner.swift
++f1985bd6341b167c5d764f70e570e4c8babc3373a4210337d0381658e96bab91  /private/tmp/claude-501/-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14/80b0ca70-7a77-4d08-badc-08666197f0c4/scratchpad/r2/main.swift
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/source.txt b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/source.txt
+new file mode 100644
+index 0000000000..7ad081a618
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/source.txt
+@@ -0,0 +1,1 @@ source 6e6b12a73e309cd5029502d957dfaf3dbed59013 plus working-copy diff
++source 6e6b12a73e309cd5029502d957dfaf3dbed59013 plus working-copy diff
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/subjects-before.txt b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/subjects-before.txt
+new file mode 100644
+index 0000000000..29d5ac31e0
+--- /dev/null
++++ b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/subjects-before.txt
+@@ -0,0 +1,22 @@ dd35c8a3bfca701bd7ba72350570c16913df6390807b8c5bed6be5a27680d9a2  agents/macos/S
++304b9bc488c81dd17771bdfc8dbb403cc855f87d962bef19762f313ec00f95c5  agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift
++50d1a404784bfe7277dc2f4448b08b6df1b9c774a775ecb869686ccaa310125f  agents/macos/Sources/TestAnywareAgent/ExecRecordMapping.swift
++295c91b0a6893c961b7a4d5cf76f6b47648d35cb9f84d595e604a7f71f8e2d76  agents/macos/Sources/TestAnywareAgentProtocol/ExecRecord.swift
++dd35c8a3bfca701bd7ba72350570c16913df6390807b8c5bed6be5a27680d9a2  agents/macos/Sources/testanyware-agent/AgentServer.swift
++a73a8498a80b289ffcfe5577602a197607d64bd6f51e3a18efcd2cf206d621da  agents/macos/Tests/TestAnywareAgentTests/ExecOwnerTests.swift
++da8e7d2e84973c5ccedf4972bfede9f3943c37ff61ca62c66719bef950fe9e03  agents/macos/Tests/TestAnywareAgentTests/ExecRecordValidity.swift
++2683e07abcbe0b73a237349a86eba562a2cfdbb757da56b345a5aec433f3b2c7  agents/macos/Tests/TestAnywareAgentTests/ExecReplyFixtureTests.swift
++bb6af1301cac345c1a57806674f0afbbf444b8b67b9fa6ca57dae2d4cc8b7677  agents/macos/Tests/TestAnywareAgentTests/ExitTraceControlTests.swift
++b82cc4ad01a724fa76976956c3283b2f7925164bee4b0fea42eaa1d6fdd5ec79  agents/macos/Tests/TestAnywareAgentTests/LiveElementMatcherTests.swift
++54f390eabd61f5e20a438750ffc638838e2e275842e99fc09b31bd23a89a3e59  agents/macos/Tests/TestAnywareAgentTests/MockAccessibleElement.swift
++084483aca2961af60e0f767de1d57b6660239210f7d85f72b58afeae20b8985d  agents/macos/Tests/TestAnywareAgentTests/OwnedProcessFixture.swift
++48245824b9ce749143285e1880476916d8cae80c698512b6000030b779286e70  agents/macos/Tests/TestAnywareAgentTests/OwnedProcessFixtureTests.swift
++b9e138e5c69657c3665b81a2701cbf2dcfb710048c43ccbee634ed1910ce7e89  agents/macos/Tests/TestAnywareAgentTests/ProcessRunnerTests.swift
++4f4780fe580fcc5556cebf5a0a2536d3fac35f120d0ed4f20b8828868c51c7bc  agents/macos/Tests/TestAnywareAgentTests/QueryResolverTests.swift
++d0780f136a8168d9a53291cb38c336c41bf1b1ea77b56bf0a17f6de34ee14784  agents/macos/Tests/TestAnywareAgentTests/RoleMapperTests.swift
++866d369f23abc5b0db6b0767fc176a22fdfdde10ed6188295ec86e35461e18f3  agents/macos/Tests/TestAnywareAgentTests/TreeWalkerTests.swift
++9e4ea3550f73160ddd02d93296814252b86901ef24e1fed023cd5317c1785267  agents/macos/Package.resolved
++3e05c01e12ef1feea3b88a33625506ac069ab452ab0a4c6c3b5be45218bb090f  Taskfile.yml
++4d9a925ac796951f34f33e4ca59114e430f220e075c3cbcfcc30709b06b7ebfe  experiments/exec-reliability/outcomes_k12_check.py
++d10ec67e3a814982b87dadc56945cfe8104869248c215e8c3120fb6214b0cfd9  experiments/exec-reliability/outcomes_k12_seam.py
++fbd8a7f848b292c7f7d85564ef49004a8b5b379c37619733571cdbe241b1adc2  experiments/exec-reliability/outcomes_k12.py
++0a3dc4a41c4c680c2127e88537aa0fbaf31855ba87ec0c952a6d76c3e8f617c0  experiments/exec-reliability/evidence/macos-completion-k3/old_path.py
+diff --git a/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/working-copy.diff b/experiments/exec-reliability/evidence/macos-agent-lifecycle-k234/working-copy.diff
+new file mode 100644
+index 0000000000..e69de29bb2

@@ -130,6 +130,56 @@ final class ExecOwnerTests: XCTestCase {
         XCTAssertEqual(waitpid(pid, &status, WNOHANG), -1, "the owner did not reap the held leader")
     }
 
+    // MARK: - Leader wait source (review k233, findings R1, R2 and R4)
+
+    /// R2: a timeout that the request accepts must not overflow the
+    /// deadline arithmetic after the spawn. The old owner trapped here.
+    func testHugeTimeoutDoesNotOverflowTheDeadline() async throws {
+        for timeout in [20_000_000_000, Int.max] {
+            let run = try await exec("printf 'huge timeout\\n'", timeout: timeout)
+            XCTAssertEqual(run.record.outcome, .exited(exitCode: 0))
+            XCTAssertEqual(run.reply.stdout, "huge timeout")
+        }
+    }
+
+    /// R1: an exit event can arrive before the exit status is waitable. The
+    /// seam stands in an immediate timer event for the process source, so the
+    /// event arrives while the leader still runs. The owner must not take the
+    /// event as an exit and block in a reap.
+    func testExitEventWithoutStatusIsNotAnExit() async throws {
+        let seams = OwnerSeams(
+            leaderWaiter: { KqueueLeaderWaiter(pid: $0, register: Self.registerEarlyEvent) },
+            captureRead: OwnerSeams.live.captureRead)
+        let run = try await exec("sleep 5", timeout: 1, seams: seams)
+        XCTAssertEqual(run.record.outcome, .timedOut(timeoutSeconds: 1))
+        let term = try XCTUnwrap(run.record.termination)
+        XCTAssertEqual(term.leaderStatus, .signalled(signal: Int(SIGTERM)))
+        XCTAssertEqual(term.groupEmpty, .yes)
+        XCTAssertTrue(term.withinBounds)
+        XCTAssertLessThan(try XCTUnwrap(run.record.lifecycle.durationMs), 1500)
+    }
+
+    /// R4: a failed registration leaves a valid queue with no source. The
+    /// waiter must poll the status, not wait out the whole command budget.
+    func testFailedRegistrationStillSeesThePromptExit() async throws {
+        let seams = OwnerSeams(
+            leaderWaiter: { KqueueLeaderWaiter(pid: $0, register: { _, _ in ENOMEM }) },
+            captureRead: OwnerSeams.live.captureRead)
+        let run = try await exec("sleep 0.1; printf 'prompt exit\\n'", timeout: 30, seams: seams)
+        XCTAssertEqual(run.record.outcome, .exited(exitCode: 0))
+        XCTAssertEqual(run.reply.stdout, "prompt exit")
+        XCTAssertLessThan(try XCTUnwrap(run.record.lifecycle.durationMs), 1000)
+    }
+
+    /// Adds a timer that fires at once, in place of the `NOTE_EXIT` source.
+    static let registerEarlyEvent: KqueueLeaderWaiter.Registration = { queue, _ in
+        var change = kevent(
+            ident: 1, filter: Int16(EVFILT_TIMER), flags: UInt16(EV_ADD | EV_ONESHOT),
+            fflags: 0, data: 0, udata: nil
+        )
+        return kevent(queue, &change, 1, nil, 0, nil) < 0 ? errno : 0
+    }
+
     // MARK: - Capture
 
     func testStalledCaptureEndsAtTheFinaliseDeadline() async throws {
@@ -146,7 +196,8 @@ final class ExecOwnerTests: XCTestCase {
         XCTAssertEqual(stdout.fileBytes, 5)
         XCTAssertEqual(run.record.evidence.stderr.capture, .complete)
         XCTAssertGreaterThanOrEqual(run.record.lifecycle.finalisedAfterMs, 1850)
-        XCTAssertLessThanOrEqual(run.record.lifecycle.finalisedAfterMs, 2300)
+        // The spec bound from the outcome to the published record (review k233, R3).
+        XCTAssertLessThanOrEqual(run.record.lifecycle.finalisedAfterMs, 2000)
     }
 
     func testReadErrorMarksTheStreamIncomplete() async throws {
