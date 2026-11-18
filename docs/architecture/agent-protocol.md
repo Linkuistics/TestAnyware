@@ -150,6 +150,11 @@ tombstoned returns a `cancelled` record with `beforeStart: true`, and no
 process starts. During agent shutdown, a new request returns 503 with
 `exec_failed`.
 
+On the Linux agent, a cancellation that arrives before the spawn gives the
+same record as a tombstone. A cancellation after the spawn ends the started
+group, and its record has `beforeStart: false`. The Linux agent counts a
+negative timeout as 0.
+
 ### `CancelRequest` — `/exec/cancel`
 
 ```json

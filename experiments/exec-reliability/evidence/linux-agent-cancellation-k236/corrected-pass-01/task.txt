@@ -1,0 +1,16 @@
+task: [agent:linux:test] uv sync --locked
+Resolved 8 packages in 3ms
+Checked 6 packages in 0.87ms
+task: [agent:linux:test] uv run --locked ruff check .
+All checks passed!
+task: [agent:linux:test] uv run --locked python -m pytest -q -p no:cacheprovider
+sssssss........sssssssssssssssssssssssssssssssssssssssss................ [ 58%]
+sssssssssssssssssssssssss........................s..                     [100%]
+=========================== short test summary info ============================
+SKIPPED [74] tests/conftest.py:40: Linux lifecycle control: the host is darwin, not Linux
+50 passed, 74 skipped in 7.71s
+task: [agent:linux:test] deps="$(uv run --locked python -c 'import sysconfig; print(sysconfig.get_path("purelib"))')" && docker run --rm --init --network none -u 1000:1000 -v "$PWD:/agent:ro" -v "$deps:/deps:ro" -e PYTHONPATH=/deps -e PYTHONDONTWRITEBYTECODE=1 -e TESTANYWARE_LINUX_CONTROLS=required -w /agent python@sha256:dddfd7e07f9d15aeeca61529320492139d21cac7f0070c00609243e51e4e0016 python3 -m pytest -q -p no:cacheprovider
+........................................................................ [ 58%]
+....................................................                     [100%]
+124 passed in 70.64s (0:01:10)
+exit 0

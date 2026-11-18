@@ -70,11 +70,12 @@ def _log(message: str) -> None:
 
 
 def _seconds(timeout: float) -> float:
-    """A timeout in seconds, at least 0. A value past the float range saturates."""
+    """A timeout in seconds, at least 0. A value past the float range saturates:
+    a positive value to no deadline, a negative value to 0 (review k235 R2)."""
     try:
         return max(0.0, float(timeout))
     except OverflowError:
-        return math.inf
+        return math.inf if timeout > 0 else 0.0
 
 
 # ---- Cancellation signal --------------------------------------------------
@@ -525,6 +526,13 @@ def _own(
             # it cannot take the file, its size or its bytes from the owner.
             for path in paths:
                 held.append(os.open(path, os.O_RDONLY | os.O_CLOEXEC))
+            # The last check before the spawn. A cancellation can arrive while
+            # the owner prepares its capture files (review k235 R1). A later
+            # cancellation finds a started leader, and termination ends it.
+            if cancel is not None and (requested := cancel.requested_at) is not None:
+                return cancelled_before_start(
+                    exec_id, request_start, _ms(time.monotonic() - requested)
+                )
             proc = subprocess.Popen(
                 ["/bin/bash", "-c", command],
                 stdin=subprocess.DEVNULL,
@@ -544,7 +552,7 @@ def _own(
     held_leader = False
     try:
         while True:
-            exited_first = waiter.wait_exit(deadline - time.monotonic(), wake)
+            waiter.wait_exit(deadline - time.monotonic(), wake)
             # Arbitration: at the deadline or a cancellation, one non-blocking
             # kernel wait comes first, so a command that has finished is never
             # reported as timed out or cancelled.
@@ -553,11 +561,13 @@ def _own(
             cancel_at = None if cancel is None else cancel.requested_at
             if status is not None or outcome_at >= deadline or cancel_at is not None:
                 break
-        # The event that woke the owner is the earlier of the deadline and the
-        # cancellation. A leader exit event has no lateness.
+        # The lateness runs from the earlier of the deadline and the
+        # cancellation, if either has passed. A leader exit before both has no
+        # lateness. A late owner can find the exit and a passed deadline
+        # together, and its lateness stays visible (review k235 R3).
         events = [t for t in (deadline, cancel_at) if t is not None and t <= outcome_at]
         event_at = min(events) if events else None
-        lateness = 0 if exited_first or event_at is None else _ms(outcome_at - event_at)
+        lateness = 0 if event_at is None else _ms(outcome_at - event_at)
 
         termination: Termination | None = None
         remaining: str | None = None

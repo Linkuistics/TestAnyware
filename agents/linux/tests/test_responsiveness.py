@@ -166,7 +166,9 @@ def test_two_accessibility_requests_never_run_inside_at_spi_together(
         thread.start()
     for thread in threads:
         thread.join(10)
-    assert tracker.calls >= len(requests)
+    # Each request reaches the substituted AT-SPI, except that two health requests
+    # can share one probe check. So one call fewer than the requests is the floor.
+    assert tracker.calls >= len(requests) - 1
     assert tracker.most == 1
 
 
