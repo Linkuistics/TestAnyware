@@ -22,6 +22,7 @@ pub mod agent_formatter;
 pub mod agent_requests;
 pub mod agent_responses;
 pub mod element_info;
+pub mod exec_record;
 pub mod role_mapper;
 pub mod unified_role;
 pub mod window_info;

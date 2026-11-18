@@ -235,6 +235,7 @@ pub fn exit_agent_error(err: AgentError, mode: OutputMode) -> ! {
             "body": body,
         }),
         AgentError::LocalIo { path, .. } => serde_json::json!({ "path": path }),
+        AgentError::ExecRecordInvalid(problems) => serde_json::json!({ "problems": problems }),
         _ => serde_json::Value::Null,
     };
     print_error(

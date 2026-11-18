@@ -292,6 +292,7 @@ async fn the_timeout_of_exec_replaces_the_timeout_of_the_client() {
         command: "true".into(),
         timeout: 0,
         detach: false,
+        id: None,
     };
     let result = client
         .exec(&request)

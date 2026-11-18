@@ -187,6 +187,7 @@ async fn exec_returns_full_result() {
             command: "echo hi".into(),
             timeout: 10,
             detach: false,
+            id: None,
         })
         .await
         .expect("exec succeeds");

@@ -40,6 +40,7 @@ pub use transport::{
     AgentConnector, AgentStream, BoxedStream, ConnectFuture, ConnectorFailure, TcpConnector,
 };
 
+use testanyware_protocol::exec_record::{read_exec_reply, ExecReplyError};
 use testanyware_protocol::{
     ActionResponse, ElementQuery, ErrorResponse, ExecRequest, ExecResult, HealthResponse,
     InspectResponse, SetValueRequest, SnapshotRequest, SnapshotResponse, WaitRequest,
@@ -129,6 +130,12 @@ pub enum AgentError {
     #[error("{}", .0.message)]
     Connector(ConnectorFailure),
 
+    /// The agent sent a typed exec record that breaks a validity rule. Each
+    /// entry names one broken rule. The record is contradictory evidence, so
+    /// it never reaches the caller as a result.
+    #[error("the agent exec record is contradictory: {}", .0.join("; "))]
+    ExecRecordInvalid(Vec<String>),
+
     #[error("internal client error: {0}")]
     Internal(String),
 }
@@ -155,6 +162,7 @@ impl AgentError {
             AgentError::Decode(_) => "INTERNAL",
             AgentError::LocalIo { .. } => "IO_ERROR",
             AgentError::Wire { wire_error, .. } => map_wire_error(wire_error),
+            AgentError::ExecRecordInvalid(_) => "EXEC_RECORD_INVALID",
             AgentError::Internal(_) => "INTERNAL",
         }
     }
@@ -390,7 +398,16 @@ impl AgentClient {
         // aborted client-side. This replaces the client's timeout for the
         // one request.
         let timeout = Duration::from_secs(request.timeout.max(0) as u64 + 10);
-        self.post_json_within("/exec", request, timeout).await
+        let bytes = self
+            .post_json_bytes_within("/exec", request, timeout)
+            .await?;
+        // A typed record must pass the validity rules of the spec, section
+        // "Validity rules". A legacy reply returns as today.
+        match read_exec_reply(&bytes, request.id.as_deref()) {
+            Ok(result) => Ok(result),
+            Err(ExecReplyError::Invalid(problems)) => Err(AgentError::ExecRecordInvalid(problems)),
+            Err(ExecReplyError::Decode(_)) => decode_body(&bytes),
+        }
     }
 
     /// Stream `local` to the agent's `remote` path (ADR-0001). The file is
@@ -528,6 +545,20 @@ impl AgentClient {
         B: Serialize + ?Sized,
         R: serde::de::DeserializeOwned,
     {
+        let bytes = self.post_json_bytes_within(path, body, timeout).await?;
+        decode_body(&bytes)
+    }
+
+    /// POST `body` as JSON and return the reply body, all within `timeout`.
+    async fn post_json_bytes_within<B>(
+        &self,
+        path: &str,
+        body: &B,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, AgentError>
+    where
+        B: Serialize + ?Sized,
+    {
         let json = serde_json::to_vec(body)
             .map_err(|e| AgentError::Internal(format!("failed to encode request: {e}")))?;
         let deadline = Deadline::after(timeout);
@@ -545,7 +576,7 @@ impl AgentClient {
             .await?;
         check_status(&exchange.response)?;
         let bytes = read_body(&deadline, exchange).await?;
-        decode_body(&bytes)
+        Ok(bytes.to_vec())
     }
 
     /// Dial, send one request and wait for the response headers. The request

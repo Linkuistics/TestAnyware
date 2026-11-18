@@ -115,6 +115,21 @@ impl FakeAgent {
         );
     }
 
+    /// Answer `method` `route` with whatever `responder` builds from each request.
+    pub fn mount_responder(
+        &self,
+        http_method: &str,
+        route: &str,
+        responder: impl wiremock::Respond + 'static,
+    ) {
+        self.runtime.block_on(
+            Mock::given(method(http_method))
+                .and(path(route))
+                .respond_with(responder)
+                .mount(&self.server),
+        );
+    }
+
     /// Every request that arrived, oldest first.
     pub fn received(&self) -> Vec<Received> {
         self.runtime

@@ -8,6 +8,10 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::exec_record::{
+    Evidence, LegacyProjection, Lifecycle, Outcome, RemainingGroup, Termination,
+};
+
 /// `POST /snapshot` request body.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SnapshotRequest {
@@ -48,17 +52,27 @@ pub struct ElementQuery {
 }
 
 /// `POST /exec` request body.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExecRequest {
     pub command: String,
     pub timeout: i64,
     pub detach: bool,
+    /// The exec id, 1 to 64 characters from `[A-Za-z0-9._-]`. An agent
+    /// without the typed record ignores it. Omitted when `None`, and then a
+    /// new agent chooses the id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 /// `POST /exec` response. The `timed_out` field is optional for
 /// compatibility with agents built before it was added (mirrors Swift's
 /// `timedOut: Bool?`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+///
+/// The fields after `timed_out` are the typed exec record (ADR-0023). They
+/// are `None` for a legacy reply: an old agent, a Windows agent or a detached
+/// command. [`crate::exec_record::read_exec_reply`] reads a reply and checks
+/// the validity rules of a typed one.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExecResult {
     #[serde(rename = "exitCode")]
     pub exit_code: i32,
@@ -66,6 +80,28 @@ pub struct ExecResult {
     pub stderr: String,
     #[serde(rename = "timedOut", default, skip_serializing_if = "Option::is_none")]
     pub timed_out: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outcome: Option<Outcome>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<Evidence>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifecycle: Option<Lifecycle>,
+    #[serde(
+        rename = "remainingGroup",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub remaining_group: Option<RemainingGroup>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub termination: Option<Termination>,
+    #[serde(
+        rename = "legacyProjection",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub legacy_projection: Option<LegacyProjection>,
 }
 
 impl ExecResult {
@@ -181,6 +217,7 @@ mod tests {
             stdout: "hello\n".into(),
             stderr: String::new(),
             timed_out: Some(false),
+            ..Default::default()
         };
         let v: serde_json::Value = serde_json::from_str(&serde_json::to_string(&r).unwrap()).unwrap();
         let map = v.as_object().unwrap();
@@ -196,6 +233,7 @@ mod tests {
             stdout: String::new(),
             stderr: String::new(),
             timed_out: None,
+            ..Default::default()
         };
         let json = serde_json::to_string(&r).unwrap();
         assert!(!json.contains("timedOut"));

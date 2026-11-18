@@ -135,6 +135,10 @@ one. An attached request returns 400 with `exec_failed` in three cases.
 The command is not a string, the timeout is not a number, or the `id`
 is not valid.
 
+The Host CLI sends a random UUID as the `id` of each attached request. An
+agent without the typed record ignores it. A detached request carries no
+`id`.
+
 ### File transfer — `/upload`, `/download`
 
 `/upload` and `/download` do **not** take a JSON body. The
@@ -221,6 +225,12 @@ record". The Linux model is `ExecRecord` in
 `agents/linux/testanyware_agent/models.py`.
 
 Detached commands return only the legacy fields.
+
+The Host CLI reads a reply without `outcome` as a legacy reply. It checks
+every validity rule of the spec on a reply with `outcome`. A record that
+breaks a rule gives the error `EXEC_RECORD_INVALID`, and the Host CLI never
+reports it as a success. The Rust reader is
+`cli-rs/crates/testanyware-protocol/src/exec_record.rs`.
 
 ### `ErrorResponse` — any non-2xx
 

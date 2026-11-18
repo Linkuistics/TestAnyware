@@ -1,0 +1,78 @@
+{
+  "source": "experiments/exec-reliability/evidence/macos-exec-outcomes-k12/run-01/b695d8e3a3d648ab9b0cf2e08ce5547d/http-cli.stdout",
+  "note": "Raw /exec replies of the old macOS agent (before leaf k219), recorded by the k12 matrix. bodyText is the HTTP body as sent. The paired CLI runs of that matrix hit the k3 completion race, so the Host CLI tests derive the expected legacy output from each body instead.",
+  "cases": [
+    {
+      "case": "oracle-text",
+      "request": {
+        "command": "printf 'Explain this change.'; printf 'separate stderr\\n' >&2",
+        "timeout": 10
+      },
+      "httpStatus": 200,
+      "bodyText": "{\"stdout\":\"Explain this change.\",\"stderr\":\"separate stderr\",\"exitCode\":0,\"timedOut\":false}"
+    },
+    {
+      "case": "binary",
+      "request": {
+        "command": "printf '\\000\\377\\200A\\n'",
+        "timeout": 10
+      },
+      "httpStatus": 200,
+      "bodyText": "{\"exitCode\":0,\"stdout\":\"\",\"timedOut\":false,\"stderr\":\"\"}"
+    },
+    {
+      "case": "exit-23-partial",
+      "request": {
+        "command": "printf 'partial out\\n'; printf 'partial err\\n' >&2; exit 23",
+        "timeout": 10
+      },
+      "httpStatus": 200,
+      "bodyText": "{\"exitCode\":23,\"stderr\":\"partial err\",\"timedOut\":false,\"stdout\":\"partial out\"}"
+    },
+    {
+      "case": "signal-kill",
+      "request": {
+        "command": "printf 'before signal\\n'; kill -KILL $$",
+        "timeout": 10
+      },
+      "httpStatus": 200,
+      "bodyText": "{\"exitCode\":9,\"stdout\":\"before signal\",\"timedOut\":false,\"stderr\":\"\"}"
+    },
+    {
+      "case": "exit-9",
+      "request": {
+        "command": "printf 'before exit\\n'; exit 9",
+        "timeout": 10
+      },
+      "httpStatus": 200,
+      "bodyText": "{\"timedOut\":false,\"exitCode\":9,\"stdout\":\"before exit\",\"stderr\":\"\"}"
+    },
+    {
+      "case": "deadline",
+      "request": {
+        "command": "printf 'before deadline\\n'; sleep 30.41",
+        "timeout": 2
+      },
+      "httpStatus": 200,
+      "bodyText": "{\"timedOut\":true,\"stdout\":\"before deadline\",\"exitCode\":-1,\"stderr\":\"Process timed out after 2s\"}"
+    },
+    {
+      "case": "deadline-term-ignored",
+      "request": {
+        "command": "trap '' TERM; printf 'ignoring term\\n'; sleep 30.42",
+        "timeout": 2
+      },
+      "httpStatus": 200,
+      "bodyText": "{\"timedOut\":true,\"stdout\":\"ignoring term\",\"stderr\":\"Process timed out after 2s\",\"exitCode\":-1}"
+    },
+    {
+      "case": "spawn-failure",
+      "request": {
+        "command": "printf 'never runs\\n'",
+        "timeout": 10
+      },
+      "httpStatus": 500,
+      "bodyText": ""
+    }
+  ]
+}

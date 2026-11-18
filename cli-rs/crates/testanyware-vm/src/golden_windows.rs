@@ -318,7 +318,7 @@ fn run_checked(program: &str, args: &[String], what: &str) -> Result<(), VmError
 /// `/exec` against the in-VM agent, **tolerating** failure with a warning
 /// (matches the script's `… || true` steps). Returns the result on success.
 async fn agent_exec(client: &AgentClient, command: &str, timeout_secs: i64) -> Option<ExecResult> {
-    let req = ExecRequest { command: command.to_string(), timeout: timeout_secs, detach: false };
+    let req = ExecRequest { command: command.to_string(), timeout: timeout_secs, detach: false, id: None };
     match client.exec(&req).await {
         Ok(result) => Some(result),
         Err(e) => {
@@ -1033,8 +1033,8 @@ mod tests {
 
     #[test]
     fn desktop_setup_done_detects_the_marker_echo() {
-        let yes = ExecResult { exit_code: 0, stdout: "DONE\r\n".into(), stderr: String::new(), timed_out: None };
-        let no = ExecResult { exit_code: 0, stdout: String::new(), stderr: String::new(), timed_out: None };
+        let yes = ExecResult { exit_code: 0, stdout: "DONE\r\n".into(), stderr: String::new(), timed_out: None, ..Default::default() };
+        let no = ExecResult { exit_code: 0, stdout: String::new(), stderr: String::new(), timed_out: None, ..Default::default() };
         assert!(desktop_setup_done(&yes));
         assert!(!desktop_setup_done(&no));
         assert_eq!(
@@ -1044,7 +1044,7 @@ mod tests {
     }
 
     fn exec_ok(stdout: &str) -> ExecResult {
-        ExecResult { exit_code: 0, stdout: stdout.into(), stderr: String::new(), timed_out: None }
+        ExecResult { exit_code: 0, stdout: stdout.into(), stderr: String::new(), timed_out: None, ..Default::default() }
     }
 
     const NET_USER_NEVER: &str = "User name                    admin\r\n\

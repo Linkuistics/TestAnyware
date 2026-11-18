@@ -173,7 +173,7 @@ async fn switch_over_agent(
     let command =
         format!("chmod +x {remote} && {remote} {w} {h} {scale}; rc=$?; rm -f {remote}; exit $rc");
     let result = client
-        .exec(&ExecRequest { command, timeout: 60, detach: false })
+        .exec(&ExecRequest { command, timeout: 60, detach: false, id: None })
         .await?;
     if result.succeeded() {
         // Surface the helper's confirmation line for the start log.

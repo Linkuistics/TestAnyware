@@ -79,6 +79,7 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | `WINDOW_NOT_FOUND` | No window matched the `--window` filter. |
 | `ACTION_UNSUPPORTED` | Element matched but does not support the requested action. |
 | `EXEC_FAILED` | Process failed to spawn (exec itself). |
+| `EXEC_RECORD_INVALID` | The agent exec record breaks a validity rule of the guest command lifecycle spec. `details.problems` names each broken rule. The command exits 1. |
 | `UPLOAD_FAILED` / `DOWNLOAD_FAILED` | File I/O error on the VM. |
 | `AGENT_ERROR_UNKNOWN` | Agent returned an error string the host doesn't map. |
 

@@ -402,12 +402,22 @@ OUTPUT:
     Stable formats: stdout/stderr passthrough in text mode (Swift
     parity); --json emits a single envelope (schema: file-exec). The
     binary's exit code is the in-VM process's exit code in text mode;
-    --json mode exits 0 on a clean spawn and surfaces the in-VM exit
-    via `details.exit_code` and the top-level `exit_code` field.
+    --json mode exits 0 when the transport and the agent record are
+    sound, and puts the in-VM exit in the top-level `exit_code` field.
+    A guest outcome never sets `ok` to false.
+
+    Text mode and the existing JSON fields (command, exit_code, stdout,
+    stderr, timed_out) keep today's values. The added JSON fields give
+    the outcome and the exact bytes: exec_id, record, legacy_projection,
+    outcome, evidence (base64 and sha256 of each stream), lifecycle,
+    termination and remaining_group. An agent without the typed record
+    gives outcome {\"kind\": \"unknown\", \"reason\": \"legacy_agent\"}.
+    Never count an unknown outcome as a success. A --detach command has
+    no record, so its output does not change.
 
 EXIT CODES (text mode):
     <in-VM exit code> (0 on success)
-    1  EXEC_FAILED, generic agent failure
+    1  EXEC_FAILED, EXEC_RECORD_INVALID, generic agent failure
     2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
     3  VM_NOT_FOUND
     7  CONNECTION_TIMEOUT

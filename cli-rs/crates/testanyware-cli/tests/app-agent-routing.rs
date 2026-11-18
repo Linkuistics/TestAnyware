@@ -20,7 +20,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::os::unix::net::UnixListener;
 
 use common::{pattern, serial, FakeAgent, OutputExt, TestApp, HOST_GOES_DIRECT};
-use serde_json::json;
+use serde_json::{json, Value};
 use wiremock::ResponseTemplate;
 
 const VM: &str = "testanyware-feed0001";
@@ -197,19 +197,53 @@ fn agent_exec_through_the_app_prints_the_direct_output() {
         &["exec", "echo hello", "--vm", VM],
         "hello from the guest\n",
     );
-    routed_prints(
-        &fixture,
-        &["exec", "echo hello", "--vm", VM, "--json"],
-        &pretty(json!({
-            "command": "echo hello",
-            "exit_code": 0,
-            "ok": true,
-            "schema_version": "1.0",
-            "stderr": "",
-            "stdout": "hello from the guest\n",
-            "timed_out": false
-        })),
-    );
+    // The fake agent is a legacy agent: its reply has no `outcome`. The Host CLI sends a random
+    // exec id, so the frozen oracle leaves `exec_id` out, and the test reads it from the request.
+    let mut runs = vec![fixture
+        .app
+        .cli(&["exec", "echo hello", "--vm", VM, "--json"])];
+    if HOST_GOES_DIRECT {
+        runs.push(
+            fixture
+                .app
+                .cli_default(&["exec", "echo hello", "--vm", VM, "--json"]),
+        );
+    }
+    let sent: Vec<Value> = fixture
+        .agent
+        .received()
+        .into_iter()
+        .filter(|r| r.path == "/exec")
+        .map(|r| serde_json::from_slice(&r.body).unwrap())
+        .collect();
+    let sent = &sent[sent.len() - runs.len()..];
+    for (run, request) in runs.iter().zip(sent) {
+        assert_eq!(run.code(), 0, "{}", run.err());
+        assert_eq!(run.err(), "");
+        let mut envelope = run.json();
+        let exec_id = envelope.as_object_mut().unwrap().remove("exec_id").unwrap();
+        assert_eq!(exec_id, request["id"], "exec_id is the sent id");
+        assert_eq!(exec_id.as_str().unwrap().len(), 36, "a UUID: {exec_id}");
+        assert_eq!(
+            envelope,
+            json!({
+                "command": "echo hello",
+                "exit_code": 0,
+                "ok": true,
+                "schema_version": "1.0",
+                "stderr": "",
+                "stdout": "hello from the guest\n",
+                "timed_out": false,
+                "record": "legacy",
+                "outcome": { "kind": "unknown", "reason": "legacy_agent" },
+                "legacy_projection": null,
+                "evidence": null,
+                "lifecycle": null,
+                "termination": null,
+                "remaining_group": null
+            })
+        );
+    }
 }
 
 #[test]

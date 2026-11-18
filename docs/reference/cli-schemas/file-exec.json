@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://testanyware.dev/schemas/file-exec.json",
   "title": "file-exec",
-  "description": "Output of `testanyware file exec --json`. The binary itself exits 0 on a clean spawn; the in-VM exit is in `exit_code`.",
+  "description": "Output of `testanyware file exec --json`. The binary exits 0 when the transport and the agent record are sound. The legacy in-VM exit is in the top-level `exit_code`, and a guest outcome never sets `ok` to false. The added fields carry the typed exec record (docs/specs/guest-command-lifecycle.md). An agent without the record gives `record: legacy` and the outcome `unknown`. A caller never counts that outcome as a success. A `--detach` or `--dry-run` envelope has no added fields.",
   "type": "object",
   "required": ["schema_version", "ok"],
   "properties": {
@@ -15,6 +15,82 @@
     "timed_out": { "type": "boolean" },
     "dry_run": { "type": "boolean" },
     "timeout": { "type": "integer" },
-    "detach": { "type": "boolean" }
+    "detach": { "type": "boolean" },
+    "exec_id": { "type": ["string", "null"], "description": "The exec id that the Host CLI sent, or that the agent record carries." },
+    "record": { "enum": ["agent", "legacy"], "description": "`agent` for a typed record, `legacy` for an agent without `outcome`." },
+    "legacy_projection": { "enum": ["macos", "linux", null] },
+    "outcome": {
+      "type": "object",
+      "required": ["kind"],
+      "description": "How the guest command ended, in snake_case.",
+      "properties": {
+        "kind": { "enum": ["exited", "signalled", "timed_out", "cancelled", "spawn_failed", "unknown"] },
+        "exit_code": { "type": "integer" },
+        "signal": { "type": "integer" },
+        "signal_name": { "type": "string" },
+        "timeout_seconds": { "type": "number" },
+        "before_start": { "type": "boolean" },
+        "errno": { "type": "integer" },
+        "error_name": { "type": "string" },
+        "message": { "type": "string" },
+        "reason": { "const": "legacy_agent" }
+      }
+    },
+    "evidence": {
+      "type": ["object", "null"],
+      "description": "The exact bytes of each stream.",
+      "properties": {
+        "stdout": { "$ref": "#/$defs/stream" },
+        "stderr": { "$ref": "#/$defs/stream" }
+      }
+    },
+    "lifecycle": {
+      "type": ["object", "null"],
+      "description": "The owned group and its timings in milliseconds from the agent clock.",
+      "properties": {
+        "leader_pid": { "type": ["integer", "null"] },
+        "group_id": { "type": ["integer", "null"] },
+        "leader_start_time": { "type": ["string", "null"] },
+        "spawn_ms": { "type": "integer", "minimum": 0 },
+        "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "owner_lateness_ms": { "type": "integer", "minimum": 0 },
+        "finalised_after_ms": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "termination": {
+      "type": ["object", "null"],
+      "description": "How the agent ended the group of a timed-out or cancelled command. Times are milliseconds from the outcome.",
+      "properties": {
+        "term_sent_after_ms": { "type": "integer", "minimum": 0 },
+        "kill_sent_after_ms": { "type": "integer", "minimum": 0 },
+        "leader_status": {
+          "type": "object",
+          "required": ["kind"],
+          "properties": {
+            "kind": { "enum": ["exited", "signalled", "unavailable"] },
+            "exit_code": { "type": "integer" },
+            "signal": { "type": "integer" }
+          }
+        },
+        "leader_exit_after_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "group_empty": { "enum": ["yes", "no", "unknown"] },
+        "group_empty_after_ms": { "type": ["integer", "null"], "minimum": 0 },
+        "within_bounds": { "type": "boolean" }
+      }
+    },
+    "remaining_group": { "enum": ["none", "present", "unknown", null] }
+  },
+  "$defs": {
+    "stream": {
+      "type": "object",
+      "properties": {
+        "base64": { "type": "string" },
+        "bytes": { "type": "integer", "minimum": 0 },
+        "file_bytes": { "type": "integer", "minimum": 0 },
+        "sha256": { "type": "string" },
+        "capture": { "enum": ["complete", "incomplete"] },
+        "reason": { "enum": ["deadline", "read_error", null] }
+      }
+    }
   }
 }

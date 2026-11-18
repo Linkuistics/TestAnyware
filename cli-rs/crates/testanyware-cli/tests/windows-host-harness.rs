@@ -428,6 +428,7 @@ impl ProvisionChannel for AgentChannel {
             command: cmd.to_string(),
             timeout: EXEC_TIMEOUT_SECS,
             detach: false,
+            id: None,
         };
         let r = self
             .client

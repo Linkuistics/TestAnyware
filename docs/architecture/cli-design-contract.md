@@ -487,6 +487,12 @@ the displayed message) is replaced by a strict mapping; unknown wire
 strings surface as `code: AGENT_ERROR_UNKNOWN` with the wire string in
 `details.wire_error`.
 
+The Host CLI makes one agent code itself. No wire `error` string maps to it.
+
+| Code | When |
+|---|---|
+| `EXEC_RECORD_INVALID` | The typed exec record of an agent breaks a validity rule of `docs/specs/guest-command-lifecycle.md`. `details.problems` names each broken rule. The command exits 1 and never reports the record as a success. |
+
 ### 4.6 Generic / fall-through
 
 | Code | When |
@@ -558,10 +564,20 @@ catalogue grows by one entry. Agents can poll for additions.
 | `6` | Rate limited / try again later (`VM_LIMIT_REACHED`). |
 | `7` | Boot/startup timeout (`VM_BOOT_TIMEOUT`, `CONNECTION_TIMEOUT`, `OCR_TIMEOUT`, recording-related timeouts). |
 
-**Sub-process exit codes.** `file exec` propagates the in-VM process's
-exit code through `details.exit_code` in JSON mode and via the binary's
-own exit code in text mode (today's behaviour, kept). The binary's exit
-code is only `0` on a clean spawn AND a clean in-VM exit.
+**Sub-process exit codes.** `file exec` follows the section "Host CLI
+semantics" of `docs/specs/guest-command-lifecycle.md`:
+
+- JSON mode puts the legacy in-VM exit code in the top-level `exit_code`. The
+  envelope `ok` reports host transport and record validity only. A guest
+  outcome never sets `ok` to false, and JSON mode exits 0 when `ok` is true.
+- JSON mode adds the typed record: `exec_id`, `record`, `legacy_projection`,
+  `outcome`, `evidence`, `lifecycle`, `termination` and `remaining_group`. An
+  agent without the record gives the outcome `unknown` with the reason
+  `legacy_agent`. A caller never counts that outcome as a success.
+- Text mode does not change. When the legacy exit code is not 0, the binary
+  exits with it, and the process exit status takes it modulo 256.
+- A record that breaks a validity rule fails with `EXEC_RECORD_INVALID` and
+  exit 1 in both modes.
 
 **Documented in help.** Every subcommand's `--help` lists the exit
 codes it can produce (see §7).

@@ -1,0 +1,33 @@
+{
+  "source": "agents/windows/SystemEndpoints.cs, the POST /exec handler, and agents/windows/Models/Responses.cs ExecResult",
+  "note": "No recorded Windows /exec reply exists in the repository. These bodies follow the source of the Windows agent: it sends exitCode, stdout and stderr only, trims trailing whitespace of a finished command and sends -1 with 'Process timed out' at the deadline.",
+  "cases": [
+    {
+      "case": "exited",
+      "request": {
+        "command": "echo hello",
+        "timeout": 10
+      },
+      "httpStatus": 200,
+      "bodyText": "{\"exitCode\":0,\"stdout\":\"hello\",\"stderr\":\"\"}"
+    },
+    {
+      "case": "exit-23",
+      "request": {
+        "command": "echo partial & exit /b 23",
+        "timeout": 10
+      },
+      "httpStatus": 200,
+      "bodyText": "{\"exitCode\":23,\"stdout\":\"partial\",\"stderr\":\"\"}"
+    },
+    {
+      "case": "timeout",
+      "request": {
+        "command": "ping -n 30 127.0.0.1",
+        "timeout": 2
+      },
+      "httpStatus": 200,
+      "bodyText": "{\"exitCode\":-1,\"stdout\":\"\\r\\nPinging 127.0.0.1\\r\\n\",\"stderr\":\"Process timed out\"}"
+    }
+  ]
+}
