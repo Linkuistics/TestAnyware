@@ -97,6 +97,27 @@ final class SingleVersionFileTests: XCTestCase {
         }
     }
 
+    /// Review k237 R2. A blocking open of a FIFO without a writer waits for a
+    /// writer, so the rejection must come from a handle that opened at once.
+    /// On failure, a writer opens the FIFO and ends the wait.
+    func testAFIFOWithoutAWriterIsRejectedAtOnce() throws {
+        let path = directory.appendingPathComponent("evidence.pipe").path
+        XCTAssertEqual(mkfifo(path, 0o600), 0)
+        let done = DispatchSemaphore(value: 0)
+        let outcome = OpenOutcome()
+        Thread {
+            outcome.error = Result { try SingleVersionFile(path: path) }.failure
+            done.signal()
+        }.start()
+        if done.wait(timeout: .now() + 1) == .timedOut {
+            let writer = open(path, O_WRONLY | O_NONBLOCK)
+            _ = done.wait(timeout: .now() + 5)
+            if writer >= 0 { close(writer) }
+            return XCTFail("the open of a FIFO without a writer blocked for 1 s")
+        }
+        XCTAssertEqual(outcome.error as? SingleVersionFile.OpenError, .notFound)
+    }
+
     func testAnUnreadableFileFailsWithItsErrno() throws {
         let path = try write("secret", Data("x".utf8))
         XCTAssertEqual(chmod(path, 0), 0)
@@ -119,5 +140,17 @@ final class SingleVersionFileTests: XCTestCase {
         var body = Data()
         while !file.finished { body += try file.next(maxBytes: 4096) }
         return body
+    }
+}
+
+/// The result of an open on another thread.
+private final class OpenOutcome: @unchecked Sendable {
+    var error: Error?
+}
+
+private extension Result {
+    var failure: Failure? {
+        if case .failure(let error) = self { return error }
+        return nil
     }
 }

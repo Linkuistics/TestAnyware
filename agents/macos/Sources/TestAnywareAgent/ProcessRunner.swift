@@ -116,6 +116,14 @@ public final class CancelSignal: @unchecked Sendable {
         }
     }
 
+    /// A signal with the given ends, for a test. -1 is a pipe that did not
+    /// open. A read end that the queue cannot register stands for a failed
+    /// read source. The signal closes each end that is not -1.
+    init(wakeFD: Int32, writeFD: Int32) {
+        self.wakeFD = wakeFD
+        self.writeFD = writeFD
+    }
+
     deinit { close() }
 
     /// The uptime of the first request, or nil.
@@ -254,7 +262,11 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
                 usleep(useconds_t(min(left / 1_000, UInt64(Self.fallbackPollUs))))
                 continue
             }
-            let wait = min(left, Self.longestWaitNs)
+            // Without a read source for a signal, no event wakes the owner at a
+            // cancellation. The wait then ends at the poll interval, and the
+            // check at the top reads `requestedAt` (review k237 R1).
+            let longest = wake == nil || watching ? Self.longestWaitNs : UInt64(Self.fallbackPollUs) * 1_000
+            let wait = min(left, longest)
             var timeout = timespec(tv_sec: Int(wait / 1_000_000_000), tv_nsec: Int(wait % 1_000_000_000))
             var event = kevent()
             let count = kevent(queue, nil, 0, &event, 1, &timeout)
@@ -273,8 +285,8 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
         }
     }
 
-    /// Adds the read end of `wake` to the queue once. Without a source, the
-    /// status poll checks `requestedAt` at each turn instead.
+    /// Adds the read end of `wake` to the queue once. Without a source, each
+    /// wait ends at the poll interval and checks `requestedAt` instead.
     private func watch(_ wake: CancelSignal) {
         guard !watching, queue >= 0, wake.wakeFD >= 0 else { return }
         var change = kevent(

@@ -32,10 +32,14 @@ agents/macos/
 - **Exec registry.** The agent registers each exec `id`. It retains each
   finished record and each tombstone for 300 s, 64 at most.
   `/exec/cancel` ends a command through its lifecycle owner. A disconnect
-  is not a cancellation (ADR-0025).
+  is not a cancellation (ADR-0025). A waiting cancellation returns the record
+  of its own command, also after eviction and reuse of the id. When the
+  cancellation pipe or its read source fails, the owner polls for the
+  request every 10 ms.
 - **One file version for each download.** A download opens the file once.
   It sends exactly the length that `fstat` gave for that handle
-  (ADR-0026).
+  (ADR-0026). The open does not block. A path that is not a regular file,
+  such as a FIFO without a writer, gets 404 at once.
 - **Bounded shutdown.** At SIGTERM the agent stops admission and cancels
   each running guest command. It stops accepting connections, waits up to
   4 s for the records and then exits with status 0. A second SIGTERM ends

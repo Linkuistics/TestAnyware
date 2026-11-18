@@ -249,6 +249,28 @@ final class AgentProcessTests: XCTestCase {
         XCTAssertEqual(try missing.object()["error"] as? String, "download_failed")
     }
 
+    /// Review k237 R2. A FIFO without a writer gets the 404 of a non-file at
+    /// once, and health still answers. On failure, a writer ends the wait.
+    func testADownloadOfAFIFOAnswers404AtOnce() throws {
+        let path = FileManager.default.temporaryDirectory.appendingPathComponent("testanyware-k238-\(UUID().uuidString).pipe").path
+        XCTAssertEqual(mkfifo(path, 0o600), 0)
+        defer { unlink(path) }
+        let agent = self.agent!
+        let request = Background { try agent.post("/download?path=\(Self.escape(path))", nil) }
+        let reply: HTTPReply
+        do {
+            reply = try request.join(timeout: Self.healthBound)
+        } catch {
+            let writer = open(path, O_WRONLY | O_NONBLOCK)
+            _ = try? request.join(timeout: 5)
+            if writer >= 0 { close(writer) }
+            return XCTFail("the download of a FIFO did not answer within 1 s: \(error)")
+        }
+        XCTAssertEqual(reply.status, 404)
+        XCTAssertEqual(try reply.object()["error"] as? String, "download_failed")
+        XCTAssertEqual(try agent.get("/health").status, 200)
+    }
+
     // MARK: - Helpers
 
     /// Waits for the PID file `name`, adopts the session of its process and
@@ -337,6 +359,25 @@ final class AgentShutdownTests: XCTestCase {
     }
 }
 
+/// Review k237 R4. A built agent that cannot serve health fails the
+/// transport controls. It must not skip them, and the failure keeps the
+/// agent's own output.
+final class AgentProcessStartTests: XCTestCase {
+
+    func testAnAgentThatExitsBeforeHealthIsAFailureWithItsOutput() throws {
+        let script = FileManager.default.temporaryDirectory.appendingPathComponent("testanyware-k238-\(UUID().uuidString).sh")
+        try Data("#!/bin/sh\necho 'k238 startup diagnostic' >&2\nexit 3\n".utf8).write(to: script)
+        defer { try? FileManager.default.removeItem(at: script) }
+        XCTAssertEqual(chmod(script.path, 0o700), 0)
+        XCTAssertThrowsError(try AgentProcess.start(binary: script.path)) { error in
+            XCTAssertFalse(error is XCTSkip, "a startup failure skipped the controls")
+            let failure = error as? AgentProcess.NotHealthy
+            XCTAssertNotNil(failure, "unexpected error: \(error)")
+            XCTAssertTrue(failure?.output.contains("k238 startup diagnostic") == true, "the log was lost: \(error)")
+        }
+    }
+}
+
 // MARK: - Agent process
 
 /// One agent binary on a loopback port, started with `posix_spawn` and
@@ -356,8 +397,16 @@ final class AgentProcess: @unchecked Sendable {
             .appendingPathComponent("testanyware-agent").path
     }
 
-    static func start() throws -> AgentProcess {
-        let process = try AgentProcess(port: try freePort())
+    /// A built agent that did not serve health. This is a failure, not a
+    /// skip, so a startup regression fails `agent:macos:test` (review k237 R4).
+    struct NotHealthy: Error, CustomStringConvertible {
+        let binary: String
+        let output: String
+        var description: String { "the agent \(binary) did not answer /health: \(output)" }
+    }
+
+    static func start(binary: String = AgentProcess.binary) throws -> AgentProcess {
+        let process = try AgentProcess(binary: binary, port: try freePort())
         let deadline = Date().addingTimeInterval(15)
         while Date() < deadline {
             if (try? Connection.exchange(port: process.port, Request.get("/health")).status) == 200 {
@@ -366,12 +415,14 @@ final class AgentProcess: @unchecked Sendable {
             guard process.isRunning else { break }
             Thread.sleep(forTimeInterval: 0.05)
         }
-        process.stop()
+        // `stop` removes the log, so the diagnostic is read first.
+        process.terminate()
         let output = (try? String(contentsOf: process.log, encoding: .utf8)) ?? ""
-        throw XCTSkip("the agent \(binary) did not answer /health: \(output)")
+        process.stop()
+        throw NotHealthy(binary: binary, output: output)
     }
 
-    private init(port: Int) throws {
+    private init(binary: String, port: Int) throws {
         self.port = port
         log = FileManager.default.temporaryDirectory.appendingPathComponent("testanyware-agent-\(UUID().uuidString).log")
         var actions: posix_spawn_file_actions_t?
@@ -392,7 +443,6 @@ final class AgentProcess: @unchecked Sendable {
         posix_spawnattr_setsigmask(&attributes, &none)
         posix_spawnattr_setsigdefault(&attributes, &all)
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
-        let binary = Self.binary
         let argv: [UnsafeMutablePointer<CChar>?] = [binary, String(port), "127.0.0.1"].map { strdup($0) } + [nil]
         let envp: [UnsafeMutablePointer<CChar>?] =
             ProcessInfo.processInfo.environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
@@ -430,8 +480,8 @@ final class AgentProcess: @unchecked Sendable {
         return low == 0 ? (status >> 8) & 0xff : -low
     }
 
-    /// Ends the agent: SIGTERM, then SIGKILL after 5 s. Removes the log.
-    func stop() {
+    /// Ends the agent: SIGTERM, then SIGKILL after 5 s. Keeps the log.
+    func terminate() {
         if !reaped {
             signal(SIGTERM)
             if waitExit(seconds: 5) == nil {
@@ -439,6 +489,11 @@ final class AgentProcess: @unchecked Sendable {
                 _ = waitExit(seconds: 5)
             }
         }
+    }
+
+    /// Ends the agent as `terminate` does, then removes the log.
+    func stop() {
+        terminate()
         try? FileManager.default.removeItem(at: log)
     }
 

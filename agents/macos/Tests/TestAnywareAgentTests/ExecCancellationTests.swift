@@ -186,6 +186,34 @@ final class ExecCancellationTests: XCTestCase {
         }
     }
 
+    // MARK: - No cancellation wake source (review k237 R1)
+
+    /// The pipe did not open. The exit source of the leader stays live.
+    func testACancellationWithoutAPipeEndsTheCommandWithinTheLatenessBound() async throws {
+        try await checkCancellationWithoutAWakeSource(CancelSignal(wakeFD: -1, writeFD: -1))
+    }
+
+    /// The pipe exists, but the queue refuses its read source. No descriptor
+    /// has this number, so `kevent` refuses it with EBADF. The exit source of
+    /// the leader stays live.
+    func testACancellationWhoseReadSourceFailsEndsTheCommandWithinTheLatenessBound() async throws {
+        try await checkCancellationWithoutAWakeSource(CancelSignal(wakeFD: Int32.max, writeFD: -1))
+    }
+
+    /// The deadline is 3 s. An owner that sleeps through the cancellation
+    /// wakes only at the deadline, and its lateness is then about 2.7 s.
+    private func checkCancellationWithoutAWakeSource(_ signal: CancelSignal) async throws {
+        let canceller = Task.detached {
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            signal.request()
+        }
+        let owned = await ProcessRunner.runOwned(command: "exec sleep 30", timeoutSeconds: 3, cancel: signal)
+        await canceller.value
+        XCTAssertEqual(owned.outcome, .cancelled(beforeStart: false))
+        XCTAssertLessThanOrEqual(owned.ownerLatenessMs, Self.ownerLatenessBoundMs)
+        XCTAssertEqual(owned.termination?.groupEmpty, "yes")
+    }
+
     // MARK: - Helpers
 
     /// Admits `id` and runs its command in the background, as `/exec` does.
@@ -193,7 +221,7 @@ final class ExecCancellationTests: XCTestCase {
         _ registry: ExecRegistry, _ id: String, _ command: String, timeout: Int, seams: OwnerSeams = .live
     ) throws -> Task<Void, Never> {
         guard case .start(let signal) = registry.admit(id) else {
-            throw XCTSkip("the registry did not admit \(id)")
+            throw FixtureFailure("the registry did not admit \(id)")
         }
         return Task.detached {
             let owned = await ProcessRunner.runOwned(
@@ -217,7 +245,7 @@ final class ExecCancellationTests: XCTestCase {
             }
             try await Task.sleep(nanoseconds: 10_000_000)
         }
-        throw XCTSkip("no PID in \(path)")
+        throw FixtureFailure("no PID in \(path)")
     }
 }
 
@@ -260,4 +288,11 @@ final class LateOwnerWaiter: LeaderWaiter, @unchecked Sendable {
     func hasExited() -> Bool { real.hasExited() }
 
     func reap() -> Int32 { real.reap() }
+}
+
+/// A fixture step that did not happen. The test fails, because a skip would
+/// hide a regression from `agent:macos:test` (review k237 R4).
+struct FixtureFailure: Error, CustomStringConvertible {
+    let description: String
+    init(_ description: String) { self.description = description }
 }

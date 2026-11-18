@@ -140,6 +140,37 @@ final class ExecRegistryTests: XCTestCase {
         XCTAssertEqual(reply?.record.id, "waited")
     }
 
+    /// Review k237 R3. The waiting thread is suspended. Meanwhile command A
+    /// publishes, a tombstone evicts A's record, and command B reuses the id
+    /// and publishes `exited(23)`. The waiter then wakes and must return A's
+    /// record, not B's.
+    func testAWaitingCancellationReturnsItsOwnRecordAfterEvictionAndReuse() async throws {
+        let replyB = await ProcessRunner.runOwned(command: "exit 23", timeoutSeconds: 5).reply(id: "reuse")
+        XCTAssertEqual(replyB.record.outcome, .exited(exitCode: 23))
+        let registry = ExecRegistry(limit: 1)
+        guard case .start(let signalA) = registry.admit("reuse") else { return XCTFail("A not admitted") }
+        let waiter = SuspendableWaiter { registry.cancel("reuse", waitNs: 10_000_000_000) }
+        let deadline = Date().addingTimeInterval(5)
+        while signalA.requestedAt == nil, Date() < deadline { usleep(1_000) }
+        // The request happens under the registry lock, and the waiter keeps
+        // the lock until it waits. This call takes the lock after the request,
+        // so the waiter now waits.
+        XCTAssertEqual(registry.state("reuse"), "running")
+        try waiter.suspend()
+        defer { waiter.resume() }
+
+        registry.publish("reuse", reply: Self.cancelledReply("reuse"))
+        XCTAssertEqual(registry.cancel("evicts-a", waitNs: 0).0, .unknownID)
+        XCTAssertNil(registry.state("reuse"), "A's record was not evicted")
+        guard case .start = registry.admit("reuse") else { return XCTFail("B not admitted") }
+        registry.publish("reuse", reply: replyB)
+
+        waiter.resume()
+        let (state, reply) = try XCTUnwrap(waiter.join(timeout: 5), "the waiting cancellation did not return")
+        XCTAssertEqual(state, .terminal)
+        XCTAssertEqual(reply?.record.outcome, .cancelled(beforeStart: true))
+    }
+
     // MARK: - Helpers
 
     static func cancelledReply(_ id: String) -> ExecReply {
@@ -169,5 +200,57 @@ final class FakeClock: @unchecked Sendable {
         lock.lock()
         now += seconds * 1_000_000_000
         lock.unlock()
+    }
+}
+
+/// A cancellation that waits on its own thread, which a test can suspend
+/// with `thread_suspend` while it waits.
+final class SuspendableWaiter: @unchecked Sendable {
+    private let lock = NSCondition()
+    private var thread: thread_act_t?
+    private var result: (ExecRegistry.CancelState, ExecReply?)?
+    private var suspended = false
+
+    init(_ body: @escaping @Sendable () -> (ExecRegistry.CancelState, ExecReply?)) {
+        Thread { [self] in
+            lock.lock()
+            thread = mach_thread_self()
+            lock.broadcast()
+            lock.unlock()
+            let value = body()
+            lock.lock()
+            result = value
+            lock.broadcast()
+            lock.unlock()
+        }.start()
+    }
+
+    deinit {
+        if let thread { mach_port_deallocate(mach_task_self_, thread) }
+    }
+
+    func suspend() throws {
+        lock.lock()
+        defer { lock.unlock() }
+        while thread == nil { lock.wait() }
+        XCTAssertEqual(thread_suspend(thread!), KERN_SUCCESS)
+        suspended = true
+    }
+
+    /// Resumes a suspended thread. A repeat does nothing.
+    func resume() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard suspended, let thread else { return }
+        suspended = false
+        XCTAssertEqual(thread_resume(thread), KERN_SUCCESS)
+    }
+
+    func join(timeout: TimeInterval) -> (ExecRegistry.CancelState, ExecReply?)? {
+        lock.lock()
+        defer { lock.unlock() }
+        let end = Date().addingTimeInterval(timeout)
+        while result == nil, lock.wait(until: end) {}
+        return result
     }
 }

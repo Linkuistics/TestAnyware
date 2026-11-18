@@ -166,7 +166,9 @@ each running command. Each agent waits up to 4 s for the records and then exits.
 
 `id` follows the `/exec` rule. `waitMs` is an integer from 0 to 10000. It
 defaults to 0. Any other value returns 400 with `exec_failed`. The agent
-waits up to `waitMs` for the record of a running command.
+waits up to `waitMs` for the record of a running command. That record is
+always the record of the cancelled command, also when retention evicts it
+and a new command takes the id.
 
 A disconnect is not a cancellation (ADR-0025). A client can end a command
 before its deadline only with this request.
@@ -206,6 +208,10 @@ connection. The body is then short, and the client detects it.
 
 An in-place overwrite during the read is outside the contract. Publish each
 version under a fresh name instead.
+
+The macOS agent answers 404 with `download_failed` for a path that is not a
+regular file, such as a directory or a FIFO. It opens the path without
+blocking, so a FIFO without a writer gets that answer at once.
 
 Each end percent-encodes `path` by the standard URI query-component
 rules. So Unicode and special characters in guest paths survive in the

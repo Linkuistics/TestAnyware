@@ -38,8 +38,13 @@ public final class SingleVersionFile: @unchecked Sendable {
     private var offset = 0
 
     /// Opens `path` once and measures that handle.
+    ///
+    /// The open does not block. A blocking open of a FIFO without a writer
+    /// waits for a writer, before the check below can reject it (review k237
+    /// R2). `O_NOCTTY` keeps a terminal device from becoming the controlling
+    /// terminal. A regular file then gets blocking reads again.
     public init(path: String) throws {
-        let fd = Darwin.open(path, O_RDONLY | O_CLOEXEC)
+        let fd = Darwin.open(path, O_RDONLY | O_CLOEXEC | O_NONBLOCK | O_NOCTTY)
         guard fd >= 0 else {
             let code = errno
             throw code == ENOENT || code == ENOTDIR ? OpenError.notFound : OpenError.failed(code)
@@ -54,6 +59,12 @@ public final class SingleVersionFile: @unchecked Sendable {
             // A directory or another kind of file is not a downloadable file.
             Darwin.close(fd)
             throw OpenError.notFound
+        }
+        let flags = fcntl(fd, F_GETFL)
+        guard flags >= 0, fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == 0 else {
+            let code = errno
+            Darwin.close(fd)
+            throw OpenError.failed(code)
         }
         self.fd = fd
         length = Int(info.st_size)

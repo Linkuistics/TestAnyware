@@ -45,8 +45,18 @@ public final class ExecRegistry: @unchecked Sendable {
         case unknownID = "unknown_id"
     }
 
+    /// One admitted command. A waiting cancellation holds this object, so it
+    /// reads the record of its own command even after eviction and reuse of
+    /// the id (review k237 R3). The Linux registry waits on its `_Entry` in
+    /// the same way. Read and written under the lock.
+    private final class Run {
+        let signal: CancelSignal
+        var reply: ExecReply?
+        init(_ signal: CancelSignal) { self.signal = signal }
+    }
+
     private enum State {
-        case running(CancelSignal)
+        case running(Run)
         case terminal(ExecReply)
         case tombstone
     }
@@ -119,11 +129,11 @@ public final class ExecRegistry: @unchecked Sendable {
             guard case .tombstone = entry.state else { return .inUse }
             // The tombstone becomes the running entry of a command that never
             // starts. `publish` then retains its cancelled record.
-            entries[id] = stamped(.running(CancelSignal()))
+            entries[id] = stamped(.running(Run(CancelSignal())))
             return .tombstoned
         }
         let signal = CancelSignal()
-        entries[id] = stamped(.running(signal))
+        entries[id] = stamped(.running(Run(signal)))
         return .start(signal)
     }
 
@@ -131,10 +141,11 @@ public final class ExecRegistry: @unchecked Sendable {
     public func publish(_ id: String, reply: ExecReply) {
         condition.lock()
         defer { condition.unlock() }
-        guard let entry = entries[id], case .running(let signal) = entry.state else {
+        guard let entry = entries[id], case .running(let run) = entry.state else {
             preconditionFailure("publish of an exec id that is not running: \(id)")
         }
-        signal.close()
+        run.signal.close()
+        run.reply = reply
         entries[id] = stamped(.terminal(reply))
         condition.broadcast()
         evict()
@@ -175,11 +186,13 @@ public final class ExecRegistry: @unchecked Sendable {
             return (.unknownID, nil)
         case .terminal(let reply):
             return (.terminal, reply)
-        case .running(let signal):
-            signal.request()
+        case .running(let run):
+            run.signal.request()
             let end = ProcessRunner.uptime() &+ waitNs
             while true {
-                if case .terminal(let reply)? = entries[id]?.state { return (.terminal, reply) }
+                // Only this command's own record. The id can hold another
+                // command by now.
+                if let reply = run.reply { return (.terminal, reply) }
                 let now = ProcessRunner.uptime()
                 if now >= end { return (.terminating, nil) }
                 _ = condition.wait(until: Date(timeIntervalSinceNow: Double(end - now) / 1e9))
@@ -197,8 +210,8 @@ public final class ExecRegistry: @unchecked Sendable {
         let now = ProcessRunner.uptime()
         var running: [String] = []
         for (id, entry) in entries {
-            if case .running(let signal) = entry.state {
-                signal.request(at: now)
+            if case .running(let run) = entry.state {
+                run.signal.request(at: now)
                 running.append(id)
             }
         }

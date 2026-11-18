@@ -281,7 +281,12 @@ defaults to 0. The reply is HTTP 200 with a state.
 | `unknown_id` | The agent held no such id. It now holds a tombstone. | absent |
 
 A cancellation is idempotent. A repeat returns the current state and never
-changes a terminal outcome. A tombstone makes a later `/exec` with that id
+changes a terminal outcome. A waiting cancellation returns only the record of
+the command that it cancelled. Retention can evict that record and a new
+command can take the id during the wait. The reply then still carries the
+cancelled command's record.
+
+A tombstone makes a later `/exec` with that id
 return `cancelled` with `beforeStart: true`, without a spawn. The tombstone
 covers a cancellation that overtakes its own `/exec` on another connection.
 `unknown_id` never proves that no command ran.
