@@ -1,8 +1,8 @@
 # Component: `agents/linux/` — Linux in-VM agent
 
-Python 3.12+ package that runs **inside** a Linux VM. Implements the
-TestAnyware agent HTTP surface on port 8648 using `http.server` (no
-framework dependency) and AT-SPI2 via `python3-pyatspi` for
+This Python 3.12+ package runs **inside** a Linux VM. It implements the
+TestAnyware agent HTTP surface on port 8648 with `http.server`, so it
+needs no framework. It uses AT-SPI2 through `python3-pyatspi` for
 accessibility.
 
 ## Layout
@@ -45,13 +45,12 @@ POST /wait
 POST /exec, /upload, /download, /shutdown
 ```
 
-Wire shapes are documented in `docs/architecture/agent-protocol.md`.
+`docs/architecture/agent-protocol.md` documents the wire shapes.
 
 ## Build / test / run
 
-**No build step.** Installed into the Linux golden image as Python
-source; started by a systemd user service
-(`testanyware-agent.service`).
+**No build step.** The Linux golden image holds the agent as Python
+source. A systemd user service (`testanyware-agent.service`) starts it.
 
 ```bash
 cd agents/linux
@@ -72,12 +71,12 @@ journalctl --user -u testanyware-agent.service
 - **Wayland vs X11.** AT-SPI2 works on both, but `xdotool` (used for
   window coordinate fallback) does not work on native Wayland
   sessions. The golden image forces X11 via `WaylandEnable=false`.
-- **Python 3.12+ required.** `pyatspi` bindings match the system
-  Python; don't try to run this inside a venv with a different
+- **Python 3.12+ required.** The `pyatspi` bindings match the system
+  Python. Do not run the agent inside a venv with a different
   version.
 - **Electron apps render black.** See
   [`docs/user/troubleshooting.md`](../user/troubleshooting.md).
-  Launch with `--disable-gpu`.
-- **Role mapping lives in code.** Any addition to the host-side
-  `UnifiedRole` enum needs a corresponding mapping in
-  `role_mapper.py`; otherwise the agent returns `unknown`.
+  Start them with `--disable-gpu`.
+- **Role mapping lives in code.** Each addition to the host-side
+  `UnifiedRole` enum needs a matching entry in `role_mapper.py`.
+  Without it, the agent returns `unknown`.
