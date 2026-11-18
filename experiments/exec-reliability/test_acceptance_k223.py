@@ -33,16 +33,36 @@ OSES = ("macos", "linux")
 PID = 4242
 
 
-def _manifest(tmp_path: Path, **bounds: object) -> Path:
-    path = tmp_path / "manifest.json"
-    data = {
-        "cli": "/opt/private/testanyware",
-        "tart": "/opt/private/tart",
+CLI = "/opt/private/testanyware"
+TART = "/opt/private/tart"
+APP_EXECUTABLE = "/opt/private/TestAnyware.app/Contents/MacOS/TestAnyware"
+APP_BUILD = "0.0.0-k224"
+FROZEN = {CLI: "a" * 64, TART: "b" * 64, APP_EXECUTABLE: "c" * 64}
+MACOS_AGENT_SHA256 = "d" * 64
+LINUX_LISTING = (
+    f"{'e' * 64}  ./testanyware_agent/__main__.py\n{'f' * 64}  ./testanyware_agent/exec.py\n"
+)
+AGENTS = {
+    "macos": MACOS_AGENT_SHA256,
+    "linux": hashlib.sha256(LINUX_LISTING.encode()).hexdigest(),
+}
+
+
+def _manifest_data(**bounds: object) -> Json:
+    return {
+        "cli": CLI,
+        "tart": TART,
         "goldens": {"macos": "k224-golden-macos", "linux": "k224-golden-linux"},
         "bounds": bounds or {"boot": 420, "slot": 60},
-        "sha256": {},
+        "agents": dict(AGENTS),
+        "app": {"build": APP_BUILD, "executable": APP_EXECUTABLE},
+        "sha256": dict(FROZEN),
     }
-    path.write_text(json.dumps(data))
+
+
+def _manifest(tmp_path: Path, data: Json | None = None, **bounds: object) -> Path:
+    path = tmp_path / "manifest.json"
+    path.write_text(json.dumps(data or _manifest_data(**bounds)))
     return path
 
 
@@ -61,6 +81,8 @@ def test_plan_passes_controller_validation_in_root_order(tmp_path: Path, os_name
     names = [call.name for call in plan.calls]
     assert ["acquire", *names, "cleanup", "dispose", "inspect"] == checker.expected_shape(os_name)
     order = [
+        "app-identity",
+        "identity",
         "baseline",
         "install",
         "intact",
@@ -76,8 +98,16 @@ def test_plan_passes_controller_validation_in_root_order(tmp_path: Path, os_name
     ]
     assert [names.index(name) for name in order] == sorted(names.index(name) for name in order)
     assert sum(name.startswith("ordinary-") for name in names) == 10
-    assert sum(name.startswith("after-timeout-") for name in names) == 10
-    assert sum(name.startswith("after-cancel-") for name in names) == 10
+    calls = {call.name: call for call in plan.calls}
+    for case in ("timeout", "cancel"):
+        block = [calls[name] for name in names if name.startswith(f"after-{case}-")]
+        checks = [call for call in block if call.argv[-1] == trial.child_check(case)]
+        # The stricter reading of the root: ten operations, and child checks besides them.
+        assert (len(block), len(checks)) == (14, 4)
+        assert block[0] in checks and block[-1] in checks
+        operations = [call for call in block if call not in checks]
+        kinds = [call.argv[1:3] == ("agent", "health") for call in operations]
+        assert kinds == [True, False] * 5
 
 
 @pytest.mark.parametrize("os_name", OSES)
@@ -89,7 +119,7 @@ def test_every_host_cli_call_uses_json_mode_and_its_own_exec_id(
     calls = [*plan.calls, resource.cleanup]
     ids: list[str] = []
     for call in calls:
-        if call.argv[0] == "/opt/private/testanyware":
+        if call.argv[0] == CLI:
             assert "--json" in call.argv, call.name
         if call.argv[1:3] == ("file", "exec"):
             exec_id = call.argv[call.argv.index("--exec-id") + 1]
@@ -124,7 +154,9 @@ def test_bounds_are_the_root_and_spec_ceilings(tmp_path: Path) -> None:
     assert (plan.term_grace, plan.kill_wait) == (2.0, 2.0)
     assert resource.dispose.budget + reserve <= trial.DISPOSAL == 45.0
     assert resource.cleanup.budget + reserve <= trial.GUEST_CLEANUP == 30.0
-    assert resource.acquire.budget == 480.0
+    # The boot bound alone: `vm start` runs without `--wait` and never waits for a slot.
+    assert resource.acquire.budget == 420.0
+    assert "--wait" not in resource.acquire.argv
     for call in plan.calls:
         if call.argv[1:3] == ("file", "exec"):
             guest = int(call.argv[call.argv.index("--timeout") + 1])
@@ -138,7 +170,7 @@ def test_bounds_are_the_root_and_spec_ceilings(tmp_path: Path) -> None:
     assert calls["timeout"].budget == 22.0
     assert calls["ordinary-02"].budget == trial.OBSERVATION == 30.0
     bounds = trial.bounds(trial.read_manifest(_manifest(tmp_path)))
-    assert bounds["boot"] == 420 and bounds["slot"] == 60 and bounds["acquire"] == 480
+    assert bounds["boot"] == 420 and bounds["slot"] == 60 and bounds["acquire"] == 420
 
 
 @pytest.mark.parametrize(
@@ -152,6 +184,31 @@ def test_manifest_without_valid_boot_and_slot_bounds_is_refused(
         trial.read_manifest(_manifest(tmp_path, **bounds))
 
 
+@pytest.mark.parametrize(
+    ("edit", "message"),
+    [
+        (lambda d: d.pop("agents"), "agents"),
+        (lambda d: d["agents"].pop("linux"), "agents"),
+        (lambda d: d["agents"].update(macos="sha256:abc"), "agents"),
+        (lambda d: d.pop("app"), "app build"),
+        (lambda d: d["app"].update(build=""), "app build"),
+        (lambda d: d["app"].update(executable="TestAnyware"), "app executable"),
+        (lambda d: d["sha256"].pop(CLI), "does not pin"),
+        (lambda d: d["sha256"].pop(TART), "does not pin"),
+        (lambda d: d["sha256"].pop(APP_EXECUTABLE), "does not pin"),
+        (lambda d: d["sha256"].update({CLI: "A" * 64}), "malformed"),
+        (lambda d: d.update(sha256={}), "does not pin"),
+    ],
+)
+def test_manifest_without_frozen_identities_is_refused(
+    tmp_path: Path, edit: Callable[[Json], object], message: str
+) -> None:
+    data = _manifest_data()
+    edit(data)
+    with pytest.raises(ValueError, match=message):
+        trial.read_manifest(_manifest(tmp_path, data))
+
+
 def test_changed_frozen_digest_is_refused(tmp_path: Path) -> None:
     subject = tmp_path / "subject"
     subject.write_bytes(b"frozen")
@@ -160,6 +217,24 @@ def test_changed_frozen_digest_is_refused(tmp_path: Path) -> None:
     subject.write_bytes(b"frozen!")
     assert trial.digest_mismatches({str(subject): digest}) != []
     assert trial.fixture_mismatches("macos") == trial.fixture_mismatches("linux") == []
+
+
+def test_a_subject_changed_between_clones_refuses_the_next_clone(tmp_path: Path) -> None:
+    subject = tmp_path / "cli"
+    subject.write_bytes(b"build 1")
+    data = _manifest_data()
+    data["sha256"] = {str(subject): hashlib.sha256(b"build 1").hexdigest()}
+    data["cli"] = data["tart"] = data["app"]["executable"] = str(subject)
+    path = _manifest(tmp_path, data)
+    manifest = trial.read_manifest(path)
+    frozen = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert trial.freeze_refusals(manifest, frozen) == []
+    # A compatible build at the same path after clone 1 is a new candidate.
+    subject.write_bytes(b"build 2")
+    assert trial.freeze_refusals(manifest, frozen) != []
+    subject.write_bytes(b"build 1")
+    path.write_text(path.read_text() + " ")
+    assert trial.freeze_refusals(manifest, frozen) != []
 
 
 def test_reset_is_demonstrated_only_by_the_next_baseline() -> None:
@@ -173,6 +248,14 @@ def test_reset_is_demonstrated_only_by_the_next_baseline() -> None:
     }
     five = [{"clone": f"linux-0{n}", "passed": True, "baseline_ok": True} for n in range(1, 6)]
     assert trial.reset_record(five)["linux-05"] == "undemonstrated: no later clone of this OS"
+    refused = [
+        {"clone": "macos-01", "passed": True, "baseline_ok": True},
+        {"clone": "macos-02", "passed": False, "baseline_ok": False, "refused": ["cli"]},
+    ]
+    assert trial.reset_record(refused) == {
+        "macos-01": "undemonstrated: macos-02 was refused before it ran",
+        "macos-02": "undemonstrated: this clone was refused before it ran",
+    }
 
 
 # --- record validity --------------------------------------------------------
@@ -220,6 +303,7 @@ def _record(
     *,
     termination: Json | None = None,
     duration: int = 41,
+    finalised: int | None = None,
 ) -> Json:
     """One valid typed record in the snake_case shape of the Host CLI."""
     terminated = outcome["kind"] in ("timed_out", "cancelled")
@@ -240,7 +324,7 @@ def _record(
             "spawn_ms": 2,
             "duration_ms": duration,
             "owner_lateness_ms": 3 if terminated else 0,
-            "finalised_after_ms": 1910 if terminated else 3,
+            "finalised_after_ms": finalised if finalised is not None else 1910 if terminated else 3,
         },
         "termination": (termination or _termination()) if terminated else None,
         "remaining_group": None if terminated else "none",
@@ -316,6 +400,15 @@ def test_unavailable_leader_status_is_valid_but_fails_acceptance() -> None:
         lambda r: r["termination"].update(leader_exit_after_ms=1911),
         lambda r: r["termination"].update(group_empty_after_ms=None),
         lambda r: r["termination"].update(within_bounds=False),
+        # Finding R6 of k241: the payload of each leader status kind.
+        lambda r: r["termination"].update(leader_status={"kind": "signalled"}),
+        lambda r: r["termination"].update(leader_status={"kind": "signalled", "signal": "15"}),
+        lambda r: r["termination"].update(leader_status={"kind": "signalled", "signal": True}),
+        lambda r: r["termination"].update(leader_status={"kind": "exited"}),
+        lambda r: r["termination"].update(leader_status={"kind": "exited", "signal": 15}),
+        lambda r: r["termination"].update(
+            leader_status={"kind": "signalled", "signal": 15, "exit_code": 0}
+        ),
         lambda r: r.pop("outcome"),
         lambda r: r.update(outcome={"kind": "unknown", "reason": "legacy_agent"}),
     ],
@@ -359,6 +452,75 @@ def test_child_states(stdout: bytes | None, state: str) -> None:
     assert checker.child_state(stdout) == state
 
 
+def test_exited_leader_status_is_valid() -> None:
+    termination = _termination() | {"leader_status": {"kind": "exited", "exit_code": 0}}
+    record = _record("linux", "id-1", TIMED_OUT, *PARTIAL, termination=termination)
+    assert checker.record_failures(record, "id-1", envelope=False) == []
+
+
+ZOMBIE_ROW = f" {PID} 1 4240 Z Wed Nov 18 03:40:00 2026 [sleep]\n"
+SLEEP_ROW = f" {PID} 1 4240 S Wed Nov 18 03:40:00 2026 sleep 120\n"
+
+
+def _polls(*rows: str | None) -> bytes:
+    """A child poll output: each row is a listed snapshot, and None is an absent poll."""
+    lines = [f"child pid={PID}\n"]
+    for row in rows:
+        lines.append("child ps-exit=1\n" if row is None else f"{row}child ps-exit=0\n")
+    return "".join(lines).encode()
+
+
+@pytest.mark.parametrize(
+    ("stdout", "passes"),
+    [
+        # Finding R1 of k241: a zombie inside the termination interval, then absence.
+        (_polls(ZOMBIE_ROW, None), True),
+        (_polls(SLEEP_ROW, ZOMBIE_ROW, None), True),
+        (_polls(None), True),
+        (_polls(*([SLEEP_ROW] * trial.CHILD_POLLS)), False),
+        (_polls(*([ZOMBIE_ROW] * trial.CHILD_POLLS)), False),
+        (_polls(*([SLEEP_ROW] * trial.CHILD_POLLS), None), False),
+        (_polls(f" {PID} 1 4240 S Wed Nov 18 03:40:00 2026 /usr/bin/vim\n", None), False),
+        (_polls(None, None), False),
+        (b"child pid-file=unreadable\n", False),
+        (_polls(SLEEP_ROW)[:-1], False),
+        (None, False),
+    ],
+)
+def test_child_poll_requires_absence_by_its_last_poll(stdout: bytes | None, passes: bool) -> None:
+    assert (checker.child_poll_failures(stdout) == []) is passes
+
+
+def test_child_poll_covers_the_termination_interval() -> None:
+    poll = trial.child_poll("interrupt")
+    waits = (trial.CHILD_POLLS - 1) * trial.CHILD_POLL_WAIT
+    assert waits >= trial.TERM_GRACE + trial.KILL_WAIT
+    assert f'[ "$n" -ge {trial.CHILD_POLLS} ]' in poll and "sleep 0.1" in poll
+    # The poll and its waits fit inside the guest budget of the observation.
+    assert waits < trial.OBSERVE_GUEST
+
+
+def test_child_poll_runs_in_a_posix_shell(tmp_path: Path) -> None:
+    pid_file = tmp_path / "child.pid"
+    child = subprocess.Popen(["sleep", "120"])
+    pid_file.write_text(f"{child.pid}\n")
+    poll = trial.child_poll("interrupt").replace(
+        f"{trial.CHILD_ROOT}/interrupt/child.pid", str(pid_file)
+    )
+    poller = subprocess.Popen(["sh", "-c", poll], stdout=subprocess.PIPE)
+    try:
+        time.sleep(0.4)
+        child.kill()  # a zombie until this test reaps it
+        time.sleep(0.4)
+    finally:
+        child.kill()
+        child.wait()
+    stdout, _ = poller.communicate(timeout=10)
+    states = checker.child_states(stdout)
+    assert states[0] == "present" and "zombie" in states, stdout
+    assert states[-1] == "absent" and checker.child_poll_failures(stdout) == [], stdout
+
+
 # --- the clean clone ----------------------------------------------------------
 
 
@@ -370,7 +532,9 @@ class Builder:
         self.directory = tmp_path / f"{os_name}-01"
         self.downloads = self.directory / "downloads"
         self.downloads.mkdir(parents=True)
-        manifest = trial.read_manifest(_manifest(tmp_path))
+        self.manifest_path = _manifest(tmp_path)
+        manifest = trial.read_manifest(self.manifest_path)
+        self.manifest = manifest
         self.plan = trial.plan(manifest, os_name, 1, sys.executable, self.downloads)
         self.run = self.directory / self.plan.run_id
         self.run.mkdir()
@@ -391,11 +555,28 @@ class Builder:
             "leaf": trial.LEAF,
             "os": os_name,
             "index": 1,
+            "manifest": str(manifest.path),
+            "manifest_sha256": hashlib.sha256(self.manifest_path.read_bytes()).hexdigest(),
+            "frozen_sha256": manifest.sha256,
+            "identities": trial.identities(manifest, os_name),
             "bounds": trial.bounds(manifest),
+            "slot": trial.SLOT_NOTE,
             "plan": json.loads(controller._json_bytes(asdict(self.plan))),  # pyright: ignore[reportPrivateUsage]
         }
+        self.subjects = self.frozen_subjects()
         for name in checker.expected_shape(os_name):
             self.default(name)
+
+    def frozen_subjects(self) -> dict[str, str]:
+        """The subject digests of a run that measured the frozen candidate."""
+        digests = dict(self.manifest.sha256)
+        digests[str(self.manifest.path)] = self.inventory["manifest_sha256"]
+        fixture = trial.FIXTURES[self.os_name]
+        for name, digest in trial.FIXTURE_SHA256[self.os_name].items():
+            digests[str((fixture / name).absolute())] = digest
+        for module in trial.checker_modules():
+            digests[str(module.absolute())] = hashlib.sha256(module.read_bytes()).hexdigest()
+        return digests
 
     def id(self, name: str) -> str:
         return trial.exec_id(self.plan.run_id, name)
@@ -426,8 +607,15 @@ class Builder:
         record = _record(self.os_name, self.id(name), outcome, out, err, **kw)
         self.put(name, _envelope(self.argv(name), record), elapsed=0.3)
 
-    def cancel_reply(self, target: str) -> Json:
-        record = _record(self.os_name, self.id(target), CANCELLED, *PARTIAL, duration=1900)
+    def cancel_record(self, target: str) -> Json:
+        # Spawn at 0.10 s, outcome at 2.05 s, record published at 2.15 s: the
+        # helper's cancellation reply then ends at 2.20 s.
+        return _record(
+            self.os_name, self.id(target), CANCELLED, *PARTIAL, duration=1950, finalised=100
+        )
+
+    def cancel_reply(self, target: str, record: Json | None = None) -> Json:
+        record = record or self.cancel_record(target)
         return {
             "schema_version": "1.0",
             "ok": True,
@@ -445,6 +633,13 @@ class Builder:
             self.put(name, b"disposed vm stopped\n", elapsed=12.0)
         elif name == "inspect":
             self.put(name, b"absent vm\n", elapsed=4.0, stdout_matches=True)
+        elif name == "app-identity":
+            self.put(name, self.app_record(), elapsed=1.5)
+        elif name == "identity":
+            self.exec(name, exited0, self.identity_output())
+        elif argv[-1] == trial.child_poll("interrupt"):
+            # Finding R1 of k241: a zombie while the agent still reaps, then absence.
+            self.exec(name, exited0, _polls(ZOMBIE_ROW, None))
         elif argv[1:3] == ["agent", "health"]:
             receipt = {"schema_version": "1.0", "ok": True, "reachable": True}
             self.put(name, receipt | {"platform": self.os_name})
@@ -515,7 +710,47 @@ class Builder:
         else:
             self.exec(name, exited0, b"ok\n")
 
-    def helper(self, **changes: Any) -> Json:
+    def identity_output(self, agent: str | None = None) -> bytes:
+        if self.os_name == "macos":
+            digest = agent or MACOS_AGENT_SHA256
+            return (
+                f"{digest}  {trial.MACOS_AGENT}\nProductName:\tmacOS\nDarwin guest 25.0.0\n"
+            ).encode()
+        return (agent or LINUX_LISTING).encode() + b'NAME="Ubuntu"\nLinux guest 6.8.0\n'
+
+    def app_record(self, **running: Any) -> Json:
+        report = {
+            "schema_version": "1.0",
+            "ok": False,
+            "checks": {
+                "install_path": {"status": "fail"},
+                "app": {
+                    "status": "pass",
+                    "socket": "/h/testanyware.sock",
+                    "running": {
+                        "status": "pass",
+                        "build": APP_BUILD,
+                        "executable": APP_EXECUTABLE,
+                        **running,
+                    },
+                },
+            },
+        }
+        doctor = {
+            "argv": [CLI, "doctor", "--json"],
+            # `doctor` exits 1 for the install path of a private Host CLI.
+            "returncode": 1,
+            "reaped": True,
+            "signals": [],
+            "stdout": base64.b64encode(json.dumps(report).encode()).decode(),
+            "stderr": "",
+            "started_after": 0.0,
+            "ended_after": 1.2,
+            "elapsed": 1.2,
+        }
+        return {"schema": "acceptance-k223-app/1", "doctor": doctor, "ok": True}
+
+    def helper(self, record: Json | None = None, **changes: Any) -> Json:
         exec_argv = trial._exec(  # pyright: ignore[reportPrivateUsage]
             trial.Clone(
                 self.os_name,
@@ -530,9 +765,9 @@ class Builder:
             trial.CHILD_GUEST,
             trial.child_payload("cancel"),
         )
-        record = _record(self.os_name, self.id("cancel"), CANCELLED, *PARTIAL, duration=1900)
+        record = record or self.cancel_record("cancel")
         envelope = _envelope(list(exec_argv), record)
-        reply = self.cancel_reply("cancel")
+        reply = self.cancel_reply("cancel", record)
         health = {"schema_version": "1.0", "ok": True, "reachable": True}
 
         def child(data: Json, started: float, ended: float) -> Json:
@@ -560,16 +795,16 @@ class Builder:
             helper[key] = value
         return helper
 
-    def write(self) -> Path:
-        names = checker.expected_shape(self.os_name)
+    def write(self, order: list[str] | None = None) -> Path:
+        names = order or checker.expected_shape(self.os_name)
         result = {
             "run_id": self.plan.run_id,
             "ok": True,
             "inspection_failure": None,
             "calls": [self.receipts[name] for name in names if name in self.receipts],
             "unreached": [name for name in names if name not in self.receipts],
-            "subjects_before": {"/x": "1"},
-            "subjects_after": {"/x": "1"},
+            "subjects_before": dict(self.subjects),
+            "subjects_after": dict(self.subjects),
             "storage": {
                 "frames": {"failed": 0, "dropped": 0, "abandoned": 0},
                 "first_failure": None,
@@ -650,7 +885,9 @@ def _out(data: bytes) -> Callable[[Json], None]:
 
 def _child(row: str) -> Callable[[Builder], None]:
     data = f"child pid={PID}\n {PID} 1 {PID} {row}\nchild ps-exit=0\n".encode()
-    return _exec_edit("after-timeout-04", _out(data))
+    return lambda builder: builder.exec(
+        "after-timeout-05", {"kind": "exited", "exit_code": 0}, data
+    )
 
 
 def _receipt(name: str, **fields: Any) -> Callable[[Builder], None]:
@@ -724,11 +961,11 @@ DEFECTS: dict[str, tuple[Callable[[Builder], None], str]] = {
     ),
     "child present after timeout": (
         _child("S Wed Nov 18 03:40:00 2026 sleep 120"),
-        "after-timeout-04",
+        "after-timeout-05",
     ),
     "child zombie after timeout": (
         _child("Z Wed Nov 18 03:40:00 2026 [sleep]"),
-        "after-timeout-04",
+        "after-timeout-05",
     ),
     "ordinary bytes wrong": (_exec_edit("ordinary-02", _out(b"ordinary-ok\n")), "ordinary-02"),
     "slow observation": (_receipt("ordinary-03", elapsed=30.5), "ordinary-03"),
@@ -793,7 +1030,55 @@ DEFECTS: dict[str, tuple[Callable[[Builder], None], str]] = {
     ),
     "cleanup unconfirmed": (_exec_edit("cleanup", _out(b"cleanup uncertain\n")), "cleanup"),
     "slow disposal": (_receipt("dispose", elapsed=45.5), "dispose"),
-    "slow acquisition": (_receipt("acquire", elapsed=481.0), "acquire"),
+    # Finding R5 of k241: a 450 s boot with no slot wait overran the 420 s boot bound.
+    "boot overran into the slot allowance": (_receipt("acquire", elapsed=450.0), "acquire"),
+    # Finding R1 of k241: the poll still fails a child that outlives it.
+    "child survives the interruption poll": (
+        lambda b: b.exec(
+            "interrupt-child",
+            {"kind": "exited", "exit_code": 0},
+            _polls(*([SLEEP_ROW] * trial.CHILD_POLLS)),
+        ),
+        "interrupt-child",
+    ),
+    "another command at the child PID": (
+        lambda b: b.exec(
+            "interrupt-child",
+            {"kind": "exited", "exit_code": 0},
+            _polls(f" {PID} 1 4240 S Wed Nov 18 03:40:00 2026 /usr/bin/vim\n", None),
+        ),
+        "interrupt-child",
+    ),
+    # Finding R3 of k241: the answering agent and app must be the frozen ones.
+    "answering agent differs": (
+        lambda b: b.exec(
+            "identity", {"kind": "exited", "exit_code": 0}, b.identity_output("0" * 64)
+        ),
+        "identity",
+    ),
+    "agent digest command failed": (
+        lambda b: b.exec(
+            "identity",
+            {"kind": "exited", "exit_code": 0},
+            b"ProductName:\tmacOS\nDarwin guest 25.0.0\n",
+        ),
+        "identity",
+    ),
+    "answering app build differs": (
+        lambda b: b.put("app-identity", b.app_record(build="1.0.0")),
+        "app-identity",
+    ),
+    "answering app executable differs": (
+        lambda b: b.put(
+            "app-identity",
+            b.app_record(executable="/Applications/TestAnyware.app/Contents/MacOS/TestAnyware"),
+        ),
+        "app-identity",
+    ),
+    "app helper not ok": (
+        lambda b: b.put("app-identity", b.app_record() | {"ok": False}),
+        "app-identity",
+    ),
     "stored stdout differs from capture": (
         lambda b: b.receipts["identity"]["streams"]["stdout"].update(sha256="0" * 64),
         "identity",
@@ -810,6 +1095,161 @@ def test_each_defect_fails_its_case_and_the_clone(tmp_path: Path, defect: str) -
     verdict = checker.check_clone(builder.write())
     assert verdict["ok"] is False
     assert case in _failing_cases(verdict), _failing_cases(verdict)
+
+
+def _slow_finalisation(builder: Builder, health_start: float) -> Json:
+    """Finding R2 of k241: a valid record whose finalisation takes 1.5 s, within bounds."""
+    termination = {
+        "term_sent_after_ms": 0,
+        "kill_sent_after_ms": 10,
+        "leader_status": {"kind": "signalled", "signal": 15},
+        "leader_exit_after_ms": 5,
+        "group_empty": "yes",
+        "group_empty_after_ms": 20,
+        "within_bounds": True,
+    }
+    record = _record(
+        builder.os_name,
+        builder.id("cancel"),
+        CANCELLED,
+        *PARTIAL,
+        termination=termination,
+        duration=2000,
+        finalised=1500,
+    )
+    helper = builder.helper(record=record)
+    helper["health"] |= {"started_after": health_start, "ended_after": health_start + 0.1}
+    helper["cancel"] |= {"started_after": 2.0, "ended_after": 3.7}
+    helper["exec"] |= {"ended_after": 3.8}
+    return helper
+
+
+@pytest.mark.parametrize("os_name", OSES)
+def test_health_overlap_accepts_a_slow_finalisation_within_bounds(
+    tmp_path: Path, os_name: str
+) -> None:
+    builder = Builder(tmp_path, os_name)
+    helper = _slow_finalisation(builder, 1.0)
+    builder.put("cancel", helper, elapsed=4.0)
+    verdict = checker.check_clone(builder.write())
+    assert _failing_cases(verdict) == {} and verdict["ok"] is True
+    lifecycle = helper_record_lifecycle(helper)
+    # The spawn came by 3.70 - (2.000 + 1.500) = 0.20 s. The old inequality gave 1.70 s.
+    latest = checker.spawned_by(lifecycle, helper["cancel"], helper["exec"])
+    assert latest == pytest.approx(0.2)
+
+
+def test_health_overlap_still_rejects_health_before_the_latest_spawn(tmp_path: Path) -> None:
+    builder = Builder(tmp_path, "linux")
+    builder.put("cancel", _slow_finalisation(builder, 0.15), elapsed=4.0)
+    failures = _failing_cases(checker.check_clone(builder.write()))
+    assert any("latest possible spawn" in failure for failure in failures["cancel"]), failures
+
+
+def helper_record_lifecycle(helper: Json) -> Json:
+    envelope = json.loads(base64.b64decode(helper["exec"]["stdout"]))
+    return cast(Json, envelope["lifecycle"])
+
+
+def _top_failures(builder: Builder, order: list[str] | None = None) -> list[str]:
+    verdict = checker.check_clone(builder.write(order))
+    assert verdict["ok"] is False
+    return cast(list[str], verdict["failures"])
+
+
+def test_a_subject_that_differs_from_the_freeze_fails_the_clone(tmp_path: Path) -> None:
+    # Finding R4 of k241: the same compatible build before and after the run is
+    # still not the frozen build.
+    builder = Builder(tmp_path, "macos")
+    builder.subjects[CLI] = "9" * 64
+    failures = _top_failures(builder)
+    assert any(failure.startswith(f"subject {CLI}") for failure in failures), failures
+
+
+def test_a_fixture_that_differs_from_the_freeze_fails_the_clone(tmp_path: Path) -> None:
+    builder = Builder(tmp_path, "linux")
+    fixture = trial.FIXTURES["linux"]
+    name = sorted(trial.FIXTURE_SHA256["linux"])[0]
+    builder.subjects[str((fixture / name).absolute())] = "9" * 64
+    assert any("subject" in failure for failure in _top_failures(builder))
+
+
+def test_a_manifest_changed_after_the_run_fails_the_clone(tmp_path: Path) -> None:
+    builder = Builder(tmp_path, "macos")
+    builder.write()
+    builder.manifest_path.write_text(builder.manifest_path.read_text() + " ")
+    failures = checker.check_clone(builder.directory)["failures"]
+    assert any("no longer has its frozen digest" in failure for failure in failures), failures
+
+
+def test_inventory_identities_must_be_the_manifest_identities(tmp_path: Path) -> None:
+    builder = Builder(tmp_path, "macos")
+    builder.inventory["identities"] = builder.inventory["identities"] | {"app_build": "1.0.0"}
+    failures = _top_failures(builder)
+    assert "the inventory identities are not the manifest identities" in failures
+
+
+def test_a_checker_module_changed_after_the_run_fails_the_clone(tmp_path: Path) -> None:
+    builder = Builder(tmp_path, "linux")
+    module = str(Path(checker.__file__).absolute())
+    builder.subjects[module] = "0" * 64
+    failures = _top_failures(builder)
+    assert any(failure.startswith("checker module") for failure in failures), failures
+
+
+def test_the_checker_dependency_is_a_subject(tmp_path: Path) -> None:
+    plan = _plan(tmp_path, "linux")
+    subjects = {str(subject.absolute()) for subject in plan.subjects}
+    for module in ("completion_k186_check.py", "acceptance_k223_app.py", "controller.py"):
+        assert str((trial.HERE / module).absolute()) in subjects, module
+
+
+def test_a_recorded_order_that_differs_from_the_plan_fails_the_clone(tmp_path: Path) -> None:
+    # Finding R7 of k241: the same unique names, with timeout and after-timeout-01 swapped.
+    builder = Builder(tmp_path, "macos")
+    order = checker.expected_shape("macos")
+    first, second = order.index("timeout"), order.index("after-timeout-01")
+    order[first], order[second] = order[second], order[first]
+    failures = _top_failures(builder, order)
+    assert "the recorded call order is not the plan order" in failures
+
+
+def test_a_receipt_argv_that_differs_from_the_plan_fails_the_clone(tmp_path: Path) -> None:
+    builder = Builder(tmp_path, "linux")
+    builder.receipts["ordinary-02"]["argv"] = [*builder.argv("ordinary-02"), "--extra"]
+    failures = _top_failures(builder)
+    assert "the receipt argv of ordinary-02 is not its planned argv" in failures
+
+
+def test_decreasing_start_times_fail_the_clone(tmp_path: Path) -> None:
+    builder = Builder(tmp_path, "macos")
+    builder.receipts["exit-23"]["started_monotonic"] = 999.0
+    assert "the recorded start times decrease" in _top_failures(builder)
+
+
+def test_app_helper_reports_doctor_whatever_its_exit(tmp_path: Path) -> None:
+    fake = tmp_path / "fake-doctor"
+    fake.write_text(
+        f"#!{sys.executable}\nimport json, sys\n"
+        "print(json.dumps({'checks': {'app': {'running': {'build': 'b'}}}}))\nsys.exit(1)\n"
+    )
+    fake.chmod(0o755)
+    argv = [
+        sys.executable,
+        "-I",
+        str(trial.HERE / "acceptance_k223_app.py"),
+        "--cli",
+        str(fake),
+        "--observation",
+        "5",
+    ]
+    completed = subprocess.run(argv, capture_output=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    record = json.loads(completed.stdout)
+    assert record["ok"] is True and record["doctor"]["returncode"] == 1
+    report = json.loads(base64.b64decode(record["doctor"]["stdout"]))
+    assert report["checks"]["app"]["running"]["build"] == "b"
+    assert record["doctor"]["argv"] == [str(fake), "doctor", "--json"]
 
 
 def test_failed_original_disables_the_corruption_controls(tmp_path: Path) -> None:

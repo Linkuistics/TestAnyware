@@ -12,15 +12,28 @@ JSON object with these fields:
 
 - `cli` and `tart`: absolute paths of the private Host CLI and of Tart.
 - `goldens`: the new golden name for `macos` and for `linux`.
-- `bounds`: `boot` and `slot` in seconds, each positive and finite.
-- `sha256`: an object that maps absolute paths to their frozen digests. The
-  plan refuses to start when one digest differs. Each path is also a subject.
+- `bounds`: `boot` and `slot` in seconds, each positive and finite. The boot
+  bound limits the whole `vm start`: the clone, the boot and the agent health.
+  `vm start` runs without `--wait`, so a full slot fails it at once with
+  `VM_LIMIT_REACHED`. No clone waits for a slot, and the slot bound stays
+  declared but unexercised.
+- `agents`: the frozen agent identity of `macos` and of `linux`. For macOS it
+  is the SHA-256 of `/usr/local/bin/testanyware-agent`. For Linux it is the
+  SHA-256 of the sorted `sha256sum` listing of the `*.py` files under
+  `/opt/testanyware`, as the `identity` case prints it.
+- `app`: the `build` and the absolute `executable` of the private app, as
+  `doctor --json` reports the running app.
+- `sha256`: an object that maps absolute paths to their frozen digests. It
+  must name `cli`, `tart` and the app executable. Each path is also a subject.
+  The trial refuses to start a clone when one digest differs, and the checker
+  compares each run's subject digests with these digests.
 
 Each clone runs these cases in the root order. Each `file exec` call names its
 own exec id, and the checker compares the record id with it.
 
-1. Preparation: `health-before`, `identity`, `bootstrap-dir` and the uploads of
-   the retained fixture's `guest.sh` and `lesson`.
+1. Preparation: `app-identity`, `health-before`, `identity`, `bootstrap-dir`
+   and the uploads of the retained fixture's `guest.sh` and `lesson`. The
+   checker compares the answering app and agent with the manifest.
 2. `baseline`: the fixture `inventory` action. It checks that the installation
    and the marker are absent.
 3. `install`: the offline installation of the lesson.
@@ -30,16 +43,23 @@ own exec id, and the checker compares the record id with it.
    table, in turn.
 6. `exit-23`: the issue payload `exit 23`.
 7. `timeout`: the child payload with guest timeout 2 s.
-8. `after-timeout-01` to `after-timeout-10`: a child check, health and
-   `printf ordinary-ok`, in turn. The first and the last are child checks.
+8. `after-timeout-01` to `after-timeout-14`: ten operations, health and
+   `printf ordinary-ok` in turn, and four child checks besides them. The child
+   checks come first, after the third and the sixth operation, and last. The
+   root asks for "ten after-timeout operations and child checks". This plan
+   takes the stricter reading, so the child checks are not among the ten.
 9. `cancel`: the explicit cancellation helper. It starts the child payload
    with guest timeout 20 s, calls health after 1 s, and sends
    `file cancel --wait 5` after 2 s.
-10. `after-cancel-01` to `after-cancel-10`: as step 8, for the cancelled child.
+10. `after-cancel-01` to `after-cancel-14`: as step 8, for the cancelled child.
 11. `interrupt`: the child payload with guest timeout 20 s. The controller sends
     SIGTERM to the Host CLI after 2 s, then SIGKILL after 2 s more if needed.
-    `interrupt-child` and `interrupt-health` follow. `interrupt-fallback` is
-    `file cancel --wait 5` for the same exec id.
+    The Host CLI sends its cancellation with `waitMs: 0`, so the agent can
+    still be within its 2 s grace and 2 s kill interval when the CLI dies.
+    `interrupt-child` therefore polls the known child for 4 s at most and
+    stops at the first absent poll. `interrupt-health` follows.
+    `interrupt-fallback` is `file cancel --wait 5` for the same exec id. It
+    runs after the poll, so an absent child shows the CLI's own cancellation.
 12. Transfer: `capture` runs the fixture `intact` action. Downloads of
     `stdout.bin`, `stderr.bin`, `artifact.bin`, `status.txt` and the three
     partial files follow. `download-missing` must fail with a typed error.
@@ -62,6 +82,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import sys
 import uuid
 from dataclasses import asdict, dataclass, replace
@@ -121,6 +142,13 @@ CLEANUP_BOUND = GUEST_CLEANUP - TERM_GRACE - KILL_WAIT
 # The helper bounds its `file exec` at guest budget plus 20 s, then needs 2 s TERM
 # and 2 s KILL for that child. One more second covers its own start and exit.
 HELPER_BOUND = CHILD_GUEST + HOST_MARGIN + TERM_GRACE + KILL_WAIT + 1.0
+# The app helper bounds `doctor` at the observation ceiling, with the same reserve.
+APP_HELPER_BOUND = OBSERVATION + TERM_GRACE + KILL_WAIT + 1.0
+# The interruption poll covers the agent's termination grace and its kill interval.
+# It starts after the CLI's death, so it starts after the outcome that the CLI's
+# cancellation chose. 41 polls with 40 waits of 0.1 s cover at least 4 s.
+CHILD_POLL_WAIT = 0.1
+CHILD_POLLS = round((TERM_GRACE + KILL_WAIT) / CHILD_POLL_WAIT) + 1
 
 FIXTURES = {"macos": R3_FIXTURE, "linux": R5_FIXTURE}
 FIXTURE_SHA256 = {"macos": dict(R3_SHA256), "linux": {**R5_SHA256, "frozen.json": R5_FROZEN}}
@@ -134,8 +162,11 @@ TABLES = {
     "macos": "ps -axo pid,ppid,pgid,stat,lstart,etime,args",
     "linux": "ps -eo pid,ppid,pgid,sid,stat,lstart,etime,args",
 }
+MACOS_AGENT = "/usr/local/bin/testanyware-agent"
+# The checker reads the agent identity from the first lines of this output. A
+# failed digest command leaves no digest line, so the identity case fails.
 IDENTITY = {
-    "macos": "shasum -a 256 /usr/local/bin/testanyware-agent; sw_vers; uname -a",
+    "macos": f"shasum -a 256 {MACOS_AGENT} && sw_vers && uname -a",
     "linux": (
         "cd /opt/testanyware && find . -type f -name '*.py' | LC_ALL=C sort | xargs sha256sum; "
         "cat /etc/os-release; uname -a"
@@ -187,6 +218,32 @@ def child_check(case: str) -> str:
             "printf 'child pid=%s\\n' \"$pid\"",
             'ps -p "$pid" -o pid=,ppid=,pgid=,stat=,lstart=,args=',
             "printf 'child ps-exit=%s\\n' \"$?\"",
+        )
+    )
+
+
+def child_poll(case: str) -> str:
+    """Poll the known child of one case until `ps` no longer lists it.
+
+    The output is `child pid=N`, then one poll after another. Each poll is the
+    `ps` row when `ps` lists the PID, and `child ps-exit=E`. The loop stops at
+    the first poll where `ps` exits nonzero, or after CHILD_POLLS polls. Each
+    poll stays in the output, so the first snapshot remains an observation.
+    """
+    return "\n".join(
+        (
+            f"f={CHILD_ROOT}/{case}/child.pid",
+            "if ! pid=$(cat \"$f\"); then printf 'child pid-file=unreadable\\n'; exit 0; fi",
+            "printf 'child pid=%s\\n' \"$pid\"",
+            "n=0",
+            "while :; do",
+            "n=$((n + 1))",
+            'ps -p "$pid" -o pid=,ppid=,pgid=,stat=,lstart=,args=',
+            "e=$?",
+            "printf 'child ps-exit=%s\\n' \"$e\"",
+            f'if [ "$e" -ne 0 ] || [ "$n" -ge {CHILD_POLLS} ]; then break; fi',
+            f"sleep {CHILD_POLL_WAIT:g}",
+            "done",
         )
     )
 
@@ -300,19 +357,45 @@ def ordinary_calls(clone: Clone) -> list[Call]:
     return calls
 
 
+# The operations after which an after block runs a child check, besides the first check.
+CHILD_CHECK_AFTER = (3, 6, 10)
+
+
 def after_calls(clone: Clone, case: str) -> list[Call]:
-    """Ten operations after a case: a child check, health and `printf ordinary-ok`."""
+    """Ten operations after a case, health and `printf ordinary-ok` in turn.
+
+    Four child checks come besides the ten: one first, and one after each
+    operation that CHILD_CHECK_AFTER names.
+    """
+    kinds = ["child"]
+    for operation in range(1, 11):
+        kinds.append("health" if operation % 2 else "ordinary")
+        if operation in CHILD_CHECK_AFTER:
+            kinds.append("child")
     calls: list[Call] = []
-    for number in range(1, 11):
+    for number, kind in enumerate(kinds, start=1):
         name = f"after-{case}-{number:02d}"
-        kind = (number - 1) % 3
-        if kind == 0:
+        if kind == "child":
             calls.append(_observe(clone, name, child_check(case)))
-        elif kind == 1:
+        elif kind == "health":
             calls.append(_health(clone, name))
         else:
             calls.append(_observe(clone, name, ORDINARY))
     return calls
+
+
+def app_call(clone: Clone) -> Call:
+    """Record the answering app through the app helper, bounded as one controller call."""
+    argv = (
+        clone.python,
+        "-I",
+        str(HERE / "acceptance_k223_app.py"),
+        "--cli",
+        clone.cli,
+        "--observation",
+        f"{OBSERVATION:g}",
+    )
+    return Call("app-identity", argv, APP_HELPER_BOUND)
 
 
 def cancel_call(clone: Clone) -> Call:
@@ -367,6 +450,7 @@ def clone_calls(clone: Clone) -> list[Call]:
         for case in CHILD_CASES
     ]
     return [
+        app_call(clone),
         _health(clone, "health-before"),
         _observe(clone, "identity", IDENTITY[clone.os_name]),
         _observe(clone, "bootstrap-dir", f"mkdir -p {FIXTURE_ROOT}"),
@@ -390,7 +474,7 @@ def clone_calls(clone: Clone) -> list[Call]:
         cancel_call(clone),
         *after_calls(clone, "cancel"),
         interrupt,
-        _observe(clone, "interrupt-child", child_check("interrupt")),
+        _observe(clone, "interrupt-child", child_poll("interrupt")),
         _health(clone, "interrupt-health"),
         _cancel(clone, "interrupt-fallback", "interrupt"),
         _observe(clone, "capture", f"bash {FIXTURE_ROOT}/guest.sh intact"),
@@ -429,7 +513,13 @@ class Manifest:
     goldens: dict[str, str]
     boot: float
     slot: float
+    agents: dict[str, str]
+    app_build: str
+    app_executable: str
     sha256: dict[str, str]
+
+
+HEX64 = re.compile(r"[0-9a-f]{64}")
 
 
 def _positive(value: object, name: str) -> float:
@@ -468,8 +558,25 @@ def read_manifest(path: Path) -> Manifest:
         raise ValueError("manifest sha256 is not an object")
     frozen = cast(dict[str, Any], digests)
     for key, value in frozen.items():
-        if not Path(key).is_absolute() or not isinstance(value, str):
+        if not Path(key).is_absolute() or not isinstance(value, str) or not HEX64.fullmatch(value):
             raise ValueError(f"manifest sha256 entry {key!r} is malformed")
+    agents = fields.get("agents")
+    agent_values = cast(dict[str, Any], agents) if isinstance(agents, dict) else {}
+    if set(agent_values) != set(OSES) or not all(
+        isinstance(agent_values[key], str) and HEX64.fullmatch(agent_values[key]) for key in OSES
+    ):
+        raise ValueError("manifest agents must give a SHA-256 for exactly macos and linux")
+    app = fields.get("app")
+    app_values = cast(dict[str, Any], app) if isinstance(app, dict) else {}
+    build, executable = app_values.get("build"), app_values.get("executable")
+    if not isinstance(build, str) or not build:
+        raise ValueError("manifest app build is not a nonempty string")
+    if not isinstance(executable, str) or not Path(executable).is_absolute():
+        raise ValueError("manifest app executable is not an absolute path")
+    sha256 = {str(Path(key)): cast(str, value) for key, value in frozen.items()}
+    for key in (tools["cli"], tools["tart"], executable):
+        if str(Path(key)) not in sha256:
+            raise ValueError(f"manifest sha256 does not pin {key}")
     return Manifest(
         path=path.resolve(),
         cli=tools["cli"],
@@ -477,7 +584,10 @@ def read_manifest(path: Path) -> Manifest:
         goldens={key: cast(str, names[key]) for key in OSES},
         boot=_positive(bound_values.get("boot"), "boot"),
         slot=_positive(bound_values.get("slot"), "slot"),
-        sha256={key: cast(str, value) for key, value in frozen.items()},
+        agents={key: cast(str, agent_values[key]) for key in OSES},
+        app_build=build,
+        app_executable=executable,
+        sha256=sha256,
     )
 
 
@@ -502,6 +612,20 @@ def fixture_mismatches(os_name: str) -> list[str]:
     )
 
 
+def checker_modules() -> tuple[Path, ...]:
+    """The modules that the checker phase runs. Each one is a subject of every clone.
+
+    The checker compares their digests when it judges a clone with the digests
+    that the controller took after that clone's run.
+    """
+    return (
+        Path(__file__),
+        HERE / "acceptance_k223_check.py",
+        HERE / "completion_k186_check.py",
+        HERE / "controller.py",
+    )
+
+
 def plan(manifest: Manifest, os_name: str, index: int, python: str, downloads: Path) -> Plan:
     """The frozen controller plan of one clone."""
     run_id = uuid.uuid4().hex
@@ -516,10 +640,9 @@ def plan(manifest: Manifest, os_name: str, index: int, python: str, downloads: P
     )
     fixture = FIXTURES[os_name]
     subjects = (
-        Path(__file__),
+        *checker_modules(),
         HERE / "acceptance_k223_cancel.py",
-        HERE / "acceptance_k223_check.py",
-        HERE / "controller.py",
+        HERE / "acceptance_k223_app.py",
         HERE / "linux_k204.py",
         HERE / "routes_k19.py",
         HERE / "timeout_k4.py",
@@ -532,11 +655,11 @@ def plan(manifest: Manifest, os_name: str, index: int, python: str, downloads: P
         Path(python),
         *(Path(path) for path in sorted(manifest.sha256)),
     )
-    acquire = manifest.boot + manifest.slot
+    # `vm start` runs without `--wait`, so the acquisition holds no slot wait.
     return Plan(
         run_id,
         tuple(clone_calls(clone)),
-        resources=(_resource(clone, manifest.goldens[os_name], manifest.tart, acquire),),
+        resources=(_resource(clone, manifest.goldens[os_name], manifest.tart, manifest.boot),),
         subjects=subjects,
         term_grace=TERM_GRACE,
         kill_wait=KILL_WAIT,
@@ -573,13 +696,42 @@ def bounds(manifest: Manifest) -> dict[str, float]:
         "cancel_wait": CANCEL_WAIT,
         "cleanup_guest": CLEANUP_GUEST,
         "helper": HELPER_BOUND,
+        "app_helper": APP_HELPER_BOUND,
+        "child_polls": CHILD_POLLS,
+        "child_poll_wait": CHILD_POLL_WAIT,
         "boot": manifest.boot,
         "slot": manifest.slot,
-        "acquire": manifest.boot + manifest.slot,
+        "acquire": manifest.boot,
     }
 
 
-def run_clone(manifest: Manifest, os_name: str, index: int, output: Path) -> dict[str, Any]:
+SLOT_NOTE = (
+    "declared, not exercised: vm start runs without --wait, so a full slot fails "
+    "the acquisition at once with VM_LIMIT_REACHED, and the boot bound limits it"
+)
+
+
+def identities(manifest: Manifest, os_name: str) -> dict[str, Any]:
+    """The frozen identities that one clone's answering agent and app must have."""
+    return {
+        "agent_sha256": manifest.agents[os_name],
+        "app_build": manifest.app_build,
+        "app_executable": manifest.app_executable,
+    }
+
+
+def freeze_refusals(manifest: Manifest, manifest_sha256: str) -> list[str]:
+    """Name each frozen subject that differs now: the manifest, its digests and the fixtures."""
+    refusals = digest_mismatches({str(manifest.path): manifest_sha256})
+    refusals += digest_mismatches(manifest.sha256)
+    for os_name in OSES:
+        refusals += fixture_mismatches(os_name)
+    return refusals
+
+
+def run_clone(
+    manifest: Manifest, manifest_sha256: str, os_name: str, index: int, output: Path
+) -> dict[str, Any]:
     """Freeze, run and judge one clone. Return its trial entry."""
     from acceptance_k223_check import check_clone
 
@@ -597,8 +749,12 @@ def run_clone(manifest: Manifest, os_name: str, index: int, output: Path) -> dic
             "golden": manifest.goldens[os_name],
             "rule": "one plan, run once; no retry; a failed sample stays",
             "manifest": str(manifest.path),
+            "manifest_sha256": manifest_sha256,
+            "frozen_sha256": manifest.sha256,
+            "identities": identities(manifest, os_name),
             "fixture_sha256": FIXTURE_SHA256[os_name],
             "bounds": bounds(manifest),
+            "slot": SLOT_NOTE,
             "plan": asdict(frozen),
         },
     )
@@ -626,17 +782,31 @@ def run_clone(manifest: Manifest, os_name: str, index: int, output: Path) -> dic
 
 def main() -> None:
     output = Path(sys.argv[1]).resolve()
-    manifest = read_manifest(Path(sys.argv[2]))
-    refusals = digest_mismatches(manifest.sha256)
-    for os_name in OSES:
-        refusals += fixture_mismatches(os_name)
+    manifest_path = Path(sys.argv[2])
+    manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
+    manifest = read_manifest(manifest_path)
+    refusals = freeze_refusals(manifest, manifest_sha256)
     if refusals:
         raise SystemExit(f"frozen subjects differ: {refusals}")
     output.mkdir(parents=True, exist_ok=False)
     order = [(os_name, index) for os_name in OSES for index in range(1, CLONES + 1)]
     clones: list[dict[str, Any]] = []
     for os_name, index in order:
-        entry = run_clone(manifest, os_name, index, output)
+        # A subject that changed after an earlier clone is a new candidate. It
+        # needs a new freeze and a new trial, so this trial stops here.
+        refusals = freeze_refusals(manifest, manifest_sha256)
+        if refusals:
+            clones.append(
+                {
+                    "clone": f"{os_name}-{index:02d}",
+                    "passed": False,
+                    "baseline_ok": False,
+                    "refused": refusals,
+                }
+            )
+            print(f"{os_name}-{index:02d}: refused, frozen subjects differ", flush=True)
+            break
+        entry = run_clone(manifest, manifest_sha256, os_name, index, output)
         clones.append(entry)
         print(f"{entry['clone']}: passed {entry['passed']}", flush=True)
         if entry["passed"] is not True:
@@ -675,10 +845,14 @@ def reset_record(clones: list[dict[str, Any]]) -> dict[str, str]:
             if name not in entries:
                 continue
             following = entries.get(f"{os_name}-{index + 1:02d}")
-            if index == CLONES:
+            if "refused" in entries[name]:
+                record[name] = "undemonstrated: this clone was refused before it ran"
+            elif index == CLONES:
                 record[name] = "undemonstrated: no later clone of this OS"
             elif following is None:
                 record[name] = "undemonstrated: the next clone was not reached"
+            elif "refused" in following:
+                record[name] = f"undemonstrated: {following['clone']} was refused before it ran"
             elif following["baseline_ok"] is True:
                 record[name] = f"demonstrated by {following['clone']}"
             else:

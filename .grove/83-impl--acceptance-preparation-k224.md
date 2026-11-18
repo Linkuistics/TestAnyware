@@ -10,7 +10,9 @@ is frozen before any measurement.
 
 - Spec: section "Validation route", steps 2 to 5.
 - Root brief: sections "Constraints" and "Acceptance inventory and bounds".
-- The trial plan and checker of leaf k223.
+- The trial plan and checker of leaf k223, with the review repairs of leaf
+  k242. The report `docs/experiments/exec-reliability-acceptance-plan.md`
+  states the manifest fields and the remaining limits.
 - Golden tasks: `vm:create-golden-macos` and `vm:create-golden-linux`.
 
 ## Done when
@@ -22,9 +24,12 @@ is frozen before any measurement.
 - Run the controller self-check against the private builds.
 - Run the four corruption controls against the private builds. The checker
   rejects each one.
-- Declare the boot, slot and export bounds.
+- Declare the boot, slot and export bounds. The boot bound limits the whole
+  `vm start`, because no clone waits for a slot.
 - Write a freeze manifest. It names each build hash, golden, image identity,
   export identity and agent version. It lists every ceiling and bound.
+- Give the manifest the `agents` and `app` fields that `acceptance_k223.py`
+  defines. Its `sha256` field pins the Host CLI, Tart and the app executable.
 - Commit the manifest before any trial clone starts.
 
 ## Notes

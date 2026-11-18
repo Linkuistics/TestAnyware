@@ -35,10 +35,31 @@ Every ceiling and bound of the root brief and the spec is a limit here:
 | Outcome to published record | 2 s, or 4 s with termination | `finalised_after_ms` |
 | Cancellation reply with wait 5 s | 5 s | Host elapsed time of each `file cancel` |
 | Health during a running command | 1 s | Host elapsed time of the helper's health |
-| Boot and slot | From the manifest | Host elapsed time of `acquire` |
+| Boot | From the manifest | Host elapsed time of `acquire` |
+| Interruption child poll | 4 s of waits at most | The number of polls in `interrupt-child` |
 
 The 1999 ms floor of the timeout allows one millisecond of rounding, because
 each agent rounds the duration down.
+
+The manifest also declares a slot bound. `vm start` runs without `--wait`, so
+no clone waits for a slot. A full slot fails `acquire` at once with
+`VM_LIMIT_REACHED`. The slot bound therefore has no observation in this trial.
+
+The checker also judges three properties of the run itself:
+
+- Identity: the `identity` output gives the frozen agent digest, and the
+  `app-identity` helper shows the frozen app build and executable.
+- Freeze: the manifest still has its frozen digest. Each frozen path, the
+  manifest and each fixture file had its frozen digest before and after the
+  run. Each checker module has the digest that the run's subjects recorded.
+- Execution: the recorded calls have the plan's names in the plan's order,
+  each with its planned argv, and their start times never decrease.
+
+Health during the explicit cancellation must start after the latest possible
+spawn. That moment is the earlier reply end minus `duration_ms` and
+`finalised_after_ms`, because both replies follow the published record. The
+reply latency after publication stays inside the moment, and the derivation
+takes the guest and host clock rates as equal.
 
 The checker runs four corruption controls on independent in-memory copies of
 the clone's evidence. Each damaged copy must fail:
@@ -245,8 +266,17 @@ def termination_failures(termination: Json, finalised: int) -> list[str]:
     if not term <= kill <= finalised:
         failures.append("termination breaks term <= kill <= finalised")
     kind = _mapping(leader).get("kind")
-    if kind not in ("exited", "signalled", "unavailable"):
+    # The payload of each kind, as the Host CLI writes `LeaderStatus` in JSON mode.
+    payload = {"exited": "exit_code", "signalled": "signal", "unavailable": None}
+    if kind not in payload:
         failures.append(f"termination leader_status {leader!r}")
+    else:
+        field = payload[cast(str, kind)]
+        keys = {"kind"} if field is None else {"kind", field}
+        if set(_mapping(leader)) != keys or (
+            field is not None and not _integer(_mapping(leader)[field])
+        ):
+            failures.append(f"termination leader_status {leader!r} has a malformed payload")
     unavailable = kind == "unavailable"
     if exit_ is None:
         if not unavailable:
@@ -455,27 +485,67 @@ def exec_failures(
     return failures
 
 
-def child_state(stdout: bytes | None) -> str:
-    """Classify one child check: absent, present, zombie, other or unknown."""
-    if stdout is None:
-        return "unknown"
-    lines = stdout.decode("utf-8", "replace").splitlines()
-    if len(lines) < 2 or not re.fullmatch(r"child pid=\d+", lines[0]):
-        return "unknown"
-    status = re.fullmatch(r"child ps-exit=(\d+)", lines[-1])
-    rows = lines[1:-1]
-    if status is None:
-        return "unknown"
-    if status.group(1) == "1" and not rows:
+def _snapshot(pid: str, rows: list[str], status: str) -> str:
+    """Classify one `ps -p` snapshot of the known child."""
+    if status == "1" and not rows:
         return "absent"
-    if status.group(1) != "0" or len(rows) != 1:
+    if status != "0" or len(rows) != 1:
         return "unknown"
     fields = rows[0].split()
-    if len(fields) < 10 or fields[0] != lines[0].removeprefix("child pid="):
+    if len(fields) < 10 or fields[0] != pid:
         return "unknown"
     if fields[3].startswith("Z"):
         return "zombie"
     return "present" if " ".join(fields[9:]) == "sleep 120" else "other"
+
+
+def child_states(stdout: bytes | None) -> list[str]:
+    """Classify each snapshot of a child check or a child poll, in order.
+
+    The result is `["unknown"]` when the output is not the planned shape.
+    """
+    if stdout is None:
+        return ["unknown"]
+    lines = stdout.decode("utf-8", "replace").splitlines()
+    if len(lines) < 2 or not re.fullmatch(r"child pid=\d+", lines[0]):
+        return ["unknown"]
+    pid = lines[0].removeprefix("child pid=")
+    states: list[str] = []
+    rows: list[str] = []
+    for line in lines[1:]:
+        status = re.fullmatch(r"child ps-exit=(\d+)", line)
+        if status is None:
+            rows.append(line)
+            continue
+        states.append(_snapshot(pid, rows, status.group(1)))
+        rows = []
+    if rows or not states:
+        return ["unknown"]
+    return states
+
+
+def child_state(stdout: bytes | None) -> str:
+    """Classify one child check: absent, present, zombie, other or unknown."""
+    states = child_states(stdout)
+    return states[0] if len(states) == 1 else "unknown"
+
+
+def child_poll_failures(stdout: bytes | None) -> list[str]:
+    """Judge the interruption poll: the known child is absent at its last poll.
+
+    A present or zombie child before the last poll is allowed, because the agent
+    may still be within its 2 s grace and 2 s kill interval. A poll that shows
+    another command or an unknown state fails, and so does a poll after absence.
+    """
+    states = child_states(stdout)
+    failures: list[str] = []
+    if len(states) > trial.CHILD_POLLS:
+        failures.append(f"{len(states)} polls, more than {trial.CHILD_POLLS}")
+    if any(state not in ("present", "zombie") for state in states[:-1]):
+        failures.append(f"known child polls {states!r}")
+    elif states[-1] != "absent":
+        failures.append(f"known child {states[-1]} after {len(states)} polls")
+    return failures
 
 
 def role(name: str, argv: list[str]) -> str:
@@ -484,6 +554,8 @@ def role(name: str, argv: list[str]) -> str:
         return name
     if name == "cancel":
         return "cancel-helper"
+    if name == "app-identity":
+        return "app-helper"
     if argv[1:3] == ["agent", "health"]:
         return "health"
     if argv[1:3] == ["file", "cancel"]:
@@ -615,10 +687,75 @@ def judge_exec(clone: Clone, name: str) -> list[str]:
         failures.append("the baseline does not end with BASELINE_ABSENT")
     if name == "cleanup" and (out is None or not out.endswith(b"cleanup confirmed\n")):
         failures.append("the guest cleanup is not confirmed")
+    if name == "identity":
+        failures += agent_identity_failures(clone, out)
     if any(argv[-1] == trial.child_check(case) for case in trial.CHILD_CASES):
         state = child_state(out)
         if state != "absent":
             failures.append(f"known child {state}")
+    if argv[-1] == trial.child_poll("interrupt"):
+        failures += child_poll_failures(out)
+    return failures
+
+
+LINUX_LISTING = re.compile(r"[0-9a-f]{64}  \./\S.*\.py")
+
+
+def agent_identity(os_name: str, stdout: bytes | None) -> str | None:
+    """The agent identity that the `identity` case printed, or None.
+
+    For macOS it is the digest on the first line, which `shasum` prints for the
+    agent binary. For Linux it is the SHA-256 of the `sha256sum` listing lines
+    at the start of the output, each with its line feed.
+    """
+    lines = (stdout or b"").decode("utf-8", "replace").splitlines()
+    if os_name == "macos":
+        first = (
+            re.fullmatch(rf"([0-9a-f]{{64}})  {re.escape(trial.MACOS_AGENT)}", lines[0])
+            if lines
+            else None
+        )
+        return first.group(1) if first else None
+    listing: list[str] = []
+    for line in lines:
+        if not LINUX_LISTING.fullmatch(line):
+            break
+        listing.append(line)
+    if not listing:
+        return None
+    return hashlib.sha256("".join(f"{line}\n" for line in listing).encode()).hexdigest()
+
+
+def agent_identity_failures(clone: Clone, stdout: bytes | None) -> list[str]:
+    expected = _mapping(clone.inventory.get("identities")).get("agent_sha256")
+    actual = agent_identity(str(clone.inventory.get("os")), stdout)
+    if not isinstance(expected, str) or actual != expected:
+        return [f"answering agent identity {actual!r}, frozen {expected!r}"]
+    return []
+
+
+def app_identity_failures(clone: Clone) -> list[str]:
+    """The app that answered: its build and its executable equal the freeze."""
+    failures = _receipt_failures(clone, "app-identity")
+    failures += _elapsed(clone, "app-identity", trial.APP_HELPER_BOUND)
+    record = clone.envelope("app-identity")
+    if (
+        record is None
+        or record.get("schema") != "acceptance-k223-app/1"
+        or record.get("ok") is not True
+    ):
+        return failures + ["the app helper record is absent or malformed"]
+    doctor = _mapping(record.get("doctor"))
+    elapsed = doctor.get("elapsed")
+    if not isinstance(elapsed, int | float) or elapsed > trial.OBSERVATION:
+        failures.append(f"doctor took {elapsed!r} s")
+    report = _json(decode(doctor.get("stdout")))
+    running = _mapping(_mapping(_mapping(_mapping(report).get("checks")).get("app")).get("running"))
+    identities = _mapping(clone.inventory.get("identities"))
+    for key, field in (("app_build", "build"), ("app_executable", "executable")):
+        expected = identities.get(key)
+        if not isinstance(expected, str) or running.get(field) != expected:
+            failures.append(f"answering app {field} {running.get(field)!r}, frozen {expected!r}")
     return failures
 
 
@@ -719,14 +856,41 @@ def cancel_helper_failures(clone: Clone) -> list[str]:
         differing = [k for k in (*LEGACY_KEYS, *TYPED_KEYS) if envelope.get(k) != inner.get(k)]
         if differing:
             failures.append(f"the exec and cancel records differ in {differing}")
-        duration = _mapping(envelope.get("lifecycle")).get("duration_ms")
-        # The agent spawned at most `duration` before the end of the waited reply,
-        # so health started after the spawn when it started after that moment.
-        if _time(duration):
-            spawned_by = cast(float, cancel["ended_after"]) - cast(int, duration) / 1000
-            if cast(float, health["started_after"]) < spawned_by:
-                failures.append("health is not shown to start after the command's spawn")
+        failures += overlap_failures(envelope, health, cancel, run)
     return failures
+
+
+def spawned_by(lifecycle: Json, cancel: Json, run: Json) -> float | None:
+    """The latest helper time at which the command can have spawned, or None.
+
+    `duration_ms` runs from the spawn to the outcome, and `finalised_after_ms`
+    from the outcome to the published record. Each agent rounds down, so the
+    true times are at least these values. Both replies end after the record is
+    published, so the spawn came at least their sum before the earlier reply end.
+    The latency of that reply after publication stays inside the result.
+    """
+    duration, finalised = lifecycle.get("duration_ms"), lifecycle.get("finalised_after_ms")
+    if not (_time(duration) and _time(finalised)):
+        return None
+    published_by = min(cast(float, cancel["ended_after"]), cast(float, run["ended_after"]))
+    return published_by - (cast(int, duration) + cast(int, finalised)) / 1000
+
+
+def overlap_failures(envelope: Json, health: Json, cancel: Json, run: Json) -> list[str]:
+    """Health ran during the command: it started after the spawn and ended before the trigger.
+
+    The caller checks that health ended before the cancellation started. The
+    outcome follows the cancellation, so health then ended before the outcome.
+    """
+    latest = spawned_by(_mapping(envelope.get("lifecycle")), cancel, run)
+    if latest is None:
+        return ["the record lacks duration_ms or finalised_after_ms"]
+    if cast(float, health["started_after"]) < latest:
+        return [
+            f"health started at {cast(float, health['started_after']):.3f} s, "
+            f"before {latest:.3f} s, the latest possible spawn"
+        ]
+    return []
 
 
 def transfer_failures(clone: Clone, name: str) -> list[str]:
@@ -782,6 +946,8 @@ def judge_call(clone: Clone, name: str) -> list[str]:
         return failures + _cancelled_record(clone.envelope(name), _flag(argv, "--exec-id"))
     if kind == "cancel-helper":
         return cancel_helper_failures(clone)
+    if kind == "app-helper":
+        return app_identity_failures(clone)
     if kind == "transfer":
         return transfer_failures(clone, name)
     failures = _receipt_failures(clone, name)
@@ -858,8 +1024,88 @@ def _manifest_bounds(inventory: Json) -> trial.Manifest:
         goldens={},
         boot=float(bounds.get("boot", 0)),
         slot=float(bounds.get("slot", 0)),
+        agents={},
+        app_build="",
+        app_executable="",
         sha256={},
     )
+
+
+def _file_sha256(path: Path) -> str | None:
+    data = _read(path)
+    return None if data is None else hashlib.sha256(data).hexdigest()
+
+
+def freeze_failures(clone: Clone) -> list[str]:
+    """The run measured the frozen candidate, and the checker is the code that ran with it.
+
+    The manifest must still have its frozen digest and give the same digests and
+    identities as the inventory. Each frozen path, the manifest and each fixture
+    file must have its frozen digest before and after the run. Each checker
+    module must have, now, the digest that the controller took after the run.
+    """
+    failures: list[str] = []
+    inventory = clone.inventory
+    before = _mapping(clone.result.get("subjects_before"))
+    after = _mapping(clone.result.get("subjects_after"))
+    manifest_path = Path(str(inventory.get("manifest", "")))
+    manifest_sha256 = inventory.get("manifest_sha256")
+    frozen = _mapping(inventory.get("frozen_sha256"))
+    if not isinstance(manifest_sha256, str) or _file_sha256(manifest_path) != manifest_sha256:
+        return [f"the manifest {manifest_path} no longer has its frozen digest"]
+    try:
+        manifest = trial.read_manifest(manifest_path)
+    except (OSError, ValueError) as error:
+        return [f"the manifest no longer reads: {error}"]
+    if manifest.sha256 != frozen:
+        failures.append("the inventory digests are not the manifest digests")
+    os_name = str(inventory.get("os"))
+    if os_name in trial.OSES and _mapping(inventory.get("identities")) != trial.identities(
+        manifest, os_name
+    ):
+        failures.append("the inventory identities are not the manifest identities")
+    fixture = trial.FIXTURES.get(os_name)
+    expected = {str(manifest_path): manifest_sha256, **{str(k): str(v) for k, v in frozen.items()}}
+    if fixture is not None:
+        for name, digest in trial.FIXTURE_SHA256[os_name].items():
+            expected[str((fixture / name).absolute())] = digest
+    for path, digest in expected.items():
+        if before.get(path) != digest or after.get(path) != digest:
+            failures.append(
+                f"subject {path}: before {before.get(path)!r} after {after.get(path)!r}, "
+                f"frozen {digest!r}"
+            )
+    for module in trial.checker_modules():
+        key = str(module.absolute())
+        if _file_sha256(module) != after.get(key):
+            failures.append(f"checker module {key} differs from the run's subject digest")
+    return failures
+
+
+def execution_failures(clone: Clone) -> list[str]:
+    """The recorded execution: the planned names in the planned order, with the planned argv."""
+    records = [_mapping(r) for r in cast(list[Any], clone.result.get("calls") or [])]
+    names = [str(record.get("name")) for record in records]
+    failures: list[str] = []
+    if names != clone.order:
+        failures.append("the recorded call order is not the plan order")
+    for record in records:
+        name = str(record.get("name"))
+        planned = clone.planned.get(name)
+        argv = [str(token) for token in cast(list[Any], record.get("argv") or [])]
+        if planned is None or argv != clone.argv(name):
+            failures.append(f"the receipt argv of {name} is not its planned argv")
+    raw = [record.get("started_monotonic") for record in records]
+    starts = [
+        float(start)
+        for start in raw
+        if isinstance(start, int | float) and not isinstance(start, bool)
+    ]
+    if len(starts) != len(raw):
+        failures.append("a receipt lacks started_monotonic")
+    elif any(later < earlier for earlier, later in zip(starts, starts[1:], strict=False)):
+        failures.append("the recorded start times decrease")
+    return failures
 
 
 def _items(clone: Clone) -> dict[str, Any]:
@@ -1002,6 +1248,8 @@ def check_clone(directory: Path) -> dict[str, Any]:
         failures.append("the controller plan differs from the frozen inventory plan")
     names = [_mapping(r).get("name") for r in cast(list[Any], clone.result.get("calls") or [])]
     failures += _run_failures(clone.run, clone.result, cast(list[object], names))
+    failures += execution_failures(clone)
+    failures += freeze_failures(clone)
     if clone.summary.get("verdict") is not True or clone.summary.get("residuals") != []:
         failures.append(
             f"controller verdict {clone.summary.get('verdict')!r} "

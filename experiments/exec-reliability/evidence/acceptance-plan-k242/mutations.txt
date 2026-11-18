@@ -1,0 +1,19 @@
+Mutation controls of leaf acceptance-plan-k242, run on the owner's macOS host
+without a guest. mutate.py.txt is the script. Each line reverts one repair in a
+scratch copy of experiments/exec-reliability and runs test_acceptance_k223.py.
+
+<!-- tc: off because these lines are tool output -->
+R1 single snapshot: exit 1: 5 failed, 143 passed in 4.11s
+R2 old inequality: exit 1: 2 failed, 146 passed in 4.17s
+R3 no agent check: exit 1: 2 failed, 146 passed in 4.41s
+R3 no app check: exit 1: 3 failed, 145 passed in 4.44s
+R4 no freeze check: exit 1: 5 failed, 143 passed in 4.40s
+R5 summed acquire: exit 1: 6 failed, 142 passed in 4.39s
+R6 no payload check: exit 1: 6 failed, 142 passed in 4.41s
+R7 no order check: exit 1: 3 failed, 145 passed in 4.40s
+
+Unmutated: 148 passed.
+<!-- tc: on -->
+Trial refusal: diagnostic:acceptance-trial refused a manifest without `agents`
+and exited 201. It created no OUT directory. Its message was "manifest agents
+must give a SHA-256 for exactly macos and linux".
