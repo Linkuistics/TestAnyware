@@ -164,6 +164,64 @@ def test_leader_that_ends_on_sigterm_gets_sigkill_at_its_exit() -> None:
     assert termination["withinBounds"] is True
 
 
+class OrderLog:
+    """The signal operations of the owner and its reap, in the order they ran.
+
+    Each signal entry also records whether the leader PID still named a
+    process (running or an unreaped zombie) at the moment of the signal.
+    """
+
+    events: list[tuple[str, int, bool]] = []
+
+
+class ReapRecordingWaiter(PidfdLeaderWaiter):
+    def reap(self):  # type: ignore[no-untyped-def]
+        status = super().reap()
+        OrderLog.events.append(("reap", 0, False))
+        return status
+
+
+@pytest.mark.parametrize(
+    ("command", "timeout", "terminated"),
+    [
+        pytest.param("sleep 30", 1, True, id="leader-exits-before-sigkill"),
+        pytest.param("trap '' TERM; sleep 30", 1, True, id="leader-exits-after-sigkill"),
+        pytest.param("exit 3", 10, False, id="normal-exit"),
+    ],
+)
+def test_no_nonzero_signal_reaches_the_group_after_the_reap(
+    command: str, timeout: float, terminated: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The tombstone order (spec, section "Termination after a timeout or a
+    cancellation", steps 3 to 6): every SIGTERM and SIGKILL goes to the group
+    while the leader is unreaped, and after the reap only signal-0 probes go to
+    the group ID. A reaped leader no longer pins the group ID, so a later
+    nonzero signal could reach a reused group."""
+    OrderLog.events = []
+    real_killpg = os.killpg
+
+    def recording_killpg(group_id: int, signum: int) -> None:
+        OrderLog.events.append(("signal", signum, process_state(group_id) is not None))
+        real_killpg(group_id, signum)
+
+    monkeypatch.setattr(exec_owner.os, "killpg", recording_killpg)
+    record = run(command, timeout, OwnerSeams(leader_waiter=ReapRecordingWaiter))
+    monkeypatch.undo()
+
+    events = OrderLog.events
+    assert [e for e in events if e[0] == "reap"] == [("reap", 0, False)]
+    reap_at = events.index(("reap", 0, False))
+    before, after = events[:reap_at], events[reap_at + 1 :]
+    assert all(signum == 0 for _, signum, _ in after), events
+    nonzero = [(signum, alive) for _, signum, alive in before if signum != 0]
+    if terminated:
+        assert nonzero == [(signal.SIGTERM, True), (signal.SIGKILL, True)], events
+        assert record["termination"]["groupEmpty"] == "yes"
+    else:
+        assert nonzero == [], events
+        assert record["outcome"] == {"kind": "exited", "exitCode": 3}
+
+
 # ---- Leader status unavailable at K + 1.4 s (new behaviour) ----------------
 
 
@@ -236,12 +294,16 @@ class StallingFile:
     """A capture file whose reads stop after the first five bytes."""
 
     release = threading.Event()
+    opens = 0
+    reads = 0
 
     def __init__(self, path: Path) -> None:
+        StallingFile.opens += 1
         self._file = open(path, "rb")
         self._sent = False
 
     def read(self, n: int = -1) -> bytes:
+        StallingFile.reads += 1
         if not self._sent:
             self._sent = True
             return self._file.read(min(5, n))
@@ -261,6 +323,7 @@ def stalling_open(path: Path) -> BinaryIO:
 
 def test_stalled_capture_publishes_the_prefix_by_the_deadline() -> None:
     StallingFile.release.clear()
+    StallingFile.opens = StallingFile.reads = 0
     started = time.monotonic()
     record = run(
         "printf 'hello world'; printf 'err\\n' >&2", 10, OwnerSeams(open_capture=stalling_open)
@@ -278,6 +341,60 @@ def test_stalled_capture_publishes_the_prefix_by_the_deadline() -> None:
     assert record["stdout"] == "hello"
     assert 1800 <= record["lifecycle"]["finalisedAfterMs"] <= 2000
     assert elapsed < 2.5
+    # The abandoned worker finishes its stalled read and then reads nothing
+    # more: not the rest of stdout, and not stderr.
+    time.sleep(0.3)
+    assert (StallingFile.opens, StallingFile.reads) == (1, 2)
+
+
+def test_the_published_record_needs_no_work_in_proportion_to_its_bytes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Outcome to published record (spec, section "Bounds"). The digest, the
+    base64 text and the legacy projection exist before the owner samples
+    `finalisedAfterMs`, so that time covers them. Serialising the published
+    record afterwards must not need them again."""
+    from testanyware_agent import models
+
+    size = 8 * 1024 * 1024
+    record = exec_owner.run_command(
+        f"head -c {size} /dev/zero | tr '\\0' 'b'", 30, "ctl-1", time.monotonic()
+    )
+
+    def forbidden(*_: object) -> object:
+        raise AssertionError("the record derived its evidence after publication")
+
+    monkeypatch.setattr(models.base64, "b64encode", forbidden)
+    monkeypatch.setattr(models.hashlib, "sha256", forbidden)
+    monkeypatch.setattr(models, "linux_legacy_projection", forbidden)
+    published = json.dumps(record.to_dict())
+    monkeypatch.undo()
+
+    reply = json.loads(published)
+    assert record_errors(reply, exec_id="ctl-1") == []
+    assert reply["evidence"]["stdout"]["bytes"] == size
+    assert reply["stdout"] == "b" * size
+    assert reply["lifecycle"]["finalisedAfterMs"] <= 2000
+
+
+def test_unlinked_capture_path_keeps_its_bytes() -> None:
+    """The command unlinks its own capture paths while its descriptors stay
+    open. The owner holds the files, so the record stays valid and exact."""
+    record = run(
+        'rm -- "$(readlink /proc/$$/fd/1)" "$(readlink /proc/$$/fd/2)"; '
+        "printf x; printf y >&2",
+        10,
+    )
+    for name, data in (("stdout", b"x"), ("stderr", b"y")):
+        stream = record["evidence"][name]
+        assert (stream["capture"], stream["bytes"], stream["fileBytes"]) == ("complete", 1, 1)
+        assert stream_bytes(record, name) == data
+
+
+def test_unlinked_empty_capture_path_is_complete() -> None:
+    record = run('rm -- "$(readlink /proc/$$/fd/1)"', 10)
+    stdout = record["evidence"]["stdout"]
+    assert (stdout["capture"], stdout["bytes"], stdout["fileBytes"]) == ("complete", 0, 0)
 
 
 def failing_open(path: Path) -> BinaryIO:
@@ -288,6 +405,7 @@ def test_capture_read_error_is_incomplete() -> None:
     record = run("printf 'x'", 10, OwnerSeams(open_capture=failing_open))
     stdout = record["evidence"]["stdout"]
     assert (stdout["capture"], stdout["reason"], stdout["bytes"]) == ("incomplete", "read_error", 0)
+    assert stdout["fileBytes"] == 1
 
 
 # ---- Exact bytes, exit 23, signal death, spawn errno (corrected-pass) ------

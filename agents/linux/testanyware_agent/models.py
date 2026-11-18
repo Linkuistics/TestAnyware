@@ -94,19 +94,32 @@ LINUX_PROJECTION = "linux"
 
 @dataclass
 class StreamEvidence:
-    """The captured bytes of one stream, up to the size at finalisation."""
+    """The captured bytes of one stream, up to the size at finalisation.
+
+    The digest and the base64 text are derived when the evidence is built.
+    The owner builds it before it samples `finalisedAfterMs`, so that time
+    covers the derivation, and `to_dict` does no work in proportion to the
+    bytes. The capture worker supplies the digest that it computed as it read.
+    """
 
     data: bytes
     file_bytes: int
     complete: bool
     reason: str | None = None  # `deadline` or `read_error` when incomplete
+    sha256: str | None = None  # computed from `data` when absent
+    base64_text: str = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.sha256 is None:
+            self.sha256 = hashlib.sha256(self.data).hexdigest()
+        self.base64_text = base64.b64encode(self.data).decode("ascii")
 
     def to_dict(self) -> dict:
         d: dict = {
-            "base64": base64.b64encode(self.data).decode("ascii"),
+            "base64": self.base64_text,
             "bytes": len(self.data),
             "fileBytes": self.file_bytes,
-            "sha256": hashlib.sha256(self.data).hexdigest(),
+            "sha256": self.sha256,
             "capture": "complete" if self.complete else "incomplete",
         }
         if not self.complete:
@@ -264,9 +277,15 @@ class ExecRecord:
     lifecycle: Lifecycle
     remaining_group: str | None  # set exactly for `exited` and `signalled`
     termination: Termination | None  # set exactly for a started termination
+    # Derived when the record is built, like the stream digests, so that
+    # `finalisedAfterMs` covers the decoding.
+    legacy: dict = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self.legacy = linux_legacy_projection(self.outcome, self.stdout.data, self.stderr.data)
 
     def to_dict(self) -> dict:
-        d = linux_legacy_projection(self.outcome, self.stdout.data, self.stderr.data)
+        d = dict(self.legacy)
         d.update({
             "id": self.exec_id,
             "outcome": self.outcome.to_dict(),

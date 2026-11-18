@@ -9,12 +9,14 @@ execution backend:
 
 - `OwnerSeams.leader_waiter` builds the leader-wait source. The control for a
   leader status that stays unavailable past K + 1.4 s substitutes it.
-- `OwnerSeams.open_capture` opens a capture file for the reader. The control for
-  a stalled capture substitutes it.
+- `OwnerSeams.open_capture` opens a capture file for the reader. Its path names
+  a descriptor that the owner holds. The control for a stalled capture
+  substitutes it.
 """
 
 from __future__ import annotations
 
+import hashlib
 import os
 import select
 import shutil
@@ -212,32 +214,48 @@ def _signal_group(group_id: int, signum: int) -> None:
 @dataclass
 class _StreamProgress:
     data: bytearray = field(default_factory=bytearray)
+    digest: hashlib._Hash = field(default_factory=hashlib.sha256)
     done: bool = False
     error: bool = False
 
 
+def _held_path(fd: int) -> Path:
+    """The path that reopens a held capture descriptor (proc(5), /proc/PID/fd).
+
+    The link names the open file even after the command unlinks or replaces
+    the capture path, so the command cannot hide its own output.
+    """
+    return Path(f"/proc/self/fd/{fd}")
+
+
 def _finalise_capture(
-    paths: list[Path], deadline: float, open_capture: Callable[[Path], BinaryIO]
+    held: list[int], deadline: float, open_capture: Callable[[Path], BinaryIO]
 ) -> list[StreamEvidence]:
-    sizes: list[int] = []
-    for path in paths:
-        try:
-            sizes.append(path.stat().st_size)
-        except OSError:
-            sizes.append(-1)
+    """Read each held capture file up to its size at finalisation.
+
+    The sizes come from `fstat` of descriptors that the owner opened before
+    the spawn. The worker counts and digests the bytes as it reads (spec,
+    section "Capture", step 3). At the deadline the owner abandons the worker,
+    and the worker reads nothing more after its current read returns.
+    """
+    sizes = [os.fstat(fd).st_size for fd in held]
     lock = threading.Lock()
-    progress = [_StreamProgress() for _ in paths]
+    abandoned = False
+    progress = [_StreamProgress() for _ in held]
 
     def work() -> None:
-        for path, size, state in zip(paths, sizes, progress, strict=True):
-            if size < 0:
-                with lock:
-                    state.error = True
-                continue
+        for fd, size, state in zip(held, sizes, progress, strict=True):
+            with lock:
+                # After abandonment the owner can close the held descriptors,
+                # and the kernel can give their numbers to other files.
+                if abandoned:
+                    return
             try:
-                with open_capture(path) as f:
+                with open_capture(_held_path(fd)) as f:
                     while True:
                         with lock:
+                            if abandoned:
+                                return
                             left = size - len(state.data)
                         if left <= 0:
                             break
@@ -245,7 +263,10 @@ def _finalise_capture(
                         if not chunk:
                             break
                         with lock:
+                            if abandoned:
+                                return
                             state.data.extend(chunk)
+                            state.digest.update(chunk)
                 with lock:
                     state.done = len(state.data) == size
                     state.error = not state.done
@@ -258,17 +279,21 @@ def _finalise_capture(
     worker = threading.Thread(target=work, name="exec-capture", daemon=True)
     worker.start()
     worker.join(max(0.0, deadline - time.monotonic()))
-    evidence: list[StreamEvidence] = []
     with lock:
-        for size, state in zip(sizes, progress, strict=True):
-            data = bytes(state.data)
-            # Every byte up to `fileBytes` was read, even when no read was needed.
-            if state.done or (size >= 0 and len(data) == size):
-                evidence.append(StreamEvidence(data, size, True))
-            elif state.error:
-                evidence.append(StreamEvidence(data, max(size, 0), False, "read_error"))
-            else:
-                evidence.append(StreamEvidence(data, size, False, "deadline"))
+        # The worker checks this flag under the same lock before each change,
+        # so the data and the digest below stay consistent and stay fixed.
+        abandoned = True
+    evidence: list[StreamEvidence] = []
+    for size, state in zip(sizes, progress, strict=True):
+        data = bytes(state.data)
+        digest = state.digest.hexdigest()
+        # Every byte up to `fileBytes` was read, even when no read was needed.
+        if state.done or len(data) == size:
+            evidence.append(StreamEvidence(data, size, True, sha256=digest))
+        elif state.error:
+            evidence.append(StreamEvidence(data, size, False, "read_error", sha256=digest))
+        else:
+            evidence.append(StreamEvidence(data, size, False, "deadline", sha256=digest))
     return evidence
 
 
@@ -369,9 +394,12 @@ def run_command(
     except OSError as e:
         return _spawn_failed(exec_id, e, request_start, time.monotonic())
     paths = [capture_dir / "stdout", capture_dir / "stderr"]
+    held: list[int] = []
     try:
-        return _own(command, timeout, exec_id, request_start, seams, paths)
+        return _own(command, timeout, exec_id, request_start, seams, paths, held)
     finally:
+        for fd in held:
+            os.close(fd)
         shutil.rmtree(capture_dir, ignore_errors=True)
 
 
@@ -382,9 +410,15 @@ def _own(
     request_start: float,
     seams: OwnerSeams,
     paths: list[Path],
+    held: list[int],
 ) -> ExecRecord:
     try:
         with open(paths[0], "wb") as out, open(paths[1], "wb") as err:
+            # The owner holds a read descriptor of each capture file, opened
+            # before the spawn. The command can unlink its capture path, but
+            # it cannot take the file, its size or its bytes from the owner.
+            for path in paths:
+                held.append(os.open(path, os.O_RDONLY | os.O_CLOEXEC))
             proc = subprocess.Popen(
                 ["/bin/bash", "-c", command],
                 stdin=subprocess.DEVNULL,
@@ -400,7 +434,7 @@ def _own(
     group_id = leader_pid  # `start_new_session` makes the leader its group leader
     start_time = _leader_start_time(leader_pid)
     waiter = seams.leader_waiter(leader_pid)
-    held = False
+    held_leader = False
     try:
         lateness = 0
         while True:
@@ -426,10 +460,10 @@ def _own(
             finalise_deadline = outcome_at + FINALISE_S
         else:
             outcome = Outcome("timed_out", timeout_seconds=timeout)
-            termination, held = _terminate(proc, waiter, group_id, outcome_at)
+            termination, held_leader = _terminate(proc, waiter, group_id, outcome_at)
             finalise_deadline = outcome_at + termination.kill_sent_after_ms / 1000 + FINALISE_S
 
-        stdout, stderr = _finalise_capture(paths, finalise_deadline, seams.open_capture)
+        stdout, stderr = _finalise_capture(held, finalise_deadline, seams.open_capture)
         lifecycle = Lifecycle(
             leader_pid=leader_pid,
             group_id=group_id,
@@ -448,11 +482,13 @@ def _own(
             remaining_group=remaining,
             termination=termination,
         )
-        # The capture directory goes in `run_command` right after this return.
+        # The record is now published: its digests, its base64 text and its
+        # legacy projection exist, so this time covers them. The capture
+        # directory goes in `run_command` right after this return.
         lifecycle.finalised_after_ms = _ms(time.monotonic() - outcome_at)
         return record
     finally:
-        if not held:
+        if not held_leader:
             waiter.close()
 
 
