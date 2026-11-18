@@ -290,6 +290,21 @@ fn a_contradictory_record_is_an_error() {
     assert_record_invalid(&Guest::new(Reply::Record(body)));
 }
 
+/// Review k231, findings R1 and R2: the reader rejects these records, so the
+/// Host CLI reports the error and never reports a success.
+#[test]
+fn a_record_that_hides_its_evidence_is_an_error() {
+    let _lock = serial();
+    let mut body = linux_record("deadline-term-ignored");
+    body["lifecycle"]["leaderPid"] = Value::Null;
+    body["termination"] = Value::Null;
+    assert_record_invalid(&Guest::new(Reply::Record(body)));
+
+    let mut body = linux_record("oracle-text");
+    body["evidence"]["stderr"]["reason"] = json!("deadline");
+    assert_record_invalid(&Guest::new(Reply::Record(body)));
+}
+
 #[test]
 fn a_record_for_another_id_is_an_error() {
     let _lock = serial();

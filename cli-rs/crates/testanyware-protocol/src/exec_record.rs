@@ -62,6 +62,17 @@ impl Outcome {
             Outcome::SpawnFailed { .. } => "spawn_failed",
         }
     }
+
+    /// Whether a leader started. Only a spawn failure and a cancellation
+    /// before the start have no leader. The reader derives this from the
+    /// outcome, so a null identity cannot remove the evidence that a started
+    /// command requires.
+    pub fn started(&self) -> bool {
+        !matches!(
+            self,
+            Outcome::SpawnFailed { .. } | Outcome::Cancelled { before_start: true }
+        )
+    }
 }
 
 /// Whether the agent captured every byte of a stream.
@@ -115,13 +126,6 @@ pub struct Lifecycle {
     pub duration_ms: Option<i64>,
     pub owner_lateness_ms: i64,
     pub finalised_after_ms: i64,
-}
-
-impl Lifecycle {
-    /// A leader started when the record names its process.
-    pub fn leader_started(&self) -> bool {
-        self.leader_pid.is_some()
-    }
 }
 
 /// Whether members of the group remained after the leader ended.
@@ -314,6 +318,8 @@ pub fn validity_problems(result: &ExecResult, sent_id: Option<&str>) -> Vec<Stri
     };
     check_times(
         &[
+            ("lifecycle.leaderPid", lifecycle.leader_pid),
+            ("lifecycle.groupId", lifecycle.group_id),
             ("lifecycle.spawnMs", Some(lifecycle.spawn_ms)),
             ("lifecycle.durationMs", lifecycle.duration_ms),
             (
@@ -328,11 +334,14 @@ pub fn validity_problems(result: &ExecResult, sent_id: Option<&str>) -> Vec<Stri
         &mut problems,
     );
 
+    let started = outcome.started();
+    check_identity(lifecycle, started, &mut problems);
+
     let ended_alone = matches!(outcome, Outcome::Exited { .. } | Outcome::Signalled { .. });
     if ended_alone != result.remaining_group.is_some() {
         problems.push("remainingGroup is not present exactly for exited and signalled".to_string());
     }
-    let terminated = lifecycle.leader_started()
+    let terminated = started
         && matches!(
             outcome,
             Outcome::TimedOut { .. } | Outcome::Cancelled { .. }
@@ -352,6 +361,23 @@ pub fn validity_problems(result: &ExecResult, sent_id: Option<&str>) -> Vec<Stri
         check_legacy_fields(result, projection, outcome, &out, &err, &mut problems);
     }
     problems
+}
+
+/// A started command names its leader, its group and its duration. A command
+/// that never started names none of them and no leader start time.
+fn check_identity(lifecycle: &Lifecycle, started: bool, problems: &mut Vec<String>) {
+    let identity = [
+        lifecycle.leader_pid,
+        lifecycle.group_id,
+        lifecycle.duration_ms,
+    ];
+    if started && identity.iter().any(Option::is_none) {
+        problems
+            .push("a started command lacks lifecycle.leaderPid, groupId or durationMs".to_string());
+    }
+    if !started && (identity.iter().any(Option::is_some) || lifecycle.leader_start_time.is_some()) {
+        problems.push("a command that never started has a leader identity".to_string());
+    }
 }
 
 fn check_stream(
@@ -384,11 +410,20 @@ fn check_stream(
         )),
         _ => {}
     }
+    match (stream.capture, stream.reason.as_deref()) {
+        (Capture::Complete, None) | (Capture::Incomplete, Some("deadline" | "read_error")) => {}
+        (Capture::Complete, Some(_)) => {
+            problems.push(format!("evidence.{name} is complete, but it has a reason"));
+        }
+        (Capture::Incomplete, _) => problems.push(format!(
+            "evidence.{name}.reason is not deadline or read_error"
+        )),
+    }
     Some(data)
 }
 
 /// The lowercase hex SHA-256 digest of `data`.
-/// API: https://docs.rs/sha2/0.11.0/sha2/ (`Digest::digest` returns the byte array).
+/// API: https://docs.rs/sha2/0.10.9/sha2/ (`Digest::digest` returns the byte array).
 pub fn sha256_hex(data: &[u8]) -> String {
     Sha256::digest(data)
         .iter()
@@ -555,22 +590,14 @@ fn macos_projection(outcome: &Outcome, stdout: &[u8], stderr: &[u8]) -> LegacyVa
 }
 
 /// Strict UTF-8, where a stream that is not valid becomes empty, then the
-/// removal of trailing whitespace as the regex `\s+$` removes it. ICU defines
-/// `\s` as `[\t\n\f\r\p{Z}]`, so vertical tab and U+0085 stay.
-/// Source: https://unicode-org.github.io/icu/userguide/strings/regexp.html
+/// removal of trailing whitespace as the Foundation regex `\s+$` removes it.
+/// ICU matches `\s` with the Unicode property White_Space, and Rust
+/// `char::is_whitespace` tests the same property. So vertical tab and U+0085
+/// go, and U+001C to U+001F, U+180E and U+200B stay.
+/// Source: https://github.com/unicode-org/icu/blob/release-76-1/icu4c/source/i18n/regexst.cpp#L51-L53
 fn macos_decode(data: &[u8]) -> String {
     let text = std::str::from_utf8(data).unwrap_or("");
-    text.trim_end_matches(|c: char| matches!(c, '\t' | '\n' | '\u{000C}' | '\r') || is_separator(c))
-        .to_string()
-}
-
-/// The Unicode general category Z: space, line and paragraph separators.
-fn is_separator(c: char) -> bool {
-    matches!(
-        c,
-        ' ' | '\u{00A0}' | '\u{1680}' | '\u{2000}'
-            ..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}'
-    )
+    text.trim_end_matches(char::is_whitespace).to_string()
 }
 
 fn linux_projection(outcome: &Outcome, stdout: &[u8], stderr: &[u8]) -> LegacyValues {
@@ -623,11 +650,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn macos_trim_keeps_vertical_tab_and_next_line() {
+    fn macos_trim_matches_foundation_white_space() {
+        // Each expected value is the output of the Foundation call in
+        // ProcessRunner.swift, run with Swift 6.4.2 on macOS.
         assert_eq!(macos_decode(b"a \t\r\n"), "a");
-        assert_eq!(macos_decode(b"a\x0b"), "a\x0b");
-        assert_eq!(macos_decode("a\u{0085}".as_bytes()), "a\u{0085}");
+        assert_eq!(macos_decode(b"a\x0b"), "a");
+        assert_eq!(macos_decode("a\u{0085}".as_bytes()), "a");
+        assert_eq!(macos_decode("a\u{00A0}\u{2028}\u{202F}".as_bytes()), "a");
         assert_eq!(macos_decode("a\u{3000}".as_bytes()), "a");
+        assert_eq!(macos_decode(b"a\x1c"), "a\x1c");
+        assert_eq!(macos_decode(b"a\x1f"), "a\x1f");
+        assert_eq!(macos_decode("a\u{180E}".as_bytes()), "a\u{180E}");
+        assert_eq!(macos_decode("a\u{200B}".as_bytes()), "a\u{200B}");
+        assert_eq!(macos_decode("a\u{FEFF}".as_bytes()), "a\u{FEFF}");
         assert_eq!(macos_decode(b"\xff\n"), "");
     }
 

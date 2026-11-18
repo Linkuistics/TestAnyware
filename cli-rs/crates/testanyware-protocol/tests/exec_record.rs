@@ -213,6 +213,36 @@ fn evidence_contradictions_are_invalid() {
     assert_invalid(&b, "incomplete, but bytes is not less than fileBytes");
 }
 
+/// Review k231, finding R2: an incomplete stream names `deadline` or
+/// `read_error`, and a complete stream names no reason.
+#[test]
+fn capture_reason_contradictions_are_invalid() {
+    let incomplete = || {
+        let mut b = fixture("deadline-term-ignored");
+        let s = &mut b["evidence"]["stdout"];
+        s["capture"] = json!("incomplete");
+        s["fileBytes"] = json!(s["bytes"].as_i64().unwrap() + 1);
+        b
+    };
+
+    let b = incomplete();
+    assert_invalid(&b, "evidence.stdout.reason is not deadline or read_error");
+
+    let mut b = incomplete();
+    b["evidence"]["stdout"]["reason"] = json!("invented");
+    assert_invalid(&b, "evidence.stdout.reason is not deadline or read_error");
+
+    for reason in ["deadline", "read_error"] {
+        let mut b = incomplete();
+        b["evidence"]["stdout"]["reason"] = json!(reason);
+        read(&b).unwrap_or_else(|e| panic!("reason {reason} is valid: {e:?}"));
+    }
+
+    let mut b = fixture("oracle-text");
+    b["evidence"]["stderr"]["reason"] = json!("deadline");
+    assert_invalid(&b, "evidence.stderr is complete, but it has a reason");
+}
+
 #[test]
 fn an_incomplete_capture_is_valid_and_partial() {
     let mut b = fixture("oracle-text");
@@ -310,16 +340,66 @@ fn presence_contradictions_are_invalid() {
     assert_invalid(&b, "termination is not present");
 }
 
+/// Review k231, finding R1: the outcome decides whether a command started.
+/// A null identity cannot remove the termination evidence of a timeout.
 #[test]
-fn a_command_that_never_started_has_no_termination() {
-    let mut b = fixture("deadline");
+fn a_started_outcome_requires_its_identity() {
+    let mut b = fixture("deadline-term-ignored");
     b["lifecycle"]["leaderPid"] = Value::Null;
-    b["lifecycle"]["groupId"] = Value::Null;
-    b["lifecycle"]["leaderStartTime"] = Value::Null;
-    b["lifecycle"]["durationMs"] = Value::Null;
-    assert_invalid(&b, "termination is not present");
     b["termination"] = Value::Null;
-    read(&b).expect("no leader started, so no termination");
+    let p = problems(&b);
+    assert!(
+        p.iter().any(|m| m.contains("a started command lacks")),
+        "{p:?}"
+    );
+    assert!(
+        p.iter().any(|m| m.contains("termination is not present")),
+        "{p:?}"
+    );
+
+    for field in ["leaderPid", "groupId", "durationMs"] {
+        let mut b = fixture("oracle-text");
+        b["lifecycle"][field] = Value::Null;
+        assert_invalid(&b, "a started command lacks");
+    }
+
+    for field in ["leaderPid", "groupId"] {
+        let mut b = fixture("oracle-text");
+        b["lifecycle"][field] = json!(-1);
+        assert_invalid(&b, &format!("lifecycle.{field} is negative"));
+    }
+}
+
+/// A cancellation before the start, made from the spawn failure. Today's
+/// Linux agent gives it the fixed legacy fields of a cancellation.
+fn cancelled_before_start() -> Value {
+    let mut b = fixture("spawn-failure");
+    b["outcome"] = json!({"kind": "cancelled", "beforeStart": true});
+    b["stderr"] = json!("Process cancelled");
+    b
+}
+
+#[test]
+fn a_command_that_never_started_has_no_identity_and_no_termination() {
+    read(&fixture("spawn-failure")).expect("a spawn failure has no leader");
+    read(&cancelled_before_start()).expect("a cancellation before the start has no leader");
+
+    for base in [fixture("spawn-failure"), cancelled_before_start()] {
+        for (field, value) in [
+            ("leaderPid", json!(4242)),
+            ("groupId", json!(4242)),
+            ("durationMs", json!(0)),
+            ("leaderStartTime", json!("12345")),
+        ] {
+            let mut b = base.clone();
+            b["lifecycle"][field] = value;
+            assert_invalid(&b, "a command that never started has a leader identity");
+        }
+    }
+
+    let mut b = cancelled_before_start();
+    b["termination"] = fixture("deadline")["termination"].clone();
+    assert_invalid(&b, "termination is not present");
 }
 
 /// A timed-out record with the given termination block.
@@ -542,9 +622,10 @@ fn within_bounds_is_derived_from_the_root_bounds() {
 
 #[test]
 fn agent_clock_values_are_read_without_host_time() {
-    // The agent clock alone measures each time, and a skewed or slow agent
-    // clock gives large values. The reader checks only the order and the
-    // bounds within the record.
+    // The agent clock alone measures each time. The reader checks that each
+    // time is not negative, the order and the bounds within the record. It
+    // never compares a time with a host time, so large and zero values are
+    // valid. These cases do not measure timing bounds from the controller.
     let big = 9_000_000_000_000_i64;
     let sig9 = json!({"kind": "signalled", "signal": 9});
     let mut b = terminated(
@@ -633,4 +714,45 @@ fn macos_projection_matches_todays_macos_values() {
     let mut b = macos_record(json!({"kind": "exited", "exitCode": 0}), b"out", b"");
     b["timedOut"] = Value::Null;
     assert_invalid(&b, "legacy fields");
+}
+
+/// An exited macOS record with stated legacy text. The text is not derived
+/// from the reader, so the case checks the reader against the agent.
+fn macos_exited(stdout: &[u8], stderr: &[u8], legacy_out: &str, legacy_err: &str) -> Value {
+    let mut b = fixture("oracle-text");
+    b["outcome"] = json!({"kind": "exited", "exitCode": 0});
+    b["legacyProjection"] = json!("macos");
+    b["exitCode"] = json!(0);
+    b["stdout"] = json!(legacy_out);
+    b["stderr"] = json!(legacy_err);
+    b["timedOut"] = json!(false);
+    set_stream(&mut b, "stdout", stdout);
+    set_stream(&mut b, "stderr", stderr);
+    b
+}
+
+/// Review k231, finding R3. Each legacy value is the output of the
+/// Foundation call `replacingOccurrences(of: "\\s+$", with: "", options:
+/// .regularExpression)` from ProcessRunner.swift, run with Swift 6.4.2 on
+/// macOS.
+#[test]
+fn macos_projection_trims_as_foundation_trims() {
+    read(&macos_exited(b"a\x0b", b"", "a", "")).expect("Foundation removes a vertical tab");
+    assert_invalid(
+        &macos_exited(b"a\x0b", b"", "a\u{000B}", ""),
+        "legacy fields",
+    );
+
+    let next_line = "e\u{0085}".as_bytes();
+    read(&macos_exited(b"", next_line, "", "e")).expect("Foundation removes U+0085");
+    assert_invalid(
+        &macos_exited(b"", next_line, "", "e\u{0085}"),
+        "legacy fields",
+    );
+
+    read(&macos_exited(b"a\x1c", b"", "a\u{001C}", "")).expect("Foundation keeps U+001C");
+    assert_invalid(&macos_exited(b"a\x1c", b"", "a", ""), "legacy fields");
+
+    let zero_width = "a\u{200B}".as_bytes();
+    read(&macos_exited(zero_width, b"", "a\u{200B}", "")).expect("Foundation keeps U+200B");
 }
