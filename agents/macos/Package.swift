@@ -46,6 +46,8 @@ let package = Package(
             dependencies: [
                 "TestAnywareAgent",
                 "TestAnywareAgentProtocol",
+                // AgentProcessTests run this binary, so `swift test` builds it.
+                "testanyware-agent",
             ],
             path: "Tests/TestAnywareAgentTests"
         ),

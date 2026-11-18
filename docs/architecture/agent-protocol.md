@@ -38,7 +38,7 @@ Authoritative sources (the JSON keys and optionality rules must match):
 |--------|------|---------|
 | GET | `/health` | Liveness + "accessibility is ready" check. Returns 200 with no required body once agent + AX are ready. |
 | POST | `/exec` | Execute a command. A valid request returns 200. The response body holds the exit code. |
-| POST | `/exec/cancel` | Linux only so far. Cancel a running command by its exec `id`. |
+| POST | `/exec/cancel` | Linux and macOS. Cancel a running command by its exec `id`. |
 | POST | `/upload?path=<percent-encoded>` | Stream a file to the VM filesystem (raw `application/octet-stream` body). |
 | POST | `/download?path=<percent-encoded>` | Stream a file from the VM filesystem (raw `application/octet-stream` response). |
 | POST | `/shutdown` | Ask the agent to terminate (used by test harnesses). |
@@ -144,16 +144,19 @@ The Host CLI sends a random UUID as the `id` of each attached request. An
 agent without the typed record ignores it. A detached request carries no
 `id`.
 
-The Linux agent registers each `id`. An `id` of a running or retained
+The Linux and macOS agents register each `id`. An `id` of a running or retained
 command returns 409 with `exec_id_in_use`. An `id` that a cancellation
 tombstoned returns a `cancelled` record with `beforeStart: true`, and no
 process starts. During agent shutdown, a new request returns 503 with
 `exec_failed`.
 
-On the Linux agent, a cancellation that arrives before the spawn gives the
-same record as a tombstone. A cancellation after the spawn ends the started
-group, and its record has `beforeStart: false`. The Linux agent counts a
+On the Linux and macOS agents, a cancellation that arrives before the spawn
+gives the same record as a tombstone. A cancellation after the spawn ends the
+started group, and its record has `beforeStart: false`. Both agents count a
 negative timeout as 0.
+
+At SIGTERM, the Linux and macOS agents refuse each new command and cancel
+each running command. Each agent waits up to 4 s for the records and then exits.
 
 ### `CancelRequest` — `/exec/cancel`
 
@@ -192,10 +195,13 @@ body is the raw file bytes (`Content-Type: application/octet-stream`).
 On failure the response is an `ErrorResponse` (`download_failed`) JSON
 body. Its non-2xx HTTP status tells it apart from a successful transfer.
 
-The Linux agent opens the file once. It takes `Content-Length` from that
-handle and sends exactly that many bytes from it (ADR-0026). Bytes that
-a writer appends during the read stay out of the body. When the handle
-ends early, for example after a truncation, the agent closes the
+The Linux and macOS agents open the file once. Each agent takes
+`Content-Length` from that handle and sends exactly that many bytes from it
+(ADR-0026). A rename that replaces the file during the read does not change
+the body. The body is the version that was open at the start.
+
+Bytes that a writer appends during the read stay out of the body. When the
+handle ends early, for example after a truncation, the agent closes the
 connection. The body is then short, and the client detects it.
 
 An in-place overwrite during the read is outside the contract. Publish each

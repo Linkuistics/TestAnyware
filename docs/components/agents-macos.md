@@ -24,10 +24,22 @@ agents/macos/
   copy of `TestAnywareAgentProtocol`. It vendors its own copy of the Swift
   sources, so the agent builds in any working copy without the `cli/`
   package.
-- **Single-process.** One `AsyncHTTPServer` binds `0.0.0.0:8648` and
-  dispatches to the handler closures in `AgentServer.swift`.
-- **No state between requests.** Each handler walks the AX tree again.
-  When AX is not ready, the client must retry.
+- **Single-process.** One Hummingbird `Application` binds `0.0.0.0:8648`
+  and dispatches to the handler closures in `AgentServer.swift`. A second
+  argument names another listen address. The host tests pass `127.0.0.1`.
+- **No accessibility state between requests.** Each accessibility handler
+  walks the AX tree again. When AX is not ready, the client must retry.
+- **Exec registry.** The agent registers each exec `id`. It retains each
+  finished record and each tombstone for 300 s, 64 at most.
+  `/exec/cancel` ends a command through its lifecycle owner. A disconnect
+  is not a cancellation (ADR-0025).
+- **One file version for each download.** A download opens the file once.
+  It sends exactly the length that `fstat` gave for that handle
+  (ADR-0026).
+- **Bounded shutdown.** At SIGTERM the agent stops admission and cancels
+  each running guest command. It stops accepting connections, waits up to
+  4 s for the records and then exits with status 0. A second SIGTERM ends
+  it at once. The spec is `docs/specs/guest-command-lifecycle.md`.
 
 ## Endpoint wiring
 
@@ -40,7 +52,7 @@ POST /windows, /snapshot, /inspect
 POST /press, /set-value, /focus, /show-menu
 POST /window-focus, /window-resize, /window-move, /window-close, /window-minimize
 POST /wait
-POST /exec, /upload, /download, /shutdown
+POST /exec, /exec/cancel, /upload, /download, /shutdown
 POST /debug/ax    (macOS-only diagnostic)
 ```
 

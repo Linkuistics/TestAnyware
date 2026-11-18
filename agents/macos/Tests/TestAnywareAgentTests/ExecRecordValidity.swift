@@ -121,8 +121,11 @@ enum ExecValidity {
         case .timedOut(let seconds):
             terminated = true
             if seconds <= 0 { errors.append("timeoutSeconds \(seconds) is not positive") }
-        case .cancelled:
-            terminated = true
+        case .cancelled(let beforeStart):
+            // The spec: termination is present exactly for a timed_out or
+            // cancelled command that started.
+            started = !beforeStart
+            terminated = !beforeStart
         }
         if started {
             if life.leaderPid == nil || life.leaderStartTime == nil || life.durationMs == nil {
@@ -131,7 +134,7 @@ enum ExecValidity {
             if life.groupId != life.leaderPid { errors.append("groupId is not the leader PID") }
         } else if life.leaderPid != nil || life.groupId != nil || life.leaderStartTime != nil
                     || life.durationMs != nil {
-            errors.append("a spawn failure carries a leader identity")
+            errors.append("a command that never started carries a leader identity")
         }
         if mayRemain != (record.remainingGroup != nil) {
             errors.append("remainingGroup is present only after exited or signalled")
@@ -200,7 +203,9 @@ enum ExecValidity {
             let ok = reply.exitCode == -1 && reply.stdout.isEmpty && reply.stderr == message && !reply.timedOut
             return ok ? [] : ["legacy fields do not match spawn_failed"]
         case .cancelled:
-            return ["the macOS agent does not cancel before k221"]
+            let note = "Process cancelled"
+            let noted = reply.stderr == note || reply.stderr.hasSuffix("\n[\(note)]")
+            return reply.exitCode == -1 && !reply.timedOut && noted ? [] : ["legacy fields do not match cancelled"]
         }
     }
 }

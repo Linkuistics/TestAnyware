@@ -45,6 +45,8 @@ extension OwnedExecResult {
             return .signalled(signal: Int(signal), signalName: ProcessRunner.signalName(signal))
         case .timedOut(let seconds):
             return .timedOut(timeoutSeconds: seconds)
+        case .cancelled(let beforeStart):
+            return .cancelled(beforeStart: beforeStart)
         case .spawnFailed(let code):
             return .spawnFailed(
                 errno: Int(code), errorName: ProcessRunner.errorName(code), message: ProcessRunner.message(code)

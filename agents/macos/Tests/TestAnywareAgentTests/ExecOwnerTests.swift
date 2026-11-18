@@ -354,10 +354,13 @@ final class BlindLeaderWaiter: LeaderWaiter, @unchecked Sendable {
 
     init(pid: pid_t) { real = KqueueLeaderWaiter(pid: pid) }
 
-    func waitExit(until deadline: UInt64) -> Bool {
-        let now = DispatchTime.now().uptimeNanoseconds
-        if deadline > now { usleep(useconds_t(min((deadline - now) / 1000, UInt64(UInt32.max)))) }
-        return false
+    /// Waits until the deadline or a cancellation request, in 10 ms steps.
+    func waitExit(until deadline: UInt64, wake: CancelSignal?) -> Bool {
+        while true {
+            let now = DispatchTime.now().uptimeNanoseconds
+            if deadline <= now || wake?.requestedAt != nil { return false }
+            usleep(useconds_t(min((deadline - now) / 1000, 10_000)))
+        }
     }
 
     func hasExited() -> Bool { false }

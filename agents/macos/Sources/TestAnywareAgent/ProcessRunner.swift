@@ -31,6 +31,7 @@ public enum OwnedOutcome: Sendable, Equatable {
     case exited(code: Int32)
     case signalled(signal: Int32)
     case timedOut(seconds: Int)
+    case cancelled(beforeStart: Bool)
     case spawnFailed(errno: Int32)
 }
 
@@ -81,13 +82,80 @@ public struct OwnedExecResult: Sendable {
     public let legacy: ProcessRunResult
 }
 
+// MARK: - Cancellation
+
+/// The cancellation event of one guest command, as its owner receives it
+/// (spec, "Cancel endpoint", ADR-0025).
+///
+/// A request writes one byte to a pipe. The owner's leader waiter watches the
+/// read end beside the exit source, so a request wakes the owner at once. The
+/// first request keeps its uptime. After `close`, a request changes nothing
+/// and writes nothing, so no write reaches a descriptor number that the kernel
+/// gave to another file. Both ends are close-on-exec, and the spawn passes
+/// only descriptors 0 to 2, so no command holds them.
+public final class CancelSignal: @unchecked Sendable {
+    private let lock = NSLock()
+    /// The read end, or -1 when the pipe could not open. Then only `requestedAt` tells.
+    public let wakeFD: Int32
+    private let writeFD: Int32
+    private var requested: UInt64?
+    private var closed = false
+
+    public init() {
+        var fds: [Int32] = [-1, -1]
+        if pipe(&fds) == 0 {
+            for fd in fds {
+                _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
+                _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
+            }
+            wakeFD = fds[0]
+            writeFD = fds[1]
+        } else {
+            wakeFD = -1
+            writeFD = -1
+        }
+    }
+
+    deinit { close() }
+
+    /// The uptime of the first request, or nil.
+    public var requestedAt: UInt64? {
+        lock.lock()
+        defer { lock.unlock() }
+        return requested
+    }
+
+    /// Records a cancellation at `now` (uptime nanoseconds). A repeat changes nothing.
+    public func request(at now: UInt64 = ProcessRunner.uptime()) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed, requested == nil else { return }
+        requested = now
+        if writeFD >= 0 {
+            var byte: UInt8 = 0x63
+            _ = write(writeFD, &byte, 1)
+        }
+    }
+
+    /// Ends the signal. The registry calls it when the record is published.
+    public func close() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !closed else { return }
+        closed = true
+        if writeFD >= 0 { Darwin.close(writeFD) }
+        if wakeFD >= 0 { Darwin.close(wakeFD) }
+    }
+}
+
 // MARK: - Seams
 
 /// Waits for the leader. Only the owner calls it, and only `reap` reaps.
 public protocol LeaderWaiter: AnyObject, Sendable {
-    /// Waits until the leader exits or the uptime deadline passes. Never reaps.
-    /// Returns true only when the exit status is waitable, so `reap` returns at once.
-    func waitExit(until deadline: UInt64) -> Bool
+    /// Waits until the leader exits, the uptime deadline passes or `wake`
+    /// receives a request. Never reaps. Returns true only when the exit status
+    /// is waitable, so `reap` returns at once.
+    func waitExit(until deadline: UInt64, wake: CancelSignal?) -> Bool
     /// Reports whether the leader exited, without blocking or reaping.
     func hasExited() -> Bool
     /// Reaps the leader and returns its wait status. Blocks until the leader exits.
@@ -149,6 +217,9 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
     private var exited = false
     /// True while the queue can still deliver the exit event.
     private var sourceLive: Bool
+    /// True while the queue watches the read end of a cancellation signal.
+    private var watching = false
+    private var watchedFD: Int32 = -1
 
     public convenience init(pid: pid_t) {
         self.init(pid: pid, register: Self.registerExit)
@@ -166,12 +237,16 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
         if queue >= 0 { close(queue) }
     }
 
-    public func waitExit(until deadline: UInt64) -> Bool {
+    public func waitExit(until deadline: UInt64, wake: CancelSignal?) -> Bool {
+        // A readable pipe stays readable, so a wait without a signal must not
+        // keep the read source, or each `kevent` would return at once.
+        if let wake { watch(wake) } else { unwatch() }
         while true {
             if exited || hasExited() {
                 exited = true
                 return true
             }
+            if wake?.requestedAt != nil { return false }
             let now = ProcessRunner.uptime()
             if now >= deadline { return false }
             let left = deadline - now
@@ -183,6 +258,10 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
             var timeout = timespec(tv_sec: Int(wait / 1_000_000_000), tv_nsec: Int(wait % 1_000_000_000))
             var event = kevent()
             let count = kevent(queue, nil, 0, &event, 1, &timeout)
+            if count > 0, event.filter == Int16(EVFILT_READ) {
+                // A cancellation request. The checks at the top decide.
+                continue
+            }
             if count > 0 {
                 // The one-shot source is spent. The status check at the top
                 // decides, and the poll covers the gap before the zombie state.
@@ -192,6 +271,28 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
                 sourceLive = false
             }
         }
+    }
+
+    /// Adds the read end of `wake` to the queue once. Without a source, the
+    /// status poll checks `requestedAt` at each turn instead.
+    private func watch(_ wake: CancelSignal) {
+        guard !watching, queue >= 0, wake.wakeFD >= 0 else { return }
+        var change = kevent(
+            ident: UInt(wake.wakeFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD),
+            fflags: 0, data: 0, udata: nil
+        )
+        watching = kevent(queue, &change, 1, nil, 0, nil) == 0
+        watchedFD = wake.wakeFD
+    }
+
+    private func unwatch() {
+        guard watching else { return }
+        var change = kevent(
+            ident: UInt(watchedFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_DELETE),
+            fflags: 0, data: 0, udata: nil
+        )
+        _ = kevent(queue, &change, 1, nil, 0, nil)
+        watching = false
     }
 
     public func hasExited() -> Bool {
@@ -220,7 +321,8 @@ public enum ProcessRunner {
     /// The interval between two signal-0 group probes.
     static let probeIntervalUs: useconds_t = 10_000
 
-    static func uptime() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
+    /// The owner clock: uptime in nanoseconds. Cancellation times use it too.
+    public static func uptime() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
 
     static func ms(_ start: UInt64, _ end: UInt64) -> Int {
         end > start ? Int((end - start) / 1_000_000) : 0
@@ -230,11 +332,15 @@ public enum ProcessRunner {
     ///
     /// The owner runs on its own thread, so no shared dispatch worker waits
     /// for the command.
+    /// `cancel` carries the cancellation requests for this command. Without
+    /// it, only the leader exit and the deadline end the command.
     public static func runOwned(
-        command: String, timeoutSeconds: Int, seams: OwnerSeams = .live
+        command: String, timeoutSeconds: Int, seams: OwnerSeams = .live, cancel: CancelSignal? = nil,
+        requestedAt: UInt64 = uptime()
     ) async -> OwnedExecResult {
         let owner = ExecOwner(
-            command: command, timeoutSeconds: timeoutSeconds, seams: seams, requestedAt: uptime()
+            command: command, timeoutSeconds: timeoutSeconds, seams: seams, cancel: cancel,
+            requestedAt: requestedAt
         )
         return await withCheckedContinuation { continuation in
             let thread = Thread {
@@ -243,6 +349,12 @@ public enum ProcessRunner {
             thread.name = "testanyware-exec-owner"
             thread.start()
         }
+    }
+
+    /// The result of a tombstoned exec id: cancelled before the start, with
+    /// no spawn and an owner lateness of 0 (spec, "Start", step 3).
+    public static func cancelledBeforeStart(requestedAt: UInt64) -> OwnedExecResult {
+        ExecOwner.cancelledBeforeStart(requestedAt: requestedAt, latenessFrom: nil)
     }
 
     /// Runs one command and returns its macOS legacy projection.
@@ -280,6 +392,12 @@ public enum ProcessRunner {
             let note = "Process timed out after \(seconds)s"
             err = err.isEmpty ? note : err + "\n[\(note)]"
             return ProcessRunResult(exitCode: -1, stdout: out, stderr: err, timedOut: true)
+        case .cancelled:
+            // The spec's macOS projection: the note `Process cancelled`, in
+            // the same form as the timeout note.
+            let note = "Process cancelled"
+            err = err.isEmpty ? note : err + "\n[\(note)]"
+            return ProcessRunResult(exitCode: -1, stdout: out, stderr: err, timedOut: false)
         case .spawnFailed:
             preconditionFailure("handled above")
         }
@@ -411,16 +529,18 @@ private final class ExecOwner: @unchecked Sendable {
     let command: String
     let timeoutSeconds: Int
     let seams: OwnerSeams
+    let cancel: CancelSignal?
     let requestedAt: UInt64
 #if EXIT_TRACE
     let trace = ExitTrace.shared
     var call: UInt64 = 0
 #endif
 
-    init(command: String, timeoutSeconds: Int, seams: OwnerSeams, requestedAt: UInt64) {
+    init(command: String, timeoutSeconds: Int, seams: OwnerSeams, cancel: CancelSignal?, requestedAt: UInt64) {
         self.command = command
         self.timeoutSeconds = timeoutSeconds
         self.seams = seams
+        self.cancel = cancel
         self.requestedAt = requestedAt
     }
 
@@ -433,6 +553,14 @@ private final class ExecOwner: @unchecked Sendable {
             files = try CaptureFiles.make()
         } catch {
             return spawnFailure((error as? POSIXError)?.code.rawValue ?? EIO, spawnedAt: ProcessRunner.uptime())
+        }
+        // The last check before the spawn (review k235 R1 on Linux). A
+        // cancellation after it finds a started leader, and termination ends it.
+        if let requested = cancel?.requestedAt {
+            files.closeWriters()
+            files.closeReaders()
+            files.remove()
+            return ExecOwner.cancelledBeforeStart(requestedAt: requestedAt, latenessFrom: requested)
         }
         var pid: pid_t = 0
         let spawnError = spawn(&pid, files)
@@ -457,21 +585,35 @@ private final class ExecOwner: @unchecked Sendable {
         var remaining: String?
         var termination: OwnedTermination?
         let finaliseBy: UInt64
-        if waiter.waitExit(until: deadline) {
-            outcomeAt = ProcessRunner.uptime()
-            if outcomeAt >= deadline { lateness = ProcessRunner.ms(deadline, outcomeAt) }
+        var exited: Bool
+        var cancelAt: UInt64?
+        var now: UInt64
+        repeat {
+            exited = waiter.waitExit(until: deadline, wake: cancel)
+            now = ProcessRunner.uptime()
+            cancelAt = cancel?.requestedAt
+        } while !exited && now < deadline && cancelAt == nil
+        // The lateness runs from the earlier of the deadline and the
+        // cancellation, if either has passed. A leader exit before both has no
+        // lateness. A late owner can find the exit and a passed event together,
+        // and its lateness stays visible (review k235 R3 on Linux).
+        let event = [deadline, cancelAt].compactMap { $0 }.filter { $0 <= now }.min()
+        if exited {
+            outcomeAt = now
+            if let event { lateness = ProcessRunner.ms(event, outcomeAt) }
             (outcome, remaining) = settleExit(waiter, pid)
             finaliseBy = outcomeAt + ProcessRunner.finaliseNs
         } else {
-            // The deadline passed. One non-blocking check chooses between a
-            // late exit and a timeout.
+            // The deadline passed or a cancellation came. One non-blocking
+            // check chooses between a late exit and a termination.
             outcomeAt = ProcessRunner.uptime()
-            lateness = ProcessRunner.ms(deadline, outcomeAt)
+            if let event { lateness = ProcessRunner.ms(event, outcomeAt) }
             if waiter.hasExited() {
                 (outcome, remaining) = settleExit(waiter, pid)
                 finaliseBy = outcomeAt + ProcessRunner.finaliseNs
             } else {
-                outcome = .timedOut(seconds: timeoutSeconds)
+                outcome = cancelAt != nil && cancelAt == event
+                    ? .cancelled(beforeStart: false) : .timedOut(seconds: timeoutSeconds)
                 let (record, killAt) = terminate(waiter, pid, t0: outcomeAt)
                 termination = record
                 finaliseBy = killAt + ProcessRunner.finaliseNs
@@ -583,7 +725,8 @@ private final class ExecOwner: @unchecked Sendable {
         trace.mark(call, "terminate-sent", ["pid": "\(pid)"])
 #endif
         var exitAt: UInt64?
-        if waiter.waitExit(until: t0 + ProcessRunner.graceNs) { exitAt = ProcessRunner.uptime() }
+        // A later cancellation changes nothing, so these waits watch no signal.
+        if waiter.waitExit(until: t0 + ProcessRunner.graceNs, wake: nil) { exitAt = ProcessRunner.uptime() }
 #if EXIT_TRACE
         trace.mark(call, "wait-result", ["phase": "terminate", "result": exitAt == nil ? "timed-out" : "success"])
 #endif
@@ -593,7 +736,7 @@ private final class ExecOwner: @unchecked Sendable {
         trace.mark(call, "kill-sent", ["pid": "\(pid)"])
 #endif
         let statusBy = killAt + ProcessRunner.statusWaitNs
-        if exitAt == nil, waiter.waitExit(until: statusBy) { exitAt = ProcessRunner.uptime() }
+        if exitAt == nil, waiter.waitExit(until: statusBy, wake: nil) { exitAt = ProcessRunner.uptime() }
 
         guard let exitAt else {
             hold(waiter, pid)
@@ -716,6 +859,32 @@ private final class ExecOwner: @unchecked Sendable {
             )
         }
         return (streams[0], streams[1])
+    }
+
+    // MARK: Cancellation before the spawn
+
+    /// The record of a command that a cancellation ended before its spawn
+    /// (spec, "Start", step 3). No process starts, so the leader fields and
+    /// the duration are null, and no termination block exists. The lateness
+    /// runs from the cancellation to this decision. A tombstoned id passes
+    /// `latenessFrom: nil`, because no owner held a pending event, and gets 0.
+    static func cancelledBeforeStart(requestedAt: UInt64, latenessFrom requested: UInt64?) -> OwnedExecResult {
+        let decided = ProcessRunner.uptime()
+        let empty = OwnedStream(
+            data: Data(), base64: "", fileBytes: 0,
+            sha256: SHA256.hash(data: Data()).map { String(format: "%02x", $0) }.joined(),
+            complete: true, reason: nil
+        )
+        let outcome = OwnedOutcome.cancelled(beforeStart: true)
+        return OwnedExecResult(
+            outcome: outcome, stdout: empty, stderr: empty,
+            leaderPid: nil, leaderStartTime: nil,
+            spawnMs: ProcessRunner.ms(requestedAt, decided), durationMs: nil,
+            ownerLatenessMs: requested.map { ProcessRunner.ms($0, decided) } ?? 0,
+            finalisedAfterMs: ProcessRunner.ms(decided, ProcessRunner.uptime()),
+            remainingGroup: nil, termination: nil,
+            legacy: ProcessRunner.project(outcome, stdout: Data(), stderr: Data())
+        )
     }
 
     // MARK: Spawn failure

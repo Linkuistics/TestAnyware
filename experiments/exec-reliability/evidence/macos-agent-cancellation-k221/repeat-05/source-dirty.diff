@@ -1,0 +1,2435 @@
+diff --git a/.grove/74-impl--macos-agent-cancellation-k221.md b/.grove/74-impl--macos-agent-cancellation-k221.md
+index 1e5e782fd0..50dd67f495 100644
+--- a/.grove/74-impl--macos-agent-cancellation-k221.md
++++ b/.grove/74-impl--macos-agent-cancellation-k221.md
+@@ -50,3 +50,60 @@ ## Notes
+ 
+ The single-handle download does not make an in-place write readable as one
+ version. The spec excludes that case.
++
++## Decisions (running log)
++
++- D1. The cancellation signal lives in `ProcessRunner.swift`, because the k3
++  and k12 detectors compile that file alone. It is a close-on-exec pipe. The
++  kqueue waiter watches the read end beside the `NOTE_EXIT` source, so a
++  cancellation wakes the owner at once. The signal closes at publication, and
++  a later request writes nothing, as on Linux (k220).
++- D2. `LeaderWaiter.waitExit` takes the signal as `wake`. The termination
++  waits pass no signal and drop the read source. A readable pipe stays
++  readable, so a kept source would make each `kevent` return at once.
++- D3. The registry is a new file, `ExecRegistry.swift`, in the
++  `TestAnywareAgent` library. It copies the Linux registry: 300 s, 64 entries,
++  oldest first, no eviction of a running command. It stores the whole `/exec`
++  reply, because the cancel reply's `record` is that reply.
++- D4. Each blocking wait of the cancel endpoint runs on a new thread. A wait
++  of up to 10 s on a cooperative pool thread could starve the other handlers.
++- D5. A cancellation checks once more directly before `posix_spawn`, after the
++  capture files exist (k236 R1). A tombstoned id gets `beforeStart: true` and
++  lateness 0. A cancellation after admission and before the spawn gets
++  `beforeStart: true` and its lateness from the request.
++- D6. The download reads one handle through `SingleVersionFile`: `open`, then
++  `fstat` for L, then `pread` up to L in 128 KiB chunks on the NIO thread
++  pool. A short read throws in the body. Hummingbird 2.28.1 then closes the
++  connection (source checked, cited at the call). The old `fileExists` check
++  stays before the open. It keeps the old 404 replies, and it keeps the path
++  lookup where the k7 diagnostic places its pause. The length never comes
++  from it.
++- D7. At SIGTERM the agent closes admission and cancels every running
++  command. It triggers the Hummingbird graceful shutdown, which closes the
++  listener. It waits for publication until 4.0 s after the signal. Then it exits with
++  status 0. A second SIGTERM kills it at once. The handler calls
++  `ExecRegistry.shutDown`, the routine that the unavailable-status control
++  runs.
++- D8. The binary takes an optional second argument, the listen address. Host
++  tests pass 127.0.0.1. Without it the agent listens on 0.0.0.0, as before.
++- D9. `AgentServer.swift` imports `NIOPosix` and `ServiceLifecycle` without
++  new manifest entries. The file already imports `NIOCore` and `HTTPTypes` in
++  the same way, and `Package.resolved` stays unchanged.
++- D10. The transport controls start the agent binary on loopback and use raw
++  HTTP. They can therefore close, reset or half-close a connection like the
++  k13 cases. `TESTANYWARE_AGENT_UNDER_TEST` points them at another binary. The
++  test target depends on the executable, so `swift test` builds it fresh.
++- D11. The binary has no leader-wait seam. The unavailable-status shutdown
++  control therefore runs `ExecRegistry.shutDown` in the test process with the
++  blind waiter of k219. The binary SIGTERM control uses a cooperative
++  command.
++- D12. The k13 host diagnostic builds the checkout agent from source, so it
++  cannot run against the shipped agent. The extended k13 control is
++  `AgentProcessTests`: the close, reset and half-close cases, record
++  retention and a cancellation after a close. The old-fail run points those
++  tests at the shipped binary, as k220 ran its controls against the old Linux
++  agent. The k13 tools stay unchanged.
++- D13. The test validity checker had a k219 placeholder that refused every
++  `cancelled` outcome. It now follows the spec: a cancelled command that
++  started has a termination block and a leader, and one that never started
++  has neither.
+diff --git a/agents/macos/Package.swift b/agents/macos/Package.swift
+index 381d5cdcf1..9bfac9a621 100644
+--- a/agents/macos/Package.swift
++++ b/agents/macos/Package.swift
+@@ -46,6 +46,8 @@ let package = Package(
+             dependencies: [
+                 "TestAnywareAgent",
+                 "TestAnywareAgentProtocol",
++                // AgentProcessTests run this binary, so `swift test` builds it.
++                "testanyware-agent",
+             ],
+             path: "Tests/TestAnywareAgentTests"
+         ),
+diff --git a/agents/macos/Sources/TestAnywareAgent/ExecRecordMapping.swift b/agents/macos/Sources/TestAnywareAgent/ExecRecordMapping.swift
+index 6006909db7..b6b03c17e8 100644
+--- a/agents/macos/Sources/TestAnywareAgent/ExecRecordMapping.swift
++++ b/agents/macos/Sources/TestAnywareAgent/ExecRecordMapping.swift
+@@ -45,6 +45,8 @@ extension OwnedExecResult {
+             return .signalled(signal: Int(signal), signalName: ProcessRunner.signalName(signal))
+         case .timedOut(let seconds):
+             return .timedOut(timeoutSeconds: seconds)
++        case .cancelled(let beforeStart):
++            return .cancelled(beforeStart: beforeStart)
+         case .spawnFailed(let code):
+             return .spawnFailed(
+                 errno: Int(code), errorName: ProcessRunner.errorName(code), message: ProcessRunner.message(code)
+diff --git a/agents/macos/Sources/TestAnywareAgent/ExecRegistry.swift b/agents/macos/Sources/TestAnywareAgent/ExecRegistry.swift
+new file mode 100644
+index 0000000000..943c826ad5
+--- /dev/null
++++ b/agents/macos/Sources/TestAnywareAgent/ExecRegistry.swift
+@@ -0,0 +1,236 @@ import Foundation
++import Foundation
++import TestAnywareAgentProtocol
++
++// The exec registry: running commands, retained records and tombstones.
++//
++// The source of truth is docs/specs/guest-command-lifecycle.md, sections
++// "Cancellation and CLI interruption", "Retention" and "Agent shutdown", and
++// ADR-0025. The registry knows exec ids and retention. The owner in
++// ProcessRunner.swift knows the processes. A cancellation passes from the
++// registry to the owner only through the command's `CancelSignal`. The Linux
++// agent has the same registry in `exec_registry.py`.
++//
++// Each wait in this type blocks its thread. The HTTP handlers call the
++// waiting methods on a dedicated thread, so no wait holds a worker of the
++// shared Swift concurrency pool.
++
++public final class ExecRegistry: @unchecked Sendable {
++
++    /// Each terminal record and each tombstone stays this long.
++    public static let retentionNs: UInt64 = 300_000_000_000
++    /// Terminal records and tombstones together, at most.
++    public static let retentionLimit = 64
++    /// The longest `waitMs` of a cancellation.
++    public static let cancelWaitMaxMs = 10_000
++    /// From SIGTERM to the last published record: the root grace bound of 2 s
++    /// plus the root kill, drain and reap bound of 2 s. The owner schedule
++    /// needs 3.8 s after its outcome.
++    public static let shutdownWaitNs: UInt64 = 4_000_000_000
++
++    /// The answer to an `/exec` id (spec, "Start", steps 2 and 3).
++    public enum Admission: Sendable {
++        /// Run the command with this signal.
++        case start(CancelSignal)
++        /// Answer a cancelled record and spawn nothing.
++        case tombstoned
++        /// The id names a running or retained command.
++        case inUse
++        /// The agent is shutting down.
++        case closed
++    }
++
++    /// The state of an id, as the cancel endpoint reports it.
++    public enum CancelState: String, Sendable {
++        case terminating, terminal
++        case unknownID = "unknown_id"
++    }
++
++    private enum State {
++        case running(CancelSignal)
++        case terminal(ExecReply)
++        case tombstone
++    }
++
++    private struct Entry {
++        var state: State
++        /// The retention clock: the admission, publication or tombstone time.
++        var since: UInt64
++        /// The order of that event. It breaks a tie between equal times.
++        var sequence: UInt64
++        var retained: Bool {
++            if case .running = state { return false }
++            return true
++        }
++    }
++
++    /// The registry of this agent process.
++    public static let shared = ExecRegistry()
++
++    private let clock: @Sendable () -> UInt64
++    private let retentionNs: UInt64
++    private let limit: Int
++    private let condition = NSCondition()
++    private var entries: [String: Entry] = [:]
++    private var closed = false
++    private var sequence: UInt64 = 0
++
++    /// `clock` measures retention ages in nanoseconds. A wait always uses the
++    /// owner clock, `ProcessRunner.uptime()`.
++    public init(
++        clock: @escaping @Sendable () -> UInt64 = { ProcessRunner.uptime() },
++        retentionNs: UInt64 = ExecRegistry.retentionNs,
++        limit: Int = ExecRegistry.retentionLimit
++    ) {
++        self.clock = clock
++        self.retentionNs = retentionNs
++        self.limit = limit
++    }
++
++    // MARK: Retention, under the lock
++
++    private func evict() {
++        let now = clock()
++        for (id, entry) in entries where entry.retained && now >= entry.since && now - entry.since >= retentionNs {
++            entries[id] = nil
++        }
++        // A running command is never evicted. The oldest retained entry goes first.
++        let retained = entries.filter { $0.value.retained }
++            .sorted { ($0.value.since, $0.value.sequence) < ($1.value.since, $1.value.sequence) }
++        for (id, _) in retained.prefix(max(0, retained.count - limit)) {
++            entries[id] = nil
++        }
++    }
++
++    /// A new entry, stamped now. Called under the lock.
++    private func stamped(_ state: State) -> Entry {
++        sequence += 1
++        return Entry(state: state, since: clock(), sequence: sequence)
++    }
++
++    // MARK: The owner side
++
++    /// Registers an `/exec` id.
++    public func admit(_ id: String) -> Admission {
++        condition.lock()
++        defer { condition.unlock() }
++        if closed { return .closed }
++        evict()
++        if let entry = entries[id] {
++            guard case .tombstone = entry.state else { return .inUse }
++            // The tombstone becomes the running entry of a command that never
++            // starts. `publish` then retains its cancelled record.
++            entries[id] = stamped(.running(CancelSignal()))
++            return .tombstoned
++        }
++        let signal = CancelSignal()
++        entries[id] = stamped(.running(signal))
++        return .start(signal)
++    }
++
++    /// Makes the record of a running command final and retains it.
++    public func publish(_ id: String, reply: ExecReply) {
++        condition.lock()
++        defer { condition.unlock() }
++        guard let entry = entries[id], case .running(let signal) = entry.state else {
++            preconditionFailure("publish of an exec id that is not running: \(id)")
++        }
++        signal.close()
++        entries[id] = stamped(.terminal(reply))
++        condition.broadcast()
++        evict()
++    }
++
++    /// `running`, `terminal`, `tombstone`, or nil for an id that it does not hold.
++    public func state(_ id: String) -> String? {
++        condition.lock()
++        defer { condition.unlock() }
++        evict()
++        switch entries[id]?.state {
++        case .running: return "running"
++        case .terminal: return "terminal"
++        case .tombstone: return "tombstone"
++        case nil: return nil
++        }
++    }
++
++    // MARK: The client side
++
++    /// Cancels by id and waits up to `waitNs` for the record.
++    ///
++    /// Returns `terminal` with the reply, `terminating` without it, or
++    /// `unknown_id` without it. A repeat never changes a terminal outcome. An
++    /// unknown id becomes a tombstone. A repeat on a tombstone keeps its
++    /// first time, because no command ran under that id.
++    public func cancel(_ id: String, waitNs: UInt64) -> (CancelState, ExecReply?) {
++        condition.lock()
++        defer { condition.unlock() }
++        evict()
++        guard let entry = entries[id] else {
++            entries[id] = stamped(.tombstone)
++            evict()
++            return (.unknownID, nil)
++        }
++        switch entry.state {
++        case .tombstone:
++            return (.unknownID, nil)
++        case .terminal(let reply):
++            return (.terminal, reply)
++        case .running(let signal):
++            signal.request()
++            let end = ProcessRunner.uptime() &+ waitNs
++            while true {
++                if case .terminal(let reply)? = entries[id]?.state { return (.terminal, reply) }
++                let now = ProcessRunner.uptime()
++                if now >= end { return (.terminating, nil) }
++                _ = condition.wait(until: Date(timeIntervalSinceNow: Double(end - now) / 1e9))
++            }
++        }
++    }
++
++    // MARK: Agent shutdown
++
++    /// Stops admission and cancels every running command. Returns their ids.
++    public func close() -> [String] {
++        condition.lock()
++        defer { condition.unlock() }
++        closed = true
++        let now = ProcessRunner.uptime()
++        var running: [String] = []
++        for (id, entry) in entries {
++            if case .running(let signal) = entry.state {
++                signal.request(at: now)
++                running.append(id)
++            }
++        }
++        return running.sorted()
++    }
++
++    /// Waits until each command is published or the uptime `until` passes.
++    /// Returns the ids that are still running.
++    public func waitPublished(_ ids: [String], until: UInt64) -> [String] {
++        condition.lock()
++        defer { condition.unlock() }
++        func pending() -> [String] {
++            ids.filter { id in
++                if case .running? = entries[id]?.state { return true }
++                return false
++            }
++        }
++        while true {
++            let left = pending()
++            let now = ProcessRunner.uptime()
++            if left.isEmpty || now >= until { return left }
++            _ = condition.wait(until: Date(timeIntervalSinceNow: Double(until - now) / 1e9))
++        }
++    }
++
++    /// The agent shutdown of the spec: stop admission, cancel every running
++    /// command, run `afterClose` and wait for publication until `until`. A
++    /// leader whose status stays unavailable does not delay this, because its
++    /// owner publishes on schedule. Returns the ids still unpublished.
++    public func shutDown(until: UInt64, afterClose: () -> Void = {}) -> [String] {
++        let running = close()
++        afterClose()
++        return waitPublished(running, until: until)
++    }
++}
+diff --git a/agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift b/agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift
+index 7f37bd353f..ce41dd77c4 100644
+--- a/agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift
++++ b/agents/macos/Sources/TestAnywareAgent/ProcessRunner.swift
+@@ -31,6 +31,7 @@ public enum OwnedOutcome: Sendable, Equatable {
+     case exited(code: Int32)
+     case signalled(signal: Int32)
+     case timedOut(seconds: Int)
++    case cancelled(beforeStart: Bool)
+     case spawnFailed(errno: Int32)
+ }
+ 
+@@ -81,13 +82,80 @@ public struct OwnedExecResult: Sendable {
+     public let legacy: ProcessRunResult
+ }
+ 
++// MARK: - Cancellation
++
++/// The cancellation event of one guest command, as its owner receives it
++/// (spec, "Cancel endpoint", ADR-0025).
++///
++/// A request writes one byte to a pipe. The owner's leader waiter watches the
++/// read end beside the exit source, so a request wakes the owner at once. The
++/// first request keeps its uptime. After `close`, a request changes nothing
++/// and writes nothing, so no write reaches a descriptor number that the kernel
++/// gave to another file. Both ends are close-on-exec, and the spawn passes
++/// only descriptors 0 to 2, so no command holds them.
++public final class CancelSignal: @unchecked Sendable {
++    private let lock = NSLock()
++    /// The read end, or -1 when the pipe could not open. Then only `requestedAt` tells.
++    public let wakeFD: Int32
++    private let writeFD: Int32
++    private var requested: UInt64?
++    private var closed = false
++
++    public init() {
++        var fds: [Int32] = [-1, -1]
++        if pipe(&fds) == 0 {
++            for fd in fds {
++                _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
++                _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK)
++            }
++            wakeFD = fds[0]
++            writeFD = fds[1]
++        } else {
++            wakeFD = -1
++            writeFD = -1
++        }
++    }
++
++    deinit { close() }
++
++    /// The uptime of the first request, or nil.
++    public var requestedAt: UInt64? {
++        lock.lock()
++        defer { lock.unlock() }
++        return requested
++    }
++
++    /// Records a cancellation at `now` (uptime nanoseconds). A repeat changes nothing.
++    public func request(at now: UInt64 = ProcessRunner.uptime()) {
++        lock.lock()
++        defer { lock.unlock() }
++        guard !closed, requested == nil else { return }
++        requested = now
++        if writeFD >= 0 {
++            var byte: UInt8 = 0x63
++            _ = write(writeFD, &byte, 1)
++        }
++    }
++
++    /// Ends the signal. The registry calls it when the record is published.
++    public func close() {
++        lock.lock()
++        defer { lock.unlock() }
++        guard !closed else { return }
++        closed = true
++        if writeFD >= 0 { Darwin.close(writeFD) }
++        if wakeFD >= 0 { Darwin.close(wakeFD) }
++    }
++}
++
+ // MARK: - Seams
+ 
+ /// Waits for the leader. Only the owner calls it, and only `reap` reaps.
+ public protocol LeaderWaiter: AnyObject, Sendable {
+-    /// Waits until the leader exits or the uptime deadline passes. Never reaps.
+-    /// Returns true only when the exit status is waitable, so `reap` returns at once.
+-    func waitExit(until deadline: UInt64) -> Bool
++    /// Waits until the leader exits, the uptime deadline passes or `wake`
++    /// receives a request. Never reaps. Returns true only when the exit status
++    /// is waitable, so `reap` returns at once.
++    func waitExit(until deadline: UInt64, wake: CancelSignal?) -> Bool
+     /// Reports whether the leader exited, without blocking or reaping.
+     func hasExited() -> Bool
+     /// Reaps the leader and returns its wait status. Blocks until the leader exits.
+@@ -149,6 +217,9 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
+     private var exited = false
+     /// True while the queue can still deliver the exit event.
+     private var sourceLive: Bool
++    /// True while the queue watches the read end of a cancellation signal.
++    private var watching = false
++    private var watchedFD: Int32 = -1
+ 
+     public convenience init(pid: pid_t) {
+         self.init(pid: pid, register: Self.registerExit)
+@@ -166,12 +237,16 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
+         if queue >= 0 { close(queue) }
+     }
+ 
+-    public func waitExit(until deadline: UInt64) -> Bool {
++    public func waitExit(until deadline: UInt64, wake: CancelSignal?) -> Bool {
++        // A readable pipe stays readable, so a wait without a signal must not
++        // keep the read source, or each `kevent` would return at once.
++        if let wake { watch(wake) } else { unwatch() }
+         while true {
+             if exited || hasExited() {
+                 exited = true
+                 return true
+             }
++            if wake?.requestedAt != nil { return false }
+             let now = ProcessRunner.uptime()
+             if now >= deadline { return false }
+             let left = deadline - now
+@@ -183,6 +258,10 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
+             var timeout = timespec(tv_sec: Int(wait / 1_000_000_000), tv_nsec: Int(wait % 1_000_000_000))
+             var event = kevent()
+             let count = kevent(queue, nil, 0, &event, 1, &timeout)
++            if count > 0, event.filter == Int16(EVFILT_READ) {
++                // A cancellation request. The checks at the top decide.
++                continue
++            }
+             if count > 0 {
+                 // The one-shot source is spent. The status check at the top
+                 // decides, and the poll covers the gap before the zombie state.
+@@ -194,6 +273,28 @@ public final class KqueueLeaderWaiter: LeaderWaiter, @unchecked Sendable {
+         }
+     }
+ 
++    /// Adds the read end of `wake` to the queue once. Without a source, the
++    /// status poll checks `requestedAt` at each turn instead.
++    private func watch(_ wake: CancelSignal) {
++        guard !watching, queue >= 0, wake.wakeFD >= 0 else { return }
++        var change = kevent(
++            ident: UInt(wake.wakeFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_ADD),
++            fflags: 0, data: 0, udata: nil
++        )
++        watching = kevent(queue, &change, 1, nil, 0, nil) == 0
++        watchedFD = wake.wakeFD
++    }
++
++    private func unwatch() {
++        guard watching else { return }
++        var change = kevent(
++            ident: UInt(watchedFD), filter: Int16(EVFILT_READ), flags: UInt16(EV_DELETE),
++            fflags: 0, data: 0, udata: nil
++        )
++        _ = kevent(queue, &change, 1, nil, 0, nil)
++        watching = false
++    }
++
+     public func hasExited() -> Bool {
+         var info = siginfo_t()
+         let result = waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT)
+@@ -220,7 +321,8 @@ public enum ProcessRunner {
+     /// The interval between two signal-0 group probes.
+     static let probeIntervalUs: useconds_t = 10_000
+ 
+-    static func uptime() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
++    /// The owner clock: uptime in nanoseconds. Cancellation times use it too.
++    public static func uptime() -> UInt64 { DispatchTime.now().uptimeNanoseconds }
+ 
+     static func ms(_ start: UInt64, _ end: UInt64) -> Int {
+         end > start ? Int((end - start) / 1_000_000) : 0
+@@ -230,11 +332,15 @@ public enum ProcessRunner {
+     ///
+     /// The owner runs on its own thread, so no shared dispatch worker waits
+     /// for the command.
++    /// `cancel` carries the cancellation requests for this command. Without
++    /// it, only the leader exit and the deadline end the command.
+     public static func runOwned(
+-        command: String, timeoutSeconds: Int, seams: OwnerSeams = .live
++        command: String, timeoutSeconds: Int, seams: OwnerSeams = .live, cancel: CancelSignal? = nil,
++        requestedAt: UInt64 = uptime()
+     ) async -> OwnedExecResult {
+         let owner = ExecOwner(
+-            command: command, timeoutSeconds: timeoutSeconds, seams: seams, requestedAt: uptime()
++            command: command, timeoutSeconds: timeoutSeconds, seams: seams, cancel: cancel,
++            requestedAt: requestedAt
+         )
+         return await withCheckedContinuation { continuation in
+             let thread = Thread {
+@@ -245,6 +351,12 @@ public enum ProcessRunner {
+         }
+     }
+ 
++    /// The result of a tombstoned exec id: cancelled before the start, with
++    /// no spawn and an owner lateness of 0 (spec, "Start", step 3).
++    public static func cancelledBeforeStart(requestedAt: UInt64) -> OwnedExecResult {
++        ExecOwner.cancelledBeforeStart(requestedAt: requestedAt, latenessFrom: nil)
++    }
++
+     /// Runs one command and returns its macOS legacy projection.
+     public static func runShell(command: String, timeoutSeconds: Int) async throws -> ProcessRunResult {
+         await runOwned(command: command, timeoutSeconds: timeoutSeconds).legacy
+@@ -280,6 +392,12 @@ public enum ProcessRunner {
+             let note = "Process timed out after \(seconds)s"
+             err = err.isEmpty ? note : err + "\n[\(note)]"
+             return ProcessRunResult(exitCode: -1, stdout: out, stderr: err, timedOut: true)
++        case .cancelled:
++            // The spec's macOS projection: the note `Process cancelled`, in
++            // the same form as the timeout note.
++            let note = "Process cancelled"
++            err = err.isEmpty ? note : err + "\n[\(note)]"
++            return ProcessRunResult(exitCode: -1, stdout: out, stderr: err, timedOut: false)
+         case .spawnFailed:
+             preconditionFailure("handled above")
+         }
+@@ -411,16 +529,18 @@ private final class ExecOwner: @unchecked Sendable {
+     let command: String
+     let timeoutSeconds: Int
+     let seams: OwnerSeams
++    let cancel: CancelSignal?
+     let requestedAt: UInt64
+ #if EXIT_TRACE
+     let trace = ExitTrace.shared
+     var call: UInt64 = 0
+ #endif
+ 
+-    init(command: String, timeoutSeconds: Int, seams: OwnerSeams, requestedAt: UInt64) {
++    init(command: String, timeoutSeconds: Int, seams: OwnerSeams, cancel: CancelSignal?, requestedAt: UInt64) {
+         self.command = command
+         self.timeoutSeconds = timeoutSeconds
+         self.seams = seams
++        self.cancel = cancel
+         self.requestedAt = requestedAt
+     }
+ 
+@@ -434,6 +554,14 @@ private final class ExecOwner: @unchecked Sendable {
+         } catch {
+             return spawnFailure((error as? POSIXError)?.code.rawValue ?? EIO, spawnedAt: ProcessRunner.uptime())
+         }
++        // The last check before the spawn (review k235 R1 on Linux). A
++        // cancellation after it finds a started leader, and termination ends it.
++        if let requested = cancel?.requestedAt {
++            files.closeWriters()
++            files.closeReaders()
++            files.remove()
++            return ExecOwner.cancelledBeforeStart(requestedAt: requestedAt, latenessFrom: requested)
++        }
+         var pid: pid_t = 0
+         let spawnError = spawn(&pid, files)
+         let spawnedAt = ProcessRunner.uptime()
+@@ -457,21 +585,35 @@ private final class ExecOwner: @unchecked Sendable {
+         var remaining: String?
+         var termination: OwnedTermination?
+         let finaliseBy: UInt64
+-        if waiter.waitExit(until: deadline) {
+-            outcomeAt = ProcessRunner.uptime()
+-            if outcomeAt >= deadline { lateness = ProcessRunner.ms(deadline, outcomeAt) }
++        var exited: Bool
++        var cancelAt: UInt64?
++        var now: UInt64
++        repeat {
++            exited = waiter.waitExit(until: deadline, wake: cancel)
++            now = ProcessRunner.uptime()
++            cancelAt = cancel?.requestedAt
++        } while !exited && now < deadline && cancelAt == nil
++        // The lateness runs from the earlier of the deadline and the
++        // cancellation, if either has passed. A leader exit before both has no
++        // lateness. A late owner can find the exit and a passed event together,
++        // and its lateness stays visible (review k235 R3 on Linux).
++        let event = [deadline, cancelAt].compactMap { $0 }.filter { $0 <= now }.min()
++        if exited {
++            outcomeAt = now
++            if let event { lateness = ProcessRunner.ms(event, outcomeAt) }
+             (outcome, remaining) = settleExit(waiter, pid)
+             finaliseBy = outcomeAt + ProcessRunner.finaliseNs
+         } else {
+-            // The deadline passed. One non-blocking check chooses between a
+-            // late exit and a timeout.
++            // The deadline passed or a cancellation came. One non-blocking
++            // check chooses between a late exit and a termination.
+             outcomeAt = ProcessRunner.uptime()
+-            lateness = ProcessRunner.ms(deadline, outcomeAt)
++            if let event { lateness = ProcessRunner.ms(event, outcomeAt) }
+             if waiter.hasExited() {
+                 (outcome, remaining) = settleExit(waiter, pid)
+                 finaliseBy = outcomeAt + ProcessRunner.finaliseNs
+             } else {
+-                outcome = .timedOut(seconds: timeoutSeconds)
++                outcome = cancelAt != nil && cancelAt == event
++                    ? .cancelled(beforeStart: false) : .timedOut(seconds: timeoutSeconds)
+                 let (record, killAt) = terminate(waiter, pid, t0: outcomeAt)
+                 termination = record
+                 finaliseBy = killAt + ProcessRunner.finaliseNs
+@@ -583,7 +725,8 @@ private final class ExecOwner: @unchecked Sendable {
+         trace.mark(call, "terminate-sent", ["pid": "\(pid)"])
+ #endif
+         var exitAt: UInt64?
+-        if waiter.waitExit(until: t0 + ProcessRunner.graceNs) { exitAt = ProcessRunner.uptime() }
++        // A later cancellation changes nothing, so these waits watch no signal.
++        if waiter.waitExit(until: t0 + ProcessRunner.graceNs, wake: nil) { exitAt = ProcessRunner.uptime() }
+ #if EXIT_TRACE
+         trace.mark(call, "wait-result", ["phase": "terminate", "result": exitAt == nil ? "timed-out" : "success"])
+ #endif
+@@ -593,7 +736,7 @@ private final class ExecOwner: @unchecked Sendable {
+         trace.mark(call, "kill-sent", ["pid": "\(pid)"])
+ #endif
+         let statusBy = killAt + ProcessRunner.statusWaitNs
+-        if exitAt == nil, waiter.waitExit(until: statusBy) { exitAt = ProcessRunner.uptime() }
++        if exitAt == nil, waiter.waitExit(until: statusBy, wake: nil) { exitAt = ProcessRunner.uptime() }
+ 
+         guard let exitAt else {
+             hold(waiter, pid)
+@@ -718,6 +861,32 @@ private final class ExecOwner: @unchecked Sendable {
+         return (streams[0], streams[1])
+     }
+ 
++    // MARK: Cancellation before the spawn
++
++    /// The record of a command that a cancellation ended before its spawn
++    /// (spec, "Start", step 3). No process starts, so the leader fields and
++    /// the duration are null, and no termination block exists. The lateness
++    /// runs from the cancellation to this decision. A tombstoned id passes
++    /// `latenessFrom: nil`, because no owner held a pending event, and gets 0.
++    static func cancelledBeforeStart(requestedAt: UInt64, latenessFrom requested: UInt64?) -> OwnedExecResult {
++        let decided = ProcessRunner.uptime()
++        let empty = OwnedStream(
++            data: Data(), base64: "", fileBytes: 0,
++            sha256: SHA256.hash(data: Data()).map { String(format: "%02x", $0) }.joined(),
++            complete: true, reason: nil
++        )
++        let outcome = OwnedOutcome.cancelled(beforeStart: true)
++        return OwnedExecResult(
++            outcome: outcome, stdout: empty, stderr: empty,
++            leaderPid: nil, leaderStartTime: nil,
++            spawnMs: ProcessRunner.ms(requestedAt, decided), durationMs: nil,
++            ownerLatenessMs: requested.map { ProcessRunner.ms($0, decided) } ?? 0,
++            finalisedAfterMs: ProcessRunner.ms(decided, ProcessRunner.uptime()),
++            remainingGroup: nil, termination: nil,
++            legacy: ProcessRunner.project(outcome, stdout: Data(), stderr: Data())
++        )
++    }
++
+     // MARK: Spawn failure
+ 
+     private func spawnFailure(_ code: Int32, spawnedAt: UInt64) -> OwnedExecResult {
+diff --git a/agents/macos/Sources/TestAnywareAgent/SingleVersionFile.swift b/agents/macos/Sources/TestAnywareAgent/SingleVersionFile.swift
+new file mode 100644
+index 0000000000..d012e64d47
+--- /dev/null
++++ b/agents/macos/Sources/TestAnywareAgent/SingleVersionFile.swift
+@@ -0,0 +1,101 @@ import Darwin
++import Darwin
++import Foundation
++
++// One open file version for `/download` (docs/specs/guest-command-lifecycle.md,
++// "Agent download contract", and ADR-0026).
++//
++// The reader opens the file once and takes the length L from `fstat` of that
++// handle. It reads with `pread` from the same handle and never past L. A
++// rename replacement during the read therefore gives the version that was
++// open at the start. An append gives the first L bytes. A truncation gives a
++// short read, and the caller then closes the connection.
++//
++// The old handler looked the path up three times, and the length came from
++// one lookup and the bytes from another (k7).
++
++public final class SingleVersionFile: @unchecked Sendable {
++
++    /// Why a file cannot be sent.
++    public enum OpenError: Error, Equatable {
++        /// No regular file is at the path. `/download` answers 404, as before.
++        case notFound
++        /// The file exists but cannot be opened or measured. The errno.
++        case failed(Int32)
++    }
++
++    /// A read that ended before L bytes. The caller must close the connection.
++    public struct ShortRead: Error, Equatable {
++        public let offset: Int
++        public let length: Int
++        /// The errno of a failed read, or nil at end of file.
++        public let errno: Int32?
++    }
++
++    /// The length that the response declares.
++    public let length: Int
++    private let lock = NSLock()
++    private var fd: Int32
++    private var offset = 0
++
++    /// Opens `path` once and measures that handle.
++    public init(path: String) throws {
++        let fd = Darwin.open(path, O_RDONLY | O_CLOEXEC)
++        guard fd >= 0 else {
++            let code = errno
++            throw code == ENOENT || code == ENOTDIR ? OpenError.notFound : OpenError.failed(code)
++        }
++        var info = stat()
++        guard fstat(fd, &info) == 0 else {
++            let code = errno
++            Darwin.close(fd)
++            throw OpenError.failed(code)
++        }
++        guard (info.st_mode & S_IFMT) == S_IFREG else {
++            // A directory or another kind of file is not a downloadable file.
++            Darwin.close(fd)
++            throw OpenError.notFound
++        }
++        self.fd = fd
++        length = Int(info.st_size)
++    }
++
++    deinit { close() }
++
++    /// True after the reader sent all L bytes.
++    public var finished: Bool {
++        lock.lock()
++        defer { lock.unlock() }
++        return offset >= length
++    }
++
++    /// Reads the next chunk of at most `maxBytes`, never past L. Returns an
++    /// empty value after L bytes. Throws `ShortRead` when the handle ends or
++    /// fails first. The read blocks its thread.
++    public func next(maxBytes: Int) throws -> Data {
++        lock.lock()
++        defer { lock.unlock() }
++        let want = min(maxBytes, length - offset)
++        guard want > 0 else { return Data() }
++        guard fd >= 0 else { throw ShortRead(offset: offset, length: length, errno: EBADF) }
++        var data = Data(count: want)
++        while true {
++            let count = data.withUnsafeMutableBytes { pread(fd, $0.baseAddress, want, off_t(offset)) }
++            if count < 0, errno == EINTR { continue }
++            guard count > 0 else {
++                throw ShortRead(offset: offset, length: length, errno: count < 0 ? errno : nil)
++            }
++            offset += count
++            return count == want ? data : data.prefix(count)
++        }
++    }
++
++    /// Closes the handle. A later `next` throws.
++    public func close() {
++        lock.lock()
++        defer { lock.unlock() }
++        if fd >= 0 {
++            Darwin.close(fd)
++            fd = -1
++        }
++    }
++}
+diff --git a/agents/macos/Sources/testanyware-agent/AgentServer.swift b/agents/macos/Sources/testanyware-agent/AgentServer.swift
+index 4ed36f4a70..d470aee7b6 100644
+--- a/agents/macos/Sources/testanyware-agent/AgentServer.swift
++++ b/agents/macos/Sources/testanyware-agent/AgentServer.swift
+@@ -7,6 +7,8 @@ import Hummingbird
+ import Hummingbird
+ import HTTPTypes
+ import NIOCore
++import NIOPosix
++import ServiceLifecycle
+ 
+ // MARK: - Request types
+ 
+@@ -84,6 +86,7 @@ func buildAgentRouter() -> Router<BasicRequestContext> {
+     router.post("/window-minimize") { req, _ in try await handleWindowMinimize(req) }
+     router.post("/wait") { req, _ in try await handleWait(req) }
+     router.post("/exec") { req, _ in try await handleExec(req) }
++    router.post("/exec/cancel") { req, _ in try await handleCancel(req) }
+     router.post("/upload") { req, ctx in try await handleUpload(req, context: ctx) }
+     router.post("/download") { req, ctx in try await handleDownload(req, context: ctx) }
+     router.post("/shutdown") { _, _ in handleShutdown() }
+@@ -425,6 +428,7 @@ private func handleWait(_ request: Request) async throws -> Response {
+ // MARK: - System: exec
+ 
+ private func handleExec(_ request: Request) async throws -> Response {
++    let requestedAt = ProcessRunner.uptime()
+     let req: ExecRequest = try await decode(request)
+     let timeout = req.timeout ?? 30
+     let detach = req.detach ?? false
+@@ -435,7 +439,6 @@ private func handleExec(_ request: Request) async throws -> Response {
+     }
+ 
+     // An attached command carries a valid caller id or gets an agent id.
+-    // The id registry and its 409 conflict belong to a later leaf (k221).
+     let id: String
+     if let given = req.id {
+         guard ExecRequest.isValidID(given) else {
+@@ -448,8 +451,81 @@ private func handleExec(_ request: Request) async throws -> Response {
+         id = UUID().uuidString.lowercased()
+     }
+ 
+-    let result = await ProcessRunner.runOwned(command: req.command, timeoutSeconds: timeout)
+-    return jsonOK(result.reply(id: id))
++    // The registry holds the id from admission to the end of its retention
++    // (spec, "Start", steps 2 and 3). The agent does not watch the client
++    // connection: the owner runs on its own thread, and the record is
++    // published before the reply is written, so a disconnect changes nothing
++    // and the record stays retained (ADR-0025).
++    let registry = ExecRegistry.shared
++    let result: OwnedExecResult
++    switch registry.admit(id) {
++    case .inUse:
++        return jsonError(
++            "exec_id_in_use", details: "exec id \(id) names a running or retained command", status: .conflict)
++    case .closed:
++        return jsonError("exec_failed", details: "the agent is shutting down", status: .serviceUnavailable)
++    case .tombstoned:
++        result = ProcessRunner.cancelledBeforeStart(requestedAt: requestedAt)
++    case .start(let signal):
++        result = await ProcessRunner.runOwned(
++            command: req.command, timeoutSeconds: timeout, cancel: signal, requestedAt: requestedAt)
++    }
++    let reply = result.reply(id: id)
++    registry.publish(id, reply: reply)
++    return jsonOK(reply)
++}
++
++// MARK: - System: exec cancel
++
++struct CancelRequest: Decodable {
++    let id: String
++    let waitMs: Int?
++}
++
++/// The cancel reply. `record` is present exactly for the state `terminal`.
++struct CancelReply: Encodable {
++    let state: String
++    let record: ExecReply?
++
++    func encode(to encoder: Encoder) throws {
++        enum Keys: String, CodingKey { case state, record }
++        var c = encoder.container(keyedBy: Keys.self)
++        try c.encode(state, forKey: .state)
++        try c.encodeIfPresent(record, forKey: .record)
++    }
++}
++
++/// `POST /exec/cancel` (spec, "Cancel endpoint", ADR-0025). A wait runs on a
++/// dedicated thread, so it holds no worker of the shared concurrency pool.
++private func handleCancel(_ request: Request) async throws -> Response {
++    let req: CancelRequest
++    do {
++        req = try await decode(request)
++    } catch {
++        return jsonError("exec_failed", details: "the body must be a JSON object with a string id")
++    }
++    guard ExecRequest.isValidID(req.id) else {
++        return jsonError(
++            "exec_failed", details: "id must have 1 to 64 characters from A-Z, a-z, 0-9, '.', '_' and '-'")
++    }
++    let waitMs = req.waitMs ?? 0
++    guard (0...ExecRegistry.cancelWaitMaxMs).contains(waitMs) else {
++        return jsonError("exec_failed", details: "waitMs must be an integer from 0 to \(ExecRegistry.cancelWaitMaxMs)")
++    }
++    let id = req.id
++    let (state, reply) = await onOwnThread("testanyware-exec-cancel") {
++        ExecRegistry.shared.cancel(id, waitNs: UInt64(waitMs) * 1_000_000)
++    }
++    return jsonOK(CancelReply(state: state.rawValue, record: reply))
++}
++
++/// Runs a blocking call on a new thread and resumes with its result.
++private func onOwnThread<T: Sendable>(_ name: String, _ body: @escaping @Sendable () -> T) async -> T {
++    await withCheckedContinuation { continuation in
++        let thread = Thread { continuation.resume(returning: body()) }
++        thread.name = name
++        thread.start()
++    }
+ }
+ 
+ // MARK: - System: upload/download
+@@ -492,28 +568,85 @@ private enum UploadError: Error, CustomStringConvertible {
+     }
+ }
+ 
+-/// Streams the file at `?path=...` back as `application/octet-stream`, chunked
+-/// straight off disk via `FileIO` (no whole-file buffering). A missing/unreadable
+-/// file surfaces as an `ErrorResponse` (`download_failed`) before any body bytes
+-/// are sent. See ADR-0001.
++/// Streams the file at `?path=...` back as `application/octet-stream` from one
++/// open handle (spec, "Agent download contract", ADR-0026). The length L comes
++/// from `fstat` of that handle, and the body is exactly L bytes from it. A
++/// constant-size buffer keeps ADR-0001's bounded streaming. A missing or
++/// unreadable file surfaces as an `ErrorResponse` (`download_failed`) before
++/// any body bytes are sent.
+ private func handleDownload(_ request: Request, context: some RequestContext) async throws -> Response {
+     guard let path = request.uri.queryParameters["path"].map(String.init), !path.isEmpty else {
+         return jsonError("download_failed", details: "missing or empty 'path' query parameter")
+     }
++    // This path check keeps the old replies for a missing file and a
++    // directory. The length never comes from it. It also keeps one path
++    // lookup before the open, where the k7 old-path diagnostic places its
++    // pause (task diagnostic:download-consistency-local).
+     var isDir: ObjCBool = false
+     guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue else {
+         return jsonError("download_failed", details: "no such file: \(path)", status: .notFound)
+     }
++    let file: SingleVersionFile
+     do {
+-        let body = try await FileIO().loadFile(path: path, context: context)
+-        return Response(
+-            status: .ok,
+-            headers: [.contentType: "application/octet-stream"],
+-            body: body
+-        )
++        file = try SingleVersionFile(path: path)
++    } catch SingleVersionFile.OpenError.notFound {
++        return jsonError("download_failed", details: "no such file: \(path)", status: .notFound)
+     } catch {
+         return jsonError("download_failed", details: "\(error)", status: .internalServerError)
+     }
++    // A short read throws inside the body. Hummingbird 2.28.1 then leaves
++    // `executeThenClose` with that error, so the connection closes before the
++    // declared length, and the client detects the failure:
++    // https://github.com/hummingbird-project/hummingbird/blob/2.28.1/Sources/HummingbirdCore/Server/HTTP/HTTPChannelHandler.swift
++    let body = ResponseBody(contentLength: file.length) { writer in
++        defer { file.close() }
++        while !file.finished {
++            // The blocking read runs on the NIO thread pool, as FileIO's reads did.
++            let chunk = try await NIOThreadPool.singleton.runIfActive { try file.next(maxBytes: downloadChunk) }
++            try await writer.write(ByteBuffer(bytes: chunk))
++        }
++        try await writer.finish(nil)
++    }
++    return Response(status: .ok, headers: [.contentType: "application/octet-stream"], body: body)
++}
++
++/// The read size of one download chunk. FileIO used the same size.
++private let downloadChunk = 128 * 1024
++
++// MARK: - Agent run and SIGTERM
++
++/// Runs the agent on `host:port` until SIGTERM (spec, "Agent shutdown").
++///
++/// At SIGTERM the agent closes exec admission and cancels every running
++/// command. It then stops accepting connections and waits for each record
++/// until 4 s after the signal. Then it exits with status 0, and launchd reaps
++/// any leader that it still holds. A second SIGTERM during the wait ends the
++/// agent at once. Hummingbird's own graceful shutdown would instead wait for
++/// each running command to reach its deadline.
++func runAgent(host: String, port: Int) async throws {
++    let app = Application(router: buildAgentRouter(), configuration: .init(address: .hostname(host, port: port)))
++    let group = ServiceGroup(configuration: .init(services: [app], logger: app.logger))
++    signal(SIGTERM, SIG_IGN)
++    let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: DispatchQueue(label: "testanyware-agent-sigterm"))
++    source.setEventHandler {
++        source.cancel()
++        let until = ProcessRunner.uptime() + ExecRegistry.shutdownWaitNs
++        // The default action again: a second SIGTERM ends the agent at once.
++        signal(SIGTERM, SIG_DFL)
++        // Closing the service group stops new connections.
++        let pending = ExecRegistry.shared.shutDown(until: until) {
++            Task { await group.triggerGracefulShutdown() }
++        }
++        if !pending.isEmpty {
++            let line = "testanyware-agent: exiting before these records were published: \(pending.joined(separator: ", "))\n"
++            FileHandle.standardError.write(Data(line.utf8))
++        }
++        exit(0)
++    }
++    source.resume()
++    try await group.run()
++    // The group ends only after SIGTERM, and the handler above ends the process.
++    while true { try await Task.sleep(for: .seconds(3600)) }
+ }
+ 
+ // MARK: - System: shutdown
+diff --git a/agents/macos/Sources/testanyware-agent/main.swift b/agents/macos/Sources/testanyware-agent/main.swift
+index 582bf9b54e..db46eae4db 100644
+--- a/agents/macos/Sources/testanyware-agent/main.swift
++++ b/agents/macos/Sources/testanyware-agent/main.swift
+@@ -4,6 +4,8 @@ import Hummingbird
+ import Hummingbird
+ 
+ let port = CommandLine.arguments.dropFirst().first.flatMap(Int.init) ?? 8648
++// A second argument names the listen address. Host tests pass 127.0.0.1.
++let host = CommandLine.arguments.dropFirst(2).first ?? "0.0.0.0"
+ 
+ // Dismiss the "App Background Activity" notification that macOS shows for our
+ // LaunchAgent on every boot. Retries for 30 seconds to handle timing.
+@@ -14,13 +16,7 @@ Task.detached {
+     }
+ }
+ 
+-let router = buildAgentRouter()
+-let app = Application(
+-    router: router,
+-    configuration: .init(address: .hostname("0.0.0.0", port: port))
+-)
+-
+-try await app.runService()
++try await runAgent(host: host, port: port)
+ 
+ /// Finds the "App Background Activity" notification in Notification Center and
+ /// performs its "Close" action. Returns true if found and dismissed.
+diff --git a/agents/macos/Tests/TestAnywareAgentTests/AgentProcessTests.swift b/agents/macos/Tests/TestAnywareAgentTests/AgentProcessTests.swift
+new file mode 100644
+index 0000000000..ff5749434a
+--- /dev/null
++++ b/agents/macos/Tests/TestAnywareAgentTests/AgentProcessTests.swift
+@@ -0,0 +1,623 @@ import Darwin
++import Darwin
++import Foundation
++import TestAnywareAgentProtocol
++import XCTest
++@testable import TestAnywareAgent
++
++/// The agent binary on loopback, through raw HTTP (leaf k221). These are the
++/// transport controls of the spec's required-control table: health during a
++/// command, cancellation, the tombstone order, a disconnect that changes
++/// nothing, agent shutdown at SIGTERM and the download framing.
++///
++/// The tests start `testanyware-agent` from the build directory. The
++/// environment variable `TESTANYWARE_AGENT_UNDER_TEST` names another binary,
++/// such as the shipped agent for an old-fail run. An old agent ignores the
++/// second argument and listens on every address, so that run needs a host
++/// whose firewall does not prompt.
++final class AgentProcessTests: XCTestCase {
++
++    static let healthBound: TimeInterval = 1
++    static let cancelReplyBound: TimeInterval = 5
++    /// From SIGTERM to the agent exit: the 4 s publication wait and 0.5 s for
++    /// the process exit.
++    static let shutdownBound: TimeInterval = 4.5
++
++    private var agent: AgentProcess!
++
++    override func setUpWithError() throws {
++        agent = try AgentProcess.start()
++    }
++
++    override func tearDown() {
++        agent?.stop()
++    }
++
++    // MARK: - Responsiveness
++
++    /// Corrected-pass. The old-fail case of this row is Linux.
++    func testHealthRepliesWithin1SecondDuringACommand() throws {
++        let agent = self.agent!
++        let running = Background { try agent.post("/exec", ["command": "sleep 3", "timeout": 10]) }
++        Thread.sleep(forTimeInterval: 0.3)
++        for _ in 0..<5 {
++            let start = Date()
++            let reply = try agent.get("/health")
++            XCTAssertEqual(reply.status, 200)
++            XCTAssertLessThan(Date().timeIntervalSince(start), Self.healthBound)
++        }
++        XCTAssertEqual(try running.join(timeout: 10).status, 200)
++    }
++
++    // MARK: - Cancellation
++
++    func testACancellationEndsTheCommandAndRetainsItsRecord() async throws {
++        let fixture = try OwnedProcessFixture.make(for: self)
++        let pidFile = fixture.pidFile("leader.pid")
++        let agent = self.agent!
++        let running = Background {
++            try agent.post("/exec", [
++                "command": "echo $$ > '\(pidFile)'; exec sleep 30", "timeout": 60, "id": "http-cancel",
++            ])
++        }
++        try await track(fixture, "leader.pid")
++        let start = Date()
++        let cancel = try agent.post("/exec/cancel", ["id": "http-cancel", "waitMs": 5000])
++        XCTAssertLessThan(Date().timeIntervalSince(start), Self.cancelReplyBound)
++        XCTAssertEqual(cancel.status, 200)
++        let body = try cancel.object()
++        XCTAssertEqual(body["state"] as? String, "terminal")
++        let record = try XCTUnwrap(body["record"] as? [String: Any])
++        XCTAssertEqual(try Self.validity(record, id: "http-cancel"), [])
++        XCTAssertEqual(record["outcome"] as? NSDictionary, ["kind": "cancelled", "beforeStart": false])
++        let termination = try XCTUnwrap(record["termination"] as? [String: Any])
++        XCTAssertEqual(termination["groupEmpty"] as? String, "yes")
++        XCTAssertEqual(termination["withinBounds"] as? Bool, true)
++
++        // The /exec reply is the same record, and a repeat changes nothing.
++        let exec = try running.join(timeout: 10)
++        XCTAssertEqual(exec.status, 200)
++        XCTAssertEqual(try exec.object() as NSDictionary, record as NSDictionary)
++        let again = try agent.post("/exec/cancel", ["id": "http-cancel", "waitMs": 5000]).object()
++        XCTAssertEqual(again as NSDictionary, body as NSDictionary)
++    }
++
++    func testAShortWaitRepliesTerminating() throws {
++        let agent = self.agent!
++        let running = Background {
++            try agent.post("/exec", ["command": "trap '' TERM; sleep 30", "timeout": 60, "id": "short-wait"])
++        }
++        Thread.sleep(forTimeInterval: 0.3)
++        let start = Date()
++        let cancel = try agent.post("/exec/cancel", ["id": "short-wait"]).object()
++        XCTAssertLessThan(Date().timeIntervalSince(start), Self.healthBound)
++        XCTAssertEqual(cancel as NSDictionary, ["state": "terminating"])
++        XCTAssertEqual(try running.join(timeout: 10).status, 200)
++    }
++
++    /// A cancellation that overtakes its own `/exec` leaves a tombstone. The
++    /// later `/exec` ends as cancelled without a spawn, and the record stays.
++    func testATombstoneCancelsALaterExecWithoutASpawn() throws {
++        let marker = FileManager.default.temporaryDirectory
++            .appendingPathComponent("testanyware-k221-\(UUID().uuidString)").path
++        XCTAssertEqual(try agent.post("/exec/cancel", ["id": "early"]).object() as NSDictionary, ["state": "unknown_id"])
++        XCTAssertEqual(
++            try agent.post("/exec/cancel", ["id": "early", "waitMs": 5000]).object() as NSDictionary,
++            ["state": "unknown_id"])
++        let exec = try agent.post("/exec", ["command": "touch '\(marker)'", "timeout": 10, "id": "early"])
++        XCTAssertEqual(exec.status, 200)
++        let record = try exec.object()
++        XCTAssertEqual(try Self.validity(record, id: "early"), [])
++        XCTAssertEqual(record["outcome"] as? NSDictionary, ["kind": "cancelled", "beforeStart": true])
++        XCTAssertEqual(record["exitCode"] as? Int, -1)
++        XCTAssertEqual(record["stderr"] as? String, "Process cancelled")
++        Thread.sleep(forTimeInterval: 0.2)
++        XCTAssertFalse(FileManager.default.fileExists(atPath: marker), "a tombstoned exec spawned its command")
++        XCTAssertEqual(
++            try agent.post("/exec/cancel", ["id": "early"]).object() as NSDictionary,
++            ["state": "terminal", "record": record] as NSDictionary)
++        let again = try agent.post("/exec", ["command": "true", "timeout": 10, "id": "early"])
++        XCTAssertEqual(again.status, 409)
++        XCTAssertEqual(try again.object()["error"] as? String, "exec_id_in_use")
++    }
++
++    func testADuplicateIDOfARunningCommandIsRefused() throws {
++        let agent = self.agent!
++        let running = Background {
++            try agent.post("/exec", ["command": "sleep 30", "timeout": 60, "id": "dup"])
++        }
++        Thread.sleep(forTimeInterval: 0.3)
++        let duplicate = try agent.post("/exec", ["command": "true", "timeout": 5, "id": "dup"])
++        XCTAssertEqual(duplicate.status, 409)
++        XCTAssertEqual(try duplicate.object()["error"] as? String, "exec_id_in_use")
++        _ = try agent.post("/exec/cancel", ["id": "dup", "waitMs": 5000])
++        let outcome = try running.join(timeout: 10).object()["outcome"] as? [String: Any]
++        XCTAssertEqual(outcome?["kind"] as? String, "cancelled")
++    }
++
++    func testAMalformedCancellationIsRefused() throws {
++        let bodies: [Any] = [
++            [String: Any](), ["id": ""], ["id": "has space"], ["id": 7],
++            ["id": "ok", "waitMs": -1], ["id": "ok", "waitMs": 10001], ["id": "ok", "waitMs": "5"], [1, 2],
++        ]
++        for body in bodies {
++            let reply = try agent.post("/exec/cancel", body)
++            XCTAssertEqual(reply.status, 400, "\(body)")
++            XCTAssertEqual(try reply.object()["error"] as? String, "exec_failed", "\(body)")
++        }
++    }
++
++    // MARK: - Connection loss (the k13 cases, extended)
++
++    /// Old-fail: the shipped agent has no `/exec/cancel`, so the record of a
++    /// disconnected command is lost. A close, a reset or a half-close changes
++    /// nothing: the command runs to its own exit, and the agent retains the
++    /// record (spec, "Connection loss").
++    ///
++    /// The control reads the record with a cancellation only after the kernel
++    /// no longer holds the leader, not even as a zombie. The owner reaps the
++    /// leader only after it chose the outcome, so that cancellation cannot
++    /// change the record. A marker file written by the command is not enough:
++    /// the shell can still run after it (repeat-03 of leaf k221).
++    func testADisconnectChangesNothingAndTheRecordIsRetained() throws {
++        for mode in Connection.Loss.allCases {
++            let pidPath = FileManager.default.temporaryDirectory
++                .appendingPathComponent("testanyware-k221-\(UUID().uuidString).pid").path
++            defer { try? FileManager.default.removeItem(atPath: pidPath) }
++            let id = "disconnect-\(mode)"
++            let connection = try Connection(port: agent.port)
++            try connection.send(Request.post("/exec", [
++                "command": "echo $$ > '\(pidPath)'; printf start; sleep 2; printf done", "timeout": 30, "id": id,
++            ]))
++            Thread.sleep(forTimeInterval: 0.5)
++            connection.lose(mode)
++            let leader = try XCTUnwrap(Self.readPid(pidPath), "\(mode): no leader PID")
++            let seen = try XCTUnwrap(ProcessIdentity.observe(pid: leader)?.identity, "\(mode): no leader")
++            XCTAssertTrue(
++                waitFor(seconds: 6) { ProcessIdentity.observe(pid: leader)?.identity != seen },
++                "\(mode): the leader was not reaped")
++            connection.close()
++            let cancel = try agent.post("/exec/cancel", ["id": id, "waitMs": 5000]).object()
++            XCTAssertEqual(cancel["state"] as? String, "terminal", "\(mode)")
++            let record = try XCTUnwrap(cancel["record"] as? [String: Any], "\(mode)")
++            XCTAssertEqual(try Self.validity(record, id: id), [], "\(mode)")
++            XCTAssertEqual(record["outcome"] as? NSDictionary, ["kind": "exited", "exitCode": 0], "\(mode)")
++            XCTAssertEqual(record["stdout"] as? String, "startdone", "\(mode)")
++        }
++    }
++
++    /// The cancellation case of the extended k13 control: after a close, an
++    /// explicit cancellation on a new connection ends the command at once.
++    func testACancellationAfterADisconnectEndsTheCommand() async throws {
++        let fixture = try OwnedProcessFixture.make(for: self)
++        let pidFile = fixture.pidFile("leader.pid")
++        let connection = try Connection(port: agent.port)
++        try connection.send(Request.post("/exec", [
++            "command": "echo $$ > '\(pidFile)'; exec sleep 30", "timeout": 60, "id": "closed-then-cancelled",
++        ]))
++        let leader = try await track(fixture, "leader.pid")
++        connection.lose(.close)
++        try await Task.sleep(nanoseconds: 500_000_000)
++        XCTAssertTrue(leader.isAlive, "the close ended the command")
++        let start = Date()
++        let cancel = try agent.post("/exec/cancel", ["id": "closed-then-cancelled", "waitMs": 5000]).object()
++        XCTAssertLessThan(Date().timeIntervalSince(start), Self.cancelReplyBound)
++        XCTAssertEqual(cancel["state"] as? String, "terminal")
++        let record = try XCTUnwrap(cancel["record"] as? [String: Any])
++        XCTAssertEqual(record["outcome"] as? NSDictionary, ["kind": "cancelled", "beforeStart": false])
++        XCTAssertFalse(leader.isAlive, "the cancelled leader survived")
++    }
++
++    // MARK: - Agent shutdown
++
++    /// New behaviour: at SIGTERM during a command, the group ends and the
++    /// agent exits with status 0 within the bound (spec, "Agent shutdown").
++    func testSigtermDuringACommandEndsTheGroupAndExitsInBounds() async throws {
++        let fixture = try OwnedProcessFixture.make(for: self)
++        let pidFile = fixture.pidFile("child.pid")
++        let agent = self.agent!
++        let running = Background {
++            try agent.post("/exec", [
++                "command": "sleep 30 & echo $! > '\(pidFile)'; wait", "timeout": 60, "id": "at-sigterm",
++            ])
++        }
++        let child = try await track(fixture, "child.pid")
++        let start = Date()
++        agent.signal(SIGTERM)
++        let status = agent.waitExit(seconds: 10)
++        let elapsed = Date().timeIntervalSince(start)
++        XCTAssertEqual(status, 0, "the agent did not exit with status 0")
++        XCTAssertLessThanOrEqual(elapsed, Self.shutdownBound)
++        XCTAssertFalse(child.isAlive, "the child outlived the agent")
++        _ = try? running.join(timeout: 10)
++    }
++
++    // MARK: - Download
++
++    func testADownloadSendsTheExactBytesWithTheirLength() throws {
++        let data = Data((0..<300_000).map { UInt8(truncatingIfNeeded: $0 &* 31) })
++        let url = FileManager.default.temporaryDirectory.appendingPathComponent("testanyware-k221-\(UUID().uuidString)")
++        try data.write(to: url)
++        defer { try? FileManager.default.removeItem(at: url) }
++        let reply = try agent.post("/download?path=\(Self.escape(url.path))", nil)
++        XCTAssertEqual(reply.status, 200)
++        XCTAssertEqual(reply.declared, data.count)
++        XCTAssertEqual(reply.body, data)
++        XCTAssertEqual(reply.extra, Data())
++
++        let missing = try agent.post("/download?path=\(Self.escape(url.path + ".absent"))", nil)
++        XCTAssertEqual(missing.status, 404)
++        XCTAssertEqual(try missing.object()["error"] as? String, "download_failed")
++    }
++
++    // MARK: - Helpers
++
++    /// Waits for the PID file `name`, adopts the session of its process and
++    /// binds that process to the fixture, so cleanup can end it.
++    @discardableResult
++    private func track(_ fixture: OwnedProcessFixture, _ name: String) async throws -> ProcessIdentity {
++        let path = fixture.pidFile(name)
++        var pid: pid_t?
++        let deadline = Date().addingTimeInterval(5)
++        while pid == nil, Date() < deadline {
++            if let text = try? String(contentsOfFile: path, encoding: .utf8), text.hasSuffix("\n") {
++                pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
++            } else {
++                try await Task.sleep(nanoseconds: 10_000_000)
++            }
++        }
++        let found = try XCTUnwrap(pid, "no PID in \(path)")
++        await fixture.adopt(session: getsid(found))
++        return try await fixture.track(name, command: "sleep")
++    }
++
++    static func readPid(_ path: String) -> pid_t? {
++        guard let text = try? String(contentsOfFile: path, encoding: .utf8), text.hasSuffix("\n") else { return nil }
++        return pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines))
++    }
++
++    static func validity(_ record: [String: Any], id: String) throws -> [String] {
++        ExecValidity.errors(reply: try JSONSerialization.data(withJSONObject: record), expectedID: id)
++    }
++
++    static func escape(_ path: String) -> String {
++        path.addingPercentEncoding(withAllowedCharacters: .alphanumerics.union(CharacterSet(charactersIn: "/._-")))!
++    }
++
++    private func waitFor(seconds: TimeInterval, _ condition: () -> Bool) -> Bool {
++        let deadline = Date().addingTimeInterval(seconds)
++        while Date() < deadline {
++            if condition() { return true }
++            Thread.sleep(forTimeInterval: 0.02)
++        }
++        return condition()
++    }
++}
++
++/// The agent shutdown routine with a leader whose status stays unavailable.
++/// The binary has no leader-wait seam, so this control runs the routine that
++/// the SIGTERM handler calls, `ExecRegistry.shutDown`, in this process.
++final class AgentShutdownTests: XCTestCase {
++
++    func testShutdownDoesNotWaitForALeaderWhoseStatusStaysUnavailable() async throws {
++        let registry = ExecRegistry()
++        guard case .start(let signal) = registry.admit("held") else { return XCTFail("not admitted") }
++        let seams = OwnerSeams(
++            leaderWaiter: { BlindLeaderWaiter(pid: $0) }, captureRead: OwnerSeams.live.captureRead)
++        let running = Task.detached {
++            let owned = await ProcessRunner.runOwned(
++                command: "sleep 30", timeoutSeconds: 60, seams: seams, cancel: signal)
++            registry.publish("held", reply: owned.reply(id: "held"))
++        }
++        try await Task.sleep(nanoseconds: 300_000_000)
++        let start = ProcessRunner.uptime()
++        let pending = await Self.onThread { registry.shutDown(until: start + ExecRegistry.shutdownWaitNs) }
++        let elapsed = Double(ProcessRunner.uptime() - start) / 1e9
++        XCTAssertEqual(pending, [])
++        XCTAssertLessThanOrEqual(elapsed, 4.0)
++        let (state, reply) = registry.cancel("held", waitNs: 0)
++        XCTAssertEqual(state, .terminal)
++        XCTAssertEqual(reply?.record.outcome, .cancelled(beforeStart: false))
++        XCTAssertEqual(reply?.record.termination?.leaderStatus, .unavailable)
++        guard case .closed = registry.admit("after") else { return XCTFail("admission stayed open") }
++        _ = await running.value
++        // The hold thread reaps the leader after the record. Then it is no child of ours.
++        let pid = try XCTUnwrap(reply?.record.lifecycle.leaderPid)
++        let deadline = Date().addingTimeInterval(5)
++        var status: Int32 = 0
++        while waitpid(pid_t(pid), &status, WNOHANG | WNOWAIT) >= 0, Date() < deadline {
++            try await Task.sleep(nanoseconds: 20_000_000)
++        }
++        XCTAssertEqual(waitpid(pid_t(pid), &status, WNOHANG), -1, "the owner did not reap the held leader")
++    }
++
++    static func onThread<T: Sendable>(_ body: @escaping @Sendable () -> T) async -> T {
++        await withCheckedContinuation { continuation in
++            Thread { continuation.resume(returning: body()) }.start()
++        }
++    }
++}
++
++// MARK: - Agent process
++
++/// One agent binary on a loopback port, started with `posix_spawn` and
++/// reaped by its exact PID. Its output goes to a log file.
++final class AgentProcess: @unchecked Sendable {
++    let pid: pid_t
++    let port: Int
++    let log: URL
++    private var reaped = false
++
++    static var binary: String {
++        if let path = ProcessInfo.processInfo.environment["TESTANYWARE_AGENT_UNDER_TEST"], !path.isEmpty {
++            return path
++        }
++        // The test bundle lies in the build directory beside the agent.
++        return Bundle(for: AgentProcess.self).bundleURL.deletingLastPathComponent()
++            .appendingPathComponent("testanyware-agent").path
++    }
++
++    static func start() throws -> AgentProcess {
++        let process = try AgentProcess(port: try freePort())
++        let deadline = Date().addingTimeInterval(15)
++        while Date() < deadline {
++            if (try? Connection.exchange(port: process.port, Request.get("/health")).status) == 200 {
++                return process
++            }
++            guard process.isRunning else { break }
++            Thread.sleep(forTimeInterval: 0.05)
++        }
++        process.stop()
++        let output = (try? String(contentsOf: process.log, encoding: .utf8)) ?? ""
++        throw XCTSkip("the agent \(binary) did not answer /health: \(output)")
++    }
++
++    private init(port: Int) throws {
++        self.port = port
++        log = FileManager.default.temporaryDirectory.appendingPathComponent("testanyware-agent-\(UUID().uuidString).log")
++        var actions: posix_spawn_file_actions_t?
++        posix_spawn_file_actions_init(&actions)
++        defer { posix_spawn_file_actions_destroy(&actions) }
++        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
++        posix_spawn_file_actions_addopen(&actions, 1, log.path, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
++        posix_spawn_file_actions_adddup2(&actions, 1, 2)
++        // A Swift concurrency thread blocks every signal, and a child inherits
++        // the mask. The agent must see SIGTERM, so the mask is reset.
++        var attributes: posix_spawnattr_t?
++        posix_spawnattr_init(&attributes)
++        defer { posix_spawnattr_destroy(&attributes) }
++        var none = sigset_t()
++        var all = sigset_t()
++        sigemptyset(&none)
++        sigfillset(&all)
++        posix_spawnattr_setsigmask(&attributes, &none)
++        posix_spawnattr_setsigdefault(&attributes, &all)
++        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSIGMASK | POSIX_SPAWN_SETSIGDEF))
++        let binary = Self.binary
++        let argv: [UnsafeMutablePointer<CChar>?] = [binary, String(port), "127.0.0.1"].map { strdup($0) } + [nil]
++        let envp: [UnsafeMutablePointer<CChar>?] =
++            ProcessInfo.processInfo.environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
++        defer {
++            argv.forEach { free($0) }
++            envp.forEach { free($0) }
++        }
++        var pid: pid_t = 0
++        let result = posix_spawn(&pid, binary, &actions, &attributes, argv, envp)
++        guard result == 0 else { throw POSIXError(POSIXErrorCode(rawValue: result) ?? .EIO) }
++        self.pid = pid
++    }
++
++    var isRunning: Bool {
++        if reaped { return false }
++        var info = siginfo_t()
++        let result = waitid(P_PID, id_t(pid), &info, WEXITED | WNOHANG | WNOWAIT)
++        return !(result == 0 && info.si_pid == pid)
++    }
++
++    func signal(_ signal: Int32) {
++        if !reaped { kill(pid, signal) }
++    }
++
++    /// Waits up to `seconds` for the exit and reaps the agent. Returns the
++    /// exit status, the negative signal number, or nil when it still runs.
++    func waitExit(seconds: TimeInterval) -> Int32? {
++        let deadline = Date().addingTimeInterval(seconds)
++        while isRunning, Date() < deadline { Thread.sleep(forTimeInterval: 0.01) }
++        guard !reaped, !isRunning else { return nil }
++        var status: Int32 = 0
++        while waitpid(pid, &status, 0) < 0, errno == EINTR {}
++        reaped = true
++        let low = status & 0x7f
++        return low == 0 ? (status >> 8) & 0xff : -low
++    }
++
++    /// Ends the agent: SIGTERM, then SIGKILL after 5 s. Removes the log.
++    func stop() {
++        if !reaped {
++            signal(SIGTERM)
++            if waitExit(seconds: 5) == nil {
++                signal(SIGKILL)
++                _ = waitExit(seconds: 5)
++            }
++        }
++        try? FileManager.default.removeItem(at: log)
++    }
++
++    private static func freePort() throws -> Int {
++        let fd = socket(AF_INET, SOCK_STREAM, 0)
++        guard fd >= 0 else { throw POSIXError(.EIO) }
++        defer { close(fd) }
++        var address = sockaddr_in()
++        address.sin_family = sa_family_t(AF_INET)
++        address.sin_addr.s_addr = inet_addr("127.0.0.1")
++        address.sin_port = 0
++        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
++        let bound = withUnsafePointer(to: &address) {
++            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, length) }
++        }
++        guard bound == 0 else { throw POSIXError(.EADDRINUSE) }
++        _ = withUnsafeMutablePointer(to: &address) {
++            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getsockname(fd, $0, &length) }
++        }
++        return Int(UInt16(bigEndian: address.sin_port))
++    }
++}
++
++extension AgentProcess {
++    func get(_ path: String) throws -> HTTPReply {
++        try Connection.exchange(port: port, Request.get(path))
++    }
++
++    func post(_ path: String, _ json: Any?) throws -> HTTPReply {
++        try Connection.exchange(port: port, Request.post(path, json))
++    }
++}
++
++// MARK: - Raw HTTP
++
++enum Request {
++    static func get(_ path: String) -> Data {
++        Data("GET \(path) HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n".utf8)
++    }
++
++    static func post(_ path: String, _ json: Any?) -> Data {
++        let body = json.map { (try? JSONSerialization.data(withJSONObject: $0)) ?? Data() } ?? Data()
++        var head = "POST \(path) HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n"
++        head += "Content-Type: application/json\r\nContent-Length: \(body.count)\r\n\r\n"
++        return Data(head.utf8) + body
++    }
++}
++
++/// One parsed reply. `body` holds at most the declared length, and `extra`
++/// holds every byte after it.
++struct HTTPReply {
++    let status: Int
++    let headers: [String: String]
++    let declared: Int?
++    let body: Data
++    let extra: Data
++
++    func object() throws -> [String: Any] {
++        try XCTUnwrap(JSONSerialization.jsonObject(with: body) as? [String: Any], "not a JSON object: \(body)")
++    }
++}
++
++/// A blocking TCP connection to the agent with a receive deadline.
++final class Connection {
++    enum Loss: CaseIterable, CustomStringConvertible {
++        case close, reset, halfClose
++        var description: String {
++            switch self {
++            case .close: return "close"
++            case .reset: return "reset"
++            case .halfClose: return "half-close"
++            }
++        }
++    }
++
++    private var fd: Int32
++
++    init(port: Int, timeout: TimeInterval = 60) throws {
++        fd = socket(AF_INET, SOCK_STREAM, 0)
++        guard fd >= 0 else { throw POSIXError(.EIO) }
++        var deadline = timeval(tv_sec: Int(timeout), tv_usec: 0)
++        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &deadline, socklen_t(MemoryLayout<timeval>.size))
++        var noSigpipe: Int32 = 1
++        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigpipe, socklen_t(MemoryLayout<Int32>.size))
++        var address = sockaddr_in()
++        address.sin_family = sa_family_t(AF_INET)
++        address.sin_addr.s_addr = inet_addr("127.0.0.1")
++        address.sin_port = UInt16(port).bigEndian
++        let connected = withUnsafePointer(to: &address) {
++            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) {
++                Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size))
++            }
++        }
++        guard connected == 0 else {
++            let code = errno
++            Darwin.close(fd)
++            throw POSIXError(POSIXErrorCode(rawValue: code) ?? .ECONNREFUSED)
++        }
++    }
++
++    deinit { close() }
++
++    static func exchange(port: Int, _ request: Data) throws -> HTTPReply {
++        let connection = try Connection(port: port)
++        try connection.send(request)
++        return try connection.reply()
++    }
++
++    func send(_ data: Data) throws {
++        let sent = data.withUnsafeBytes { Darwin.send(fd, $0.baseAddress, $0.count, 0) }
++        guard sent == data.count else { throw POSIXError(.EPIPE) }
++    }
++
++    /// Reads to end of file and parses one reply.
++    func reply() throws -> HTTPReply {
++        var raw = Data()
++        var buffer = [UInt8](repeating: 0, count: 65_536)
++        while true {
++            let count = recv(fd, &buffer, buffer.count, 0)
++            if count < 0, errno == EINTR { continue }
++            guard count > 0 else { break }
++            raw.append(contentsOf: buffer[0..<count])
++        }
++        guard let split = raw.range(of: Data("\r\n\r\n".utf8)) else {
++            throw POSIXError(.ECONNRESET)
++        }
++        let head = String(decoding: raw[..<split.lowerBound], as: UTF8.self).components(separatedBy: "\r\n")
++        let status = Int(head[0].split(separator: " ")[1]) ?? 0
++        var headers: [String: String] = [:]
++        for line in head.dropFirst() {
++            guard let colon = line.firstIndex(of: ":") else { continue }
++            headers[line[..<colon].lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
++        }
++        let rest = raw[split.upperBound...]
++        let declared = headers["content-length"].flatMap(Int.init)
++        let length = min(declared ?? rest.count, rest.count)
++        return HTTPReply(
++            status: status, headers: headers, declared: declared,
++            body: Data(rest.prefix(length)), extra: Data(rest.dropFirst(length)))
++    }
++
++    /// Ends the client side of the connection in one of the k13 ways.
++    func lose(_ loss: Loss) {
++        switch loss {
++        case .close:
++            close()
++        case .reset:
++            var linger = Darwin.linger(l_onoff: 1, l_linger: 0)
++            setsockopt(fd, SOL_SOCKET, SO_LINGER, &linger, socklen_t(MemoryLayout<Darwin.linger>.size))
++            close()
++        case .halfClose:
++            shutdown(fd, SHUT_WR)
++        }
++    }
++
++    func close() {
++        if fd >= 0 {
++            Darwin.close(fd)
++            fd = -1
++        }
++    }
++}
++
++/// One blocking call on its own thread.
++final class Background: @unchecked Sendable {
++    private let done = DispatchSemaphore(value: 0)
++    private var result: Result<HTTPReply, Error>?
++
++    init(_ body: @escaping @Sendable () throws -> HTTPReply) {
++        Thread { [self] in
++            result = Result(catching: body)
++            done.signal()
++        }.start()
++    }
++
++    func join(timeout: TimeInterval) throws -> HTTPReply {
++        guard done.wait(timeout: .now() + timeout) == .success, let result else {
++            throw POSIXError(.ETIMEDOUT)
++        }
++        return try result.get()
++    }
++}
+diff --git a/agents/macos/Tests/TestAnywareAgentTests/ExecCancellationTests.swift b/agents/macos/Tests/TestAnywareAgentTests/ExecCancellationTests.swift
+new file mode 100644
+index 0000000000..5081e21ff2
+--- /dev/null
++++ b/agents/macos/Tests/TestAnywareAgentTests/ExecCancellationTests.swift
+@@ -0,0 +1,263 @@ import Darwin
++import Darwin
++import Foundation
++import TestAnywareAgentProtocol
++import XCTest
++@testable import TestAnywareAgent
++
++/// Cancellation through the lifecycle owner and the registry (spec, sections
++/// "Arbitration", "Cancel endpoint" and "Termination after a timeout or a
++/// cancellation", ADR-0025). These are new-behaviour controls: the old agent
++/// had no cancellation. Leaf k221.
++final class ExecCancellationTests: XCTestCase {
++
++    /// The cancellation reply bound with `waitMs` 5000.
++    static let cancelReplyBound: TimeInterval = 5
++    /// The owner lateness bound at a deadline or a cancellation.
++    static let ownerLatenessBoundMs = 500
++
++    func testCancellationEndsTheGroupAndRepliesWithTheRecord() async throws {
++        let fixture = try OwnedProcessFixture.make(for: self)
++        let pidFile = fixture.pidFile("child.pid")
++        let registry = ExecRegistry()
++        let running = try start(
++            registry, "cancel-me",
++            "printf 'before cancel\\n'; sleep 30 & echo $! > '\(pidFile)'; wait", timeout: 60)
++        let childPid = try await waitForPidFile(pidFile)
++        await fixture.adopt(session: getsid(childPid))
++        let child = try await fixture.track("child.pid", command: "sleep")
++
++        let started = Date()
++        let (state, reply) = registry.cancel("cancel-me", waitNs: 5_000_000_000)
++        let replyAfter = Date().timeIntervalSince(started)
++        XCTAssertEqual(state, .terminal)
++        let record = try XCTUnwrap(reply).record
++        try checkValid(XCTUnwrap(reply), id: "cancel-me")
++        XCTAssertEqual(record.outcome, .cancelled(beforeStart: false))
++        let term = try XCTUnwrap(record.termination)
++        XCTAssertEqual(term.groupEmpty, .yes)
++        XCTAssertTrue(term.withinBounds)
++        XCTAssertLessThanOrEqual(record.lifecycle.ownerLatenessMs, Self.ownerLatenessBoundMs)
++        XCTAssertLessThan(replyAfter, Self.cancelReplyBound)
++        XCTAssertNil(record.remainingGroup)
++        XCTAssertFalse(child.isAlive, "the child outlived the cancellation")
++        XCTAssertEqual(reply?.exitCode, -1)
++        XCTAssertEqual(reply?.timedOut, false)
++        XCTAssertEqual(reply?.stdout, "before cancel")
++        XCTAssertEqual(reply?.stderr, "Process cancelled")
++        _ = await running.value
++    }
++
++    func testTheCancellationReplyWaitsAtMostWaitMs() async throws {
++        let registry = ExecRegistry()
++        let running = try start(registry, "slow-end", "trap '' TERM; sleep 30", timeout: 60)
++        try await Task.sleep(nanoseconds: 300_000_000)
++        let started = Date()
++        let (state, reply) = registry.cancel("slow-end", waitNs: 500_000_000)
++        let elapsed = Date().timeIntervalSince(started)
++        XCTAssertEqual(state, .terminating)
++        XCTAssertNil(reply)
++        XCTAssertGreaterThanOrEqual(elapsed, 0.49)
++        XCTAssertLessThan(elapsed, 1.0)
++        // SIGKILL follows at T0 + 1.9 s, so a wait of 5 s sees the record.
++        let (again, record) = registry.cancel("slow-end", waitNs: 5_000_000_000)
++        XCTAssertEqual(again, .terminal)
++        XCTAssertEqual(record?.record.outcome, .cancelled(beforeStart: false))
++        XCTAssertEqual(record?.record.termination?.leaderStatus, .signalled(signal: Int(SIGKILL)))
++        _ = await running.value
++    }
++
++    func testARepeatedCancellationReturnsTheSameRecord() async throws {
++        let registry = ExecRegistry()
++        let running = try start(registry, "twice", "sleep 30", timeout: 60)
++        try await Task.sleep(nanoseconds: 300_000_000)
++        let first = registry.cancel("twice", waitNs: 5_000_000_000)
++        let second = registry.cancel("twice", waitNs: 5_000_000_000)
++        XCTAssertEqual(first.0, .terminal)
++        XCTAssertEqual(second.0, .terminal)
++        XCTAssertEqual(first.1, second.1)
++        _ = await running.value
++    }
++
++    func testACancellationAfterATimeoutReturnsTheTimedOutRecord() async throws {
++        let registry = ExecRegistry()
++        let running = try start(registry, "late-cancel", "sleep 30", timeout: 1)
++        _ = await running.value
++        let (state, reply) = registry.cancel("late-cancel", waitNs: 0)
++        XCTAssertEqual(state, .terminal)
++        XCTAssertEqual(reply?.record.outcome, .timedOut(timeoutSeconds: 1))
++    }
++
++    func testACancellationDuringTimeoutTerminationKeepsTheTimeout() async throws {
++        let registry = ExecRegistry()
++        let running = try start(registry, "in-grace", "trap '' TERM; sleep 30", timeout: 1)
++        // The deadline passes at 1 s, and the grace runs to about 2.9 s.
++        try await Task.sleep(nanoseconds: 1_600_000_000)
++        let (state, reply) = registry.cancel("in-grace", waitNs: 5_000_000_000)
++        XCTAssertEqual(state, .terminal)
++        XCTAssertEqual(reply?.record.outcome, .timedOut(timeoutSeconds: 1))
++        // A later cancellation does not shorten the grace.
++        let term = try XCTUnwrap(reply?.record.termination)
++        XCTAssertGreaterThanOrEqual(term.killSentAfterMs, 1850)
++        _ = await running.value
++    }
++
++    func testACancellationAfterAnExitReturnsTheExitRecord() async throws {
++        let registry = ExecRegistry()
++        let running = try start(registry, "done", "printf finished; exit 3", timeout: 10)
++        _ = await running.value
++        let (state, reply) = registry.cancel("done", waitNs: 5_000_000_000)
++        XCTAssertEqual(state, .terminal)
++        XCTAssertEqual(reply?.record.outcome, .exited(exitCode: 3))
++        XCTAssertEqual(reply?.stdout, "finished")
++    }
++
++    /// The leader exits at once, but the waiter never reports it. The
++    /// cancellation wakes the owner, and its non-blocking kernel wait finds
++    /// the exit first (spec, "Arbitration", step 2).
++    func testTheExitAndCancelRaceResolvesByKernelState() async throws {
++        let registry = ExecRegistry()
++        let seams = OwnerSeams(
++            leaderWaiter: { ExitBlindWaiter(pid: $0) }, captureRead: OwnerSeams.live.captureRead)
++        let running = try start(registry, "race", "printf 'finished'; exit 7", timeout: 30, seams: seams)
++        try await Task.sleep(nanoseconds: 300_000_000)
++        let (state, reply) = registry.cancel("race", waitNs: 5_000_000_000)
++        XCTAssertEqual(state, .terminal)
++        let record = try XCTUnwrap(reply).record
++        try checkValid(XCTUnwrap(reply), id: "race")
++        XCTAssertEqual(record.outcome, .exited(exitCode: 7))
++        XCTAssertNil(record.termination)
++        XCTAssertEqual(record.remainingGroup, ExecRemainingGroup.none)
++        XCTAssertEqual(Data(base64Encoded: record.evidence.stdout.base64), Data("finished".utf8))
++        XCTAssertLessThanOrEqual(record.lifecycle.ownerLatenessMs, Self.ownerLatenessBoundMs)
++        _ = await running.value
++    }
++
++    /// A late owner can see a leader that exited after the deadline. The
++    /// outcome is `exited`, and the record keeps the lateness (spec,
++    /// "Arbitration"; review k235 R3 on Linux).
++    func testALateOwnerKeepsItsLatenessWhenTheExitWins() async throws {
++        let seams = OwnerSeams(
++            leaderWaiter: { LateOwnerWaiter(pid: $0) }, captureRead: OwnerSeams.live.captureRead)
++        let owned = await ProcessRunner.runOwned(command: "sleep 1.3", timeoutSeconds: 1, seams: seams)
++        try checkValid(owned.reply(id: "late"), id: "late")
++        XCTAssertEqual(owned.outcome, .exited(code: 0))
++        XCTAssertNil(owned.termination)
++        XCTAssertGreaterThanOrEqual(owned.ownerLatenessMs, 900)
++    }
++
++    func testACancellationBeforeTheSpawnStartsNothing() async throws {
++        let marker = FileManager.default.temporaryDirectory
++            .appendingPathComponent("testanyware-k221-\(UUID().uuidString)").path
++        let signal = CancelSignal()
++        signal.request()
++        let owned = await ProcessRunner.runOwned(
++            command: "touch '\(marker)'", timeoutSeconds: 10, cancel: signal)
++        let reply = owned.reply(id: "accepted")
++        try checkValid(reply, id: "accepted")
++        XCTAssertEqual(reply.record.outcome, .cancelled(beforeStart: true))
++        XCTAssertNil(reply.record.lifecycle.leaderPid)
++        XCTAssertNil(reply.record.lifecycle.durationMs)
++        XCTAssertNil(reply.record.termination)
++        XCTAssertEqual(reply.exitCode, -1)
++        XCTAssertEqual(reply.stderr, "Process cancelled")
++        try await Task.sleep(nanoseconds: 200_000_000)
++        XCTAssertFalse(FileManager.default.fileExists(atPath: marker), "a cancelled command started")
++    }
++
++    func testATombstonedRecordHasNoLateness() throws {
++        let reply = ProcessRunner.cancelledBeforeStart(requestedAt: ProcessRunner.uptime()).reply(id: "early")
++        try checkValid(reply, id: "early")
++        XCTAssertEqual(reply.record.outcome, .cancelled(beforeStart: true))
++        XCTAssertEqual(reply.record.lifecycle.ownerLatenessMs, 0)
++        XCTAssertEqual(reply.stdout, "")
++        XCTAssertEqual(reply.stderr, "Process cancelled")
++    }
++
++    /// The deadline saturates, and a cancellation still ends the command.
++    func testAHugeTimeoutRunsAndCancels() async throws {
++        for (index, timeout) in [20_000_000_000, Int.max].enumerated() {
++            let registry = ExecRegistry()
++            let running = try start(registry, "huge-\(index)", "sleep 30", timeout: timeout)
++            try await Task.sleep(nanoseconds: 300_000_000)
++            let (state, reply) = registry.cancel("huge-\(index)", waitNs: 5_000_000_000)
++            XCTAssertEqual(state, .terminal)
++            XCTAssertEqual(reply?.record.outcome, .cancelled(beforeStart: false))
++            _ = await running.value
++        }
++    }
++
++    // MARK: - Helpers
++
++    /// Admits `id` and runs its command in the background, as `/exec` does.
++    private func start(
++        _ registry: ExecRegistry, _ id: String, _ command: String, timeout: Int, seams: OwnerSeams = .live
++    ) throws -> Task<Void, Never> {
++        guard case .start(let signal) = registry.admit(id) else {
++            throw XCTSkip("the registry did not admit \(id)")
++        }
++        return Task.detached {
++            let owned = await ProcessRunner.runOwned(
++                command: command, timeoutSeconds: timeout, seams: seams, cancel: signal)
++            registry.publish(id, reply: owned.reply(id: id))
++        }
++    }
++
++    private func checkValid(_ reply: ExecReply, id: String, file: StaticString = #filePath, line: UInt = #line) throws {
++        let body = try JSONEncoder().encode(reply)
++        XCTAssertEqual(ExecValidity.errors(reply: body, expectedID: id), [], file: file, line: line)
++    }
++
++    /// Waits for a PID file and returns the PID that it holds.
++    private func waitForPidFile(_ path: String) async throws -> pid_t {
++        let deadline = Date().addingTimeInterval(5)
++        while Date() < deadline {
++            if let text = try? String(contentsOfFile: path, encoding: .utf8), text.hasSuffix("\n"),
++               let pid = pid_t(text.trimmingCharacters(in: .whitespacesAndNewlines)) {
++                return pid
++            }
++            try await Task.sleep(nanoseconds: 10_000_000)
++        }
++        throw XCTSkip("no PID in \(path)")
++    }
++}
++
++/// A leader waiter that never reports the exit, but wakes at a cancellation.
++/// Its status check and its reap are real, so the owner's arbitration decides.
++final class ExitBlindWaiter: LeaderWaiter, @unchecked Sendable {
++    private let real: KqueueLeaderWaiter
++
++    init(pid: pid_t) { real = KqueueLeaderWaiter(pid: pid) }
++
++    func waitExit(until deadline: UInt64, wake: CancelSignal?) -> Bool {
++        while true {
++            let now = DispatchTime.now().uptimeNanoseconds
++            if deadline <= now || wake?.requestedAt != nil { return false }
++            usleep(useconds_t(min((deadline - now) / 1000, 10_000)))
++        }
++    }
++
++    func hasExited() -> Bool { real.hasExited() }
++
++    func reap() -> Int32 { real.reap() }
++}
++
++/// The owner resumes 2 s after the spawn. By then the deadline of 1 s has
++/// passed and the leader has exited, so the first real wait sees the exit.
++final class LateOwnerWaiter: LeaderWaiter, @unchecked Sendable {
++    private let real: KqueueLeaderWaiter
++    private var first = true
++
++    init(pid: pid_t) { real = KqueueLeaderWaiter(pid: pid) }
++
++    func waitExit(until deadline: UInt64, wake: CancelSignal?) -> Bool {
++        if first {
++            first = false
++            sleep(2)
++        }
++        return real.waitExit(until: deadline, wake: wake)
++    }
++
++    func hasExited() -> Bool { real.hasExited() }
++
++    func reap() -> Int32 { real.reap() }
++}
+diff --git a/agents/macos/Tests/TestAnywareAgentTests/ExecOwnerTests.swift b/agents/macos/Tests/TestAnywareAgentTests/ExecOwnerTests.swift
+index 23333f9eb0..b57cb3fa52 100644
+--- a/agents/macos/Tests/TestAnywareAgentTests/ExecOwnerTests.swift
++++ b/agents/macos/Tests/TestAnywareAgentTests/ExecOwnerTests.swift
+@@ -354,10 +354,13 @@ final class BlindLeaderWaiter: LeaderWaiter, @unchecked Sendable {
+ 
+     init(pid: pid_t) { real = KqueueLeaderWaiter(pid: pid) }
+ 
+-    func waitExit(until deadline: UInt64) -> Bool {
+-        let now = DispatchTime.now().uptimeNanoseconds
+-        if deadline > now { usleep(useconds_t(min((deadline - now) / 1000, UInt64(UInt32.max)))) }
+-        return false
++    /// Waits until the deadline or a cancellation request, in 10 ms steps.
++    func waitExit(until deadline: UInt64, wake: CancelSignal?) -> Bool {
++        while true {
++            let now = DispatchTime.now().uptimeNanoseconds
++            if deadline <= now || wake?.requestedAt != nil { return false }
++            usleep(useconds_t(min((deadline - now) / 1000, 10_000)))
++        }
+     }
+ 
+     func hasExited() -> Bool { false }
+diff --git a/agents/macos/Tests/TestAnywareAgentTests/ExecRecordValidity.swift b/agents/macos/Tests/TestAnywareAgentTests/ExecRecordValidity.swift
+index 5e30b9205f..7d33bbf938 100644
+--- a/agents/macos/Tests/TestAnywareAgentTests/ExecRecordValidity.swift
++++ b/agents/macos/Tests/TestAnywareAgentTests/ExecRecordValidity.swift
+@@ -121,8 +121,11 @@ enum ExecValidity {
+         case .timedOut(let seconds):
+             terminated = true
+             if seconds <= 0 { errors.append("timeoutSeconds \(seconds) is not positive") }
+-        case .cancelled:
+-            terminated = true
++        case .cancelled(let beforeStart):
++            // The spec: termination is present exactly for a timed_out or
++            // cancelled command that started.
++            started = !beforeStart
++            terminated = !beforeStart
+         }
+         if started {
+             if life.leaderPid == nil || life.leaderStartTime == nil || life.durationMs == nil {
+@@ -131,7 +134,7 @@ enum ExecValidity {
+             if life.groupId != life.leaderPid { errors.append("groupId is not the leader PID") }
+         } else if life.leaderPid != nil || life.groupId != nil || life.leaderStartTime != nil
+                     || life.durationMs != nil {
+-            errors.append("a spawn failure carries a leader identity")
++            errors.append("a command that never started carries a leader identity")
+         }
+         if mayRemain != (record.remainingGroup != nil) {
+             errors.append("remainingGroup is present only after exited or signalled")
+@@ -200,7 +203,9 @@ enum ExecValidity {
+             let ok = reply.exitCode == -1 && reply.stdout.isEmpty && reply.stderr == message && !reply.timedOut
+             return ok ? [] : ["legacy fields do not match spawn_failed"]
+         case .cancelled:
+-            return ["the macOS agent does not cancel before k221"]
++            let note = "Process cancelled"
++            let noted = reply.stderr == note || reply.stderr.hasSuffix("\n[\(note)]")
++            return reply.exitCode == -1 && !reply.timedOut && noted ? [] : ["legacy fields do not match cancelled"]
+         }
+     }
+ }
+diff --git a/agents/macos/Tests/TestAnywareAgentTests/ExecRegistryTests.swift b/agents/macos/Tests/TestAnywareAgentTests/ExecRegistryTests.swift
+new file mode 100644
+index 0000000000..72d38c232f
+--- /dev/null
++++ b/agents/macos/Tests/TestAnywareAgentTests/ExecRegistryTests.swift
+@@ -0,0 +1,173 @@ import Foundation
++import Foundation
++import TestAnywareAgentProtocol
++import XCTest
++@testable import TestAnywareAgent
++
++/// Retention, admission and shutdown of the exec registry (spec, sections
++/// "Retention", "Cancel endpoint" and "Agent shutdown"). A fake clock moves
++/// the retention ages. Leaf k221.
++final class ExecRegistryTests: XCTestCase {
++
++    func testTheSpecValuesAre300SecondsAnd64() {
++        XCTAssertEqual(ExecRegistry.retentionNs, 300_000_000_000)
++        XCTAssertEqual(ExecRegistry.retentionLimit, 64)
++        XCTAssertEqual(ExecRegistry.cancelWaitMaxMs, 10_000)
++        XCTAssertEqual(ExecRegistry.shutdownWaitNs, 4_000_000_000)
++    }
++
++    func testATerminalRecordIsRetainedFor300Seconds() {
++        let clock = FakeClock()
++        let registry = ExecRegistry(clock: clock.read)
++        publishCancelled(registry, "kept")
++        clock.advance(seconds: 299)
++        XCTAssertEqual(registry.state("kept"), "terminal")
++        clock.advance(seconds: 1)
++        XCTAssertNil(registry.state("kept"))
++    }
++
++    func testATombstoneIsRetainedFor300SecondsFromItsFirstCancellation() {
++        let clock = FakeClock()
++        let registry = ExecRegistry(clock: clock.read)
++        XCTAssertEqual(registry.cancel("early", waitNs: 0).0, .unknownID)
++        clock.advance(seconds: 200)
++        // A repeat keeps the first time, because no command ran under the id.
++        XCTAssertEqual(registry.cancel("early", waitNs: 0).0, .unknownID)
++        clock.advance(seconds: 99)
++        XCTAssertEqual(registry.state("early"), "tombstone")
++        clock.advance(seconds: 1)
++        XCTAssertNil(registry.state("early"))
++    }
++
++    func testTheOldestRetainedEntryGoesFirstBeyond64() {
++        let clock = FakeClock()
++        let registry = ExecRegistry(clock: clock.read)
++        for index in 0..<64 {
++            publishCancelled(registry, "r\(index)")
++            clock.advance(seconds: 1)
++        }
++        XCTAssertEqual(registry.cancel("t64", waitNs: 0).0, .unknownID)
++        XCTAssertNil(registry.state("r0"))
++        XCTAssertEqual(registry.state("r1"), "terminal")
++        XCTAssertEqual(registry.state("t64"), "tombstone")
++    }
++
++    func testARunningCommandIsNeverEvicted() {
++        let clock = FakeClock()
++        let registry = ExecRegistry(clock: clock.read, retentionNs: 1_000_000_000, limit: 1)
++        guard case .start = registry.admit("running") else { return XCTFail("not admitted") }
++        clock.advance(seconds: 10)
++        publishCancelled(registry, "a")
++        publishCancelled(registry, "b")
++        XCTAssertEqual(registry.state("running"), "running")
++        XCTAssertNil(registry.state("a"))
++        XCTAssertEqual(registry.state("b"), "terminal")
++    }
++
++    func testADuplicateIDOfARunningOrRetainedCommandIsRefused() {
++        let registry = ExecRegistry()
++        guard case .start = registry.admit("dup") else { return XCTFail("not admitted") }
++        guard case .inUse = registry.admit("dup") else { return XCTFail("a running id was admitted again") }
++        registry.publish("dup", reply: Self.cancelledReply("dup"))
++        guard case .inUse = registry.admit("dup") else { return XCTFail("a retained id was admitted again") }
++    }
++
++    /// The tombstone order of the spec: a cancellation of an unknown id, then
++    /// an `/exec` with that id, gives a cancelled record without a spawn.
++    func testATombstonedIDIsAdmittedAsCancelledAndThenRetained() {
++        let registry = ExecRegistry()
++        XCTAssertEqual(registry.cancel("early", waitNs: 0).0, .unknownID)
++        guard case .tombstoned = registry.admit("early") else { return XCTFail("the tombstone was ignored") }
++        let reply = ProcessRunner.cancelledBeforeStart(requestedAt: ProcessRunner.uptime()).reply(id: "early")
++        registry.publish("early", reply: reply)
++        let (state, retained) = registry.cancel("early", waitNs: 0)
++        XCTAssertEqual(state, .terminal)
++        XCTAssertEqual(retained, reply)
++        guard case .inUse = registry.admit("early") else { return XCTFail("a retained id was admitted again") }
++    }
++
++    func testTheCancelSignalClosesAtPublication() {
++        let registry = ExecRegistry()
++        guard case .start(let signal) = registry.admit("closing") else { return XCTFail("not admitted") }
++        registry.publish("closing", reply: Self.cancelledReply("closing"))
++        signal.request()
++        XCTAssertNil(signal.requestedAt, "a request after publication changed the signal")
++        XCTAssertEqual(registry.cancel("closing", waitNs: 0).0, .terminal)
++    }
++
++    func testARepeatedCancellationKeepsTheFirstRequestTime() {
++        let signal = CancelSignal()
++        signal.request(at: 100)
++        signal.request(at: 200)
++        XCTAssertEqual(signal.requestedAt, 100)
++    }
++
++    func testCloseStopsAdmissionAndCancelsEveryRunningCommand() {
++        let registry = ExecRegistry()
++        guard case .start(let one) = registry.admit("one"),
++              case .start(let two) = registry.admit("two") else { return XCTFail("not admitted") }
++        XCTAssertEqual(registry.close(), ["one", "two"])
++        XCTAssertNotNil(one.requestedAt)
++        XCTAssertNotNil(two.requestedAt)
++        guard case .closed = registry.admit("three") else { return XCTFail("admission stayed open") }
++    }
++
++    func testWaitPublishedReturnsAtItsBoundWithThePendingIDs() {
++        let registry = ExecRegistry()
++        guard case .start = registry.admit("slow"), case .start = registry.admit("quick") else {
++            return XCTFail("not admitted")
++        }
++        DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
++            registry.publish("quick", reply: Self.cancelledReply("quick"))
++        }
++        let start = ProcessRunner.uptime()
++        let pending = registry.waitPublished(["slow", "quick"], until: start + 500_000_000)
++        let elapsed = Double(ProcessRunner.uptime() - start) / 1e9
++        XCTAssertEqual(pending, ["slow"])
++        XCTAssertGreaterThanOrEqual(elapsed, 0.49)
++        XCTAssertLessThan(elapsed, 1.0)
++    }
++
++    func testACancellationOfARunningCommandWaitsForItsRecord() {
++        let registry = ExecRegistry()
++        guard case .start(let signal) = registry.admit("waited") else { return XCTFail("not admitted") }
++        DispatchQueue.global().async {
++            while signal.requestedAt == nil { usleep(1_000) }
++            usleep(200_000)
++            registry.publish("waited", reply: Self.cancelledReply("waited"))
++        }
++        let (state, reply) = registry.cancel("waited", waitNs: 5_000_000_000)
++        XCTAssertEqual(state, .terminal)
++        XCTAssertEqual(reply?.record.id, "waited")
++    }
++
++    // MARK: - Helpers
++
++    static func cancelledReply(_ id: String) -> ExecReply {
++        ProcessRunner.cancelledBeforeStart(requestedAt: ProcessRunner.uptime()).reply(id: id)
++    }
++
++    private func publishCancelled(_ registry: ExecRegistry, _ id: String) {
++        guard case .start = registry.admit(id) else { return XCTFail("\(id) not admitted") }
++        registry.publish(id, reply: Self.cancelledReply(id))
++    }
++}
++
++/// A retention clock that a test moves by hand.
++final class FakeClock: @unchecked Sendable {
++    private let lock = NSLock()
++    private var now: UInt64 = 1_000_000_000_000
++
++    var read: @Sendable () -> UInt64 {
++        { [self] in
++            lock.lock()
++            defer { lock.unlock() }
++            return now
++        }
++    }
++
++    func advance(seconds: UInt64) {
++        lock.lock()
++        now += seconds * 1_000_000_000
++        lock.unlock()
++    }
++}
+diff --git a/agents/macos/Tests/TestAnywareAgentTests/SingleVersionFileTests.swift b/agents/macos/Tests/TestAnywareAgentTests/SingleVersionFileTests.swift
+new file mode 100644
+index 0000000000..7da0e49309
+--- /dev/null
++++ b/agents/macos/Tests/TestAnywareAgentTests/SingleVersionFileTests.swift
+@@ -0,0 +1,123 @@ import Darwin
++import Darwin
++import Foundation
++import XCTest
++@testable import TestAnywareAgent
++
++/// The download reader of the spec's "Agent download contract" (ADR-0026).
++/// Each writer action happens after the open, between the length and the
++/// read, which is the gap that the old handler's three path lookups left.
++/// Leaf k221.
++final class SingleVersionFileTests: XCTestCase {
++
++    static let version1 = Data(String(repeating: "version one of the evidence\n", count: 1000).utf8)
++    static let version2 = Data(String(repeating: "VERSION TWO, A DIFFERENT LENGTH\n", count: 1500).utf8)
++
++    private var directory: URL!
++
++    override func setUpWithError() throws {
++        directory = FileManager.default.temporaryDirectory
++            .appendingPathComponent("testanyware-download-\(UUID().uuidString)")
++        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
++    }
++
++    override func tearDownWithError() throws {
++        try? FileManager.default.removeItem(at: directory)
++    }
++
++    func testAnUnchangedFileGivesTheExactBytes() throws {
++        let path = try write("evidence.txt", Self.version1)
++        let file = try SingleVersionFile(path: path)
++        XCTAssertEqual(file.length, Self.version1.count)
++        XCTAssertEqual(try readAll(file), Self.version1)
++    }
++
++    /// The consistency row "Replacement by rename": the whole version that
++    /// was open at the start.
++    func testARenameReplacementGivesTheVersionOpenAtTheStart() throws {
++        let path = try write("evidence.txt", Self.version1)
++        let fresh = try write("evidence.txt.new", Self.version2)
++        let file = try SingleVersionFile(path: path)
++        XCTAssertEqual(rename(fresh, path), 0)
++        XCTAssertEqual(file.length, Self.version1.count)
++        XCTAssertEqual(try readAll(file), Self.version1)
++        XCTAssertEqual(try Data(contentsOf: URL(fileURLWithPath: path)), Self.version2)
++    }
++
++    /// The same, with the replacement after the first chunk.
++    func testARenameReplacementDuringTheReadGivesTheVersionOpenAtTheStart() throws {
++        let path = try write("evidence.txt", Self.version1)
++        let fresh = try write("evidence.txt.new", Self.version2)
++        let file = try SingleVersionFile(path: path)
++        var body = try file.next(maxBytes: 1000)
++        XCTAssertEqual(rename(fresh, path), 0)
++        body += try readAll(file)
++        XCTAssertEqual(body, Self.version1)
++    }
++
++    /// The consistency row "Append": the first L bytes, and never a byte past L.
++    func testAnAppendGivesTheFirstLBytes() throws {
++        let path = try write("evidence.txt", Self.version1)
++        let file = try SingleVersionFile(path: path)
++        let handle = try XCTUnwrap(FileHandle(forWritingAtPath: path))
++        handle.seekToEndOfFile()
++        handle.write(Data(String(repeating: "appended after the length was taken\n", count: 100).utf8))
++        try handle.close()
++        XCTAssertEqual(try readAll(file), Self.version1)
++        XCTAssertTrue(file.finished)
++        XCTAssertEqual(try file.next(maxBytes: 4096), Data(), "the reader went past L")
++    }
++
++    /// The consistency row "Truncation": a detected failure. The reader
++    /// throws, and the server then closes the connection before L bytes.
++    func testATruncationGivesAShortRead() throws {
++        let path = try write("evidence.txt", Self.version1)
++        let file = try SingleVersionFile(path: path)
++        XCTAssertEqual(truncate(path, 100), 0)
++        XCTAssertEqual(try file.next(maxBytes: 64 * 1024), Self.version1.prefix(100))
++        XCTAssertThrowsError(try file.next(maxBytes: 64 * 1024)) { error in
++            XCTAssertEqual(
++                error as? SingleVersionFile.ShortRead,
++                SingleVersionFile.ShortRead(offset: 100, length: Self.version1.count, errno: nil))
++        }
++    }
++
++    func testAnEmptyFileHasNoBody() throws {
++        let file = try SingleVersionFile(path: try write("empty", Data()))
++        XCTAssertEqual(file.length, 0)
++        XCTAssertTrue(file.finished)
++        XCTAssertEqual(try file.next(maxBytes: 4096), Data())
++    }
++
++    func testAMissingFileOrADirectoryIsNotFound() {
++        XCTAssertThrowsError(try SingleVersionFile(path: directory.appendingPathComponent("absent").path)) {
++            XCTAssertEqual($0 as? SingleVersionFile.OpenError, .notFound)
++        }
++        XCTAssertThrowsError(try SingleVersionFile(path: directory.path)) {
++            XCTAssertEqual($0 as? SingleVersionFile.OpenError, .notFound)
++        }
++    }
++
++    func testAnUnreadableFileFailsWithItsErrno() throws {
++        let path = try write("secret", Data("x".utf8))
++        XCTAssertEqual(chmod(path, 0), 0)
++        defer { chmod(path, 0o600) }
++        guard getuid() != 0 else { throw XCTSkip("root reads a file of mode 0") }
++        XCTAssertThrowsError(try SingleVersionFile(path: path)) {
++            XCTAssertEqual($0 as? SingleVersionFile.OpenError, .failed(EACCES))
++        }
++    }
++
++    // MARK: - Helpers
++
++    private func write(_ name: String, _ data: Data) throws -> String {
++        let url = directory.appendingPathComponent(name)
++        try data.write(to: url)
++        return url.path
++    }
++
++    private func readAll(_ file: SingleVersionFile) throws -> Data {
++        var body = Data()
++        while !file.finished { body += try file.next(maxBytes: 4096) }
++        return body
++    }
++}
+diff --git a/docs/architecture/agent-protocol.md b/docs/architecture/agent-protocol.md
+index faaa6d4a13..8bd0bd6c2d 100644
+--- a/docs/architecture/agent-protocol.md
++++ b/docs/architecture/agent-protocol.md
+@@ -38,7 +38,7 @@ ### System
+ |--------|------|---------|
+ | GET | `/health` | Liveness + "accessibility is ready" check. Returns 200 with no required body once agent + AX are ready. |
+ | POST | `/exec` | Execute a command. A valid request returns 200. The response body holds the exit code. |
+-| POST | `/exec/cancel` | Linux only so far. Cancel a running command by its exec `id`. |
++| POST | `/exec/cancel` | Linux and macOS. Cancel a running command by its exec `id`. |
+ | POST | `/upload?path=<percent-encoded>` | Stream a file to the VM filesystem (raw `application/octet-stream` body). |
+ | POST | `/download?path=<percent-encoded>` | Stream a file from the VM filesystem (raw `application/octet-stream` response). |
+ | POST | `/shutdown` | Ask the agent to terminate (used by test harnesses). |
+@@ -144,17 +144,20 @@ ### `ExecRequest` — `/exec`
+ agent without the typed record ignores it. A detached request carries no
+ `id`.
+ 
+-The Linux agent registers each `id`. An `id` of a running or retained
++The Linux and macOS agents register each `id`. An `id` of a running or retained
+ command returns 409 with `exec_id_in_use`. An `id` that a cancellation
+ tombstoned returns a `cancelled` record with `beforeStart: true`, and no
+ process starts. During agent shutdown, a new request returns 503 with
+ `exec_failed`.
+ 
+-On the Linux agent, a cancellation that arrives before the spawn gives the
+-same record as a tombstone. A cancellation after the spawn ends the started
+-group, and its record has `beforeStart: false`. The Linux agent counts a
++On the Linux and macOS agents, a cancellation that arrives before the spawn
++gives the same record as a tombstone. A cancellation after the spawn ends the
++started group, and its record has `beforeStart: false`. Both agents count a
+ negative timeout as 0.
+ 
++At SIGTERM, the Linux and macOS agents refuse each new command and cancel
++each running command. Each agent waits up to 4 s for the records and then exits.
++
+ ### `CancelRequest` — `/exec/cancel`
+ 
+ ```json
+@@ -192,10 +195,13 @@ ### File transfer — `/upload`, `/download`
+ On failure the response is an `ErrorResponse` (`download_failed`) JSON
+ body. Its non-2xx HTTP status tells it apart from a successful transfer.
+ 
+-The Linux agent opens the file once. It takes `Content-Length` from that
+-handle and sends exactly that many bytes from it (ADR-0026). Bytes that
+-a writer appends during the read stay out of the body. When the handle
+-ends early, for example after a truncation, the agent closes the
++The Linux and macOS agents open the file once. Each agent takes
++`Content-Length` from that handle and sends exactly that many bytes from it
++(ADR-0026). A rename that replaces the file during the read does not change
++the body. The body is the version that was open at the start.
++
++Bytes that a writer appends during the read stay out of the body. When the
++handle ends early, for example after a truncation, the agent closes the
+ connection. The body is then short, and the client detects it.
+ 
+ An in-place overwrite during the read is outside the contract. Publish each
+diff --git a/docs/components/agents-macos.md b/docs/components/agents-macos.md
+index 14e4266a2c..e056fccf54 100644
+--- a/docs/components/agents-macos.md
++++ b/docs/components/agents-macos.md
+@@ -24,10 +24,22 @@ ## Key design notes
+   copy of `TestAnywareAgentProtocol`. It vendors its own copy of the Swift
+   sources, so the agent builds in any working copy without the `cli/`
+   package.
+-- **Single-process.** One `AsyncHTTPServer` binds `0.0.0.0:8648` and
+-  dispatches to the handler closures in `AgentServer.swift`.
+-- **No state between requests.** Each handler walks the AX tree again.
+-  When AX is not ready, the client must retry.
++- **Single-process.** One Hummingbird `Application` binds `0.0.0.0:8648`
++  and dispatches to the handler closures in `AgentServer.swift`. A second
++  argument names another listen address. The host tests pass `127.0.0.1`.
++- **No accessibility state between requests.** Each accessibility handler
++  walks the AX tree again. When AX is not ready, the client must retry.
++- **Exec registry.** The agent registers each exec `id`. It retains each
++  finished record and each tombstone for 300 s, 64 at most.
++  `/exec/cancel` ends a command through its lifecycle owner. A disconnect
++  is not a cancellation (ADR-0025).
++- **One file version for each download.** A download opens the file once.
++  It sends exactly the length that `fstat` gave for that handle
++  (ADR-0026).
++- **Bounded shutdown.** At SIGTERM the agent stops admission and cancels
++  each running guest command. It stops accepting connections, waits up to
++  4 s for the records and then exits with status 0. A second SIGTERM ends
++  it at once. The spec is `docs/specs/guest-command-lifecycle.md`.
+ 
+ ## Endpoint wiring
+ 
+@@ -40,7 +52,7 @@ ## Endpoint wiring
+ POST /press, /set-value, /focus, /show-menu
+ POST /window-focus, /window-resize, /window-move, /window-close, /window-minimize
+ POST /wait
+-POST /exec, /upload, /download, /shutdown
++POST /exec, /exec/cancel, /upload, /download, /shutdown
+ POST /debug/ax    (macOS-only diagnostic)
+ ```
+ 
+diff --git a/website/docs/components/agents-macos.md b/website/docs/components/agents-macos.md
+index a3665546ba..9bb29ea9fe 100644
+--- a/website/docs/components/agents-macos.md
++++ b/website/docs/components/agents-macos.md
+@@ -28,10 +28,22 @@ ## Key design notes
+   copy of `TestAnywareAgentProtocol`. It vendors its own copy of the Swift
+   sources, so the agent builds in any working copy without the `cli/`
+   package.
+-- **Single-process.** One `AsyncHTTPServer` binds `0.0.0.0:8648` and
+-  dispatches to the handler closures in `AgentServer.swift`.
+-- **No state between requests.** Each handler walks the AX tree again.
+-  When AX is not ready, the client must retry.
++- **Single-process.** One Hummingbird `Application` binds `0.0.0.0:8648`
++  and dispatches to the handler closures in `AgentServer.swift`. A second
++  argument names another listen address. The host tests pass `127.0.0.1`.
++- **No accessibility state between requests.** Each accessibility handler
++  walks the AX tree again. When AX is not ready, the client must retry.
++- **Exec registry.** The agent registers each exec `id`. It retains each
++  finished record and each tombstone for 300 s, 64 at most.
++  `/exec/cancel` ends a command through its lifecycle owner. A disconnect
++  is not a cancellation (ADR-0025).
++- **One file version for each download.** A download opens the file once.
++  It sends exactly the length that `fstat` gave for that handle
++  (ADR-0026).
++- **Bounded shutdown.** At SIGTERM the agent stops admission and cancels
++  each running guest command. It stops accepting connections, waits up to
++  4 s for the records and then exits with status 0. A second SIGTERM ends
++  it at once. The spec is `docs/specs/guest-command-lifecycle.md`.
+ 
+ ## Endpoint wiring
+ 
+@@ -44,7 +56,7 @@ ## Endpoint wiring
+ POST /press, /set-value, /focus, /show-menu
+ POST /window-focus, /window-resize, /window-move, /window-close, /window-minimize
+ POST /wait
+-POST /exec, /upload, /download, /shutdown
++POST /exec, /exec/cancel, /upload, /download, /shutdown
+ POST /debug/ax    (macOS-only diagnostic)
+ ```
+ 

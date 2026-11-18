@@ -1,0 +1,41 @@
+Test Suite 'Selected tests' started at 2026-11-18 17:06:27.221.
+Test Suite 'TestAnywareAgentTests.xctest' started at 2026-11-18 17:06:27.222.
+Test Suite 'AgentProcessTests' started at 2026-11-18 17:06:27.222.
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testSigtermDuringACommandEndsTheGroupAndExitsInBounds]' started.
+/private/tmp/claude-501/-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14/5f0908b7-6ab2-4dc4-9867-41755c808772/scratchpad/mutant-agent/Tests/TestAnywareAgentTests/AgentProcessTests.swift:219: error: -[TestAnywareAgentTests.AgentProcessTests testSigtermDuringACommandEndsTheGroupAndExitsInBounds] : XCTAssertFalse failed - the child outlived the agent
+owned-process-fixture: pid 27089 started 1794981987.690709 stoppedByTerm
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testSigtermDuringACommandEndsTheGroupAndExitsInBounds]' failed (5.155 seconds).
+Test Suite 'AgentProcessTests' failed at 2026-11-18 17:06:32.377.
+	 Executed 1 test, with 1 failure (0 unexpected) in 5.155 (5.155) seconds
+Test Suite 'TestAnywareAgentTests.xctest' failed at 2026-11-18 17:06:32.377.
+	 Executed 1 test, with 1 failure (0 unexpected) in 5.155 (5.155) seconds
+Test Suite 'Selected tests' failed at 2026-11-18 17:06:32.377.
+	 Executed 1 test, with 1 failure (0 unexpected) in 5.155 (5.156) seconds
+Note: Some test targets reported failures:
+  - TestAnywareAgentTests (XCTest)
+Building for debugging...
+[Computing dependencies]
+[Using on-disk description]
+[2 / 6] TestAnywareAgent
+[3 / 7] TestAnywareAgent
+/private/tmp/claude-501/-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14/5f0908b7-6ab2-4dc4-9867-41755c808772/scratchpad/mutant-agent/Sources/TestAnywareAgent/ExecRegistry.swift:197:13: [1;33mwarning: [1;39minitialization of immutable value 'now' was never used; consider replacing with assignment to '_' or removing it[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m195 |[0;0m         defer { condition.unlock() }
+[0;36m196 |[0;0m         closed = true
+[0;36m197 |[0;0m         let now = ProcessRunner.uptime()
+    [0;36m|[0;0m             `- [1;33mwarning: [1;39minitialization of immutable value 'now' was never used; consider replacing with assignment to '_' or removing it[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m198 |[0;0m         var running: [String] = []
+[0;36m199 |[0;0m         for (id, entry) in entries {
+
+/private/tmp/claude-501/-Users-antony-Development-AbstractingComputers-TestAnyware-gh-issue-14/5f0908b7-6ab2-4dc4-9867-41755c808772/scratchpad/mutant-agent/Sources/TestAnywareAgent/ExecRegistry.swift:200:34: [1;33mwarning: [1;39mimmutable value 'signal' was never used; consider replacing with '_' or removing it[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m198 |[0;0m         var running: [String] = []
+[0;36m199 |[0;0m         for (id, entry) in entries {
+[0;36m200 |[0;0m             if case .running(let signal) = entry.state {
+    [0;36m|[0;0m                                  `- [1;33mwarning: [1;39mimmutable value 'signal' was never used; consider replacing with '_' or removing it[0;0m [#]8;;https://docs.swift.org/compiler/documentation/diagnostics/no-usage\NoUsage]8;;\]
+[0;36m201 |[0;0m                 running.append(id)
+[0;36m202 |[0;0m             }
+
+[#NoUsage]: <https://docs.swift.org/compiler/documentation/diagnostics/no-usage>
+[8 / 11] TestAnywareAgent
+[11 / 14] testanyware-agent-product
+[14 / 15] TestAnywareAgentTests-product
+Build complete! (2.26 sec.)

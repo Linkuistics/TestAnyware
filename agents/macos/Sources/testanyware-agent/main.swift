@@ -4,6 +4,8 @@ import Foundation
 import Hummingbird
 
 let port = CommandLine.arguments.dropFirst().first.flatMap(Int.init) ?? 8648
+// A second argument names the listen address. Host tests pass 127.0.0.1.
+let host = CommandLine.arguments.dropFirst(2).first ?? "0.0.0.0"
 
 // Dismiss the "App Background Activity" notification that macOS shows for our
 // LaunchAgent on every boot. Retries for 30 seconds to handle timing.
@@ -14,13 +16,7 @@ Task.detached {
     }
 }
 
-let router = buildAgentRouter()
-let app = Application(
-    router: router,
-    configuration: .init(address: .hostname("0.0.0.0", port: port))
-)
-
-try await app.runService()
+try await runAgent(host: host, port: port)
 
 /// Finds the "App Background Activity" notification in Notification Center and
 /// performs its "Close" action. Returns true if found and dismissed.

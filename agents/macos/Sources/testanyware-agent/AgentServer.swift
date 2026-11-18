@@ -7,6 +7,8 @@ import TestAnywareAgentProtocol
 import Hummingbird
 import HTTPTypes
 import NIOCore
+import NIOPosix
+import ServiceLifecycle
 
 // MARK: - Request types
 
@@ -84,6 +86,7 @@ func buildAgentRouter() -> Router<BasicRequestContext> {
     router.post("/window-minimize") { req, _ in try await handleWindowMinimize(req) }
     router.post("/wait") { req, _ in try await handleWait(req) }
     router.post("/exec") { req, _ in try await handleExec(req) }
+    router.post("/exec/cancel") { req, _ in try await handleCancel(req) }
     router.post("/upload") { req, ctx in try await handleUpload(req, context: ctx) }
     router.post("/download") { req, ctx in try await handleDownload(req, context: ctx) }
     router.post("/shutdown") { _, _ in handleShutdown() }
@@ -425,6 +428,7 @@ private func handleWait(_ request: Request) async throws -> Response {
 // MARK: - System: exec
 
 private func handleExec(_ request: Request) async throws -> Response {
+    let requestedAt = ProcessRunner.uptime()
     let req: ExecRequest = try await decode(request)
     let timeout = req.timeout ?? 30
     let detach = req.detach ?? false
@@ -435,7 +439,6 @@ private func handleExec(_ request: Request) async throws -> Response {
     }
 
     // An attached command carries a valid caller id or gets an agent id.
-    // The id registry and its 409 conflict belong to a later leaf (k221).
     let id: String
     if let given = req.id {
         guard ExecRequest.isValidID(given) else {
@@ -448,8 +451,81 @@ private func handleExec(_ request: Request) async throws -> Response {
         id = UUID().uuidString.lowercased()
     }
 
-    let result = await ProcessRunner.runOwned(command: req.command, timeoutSeconds: timeout)
-    return jsonOK(result.reply(id: id))
+    // The registry holds the id from admission to the end of its retention
+    // (spec, "Start", steps 2 and 3). The agent does not watch the client
+    // connection: the owner runs on its own thread, and the record is
+    // published before the reply is written, so a disconnect changes nothing
+    // and the record stays retained (ADR-0025).
+    let registry = ExecRegistry.shared
+    let result: OwnedExecResult
+    switch registry.admit(id) {
+    case .inUse:
+        return jsonError(
+            "exec_id_in_use", details: "exec id \(id) names a running or retained command", status: .conflict)
+    case .closed:
+        return jsonError("exec_failed", details: "the agent is shutting down", status: .serviceUnavailable)
+    case .tombstoned:
+        result = ProcessRunner.cancelledBeforeStart(requestedAt: requestedAt)
+    case .start(let signal):
+        result = await ProcessRunner.runOwned(
+            command: req.command, timeoutSeconds: timeout, cancel: signal, requestedAt: requestedAt)
+    }
+    let reply = result.reply(id: id)
+    registry.publish(id, reply: reply)
+    return jsonOK(reply)
+}
+
+// MARK: - System: exec cancel
+
+struct CancelRequest: Decodable {
+    let id: String
+    let waitMs: Int?
+}
+
+/// The cancel reply. `record` is present exactly for the state `terminal`.
+struct CancelReply: Encodable {
+    let state: String
+    let record: ExecReply?
+
+    func encode(to encoder: Encoder) throws {
+        enum Keys: String, CodingKey { case state, record }
+        var c = encoder.container(keyedBy: Keys.self)
+        try c.encode(state, forKey: .state)
+        try c.encodeIfPresent(record, forKey: .record)
+    }
+}
+
+/// `POST /exec/cancel` (spec, "Cancel endpoint", ADR-0025). A wait runs on a
+/// dedicated thread, so it holds no worker of the shared concurrency pool.
+private func handleCancel(_ request: Request) async throws -> Response {
+    let req: CancelRequest
+    do {
+        req = try await decode(request)
+    } catch {
+        return jsonError("exec_failed", details: "the body must be a JSON object with a string id")
+    }
+    guard ExecRequest.isValidID(req.id) else {
+        return jsonError(
+            "exec_failed", details: "id must have 1 to 64 characters from A-Z, a-z, 0-9, '.', '_' and '-'")
+    }
+    let waitMs = req.waitMs ?? 0
+    guard (0...ExecRegistry.cancelWaitMaxMs).contains(waitMs) else {
+        return jsonError("exec_failed", details: "waitMs must be an integer from 0 to \(ExecRegistry.cancelWaitMaxMs)")
+    }
+    let id = req.id
+    let (state, reply) = await onOwnThread("testanyware-exec-cancel") {
+        ExecRegistry.shared.cancel(id, waitNs: UInt64(waitMs) * 1_000_000)
+    }
+    return jsonOK(CancelReply(state: state.rawValue, record: reply))
+}
+
+/// Runs a blocking call on a new thread and resumes with its result.
+private func onOwnThread<T: Sendable>(_ name: String, _ body: @escaping @Sendable () -> T) async -> T {
+    await withCheckedContinuation { continuation in
+        let thread = Thread { continuation.resume(returning: body()) }
+        thread.name = name
+        thread.start()
+    }
 }
 
 // MARK: - System: upload/download
@@ -492,28 +568,85 @@ private enum UploadError: Error, CustomStringConvertible {
     }
 }
 
-/// Streams the file at `?path=...` back as `application/octet-stream`, chunked
-/// straight off disk via `FileIO` (no whole-file buffering). A missing/unreadable
-/// file surfaces as an `ErrorResponse` (`download_failed`) before any body bytes
-/// are sent. See ADR-0001.
+/// Streams the file at `?path=...` back as `application/octet-stream` from one
+/// open handle (spec, "Agent download contract", ADR-0026). The length L comes
+/// from `fstat` of that handle, and the body is exactly L bytes from it. A
+/// constant-size buffer keeps ADR-0001's bounded streaming. A missing or
+/// unreadable file surfaces as an `ErrorResponse` (`download_failed`) before
+/// any body bytes are sent.
 private func handleDownload(_ request: Request, context: some RequestContext) async throws -> Response {
     guard let path = request.uri.queryParameters["path"].map(String.init), !path.isEmpty else {
         return jsonError("download_failed", details: "missing or empty 'path' query parameter")
     }
+    // This path check keeps the old replies for a missing file and a
+    // directory. The length never comes from it. It also keeps one path
+    // lookup before the open, where the k7 old-path diagnostic places its
+    // pause (task diagnostic:download-consistency-local).
     var isDir: ObjCBool = false
     guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir), !isDir.boolValue else {
         return jsonError("download_failed", details: "no such file: \(path)", status: .notFound)
     }
+    let file: SingleVersionFile
     do {
-        let body = try await FileIO().loadFile(path: path, context: context)
-        return Response(
-            status: .ok,
-            headers: [.contentType: "application/octet-stream"],
-            body: body
-        )
+        file = try SingleVersionFile(path: path)
+    } catch SingleVersionFile.OpenError.notFound {
+        return jsonError("download_failed", details: "no such file: \(path)", status: .notFound)
     } catch {
         return jsonError("download_failed", details: "\(error)", status: .internalServerError)
     }
+    // A short read throws inside the body. Hummingbird 2.28.1 then leaves
+    // `executeThenClose` with that error, so the connection closes before the
+    // declared length, and the client detects the failure:
+    // https://github.com/hummingbird-project/hummingbird/blob/2.28.1/Sources/HummingbirdCore/Server/HTTP/HTTPChannelHandler.swift
+    let body = ResponseBody(contentLength: file.length) { writer in
+        defer { file.close() }
+        while !file.finished {
+            // The blocking read runs on the NIO thread pool, as FileIO's reads did.
+            let chunk = try await NIOThreadPool.singleton.runIfActive { try file.next(maxBytes: downloadChunk) }
+            try await writer.write(ByteBuffer(bytes: chunk))
+        }
+        try await writer.finish(nil)
+    }
+    return Response(status: .ok, headers: [.contentType: "application/octet-stream"], body: body)
+}
+
+/// The read size of one download chunk. FileIO used the same size.
+private let downloadChunk = 128 * 1024
+
+// MARK: - Agent run and SIGTERM
+
+/// Runs the agent on `host:port` until SIGTERM (spec, "Agent shutdown").
+///
+/// At SIGTERM the agent closes exec admission and cancels every running
+/// command. It then stops accepting connections and waits for each record
+/// until 4 s after the signal. Then it exits with status 0, and launchd reaps
+/// any leader that it still holds. A second SIGTERM during the wait ends the
+/// agent at once. Hummingbird's own graceful shutdown would instead wait for
+/// each running command to reach its deadline.
+func runAgent(host: String, port: Int) async throws {
+    let app = Application(router: buildAgentRouter(), configuration: .init(address: .hostname(host, port: port)))
+    let group = ServiceGroup(configuration: .init(services: [app], logger: app.logger))
+    signal(SIGTERM, SIG_IGN)
+    let source = DispatchSource.makeSignalSource(signal: SIGTERM, queue: DispatchQueue(label: "testanyware-agent-sigterm"))
+    source.setEventHandler {
+        source.cancel()
+        let until = ProcessRunner.uptime() + ExecRegistry.shutdownWaitNs
+        // The default action again: a second SIGTERM ends the agent at once.
+        signal(SIGTERM, SIG_DFL)
+        // Closing the service group stops new connections.
+        let pending = ExecRegistry.shared.shutDown(until: until) {
+            Task { await group.triggerGracefulShutdown() }
+        }
+        if !pending.isEmpty {
+            let line = "testanyware-agent: exiting before these records were published: \(pending.joined(separator: ", "))\n"
+            FileHandle.standardError.write(Data(line.utf8))
+        }
+        exit(0)
+    }
+    source.resume()
+    try await group.run()
+    // The group ends only after SIGTERM, and the handler above ends the process.
+    while true { try await Task.sleep(for: .seconds(3600)) }
 }
 
 // MARK: - System: shutdown

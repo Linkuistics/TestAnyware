@@ -1,0 +1,306 @@
+task: [agent:macos:test] swift build
+Building for debugging...
+[Computing dependencies]
+[Using on-disk description]
+[3 / 110] SystemPackage
+Build complete! (1.15 sec.)
+task: [agent:macos:test] swift test
+Building for debugging...
+[Computing dependencies]
+[Using on-disk description]
+[3 / 88] CNIOLinux
+Build complete! (1.03 sec.)
+Test Suite 'All tests' started at 2026-11-18 16:59:44.708.
+Test Suite 'TestAnywareAgentTests.xctest' started at 2026-11-18 16:59:44.709.
+Test Suite 'AgentProcessTests' started at 2026-11-18 16:59:44.709.
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testACancellationAfterADisconnectEndsTheCommand]' started.
+owned-process-fixture: pid 6787 started 1794981585.330167 alreadyGone
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testACancellationAfterADisconnectEndsTheCommand]' passed (1.169 seconds).
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testACancellationEndsTheCommandAndRetainsItsRecord]' started.
+owned-process-fixture: pid 6789 started 1794981585.945994 alreadyGone
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testACancellationEndsTheCommandAndRetainsItsRecord]' passed (0.100 seconds).
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testADisconnectChangesNothingAndTheRecordIsRetained]' started.
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testADisconnectChangesNothingAndTheRecordIsRetained]' passed (6.136 seconds).
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testADownloadSendsTheExactBytesWithTheirLength]' started.
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testADownloadSendsTheExactBytesWithTheirLength]' passed (0.103 seconds).
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testADuplicateIDOfARunningCommandIsRefused]' started.
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testADuplicateIDOfARunningCommandIsRefused]' passed (0.388 seconds).
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testAMalformedCancellationIsRefused]' started.
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testAMalformedCancellationIsRefused]' passed (0.077 seconds).
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testAShortWaitRepliesTerminating]' started.
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testAShortWaitRepliesTerminating]' passed (2.276 seconds).
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testATombstoneCancelsALaterExecWithoutASpawn]' started.
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testATombstoneCancelsALaterExecWithoutASpawn]' passed (0.298 seconds).
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testHealthRepliesWithin1SecondDuringACommand]' started.
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testHealthRepliesWithin1SecondDuringACommand]' passed (3.096 seconds).
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testSigtermDuringACommandEndsTheGroupAndExitsInBounds]' started.
+owned-process-fixture: pid 7001 started 1794981598.419777 alreadyGone
+Test Case '-[TestAnywareAgentTests.AgentProcessTests testSigtermDuringACommandEndsTheGroupAndExitsInBounds]' passed (0.086 seconds).
+Test Suite 'AgentProcessTests' passed at 2026-11-18 16:59:58.438.
+	 Executed 10 tests, with 0 failures (0 unexpected) in 13.728 (13.729) seconds
+Test Suite 'AgentShutdownTests' started at 2026-11-18 16:59:58.438.
+Test Case '-[TestAnywareAgentTests.AgentShutdownTests testShutdownDoesNotWaitForALeaderWhoseStatusStaysUnavailable]' started.
+testanyware-agent: late reap of leader 7002, wait status 15
+Test Case '-[TestAnywareAgentTests.AgentShutdownTests testShutdownDoesNotWaitForALeaderWhoseStatusStaysUnavailable]' passed (3.630 seconds).
+Test Suite 'AgentShutdownTests' passed at 2026-11-18 17:00:02.068.
+	 Executed 1 test, with 0 failures (0 unexpected) in 3.630 (3.630) seconds
+Test Suite 'ExecCancellationTests' started at 2026-11-18 17:00:02.068.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testACancellationAfterAnExitReturnsTheExitRecord]' started.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testACancellationAfterAnExitReturnsTheExitRecord]' passed (0.003 seconds).
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testACancellationAfterATimeoutReturnsTheTimedOutRecord]' started.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testACancellationAfterATimeoutReturnsTheTimedOutRecord]' passed (1.002 seconds).
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testACancellationBeforeTheSpawnStartsNothing]' started.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testACancellationBeforeTheSpawnStartsNothing]' passed (0.201 seconds).
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testACancellationDuringTimeoutTerminationKeepsTheTimeout]' started.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testACancellationDuringTimeoutTerminationKeepsTheTimeout]' passed (2.906 seconds).
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testAHugeTimeoutRunsAndCancels]' started.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testAHugeTimeoutRunsAndCancels]' passed (0.611 seconds).
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testALateOwnerKeepsItsLatenessWhenTheExitWins]' started.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testALateOwnerKeepsItsLatenessWhenTheExitWins]' passed (2.003 seconds).
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testARepeatedCancellationReturnsTheSameRecord]' started.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testARepeatedCancellationReturnsTheSameRecord]' passed (0.313 seconds).
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testATombstonedRecordHasNoLateness]' started.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testATombstonedRecordHasNoLateness]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testCancellationEndsTheGroupAndRepliesWithTheRecord]' started.
+owned-process-fixture: pid 7067 started 1794981609.110566 alreadyGone
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testCancellationEndsTheGroupAndRepliesWithTheRecord]' passed (0.017 seconds).
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testTheCancellationReplyWaitsAtMostWaitMs]' started.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testTheCancellationReplyWaitsAtMostWaitMs]' passed (2.219 seconds).
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testTheExitAndCancelRaceResolvesByKernelState]' started.
+Test Case '-[TestAnywareAgentTests.ExecCancellationTests testTheExitAndCancelRaceResolvesByKernelState]' passed (0.312 seconds).
+Test Suite 'ExecCancellationTests' passed at 2026-11-18 17:00:11.656.
+	 Executed 11 tests, with 0 failures (0 unexpected) in 9.587 (9.588) seconds
+Test Suite 'ExecOwnerTests' started at 2026-11-18 17:00:11.656.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testBinaryOutputKeepsEveryByte]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testBinaryOutputKeepsEveryByte]' passed (0.004 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testDeadlineTerminatesTheGroupWithinBounds]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testDeadlineTerminatesTheGroupWithinBounds]' passed (2.003 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testExecIDRule]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testExecIDRule]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testExitCodeAndPartialOutput]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testExitCodeAndPartialOutput]' passed (0.003 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testExitEventWithoutStatusIsNotAnExit]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testExitEventWithoutStatusIsNotAnExit]' passed (1.016 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testFailedRegistrationStillSeesThePromptExit]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testFailedRegistrationStillSeesThePromptExit]' passed (0.123 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testHugeTimeoutDoesNotOverflowTheDeadline]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testHugeTimeoutDoesNotOverflowTheDeadline]' passed (0.006 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testIgnoredTermGetsKillAfterGrace]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testIgnoredTermGetsKillAfterGrace]' passed (3.905 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testLargeCaptureIsComplete]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testLargeCaptureIsComplete]' passed (1.428 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testLegacyFieldsEqualTheOldReplies]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testLegacyFieldsEqualTheOldReplies]' passed (5.920 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testMemberIgnoringTermIsKilledAtLeaderExit]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testMemberIgnoringTermIsKilledAtLeaderExit]' passed (1.019 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testOracleTextKeepsExactBytes]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testOracleTextKeepsExactBytes]' passed (0.003 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testReadErrorMarksTheStreamIncomplete]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testReadErrorMarksTheStreamIncomplete]' passed (0.003 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testRemainingGroupIsReported]' started.
+owned-process-fixture: pid 7447 started 1794981627.092703 stoppedByTerm
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testRemainingGroupIsReported]' passed (0.019 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testSignalDeathIsSignalled]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testSignalDeathIsSignalled]' passed (0.003 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testSpawnFailureChildProcess]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testSpawnFailureChildProcess]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testSpawnFailureIsAnOutcome]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testSpawnFailureIsAnOutcome]' passed (0.060 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testStalledCaptureEndsAtTheFinaliseDeadline]' started.
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testStalledCaptureEndsAtTheFinaliseDeadline]' passed (1.905 seconds).
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testUnavailableLeaderStatusIsHeldAndReapedLate]' started.
+testanyware-agent: late reap of leader 7463, wait status 15
+Test Case '-[TestAnywareAgentTests.ExecOwnerTests testUnavailableLeaderStatusIsHeldAndReapedLate]' passed (4.305 seconds).
+Test Suite 'ExecOwnerTests' passed at 2026-11-18 17:00:33.383.
+	 Executed 19 tests, with 0 failures (0 unexpected) in 21.726 (21.728) seconds
+Test Suite 'ExecRegistryTests' started at 2026-11-18 17:00:33.383.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testACancellationOfARunningCommandWaitsForItsRecord]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testACancellationOfARunningCommandWaitsForItsRecord]' passed (0.203 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testADuplicateIDOfARunningOrRetainedCommandIsRefused]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testADuplicateIDOfARunningOrRetainedCommandIsRefused]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testARepeatedCancellationKeepsTheFirstRequestTime]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testARepeatedCancellationKeepsTheFirstRequestTime]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testARunningCommandIsNeverEvicted]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testARunningCommandIsNeverEvicted]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testATerminalRecordIsRetainedFor300Seconds]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testATerminalRecordIsRetainedFor300Seconds]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testATombstonedIDIsAdmittedAsCancelledAndThenRetained]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testATombstonedIDIsAdmittedAsCancelledAndThenRetained]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testATombstoneIsRetainedFor300SecondsFromItsFirstCancellation]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testATombstoneIsRetainedFor300SecondsFromItsFirstCancellation]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testCloseStopsAdmissionAndCancelsEveryRunningCommand]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testCloseStopsAdmissionAndCancelsEveryRunningCommand]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testTheCancelSignalClosesAtPublication]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testTheCancelSignalClosesAtPublication]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testTheOldestRetainedEntryGoesFirstBeyond64]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testTheOldestRetainedEntryGoesFirstBeyond64]' passed (0.026 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testTheSpecValuesAre300SecondsAnd64]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testTheSpecValuesAre300SecondsAnd64]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testWaitPublishedReturnsAtItsBoundWithThePendingIDs]' started.
+Test Case '-[TestAnywareAgentTests.ExecRegistryTests testWaitPublishedReturnsAtItsBoundWithThePendingIDs]' passed (0.507 seconds).
+Test Suite 'ExecRegistryTests' passed at 2026-11-18 17:00:34.122.
+	 Executed 12 tests, with 0 failures (0 unexpected) in 0.738 (0.739) seconds
+Test Suite 'ExecReplyFixtureTests' started at 2026-11-18 17:00:34.122.
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testEveryFixtureIsAValidReply]' started.
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testEveryFixtureIsAValidReply]' passed (0.005 seconds).
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testFixtureLegacyFieldsEqualTheOldReplies]' started.
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testFixtureLegacyFieldsEqualTheOldReplies]' passed (0.001 seconds).
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testFixturesExist]' started.
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testFixturesExist]' passed (0.001 seconds).
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testFixturesHoldTheNamedOutcomes]' started.
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testFixturesHoldTheNamedOutcomes]' passed (0.001 seconds).
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testFixturesRoundTripThroughTheWireTypes]' started.
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testFixturesRoundTripThroughTheWireTypes]' passed (0.001 seconds).
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testRecordExecReplies]' started.
+Test Case '-[TestAnywareAgentTests.ExecReplyFixtureTests testRecordExecReplies]' passed (0.000 seconds).
+Test Suite 'ExecReplyFixtureTests' passed at 2026-11-18 17:00:34.131.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.009 (0.009) seconds
+Test Suite 'OwnedProcessFixtureTests' started at 2026-11-18 17:00:34.131.
+Test Case '-[TestAnywareAgentTests.OwnedProcessFixtureTests testCleanupStopsChildWhenTrackIsCancelled]' started.
+Test Case '-[TestAnywareAgentTests.OwnedProcessFixtureTests testCleanupStopsChildWhenTrackIsCancelled]' passed (0.524 seconds).
+Test Case '-[TestAnywareAgentTests.OwnedProcessFixtureTests testRefusesProcessInAnotherSession]' started.
+Test Case '-[TestAnywareAgentTests.OwnedProcessFixtureTests testRefusesProcessInAnotherSession]' passed (0.028 seconds).
+Test Case '-[TestAnywareAgentTests.OwnedProcessFixtureTests testRefusesProcessThatStartedBeforeTheFixture]' started.
+Test Case '-[TestAnywareAgentTests.OwnedProcessFixtureTests testRefusesProcessThatStartedBeforeTheFixture]' passed (1.239 seconds).
+Test Case '-[TestAnywareAgentTests.OwnedProcessFixtureTests testRefusesTheTestProcess]' started.
+Test Case '-[TestAnywareAgentTests.OwnedProcessFixtureTests testRefusesTheTestProcess]' passed (0.001 seconds).
+Test Suite 'OwnedProcessFixtureTests' passed at 2026-11-18 17:00:35.924.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 1.792 (1.793) seconds
+Test Suite 'ProcessRunnerTests' started at 2026-11-18 17:00:35.924.
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testCapturesStderrSeparately]' started.
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testCapturesStderrSeparately]' passed (0.003 seconds).
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testCapturesStdoutAndExitCode]' started.
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testCapturesStdoutAndExitCode]' passed (0.002 seconds).
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testDescendantHoldingFDDoesNotWedgeAfterParentExits]' started.
+owned-process-fixture: pid 7510 started 1794981635.931645 stoppedByTerm
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testDescendantHoldingFDDoesNotWedgeAfterParentExits]' passed (0.017 seconds).
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testDetachedRunReturnsImmediately]' started.
+owned-process-fixture: pid 7511 started 1794981635.947346 stoppedByTerm
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testDetachedRunReturnsImmediately]' passed (0.025 seconds).
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testHandlesLargeOutputWithoutPipeDeadlock]' started.
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testHandlesLargeOutputWithoutPipeDeadlock]' passed (0.007 seconds).
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testTimeoutReturnsTimedOutFlag]' started.
+Test Case '-[TestAnywareAgentTests.ProcessRunnerTests testTimeoutReturnsTimedOutFlag]' passed (1.003 seconds).
+Test Suite 'ProcessRunnerTests' passed at 2026-11-18 17:00:36.983.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 1.059 (1.059) seconds
+Test Suite 'SingleVersionFileTests' started at 2026-11-18 17:00:36.983.
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testAMissingFileOrADirectoryIsNotFound]' started.
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testAMissingFileOrADirectoryIsNotFound]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testAnAppendGivesTheFirstLBytes]' started.
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testAnAppendGivesTheFirstLBytes]' passed (0.001 seconds).
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testAnEmptyFileHasNoBody]' started.
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testAnEmptyFileHasNoBody]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testAnUnchangedFileGivesTheExactBytes]' started.
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testAnUnchangedFileGivesTheExactBytes]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testAnUnreadableFileFailsWithItsErrno]' started.
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testAnUnreadableFileFailsWithItsErrno]' passed (0.000 seconds).
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testARenameReplacementDuringTheReadGivesTheVersionOpenAtTheStart]' started.
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testARenameReplacementDuringTheReadGivesTheVersionOpenAtTheStart]' passed (0.001 seconds).
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testARenameReplacementGivesTheVersionOpenAtTheStart]' started.
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testARenameReplacementGivesTheVersionOpenAtTheStart]' passed (0.001 seconds).
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testATruncationGivesAShortRead]' started.
+Test Case '-[TestAnywareAgentTests.SingleVersionFileTests testATruncationGivesAShortRead]' passed (0.001 seconds).
+Test Suite 'SingleVersionFileTests' passed at 2026-11-18 17:00:36.989.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'TestAnywareAgentTests.xctest' passed at 2026-11-18 17:00:36.989.
+	 Executed 77 tests, with 0 failures (0 unexpected) in 52.273 (52.279) seconds
+Test Suite 'All tests' passed at 2026-11-18 17:00:36.989.
+	 Executed 77 tests, with 0 failures (0 unexpected) in 52.273 (52.280) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 2403
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Test findRecursesIntoChildren() started.
+􀟈  Test walkDescendsThroughFourLevelsOfGroupContainers() started.
+􀟈  Test walkMenuBarAtDepthThreeExpandsDropdowns() started.
+􀟈  Test resolveDedupSkipsElementsWithoutCoordinates() started.
+􀟈  Test resolveByLabelIsCaseInsensitive() started.
+􀟈  Test rejectsWhenSizeDiffers() started.
+􀟈  Test everyUnifiedNameResolvesToItself() started.
+􀟈  Test rejectsLiveElementWithIdWhenInfoIdIsNil() started.
+􀟈  Test resolveMultipleMatchesWithoutIndexReturnsMultiple() started.
+􀟈  Test resolveDedupsSameElementReachedViaTwoPaths() started.
+􀟈  Test walkFilterByLabelCaseInsensitive() started.
+􀟈  Test queryRoleReadsAUnifiedName() started.
+􀟈  Test matchesWhenAllAttributesAlign() started.
+􀟈  Test walkConvertsAccessibleElementToElementInfoCorrectly() started.
+􀟈  Test walkDepthOneReturnsOnlyTopLevelChildren() started.
+􀟈  Test resolveByRoleReturnsOnlyMatchingRole() started.
+􀟈  Test queryRoleFiltersOnUnknownForAnUnrecognisedName() started.
+􀟈  Test resolveDedupRespectsIndexAfterCollapse() started.
+􀟈  Test resolveWithIndexZeroReturnsNotFound() started.
+􀟈  Test resolveKeepsDistinctElementsAtDifferentPositions() started.
+􀟈  Test skipsPositionConstraintWhenInfoPositionIsNil() started.
+􀟈  Test resolveWithIndexReturnsNthMatch() started.
+􀟈  Test findReturnsNilOnEmptyRoots() started.
+􀟈  Test rejectsWhenIdDiffers() started.
+􀟈  Test resolveByIdReturnsExactMatch() started.
+􀟈  Test walkThreeLevelTreeReturnsAllElements() started.
+􀟈  Test matchesElementWithIdAndPlatformRole() started.
+􀟈  Test rejectsWhenLabelDiffers() started.
+􀟈  Test queryRoleStillAcceptsAPlatformName() started.
+􀟈  Test walkFilterByRoleIncludesOnlyMatchingRole() started.
+􀟈  Test rejectsWhenPositionDiffers() started.
+􀟈  Test resolveByRoleAndLabelReturnsOnlyMatchingButtonsWithLabel() started.
+􀟈  Test walkChildCountSetCorrectlyWhenDepthLimitReached() started.
+􀟈  Test walkMenuBarReturnsMenuBarItems() started.
+􀟈  Test rejectsLabeledLiveElementWhenInfoLabelIsNil() started.
+􀟈  Test rejectsWhenPlatformRoleDiffers() started.
+􀟈  Test findReturnsNilWhenNoElementMatches() started.
+􀟈  Test resolveSearchesNestedChildren() started.
+􀟈  Test resolveSearchesOnlyWithinSpecifiedWindow() started.
+􀟈  Test distinguishesStackViewSiblingsByPositionAndSize() started.
+􀟈  Test rejectsWhenRoleDiffers() started.
+􀟈  Test resolveSingleMatchWithIndexOneIsFound() started.
+􀟈  Test resolveNoMatchReturnsNotFound() started.
+􀟈  Test resolveSingleMatchReturnsFoun() started.
+􀟈  Test resolveEmptyTreeReturnsNotFound() started.
+􀟈  Test walkFindsTextFieldsInsideGroupSiblings() started.
+􀟈  Test resolveWithIndexOutOfRangeReturnsNotFound() started.
+􁁛  Test findRecursesIntoChildren() passed after 0.001 seconds.
+􁁛  Test rejectsWhenSizeDiffers() passed after 0.001 seconds.
+􁁛  Test resolveMultipleMatchesWithoutIndexReturnsMultiple() passed after 0.001 seconds.
+􁁛  Test rejectsLiveElementWithIdWhenInfoIdIsNil() passed after 0.001 seconds.
+􁁛  Test resolveDedupsSameElementReachedViaTwoPaths() passed after 0.001 seconds.
+􁁛  Test walkMenuBarAtDepthThreeExpandsDropdowns() passed after 0.001 seconds.
+􁁛  Test queryRoleReadsAUnifiedName() passed after 0.001 seconds.
+􁁛  Test skipsPositionConstraintWhenInfoPositionIsNil() passed after 0.001 seconds.
+􁁛  Test queryRoleFiltersOnUnknownForAnUnrecognisedName() passed after 0.001 seconds.
+􁁛  Test walkConvertsAccessibleElementToElementInfoCorrectly() passed after 0.001 seconds.
+􁁛  Test resolveKeepsDistinctElementsAtDifferentPositions() passed after 0.001 seconds.
+􁁛  Test matchesWhenAllAttributesAlign() passed after 0.001 seconds.
+􁁛  Test walkDepthOneReturnsOnlyTopLevelChildren() passed after 0.001 seconds.
+􁁛  Test resolveWithIndexZeroReturnsNotFound() passed after 0.001 seconds.
+􁁛  Test resolveDedupSkipsElementsWithoutCoordinates() passed after 0.001 seconds.
+􁁛  Test walkDescendsThroughFourLevelsOfGroupContainers() passed after 0.001 seconds.
+􁁛  Test matchesElementWithIdAndPlatformRole() passed after 0.001 seconds.
+􁁛  Test rejectsWhenIdDiffers() passed after 0.001 seconds.
+􁁛  Test resolveByRoleReturnsOnlyMatchingRole() passed after 0.001 seconds.
+􁁛  Test resolveDedupRespectsIndexAfterCollapse() passed after 0.001 seconds.
+􁁛  Test resolveByIdReturnsExactMatch() passed after 0.001 seconds.
+􁁛  Test rejectsWhenLabelDiffers() passed after 0.001 seconds.
+􁁛  Test walkMenuBarReturnsMenuBarItems() passed after 0.001 seconds.
+􁁛  Test queryRoleStillAcceptsAPlatformName() passed after 0.001 seconds.
+􁁛  Test findReturnsNilOnEmptyRoots() passed after 0.001 seconds.
+􁁛  Test findReturnsNilWhenNoElementMatches() passed after 0.001 seconds.
+􁁛  Test rejectsWhenPositionDiffers() passed after 0.001 seconds.
+􁁛  Test rejectsWhenPlatformRoleDiffers() passed after 0.001 seconds.
+􁁛  Test walkChildCountSetCorrectlyWhenDepthLimitReached() passed after 0.001 seconds.
+􁁛  Test resolveSearchesNestedChildren() passed after 0.001 seconds.
+􁁛  Test rejectsWhenRoleDiffers() passed after 0.001 seconds.
+􁁛  Test distinguishesStackViewSiblingsByPositionAndSize() passed after 0.001 seconds.
+􁁛  Test rejectsLabeledLiveElementWhenInfoLabelIsNil() passed after 0.001 seconds.
+􁁛  Test walkThreeLevelTreeReturnsAllElements() passed after 0.001 seconds.
+􁁛  Test resolveSingleMatchReturnsFoun() passed after 0.001 seconds.
+􁁛  Test walkFilterByRoleIncludesOnlyMatchingRole() passed after 0.001 seconds.
+􁁛  Test resolveNoMatchReturnsNotFound() passed after 0.001 seconds.
+􁁛  Test everyUnifiedNameResolvesToItself() passed after 0.001 seconds.
+􁁛  Test resolveWithIndexOutOfRangeReturnsNotFound() passed after 0.001 seconds.
+􁁛  Test resolveEmptyTreeReturnsNotFound() passed after 0.001 seconds.
+􁁛  Test resolveSingleMatchWithIndexOneIsFound() passed after 0.001 seconds.
+􁁛  Test walkFindsTextFieldsInsideGroupSiblings() passed after 0.001 seconds.
+􁁛  Test resolveSearchesOnlyWithinSpecifiedWindow() passed after 0.002 seconds.
+􁁛  Test resolveByRoleAndLabelReturnsOnlyMatchingButtonsWithLabel() passed after 0.003 seconds.
+􁁛  Test resolveWithIndexReturnsNthMatch() passed after 0.003 seconds.
+􁁛  Test resolveByLabelIsCaseInsensitive() passed after 0.003 seconds.
+􁁛  Test walkFilterByLabelCaseInsensitive() passed after 0.003 seconds.
+􁁛  Test run with 47 tests in 0 suites passed after 0.003 seconds.
