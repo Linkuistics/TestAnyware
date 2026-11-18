@@ -38,3 +38,17 @@ def pytest_runtest_setup(item: pytest.Item) -> None:
     if REQUIRED:
         pytest.fail(f"Linux controls are required, but {problem}")
     pytest.skip(f"Linux lifecycle control: {problem}")
+
+
+@pytest.fixture(autouse=True)
+def fresh_exec_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test gets its own registry, so retained ids never cross tests.
+
+    An agent before leaf k220 has no registry. The old-fail controls of
+    tests/test_agent_process.py run unchanged against such an agent.
+    """
+    try:
+        from testanyware_agent import exec_registry
+    except ImportError:
+        return
+    monkeypatch.setattr(exec_registry, "REGISTRY", exec_registry.ExecRegistry())

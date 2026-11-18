@@ -1,0 +1,58 @@
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_______ test_sigterm_during_a_command_ends_the_group_and_exits_in_bounds _______
+
+agent = <tests.http_agent.AgentProcess object at 0xffffb9a19700>
+tmp_path = PosixPath('/tmp/pytest-of-unknown/pytest-0/test_sigterm_during_a_command_0')
+
+    def test_sigterm_during_a_command_ends_the_group_and_exits_in_bounds(
+        agent: AgentProcess, tmp_path: Path
+    ) -> None:
+        pid_file = tmp_path / "child.pid"
+        command = f"sleep 120 & echo $! > {pid_file}; wait"
+        running = Background(
+            post_json, agent.port, "/exec", {"command": command, "timeout": 60, "id": "at-sigterm"}
+        )
+        child = wait_for_child(pid_file)
+        try:
+            exit_after = agent.terminate_and_time(SHUTDOWN_BOUND_S + 5)
+            assert exit_after is not None, "the agent did not exit"
+            assert exit_after < SHUTDOWN_BOUND_S + EXIT_MARGIN_S
+            assert agent.process.returncode == 0, agent.output()
+>           assert not child_survives(*child), "the command group outlived the agent"
+E           AssertionError: the command group outlived the agent
+E           assert not True
+E            +  where True = child_survives(*(14, '22006'))
+
+tests/test_agent_process.py:179: AssertionError
+____ test_sigterm_does_not_wait_for_a_leader_whose_status_stays_unavailable ____
+
+tmp_path = PosixPath('/tmp/pytest-of-unknown/pytest-0/test_sigterm_does_not_wait_for0')
+
+    def test_sigterm_does_not_wait_for_a_leader_whose_status_stays_unavailable(
+        tmp_path: Path,
+    ) -> None:
+        """The seam module hides every leader exit from the owner, so the status
+        stays unavailable past K + 1.4 s (spec, section "Agent shutdown")."""
+        agent = AgentProcess(tmp_path / "captures", seam_module="tests.seam_hidden_exit")
+        try:
+            leader_file = tmp_path / "leader.pid"
+            command = f"echo $$ > {leader_file}; exec sleep 120"
+            running = Background(
+                post_json, agent.port, "/exec", {"command": command, "timeout": 60, "id": "held"}
+            )
+            leader = wait_for_child(leader_file)
+            exit_after = agent.terminate_and_time(SHUTDOWN_BOUND_S + 5)
+            assert exit_after is not None, "the agent did not exit"
+            assert exit_after < SHUTDOWN_BOUND_S + EXIT_MARGIN_S
+>           assert not child_survives(*leader), "the leader outlived SIGKILL"
+E           AssertionError: the leader outlived SIGKILL
+E           assert not True
+E            +  where True = child_survives(*(20, '22026'))
+
+tests/test_agent_process.py:207: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_agent_process.py::test_sigterm_during_a_command_ends_the_group_and_exits_in_bounds
+FAILED tests/test_agent_process.py::test_sigterm_does_not_wait_for_a_leader_whose_status_stays_unavailable
+2 failed, 5 deselected in 0.47s
+exit 1

@@ -20,10 +20,15 @@ def _stand_in(name: str, **attributes: object) -> None:
     sys.modules[name] = module
 
 
+def _missing(name: str) -> bool:
+    # A stand-in from an earlier call has no spec, and `find_spec` raises on it.
+    return name not in sys.modules and importlib.util.find_spec(name) is None
+
+
 def agent_request_handler() -> type:
-    if importlib.util.find_spec("gi") is None:
+    if _missing("gi"):
         _stand_in("gi", require_version=lambda namespace, version: None)
         _stand_in("gi.repository", Atspi=type("Atspi", (), {}))
-    if importlib.util.find_spec("pyatspi") is None:
+    if _missing("pyatspi"):
         _stand_in("pyatspi", Accessible=type("Accessible", (), {}))
     return importlib.import_module("testanyware_agent.server").AgentRequestHandler

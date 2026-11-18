@@ -12,11 +12,16 @@ execution backend:
 - `OwnerSeams.open_capture` opens a capture file for the reader. Its path names
   a descriptor that the owner holds. The control for a stalled capture
   substitutes it.
+
+A cancellation reaches the owner through its `CancelSignal` (ADR-0025). The
+owner arbitrates it with the leader exit and the deadline, in section
+"Arbitration" of the spec.
 """
 
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import select
 import shutil
@@ -48,6 +53,9 @@ STATUS_WAIT_S = 1.4  # SIGKILL to the end of the leader wait and the group probe
 FINALISE_S = 1.9  # SIGKILL, or a non-terminated outcome, to the capture deadline
 PROBE_INTERVAL_S = 0.01
 READ_CHUNK = 1024 * 1024
+# The longest single kernel wait. `poll` takes a C int of milliseconds and
+# raises OverflowError from about 2147484 s (k234 D5), so a longer wait loops.
+MAX_KERNEL_WAIT_S = 60.0
 
 CAPTURE_ROOT_ENV = "TESTANYWARE_AGENT_CAPTURE_ROOT"
 
@@ -59,6 +67,55 @@ def _ms(seconds: float) -> int:
 
 def _log(message: str) -> None:
     print(f"testanyware-agent: {message}", file=sys.stderr, flush=True)
+
+
+def _seconds(timeout: float) -> float:
+    """A timeout in seconds, at least 0. A value past the float range saturates."""
+    try:
+        return max(0.0, float(timeout))
+    except OverflowError:
+        return math.inf
+
+
+# ---- Cancellation signal --------------------------------------------------
+
+
+class CancelSignal:
+    """The cancellation event of one guest command, as its owner receives it.
+
+    A request writes one byte to a pipe that the owner polls beside the leader
+    pidfd. The first request keeps its time. `close` runs when the record is
+    published. After it, a request changes nothing and writes nothing, so a
+    write never reaches a descriptor number that the kernel gave to another
+    file. The pipe descriptors are not inheritable (PEP 446), so no command
+    holds them.
+    """
+
+    def __init__(self) -> None:
+        self.wake_fd, self._write_fd = os.pipe()
+        self._lock = threading.Lock()
+        self._requested_at: float | None = None
+        self._closed = False
+
+    @property
+    def requested_at(self) -> float | None:
+        with self._lock:
+            return self._requested_at
+
+    def request(self, now: float) -> None:
+        with self._lock:
+            if self._closed or self._requested_at is not None:
+                return
+            self._requested_at = now
+            os.write(self._write_fd, b"c")
+
+    def close(self) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+            os.close(self._write_fd)
+            os.close(self.wake_fd)
 
 
 # ---- Capture root ---------------------------------------------------------
@@ -102,8 +159,11 @@ def _status_of(result: os.waitid_result) -> LeaderStatus:
 
 
 class LeaderWaiter(Protocol):
-    def wait_exit(self, timeout: float | None) -> bool:
-        """Wait until the leader exit status is available. Never reaps."""
+    def wait_exit(self, timeout: float | None, wake: int | None = None) -> bool:
+        """Wait until the leader exit status is available. Never reaps.
+
+        Returns False at the timeout, or earlier when `wake` becomes readable.
+        """
         ...
 
     def peek(self) -> LeaderStatus | None:
@@ -139,23 +199,33 @@ class PidfdLeaderWaiter:
             return os.waitid(os.P_PIDFD, self.pidfd, os.WEXITED | options)
         return os.waitid(os.P_PID, self.pid, os.WEXITED | options)
 
-    def wait_exit(self, timeout: float | None) -> bool:
-        end = None if timeout is None else time.monotonic() + max(0.0, timeout)
+    def wait_exit(self, timeout: float | None, wake: int | None = None) -> bool:
+        end = math.inf if timeout is None else time.monotonic() + _seconds(timeout)
         if self.pidfd is not None:
             poller = select.poll()
             poller.register(self.pidfd, select.POLLIN)
+            if wake is not None:
+                poller.register(wake, select.POLLIN)
             while True:
-                left = None if end is None else max(0.0, end - time.monotonic())
-                if poller.poll(None if left is None else int(left * 1000)):
+                left = min(max(0.0, end - time.monotonic()), MAX_KERNEL_WAIT_S)
+                # Round up, so that a short remainder never becomes a busy poll of 0 ms.
+                ready = {fd for fd, _ in poller.poll(math.ceil(left * 1000))}
+                if self.pidfd in ready:
                     return True
-                if end is not None and time.monotonic() >= end:
+                if ready or time.monotonic() >= end:
                     return False
         while True:
             if self.peek() is not None:
                 return True
-            if end is not None and time.monotonic() >= end:
+            left = end - time.monotonic()
+            if left <= 0:
                 return False
-            time.sleep(PROBE_INTERVAL_S)
+            pause = min(PROBE_INTERVAL_S, left)
+            if wake is not None:
+                if select.select([wake], [], [], pause)[0]:
+                    return False
+            else:
+                time.sleep(pause)
 
     def peek(self) -> LeaderStatus | None:
         result = self._waitid(os.WNOWAIT | os.WNOHANG)
@@ -312,7 +382,8 @@ def _reap_later(proc: subprocess.Popen[bytes], waiter: LeaderWaiter) -> None:
 
     def work() -> None:
         try:
-            waiter.wait_exit(None)
+            while not waiter.wait_exit(None):
+                pass
             status = waiter.reap()
             proc.returncode = status.value if status.kind == "exited" else -(status.value or 0)
             _log(f"late reap of leader {proc.pid}: {status.to_dict()}")
@@ -381,14 +452,48 @@ def _spawn_failed(
     )
 
 
+def cancelled_before_start(exec_id: str, request_start: float, lateness_ms: int) -> ExecRecord:
+    """The record of a command that a cancellation ended before its spawn.
+
+    The spec, section "Start", step 3: a tombstoned id gets this record, and no
+    process starts. No leader exists, so the leader fields and the duration
+    are null, and no termination block exists.
+    """
+    decided = time.monotonic()
+    return ExecRecord(
+        exec_id=exec_id,
+        outcome=Outcome("cancelled", before_start=True),
+        stdout=EMPTY_STREAM,
+        stderr=EMPTY_STREAM,
+        lifecycle=Lifecycle(
+            leader_pid=None,
+            group_id=None,
+            leader_start_time=None,
+            spawn_ms=_ms(decided - request_start),
+            duration_ms=None,
+            owner_lateness_ms=lateness_ms,
+            finalised_after_ms=_ms(time.monotonic() - decided),
+        ),
+        remaining_group=None,
+        termination=None,
+    )
+
+
 def run_command(
     command: str,
     timeout: float,
     exec_id: str,
     request_start: float,
     seams: OwnerSeams = DEFAULT_SEAMS,
+    cancel: CancelSignal | None = None,
 ) -> ExecRecord:
-    """Start one guest command, own its lifecycle and return its record."""
+    """Start one guest command, own its lifecycle and return its record.
+
+    `cancel` carries the cancellation requests for this command. Without it,
+    only the leader exit and the deadline end the command.
+    """
+    if cancel is not None and (requested := cancel.requested_at) is not None:
+        return cancelled_before_start(exec_id, request_start, _ms(time.monotonic() - requested))
     try:
         capture_dir = Path(tempfile.mkdtemp(prefix="exec-", dir=_ensure_capture_root()))
     except OSError as e:
@@ -396,7 +501,7 @@ def run_command(
     paths = [capture_dir / "stdout", capture_dir / "stderr"]
     held: list[int] = []
     try:
-        return _own(command, timeout, exec_id, request_start, seams, paths, held)
+        return _own(command, timeout, exec_id, request_start, seams, cancel, paths, held)
     finally:
         for fd in held:
             os.close(fd)
@@ -409,6 +514,7 @@ def _own(
     exec_id: str,
     request_start: float,
     seams: OwnerSeams,
+    cancel: CancelSignal | None,
     paths: list[Path],
     held: list[int],
 ) -> ExecRecord:
@@ -429,24 +535,29 @@ def _own(
     except OSError as e:
         return _spawn_failed(exec_id, e, request_start, time.monotonic())
     spawn_end = time.monotonic()
-    deadline = spawn_end + max(0.0, timeout)
+    deadline = spawn_end + _seconds(timeout)
+    wake = None if cancel is None else cancel.wake_fd
     leader_pid = proc.pid
     group_id = leader_pid  # `start_new_session` makes the leader its group leader
     start_time = _leader_start_time(leader_pid)
     waiter = seams.leader_waiter(leader_pid)
     held_leader = False
     try:
-        lateness = 0
         while True:
-            exited_first = waiter.wait_exit(deadline - time.monotonic())
-            # Arbitration: at the deadline, one non-blocking kernel wait comes
-            # first, so a command that has finished is never reported as timed out.
+            exited_first = waiter.wait_exit(deadline - time.monotonic(), wake)
+            # Arbitration: at the deadline or a cancellation, one non-blocking
+            # kernel wait comes first, so a command that has finished is never
+            # reported as timed out or cancelled.
             status = waiter.peek()
             outcome_at = time.monotonic()
-            if status is not None or outcome_at >= deadline:
+            cancel_at = None if cancel is None else cancel.requested_at
+            if status is not None or outcome_at >= deadline or cancel_at is not None:
                 break
-        if not exited_first:
-            lateness = _ms(outcome_at - deadline)
+        # The event that woke the owner is the earlier of the deadline and the
+        # cancellation. A leader exit event has no lateness.
+        events = [t for t in (deadline, cancel_at) if t is not None and t <= outcome_at]
+        event_at = min(events) if events else None
+        lateness = 0 if exited_first or event_at is None else _ms(outcome_at - event_at)
 
         termination: Termination | None = None
         remaining: str | None = None
@@ -459,7 +570,10 @@ def _own(
             remaining = {"empty": "none", "members": "present"}.get(probe, "unknown")
             finalise_deadline = outcome_at + FINALISE_S
         else:
-            outcome = Outcome("timed_out", timeout_seconds=timeout)
+            if cancel_at is not None and cancel_at == event_at:
+                outcome = Outcome("cancelled", before_start=False)
+            else:
+                outcome = Outcome("timed_out", timeout_seconds=timeout)
             termination, held_leader = _terminate(proc, waiter, group_id, outcome_at)
             finalise_deadline = outcome_at + termination.kill_sent_after_ms / 1000 + FINALISE_S
 

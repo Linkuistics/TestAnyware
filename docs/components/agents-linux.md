@@ -12,9 +12,11 @@ agents/linux/
 └── testanyware_agent/
     ├── __init__.py
     ├── __main__.py                # python -m testanyware_agent
-    ├── server.py                  # HTTPRequestHandler, routing
+    ├── server.py                  # threaded HTTP server, routing, SIGTERM shutdown
     ├── accessibility.py           # /windows, /snapshot, /inspect, /press, ...
-    ├── system_endpoints.py        # /exec, /upload, /download, /shutdown, /health
+    ├── system_endpoints.py        # /exec, /exec/cancel, /upload, /download, /shutdown, /health
+    ├── exec_owner.py              # the lifecycle owner of one guest command
+    ├── exec_registry.py           # exec ids, retained records, tombstones
     ├── tree_walker.py             # AT-SPI2 tree traversal
     ├── query_resolver.py          # ElementQuery → element resolution
     ├── role_mapper.py             # AT-SPI role → UnifiedRole mapping
@@ -31,6 +33,15 @@ agents/linux/
   (requires `WaylandEnable=false` in GDM).
 - **No build** — ships as Python source. A wrapper script invokes
   `python3 -m testanyware_agent`.
+- **One thread for each request** — a running guest command does not
+  block health, cancellation or transfer. AT-SPI is not safe across
+  threads, so the accessibility endpoints share one lock. The system
+  endpoints never take it. Health reads `accessible` from a probe thread
+  that holds the lock.
+- **Bounded shutdown** — at SIGTERM the agent stops admission and
+  cancels each running guest command. It waits up to 4 s for their
+  records and then exits. The spec is
+  `docs/specs/guest-command-lifecycle.md`.
 
 ## Endpoint wiring
 
@@ -42,7 +53,7 @@ POST /windows, /snapshot, /inspect
 POST /press, /set-value, /focus, /show-menu
 POST /window-focus, /window-resize, /window-move, /window-close, /window-minimize
 POST /wait
-POST /exec, /upload, /download, /shutdown
+POST /exec, /exec/cancel, /upload, /download, /shutdown
 ```
 
 `docs/architecture/agent-protocol.md` documents the wire shapes.

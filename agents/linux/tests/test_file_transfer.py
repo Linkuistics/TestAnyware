@@ -2,9 +2,15 @@
 
 Unit tests exercise `system_endpoints.handle_upload` / `handle_download`
 directly (no socket); the integration test drives the real
-`AgentRequestHandler` over a live `HTTPServer` to prove the `do_POST`
+`AgentRequestHandler` over the production server class to prove the `do_POST`
 branch-before-`_read_body` routing, query-param path parsing, and raw
 octet-stream streaming on both halves.
+
+The download contract tests follow the consistency table of
+docs/specs/guest-command-lifecycle.md, section "Evidence transfer", and
+ADR-0026. A wrapper of the opened file changes the file after the agent took
+its length, before the first read. The old-fail control of the row "Download
+never sends extra bytes" is in tests/test_agent_process.py.
 """
 
 from __future__ import annotations
@@ -13,13 +19,15 @@ import hashlib
 import http.client
 import io
 import os
-import threading
-from http.server import HTTPServer
+from collections.abc import Callable, Iterator
+from pathlib import Path
+from typing import BinaryIO
 from urllib.parse import quote
 
 import pytest
 
 from testanyware_agent import system_endpoints
+from tests.http_agent import in_process_agent, post_request, raw_exchange
 
 # ---------------------------------------------------------------------------
 # Upload unit tests
@@ -122,22 +130,10 @@ def test_download_missing_file_returns_download_failed(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def agent_server():
-    # server.py imports the accessibility module, which needs pyatspi
-    # (Linux-only). Skip the live-socket tests where it is unavailable;
-    # they run on the Linux agent and in CI.
-    pytest.importorskip("pyatspi")
-    from testanyware_agent.server import AgentRequestHandler
-
-    server = HTTPServer(("127.0.0.1", 0), AgentRequestHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield server.server_address  # (host, port)
-    finally:
-        server.shutdown()
-        server.server_close()
-        thread.join(timeout=5)
+def agent_server() -> Iterator[tuple[str, int]]:
+    # tests/agent_server.py supplies AT-SPI stand-ins where pyatspi is missing.
+    with in_process_agent() as port:
+        yield "127.0.0.1", port
 
 
 def _sha(data: bytes) -> str:
@@ -188,3 +184,112 @@ def test_download_missing_file_over_http(agent_server, tmp_path) -> None:
     body = json.loads(resp.read())
     conn.close()
     assert body["error"] == "download_failed"
+
+
+# ---------------------------------------------------------------------------
+# Download contract (ADR-0026): one handle, exactly the declared length
+# ---------------------------------------------------------------------------
+
+
+class ChangingFile:
+    """The file that `handle_download` opened. Before the first read it runs
+    one change of the file, after the agent took the length from `fstat`."""
+
+    def __init__(self, inner: BinaryIO, change: Callable[[], None]) -> None:
+        self._inner = inner
+        self._change: Callable[[], None] | None = change
+
+    def fileno(self) -> int:
+        return self._inner.fileno()
+
+    def read(self, n: int = -1) -> bytes:
+        if self._change is not None:
+            change, self._change = self._change, None
+            change()
+        return self._inner.read(n)
+
+    def close(self) -> None:
+        self._inner.close()
+
+    def __enter__(self) -> ChangingFile:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+def download_with_change(
+    port: int, path: Path, change: Callable[[], None], monkeypatch: pytest.MonkeyPatch
+):  # type: ignore[no-untyped-def]
+    real_open = open
+
+    def changing_open(file: str, mode: str = "r", *args, **kwargs):  # type: ignore[no-untyped-def]
+        return ChangingFile(real_open(file, mode, *args, **kwargs), change)
+
+    monkeypatch.setattr(system_endpoints, "open", changing_open, raising=False)
+    try:
+        return raw_exchange(port, post_request(f"/download?path={quote(str(path))}"))
+    finally:
+        monkeypatch.undo()
+
+
+VERSION_1 = b"version one of the evidence\n" * 1000
+VERSION_2 = b"VERSION TWO, A DIFFERENT LENGTH\n" * 1500
+
+
+def test_unchanged_file_gives_the_exact_bytes(agent_server, tmp_path) -> None:
+    _, port = agent_server
+    path = tmp_path / "evidence.txt"
+    path.write_bytes(VERSION_1)
+    raw = raw_exchange(port, post_request(f"/download?path={quote(str(path))}"))
+    assert (raw.declared, raw.body, raw.extra) == (len(VERSION_1), VERSION_1, b"")
+
+
+def test_append_during_the_read_gives_the_first_l_bytes(
+    agent_server, tmp_path, monkeypatch
+) -> None:
+    _, port = agent_server
+    path = tmp_path / "evidence.txt"
+    path.write_bytes(VERSION_1)
+
+    def append() -> None:
+        with open(path, "ab") as f:
+            f.write(b"appended after the length was taken\n" * 100)
+
+    raw = download_with_change(port, path, append, monkeypatch)
+    assert raw.declared == len(VERSION_1)
+    assert raw.body == VERSION_1
+    assert raw.extra == b"", f"{len(raw.extra)} bytes followed the declared length"
+
+
+def test_rename_replacement_gives_the_version_open_at_the_start(
+    agent_server, tmp_path, monkeypatch
+) -> None:
+    _, port = agent_server
+    path = tmp_path / "evidence.txt"
+    path.write_bytes(VERSION_1)
+    fresh = tmp_path / "evidence.txt.new"
+    fresh.write_bytes(VERSION_2)
+
+    raw = download_with_change(port, path, lambda: os.replace(fresh, path), monkeypatch)
+    assert (raw.declared, raw.body, raw.extra) == (len(VERSION_1), VERSION_1, b"")
+    assert path.read_bytes() == VERSION_2
+
+
+def test_truncation_during_the_read_gives_a_short_body(
+    agent_server, tmp_path, monkeypatch
+) -> None:
+    """The agent closes the connection, so the client sees fewer bytes than the
+    declared length and detects the failure (`CONNECTION_DROPPED`)."""
+    _, port = agent_server
+    path = tmp_path / "evidence.txt"
+    path.write_bytes(VERSION_1)
+
+    def truncate() -> None:
+        os.truncate(path, 100)
+
+    raw = download_with_change(port, path, truncate, monkeypatch)
+    assert raw.declared == len(VERSION_1)
+    assert raw.body == VERSION_1[:100]
+    assert len(raw.body) < raw.declared
+    assert raw.extra == b""

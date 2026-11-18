@@ -1,0 +1,38 @@
+EE                                                                       [100%]
+==================================== ERRORS ====================================
+____ ERROR at setup of test_health_exec_and_download_reply_during_a_command ____
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xffffb6517c50>
+
+    @pytest.fixture(autouse=True)
+    def fresh_exec_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Each test gets its own registry, so retained ids never cross tests.
+    
+        An agent before leaf k220 has no registry. The old-fail controls of
+        tests/test_agent_process.py run unchanged against such an agent.
+        """
+        try:
+>           from testanyware_agent import exec_registry
+E           ImportError: cannot import name 'exec_registry' from 'testanyware_agent' (/agent/testanyware_agent/__init__.py)
+
+tests/conftest.py:51: ImportError
+__ ERROR at setup of test_download_never_sends_bytes_past_the_declared_length __
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xffffb651b3e0>
+
+    @pytest.fixture(autouse=True)
+    def fresh_exec_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Each test gets its own registry, so retained ids never cross tests.
+    
+        An agent before leaf k220 has no registry. The old-fail controls of
+        tests/test_agent_process.py run unchanged against such an agent.
+        """
+        try:
+>           from testanyware_agent import exec_registry
+E           ImportError: cannot import name 'exec_registry' from 'testanyware_agent' (/agent/testanyware_agent/__init__.py)
+
+tests/conftest.py:51: ImportError
+=========================== short test summary info ============================
+ERROR tests/test_agent_process.py::test_health_exec_and_download_reply_during_a_command
+ERROR tests/test_agent_process.py::test_download_never_sends_bytes_past_the_declared_length
+5 deselected, 2 errors in 0.03s

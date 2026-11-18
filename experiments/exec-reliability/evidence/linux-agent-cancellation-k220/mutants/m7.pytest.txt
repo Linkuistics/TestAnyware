@@ -1,0 +1,108 @@
+FFF                                                                      [100%]
+=================================== FAILURES ===================================
+______ test_disconnect_changes_nothing_and_the_record_is_retained[close] _______
+
+agent = <tests.http_agent.AgentProcess object at 0xffff91939670>, how = 'close'
+
+    @pytest.mark.parametrize("how", ["close", "reset", "half-close"])
+    def test_disconnect_changes_nothing_and_the_record_is_retained(
+        agent: AgentProcess, how: str
+    ) -> None:
+        """The old-fail case of this row is macOS (k13). The command runs to its
+        outcome after the client drops the connection. A later cancellation of the
+        finished id returns the retained record and changes nothing."""
+        exec_id = f"drop-{how}"
+        body = {"command": "sleep 0.6; printf done", "timeout": 10, "id": exec_id}
+        dropper = threading.Thread(target=_start_and_drop, args=(agent.port, body, how), daemon=True)
+        dropper.start()
+        time.sleep(2.0)
+        status, reply = post_json(agent.port, "/exec/cancel", {"id": exec_id})
+        dropper.join(10)
+        assert (status, reply["state"]) == (200, "terminal")
+        record = reply["record"]
+        assert record_errors(record, exec_id=exec_id) == []
+>       assert record["outcome"] == {"kind": "exited", "exitCode": 0}
+E       AssertionError: assert {'kind': 'can...Start': False} == {'kind': 'exi...'exitCode': 0}
+E         
+E         Differing items:
+E         {'kind': 'cancelled'} != {'kind': 'exited'}
+E         Left contains 1 more item:
+E         {'beforeStart': False}
+E         Right contains 1 more item:
+E         {'exitCode': 0}
+E         Use -v to get more diff
+
+tests/test_agent_process.py:156: AssertionError
+______ test_disconnect_changes_nothing_and_the_record_is_retained[reset] _______
+
+agent = <tests.http_agent.AgentProcess object at 0xffff9194a810>, how = 'reset'
+
+    @pytest.mark.parametrize("how", ["close", "reset", "half-close"])
+    def test_disconnect_changes_nothing_and_the_record_is_retained(
+        agent: AgentProcess, how: str
+    ) -> None:
+        """The old-fail case of this row is macOS (k13). The command runs to its
+        outcome after the client drops the connection. A later cancellation of the
+        finished id returns the retained record and changes nothing."""
+        exec_id = f"drop-{how}"
+        body = {"command": "sleep 0.6; printf done", "timeout": 10, "id": exec_id}
+        dropper = threading.Thread(target=_start_and_drop, args=(agent.port, body, how), daemon=True)
+        dropper.start()
+        time.sleep(2.0)
+        status, reply = post_json(agent.port, "/exec/cancel", {"id": exec_id})
+        dropper.join(10)
+        assert (status, reply["state"]) == (200, "terminal")
+        record = reply["record"]
+        assert record_errors(record, exec_id=exec_id) == []
+>       assert record["outcome"] == {"kind": "exited", "exitCode": 0}
+E       AssertionError: assert {'kind': 'can...Start': False} == {'kind': 'exi...'exitCode': 0}
+E         
+E         Differing items:
+E         {'kind': 'cancelled'} != {'kind': 'exited'}
+E         Left contains 1 more item:
+E         {'beforeStart': False}
+E         Right contains 1 more item:
+E         {'exitCode': 0}
+E         Use -v to get more diff
+
+tests/test_agent_process.py:156: AssertionError
+____ test_disconnect_changes_nothing_and_the_record_is_retained[half-close] ____
+
+agent = <tests.http_agent.AgentProcess object at 0xffff9194b380>
+how = 'half-close'
+
+    @pytest.mark.parametrize("how", ["close", "reset", "half-close"])
+    def test_disconnect_changes_nothing_and_the_record_is_retained(
+        agent: AgentProcess, how: str
+    ) -> None:
+        """The old-fail case of this row is macOS (k13). The command runs to its
+        outcome after the client drops the connection. A later cancellation of the
+        finished id returns the retained record and changes nothing."""
+        exec_id = f"drop-{how}"
+        body = {"command": "sleep 0.6; printf done", "timeout": 10, "id": exec_id}
+        dropper = threading.Thread(target=_start_and_drop, args=(agent.port, body, how), daemon=True)
+        dropper.start()
+        time.sleep(2.0)
+        status, reply = post_json(agent.port, "/exec/cancel", {"id": exec_id})
+        dropper.join(10)
+        assert (status, reply["state"]) == (200, "terminal")
+        record = reply["record"]
+        assert record_errors(record, exec_id=exec_id) == []
+>       assert record["outcome"] == {"kind": "exited", "exitCode": 0}
+E       AssertionError: assert {'kind': 'can...Start': False} == {'kind': 'exi...'exitCode': 0}
+E         
+E         Differing items:
+E         {'kind': 'cancelled'} != {'kind': 'exited'}
+E         Left contains 1 more item:
+E         {'beforeStart': False}
+E         Right contains 1 more item:
+E         {'exitCode': 0}
+E         Use -v to get more diff
+
+tests/test_agent_process.py:156: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_agent_process.py::test_disconnect_changes_nothing_and_the_record_is_retained[close]
+FAILED tests/test_agent_process.py::test_disconnect_changes_nothing_and_the_record_is_retained[reset]
+FAILED tests/test_agent_process.py::test_disconnect_changes_nothing_and_the_record_is_retained[half-close]
+3 failed, 4 deselected in 6.70s
+exit 1

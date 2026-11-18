@@ -38,6 +38,7 @@ Authoritative sources (the JSON keys and optionality rules must match):
 |--------|------|---------|
 | GET | `/health` | Liveness + "accessibility is ready" check. Returns 200 with no required body once agent + AX are ready. |
 | POST | `/exec` | Execute a command. A valid request returns 200. The response body holds the exit code. |
+| POST | `/exec/cancel` | Linux only so far. Cancel a running command by its exec `id`. |
 | POST | `/upload?path=<percent-encoded>` | Stream a file to the VM filesystem (raw `application/octet-stream` body). |
 | POST | `/download?path=<percent-encoded>` | Stream a file from the VM filesystem (raw `application/octet-stream` response). |
 | POST | `/shutdown` | Ask the agent to terminate (used by test harnesses). |
@@ -143,6 +144,25 @@ The Host CLI sends a random UUID as the `id` of each attached request. An
 agent without the typed record ignores it. A detached request carries no
 `id`.
 
+The Linux agent registers each `id`. An `id` of a running or retained
+command returns 409 with `exec_id_in_use`. An `id` that a cancellation
+tombstoned returns a `cancelled` record with `beforeStart: true`, and no
+process starts. During agent shutdown, a new request returns 503 with
+`exec_failed`.
+
+### `CancelRequest` — `/exec/cancel`
+
+```json
+{ "id": "run-7.step-2", "waitMs": 5000 }
+```
+
+`id` follows the `/exec` rule. `waitMs` is an integer from 0 to 10000. It
+defaults to 0. Any other value returns 400 with `exec_failed`. The agent
+waits up to `waitMs` for the record of a running command.
+
+A disconnect is not a cancellation (ADR-0025). A client can end a command
+before its deadline only with this request.
+
 ### File transfer — `/upload`, `/download`
 
 `/upload` and `/download` do **not** take a JSON body. The
@@ -166,6 +186,15 @@ Success returns
 body is the raw file bytes (`Content-Type: application/octet-stream`).
 On failure the response is an `ErrorResponse` (`download_failed`) JSON
 body. Its non-2xx HTTP status tells it apart from a successful transfer.
+
+The Linux agent opens the file once. It takes `Content-Length` from that
+handle and sends exactly that many bytes from it (ADR-0026). Bytes that
+a writer appends during the read stay out of the body. When the handle
+ends early, for example after a truncation, the agent closes the
+connection. The body is then short, and the client detects it.
+
+An in-place overwrite during the read is outside the contract. Publish each
+version under a fresh name instead.
 
 Each end percent-encodes `path` by the standard URI query-component
 rules. So Unicode and special characters in guest paths survive in the
@@ -234,6 +263,25 @@ macOS types are `ExecRecord` and `ExecReply` in
 `agents/macos/Sources/TestAnywareAgentProtocol/ExecRecord.swift`.
 
 Detached commands return only the legacy fields.
+
+### Cancel response — `/exec/cancel`
+
+The reply is 200 with a `state`:
+
+```json
+{ "state": "terminal", "record": { "id": "run-7.step-2", "outcome": { "kind": "cancelled", "beforeStart": false } } }
+```
+
+| `state` | Meaning | `record` |
+|---|---|---|
+| `terminating` | The command is ending, and the wait ended first. | absent |
+| `terminal` | The command has a final record. | the exec record, abridged above |
+| `unknown_id` | The agent held no such id. It now holds a tombstone. | absent |
+
+A repeat returns the current state and never changes a final outcome.
+The agent retains each record and each tombstone for 300 s, 64 at most.
+An agent restart loses them. `unknown_id` does not prove that no command
+ran. An agent without the endpoint returns 404.
 
 The Host CLI reads a reply without `outcome` as a legacy reply. It checks
 every validity rule of the spec on a reply with `outcome`. A record that

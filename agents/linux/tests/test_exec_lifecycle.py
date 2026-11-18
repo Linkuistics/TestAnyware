@@ -28,6 +28,7 @@ from testanyware_agent import exec_owner
 from testanyware_agent.exec_owner import OwnerSeams, PidfdLeaderWaiter
 from tests.exec_validity import record_errors, stream_bytes
 from tests.limits import with_one_process_limit
+from tests.processes import ChildRecorder, child_survives, process_state, read_child
 
 pytestmark = pytest.mark.linux_kernel
 
@@ -50,60 +51,6 @@ def run(command: str, timeout: float, seams: OwnerSeams | None = None) -> dict:
     ).to_dict()
     assert record_errors(record, exec_id="ctl-1") == []
     return record
-
-
-def start_ticks(pid: int) -> str | None:
-    try:
-        text = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        return None
-    return text[text.rindex(")") + 2 :].split()[19]
-
-
-def process_state(pid: int) -> str | None:
-    try:
-        text = Path(f"/proc/{pid}/stat").read_text()
-    except OSError:
-        return None
-    return text[text.rindex(")") + 2 :].split()[0]
-
-
-def read_child(path: Path) -> tuple[int, str]:
-    pid = int(path.read_text().split()[0])
-    ticks = start_ticks(pid)
-    assert ticks is not None, "the child had already gone when the test read it"
-    return pid, ticks
-
-
-def child_survives(pid: int, ticks: str) -> bool:
-    """True when the same process (PID and start time) still runs."""
-    return start_ticks(pid) == ticks and process_state(pid) != "Z"
-
-
-class ChildRecorder:
-    """Read the child PID file while the command runs, before the owner ends it."""
-
-    def __init__(self, path: Path) -> None:
-        self.path = path
-        self.child: tuple[int, str] | None = None
-        self._thread = threading.Thread(target=self._watch, daemon=True)
-        self._thread.start()
-
-    def _watch(self) -> None:
-        end = time.monotonic() + 1.5
-        while time.monotonic() < end:
-            try:
-                if self.path.read_text().strip():
-                    self.child = read_child(self.path)
-                    return
-            except (OSError, ValueError, AssertionError):
-                pass
-            time.sleep(0.01)
-
-    def result(self) -> tuple[int, str]:
-        self._thread.join(2)
-        assert self.child is not None, "the command never wrote its child PID"
-        return self.child
 
 
 # ---- Group ends after a timeout (old-fail) --------------------------------
@@ -231,10 +178,10 @@ class HiddenExitWaiter(PidfdLeaderWaiter):
 
     released = threading.Event()
 
-    def wait_exit(self, timeout: float | None) -> bool:
+    def wait_exit(self, timeout: float | None, wake: int | None = None) -> bool:
         if not self.released.wait(timeout):
             return False
-        return super().wait_exit(timeout)
+        return super().wait_exit(timeout, wake)
 
     def peek(self):  # type: ignore[no-untyped-def]
         if not self.released.is_set():
@@ -466,7 +413,7 @@ def test_spawn_errno_survives() -> None:
 class LostNotificationWaiter(PidfdLeaderWaiter):
     """The owner never hears the exit event, so it wakes only at the deadline."""
 
-    def wait_exit(self, timeout: float | None) -> bool:
+    def wait_exit(self, timeout: float | None, wake: int | None = None) -> bool:
         time.sleep(max(0.0, timeout or 0.0))
         return False
 

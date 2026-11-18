@@ -1,0 +1,87 @@
+F..F.                                                                    [100%]
+=================================== FAILURES ===================================
+____ test_health_and_cancel_reply_within_1_s_while_a_request_holds_the_lock ____
+
+port = 43661
+accessibility = <module 'testanyware_agent.accessibility' from '/agent/testanyware_agent/accessibility.py'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xffff9f725130>
+
+    def test_health_and_cancel_reply_within_1_s_while_a_request_holds_the_lock(
+        port: int, accessibility, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+    
+        def blocking_windows() -> tuple[int, dict]:
+            entered.set()
+            release.wait(10)
+            return 200, {"windows": []}
+    
+        monkeypatch.setattr(accessibility, "handle_windows", blocking_windows)
+        holder = threading.Thread(target=post_json, args=(port, "/windows", {}), daemon=True)
+        holder.start()
+        try:
+            assert entered.wait(5)
+>           assert accessibility.AT_SPI_LOCK.locked()
+E           AssertionError: assert False
+E            +  where False = <built-in method locked of _thread.lock object at 0xffff9f646f40>()
+E            +    where <built-in method locked of _thread.lock object at 0xffff9f646f40> = <unlocked _thread.lock object at 0xffff9f646f40>.locked
+E            +      where <unlocked _thread.lock object at 0xffff9f646f40> = <module 'testanyware_agent.accessibility' from '/agent/testanyware_agent/accessibility.py'>.AT_SPI_LOCK
+
+tests/test_responsiveness.py:84: AssertionError
+_______ test_two_accessibility_requests_never_run_inside_at_spi_together _______
+
+port = 45667
+accessibility = <module 'testanyware_agent.accessibility' from '/agent/testanyware_agent/accessibility.py'>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xffff9f738800>
+
+    def test_two_accessibility_requests_never_run_inside_at_spi_together(
+        port: int, accessibility, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        tracker = InsideAtSpi(hold_s=0.15)
+    
+        def windows() -> tuple[int, dict]:
+            tracker.enter()
+            return 200, {"windows": []}
+    
+        def snapshot(body: dict) -> tuple[int, dict]:
+            tracker.enter()
+            return 200, {"windows": []}
+    
+        def enumerate_windows() -> list:
+            tracker.enter()
+            return []
+    
+        def is_accessible() -> bool:
+            tracker.enter()
+            return True
+    
+        monkeypatch.setattr(accessibility, "handle_windows", windows)
+        monkeypatch.setattr(accessibility, "handle_snapshot", snapshot)
+        monkeypatch.setattr(accessibility, "enumerate_windows", enumerate_windows)
+        monkeypatch.setattr(accessibility, "is_accessible", is_accessible)
+    
+        requests = [
+            (post_json, (port, "/windows", {})),
+            (post_json, (port, "/snapshot", {})),
+            (post_json, (port, "/windows", {})),
+            (post_json, (port, "/wait", {"timeout": 0.6})),
+            (get_health, (port, 5.0)),
+            (get_health, (port, 5.0)),
+        ]
+        threads = [threading.Thread(target=call, args=args, daemon=True) for call, args in requests]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(10)
+        assert tracker.calls >= len(requests)
+>       assert tracker.most == 1
+E       assert 4 == 1
+E        +  where 4 = <tests.test_responsiveness.InsideAtSpi object at 0xffff9f7bcfb0>.most
+
+tests/test_responsiveness.py:170: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_responsiveness.py::test_health_and_cancel_reply_within_1_s_while_a_request_holds_the_lock
+FAILED tests/test_responsiveness.py::test_two_accessibility_requests_never_run_inside_at_spi_together
+2 failed, 3 passed in 3.59s
+exit 1

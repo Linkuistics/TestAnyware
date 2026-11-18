@@ -50,3 +50,15 @@ This leaf is candidate D.
 ## Notes
 
 Do not patch the global CLI or app. Test against private builds only.
+
+Leaf linux-agent-cancellation-k220 added `/exec/cancel` to the Linux agent.
+Its reply is `{"state": S}` or `{"state": "terminal", "record": R}`, as the
+spec's "Cancel endpoint" table gives. The agent returns 409 with the new wire
+token `exec_id_in_use` for a duplicate `id`. Map that token to a Host CLI
+code here and add it to the §4.5 table of `cli-design-contract.md`. Then
+remove it from `KNOWN_NON_CANONICAL_EXCEPTIONS` in
+`agents/linux/tests/test_error_tokens.py`.
+
+The recorded Linux exec fixtures
+hold no cancelled record yet. The recorder `agents/linux/tests/record_exec_replies.py`
+can add such cases, and the Rust tests count 14 Linux fixtures today.

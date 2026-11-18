@@ -35,7 +35,13 @@ CANONICAL_TOKENS: frozenset[str] = frozenset({
 # Each entry must be justified — typically a transitional human-readable
 # string predating the §4.5 effort. Adding to this set is a deliberate
 # design decision; do not extend casually.
-KNOWN_NON_CANONICAL_EXCEPTIONS: frozenset[str] = frozenset()
+KNOWN_NON_CANONICAL_EXCEPTIONS: frozenset[str] = frozenset({
+    # HTTP 409 for a duplicate exec id: docs/specs/guest-command-lifecycle.md,
+    # section "Start", step 2. Only a caller-chosen `--exec-id` can repeat an
+    # id. Leaf host-cli-control-k222 adds that flag and the Host CLI mapping
+    # of this token, and then moves it into the §4.5 table.
+    "exec_id_in_use",
+})
 
 # Subset of §4.5 that the realignment work has actually wired up in
 # the Linux agent. These tokens MUST be present in source — losing

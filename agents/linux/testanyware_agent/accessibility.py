@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+import threading
 import time
 
 import pyatspi
@@ -20,6 +21,13 @@ _INTERACTIVE_ROLES = frozenset([
     "combo-box", "switch", "link", "menu-item", "tab", "disclosure-triangle",
     "color-well", "date-picker", "spin-button",
 ])
+
+
+# AT-SPI is not safe across threads (spec, section "Responsiveness"). Every
+# call into it holds this lock: the server holds it around each accessibility
+# endpoint, `handle_wait` holds it for each poll, and the health probe holds it
+# around `is_accessible`. No system endpoint takes it.
+AT_SPI_LOCK = threading.Lock()
 
 
 def is_accessible() -> bool:
@@ -710,7 +718,10 @@ def handle_wait(body: dict) -> tuple[int, dict]:
     deadline = time.time() + timeout
 
     while time.time() < deadline:
-        windows = enumerate_windows()
+        # The lock covers one poll, not the whole wait, so other accessibility
+        # requests run between the polls.
+        with AT_SPI_LOCK:
+            windows = enumerate_windows()
         if window_filter:
             windows = [w for w in windows if _window_matches(w, window_filter)]
         if windows:

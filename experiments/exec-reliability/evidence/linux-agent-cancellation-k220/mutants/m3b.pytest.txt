@@ -1,0 +1,53 @@
+....F...F                                                                [100%]
+=================================== FAILURES ===================================
+_____________ test_append_during_the_read_gives_the_first_l_bytes ______________
+
+agent_server = ('127.0.0.1', 41103)
+tmp_path = PosixPath('/tmp/pytest-of-unknown/pytest-0/test_append_during_the_read_gi0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xffff8f07d9a0>
+
+    def test_append_during_the_read_gives_the_first_l_bytes(
+        agent_server, tmp_path, monkeypatch
+    ) -> None:
+        _, port = agent_server
+        path = tmp_path / "evidence.txt"
+        path.write_bytes(VERSION_1)
+    
+        def append() -> None:
+            with open(path, "ab") as f:
+                f.write(b"appended after the length was taken\n" * 100)
+    
+        raw = download_with_change(port, path, append, monkeypatch)
+        assert raw.declared == len(VERSION_1)
+        assert raw.body == VERSION_1
+>       assert raw.extra == b"", f"{len(raw.extra)} bytes followed the declared length"
+E       AssertionError: 3600 bytes followed the declared length
+E       assert b'appended af...h was taken\n' == b''
+E         
+E         Use -v to get more diff
+
+tests/test_file_transfer.py:262: AssertionError
+___________ test_download_never_sends_bytes_past_the_declared_length ___________
+
+agent = <tests.http_agent.AgentProcess object at 0xffff8f07f9e0>
+
+    def test_download_never_sends_bytes_past_the_declared_length(agent: AgentProcess) -> None:
+        """Old path: `diagnostic:linux-download-consistency-container` (k14). The
+        old agent read to end-of-file, not to the length that `fstat` gave. A
+        procfs file reports size 0 and still reads bytes, which is the same growth
+        without a race. The new agent sends exactly the declared 0 bytes."""
+        raw = raw_exchange(agent.port, post_request("/download?path=/proc/self/status"))
+        assert raw.status == 200
+        assert raw.declared == 0
+>       assert raw.extra == b"", f"{len(raw.extra)} bytes followed the declared length"
+E       AssertionError: 1125 bytes followed the declared length
+E       assert b'Name:\tpyth...witches:\t1\n' == b''
+E         
+E         Use -v to get more diff
+
+tests/test_agent_process.py:116: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_file_transfer.py::test_append_during_the_read_gives_the_first_l_bytes
+FAILED tests/test_agent_process.py::test_download_never_sends_bytes_past_the_declared_length
+2 failed, 7 passed, 11 deselected in 6.00s
+exit 1
