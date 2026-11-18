@@ -1,8 +1,8 @@
 # Component: `agents/macos/` — macOS in-VM agent
 
-Swift package that runs **inside** a macOS VM. Exposes the TestAnyware
-agent HTTP surface on port 8648 using Apple's native accessibility APIs
-(`ApplicationServices` / `AXUIElement`). Transport is
+This Swift package runs **inside** a macOS VM. It serves the TestAnyware
+agent HTTP surface on port 8648 through Apple's native accessibility APIs
+(`ApplicationServices` / `AXUIElement`). The transport is
 [Hummingbird](https://hummingbird.codes).
 
 ## Layout
@@ -20,18 +20,18 @@ agents/macos/
 
 ## Key design notes
 
-- **Self-contained** — deliberately does not path-depend on the host
-  CLI's copy of `TestAnywareAgentProtocol`. Vendors its own copy of
-  the Swift sources so the agent builds in any working copy without
-  requiring the `cli/` package.
-- **Single-process** — one `AsyncHTTPServer` binds `0.0.0.0:8648` and
-  dispatches to handler closures in `AgentServer.swift`.
-- **No state between requests** — each handler walks the AX tree
-  fresh. Clients responsible for retries when AX isn't ready.
+- **Self-contained.** The package does not path-depend on the host CLI's
+  copy of `TestAnywareAgentProtocol`. It vendors its own copy of the Swift
+  sources, so the agent builds in any working copy without the `cli/`
+  package.
+- **Single-process.** One `AsyncHTTPServer` binds `0.0.0.0:8648` and
+  dispatches to the handler closures in `AgentServer.swift`.
+- **No state between requests.** Each handler walks the AX tree again.
+  When AX is not ready, the client must retry.
 
 ## Endpoint wiring
 
-All routes live in
+All routes are in
 `agents/macos/Sources/testanyware-agent/AgentServer.swift`:
 
 ```
@@ -44,12 +44,12 @@ POST /exec, /upload, /download, /shutdown
 POST /debug/ax    (macOS-only diagnostic)
 ```
 
-Wire shapes are documented in `docs/architecture/agent-protocol.md`.
+`docs/architecture/agent-protocol.md` documents the wire shapes.
 
 ## Build / test
 
-**Inside the VM** (or cross-built on the host for installation into the
-golden image):
+Build **inside the VM**, or build on the host for installation into the
+golden image:
 
 ```bash
 cd agents/macos
@@ -58,26 +58,25 @@ swift build -c release
 swift test
 ```
 
-The binary is installed at `/usr/local/bin/testanyware-agent` inside
-the macOS golden and launched by a LaunchAgent with label
-`com.linkuistics.testanyware-agent`.
+The macOS golden holds the binary at `/usr/local/bin/testanyware-agent`.
+A LaunchAgent with the label `com.linkuistics.testanyware-agent` starts it.
 
 ## Common pitfalls
 
-- **TCC grant requires SIP cycle.** The macOS golden-image creation
-  script boots into Recovery, disables SIP, writes a direct TCC
-  database row granting AX to the binary with its code-signing
-  requirement, then re-enables SIP. Modifying the binary after
-  installation invalidates the grant — the installed path and
+- **The TCC grant requires a SIP cycle.** The macOS golden-image creation
+  script boots into Recovery and disables SIP. It writes a direct TCC
+  database row that grants AX to the binary with its code-signing
+  requirement. Then it enables SIP again. A change to the binary after
+  installation makes the grant invalid, so the installed path and the
   signature are load-bearing.
-- **AX tree not ready at login.** Immediately after desktop login,
-  AX calls can return empty trees for up to several seconds. Call
-  `POST /wait` first in scripts that run right after boot.
+- **The AX tree is not ready at login.** Directly after desktop login, AX
+  calls can return empty trees for several seconds. Call `POST /wait` first
+  in scripts that run directly after boot.
 - **Window origin and the CLI inset.** macOS 27 reports the visible top of
-  a window as its AX origin, and the CLI subtracts a 40 px top inset from
-  it by default. See
+  a window as its AX origin. By default, the CLI subtracts a 40 px top
+  inset from it. See
   [`docs/user/troubleshooting.md`](../user/troubleshooting.md).
-- **Keep the protocol copy in sync.** If you change wire shapes, apply
+- **Keep the protocol copy in sync.** When you change a wire shape, make
   the same change in `cli-rs/crates/testanyware-protocol/`. The fixtures
   contract test in `cli-rs/crates/testanyware-protocol/tests/fixtures.rs`
-  (and its agent-side counterpart) is the safety net.
+  and its agent-side counterpart catch a drift.
