@@ -81,7 +81,7 @@ disagrees with `surface.rs`, `surface.rs` wins.
 | `EXEC_ID_IN_USE` | The `--exec-id` of `file exec` names a running or retained command. The agent sends `exec_id_in_use` with HTTP 409. The command exits 5. |
 | `AGENT_ENDPOINT_UNSUPPORTED` | The agent answered HTTP 404 for an endpoint that only a newer agent has, for example `file cancel` on an old agent. `details.endpoint` names the endpoint. The command exits 1. |
 | `UPLOAD_FAILED` / `DOWNLOAD_FAILED` | File I/O error on the VM. |
-| `DOWNLOAD_FRAMING_INVALID` | The download body had bytes past its declared length. The destination is unchanged. A body shorter than its length gives `CONNECTION_DROPPED`. The command exits 1. |
+| `DOWNLOAD_FRAMING_INVALID` | The download body had bytes past its declared length, or the reply declared contradictory lengths. The destination is unchanged. A body shorter than its length gives `CONNECTION_DROPPED`. The command exits 1. |
 | `AGENT_ERROR_UNKNOWN` | Agent returned an error string the host doesn't map. |
 | `AGENT_INVALID_JSON` | The agent could not parse the request body as JSON. This is a CLI bug. Report it. |
 

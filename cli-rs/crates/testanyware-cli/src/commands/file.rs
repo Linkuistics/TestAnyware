@@ -38,14 +38,26 @@ enum Ended<T> {
 
 /// Run `work` until it ends or a signal arrives. `work` is dropped before
 /// this returns, so its guards have run when a signal ends it.
+///
+/// When `work` ends first, the default actions come back, so a signal during
+/// the output kills the process as before. A signal that the handler caught
+/// before that point is raised again here. The command has already ended, so
+/// no cancellation is sent (review finding R1 of host-cli-control-k239).
 async fn until_interrupted<T>(
     work: impl std::future::Future<Output = T>,
-    interrupts: &mut Interrupts,
+    mut interrupts: Interrupts,
 ) -> Ended<T> {
     tokio::pin!(work);
-    tokio::select! {
+    let ended = tokio::select! {
         done = &mut work => Ended::Done(done),
         number = interrupts.recv() => Ended::Interrupted(number),
+    };
+    match ended {
+        Ended::Done(done) => match interrupts.finish() {
+            None => Ended::Done(done),
+            Some(number) => raise_again(number),
+        },
+        interrupted => interrupted,
     }
 }
 
@@ -91,16 +103,13 @@ pub async fn run_exec(opts: ConnectionOptions, args: ExecArgs, mode: OutputMode,
         // A detached command has no id to cancel, so it keeps the default
         // actions, as today.
         None => client.exec(&request).await,
-        Some(id) => {
-            let mut interrupts = Interrupts::install();
-            match until_interrupted(client.exec(&request), &mut interrupts).await {
-                Ended::Done(outcome) => outcome,
-                Ended::Interrupted(number) => {
-                    cancel_after_interrupt(&client, id).await;
-                    raise_again(number)
-                }
+        Some(id) => match until_interrupted(client.exec(&request), Interrupts::install()).await {
+            Ended::Done(outcome) => outcome,
+            Ended::Interrupted(number) => {
+                cancel_after_interrupt(&client, id).await;
+                raise_again(number)
             }
-        }
+        },
     };
     match outcome {
         Ok(result) => match mode {
@@ -451,13 +460,11 @@ pub async fn run_download(
     // the temp file, and then the same signal is raised again (spec, section
     // "Host CLI download").
     let client = build_agent_client(&opts, mode);
-    let mut interrupts = Interrupts::install();
-    let outcome =
-        match until_interrupted(client.download(&remote, Path::new(&local)), &mut interrupts).await
-        {
-            Ended::Done(outcome) => outcome,
-            Ended::Interrupted(number) => raise_again(number),
-        };
+    let download = client.download(&remote, Path::new(&local));
+    let outcome = match until_interrupted(download, Interrupts::install()).await {
+        Ended::Done(outcome) => outcome,
+        Ended::Interrupted(number) => raise_again(number),
+    };
     match outcome {
         Ok(bytes) => match mode {
             OutputMode::Json => print_success(json!({

@@ -559,6 +559,7 @@ impl AgentClient {
     pub async fn download(&self, remote: &str, local: &Path) -> Result<u64, AgentError> {
         let deadline = Deadline::after(self.config.timeout);
         let exchange = self.open_download(&deadline, remote).await?;
+        let declared = declared_length(exchange.response.headers())?;
 
         let (temp, mut temp_file) = create_temp_sibling(local)?;
         let Exchange {
@@ -566,6 +567,7 @@ impl AgentClient {
             mut connection,
         } = exchange;
         let written = stream_to_writer(&deadline, response, &mut temp_file, temp.path()).await?;
+        check_declared_length(declared, written)?;
         check_after_body(&deadline, &mut connection).await?;
         temp_file.sync_all().await.map_err(|e| {
             local_io(
@@ -877,36 +879,110 @@ impl Drop for TempFile {
 /// The file is created synchronously, so the guard exists before any await.
 /// A creation on the blocking pool could finish after a dropped future, and
 /// then no guard would remove its file.
+///
+/// The creation is exclusive. An existing entry at the name, such as a FIFO,
+/// a symlink or the file of a killed run, is never opened. Opening a FIFO
+/// would block the task that must see a signal (review finding R2 of
+/// host-cli-control-k239). The next name is tried instead, up to
+/// `TEMP_NAME_ATTEMPTS` names.
 fn create_temp_sibling(dest: &Path) -> Result<(TempFile, tokio::fs::File), AgentError> {
+    const TEMP_NAME_ATTEMPTS: usize = 16;
     static SEQ: AtomicU64 = AtomicU64::new(0);
     let dir = dest.parent().filter(|p| !p.as_os_str().is_empty());
     let name = dest
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "download".to_string());
-    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
-    let temp_name = format!(".{name}.testanyware-{}.{seq}.tmp", std::process::id());
-    let temp_path = match dir {
-        Some(d) => d.join(temp_name),
-        None => PathBuf::from(temp_name),
-    };
-    let file = std::fs::File::create(&temp_path).map_err(|e| {
-        local_io(
-            &temp_path,
-            format!("failed to create temp file {}: {e}", temp_path.display()),
-        )
-    })?;
-    let temp = TempFile {
-        path: temp_path,
-        keep: false,
-    };
-    Ok((temp, tokio::fs::File::from_std(file)))
+    let mut attempt = 0;
+    loop {
+        attempt += 1;
+        let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+        let temp_name = format!(".{name}.testanyware-{}.{seq}.tmp", std::process::id());
+        let temp_path = match dir {
+            Some(d) => d.join(temp_name),
+            None => PathBuf::from(temp_name),
+        };
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+        {
+            Ok(file) => {
+                let temp = TempFile {
+                    path: temp_path,
+                    keep: false,
+                };
+                return Ok((temp, tokio::fs::File::from_std(file)));
+            }
+            Err(e)
+                if e.kind() == std::io::ErrorKind::AlreadyExists
+                    && attempt < TEMP_NAME_ATTEMPTS => {}
+            Err(e) => {
+                return Err(local_io(
+                    &temp_path,
+                    format!("failed to create temp file {}: {e}", temp_path.display()),
+                ))
+            }
+        }
+    }
+}
+
+/// The `Content-Length` that a download reply declares, or `None` without
+/// one. hyper enforces the length only when it frames the body by it. A
+/// reply that also declares `Transfer-Encoding: chunked` is framed by its
+/// chunks, and hyper ignores the length (review finding R3 of
+/// host-cli-control-k239). So the client reads the length itself. An
+/// unreadable value, or two values that differ, is contradictory framing.
+fn declared_length(headers: &http::HeaderMap) -> Result<Option<u64>, AgentError> {
+    let mut declared = None;
+    for value in headers.get_all(CONTENT_LENGTH) {
+        let length = value
+            .to_str()
+            .ok()
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .ok_or_else(|| {
+                AgentError::DownloadFramingInvalid(format!(
+                    "the reply declares an unreadable Content-Length {value:?}"
+                ))
+            })?;
+        if declared.is_some_and(|d| d != length) {
+            return Err(AgentError::DownloadFramingInvalid(
+                "the reply declares two different Content-Length values".to_string(),
+            ));
+        }
+        declared = Some(length);
+    }
+    Ok(declared)
+}
+
+/// Compare the decoded body with its declared length. More bytes are bytes
+/// past the length, as `DOWNLOAD_FRAMING_INVALID`. Fewer bytes are a short
+/// body, as `CONNECTION_DROPPED` (spec, section "Host CLI download").
+fn check_declared_length(declared: Option<u64>, written: u64) -> Result<(), AgentError> {
+    match declared {
+        Some(length) if written > length => Err(AgentError::DownloadFramingInvalid(format!(
+            "the body has {written} bytes, past its declared length of {length}"
+        ))),
+        Some(length) if written < length => Err(AgentError::ConnectionDropped(format!(
+            "the body ended after {written} of its declared {length} bytes"
+        ))),
+        _ => Ok(()),
+    }
 }
 
 /// Check what follows a complete download body. The task that drove the
 /// connection returns the bytes that hyper read past the body and the
 /// stream. Any byte in either, before the agent closes the stream, means
 /// that the agent sent more than its `Content-Length`.
+///
+/// A direct connection reports a reset after the body as a read error, and
+/// the download fails with `CONNECTION_DROPPED`. Through the app, the relay
+/// ends a guest reset with a close of its Unix socket. A Unix stream socket
+/// has no reset, so this reads an end of stream and accepts the body. The
+/// relay forwards every byte that reached the host before the reset, so a
+/// byte past the body still fails here. Only bytes that never left the guest
+/// stay unseen (review finding R4 of host-cli-control-k239, an accepted
+/// trade-off).
 async fn check_after_body(
     deadline: &Deadline,
     connection: &mut AbortOnDrop<ConnectionEnd>,

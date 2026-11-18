@@ -3,12 +3,18 @@
 # docs/specs/guest-command-lifecycle.md, section "Test seams and required controls").
 #
 # It builds the Host CLI of an old revision from `git archive`, in a temporary directory,
-# and runs three cases of tests/host-cli-control.rs against that binary:
+# and runs five cases of tests/host-cli-control.rs against that binary:
 #
-#   - the CLI SIGTERM case of macos-disconnect-availability-k13: no cancellation is sent;
-#   - the interrupt case of download-consistency-k7: the temporary file stays;
-#   - the recorded old Linux reply of linux-download-consistency-k14: bytes past the length
+#   - the CLI SIGTERM case of macos-disconnect-availability-k13, once for SIGINT and once
+#     for SIGTERM. No cancellation is sent.
+#   - the interrupt case of download-consistency-k7, once for SIGINT and once for SIGTERM.
+#     The temporary file stays.
+#   - the recorded old Linux reply of linux-download-consistency-k14. Bytes past the length
 #     give success.
+#
+# Each signal has a test of its own. A test that loops over both signals stops at the
+# first failure. Then the old binary never runs the second signal (review finding R5 of
+# host-cli-control-k239).
 #
 # Each case must fail on the old binary with its known defect, and pass on the binary of
 # this checkout. The script exits 0 only when both hold for each case.
@@ -37,8 +43,10 @@ echo "old Host CLI: $old_cli ($(shasum -a 256 "$old_cli" | cut -d' ' -f1))"
 
 # Each case with the text that its failure on the old binary must show.
 cases=(
-  "an_interrupted_exec_sends_one_cancellation_and_dies_of_the_same_signal|one cancellation for the exec id"
-  "an_interrupted_download_removes_its_temp_file_and_dies_of_the_signal|the temp file must be removed"
+  "an_exec_interrupted_by_sigint_sends_one_cancellation_and_dies_of_sigint|SIGINT: one cancellation for the exec id"
+  "an_exec_interrupted_by_sigterm_sends_one_cancellation_and_dies_of_sigterm|SIGTERM: one cancellation for the exec id"
+  "a_download_interrupted_by_sigint_removes_its_temp_file_and_dies_of_sigint|SIGINT: the temp file must be removed"
+  "a_download_interrupted_by_sigterm_removes_its_temp_file_and_dies_of_sigterm|SIGTERM: the temp file must be removed"
   "a_download_with_bytes_past_its_length_fails_and_leaves_no_file|left: 0"
 )
 

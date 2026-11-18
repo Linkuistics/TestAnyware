@@ -354,25 +354,89 @@ fn interrupt_exec(
     (status, took, id, stderr)
 }
 
-#[test]
-fn an_interrupted_exec_sends_one_cancellation_and_dies_of_the_same_signal() {
+/// One test for each signal, so that the old-path control runs each signal on the old
+/// binary. A loop over both signals stops at the first failure and never reaches the second.
+fn interrupted_exec_sends_one_cancellation(signal: Signal) {
     let _lock = serial();
-    for signal in [Signal::SIGINT, Signal::SIGTERM] {
-        let (agent, app) = held_exec_guest(CancelReply::Terminating);
-        let (status, took, id, stderr) = interrupt_exec(&agent, &app, signal);
+    let (agent, app) = held_exec_guest(CancelReply::Terminating);
+    let (status, took, id, stderr) = interrupt_exec(&agent, &app, signal);
 
-        assert_signal_death(status, signal, &stderr);
-        assert!(
-            took < SIGNAL_DEATH_BOUND,
-            "{signal:?}: signal death took {took:?}"
-        );
-        // Old path: the Host CLI died at once, and the agent got no cancellation (k13).
-        assert_eq!(
-            bodies(&agent, "/exec/cancel"),
-            vec![json!({ "id": id, "waitMs": 0 })],
-            "{signal:?}: one cancellation for the exec id, with waitMs 0"
-        );
-    }
+    assert_signal_death(status, signal, &stderr);
+    assert!(
+        took < SIGNAL_DEATH_BOUND,
+        "{signal:?}: signal death took {took:?}"
+    );
+    // Old path: the Host CLI died at once, and the agent got no cancellation (k13).
+    assert_eq!(
+        bodies(&agent, "/exec/cancel"),
+        vec![json!({ "id": id, "waitMs": 0 })],
+        "{signal:?}: one cancellation for the exec id, with waitMs 0"
+    );
+}
+
+#[test]
+fn an_exec_interrupted_by_sigint_sends_one_cancellation_and_dies_of_sigint() {
+    interrupted_exec_sends_one_cancellation(Signal::SIGINT);
+}
+
+#[test]
+fn an_exec_interrupted_by_sigterm_sends_one_cancellation_and_dies_of_sigterm() {
+    interrupted_exec_sends_one_cancellation(Signal::SIGTERM);
+}
+
+/// An agent that answers `/exec` at once with a legacy record whose stdout holds
+/// `stdout_bytes` bytes.
+fn large_output_guest(stdout_bytes: usize) -> (FakeAgent, TestApp) {
+    let agent = FakeAgent::start();
+    agent.mount(
+        "POST",
+        "/exec",
+        ResponseTemplate::new(200).set_body_json(json!({
+            "exitCode": 0,
+            "stdout": "x".repeat(stdout_bytes),
+            "stderr": "",
+        })),
+    );
+    let app = TestApp::start();
+    app.add_vm(VM, agent.addr());
+    (agent, app)
+}
+
+/// A signal after the reply, while the Host CLI writes stdout to a full pipe, still kills
+/// it (review finding R1 of host-cli-control-k239). The reader of the pipe takes one byte,
+/// which proves that the output has started, and then stops reading. Before the repair,
+/// the handler stayed installed and swallowed the signal, so the write blocked for ever.
+fn signal_during_output_kills(signal: Signal) {
+    let _lock = serial();
+    let (agent, app) = large_output_guest(1 << 20);
+    let mut child = app.spawn_cli(&["exec", "--vm", VM, "big output"], |command| {
+        command.stdout(std::process::Stdio::piped());
+    });
+    let mut stdout = child.stdout.take().unwrap();
+    let mut first = [0u8; 1];
+    stdout.read_exact(&mut first).unwrap();
+    assert_eq!(bodies(&agent, "/exec").len(), 1);
+
+    let (status, took) = interrupt(&mut child, signal);
+    drop(stdout);
+    let stderr = stderr_of(&mut child);
+    assert_signal_death(status, signal, &stderr);
+    assert!(
+        took < SIGNAL_DEATH_BOUND,
+        "{signal:?}: signal death took {took:?}"
+    );
+    // The command had ended, so nothing is cancelled.
+    assert!(bodies(&agent, "/exec/cancel").is_empty());
+}
+
+#[test]
+fn sigint_during_blocked_exec_output_kills_the_host_cli() {
+    signal_during_output_kills(Signal::SIGINT);
+}
+
+#[test]
+fn sigterm_during_blocked_exec_output_kills_the_host_cli() {
+    signal_during_output_kills(Signal::SIGTERM);
 }
 
 #[test]
@@ -578,49 +642,186 @@ fn an_exact_download_body_through_the_raw_agent_succeeds() {
     assert_eq!(names_in(dir.path()), vec!["evidence.json".to_string()]);
 }
 
-#[test]
-fn an_interrupted_download_removes_its_temp_file_and_dies_of_the_signal() {
+/// The reply head of a download that sends 7 of its 1000 bytes and then holds.
+const HELD_DOWNLOAD: &[u8] =
+    b"HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\ncontent-length: 1000\r\n\r\npartial";
+
+/// Spawn a text-mode download of `/tmp/evidence.json` into `dest` from `agent`. `prepare`
+/// runs before the spawn, as in [`TestApp::spawn_cli`].
+fn spawn_download(
+    agent: SocketAddr,
+    dest: &Path,
+    prepare: impl FnOnce(&mut std::process::Command),
+) -> (Child, TestApp) {
+    let app = TestApp::start();
+    app.add_vm(VM, agent);
+    let child = app.spawn_cli(
+        &[
+            "file",
+            "download",
+            "--vm",
+            VM,
+            "/tmp/evidence.json",
+            dest.to_str().unwrap(),
+        ],
+        prepare,
+    );
+    (child, app)
+}
+
+/// One test for each signal, as for [`interrupted_exec_sends_one_cancellation`].
+fn interrupted_download_removes_its_temp_file(signal: Signal) {
     let _lock = serial();
-    for signal in [Signal::SIGINT, Signal::SIGTERM] {
-        let reply = b"HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\ncontent-length: 1000\r\n\r\npartial".to_vec();
-        let agent = raw_agent(reply, End::Hold);
-        let app = TestApp::start();
-        app.add_vm(VM, agent);
-        let dest_dir = tempfile::tempdir().unwrap();
-        let dest = dest_dir.path().join("evidence.json");
+    let agent = raw_agent(HELD_DOWNLOAD.to_vec(), End::Hold);
+    let dest_dir = tempfile::tempdir().unwrap();
+    let dest = dest_dir.path().join("evidence.json");
+    let (mut child, _app) = spawn_download(agent, &dest, |_| {});
+    wait_until(Duration::from_secs(10), "the temp file", || {
+        !names_in(dest_dir.path()).is_empty()
+    });
+    let temp = names_in(dest_dir.path());
+    assert!(
+        temp[0].starts_with(".evidence.json.testanyware-"),
+        "{temp:?}"
+    );
 
-        let mut child = app.spawn_cli(
-            &[
-                "file",
-                "download",
-                "--vm",
-                VM,
-                "/tmp/evidence.json",
-                dest.to_str().unwrap(),
-            ],
-            |_| {},
-        );
-        wait_until(Duration::from_secs(10), "the temp file", || {
-            !names_in(dest_dir.path()).is_empty()
-        });
-        let temp = names_in(dest_dir.path());
-        assert!(
-            temp[0].starts_with(".evidence.json.testanyware-"),
-            "{temp:?}"
-        );
+    let (status, took) = interrupt(&mut child, signal);
+    let stderr = stderr_of(&mut child);
+    assert_signal_death(status, signal, &stderr);
+    assert!(
+        took < SIGNAL_DEATH_BOUND,
+        "{signal:?}: signal death took {took:?}"
+    );
+    // Old path: the temp file stayed after SIGTERM during the body (k7).
+    assert_eq!(
+        names_in(dest_dir.path()),
+        Vec::<String>::new(),
+        "{signal:?}: the temp file must be removed"
+    );
+}
 
-        let (status, took) = interrupt(&mut child, signal);
-        let stderr = stderr_of(&mut child);
-        assert_signal_death(status, signal, &stderr);
-        assert!(
-            took < SIGNAL_DEATH_BOUND,
-            "{signal:?}: signal death took {took:?}"
-        );
-        // Old path: the temp file stayed after SIGTERM during the body (k7).
-        assert_eq!(
-            names_in(dest_dir.path()),
-            Vec::<String>::new(),
-            "{signal:?}: the temp file must be removed"
-        );
+#[test]
+fn a_download_interrupted_by_sigint_removes_its_temp_file_and_dies_of_sigint() {
+    interrupted_download_removes_its_temp_file(Signal::SIGINT);
+}
+
+#[test]
+fn a_download_interrupted_by_sigterm_removes_its_temp_file_and_dies_of_sigterm() {
+    interrupted_download_removes_its_temp_file(Signal::SIGTERM);
+}
+
+/// A FIFO at the first temp name neither blocks the download nor survives as its file
+/// (review finding R2 of host-cli-control-k239). A shell creates the FIFO at the name of
+/// its own process id and then becomes the Host CLI with `exec`, which keeps the id.
+/// Before the repair, the Host CLI opened the FIFO, waited for a reader, and swallowed
+/// the signal.
+fn fifo_at_the_temp_name(signal: Signal) {
+    let _lock = serial();
+    let agent = raw_agent(HELD_DOWNLOAD.to_vec(), End::Hold);
+    let dest_dir = tempfile::tempdir().unwrap();
+    let dest = dest_dir.path().join("evidence.json");
+    let cli = common::cli_binary();
+    let dir = dest_dir.path().to_str().unwrap().to_string();
+    let (mut child, _app) = spawn_download(agent, &dest, |command| {
+        // The shell receives the CLI arguments after `sh`, as `$@`.
+        // `spawn_cli` cleared the environment, so its variables are all that the shell gets.
+        let script = r#"mkfifo "$DIR/.evidence.json.testanyware-$$.0.tmp" && exec "$CLI" "$@""#;
+        let mut shell = std::process::Command::new("/bin/sh");
+        shell
+            .arg("-c")
+            .arg(script)
+            .arg("sh")
+            .args(command.get_args())
+            .env_clear();
+        for (key, value) in command.get_envs() {
+            if let Some(value) = value {
+                shell.env(key, value);
+            }
+        }
+        shell
+            .env("DIR", &dir)
+            .env("CLI", &cli)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::piped());
+        *command = shell;
+    });
+    let fifo = format!(".evidence.json.testanyware-{}.0.tmp", child.id());
+    let temp = format!(".evidence.json.testanyware-{}.1.tmp", child.id());
+    // A Host CLI that blocks on the FIFO never reaches the second name. Kill it, so that a
+    // failed run leaves no process behind.
+    let start = Instant::now();
+    while !names_in(dest_dir.path()).contains(&temp) {
+        if start.elapsed() > Duration::from_secs(10) {
+            let _ = child.kill();
+            let _ = child.wait();
+            panic!("the Host CLI never created {temp}; it blocked on the FIFO {fifo}");
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
+
+    let (status, took) = interrupt(&mut child, signal);
+    let stderr = stderr_of(&mut child);
+    assert_signal_death(status, signal, &stderr);
+    assert!(
+        took < SIGNAL_DEATH_BOUND,
+        "{signal:?}: signal death took {took:?}"
+    );
+    // The Host CLI removes its own temp file and leaves the entry that it did not create.
+    assert_eq!(names_in(dest_dir.path()), vec![fifo]);
+}
+
+#[test]
+fn a_fifo_at_the_temp_name_does_not_block_sigint() {
+    fifo_at_the_temp_name(Signal::SIGINT);
+}
+
+#[test]
+fn a_fifo_at_the_temp_name_does_not_block_sigterm() {
+    fifo_at_the_temp_name(Signal::SIGTERM);
+}
+
+/// A reply that declares both a `Content-Length` and a chunked body (review finding R3
+/// of host-cli-control-k239). hyper decodes the chunks and ignores the length, so the
+/// client compares the decoded count with the declared length itself.
+fn conflicting_framing(chunk: &str) -> Vec<u8> {
+    format!(
+        "HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\ncontent-length: 5\r\n\
+         transfer-encoding: chunked\r\n\r\n{:x}\r\n{chunk}\r\n0\r\n\r\n",
+        chunk.len()
+    )
+    .into_bytes()
+}
+
+#[test]
+fn a_chunked_body_longer_than_its_declared_length_fails_and_leaves_no_file() {
+    let _lock = serial();
+    let (run, dir) = download(conflicting_framing("abcdef"));
+    assert_eq!(run.code(), 1, "stdout: {}", run.out());
+    assert_eq!(run.json()["code"], "DOWNLOAD_FRAMING_INVALID");
+    assert_eq!(names_in(dir.path()), Vec::<String>::new());
+}
+
+#[test]
+fn a_chunked_body_shorter_than_its_declared_length_fails_and_leaves_no_file() {
+    let _lock = serial();
+    let (run, dir) = download(conflicting_framing("abcd"));
+    assert_eq!(run.code(), 1, "stdout: {}", run.out());
+    assert_eq!(run.json()["code"], "CONNECTION_DROPPED");
+    assert_eq!(names_in(dir.path()), Vec::<String>::new());
+}
+
+#[test]
+fn a_chunked_body_without_a_declared_length_still_succeeds() {
+    let _lock = serial();
+    let reply = b"HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\n\
+        transfer-encoding: chunked\r\n\r\n6\r\nabcdef\r\n0\r\n\r\n"
+        .to_vec();
+    let (run, dir) = download(reply);
+    assert_eq!(run.code(), 0, "stderr: {}", run.err());
+    assert_eq!(run.json()["bytes"], 6);
+    assert_eq!(
+        std::fs::read(dir.path().join("evidence.json")).unwrap(),
+        b"abcdef"
+    );
 }

@@ -12,6 +12,10 @@ self-check passes.
   `docs/experiments/exec-reliability-diagnostic-foundation.md`.
 - Spec: section "Validation route".
 - Root brief: sections "Acceptance inventory and bounds" and "Constraints".
+- Host CLI: the reviewed state of host-cli-control-k222, with the repairs of
+  host-cli-control-k240. On the app route, a guest reset after a complete
+  body reads as success. Bytes that reached the host still fail the framing
+  check. The trial must not count that ordering as reset detection.
 
 ## Done when
 

@@ -540,7 +540,7 @@ structured interface and gives both.
 |---|---|---|
 | `EXEC_RECORD_INVALID` | 1 | The agent record breaks a validity rule. |
 | `AGENT_ENDPOINT_UNSUPPORTED` | 1 | The agent does not have the endpoint, for example `/exec/cancel` on an old agent. |
-| `DOWNLOAD_FRAMING_INVALID` | 1 | The download body has bytes past its declared length. |
+| `DOWNLOAD_FRAMING_INVALID` | 1 | The download body has bytes past its declared length, or the reply declares contradictory lengths. |
 | `CONNECTION_DROPPED` | as today | The body ended before its declared length. |
 | `IO_ERROR` | as today | The Host CLI could not finish the local file. |
 

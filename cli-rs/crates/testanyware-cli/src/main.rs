@@ -525,7 +525,7 @@ OUTPUT:
 EXIT CODES:
     0  success
     1  DOWNLOAD_FAILED, DOWNLOAD_FRAMING_INVALID (bytes past the declared
-       length), CONNECTION_DROPPED (a body shorter than its length),
+       length, or contradictory lengths), CONNECTION_DROPPED (a body shorter than its length),
        IO_ERROR, generic agent failure
     2  USAGE_ERROR / NO_CONNECTION_SPECIFIED
     3  VM_NOT_FOUND

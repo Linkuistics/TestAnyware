@@ -6,13 +6,28 @@
 //! action and raises the same signal again, so the parent sees the same
 //! signal death as before the handler existed.
 //!
-//! The handler exists only while one of the two commands runs. A signal that
-//! the parent set to be ignored stays ignored, because a background job of a
-//! shell inherits an ignored SIGINT and must keep it. On a host that is not
-//! Unix, nothing is installed and [`Interrupts::recv`] never completes.
+//! The handler exists only while the request of one of the two commands runs.
+//! [`Interrupts::finish`] restores the default actions when the request ends,
+//! so a signal during the output kills the process, as before the handler
+//! existed. Tokio never removes its own handler, so without that step a later
+//! signal would only wake a listener that nothing polls.
+//!
+//! A signal that the parent set to be ignored stays ignored. A background job
+//! of a shell inherits an ignored SIGINT and must keep it. On a
+//! host that is not Unix, nothing is installed and [`Interrupts::recv`] never
+//! completes.
+
+#[cfg(unix)]
+use std::sync::atomic::{AtomicI32, Ordering};
+
+/// The first signal that the handler caught, or 0. The handler stores it
+/// beside tokio's own notification, so [`Interrupts::finish`] can see a
+/// signal that tokio has not yet delivered to a listener.
+#[cfg(unix)]
+static CAUGHT: AtomicI32 = AtomicI32::new(0);
 
 /// The signals that a command listens for, from [`Interrupts::install`] to
-/// the end of the command.
+/// [`Interrupts::finish`] or the end of the command.
 pub(crate) struct Interrupts {
     #[cfg(unix)]
     listeners: Vec<(i32, tokio::signal::unix::Signal)>,
@@ -35,6 +50,19 @@ impl Interrupts {
                 }
                 // A failure leaves the default action in place, as before.
                 if let Ok(listener) = signal(kind) {
+                    // SAFETY: the action only stores into an atomic, which is
+                    // async-signal-safe. A failure leaves tokio's listener,
+                    // which still sees the signal during the request.
+                    let _ = unsafe {
+                        signal_hook_registry::register(number, move || {
+                            let _ = CAUGHT.compare_exchange(
+                                0,
+                                number,
+                                Ordering::SeqCst,
+                                Ordering::SeqCst,
+                            );
+                        })
+                    };
                     listeners.push((number, listener));
                 }
             }
@@ -43,6 +71,31 @@ impl Interrupts {
         #[cfg(not(unix))]
         {
             Interrupts {}
+        }
+    }
+
+    /// End the listening after the request has ended. Restore the default
+    /// action of each signal that this listened for, so a later signal kills
+    /// the process at once. Return a signal that the handler caught before
+    /// the restore.
+    ///
+    /// Limit: a handler that runs on another thread at the moment of the
+    /// restore, and has not yet stored its signal, is missed. That window
+    /// lasts from the delivery to the store, a few instructions.
+    pub(crate) fn finish(self) -> Option<i32> {
+        #[cfg(unix)]
+        {
+            for (number, _) in &self.listeners {
+                restore_default(*number);
+            }
+            match CAUGHT.load(Ordering::SeqCst) {
+                0 => None,
+                number => Some(number),
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            None
         }
     }
 
@@ -82,6 +135,16 @@ fn is_ignored(number: i32) -> bool {
     }
 }
 
+/// Restore the default action of `number`.
+#[cfg(unix)]
+fn restore_default(number: i32) {
+    // SAFETY: signal(2) with SIG_DFL takes only the number of a valid signal.
+    // The handler of the registry is then no longer called for it.
+    unsafe {
+        libc::signal(number, libc::SIG_DFL);
+    }
+}
+
 /// Restore the default action of `number` and raise it again, so the
 /// process dies of the same signal. The exit with 128 plus the number is a
 /// last resort, for a signal that the default action did not end.
@@ -90,12 +153,14 @@ pub(crate) fn raise_again(number: i32) -> ! {
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
     #[cfg(unix)]
-    // SAFETY: signal(2) with SIG_DFL and raise(3) take only the number of a
-    // valid signal, and this function never returns into Rust code that the
-    // new action could affect.
-    unsafe {
-        libc::signal(number, libc::SIG_DFL);
-        libc::raise(number);
+    {
+        restore_default(number);
+        // SAFETY: raise(3) takes only the number of a valid signal, and this
+        // function never returns into Rust code that the new action could
+        // affect.
+        unsafe {
+            libc::raise(number);
+        }
     }
     std::process::exit(128 + number)
 }

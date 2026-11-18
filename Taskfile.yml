@@ -1348,7 +1348,7 @@ tasks:
         TESTANYWARE_BIN={{.BIN | shellQuote}} scripts/app-adoption-live.sh "$app"
 
   cli:control-old-path:
-    desc: 'Old-path control of host-cli-control-k222. Builds the Host CLI of REV (default 251bf072e3, before k222) from git archive in a temporary directory, into target/control-old-path. Runs three cases of tests/host-cli-control.rs against it: the k13 CLI SIGTERM case, the k7 download interrupt case and the recorded old Linux reply with extra bytes. Passes only when each case fails on the old binary with its known defect and passes on this checkout'
+    desc: 'Old-path control of host-cli-control-k222. Builds the Host CLI of REV (default 251bf072e3, before k222) from git archive in a temporary directory, into target/control-old-path. Runs five cases of tests/host-cli-control.rs against it: the k13 CLI interruption case and the k7 download interrupt case, each once for SIGINT and once for SIGTERM, and the recorded old Linux reply with extra bytes. Passes only when each case fails on the old binary with its known defect and passes on this checkout'
     cmds:
       - scripts/cli-control-old-path.sh {{.REV | default "251bf072e3" | shellQuote}}
 

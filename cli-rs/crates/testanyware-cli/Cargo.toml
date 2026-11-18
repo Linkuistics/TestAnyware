@@ -44,6 +44,8 @@ eframe = { version = "0.34", default-features = false, features = ["wgpu", "defa
 [target.'cfg(unix)'.dependencies]
 # Read the current action of a signal, restore its default and raise it again (spec "CLI interruption").
 libc = "0.2"
+# Record a caught signal beside tokio's handler, in the registry that tokio itself uses (1.4.8 in Cargo.lock).
+signal-hook-registry = "1.4"
 
 [target.'cfg(unix)'.dev-dependencies]
 # The start tests signal the fake `tart run` and read the session of the detached children.

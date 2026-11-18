@@ -498,7 +498,7 @@ them. Each exits 1.
 |---|---|
 | `EXEC_RECORD_INVALID` | The typed exec record of an agent breaks a validity rule of `docs/specs/guest-command-lifecycle.md`. `details.problems` names each broken rule. The command never reports the record as a success. |
 | `AGENT_ENDPOINT_UNSUPPORTED` | The agent answered HTTP 404 for an endpoint that only a newer agent has, for example `/exec/cancel` on an old agent. The status decides, whatever the body says. `details.endpoint` names the endpoint. |
-| `DOWNLOAD_FRAMING_INVALID` | The download body had bytes past its declared `Content-Length`. The destination is unchanged, and no temporary file remains. |
+| `DOWNLOAD_FRAMING_INVALID` | The download body had bytes past its declared `Content-Length`, or the reply declared contradictory lengths. The destination is unchanged, and no temporary file remains. |
 
 A download body that ends before its declared length keeps the code
 `CONNECTION_DROPPED`.
