@@ -30,12 +30,12 @@ threshold before acceptance-plan-k223 consumes this implementation.
 - Valid actionable findings are repaired and verified at their responsible
   boundary, with controls that detect the stated wrong outcomes.
 - Accepted trade-offs and rejected findings name their evidence and the
-  agreed contract; optional polish does not widen this increment.
+  agreed contract. Optional polish does not widen this increment.
 - Existing text output, JSON fields, exit codes, routing, cancellation and
   download contracts remain accounted for. Record actual verification
   results and preserve adverse evidence.
-- acceptance-plan-k223 has a concrete reviewed implementation handoff;
-  the separate frozen acceptance trial remains required.
+- acceptance-plan-k223 has a concrete reviewed implementation handoff.
+  The separate frozen acceptance trial remains required.
 
 ## Notes
 
