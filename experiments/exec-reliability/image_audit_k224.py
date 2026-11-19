@@ -11,6 +11,9 @@ names. It only reads. A read of a disk changes its access time only.
 
 `compare` judges each image that both snapshots hashed:
 
+- Evidence: each file is present in both snapshots, with a size, a SHA-256
+  and a modification time. Missing evidence fails the image, because equal
+  absent records establish nothing about the content.
 - Unchanged: each file has the same size and the same SHA-256.
 - Not booted: Tart lists the image as stopped in both snapshots, and the
   modification times of `disk.img` and `nvram.bin` are equal. A boot writes
@@ -129,6 +132,14 @@ def compare(before: dict[str, Any], after: dict[str, Any]) -> dict[str, Any]:
             continue
         for file in FILES:
             first, second = image["files"][file], later["files"][file]
+            for label, record in (("before", first), ("after", second)):
+                if (
+                    record.get("present") is not True
+                    or not isinstance(record.get("size"), int)
+                    or not isinstance(record.get("sha256"), str)
+                    or not isinstance(record.get("mtime_ns"), int)
+                ):
+                    failures.append(f"{file} {label} lacks its presence, size, digest or time")
             for key in ("present", "size", "sha256"):
                 if first.get(key) != second.get(key):
                     failures.append(f"{file} {key} {first.get(key)!r} -> {second.get(key)!r}")

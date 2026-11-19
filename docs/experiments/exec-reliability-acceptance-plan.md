@@ -22,7 +22,7 @@ reports that freeze. A change to the plan after that freeze needs a new freeze.
 | `experiments/exec-reliability/acceptance_k223_cancel.py` | The explicit cancellation helper |
 | `experiments/exec-reliability/acceptance_k223_app.py` | The helper that records the answering app |
 | `experiments/exec-reliability/acceptance_k223_check.py` | The checker and the corruption controls |
-| `experiments/exec-reliability/test_acceptance_k223.py` | 148 controls without a guest |
+| `experiments/exec-reliability/test_acceptance_k223.py` | 161 controls without a guest |
 
 - `mise exec -- task diagnostic:acceptance-trial OUT=<new> MANIFEST=<k224 manifest>`
   runs the trial.
@@ -96,8 +96,8 @@ the observation ceiling and reports its exit, stdout and stderr.
 
 ## The freeze manifest
 
-The trial reads the freeze manifest of leaf k224. The manifest is one JSON
-object:
+The trial reads the freeze manifest of leaf k224, as leaf k244 reconciled
+it after review k243. The manifest is one JSON object:
 
 | Field | Content |
 |---|---|
@@ -105,8 +105,9 @@ object:
 | `goldens` | The new golden name for `macos` and for `linux` |
 | `bounds` | `boot` and `slot` in seconds, each positive and finite |
 | `agents` | The frozen agent identity of `macos` and of `linux`, each a SHA-256 |
-| `app` | The `build` and the absolute `executable` of the private app |
-| `sha256` | Absolute paths with their frozen digests. It must pin `cli`, `tart` and the app executable |
+| `app` | The `build` and the absolute `executable` of the private app, and the absolute `config` file that the app and the Host CLI read |
+| `golden_disks` | For `macos` and for `linux`, the absolute `path` of the golden's `disk.img` and its frozen `sha256` |
+| `sha256` | Absolute paths with their frozen digests. It must pin `cli`, `tart`, the app executable and the app configuration file |
 
 The macOS agent identity is the SHA-256 of `/usr/local/bin/testanyware-agent`.
 The Linux agent identity is the SHA-256 of the sorted `sha256sum` listing of the
@@ -116,10 +117,17 @@ the listing that the `identity` case prints first. The app identity is the
 
 The trial refuses to start when a field is missing or malformed, or when a
 digest differs. It checks the manifest digest, every frozen digest and the
-fixture digests again before each clone. A difference stops the trial before
-that clone starts. The refused clone counts as failed, and the later clones
+fixture digests again before each clone. It also refuses an interpreter that
+is not a frozen path. The refused clone counts as failed, and the later clones
 stay unreached. A changed subject is a new candidate, so it needs a new freeze
 and a new trial.
+
+Before each clone, the trial hashes the golden disk of that
+clone by streaming. A difference stops the trial before that clone starts.
+The trial hashes the disk again after the clone and writes both digests to
+`golden-disk.json`. A 50 GB disk takes about 21 s to hash. It cannot be a
+controller subject, because the writer hashes its subjects within the 5 s
+readiness ceiling.
 
 The boot bound limits the whole `vm start`: the clone, the boot and the agent
 health. `vm start` runs without `--wait`, so a full slot fails the acquisition
@@ -149,11 +157,17 @@ ran.
 The checker judges three properties of the run itself:
 
 - Identity: the `identity` output gives the frozen agent identity, and the
-  `app-identity` helper shows the frozen app build and executable.
+  `app-identity` helper shows the frozen app build and executable. The app
+  loaded the frozen configuration file, and that file has not changed since
+  the app evaluated it. The `doctor` report resolves the frozen Tart. The
+  configuration file can name another Tart, so a pinned Tart path alone does
+  not show which Tart the app runs.
 - Freeze: the manifest still has its frozen digest and gives the inventory's
   digests and identities. Each frozen path, the manifest and each fixture file
   had its frozen digest before and after the run. Each checker module has,
-  when the checker runs, the digest that the run's subjects recorded.
+  when the checker runs, the digest that the run's subjects recorded. The
+  interpreter of the plan is a frozen path. The golden disk had its frozen
+  digest before and after the run.
 - Execution: the recorded calls have the plan's names in the plan's order, each
   with its planned argv. Their start times never decrease.
 

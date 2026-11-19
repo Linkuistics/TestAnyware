@@ -22,11 +22,23 @@ JSON object with these fields:
   SHA-256 of the sorted `sha256sum` listing of the `*.py` files under
   `/opt/testanyware`, as the `identity` case prints it.
 - `app`: the `build` and the absolute `executable` of the private app, as
-  `doctor --json` reports the running app.
+  `doctor --json` reports the running app. `config` is the absolute path of
+  the configuration file that the app and the Host CLI read. That file can
+  name another Tart, so the `app-identity` case requires the app to have
+  loaded it unchanged, and `doctor` to resolve the frozen Tart.
+- `golden_disks`: for `macos` and for `linux`, the absolute `path` of the
+  golden's `disk.img` and its frozen `sha256`. A disk is too large to be a
+  controller subject. The trial hashes the disk of each clone's golden by
+  streaming, before and after the clone, into `<os>-<n>/golden-disk.json`.
+  A different digest before the clone refuses the clone, and the checker
+  requires both digests to equal the frozen digest.
 - `sha256`: an object that maps absolute paths to their frozen digests. It
-  must name `cli`, `tart` and the app executable. Each path is also a subject.
-  The trial refuses to start a clone when one digest differs, and the checker
-  compares each run's subject digests with these digests.
+  must name `cli`, `tart`, the app executable and the app configuration file.
+  Each path is also a subject. The trial refuses to start a clone when one
+  digest differs, and the checker compares each run's subject digests with
+  these digests. The interpreter that runs the trial must be one of these
+  paths. Otherwise the trial refuses to start, and the checker fails the
+  clone.
 
 Each clone runs these cases in the root order. Each `file exec` call names its
 own exec id, and the checker compares the record id with it.
@@ -84,8 +96,9 @@ import json
 import math
 import re
 import sys
+import time
 import uuid
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -517,6 +530,8 @@ class Manifest:
     app_build: str
     app_executable: str
     sha256: dict[str, str]
+    app_config: str = ""
+    golden_disks: dict[str, dict[str, str]] = field(default_factory=lambda: {})
 
 
 HEX64 = re.compile(r"[0-9a-f]{64}")
@@ -573,10 +588,14 @@ def read_manifest(path: Path) -> Manifest:
         raise ValueError("manifest app build is not a nonempty string")
     if not isinstance(executable, str) or not Path(executable).is_absolute():
         raise ValueError("manifest app executable is not an absolute path")
+    config = app_values.get("config")
+    if not isinstance(config, str) or not Path(config).is_absolute():
+        raise ValueError("manifest app config is not an absolute path")
     sha256 = {str(Path(key)): cast(str, value) for key, value in frozen.items()}
-    for key in (tools["cli"], tools["tart"], executable):
+    for key in (tools["cli"], tools["tart"], executable, config):
         if str(Path(key)) not in sha256:
             raise ValueError(f"manifest sha256 does not pin {key}")
+    disks = _golden_disks(fields.get("golden_disks"), names)
     return Manifest(
         path=path.resolve(),
         cli=tools["cli"],
@@ -588,7 +607,69 @@ def read_manifest(path: Path) -> Manifest:
         app_build=build,
         app_executable=executable,
         sha256=sha256,
+        app_config=config,
+        golden_disks=disks,
     )
+
+
+def _golden_disks(value: object, goldens: dict[str, Any]) -> dict[str, dict[str, str]]:
+    """Check the frozen golden disks: one `disk.img` of the named golden for each OS."""
+    entries = cast(dict[str, Any], value) if isinstance(value, dict) else {}
+    if set(entries) != set(OSES):
+        raise ValueError("manifest golden_disks must name exactly macos and linux")
+    disks: dict[str, dict[str, str]] = {}
+    for os_name in OSES:
+        entry = cast(dict[str, Any], entries[os_name]) if isinstance(entries[os_name], dict) else {}
+        path, digest = entry.get("path"), entry.get("sha256")
+        if not isinstance(path, str) or not Path(path).is_absolute():
+            raise ValueError(f"manifest golden_disks {os_name} path is not an absolute path")
+        if Path(path).name != "disk.img" or Path(path).parent.name != goldens[os_name]:
+            raise ValueError(f"manifest golden_disks {os_name} is not the disk of its golden")
+        if not isinstance(digest, str) or not HEX64.fullmatch(digest):
+            raise ValueError(f"manifest golden_disks {os_name} sha256 is malformed")
+        disks[os_name] = {"path": path, "sha256": digest}
+    return disks
+
+
+def golden_disk(manifest: Manifest, os_name: str) -> dict[str, Any]:
+    """Hash the golden disk of OS by streaming. A read error gives no digest."""
+    path = Path(manifest.golden_disks[os_name]["path"])
+    started = time.monotonic()
+    try:
+        with path.open("rb") as stream:
+            digest: str | None = hashlib.file_digest(stream, "sha256").hexdigest()
+        error = None
+    except OSError as failure:
+        digest, error = None, str(failure)
+    return {"sha256": digest, "error": error, "seconds": round(time.monotonic() - started, 3)}
+
+
+def disk_refusals(manifest: Manifest, os_name: str, record: dict[str, Any]) -> list[str]:
+    """Name the golden disk of OS when its digest is not the frozen digest."""
+    frozen = manifest.golden_disks[os_name]
+    if record.get("sha256") != frozen["sha256"]:
+        return [f"{frozen['path']}: {record.get('sha256')} != {frozen['sha256']}"]
+    return []
+
+
+def golden_disk_record(manifest: Manifest, os_name: str, before: dict[str, Any]) -> dict[str, Any]:
+    """The golden disk record of one clone: the frozen digest, then before and after."""
+    frozen = manifest.golden_disks[os_name]
+    return {
+        "os": os_name,
+        "golden": manifest.goldens[os_name],
+        "path": frozen["path"],
+        "frozen": frozen["sha256"],
+        "before": before,
+        "after": golden_disk(manifest, os_name),
+    }
+
+
+def interpreter_refusals(manifest: Manifest, python: str) -> list[str]:
+    """Name the interpreter when it is not a frozen path of the manifest."""
+    if str(Path(python)) not in manifest.sha256:
+        return [f"the interpreter {python} is not a frozen pin of the manifest"]
+    return []
 
 
 def _digest(path: Path) -> str | None:
@@ -717,6 +798,8 @@ def identities(manifest: Manifest, os_name: str) -> dict[str, Any]:
         "agent_sha256": manifest.agents[os_name],
         "app_build": manifest.app_build,
         "app_executable": manifest.app_executable,
+        "app_config": manifest.app_config,
+        "tart": manifest.tart,
     }
 
 
@@ -730,9 +813,18 @@ def freeze_refusals(manifest: Manifest, manifest_sha256: str) -> list[str]:
 
 
 def run_clone(
-    manifest: Manifest, manifest_sha256: str, os_name: str, index: int, output: Path
+    manifest: Manifest,
+    manifest_sha256: str,
+    os_name: str,
+    index: int,
+    output: Path,
+    disk_before: dict[str, Any],
 ) -> dict[str, Any]:
-    """Freeze, run and judge one clone. Return its trial entry."""
+    """Freeze, run and judge one clone. Return its trial entry.
+
+    `disk_before` is the golden disk digest that the trial took before this
+    clone. The disk is hashed again after the run, before the check.
+    """
     from acceptance_k223_check import check_clone
 
     directory = output / f"{os_name}-{index:02d}"
@@ -768,6 +860,7 @@ def run_clone(
             "residuals": outcome.residuals,
         },
     )
+    write_json(directory / "golden-disk.json", golden_disk_record(manifest, os_name, disk_before))
     verdict = check_clone(directory)
     write_json(directory / "check.json", verdict)
     return {
@@ -786,6 +879,7 @@ def main() -> None:
     manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     manifest = read_manifest(manifest_path)
     refusals = freeze_refusals(manifest, manifest_sha256)
+    refusals += interpreter_refusals(manifest, sys.executable)
     if refusals:
         raise SystemExit(f"frozen subjects differ: {refusals}")
     output.mkdir(parents=True, exist_ok=False)
@@ -795,6 +889,8 @@ def main() -> None:
         # A subject that changed after an earlier clone is a new candidate. It
         # needs a new freeze and a new trial, so this trial stops here.
         refusals = freeze_refusals(manifest, manifest_sha256)
+        disk_before = golden_disk(manifest, os_name)
+        refusals += disk_refusals(manifest, os_name, disk_before)
         if refusals:
             clones.append(
                 {
@@ -806,7 +902,7 @@ def main() -> None:
             )
             print(f"{os_name}-{index:02d}: refused, frozen subjects differ", flush=True)
             break
-        entry = run_clone(manifest, manifest_sha256, os_name, index, output)
+        entry = run_clone(manifest, manifest_sha256, os_name, index, output, disk_before)
         clones.append(entry)
         print(f"{entry['clone']}: passed {entry['passed']}", flush=True)
         if entry["passed"] is not True:

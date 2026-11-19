@@ -1042,7 +1042,7 @@ tasks:
       - set --; for name in {{.HASH | default ""}}; do set -- "$@" --hash "$name"; done; uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/image_audit_k224.py snapshot {{.OUT | shellQuote}} "$@"
 
   diagnostic:acceptance-images-compare:
-    desc: 'Judge each image that both records hashed: unchanged (equal sizes and digests) and not booted (stopped in both, equal disk and NVRAM modification times). Exit 0 only when each image passes. Requires BEFORE=<record> and AFTER=<record>'
+    desc: 'Judge each image that both records hashed: each file present with its size, digest and time in both records, unchanged (equal sizes and digests) and not booted (stopped in both, equal disk and NVRAM modification times). Exit 0 only when each image passes. Requires BEFORE=<record> and AFTER=<record>'
     dir: '{{.ROOT_DIR}}'
     requires:
       vars: [BEFORE, AFTER]
@@ -1064,6 +1064,14 @@ tasks:
       vars: [OUT, BUILD, IMAGES, EXPORTS]
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py manifest {{.OUT | shellQuote}} {{.BUILD | shellQuote}} {{.IMAGES | shellQuote}} {{.EXPORTS | shellQuote}}
+
+  diagnostic:acceptance-refreeze:
+    desc: 'Write the new freeze manifest OUT from the earlier manifest MANIFEST after a change to the trial files. Needs no answering app. Refuses unless each earlier build, Tart and golden-file pin and each golden disk still has its earlier digest (about 21 s for each 50 GB disk). Pins the interpreter, the trial files and the app configuration file again, and names each changed pin. MANIFEST stays unchanged. Requires OUT=<new file> and MANIFEST=<earlier manifest>'
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [OUT, MANIFEST]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py refreeze {{.OUT | shellQuote}} {{.MANIFEST | shellQuote}}
 
   diagnostic:acceptance-prepare:
     desc: 'Run one preparation clone of the new golden of OS (macos or linux) that MANIFEST names, through its private Host CLI and app, into the new directory OUT. The clone runs the k223 preparation cases with the k223 argv; it is not a trial clone. The k223 checker judges each case and runs the four corruption controls on the real evidence. Requires OUT, MANIFEST and OS'

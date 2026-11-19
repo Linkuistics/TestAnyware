@@ -2,6 +2,7 @@
 
     acceptance_k224.py export OUT DEST GOLDEN...
     acceptance_k224.py manifest OUT BUILD_ROOT IMAGES EXPORTS
+    acceptance_k224.py refreeze OUT MANIFEST
     acceptance_k224.py prepare OUT MANIFEST OS
     acceptance_k224.py check DIRECTORY
 
@@ -20,7 +21,19 @@ each new golden, and each file that the trial reads on the host. The trial
 refuses a clone when one of these digests differs. The other fields record the
 builds, the images, the exports, the agent identities and every ceiling and
 bound. The command reads the answering app from `doctor --json` and refuses to
-write the manifest when that app is not the private app of BUILD_ROOT.
+write the manifest when that app is not the private app of BUILD_ROOT. It also
+pins the configuration file that `doctor` names, because that file can select
+another Tart, and it records the frozen disk of each new golden.
+
+`refreeze` writes the new manifest OUT from the earlier manifest MANIFEST
+after a change to the trial files (leaf acceptance-preparation-k244). It needs
+no answering app. It refuses unless each earlier pin of a build, of Tart and
+of a golden file still has its earlier digest, and each golden disk still has
+the digest that the earlier image snapshot recorded. It keeps the builds, the
+app identity, the images and the exports of MANIFEST. It hashes the
+interpreter, the trial files and the configuration file again. The new
+manifest names MANIFEST, the carried pins and each changed pin. MANIFEST stays
+unchanged.
 
 `prepare` runs one preparation clone of the new golden of OS through the
 private builds. It is not a trial clone. Its plan holds the k223 cases that
@@ -30,8 +43,10 @@ each case and runs the corruption controls on the real evidence.
 
 `check` judges one preparation directory again and exits 0 only when it
 passes. The verdict applies the k223 judgement to each case, the freeze and
-the recorded execution. It also requires that each corruption control rejects
-its damaged copy and that the originals still match.
+the recorded execution, with the k223 termination bounds and bound table. It
+also requires that each corruption control rejects its damaged copy and that
+the originals still match. This module must be the code that ran with the
+run: its digest now must equal the run's subject digest after the run.
 """
 
 from __future__ import annotations
@@ -51,6 +66,7 @@ from completion_k186_check import _run_failures  # pyright: ignore[reportPrivate
 from controller import Call, Plan, execute_outcome, write_json
 
 LEAF = "acceptance-preparation-k224"
+REFREEZE_LEAF = "acceptance-preparation-k244"
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 
@@ -208,6 +224,21 @@ def _run(argv: list[str], cwd: Path | None = None, timeout: float = DOCTOR) -> s
     return done.stdout.decode()
 
 
+def configuration_file(cli: Path) -> str:
+    """The configuration file that the Host CLI and the app read, as `doctor --json` names it."""
+    done = subprocess.run(
+        (str(cli), "doctor", "--json"), capture_output=True, timeout=DOCTOR, check=False
+    )
+    report = cast(dict[str, Any], json.loads(done.stdout))
+    config = cast(dict[str, Any], report["checks"]["config"])
+    file = config.get("file")
+    if config.get("verdict") != "loaded" or not isinstance(file, str):
+        raise SystemExit(f"doctor reports no loaded configuration file: {config!r}")
+    if not Path(file).is_absolute():
+        raise SystemExit(f"doctor reports no loaded configuration file: {config!r}")
+    return file
+
+
 def answering_app(cli: Path) -> dict[str, Any]:
     """The running app as `doctor --json` of the private Host CLI reports it."""
     done = subprocess.run(
@@ -271,9 +302,11 @@ def build_manifest(
     if not isinstance(build, str) or not build:
         raise SystemExit("the answering app reports no build")
     vms = Path(cast(str, images["vms"]))
+    config = configuration_file(cli)
     pins = [cli, Path(TART), app, build_root / MACOS_AGENT, build_root / GOLDEN_CLI]
     pins += [vms / golden / name for golden in goldens.values() for name in GOLDEN_FILES]
-    pins += [Path(sys.executable), *trial_files()]
+    pins += [Path(sys.executable), *trial_files(), Path(config)]
+    image_records = {golden: _image(images, golden) for golden in goldens.values()}
     agents = {
         "macos": sha256(build_root / MACOS_AGENT),
         "linux": linux_identity(build_root / LINUX_AGENT),
@@ -291,7 +324,14 @@ def build_manifest(
         "goldens": dict(goldens),
         "bounds": {"boot": BOOT, "slot": SLOT, "export": EXPORT},
         "agents": agents,
-        "app": {"build": build, "executable": str(app)},
+        "app": {"build": build, "executable": str(app), "config": config},
+        "golden_disks": {
+            os_name: {
+                "path": str(vms / golden / "disk.img"),
+                "sha256": image_records[golden]["disk.img"]["sha256"],
+            }
+            for os_name, golden in goldens.items()
+        },
         "sha256": {str(path): sha256(path) for path in pins},
         "source": source,
         "builds": {
@@ -318,7 +358,7 @@ def build_manifest(
             "linux": str(build_root / LINUX_AGENT / "testanyware_agent"),
             "linux_listing": linux_listing(build_root / LINUX_AGENT),
         },
-        "images": {golden: _image(images, golden) for golden in goldens.values()},
+        "images": image_records,
         "exports": {golden: export_entries[golden] for golden in goldens.values()},
         "ceilings": trial.bounds(trial.Manifest(Path("/"), "", "", {}, BOOT, SLOT, {}, "", "", {}))
         | {"export": EXPORT},
@@ -326,6 +366,85 @@ def build_manifest(
         "export": "declared; each new golden was exported once in k224, and no trial clone exports",
     }
     return data
+
+
+def refreeze_manifest(earlier_path: Path) -> dict[str, Any]:
+    """The new manifest after a change to the trial files. See the module text."""
+    earlier = cast(dict[str, Any], json.loads(earlier_path.read_bytes()))
+    earlier_pins = cast(dict[str, str], earlier["sha256"])
+    goldens = cast(dict[str, str], earlier["goldens"])
+    recomputed = [Path(sys.executable), *trial_files()]
+    recomputed_keys = {str(path) for path in recomputed}
+    carried = {key: value for key, value in earlier_pins.items() if key not in recomputed_keys}
+    for key in (str(earlier["cli"]), str(earlier["tart"]), str(earlier["app"]["executable"])):
+        if key not in carried:
+            raise SystemExit(f"the earlier manifest does not carry the pin of {key}")
+    mismatches = trial.digest_mismatches(carried)
+    if mismatches:
+        raise SystemExit(f"a carried pin differs from the earlier manifest: {mismatches}")
+    config = configuration_file(Path(str(earlier["cli"])))
+    pins = {**carried, **{str(path): sha256(path) for path in recomputed}}
+    pins[str(Path(config))] = sha256(Path(config))
+    disks: dict[str, dict[str, str]] = {}
+    checks: dict[str, Any] = {}
+    for os_name, golden in goldens.items():
+        small = [Path(key) for key in carried if Path(key).parent.name == golden]
+        if not any(path.name == "config.json" for path in small):
+            raise SystemExit(f"the earlier manifest does not pin the files of {golden}")
+        disk = next(path for path in small if path.name == "config.json").parent / "disk.img"
+        frozen = str(earlier["images"][golden]["disk.img"]["sha256"])
+        manifest = trial.Manifest(
+            path=Path("/"),
+            cli="",
+            tart="",
+            goldens=goldens,
+            boot=1.0,
+            slot=1.0,
+            agents={},
+            app_build="",
+            app_executable="",
+            sha256={},
+            golden_disks={os_name: {"path": str(disk), "sha256": frozen}},
+        )
+        record = trial.golden_disk(manifest, os_name)
+        refusals = trial.disk_refusals(manifest, os_name, record)
+        if refusals:
+            raise SystemExit(f"a golden disk differs from the earlier image record: {refusals}")
+        disks[os_name] = {"path": str(disk), "sha256": frozen}
+        checks[os_name] = record
+    return earlier | {
+        "leaf": REFREEZE_LEAF,
+        "app": cast(dict[str, Any], earlier["app"]) | {"config": config},
+        "golden_disks": disks,
+        "sha256": dict(sorted(pins.items())),
+        "supersedes": {
+            "leaf": earlier.get("leaf"),
+            "manifest": str(earlier_path.resolve()),
+            "sha256": sha256(earlier_path),
+        },
+        "refreeze": {
+            "carried_pins": sorted(carried),
+            "changed_pins": {
+                key: {"earlier": earlier_pins.get(key), "now": value}
+                for key, value in sorted(pins.items())
+                if earlier_pins.get(key) != value
+            },
+            "golden_disk_checks": checks,
+            "note": "the builds, app identity, images and exports are those of the earlier "
+            "manifest; each carried pin and each golden disk still had its earlier digest",
+        },
+    }
+
+
+def write_manifest(output: Path, data: dict[str, Any]) -> str:
+    """Create the manifest OUT once, check that the trial reads it, and return its digest."""
+    with output.open("x") as stream:
+        json.dump(data, stream, indent=2, sort_keys=True)
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    trial.read_manifest(output)
+    return hashlib.sha256(output.read_bytes()).hexdigest()
 
 
 # --- preparation ------------------------------------------------------------
@@ -365,6 +484,9 @@ def run_preparation(output: Path, manifest_path: Path, os_name: str) -> dict[str
     manifest_sha256 = hashlib.sha256(manifest_path.read_bytes()).hexdigest()
     manifest = trial.read_manifest(manifest_path)
     refusals = trial.freeze_refusals(manifest, manifest_sha256)
+    refusals += trial.interpreter_refusals(manifest, sys.executable)
+    disk_before = trial.golden_disk(manifest, os_name)
+    refusals += trial.disk_refusals(manifest, os_name, disk_before)
     if refusals:
         raise SystemExit(f"frozen subjects differ: {refusals}")
     output.mkdir(parents=True, exist_ok=False)
@@ -399,6 +521,9 @@ def run_preparation(output: Path, manifest_path: Path, os_name: str) -> dict[str
             "ledger": outcome.ledger,
             "residuals": outcome.residuals,
         },
+    )
+    write_json(
+        output / "golden-disk.json", trial.golden_disk_record(manifest, os_name, disk_before)
     )
     verdict = check_preparation(output)
     write_json(output / "check.json", verdict)
@@ -438,7 +563,21 @@ def shape_failures(inventory: dict[str, Any]) -> list[str]:
     resource_expected = trial._resource(clone, golden, tart, boot)  # pyright: ignore[reportPrivateUsage]
     if checker._normal(resource) != checker._normal(asdict(resource_expected)):  # pyright: ignore[reportPrivateUsage]
         failures.append("the frozen resource is not the acceptance resource")
+    if (plan.get("term_grace"), plan.get("kill_wait")) != (trial.TERM_GRACE, trial.KILL_WAIT):
+        failures.append("the frozen termination bounds are not 2 s and 2 s")
+    expected_bounds = trial.bounds(checker._manifest_bounds(inventory))  # pyright: ignore[reportPrivateUsage]
+    if checker._normal(inventory.get("bounds")) != checker._normal(expected_bounds):  # pyright: ignore[reportPrivateUsage]
+        failures.append("the frozen bounds are not the acceptance bounds")
     return failures
+
+
+def source_failures(clone: checker.Clone) -> list[str]:
+    """This module is the code that ran with the run, as the run's subject digests record it."""
+    key = str(Path(__file__).resolve())
+    after = checker._mapping(clone.result.get("subjects_after")).get(key)  # pyright: ignore[reportPrivateUsage]
+    if sha256(Path(__file__).resolve()) != after:
+        return [f"the preparation checker {key} differs from the run's subject digest"]
+    return []
 
 
 def check_preparation(directory: Path) -> dict[str, Any]:
@@ -455,6 +594,7 @@ def check_preparation(directory: Path) -> dict[str, Any]:
     failures += _run_failures(clone.run, clone.result, cast(list[object], names))
     failures += checker.execution_failures(clone)
     failures += checker.freeze_failures(clone)
+    failures += source_failures(clone)
     if clone.summary.get("verdict") is not True or clone.summary.get("residuals") != []:
         failures.append(
             f"controller verdict {clone.summary.get('verdict')!r} "
@@ -501,13 +641,11 @@ def main() -> None:
         data = build_manifest(
             build_root.resolve(), goldens, json.loads(images.read_bytes()), exported
         )
-        with output.open("x") as stream:
-            json.dump(data, stream, indent=2, sort_keys=True)
-            stream.write("\n")
-            stream.flush()
-            os.fsync(stream.fileno())
-        trial.read_manifest(output)
-        print(f"{output}: {hashlib.sha256(output.read_bytes()).hexdigest()}")
+        print(f"{output}: {write_manifest(output, data)}")
+        return
+    if verb == "refreeze" and len(arguments) == 2:
+        output, earlier = (Path(a) for a in arguments)
+        print(f"{output}: {write_manifest(output, refreeze_manifest(earlier))}")
         return
     if verb == "prepare" and len(arguments) == 3:
         verdict = run_preparation(Path(arguments[0]).resolve(), Path(arguments[1]), arguments[2])

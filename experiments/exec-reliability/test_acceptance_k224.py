@@ -15,7 +15,7 @@ import subprocess
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -57,6 +57,8 @@ class PrepBuilder(k223.Builder):
         self.inventory["leaf"] = prep.LEAF
         self.inventory["index"] = 0
         self.inventory["plan"] = json.loads(controller._json_bytes(asdict(self.plan)))  # pyright: ignore[reportPrivateUsage]
+        source = Path(prep.__file__).resolve()
+        self.subjects[str(source)] = hashlib.sha256(source.read_bytes()).hexdigest()
         for name in prep.SHAPE:
             self.default(name)
 
@@ -154,6 +156,45 @@ def test_a_subject_that_differs_from_the_freeze_fails_the_preparation(tmp_path: 
     assert any(f.startswith(f"subject {k223.CLI}") for f in verdict["failures"])
 
 
+def test_a_changed_preparation_checker_fails_the_recheck(tmp_path: Path) -> None:
+    # Review k243 R4: the recheck must run the code that ran with the run.
+    builder = PrepBuilder(tmp_path, "linux")
+    builder.subjects[str(Path(prep.__file__).resolve())] = "0" * 64
+    verdict = _verdict(builder)
+    assert verdict["ok"] is False
+    assert any(f.startswith("the preparation checker") for f in verdict["failures"])
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "failure"),
+    [
+        ("term_grace", 100.0, "the frozen termination bounds are not 2 s and 2 s"),
+        ("kill_wait", 100.0, "the frozen termination bounds are not 2 s and 2 s"),
+        ("bounds", {"transfer": 1500.0}, "the frozen bounds are not the acceptance bounds"),
+    ],
+)
+def test_altered_preparation_bounds_fail_the_recheck(
+    tmp_path: Path, field: str, value: object, failure: str
+) -> None:
+    # Review k243 R5: the inventory and the run plan agree, and the calls stay
+    # unchanged, but the bounds are not the k223 bounds.
+    builder = PrepBuilder(tmp_path, "macos")
+    if field == "bounds":
+        builder.inventory["bounds"] = builder.inventory["bounds"] | cast(Json, value)
+    else:
+        builder.inventory["plan"][field] = value
+    verdict = _verdict(builder)
+    assert verdict["ok"] is False and failure in verdict["failures"]
+
+
+def test_a_preparation_without_its_golden_disk_record_fails(tmp_path: Path) -> None:
+    builder = PrepBuilder(tmp_path, "linux")
+    builder.golden_disk = {}
+    verdict = _verdict(builder)
+    assert verdict["ok"] is False
+    assert "the golden disk record is absent" in verdict["failures"]
+
+
 def test_a_trial_shape_is_not_a_preparation(tmp_path: Path) -> None:
     directory = k223.Builder(tmp_path, "macos").write()
     verdict = prep.check_preparation(directory)
@@ -247,6 +288,9 @@ def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> tuple[Path, Jso
         lambda r: {"commit": "f" * 40, "working_copy_changes": ""},  # pyright: ignore[reportUnknownLambdaType]
     )
     monkeypatch.setattr(prep, "codesign", lambda b: {"TeamIdentifier": "TA43A4RUP3"})  # pyright: ignore[reportUnknownLambdaType]
+    config = tmp_path / "config.rhai"
+    config.write_text("#{}\n")
+    monkeypatch.setattr(prep, "configuration_file", lambda cli: str(config))  # pyright: ignore[reportUnknownLambdaType]
     return root, images, exports
 
 
@@ -275,6 +319,14 @@ def test_manifest_reads_and_pins_what_the_trial_reads(
         assert str(tmp_path / "vms" / golden / "nvram.bin") in pinned
     assert str(Path(prep.__file__).resolve()) not in pinned
     assert trial.freeze_refusals(manifest, hashlib.sha256(path.read_bytes()).hexdigest()) == []
+    # Review k243 R1 to R3: the disks, the configuration and the interpreter.
+    assert manifest.app_config == str(tmp_path / "config.rhai") and manifest.app_config in pinned
+    assert trial.interpreter_refusals(manifest, sys.executable) == []
+    for os_name, golden in GOLDENS.items():
+        disk = tmp_path / "vms" / golden / "disk.img"
+        assert manifest.golden_disks[os_name]["path"] == str(disk)
+        record = trial.golden_disk(manifest, os_name)
+        assert trial.disk_refusals(manifest, os_name, record) == []
 
 
 def test_manifest_refuses_another_answering_app(
@@ -307,6 +359,60 @@ def test_manifest_refuses_a_failed_export(isolated: tuple[Path, Json, Json]) -> 
     root, images, exports = isolated
     with pytest.raises(SystemExit, match="exports"):
         prep.build_manifest(root, GOLDENS, images, exports | {"ok": False})
+
+
+def _earlier(isolated: tuple[Path, Json, Json], tmp_path: Path) -> Path:
+    root, images, exports = isolated
+    path = tmp_path / "earlier.json"
+    data = prep.build_manifest(root, GOLDENS, images, exports)
+    # The k224 manifest had neither field: the refreeze must not need them.
+    del data["golden_disks"], data["app"]["config"]
+    path.write_text(json.dumps(data))
+    return path
+
+
+def test_refreeze_carries_the_builds_and_pins_the_trial_files_again(
+    isolated: tuple[Path, Json, Json], tmp_path: Path
+) -> None:
+    earlier = _earlier(isolated, tmp_path)
+    data = json.loads(earlier.read_bytes())
+    module = str(Path(trial.__file__).resolve())
+    data["sha256"][module] = "0" * 64  # the earlier trial module
+    del data["sha256"][str(tmp_path / "config.rhai")]
+    earlier.write_text(json.dumps(data))
+    refrozen = prep.refreeze_manifest(earlier)
+    path = tmp_path / "manifest.json"
+    digest = prep.write_manifest(path, refrozen)
+    manifest = trial.read_manifest(path)
+    assert trial.freeze_refusals(manifest, digest) == []
+    assert trial.interpreter_refusals(manifest, sys.executable) == []
+    assert refrozen["leaf"] == prep.REFREEZE_LEAF and refrozen["builds"] == data["builds"]
+    assert refrozen["supersedes"]["sha256"] == hashlib.sha256(earlier.read_bytes()).hexdigest()
+    changed = refrozen["refreeze"]["changed_pins"]
+    assert set(changed) == {module, str(tmp_path / "config.rhai")}
+    assert changed[module]["earlier"] == "0" * 64
+    assert str(isolated[0] / prep.CLI) in refrozen["refreeze"]["carried_pins"]
+    for os_name in OSES:
+        record = trial.golden_disk(manifest, os_name)
+        assert trial.disk_refusals(manifest, os_name, record) == []
+
+
+def test_refreeze_refuses_a_changed_build(
+    isolated: tuple[Path, Json, Json], tmp_path: Path
+) -> None:
+    earlier = _earlier(isolated, tmp_path)
+    (isolated[0] / prep.CLI).write_bytes(b"another build")
+    with pytest.raises(SystemExit, match="carried pin"):
+        prep.refreeze_manifest(earlier)
+
+
+def test_refreeze_refuses_a_changed_golden_disk(
+    isolated: tuple[Path, Json, Json], tmp_path: Path
+) -> None:
+    earlier = _earlier(isolated, tmp_path)
+    (tmp_path / "vms" / GOLDENS["linux"] / "disk.img").write_text("changed")
+    with pytest.raises(SystemExit, match="golden disk"):
+        prep.refreeze_manifest(earlier)
 
 
 # --- the image audit --------------------------------------------------------
@@ -343,3 +449,29 @@ def _snapshot(state: str = "stopped", **changes: Any) -> Json:
 )
 def test_image_audit_requires_unchanged_and_not_booted(after: Json, ok: bool) -> None:
     assert audit.compare(_snapshot(), after)["ok"] is ok
+
+
+def _missing(**changes: Any) -> Json:
+    snapshot = _snapshot()
+    disk = snapshot["images"]["g"]["files"]["disk.img"]
+    for key, value in changes.items():
+        if value is None:
+            disk.pop(key)
+        else:
+            disk[key] = value
+    return snapshot
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"present": False, "size": None, "sha256": None, "mtime_ns": None},
+        {"sha256": None},
+        {"mtime_ns": None},
+    ],
+)
+def test_image_audit_rejects_equal_missing_evidence(changes: Json) -> None:
+    # Review k243 R6: two equal records without the content are no evidence.
+    verdict = audit.compare(_missing(**changes), _missing(**changes))
+    assert verdict["ok"] is False
+    assert any("lacks" in f for f in verdict["images"]["g"]["failures"])

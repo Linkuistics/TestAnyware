@@ -1,0 +1,32 @@
+F.                                                                       [100%]
+=================================== FAILURES ===================================
+_____________ test_close_acknowledgement_read_at_p_is_late[exited] _____________
+
+tmp_path = PosixPath('/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1815/test_close_acknowledgement_rea0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x10786b920>
+reap_after = 0.0
+
+    @pytest.mark.parametrize("reap_after", [0.0, 0.25], ids=["exited", "live"])
+    def test_close_acknowledgement_read_at_p_is_late(tmp_path, monkeypatch, reap_after):
+        """An `ok` close acknowledgement that a turn reads at or after P never makes
+        publication complete. A live writer receives KILL. An exited writer is
+        incomplete. No identity is anchored in either case."""
+        storage = started_storage(tmp_path)
+        client = storage.client
+        deadline = hold_until(storage, monkeypatch, reap_after)
+        close_within_watchdog(storage)
+        assert client.closed_at is not None and client.closed_at >= deadline
+        assert storage.close_ack is not None and storage.close_ack["status"] == "ok"
+        outcome = storage.outcome()
+        if reap_after:
+            assert client.killed_at is not None and client.killed_at >= deadline
+            assert outcome.publication == "killed"
+        else:
+>           assert client.killed_at is None
+E           assert 686174.745128375 is None
+E            +  where 686174.745128375 = <test_storage_controls.RecordedClient object at 0x10786b2f0>.killed_at
+
+test_storage_controls.py:1198: AssertionError
+=========================== short test summary info ============================
+FAILED test_storage_controls.py::test_close_acknowledgement_read_at_p_is_late[exited]
+1 failed, 1 passed in 2.33s

@@ -48,10 +48,14 @@ no clone waits for a slot. A full slot fails `acquire` at once with
 The checker also judges three properties of the run itself:
 
 - Identity: the `identity` output gives the frozen agent digest, and the
-  `app-identity` helper shows the frozen app build and executable.
+  `app-identity` helper shows the frozen app build and executable. The app
+  loaded the frozen configuration file, which has not changed since its
+  evaluation, and `doctor` resolves the frozen Tart.
 - Freeze: the manifest still has its frozen digest. Each frozen path, the
   manifest and each fixture file had its frozen digest before and after the
   run. Each checker module has the digest that the run's subjects recorded.
+  The interpreter of the plan is a frozen path. `golden-disk.json` gives the
+  frozen golden disk digest before and after the run.
 - Execution: the recorded calls have the plan's names in the plan's order,
   each with its planned argv, and their start times never decrease.
 
@@ -756,6 +760,37 @@ def app_identity_failures(clone: Clone) -> list[str]:
         expected = identities.get(key)
         if not isinstance(expected, str) or running.get(field) != expected:
             failures.append(f"answering app {field} {running.get(field)!r}, frozen {expected!r}")
+    return failures + tool_identity_failures(_mapping(report), identities)
+
+
+def tool_identity_failures(report: Json, identities: Json) -> list[str]:
+    """The answering app loaded the frozen configuration, and `doctor` resolves the frozen Tart.
+
+    The configuration file can name another Tart. The app reads it only when it
+    starts, and `changed_since_evaluation` compares the file now with the file
+    that the app evaluated. The Host CLI reads the same file, so its resolved
+    Tart is the Tart that the configuration selects.
+    """
+    checks = _mapping(report.get("checks"))
+    configuration = _mapping(_mapping(checks.get("app")).get("configuration"))
+    expected = identities.get("app_config")
+    failures: list[str] = []
+    if (
+        not isinstance(expected, str)
+        or configuration.get("verdict") != "loaded"
+        or configuration.get("file") != expected
+        or configuration.get("changed_since_evaluation") is not False
+    ):
+        failures.append(
+            f"answering app configuration {configuration.get('file')!r} "
+            f"verdict {configuration.get('verdict')!r} changed "
+            f"{configuration.get('changed_since_evaluation')!r}, frozen {expected!r}"
+        )
+    tools = cast(list[Any], _mapping(checks.get("host_tools")).get("tools") or [])
+    tarts = [_mapping(tool).get("path") for tool in tools if _mapping(tool).get("name") == "tart"]
+    tart = identities.get("tart")
+    if not isinstance(tart, str) or tarts != [tart]:
+        failures.append(f"resolved Tart {tarts!r}, frozen {tart!r}")
     return failures
 
 
@@ -1079,6 +1114,27 @@ def freeze_failures(clone: Clone) -> list[str]:
         key = str(module.absolute())
         if _file_sha256(module) != after.get(key):
             failures.append(f"checker module {key} differs from the run's subject digest")
+    python = clone.argv("app-identity")[:1] if "app-identity" in clone.planned else []
+    if not python or str(Path(python[0])) not in frozen:
+        failures.append(f"the interpreter {python!r} is not a frozen pin")
+    if os_name in trial.OSES:
+        failures += golden_disk_failures(clone, manifest, os_name)
+    return failures
+
+
+def golden_disk_failures(clone: Clone, manifest: trial.Manifest, os_name: str) -> list[str]:
+    """The golden disk of the clone had its frozen digest before and after the run."""
+    record = _json(_read(clone.directory / "golden-disk.json"))
+    if record is None:
+        return ["the golden disk record is absent"]
+    frozen = manifest.golden_disks[os_name]
+    failures: list[str] = []
+    if record.get("path") != frozen["path"] or record.get("frozen") != frozen["sha256"]:
+        failures.append("the golden disk record does not name the frozen disk")
+    for phase in ("before", "after"):
+        digest = _mapping(record.get(phase)).get("sha256")
+        if digest != frozen["sha256"]:
+            failures.append(f"golden disk {phase} {digest!r}, frozen {frozen['sha256']!r}")
     return failures
 
 

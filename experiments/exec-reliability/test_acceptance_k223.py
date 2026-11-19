@@ -37,7 +37,19 @@ CLI = "/opt/private/testanyware"
 TART = "/opt/private/tart"
 APP_EXECUTABLE = "/opt/private/TestAnyware.app/Contents/MacOS/TestAnyware"
 APP_BUILD = "0.0.0-k224"
-FROZEN = {CLI: "a" * 64, TART: "b" * 64, APP_EXECUTABLE: "c" * 64}
+APP_CONFIG = "/h/.config/testanyware/config.rhai"
+GOLDENS = {"macos": "k224-golden-macos", "linux": "k224-golden-linux"}
+GOLDEN_DISKS = {
+    os_name: {"path": f"/opt/private/vms/{golden}/disk.img", "sha256": digit * 64}
+    for (os_name, golden), digit in zip(GOLDENS.items(), "12", strict=True)
+}
+FROZEN = {
+    CLI: "a" * 64,
+    TART: "b" * 64,
+    APP_EXECUTABLE: "c" * 64,
+    APP_CONFIG: "8" * 64,
+    str(Path(sys.executable)): "9" * 64,
+}
 MACOS_AGENT_SHA256 = "d" * 64
 LINUX_LISTING = (
     f"{'e' * 64}  ./testanyware_agent/__main__.py\n{'f' * 64}  ./testanyware_agent/exec.py\n"
@@ -52,10 +64,11 @@ def _manifest_data(**bounds: object) -> Json:
     return {
         "cli": CLI,
         "tart": TART,
-        "goldens": {"macos": "k224-golden-macos", "linux": "k224-golden-linux"},
+        "goldens": dict(GOLDENS),
         "bounds": bounds or {"boot": 420, "slot": 60},
         "agents": dict(AGENTS),
-        "app": {"build": APP_BUILD, "executable": APP_EXECUTABLE},
+        "app": {"build": APP_BUILD, "executable": APP_EXECUTABLE, "config": APP_CONFIG},
+        "golden_disks": json.loads(json.dumps(GOLDEN_DISKS)),
         "sha256": dict(FROZEN),
     }
 
@@ -225,6 +238,7 @@ def test_a_subject_changed_between_clones_refuses_the_next_clone(tmp_path: Path)
     data = _manifest_data()
     data["sha256"] = {str(subject): hashlib.sha256(b"build 1").hexdigest()}
     data["cli"] = data["tart"] = data["app"]["executable"] = str(subject)
+    data["app"]["config"] = str(subject)
     path = _manifest(tmp_path, data)
     manifest = trial.read_manifest(path)
     frozen = hashlib.sha256(path.read_bytes()).hexdigest()
@@ -235,6 +249,52 @@ def test_a_subject_changed_between_clones_refuses_the_next_clone(tmp_path: Path)
     subject.write_bytes(b"build 1")
     path.write_text(path.read_text() + " ")
     assert trial.freeze_refusals(manifest, frozen) != []
+
+
+def test_manifest_requires_the_pinned_configuration_and_the_golden_disks(tmp_path: Path) -> None:
+    # Review k243 R1 and R2.
+    for edit in (
+        lambda d: d["app"].pop("config"),
+        lambda d: d["sha256"].pop(APP_CONFIG),
+        lambda d: d.pop("golden_disks"),
+        lambda d: d["golden_disks"].pop("linux"),
+        lambda d: d["golden_disks"]["macos"].update(path="/opt/private/vms/other/disk.img"),
+        lambda d: d["golden_disks"]["macos"].update(sha256="x"),
+    ):
+        data = _manifest_data()
+        edit(data)
+        with pytest.raises(ValueError, match="manifest"):
+            trial.read_manifest(_manifest(tmp_path, data))
+
+
+def test_a_changed_or_missing_golden_disk_refuses_the_clone(tmp_path: Path) -> None:
+    # Review k243 R1: the trial hashes the golden disk by streaming.
+    data = _manifest_data()
+    disk = tmp_path / "vms" / GOLDENS["macos"] / "disk.img"
+    disk.parent.mkdir(parents=True)
+    disk.write_bytes(b"golden")
+    data["golden_disks"]["macos"] = {
+        "path": str(disk),
+        "sha256": hashlib.sha256(b"golden").hexdigest(),
+    }
+    manifest = trial.read_manifest(_manifest(tmp_path, data))
+    before = trial.golden_disk(manifest, "macos")
+    assert trial.disk_refusals(manifest, "macos", before) == []
+    disk.write_bytes(b"golden!")
+    record = trial.golden_disk_record(manifest, "macos", before)
+    assert record["before"]["sha256"] != record["after"]["sha256"]
+    assert trial.disk_refusals(manifest, "macos", record["after"]) != []
+    disk.unlink()
+    missing = trial.golden_disk(manifest, "macos")
+    assert missing["sha256"] is None and missing["error"]
+    assert trial.disk_refusals(manifest, "macos", missing) != []
+
+
+def test_an_interpreter_outside_the_freeze_is_refused(tmp_path: Path) -> None:
+    # Review k243 R3.
+    manifest = trial.read_manifest(_manifest(tmp_path))
+    assert trial.interpreter_refusals(manifest, sys.executable) == []
+    assert trial.interpreter_refusals(manifest, "/opt/other/python3") != []
 
 
 def test_reset_is_demonstrated_only_by_the_next_baseline() -> None:
@@ -564,6 +624,20 @@ class Builder:
             "plan": json.loads(controller._json_bytes(asdict(self.plan))),  # pyright: ignore[reportPrivateUsage]
         }
         self.subjects = self.frozen_subjects()
+        self.configuration: Json = {}
+        self.tools: list[Json] = [
+            {"name": "tart", "path": TART},
+            {"name": "qemu-system-aarch64", "path": "/opt/private/qemu"},
+        ]
+        frozen_disk = GOLDEN_DISKS[os_name]["sha256"]
+        self.golden_disk: Json = {
+            "os": os_name,
+            "golden": GOLDENS[os_name],
+            "path": GOLDEN_DISKS[os_name]["path"],
+            "frozen": frozen_disk,
+            "before": {"sha256": frozen_disk, "error": None, "seconds": 21.0},
+            "after": {"sha256": frozen_disk, "error": None, "seconds": 21.0},
+        }
         for name in checker.expected_shape(os_name):
             self.default(name)
 
@@ -733,7 +807,15 @@ class Builder:
                         "executable": APP_EXECUTABLE,
                         **running,
                     },
+                    "configuration": {
+                        "status": "pass",
+                        "verdict": "loaded",
+                        "file": APP_CONFIG,
+                        "changed_since_evaluation": False,
+                        **self.configuration,
+                    },
                 },
+                "host_tools": {"status": "pass", "tools": self.tools},
             },
         }
         doctor = {
@@ -824,6 +906,8 @@ class Builder:
             "residuals": [],
         }
         (self.directory / "summary.json").write_text(json.dumps(summary))
+        if self.golden_disk:
+            (self.directory / "golden-disk.json").write_text(json.dumps(self.golden_disk))
         return self.directory
 
 
@@ -1180,6 +1264,58 @@ def test_a_manifest_changed_after_the_run_fails_the_clone(tmp_path: Path) -> Non
     builder.manifest_path.write_text(builder.manifest_path.read_text() + " ")
     failures = checker.check_clone(builder.directory)["failures"]
     assert any("no longer has its frozen digest" in failure for failure in failures), failures
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        lambda b: b.golden_disk.clear(),
+        lambda b: b.golden_disk["after"].update(sha256="0" * 64),
+        lambda b: b.golden_disk["before"].update(sha256=None),
+        lambda b: b.golden_disk.update(path="/opt/private/vms/other/disk.img"),
+    ],
+)
+def test_a_golden_disk_that_is_not_the_frozen_disk_fails_the_clone(
+    tmp_path: Path, edit: Callable[[Builder], object]
+) -> None:
+    # Review k243 R1.
+    builder = Builder(tmp_path, "macos")
+    edit(builder)
+    verdict = checker.check_clone(builder.write())
+    assert verdict["ok"] is False
+    assert any("golden disk" in f for f in verdict["failures"])
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        lambda b: b.configuration.update(changed_since_evaluation=True),
+        lambda b: b.configuration.update(file="/h/other.rhai"),
+        lambda b: b.configuration.update(verdict="absent"),
+        lambda b: b.tools.__setitem__(0, {"name": "tart", "path": "/usr/local/bin/tart"}),
+        lambda b: b.tools.pop(0),
+    ],
+)
+def test_an_app_without_the_frozen_configuration_or_tart_fails(
+    tmp_path: Path, edit: Callable[[Builder], object]
+) -> None:
+    # Review k243 R2: the configuration file can select another Tart.
+    builder = Builder(tmp_path, "linux")
+    edit(builder)
+    builder.put("app-identity", builder.app_record())
+    verdict = checker.check_clone(builder.write())
+    assert verdict["ok"] is False and verdict["cases"]["app-identity"]["ok"] is False
+
+
+def test_an_unpinned_interpreter_fails_the_clone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Review k243 R3: the plan's interpreter must be a frozen pin.
+    frozen = {key: value for key, value in FROZEN.items() if key != str(Path(sys.executable))}
+    monkeypatch.setattr(sys.modules[__name__], "FROZEN", frozen)
+    verdict = checker.check_clone(Builder(tmp_path, "macos").write())
+    assert verdict["ok"] is False
+    assert any("interpreter" in f for f in verdict["failures"])
 
 
 def test_inventory_identities_must_be_the_manifest_identities(tmp_path: Path) -> None:
