@@ -4,13 +4,16 @@
 # cross builds (leaf app-release-bundle-k22). Runs on a macOS host with the Developer ID of team
 # TA43A4RUP3 in the keychain, and with a network for the secure timestamp of the release signature.
 #
-#   1. scripts/tests/test_release_candidate.py: the tag gate, the manifest, the rendering.
+#   1. scripts/tests/test_release_candidate.py: the tag gate, the manifest, the rendering, and
+#      the skill source that each host archive carries.
 #   2. release-build.sh refuses a bad tag before it touches anything.
-#   3. The cask template renders to valid Ruby with the stanzas that ADR-0020 requires.
+#   3. The cask template renders to valid Ruby with the stanzas that ADR-0020 requires. The formula
+#      template renders the keg layout of the skill source and no revision.
 #   4. verify-app.sh on real signed bundles: a development bundle, a bundle of another team and a
 #      release bundle that is not notarised are refused. A release bundle passes the identity check.
 #   5. release-publish.sh against local bare repositories and a fake gh: the order of the steps, and
-#      each refusal before anything is pushed, a Windows host archive in the candidate included.
+#      each refusal before anything is pushed, a Windows host archive in the candidate and a host
+#      archive without the skill source included.
 #   6. release-build.sh stops when the app is not notarised, and its targets name no Windows host.
 
 # shellcheck disable=SC2015,SC2016  # SC2016: the stub bodies expand when the stub runs. SC2015: pass never fails, so `A && pass || fail` is an if-else here
@@ -43,7 +46,7 @@ expect_refusal() {
   fi
 }
 
-echo "1. tag gate, manifest and rendering"
+echo "1. tag gate, manifest, rendering and skill source"
 if python3 -I "$root/scripts/tests/test_release_candidate.py" >"$work/py.log" 2>&1; then
   pass "test_release_candidate.py"
 else
@@ -64,7 +67,7 @@ expect_refusal "a tag that is not vMAJOR.MINOR.PATCH" "not vMAJOR" "$root/script
   fail "a refused build changed the tree"
 [[ ! -e "$root/target/candidates/v9.9.9" ]] && pass "no candidate directory" || fail "a refused build made a directory"
 
-echo "3. the cask template"
+echo "3. the cask and formula templates"
 "$root/scripts/release_candidate.py" render --template "$root/scripts/templates/testanyware-app.rb.tmpl" \
   --out "$work/testanyware-app.rb" VERSION=1.2.3 SHA_APP=abc123
 cask=$work/testanyware-app.rb
@@ -93,6 +96,18 @@ grep -qE '@[A-Z0-9_]+@' "$work/testanyware.rb" && fail "the formula keeps a plac
 [[ "$(grep -m1 '^ *version ' "$work/testanyware.rb")" == "$(grep -m1 '^ *version ' "$cask")" ]] &&
   grep -q 'version "1.2.3"' "$cask" &&
   pass "the formula and the cask take one version" || fail "the formula and the cask differ in version"
+# "The keg layout" of docs/specs/codex-skill-provisioning.md in Grove: the skill source is a
+# private payload in libexec/skill-sources, and share/ravel/skills holds only its relative alias.
+formula_code=$(grep -v '^ *#' "$work/testanyware.rb")
+formula_has() { grep -qF "$1" <<<"$formula_code" && pass "formula: $1" || fail "formula lacks: $1"; }
+formula_has '(libexec/"skill-sources").install "share/ravel/skills/testanyware"'
+formula_has '(share/"ravel/skills").install_symlink libexec/"skill-sources/testanyware"'
+formula_has 'assert_equal "../../../libexec/skill-sources/testanyware", (share/"ravel/skills/testanyware").readlink.to_s'
+grep -qF '(share/"ravel/skills").install "' <<<"$formula_code" &&
+  fail "the formula installs a real directory in share/ravel/skills" ||
+  pass "the formula installs no real directory in share/ravel/skills"
+grep -qE '^ *revision ' <<<"$formula_code" && fail "the formula renders a revision" ||
+  pass "the formula renders no revision"
 
 echo "4. verify-app.sh on signed bundles"
 dev=$(TESTANYWARE_APP_OUT="$work/app" "$root/scripts/build-app.sh" dev | tail -n1)
@@ -125,14 +140,24 @@ make_scene() {
   git -C "$scene/tap" branch -q --set-upstream-to=origin/main
   git -C "$scene/repo" init -q
   echo one >"$scene/repo/a.txt"
-  git -C "$scene/repo" add a.txt scripts
+  mkdir -p "$scene/repo/plugins/testanyware/skills/using-testanyware"
+  echo skill >"$scene/repo/plugins/testanyware/skills/using-testanyware/SKILL.md"
+  git -C "$scene/repo" add a.txt scripts plugins
   git -C "$scene/repo" -c user.name=t -c user.email=t@example.com commit -q -m one
   git -C "$scene/repo" -c user.name=t -c user.email=t@example.com tag -a v1.2.3 -m "Release v1.2.3"
   commit=$(git -C "$scene/repo" rev-parse HEAD)
   local dir=$scene/repo/target/candidates/v1.2.3
   mkdir -p "$dir"
-  echo mac >"$dir/testanyware-v1.2.3-aarch64-apple-darwin.tar.xz"
-  echo linux >"$dir/testanyware-v1.2.3-aarch64-unknown-linux-gnu.tar.xz"
+  # Each host archive carries the skill source of the commit, as release-build.sh stages it.
+  local triple top stage=$scene/stage
+  for triple in aarch64-apple-darwin aarch64-unknown-linux-gnu; do
+    top=testanyware-v1.2.3-$triple
+    mkdir -p "$stage/$top/bin" "$stage/$top/share/ravel/skills/testanyware"
+    echo cli >"$stage/$top/bin/testanyware"
+    git -C "$scene/repo" archive --format=tar "$commit:plugins/testanyware" |
+      tar -xf - -C "$stage/$top/share/ravel/skills/testanyware"
+    tar -C "$stage" --no-mac-metadata -cJf "$dir/$top.tar.xz" "$top"
+  done
   echo app >"$dir/testanyware-app-v1.2.3-aarch64-apple-darwin.zip"
   echo formula >"$dir/testanyware.rb"
   echo cask >"$dir/testanyware-app.rb"
@@ -187,10 +212,55 @@ grep -qE 'pc-windows' "$scene/gh.log" && fail "a Windows host archive became an 
   [[ "$(git -C "$scene/tap.git" show main:Casks/testanyware-app.rb)" == cask ]] &&
   pass "the formula and the cask are in that commit" || fail "the tap lacks the formula or the cask"
 
+make_scene jj-tap
+# The tap clone is a colocated jj repository, whose git HEAD is detached.
+rm -rf "$scene/tap"
+jj git clone --quiet --colocate "$scene/tap.git" "$scene/tap" 2>/dev/null
+run_publish v1.2.3 >"$scene/out.log" 2>&1 && pass "a jj tap publishes" || {
+  fail "a jj tap publishes"
+  cat "$scene/out.log" >&2
+}
+[[ "$(git -C "$scene/tap.git" rev-list --count main)" == 2 ]] &&
+  [[ "$(git -C "$scene/tap.git" show main:Formula/testanyware.rb)" == formula ]] &&
+  [[ "$(git -C "$scene/tap.git" log -1 --format=%s main)" == "testanyware v1.2.3" ]] &&
+  pass "the jj tap pushed the formula and the cask in one commit to main" || fail "the jj tap's remote main"
+
+make_scene jj-tap-behind
+# Another clone pushed to the remote main, and the jj tap moved its bookmark main to a local commit.
+rm -rf "$scene/tap"
+jj git clone --quiet --colocate "$scene/tap.git" "$scene/tap" 2>/dev/null
+git clone -q "$scene/tap.git" "$scene/other"
+git -C "$scene/other" -c user.name=t -c user.email=t@example.com commit -q --allow-empty -m other
+git -C "$scene/other" push -q origin HEAD:main
+jj -R "$scene/tap" new main >/dev/null 2>&1
+jj -R "$scene/tap" describe -m local >/dev/null 2>&1
+jj -R "$scene/tap" bookmark set main -r @ >/dev/null 2>&1
+expect_refusal "a jj tap whose main differs from main@origin" "differs from main@origin" run_publish v1.2.3
+[[ ! -e "$scene/gh.log" ]] && pass "jj-tap-behind: gh did not run" || fail "jj-tap-behind: gh ran"
+[[ -z "$(git -C "$scene/remote.git" tag)" ]] && pass "jj-tap-behind: no tag reached the remote" ||
+  fail "jj-tap-behind: a tag reached the remote"
+
+make_scene detached-git-tap
+git -C "$scene/tap" checkout -q --detach
+expect_refusal "a git tap on a detached HEAD" "detached HEAD" run_publish v1.2.3
+untouched "detached git tap"
+
 make_scene windows-host
 echo win >"$scene/repo/target/candidates/v1.2.3/testanyware-v1.2.3-aarch64-pc-windows-gnullvm.zip"
 expect_refusal "a Windows host archive in a candidate" "Windows host archive" run_publish v1.2.3
 untouched "windows host"
+
+make_scene no-skill
+# A host archive without the skill source, recorded in the manifest as if it were built so.
+noskill=$scene/stage-noskill/testanyware-v1.2.3-aarch64-apple-darwin
+mkdir -p "$noskill/bin"
+echo cli >"$noskill/bin/testanyware"
+tar -C "$scene/stage-noskill" --no-mac-metadata -cJf "$scene/repo/target/candidates/v1.2.3/testanyware-v1.2.3-aarch64-apple-darwin.tar.xz" \
+  testanyware-v1.2.3-aarch64-apple-darwin
+python3 -I "$scene/repo/scripts/release_candidate.py" write --dir "$scene/repo/target/candidates/v1.2.3" \
+  --tag v1.2.3 --commit "$commit" >/dev/null
+expect_refusal "a host archive without the skill source" "lacks share/ravel/skills/testanyware" run_publish v1.2.3
+untouched "no skill"
 
 make_scene tampered
 echo changed >"$scene/repo/target/candidates/v1.2.3/testanyware-app-v1.2.3-aarch64-apple-darwin.zip"

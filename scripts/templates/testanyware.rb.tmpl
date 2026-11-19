@@ -41,6 +41,22 @@ class Testanyware < Formula
   def install
     bin.install "bin/testanyware"
     pkgshare.install Dir["share/testanyware/*"]
+    # The Ravel source of the skill using-testanyware, in "The keg layout" of
+    # docs/specs/codex-skill-provisioning.md in Grove. The source is a private payload in
+    # libexec/skill-sources. A relative directory symlink in share/ravel/skills is its public
+    # alias, and Homebrew links that alias into $(brew --prefix)/share/ravel/skills, Ravel's
+    # default skill directory. Keg#link_dir handles the symlink as a file, so `brew link` and
+    # conflict repair never link the source's files one by one. install_symlink makes the link
+    # relative, so it names the same keg.
+    # https://github.com/Homebrew/brew/blob/3ccfa1d07143/Library/Homebrew/keg.rb
+    # https://github.com/Homebrew/brew/blob/7.0.12/Library/Homebrew/extend/pathname.rb
+    # The move keeps each file's mode. Homebrew's cleaner sets modes only under bin, sbin and
+    # lib, and its prune step skips libexec.
+    # https://github.com/Homebrew/brew/blob/7.0.12/Library/Homebrew/cleaner.rb
+    # This template renders no `revision`. The tap may add one between releases. The next
+    # release replaces the formula with a new version, which needs no revision.
+    (libexec/"skill-sources").install "share/ravel/skills/testanyware"
+    (share/"ravel/skills").install_symlink libexec/"skill-sources/testanyware"
 
     on_linux do
       # The cross binary hard-NEEDs the BtbN ffmpeg-8 sonames (which match no
@@ -64,5 +80,13 @@ class Testanyware < Formula
 
   test do
     assert_match "testanyware", shell_output("#{bin}/testanyware --help")
+    # The source is a private directory, and its public alias is a relative directory symlink
+    # into this keg.
+    source = libexec/"skill-sources/testanyware"
+    assert_predicate source, :directory?
+    refute_predicate source, :symlink?
+    assert_predicate share/"ravel/skills/testanyware", :symlink?
+    assert_equal "../../../libexec/skill-sources/testanyware", (share/"ravel/skills/testanyware").readlink.to_s
+    assert_path_exists source/"skills/using-testanyware/SKILL.md"
   end
 end

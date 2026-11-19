@@ -13,9 +13,15 @@ and the later checks verify one with it.
       Write DIR/manifest.json for every file in DIR. Refuse a Windows host archive.
   release_candidate.py verify --dir DIR --tag vX.Y.Z [--repo DIR]
       Refuse unless the tag still names the manifest's commit and each artifact has its recorded
-      sha256. Refuse a Windows host archive. Print the candidate.
+      sha256. Refuse a Windows host archive. Refuse a host archive whose skill source differs from
+      plugins/testanyware at the manifest's commit. Print the candidate.
   release_candidate.py render --template FILE --out FILE KEY=VALUE...
       Replace each @KEY@ in the template. Refuse an @KEY@ that no argument names.
+
+Each host archive, testanyware-v<ver>-<triple>.tar.xz, carries the Ravel source of the skill
+using-testanyware at share/ravel/skills/testanyware. Its files equal the tree of plugins/testanyware
+at the commit by path, Git mode and blob ID, so the keg source has the resourceDigest of a clean
+plain checkout of that commit.
 
 Nothing here infers a tag. Two candidate tags can exist at the same time.
 
@@ -29,6 +35,7 @@ import json
 import re
 import subprocess
 import sys
+import tarfile
 from pathlib import Path
 
 MANIFEST = "manifest.json"
@@ -38,6 +45,10 @@ PLACEHOLDER = re.compile(r"@([A-Z0-9_]+)@")
 # A Windows host archive: testanyware-v<ver>-<arch>-pc-windows-<abi>.<ext>.
 WINDOWS_HOST_ARCHIVE = re.compile(r"^testanyware-v.*-pc-windows-")
 DEFAULT_REPO = Path(__file__).resolve().parent.parent
+# A host archive: testanyware-v<ver>-<triple>.tar.xz, which the formula installs.
+HOST_ARCHIVE = re.compile(r"^testanyware-v\d+\.\d+\.\d+-[^/]+\.tar\.xz$")
+SKILL_SOURCE = "plugins/testanyware"
+SKILL_PATH = "share/ravel/skills/testanyware"
 
 
 class Refusal(Exception):
@@ -168,7 +179,72 @@ def verify_candidate(repo: Path, directory: Path, tag: str) -> dict:
         actual = sha256_file(directory / name)
         if actual != expected:
             raise Refusal(f"the artifact {name} has sha256 {actual}, but the manifest records {expected}.")
+    for name in present:
+        if HOST_ARCHIVE.match(name):
+            verify_skill(repo, directory / name, commit)
     return manifest
+
+
+def commit_skill(repo: Path, commit: str) -> dict[str, tuple[str, str]]:
+    """The tree of the skill source at the commit: path -> (Git mode, blob ID)."""
+    listing = git(repo, "ls-tree", "-r", "-z", "--full-tree", commit, "--", SKILL_SOURCE)
+    entries = {}
+    for record in filter(None, listing.split("\0")):
+        meta, path = record.split("\t", 1)
+        mode, kind, blob = meta.split(" ")
+        if kind != "blob":
+            raise Refusal(f"{SKILL_SOURCE} at {commit[:12]} holds {path}, a {kind}. Only files and links ship.")
+        entries[path.removeprefix(SKILL_SOURCE + "/")] = (mode, blob)
+    if not entries:
+        raise Refusal(f"the commit {commit[:12]} holds no {SKILL_SOURCE}.")
+    return entries
+
+
+def blob_id(repo: Path, data: bytes) -> str:
+    """The ID that Git gives a blob of these bytes, in the repository's object format."""
+    algorithm = git(repo, "rev-parse", "--show-object-format")
+    return hashlib.new(algorithm, b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def archive_skill(repo: Path, archive: Path) -> dict[str, tuple[str, str]]:
+    """The skill source in a host archive: path -> (Git mode, blob ID)."""
+    prefix = f"{archive.name.removesuffix('.tar.xz')}/{SKILL_PATH}/"
+    entries = {}
+    with tarfile.open(archive, "r:xz") as members:
+        for member in members:
+            if not member.name.startswith(prefix) or member.isdir():
+                continue
+            path = member.name.removeprefix(prefix)
+            if member.issym():
+                entries[path] = ("120000", blob_id(repo, member.linkname.encode()))
+            elif member.isfile():
+                data = members.extractfile(member).read()
+                mode = "100755" if member.mode & 0o100 else "100644"
+                entries[path] = (mode, blob_id(repo, data))
+            else:
+                raise Refusal(f"{archive.name} holds {member.name}, which is no file and no link.")
+    return entries
+
+
+def verify_skill(repo: Path, archive: Path, commit: str) -> None:
+    """Refuse a host archive whose skill source differs from the commit's tree."""
+    expected = commit_skill(repo, commit)
+    actual = archive_skill(repo, archive)
+    remedy = "Build the candidate again from the tagged commit."
+    if not actual:
+        raise Refusal(f"{archive.name} lacks {SKILL_PATH}. {remedy}")
+    for path in sorted(set(expected) - set(actual)):
+        raise Refusal(f"{archive.name} lacks {path} of {SKILL_PATH}. {remedy}")
+    for path in sorted(set(actual) - set(expected)):
+        raise Refusal(
+            f"{archive.name} holds {SKILL_PATH}/{path}, which {SKILL_SOURCE} at {commit[:12]} lacks. {remedy}"
+        )
+    for path in sorted(expected):
+        if actual[path] != expected[path]:
+            raise Refusal(
+                f"{SKILL_PATH}/{path} differs in {archive.name}: mode and blob {' '.join(actual[path])}, "
+                f"but {SKILL_SOURCE} at {commit[:12]} has {' '.join(expected[path])}. {remedy}"
+            )
 
 
 def render(template: Path, out: Path, values: dict[str, str]) -> None:

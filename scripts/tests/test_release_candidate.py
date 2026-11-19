@@ -3,8 +3,10 @@
 Run with: python3 -I scripts/tests/test_release_candidate.py
 """
 
+import io
 import subprocess
 import sys
+import tarfile
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +26,41 @@ def git(repo: Path, *args: str) -> str:
     return done.stdout.strip()
 
 
+SKILL_FILES = {
+    "skills/using-testanyware/SKILL.md": b"---\nname: using-testanyware\n---\n",
+    "bin/run": b"#!/bin/sh\n",
+}
+HOST_ARCHIVE = "testanyware-v1.2.3-aarch64-apple-darwin.tar.xz"
+SKILL_PREFIX = "testanyware-v1.2.3-aarch64-apple-darwin/share/ravel/skills/testanyware/"
+
+
+def skill_entries() -> dict:
+    """The skill of the commit, as a release archive carries it: path -> (mode, data or link)."""
+    return {
+        "skills/using-testanyware/SKILL.md": (0o644, SKILL_FILES["skills/using-testanyware/SKILL.md"]),
+        "bin/run": (0o755, SKILL_FILES["bin/run"]),
+        "skills/link.md": ("link", "using-testanyware/SKILL.md"),
+    }
+
+
+def write_host_archive(path: Path, entries: dict) -> None:
+    top = path.name.removesuffix(".tar.xz")
+    with tarfile.open(path, "w:xz") as archive:
+        cli = tarfile.TarInfo(f"{top}/bin/testanyware")
+        cli.mode = 0o755
+        archive.addfile(cli, io.BytesIO(b""))
+        for relative, (mode, data) in entries.items():
+            member = tarfile.TarInfo(f"{top}/share/ravel/skills/testanyware/{relative}")
+            if mode == "link":
+                member.type = tarfile.SYMTYPE
+                member.linkname = data
+                archive.addfile(member)
+            else:
+                member.mode = mode
+                member.size = len(data)
+                archive.addfile(member, io.BytesIO(data))
+
+
 class Candidate(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -32,7 +69,14 @@ class Candidate(unittest.TestCase):
         self.repo.mkdir()
         git(self.repo, "init", "-q")
         (self.repo / "a.txt").write_text("one\n")
-        git(self.repo, "add", "a.txt")
+        # The skill source: a file, an executable file and a link, as Git records them.
+        skill = self.repo / "plugins" / "testanyware"
+        for path, data in SKILL_FILES.items():
+            (skill / path).parent.mkdir(parents=True, exist_ok=True)
+            (skill / path).write_bytes(data)
+        (skill / "bin" / "run").chmod(0o755)
+        (skill / "skills" / "link.md").symlink_to("using-testanyware/SKILL.md")
+        git(self.repo, "add", "a.txt", "plugins")
         git(self.repo, "commit", "-q", "-m", "one")
         self.first = git(self.repo, "rev-parse", "HEAD")
 
@@ -132,6 +176,62 @@ class Candidate(unittest.TestCase):
         directory = self.candidate()
         (directory / "extra.zip").write_bytes(b"x")
         with self.assertRaisesRegex(rc.Refusal, "extra.zip, which the manifest does not record"):
+            rc.verify_candidate(self.repo, directory, "v1.2.3")
+
+    # --- the skill in each host archive
+
+    def host_candidate(self, entries: dict) -> Path:
+        git(self.repo, "tag", "-a", "v1.2.3", "-m", "r")
+        directory = self.root / "candidates" / "v1.2.3"
+        directory.mkdir(parents=True)
+        write_host_archive(directory / HOST_ARCHIVE, entries)
+        (directory / "testanyware-app-v1.2.3-aarch64-apple-darwin.zip").write_bytes(b"app")
+        rc.write_manifest(directory, "v1.2.3", self.first)
+        return directory
+
+    def test_verify_accepts_a_host_archive_whose_skill_is_the_commits(self):
+        directory = self.host_candidate(skill_entries())
+        manifest = rc.verify_candidate(self.repo, directory, "v1.2.3")
+        self.assertIn(HOST_ARCHIVE, manifest["artifacts"])
+
+    def test_verify_refuses_a_host_archive_without_the_skill(self):
+        directory = self.host_candidate({})
+        with self.assertRaisesRegex(rc.Refusal, HOST_ARCHIVE + " lacks share/ravel/skills/testanyware"):
+            rc.verify_candidate(self.repo, directory, "v1.2.3")
+
+    def test_verify_refuses_a_skill_file_whose_content_differs(self):
+        entries = skill_entries()
+        entries["skills/using-testanyware/SKILL.md"] = (0o644, b"edited\n")
+        directory = self.host_candidate(entries)
+        with self.assertRaisesRegex(rc.Refusal, "skills/using-testanyware/SKILL.md differs"):
+            rc.verify_candidate(self.repo, directory, "v1.2.3")
+
+    def test_verify_refuses_a_skill_file_without_its_executable_bit(self):
+        entries = skill_entries()
+        entries["bin/run"] = (0o644, SKILL_FILES["bin/run"])
+        directory = self.host_candidate(entries)
+        with self.assertRaisesRegex(rc.Refusal, "bin/run differs"):
+            rc.verify_candidate(self.repo, directory, "v1.2.3")
+
+    def test_verify_refuses_a_link_that_names_another_target(self):
+        entries = skill_entries()
+        entries["skills/link.md"] = ("link", "elsewhere.md")
+        directory = self.host_candidate(entries)
+        with self.assertRaisesRegex(rc.Refusal, "skills/link.md differs"):
+            rc.verify_candidate(self.repo, directory, "v1.2.3")
+
+    def test_verify_refuses_a_skill_file_that_the_commit_lacks(self):
+        entries = skill_entries()
+        entries["._SKILL.md"] = (0o644, b"metadata")
+        directory = self.host_candidate(entries)
+        with self.assertRaisesRegex(rc.Refusal, "._SKILL.md, which plugins/testanyware"):
+            rc.verify_candidate(self.repo, directory, "v1.2.3")
+
+    def test_verify_refuses_a_skill_file_that_is_missing(self):
+        entries = skill_entries()
+        del entries["bin/run"]
+        directory = self.host_candidate(entries)
+        with self.assertRaisesRegex(rc.Refusal, "lacks bin/run"):
             rc.verify_candidate(self.repo, directory, "v1.2.3")
 
     def test_write_refuses_a_windows_host_archive(self):
