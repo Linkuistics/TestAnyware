@@ -1,0 +1,285 @@
+{
+  "failed_call": "workload",
+  "held_call": "cleanup",
+  "fault": "table",
+  "worker": {
+    "pid": 19491,
+    "state": "absent",
+    "returncode": 1,
+    "stdout": "",
+    "stderr": "",
+    "monotonic": 615221.978680625
+  },
+  "leaders": [
+    {
+      "pid": 19492,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 615221.980919416
+    },
+    {
+      "pid": 19494,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 615221.983176791
+    },
+    {
+      "pid": 19496,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 615221.9853225
+    },
+    {
+      "pid": 19513,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 615221.988035166
+    },
+    {
+      "pid": 19514,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 615221.990371291
+    }
+  ],
+  "helpers": [
+    {
+      "pid": 19493,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 615221.992796625
+    },
+    {
+      "pid": 19495,
+      "state": "absent",
+      "returncode": 1,
+      "stdout": "",
+      "stderr": "",
+      "monotonic": 615221.995347666
+    }
+  ],
+  "marker_remains": false,
+  "lifecycle": {
+    "run_id": "013c19fde42f4c6cb4728c79e2c8c006",
+    "session_token": "1a3e950c7a684ccb98756fd883765ada",
+    "owner": {
+      "pid": 19491,
+      "shutdown_deadline_monotonic": 615221.4945696249,
+      "ready": true,
+      "reaped": true,
+      "ownership_lost": false,
+      "returncode": -9,
+      "signals": [
+        {
+          "signal": "SIGTERM",
+          "monotonic": 615221.216331833
+        },
+        {
+          "signal": "SIGKILL",
+          "monotonic": 615221.294707291
+        }
+      ],
+      "reap_errno": null,
+      "reap_attempts": 74
+    },
+    "failure": "local inspection failed after workload; failure grace overrun",
+    "admission": {
+      "ok": true,
+      "reason": "ready",
+      "python_threads": 1,
+      "native_threads": 1,
+      "sigchld": "SIG_DFL",
+      "native_sigchld": "SIG_DFL",
+      "error": null,
+      "errno": null
+    },
+    "bootstrap_bounds": {
+      "readiness": 1,
+      "term_grace": 2,
+      "kill_reap": 2
+    },
+    "failure_bounds": {
+      "term_grace": 0.08,
+      "kill_reap": 0.2
+    },
+    "close_bounds": {
+      "grace": 0.05,
+      "kill_reap": 2
+    },
+    "shutdown": {
+      "mode": "failure",
+      "started_monotonic": 615221.214569625,
+      "term_deadline_monotonic": 615221.2945696249,
+      "kill_deadline_monotonic": 615221.4945696249,
+      "finished_monotonic": 615221.296234583,
+      "overrun": false,
+      "lateness_seconds": 0.0,
+      "deadline_exhausted": false,
+      "outcome": "reaped",
+      "signals": [
+        {
+          "signal": "SIGTERM",
+          "monotonic": 615221.216331833
+        },
+        {
+          "signal": "SIGKILL",
+          "monotonic": 615221.294707291
+        }
+      ],
+      "phases": {
+        "grace": {
+          "started_monotonic": 615221.214569625,
+          "deadline_monotonic": 615221.2945696249,
+          "finished_monotonic": 615221.294707291,
+          "outcome": "escalated",
+          "timing_outcome": "late",
+          "overrun": true,
+          "lateness_seconds": 0.00013766600750386715,
+          "deadline_exhausted": true
+        },
+        "kill_reap": {
+          "started_monotonic": 615221.294707291,
+          "deadline_monotonic": 615221.4945696249,
+          "finished_monotonic": 615221.296234583,
+          "outcome": "reaped",
+          "timing_outcome": "on_time",
+          "overrun": false,
+          "lateness_seconds": 0.0,
+          "deadline_exhausted": false
+        }
+      }
+    },
+    "startup_started_monotonic": 615221.0812655,
+    "startup_deadline_monotonic": 615222.0812655,
+    "readiness_finished_monotonic": 615221.083491416,
+    "readiness_outcome": "ready",
+    "readiness_lateness_seconds": 0.0,
+    "readiness_overrun": false,
+    "startup_finished_monotonic": 615221.083493666,
+    "bootstrap_shutdown": null,
+    "shutdown_started_monotonic": 615221.214569625,
+    "shutdown_finished_monotonic": 615221.296234583,
+    "closed": true,
+    "residual_remedy": null
+  },
+  "held": {
+    "name": "cleanup",
+    "argv": [
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/.venv/bin/python",
+      "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/peer.py",
+      "hang",
+      "diag-013c19fde42f4c6cb4728c79e2c8c006-vm",
+      "/private/var/folders/z1/nw_wk3gj3hqchs4_73xrf2dw0000gn/T/pytest-of-antony/pytest-1743/test_production_worker_retirem1"
+    ],
+    "budget": 0.4,
+    "started_monotonic": 615221.214845208,
+    "wall_start_ns": 1794997945945099000,
+    "reason": "deadline",
+    "returncode": -15,
+    "reaped": true,
+    "ok": false,
+    "signals": [
+      {
+        "signal": "TERM",
+        "scope": "group",
+        "target": 19496,
+        "outcome": "sent",
+        "monotonic": 615221.638656333,
+        "finished_monotonic": 615221.638669583
+      },
+      {
+        "signal": "KILL",
+        "scope": "group",
+        "target": 19496,
+        "outcome": "permission_unknown",
+        "monotonic": 615221.790667666,
+        "errno": 1,
+        "error": "[Errno 1] Operation not permitted",
+        "error_type": "PermissionError",
+        "finished_monotonic": 615221.790694458,
+        "permission_observation": {
+          "started_monotonic": 615221.790702541,
+          "finished_monotonic": 615221.790702541,
+          "query_attempted": false,
+          "helper": null,
+          "state": "unknown",
+          "members": [],
+          "stdout": "",
+          "stderr": "",
+          "returncode": null,
+          "probe_started_monotonic": null,
+          "probe_finished_monotonic": null,
+          "probe_errno": null,
+          "probe_outcome": "not_attempted",
+          "error": "local inspection unavailable after workload"
+        }
+      }
+    ],
+    "pid": 19496,
+    "pgid": 19496,
+    "signal_scope": "group",
+    "group_observations": [
+      {
+        "started_monotonic": 615221.790702541,
+        "finished_monotonic": 615221.790702541,
+        "query_attempted": false,
+        "helper": null,
+        "state": "unknown",
+        "members": [],
+        "stdout": "",
+        "stderr": "",
+        "returncode": null,
+        "probe_started_monotonic": null,
+        "probe_finished_monotonic": null,
+        "probe_errno": null,
+        "probe_outcome": "not_attempted",
+        "error": "local inspection unavailable after workload"
+      }
+    ],
+    "term_deadline_monotonic": 615221.7886213331,
+    "kill_reap_deadline_monotonic": 615222.0886213331,
+    "inspection_deadline_monotonic": 615222.0136213332,
+    "leader_exit_monotonic": 615221.646019875,
+    "termination_ok": false,
+    "residual_members": [],
+    "residual_pgid": 19496,
+    "residual_remedy": "Inspect retained member PID/PGID and command identities independently; release known fixture markers or clean only revalidated owned members. Do not signal this group after leader reap. Unknown inspection is not absence.",
+    "authority_closed_monotonic": 615221.790759458,
+    "reap_deadline_monotonic": 615222.0886213331,
+    "within_process_bounds": true,
+    "reap_attempts": 1,
+    "reap_last_result": "reaped",
+    "reaped_monotonic": 615221.790779708,
+    "streams": {
+      "stdout": {
+        "record": "cleanup.stdout",
+        "length": 8,
+        "sha256": "95aebb28195b8d737effe0df18d71d39c8d8ba6569286fd3930fbc9f9767181e",
+        "completeness": "eof",
+        "reads": 66,
+        "final_reads": 0
+      },
+      "stderr": {
+        "record": "cleanup.stderr",
+        "length": 0,
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "completeness": "eof",
+        "reads": 66,
+        "final_reads": 0
+      }
+    },
+    "elapsed": 0.5759633330162615
+  }
+}

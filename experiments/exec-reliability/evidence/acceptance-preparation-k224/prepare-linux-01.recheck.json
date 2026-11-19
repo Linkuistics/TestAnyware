@@ -1,0 +1,134 @@
+{
+  "ok": true,
+  "directory": "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/acceptance-preparation-k224/prepare-linux-01",
+  "run": "/Users/antony/Development/AbstractingComputers/TestAnyware.gh-issue-14/experiments/exec-reliability/evidence/acceptance-preparation-k224/prepare-linux-01/12fa82a576b041deacf996834ad56ae3",
+  "failures": [],
+  "cases": {
+    "acquire": {
+      "ok": true,
+      "failures": []
+    },
+    "app-identity": {
+      "ok": true,
+      "failures": []
+    },
+    "health-before": {
+      "ok": true,
+      "failures": []
+    },
+    "identity": {
+      "ok": true,
+      "failures": []
+    },
+    "bootstrap-dir": {
+      "ok": true,
+      "failures": []
+    },
+    "upload-guest-sh": {
+      "ok": true,
+      "failures": []
+    },
+    "upload-lesson": {
+      "ok": true,
+      "failures": []
+    },
+    "baseline": {
+      "ok": true,
+      "failures": []
+    },
+    "install": {
+      "ok": true,
+      "failures": []
+    },
+    "intact": {
+      "ok": true,
+      "failures": []
+    },
+    "timeout": {
+      "ok": true,
+      "failures": []
+    },
+    "capture": {
+      "ok": true,
+      "failures": []
+    },
+    "download-artifact-bin": {
+      "ok": true,
+      "failures": []
+    },
+    "cleanup": {
+      "ok": true,
+      "failures": []
+    },
+    "dispose": {
+      "ok": true,
+      "failures": []
+    },
+    "inspect": {
+      "ok": true,
+      "failures": []
+    }
+  },
+  "corruption_controls": {
+    "ok": true,
+    "originals_sha256": {
+      "intact": "48f5924dc4e1acdbb88bf5cf3038b1e3cb8d6cd5793c5568ee6a6a54445e6507",
+      "artifact": "cc7b06150158f0093f246c1d738661a1c08c845fb508e0464d665e0878426b72",
+      "timeout": "8f390d17b76a83b406a831e43f5840dd94dd825c6202fa0d592ce77bfa4c4fcb"
+    },
+    "originals": {
+      "intact": [],
+      "artifact": [],
+      "timeout": []
+    },
+    "controls": {
+      "appended-lf": {
+        "item": "intact",
+        "damaged_sha256": "03f3bd81983e7b5854cdc7e928ef6cc75399b14c85f75333f99d4690e3d64498",
+        "rejected": true,
+        "failures": [
+          "stdout bytes b'Explain this change.\\n', expected b'Explain this change.'"
+        ]
+      },
+      "flipped-byte": {
+        "item": "artifact",
+        "damaged_sha256": "439070810de8d35fda41c8cb81320343562c9de9ee34bddc640eb265124c817a",
+        "rejected": true,
+        "failures": [
+          "artifact bytes b'\\x00\\xff\\x81A\\n' are not the oracle"
+        ]
+      },
+      "missing-outcome": {
+        "item": "timeout",
+        "damaged_sha256": "ce1771d9e18486431901739376bb71ffa3537ae3e525f83cf8c1441567b07eb1",
+        "rejected": true,
+        "failures": [
+          "the record has no outcome"
+        ]
+      },
+      "contradictory-bounds": {
+        "item": "timeout",
+        "damaged_sha256": "39807425407713fe65abb52322526db416b43b13a1705414f6c27d620283ea72",
+        "rejected": true,
+        "failures": [
+          "termination within_bounds True but the derived value is False"
+        ]
+      },
+      "contradictory-order": {
+        "item": "timeout",
+        "damaged_sha256": "8479500fa35c9c4454b1e04fe015ec0f114f5f47a6462e40db41bda1497bf2fd",
+        "rejected": true,
+        "failures": [
+          "termination leader exit not between term and finalised",
+          "termination group_empty_after_ms out of order"
+        ]
+      }
+    },
+    "originals_after": {
+      "intact": [],
+      "artifact": [],
+      "timeout": []
+    },
+    "originals_unchanged": true
+  }
+}

@@ -1033,6 +1033,54 @@ tasks:
     cmds:
       - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k223_check.py {{.CLONE | shellQuote}}
 
+  diagnostic:acceptance-images:
+    desc: 'Record the local Tart images into the new file OUT: the tart list, and the size, inode, times and SHA-256 of config.json and nvram.bin of each image. HASH="<image> ..." also hashes the full disk of each named image (about 25 s for 50 GB). Reads only. Requires OUT=<new file>'
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [OUT]
+    cmds:
+      - set --; for name in {{.HASH | default ""}}; do set -- "$@" --hash "$name"; done; uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/image_audit_k224.py snapshot {{.OUT | shellQuote}} "$@"
+
+  diagnostic:acceptance-images-compare:
+    desc: 'Judge each image that both records hashed: unchanged (equal sizes and digests) and not booted (stopped in both, equal disk and NVRAM modification times). Exit 0 only when each image passes. Requires BEFORE=<record> and AFTER=<record>'
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [BEFORE, AFTER]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/image_audit_k224.py compare {{.BEFORE | shellQuote}} {{.AFTER | shellQuote}}
+
+  diagnostic:acceptance-export:
+    desc: 'Export each golden of GOLDENS="<golden> ..." once with tart export into the new directory DEST, each within the 1800 s export bound. OUT receives the controller evidence and exports.json with the size and SHA-256 of each archive. Requires OUT, DEST and GOLDENS'
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [OUT, DEST, GOLDENS]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py export {{.OUT | shellQuote}} {{.DEST | shellQuote}} {{.GOLDENS}}
+
+  diagnostic:acceptance-manifest:
+    desc: 'Write the freeze manifest OUT of the k223 trial from the isolated build workspace BUILD, the image record IMAGES and the exports.json EXPORTS. Refuses when the answering app is not the private app of BUILD or when BUILD has changes. Requires OUT, BUILD, IMAGES and EXPORTS'
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [OUT, BUILD, IMAGES, EXPORTS]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py manifest {{.OUT | shellQuote}} {{.BUILD | shellQuote}} {{.IMAGES | shellQuote}} {{.EXPORTS | shellQuote}}
+
+  diagnostic:acceptance-prepare:
+    desc: 'Run one preparation clone of the new golden of OS (macos or linux) that MANIFEST names, through its private Host CLI and app, into the new directory OUT. The clone runs the k223 preparation cases with the k223 argv; it is not a trial clone. The k223 checker judges each case and runs the four corruption controls on the real evidence. Requires OUT, MANIFEST and OS'
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [OUT, MANIFEST, OS]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py prepare {{.OUT | shellQuote}} {{.MANIFEST | shellQuote}} {{.OS | shellQuote}}
+
+  diagnostic:acceptance-prepare-check:
+    desc: 'Judge one retained preparation directory DIR again: each case, the freeze, the recorded execution and the four corruption controls. Exit 0 only when it passes'
+    dir: '{{.ROOT_DIR}}'
+    requires:
+      vars: [DIR]
+    cmds:
+      - uv run --project experiments/exec-reliability --locked python experiments/exec-reliability/acceptance_k224.py check {{.DIR | shellQuote}}
+
   diagnostic:verify:
     desc: Compare one retained run directory with its result identity and stream pins. Requires RUN=<run directory> and OUT=<new verdict file>
     dir: '{{.ROOT_DIR}}'

@@ -10,8 +10,9 @@ The plan and the checker follow the spec
 [`guest-command-lifecycle.md`](../specs/guest-command-lifecycle.md), section
 "Validation route". They also follow the root brief, sections "Acceptance
 inventory and bounds" and "Constraints". Leaf `acceptance-preparation-k224`
-runs the corruption controls against the real builds and freezes the plan. A
-change to the plan after that freeze needs a new freeze.
+runs the corruption controls against the real builds and freezes the plan.
+[`exec-reliability-acceptance-preparation.md`](exec-reliability-acceptance-preparation.md)
+reports that freeze. A change to the plan after that freeze needs a new freeze.
 
 ## Files and tasks
 
